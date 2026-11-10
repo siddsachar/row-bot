@@ -6,7 +6,7 @@ from typing import Callable
 
 from row_bot.application.provider_default_model import read_default_model
 from row_bot.providers import client_status
-from row_bot.providers.catalog import provider_billing
+from row_bot.providers.catalog import get_provider_definition, provider_billing
 from row_bot.providers.model_catalog import picker_options
 from row_bot.providers.model_visibility import ModelVisibility, annotate, read_model_visibility
 from row_bot.providers.selection import format_model_choice_label, model_choice_value, parse_model_ref
@@ -19,6 +19,19 @@ def _media_ref(value: str, *, default_provider: str) -> str:
     if not model_id:
         provider_id, model_id = default_provider, provider_id
     return model_choice_value(model_id, provider_id=provider_id) if provider_id and model_id else ""
+
+
+def _unlisted(current: str, rows: tuple) -> str:
+    """A saved model its provider's list no longer has, once that provider has listed models."""
+    parsed = parse_model_ref(current)
+    if not parsed or parsed[0] == "ollama" or any(row.selection_ref == current for row in rows):
+        return ""
+    provider_id, model_id = parsed
+    if not any(row.provider_id == provider_id for row in rows):
+        return ""
+    definition = get_provider_definition(provider_id)
+    name = definition.display_name if definition else provider_id
+    return f"{name} no longer lists {model_id}, so it may have been retired. Choose another model."
 
 
 def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = None,
@@ -42,7 +55,12 @@ def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = N
     current_option = next((option for option in options if option["selection_ref"] == current), None)
     warning = ""
     if current and (current_option is None or not current_option["available"]):
-        if current.startswith("model:ollama:"):
+        unlisted = _unlisted(current, rows)
+        if unlisted:
+            warning = unlisted
+            if current_option is not None:
+                current_option["reason"] = "No longer listed"
+        elif current.startswith("model:ollama:"):
             warning = f"Current {surface.capitalize()} local model is unavailable. Manage local models in Ollama, then refresh or choose another model."
         else:
             warning = f"Current {surface.capitalize()} default is unavailable. Connect the provider, refresh the catalog, or choose another model."
@@ -73,12 +91,19 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
     video_ref = _media_ref(str(video_value), default_provider="google")
     cache, rows = client_status._read(None, include_readiness=True)
     shown = read_model_visibility()
+    from row_bot.providers import backup
+    backup_setting = backup.read_setting()
     policy = get_context_policy(brain_ref or None, allow_probe=False)
     cap = (get_cloud_context_override() if policy.policy_kind == "provider" else
            None if get_local_context_mode() == "auto" else get_user_context_size())
     result = {
         "schema_version": 1,
         "brain": _picker("chat", brain_ref, rows, visibility=shown),
+        # A backup takes tools, is never a Learning personal model and never the main model (#140).
+        "backup": _picker("chat", backup_setting["ref"],
+                          tuple(row for row in rows if row.runtime_mode != "chat_only" and not row.offered
+                                and row.selection_ref != brain_ref),
+                          enabled=backup_setting["enabled"], visibility=shown),
         "vision": _picker("vision", vision_ref, rows, enabled=vision.enabled, visibility=shown),
         "image": _picker("image", image_ref, rows, enabled=registry.is_enabled("image_gen") if image_tool else False,
                          media_options=get_available_image_models(), visibility=shown),
@@ -103,7 +128,17 @@ def update_model_surface(surface: str, action: str, *, selection_ref: str | None
     from row_bot.tools import registry
     from row_bot.vision_runtime import get_vision_service
 
-    if action == "default" and surface == "vision" and selection_ref == "":
+    if surface == "backup" and action in {"default", "enabled"}:
+        from row_bot.providers import backup
+        if action == "enabled" and type(enabled) is bool:
+            backup.save_setting(enabled=enabled)
+        elif action == "default" and selection_ref and any(
+                item["selection_ref"] == selection_ref and item["available"]
+                for item in read_models_settings(validate=validate)["backup"]["options"]):
+            backup.save_setting(ref=selection_ref)
+        else:
+            raise ValueError("model_configuration_unavailable" if action == "default" else "invalid_model_surface_action")
+    elif action == "default" and surface == "vision" and selection_ref == "":
         # "Same as chat model" (decision 11): Vision follows the chat model.
         get_vision_service().model = ""
         from row_bot.agent import clear_agent_cache
@@ -126,8 +161,6 @@ def update_model_surface(surface: str, action: str, *, selection_ref: str | None
             if tool is None:
                 raise ValueError("model_surface_unavailable")
             tool.set_config("model", f"{provider_id}/{model_id}")
-            from row_bot.providers.selection import seed_configured_media_quick_choices
-            seed_configured_media_quick_choices()
     elif action == "enabled" and type(enabled) is bool:
         if surface == "vision":
             get_vision_service().enabled = enabled
@@ -187,8 +220,8 @@ def catalog_provider_summary(surface: str, *, validate: Callable[[], None] = lam
             "display_name": row.provider_display_name, "total": 0, "ready": 0, "pinned": 0})
         group["total"] += 1
         group["ready"] += int(row.configured and row.runtime_ready and bool(row.installed))
-        # Listed in its pickers: pinned for the job, or a favourite (U10).
-        group["pinned"] += int(surface in row.pinned_surfaces or row.selection_ref in starred)
+        # Listed in its pickers: starred.
+        group["pinned"] += int(row.selection_ref in starred)
     validate()
     return {"schema_version": 1, "revision": snapshot.revision, "surface": surface,
             "providers": sorted(groups.values(), key=lambda row: (row["display_name"].casefold(), row["provider_id"]))}

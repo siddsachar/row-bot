@@ -113,6 +113,8 @@ def s9_claude_plan(state: str, set_up_again: bool = False, x_fixture_token: str 
 
     def _update(cfg: dict) -> None:
         entry = cfg.setdefault("providers", {}).setdefault("claude_subscription", {"provider_id": "claude_subscription"})
+        # A model list an earlier spec's sign-in saved would make "signed out" read "Claude signed you out".
+        entry.pop("catalog_cache", None)
         if set_up_again:
             entry["set_up_again"] = True
         else:
@@ -121,6 +123,101 @@ def s9_claude_plan(state: str, set_up_again: bool = False, x_fixture_token: str 
     update_provider_config(_update)
     _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES[state]
     _claude_plan.forget_claude_plan_status()
+    # Each spec starts with no sign-in open and an install that would work.
+    _claude_sign_in._sign_ins.close_running()
+    _claude_install_fixture["outcome"] = "ok"
+    return {"ready": True}
+
+
+# "Use my Claude plan" (H14, H15), synthetic too: the install never downloads (a spec picks how it ends with
+# /__a5_fixture/claude-install/{outcome}; "hold" keeps it at 45%), and Claude's sign-in panel runs a stand-in
+# for `claude auth login` in process: Claude's link and paste prompt; FIXTURE-CODE signs in, anything else is
+# refused as Claude refuses it. Nothing starts a program or reaches Anthropic.
+import threading as _threading  # noqa: E402
+
+from row_bot.providers import claude_install as _claude_install  # noqa: E402
+from row_bot.providers import claude_sign_in as _claude_sign_in  # noqa: E402
+
+_claude_install_fixture = {"outcome": "ok"}
+_CLAUDE_LOGIN_SCREEN = (
+    "\r\n Claude Code can be used with your Claude subscription or billed based on API usage through your"
+    " Console account.\r\n\r\n Browser didn't open? Use the url below to sign in:\r\n\r\n"
+    "https://claude.ai/oauth/authorize?code=true&client_id=fixture&response_type=code&state=fixture\r\n\r\n"
+    " Paste code here if prompted > "
+)
+
+
+class _FixtureInstaller(_claude_install.ClaudeCodeInstaller):
+    def install(self, **_options: object) -> str:  # the daily update's options: ignored here
+        self._set(step="download", received=45 * 1024 * 1024, total=100 * 1024 * 1024)
+        while _claude_install_fixture["outcome"] == "hold":
+            _threading.Event().wait(0.1)
+        _threading.Event().wait(0.6)
+        outcome = _claude_install_fixture["outcome"]
+        if outcome != "ok":
+            raise _claude_install.InstallFailed(outcome)  # type: ignore[arg-type]
+        _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES["signed_out"]
+        _claude_plan.forget_claude_plan_status()
+        return "2.1.300"
+
+
+class _FixtureLogin:
+    def __init__(self, _argv, **_options) -> None:
+        self.output = [_CLAUDE_LOGIN_SCREEN]
+        self.line = ""
+        self.alive = True
+
+    def read(self) -> str:
+        text = "".join(self.output)
+        self.output.clear()
+        return text
+
+    def write(self, data: str) -> None:
+        self.output.append(data)
+        self.line += data
+        if "\r" not in self.line:
+            return
+        code, self.line = self.line.split("\r", 1)[0], ""
+        if code.strip() == "FIXTURE-CODE":
+            _claude_plan_fixture["status"] = _CLAUDE_PLAN_STATES["ready"]
+            _claude_plan.forget_claude_plan_status()
+            self.output.append("\r\n Login successful. Press Enter to continue\r\n")
+            self.alive = False
+        else:
+            self.output.append("\r\n OAuth error: Invalid code\r\n\r\n Paste code here if prompted > ")
+
+    def resize(self, cols: int, rows: int) -> None:
+        pass
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def close(self) -> None:
+        self.alive = False
+
+
+def _fixture_claude_program() -> str:
+    """A synthetic program name (never started): the fixture's state says whether Claude Code is there."""
+    return "" if _claude_plan_fixture["status"].state == "not_installed" else "claude"
+
+
+_claude_install._installer = _FixtureInstaller()
+_claude_sign_in._sign_ins = _claude_sign_in.ClaudeSignIns(
+    pty_factory=_FixtureLogin, status=lambda: _claude_plan_fixture["status"])
+_claude_sign_in.find_claude_code = _fixture_claude_program
+_claude_plan.find_claude_code = _fixture_claude_program
+_CLAUDE_INSTALL_OUTCOMES = {"ok", "hold", "no_internet", "download_failed", "checksum_mismatch", "disk_full",
+                            "unsupported_platform", "install_failed"}
+
+
+@app.post("/__a5_fixture/claude-install/{outcome}")
+def a5_claude_install(outcome: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if outcome not in _CLAUDE_INSTALL_OUTCOMES:
+        raise HTTPException(status_code=404, detail="Unknown install outcome")
+    _claude_install_fixture["outcome"] = outcome
+    if outcome != "hold" and not _claude_install._installer.running():
+        _claude_install._installer = _FixtureInstaller()
     return {"ready": True}
 
 
@@ -1542,6 +1639,73 @@ def _s4_resume(enabled_tools: list[str], config: dict, approved: bool, *, interr
         call["quiesced"] = True
 
 
+# ── A turn of several steps that make media (5.3.3) ──
+# Each model step says a line, then takes one tool step that makes a picture or a video, as a real turn
+# streams them: its own segment, its words, its call and its result with the media the tool wrapper keeps.
+# The turn waits behind its barrier while the last step runs, so a spec sees it mid-stream.
+_TURN_STEPS = (
+    ("First, a short video of the sign-up flow.", "generate_video", "The sign-up flow, start to finish", "video"),
+    ("Now a still of the finished form, to check its layout.", "generate_image", "The finished sign-up form", "image"),
+    ("", "generate_video", "The password step, slowed down", "video"),
+    ("Next, a shorter cut with captions.", "generate_video", "A 10-second cut with captions", "video"),
+)
+_TURN_STEPS_FINAL = "Here are the three videos and the still. The shorter cut with captions is the one to share."
+
+
+def _turn_steps_stream(text: str, config: dict):
+    from row_bot.application.attachments import register_attachment
+    from row_bot.runtime import admissions
+    from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_messages, get_latest_checkpoint_revision
+
+    call = predecessor._record("submit", config, "turn-steps")
+    thread = call["conversation_id"]
+    pass_id = str(config["configurable"].get("platform_pass_id") or "")
+    identity = f"turn-steps:{call['generation_id']}"
+    input_id = call["submission_id"] or fixture_id(identity + ":user")
+    if not any(str(message.id) in {input_id, "user:submission:" + input_id}
+               for message in get_latest_checkpoint_messages(thread)):
+        append_checkpoint_messages(thread, [HumanMessage(content=text, id=input_id)])
+    video = (Path(__file__).parents[2] / "fixtures/client_synthetic_video.mp4").read_bytes()
+    outputs: list[tuple[str, str]] = []
+    try:
+        yield "thinking", None
+        for index, (words, name, prompt, kind) in enumerate(_TURN_STEPS):
+            segment = admissions.start_segment(pass_id)
+            yield "platform_segment", {"segment_id": segment}
+            if words:
+                yield "token", words
+            args = {"prompt": prompt}
+            tool_id, result_id = fixture_id(f"{identity}:{index}:tool"), fixture_id(f"{identity}:{index}:result")
+            message_id = fixture_id(f"{identity}:{index}:call")
+            append_checkpoint_messages(thread, [AIMessage(id=message_id, content=words,
+                tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+            outputs.append((message_id, segment))
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args}
+            if index == len(_TURN_STEPS) - 1 and not predecessor._barriers[call["barrier_id"]].wait(180):
+                raise TimeoutError("The turn-steps fixture was not released")
+            saved = register_attachment(thread, f"step-{index + 1}.{'mp4' if kind == 'video' else 'png'}",
+                                        video if kind == "video" else _s4_steps_picture(index + 1))
+            media = [{"type": "media.available", "payload": {"media_ref": saved["attachment_ref"],
+                                                             "mime_type": saved["mime_type"]}}]
+            content = f"Made a {kind}: {prompt}."
+            append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name=name,
+                content=content, additional_kwargs={"platform_media": media})])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
+                                "content": content, "media": media}
+        segment = admissions.start_segment(pass_id)
+        yield "platform_segment", {"segment_id": segment}
+        final_id = fixture_id(identity + ":final")
+        append_checkpoint_messages(thread, [AIMessage(id=final_id, content=_TURN_STEPS_FINAL)])
+        yield "token", _TURN_STEPS_FINAL
+        # Each step's words bind to their saved message at the turn's end, as the agent binds them.
+        for message_id, step in [*outputs, (final_id, segment)]:
+            yield "output_binding", {"native_message_id": message_id, "segment_id": step,
+                                     "checkpoint_revision": get_latest_checkpoint_revision(thread)}
+        yield "done", _TURN_STEPS_FINAL
+    finally:
+        call["quiesced"] = True
+
+
 @app.post("/__s4_fixture/reset")
 def s4_reset(x_fixture_token: str = Header(default="")) -> dict:
     """Stop every video edit and put ffmpeg back (a spec's clean-up)."""
@@ -2043,7 +2207,7 @@ def n7_accounts(x_fixture_token: str = Header(default="")) -> dict:
         account = x_accounts.add(fake.sign_in(*user))
         # Documentation-capture mode (this fixture) never remembers a check; a real sign-in's passes.
         account_tokens._CHECKS[account.slot] = (account_tokens.digest(account.slot), True)
-    _N7["question"] = fake.post("999", "What does Row-Bot actually do with my data?")
+    _N7["question"] = fake.post("999", "@rowbot_ai What does Row-Bot actually do with my data?")
     _n7_picture(_N7["folder"] / "launch-card.png")
     return {"accounts": [account.handle for account in x_accounts.listed()]}
 
@@ -2414,11 +2578,28 @@ def _b3_project(thread: str) -> str:
     return video_projects.summary(video_projects.get(project.project_id))
 
 
+def _b3_cards(thread: str) -> str:
+    """A project opening on a title card, which needs no video (5.3.1 beta F17), not made yet."""
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment(thread, "signup.mp4", _s3_video())
+    project = video_projects.create(thread, "Teaser", [
+        {"card": "Row-Bot 5.3", "line": "Meet Row-Bot."},
+        {"source": "signup.mp4", "end": 2, "line": "Sign up in a few seconds."}])
+    return video_projects.summary(project)
+
+
 def _b3_stream(text: str, config: dict):
     call = predecessor._record("submit", config, "b3-video")
     thread = call["conversation_id"]
     identity = f"b3:{call['generation_id']}"
     try:
+        if "title card" in text:
+            args = {"action": "create", "title": "Teaser"}
+            yield from _s3_steps(thread, identity, [("video", args, lambda: (_b3_cards(thread), []))])
+            yield from _natural_final(call, thread, "Here's the teaser: a title card, then the sign-up.", "b3")
+            return
         args = {"action": "create", "title": "Launch demo"}
         yield from _s3_steps(thread, identity, [("video", args, lambda: (_b3_project(thread), []))])
         yield from _natural_final(call, thread, "Here's the launch demo: two scenes, voiced, 3 seconds. "
@@ -2610,7 +2791,7 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # Outlook's own cards (N10): an email to send, or an event that invites people.
         yield from _n10_stream(text, config)
         return
-    if text.strip() == "b3 video fixture":
+    if text.strip() in {"b3 video fixture", "b3 title card fixture"}:
         # A video project Row-Bot made (5.3.1 B3): its card opens the Video panel.
         yield from _b3_stream(text, config)
         return
@@ -2627,6 +2808,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # Send a file to your devices or a chat app (F7): the real tool, deliveries and cards, with
         # the fake Telegram adapter.
         yield from _s5_stream(text, config)
+        return
+    if text.strip() == "turn steps fixture":
+        # A turn of several steps that make videos and a picture (5.3.3): each in the order it happened.
+        yield from _turn_steps_stream(text, config)
         return
     if text.startswith("s4 ") and text.rstrip().endswith("fixture"):
         # Video editing and many images at once (F3, F5): the real tools, jobs and cards, with a
@@ -4279,7 +4464,8 @@ def p4_reasoning_default(x_fixture_token: str = Header(default="")) -> dict:
     """Restore the one Thinking-capable synthetic model as the saved default.
 
     Earlier specs may choose another default; this publishes the choice the
-    same way a reviewed save does, without creating or unloading clients.
+    same way a reviewed save does, without creating or unloading clients. New
+    chats start on Default again, whatever Thinking choice an earlier spec made.
     """
     predecessor._authorize(x_fixture_token)
     from row_bot import models
@@ -4289,7 +4475,10 @@ def p4_reasoning_default(x_fixture_token: str = Header(default="")) -> dict:
     reference = _reasoning_fixture.get("model")
     if not reference:
         raise HTTPException(status_code=409, detail="Reasoning fixture unavailable")
-    saved_model_settings.update_saved_model_settings(lambda raw: {**raw, "model": reference})
+    from row_bot.providers.reasoning import REMEMBERED_REASONING_KEY
+    saved_model_settings.update_saved_model_settings(
+        lambda raw: {**{key: value for key, value in raw.items() if key != REMEMBERED_REASONING_KEY},
+                     "model": reference})
     models.adopt_saved_default(reference)
     return {"model_ref": reference}
 
@@ -4430,11 +4619,213 @@ def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = 
     return {"action": action, "runtime": _p10_state["runtime"], "models": _p10_state["models"]}
 
 
+# ── A6 (U3, U4, U10): a hosted Row-Bot ──────────────────────────────────────
+# A known host runs this Row-Bot (ROW_BOT_HOSTED_BY=pikapods): the first run's two big
+# buttons, the hosted Setup Center and the phone card. "off" puts it back; the first run's
+# restore (/__p10_fixture/first-run/restore) puts the setup state back, phone card included.
+@app.post("/__a6_fixture/hosted/{state}")
+def a6_hosted(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if state == "on":
+        os.environ["ROW_BOT_HOSTED_BY"] = "pikapods"
+    elif state == "off":
+        os.environ.pop("ROW_BOT_HOSTED_BY", None)
+    else:
+        raise HTTPException(status_code=422, detail="Unknown hosted state")
+    return {"hosted": state == "on"}
+
+
+# ── A7 (U7): where Row-Bot runs, from the browser's side ───────────────────
+# The browser here is always on the fixture's own computer, so its handshake says this_computer.
+# "hosted" and "server" make the handshake say what a phone or a hosted pod's browser is told
+# (hosted names PikaPods, as A6's switch does, unless R1's switch chose another known host);
+# "this_computer" puts it back. A page reads the place at its next handshake, so a spec reloads
+# after switching.
+_a7_place: dict | None = None
+
+
+@app.post("/__a7_fixture/place/{place}")
+def a7_place(place: str, x_fixture_token: str = Header(default="")) -> dict:
+    global _a7_place
+    predecessor._authorize(x_fixture_token)
+    if place not in {"this_computer", "hosted", "server"}:
+        raise HTTPException(status_code=422, detail="Unknown place")
+    from row_bot.hosting import KNOWN_HOSTS
+
+    if place == "hosted":
+        os.environ.setdefault("ROW_BOT_HOSTED_BY", "pikapods")
+    else:
+        os.environ.pop("ROW_BOT_HOSTED_BY", None)
+    host = KNOWN_HOSTS[os.environ["ROW_BOT_HOSTED_BY"]] if place == "hosted" else None
+    _a7_place = None if place == "this_computer" else {
+        "kind": place, "host_name": host.name if host else None}
+    return {"place": place}
+
+
+# ── R1 (Railway): another known host ───────────────────────────────────────
+# Names the known host that A7's "hosted" switch then uses: "railway" for Railway's own words.
+# A7's "this_computer" forgets it again.
+@app.post("/__r1_fixture/host/{host_id}")
+def r1_host(host_id: str, x_fixture_token: str = Header(default="")) -> dict:
+    from row_bot.hosting import KNOWN_HOSTS
+
+    predecessor._authorize(x_fixture_token)
+    if host_id not in KNOWN_HOSTS:
+        raise HTTPException(status_code=422, detail="Unknown host")
+    os.environ["ROW_BOT_HOSTED_BY"] = host_id
+    return {"host": host_id}
+
+
+class _A7Place:
+    """Only the handshake's ``place`` changes, and only while a spec chose one."""
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send) -> None:
+        if _a7_place is None or scope["type"] != "http" or scope["path"] != "/api/v1/handshake":
+            await self.inner(scope, receive, send)
+            return
+        start: dict = {}
+        chunks: list[bytes] = []
+
+        async def rewrite(message) -> None:
+            if message["type"] == "http.response.start":
+                start.update(message)
+                return
+            chunks.append(message.get("body", b""))
+            if message.get("more_body"):
+                return
+            body = b"".join(chunks)
+            if start["status"] == 200:
+                body = json.dumps({**json.loads(body), "place": _a7_place}).encode()
+            headers = [(k, v) for k, v in start["headers"] if k.lower() != b"content-length"]
+            await send({**start, "headers": [*headers, (b"content-length", str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+
+        await self.inner(scope, receive, rewrite)
+
+
+app.add_middleware(_A7Place)
+
+
+# ── A8 (H12, U8): a server with a memory limit ─────────────────────────────
+# The fixture runs on a desktop, with no cgroup of its own. /__a8_fixture/memory/{gb} gives the server a
+# fake cgroup folder with that memory limit (the handshake says it, and Voice and Documents read it);
+# "off" takes it away again and forgets any notice. /__a8_fixture/oom makes the real check find a run
+# whose use came near the limit and that never shut down: Home and Monitor show the notice.
+from row_bot import server_memory as _server_memory  # noqa: E402
+
+# The fake folder, made once. Never the server's own CGROUP_ROOT: on Linux that is the real
+# /sys/fs/cgroup, which the fixture must not write.
+_a8_cgroup: Path | None = None
+
+
+@app.post("/__a8_fixture/memory/{gb}")
+def a8_memory(gb: str, unit: str = "gib", x_fixture_token: str = Header(default="")) -> dict:
+    """``unit=gb``: a limit in decimal GB, as Railway sets one (F1); else in GiB, as Docker's ``--memory``."""
+    global _a8_cgroup
+    predecessor._authorize(x_fixture_token)
+    if gb == "off":
+        _server_memory.dismiss()
+        _server_memory.stopped()
+        _server_memory.CGROUP_ROOT = None
+        return {"limit_bytes": None}
+    try:
+        size = int(float(gb) * (10**9 if unit == "gb" else 2**30))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Unknown memory size") from None
+    import tempfile
+
+    if _a8_cgroup is None:
+        _a8_cgroup = Path(tempfile.mkdtemp(prefix="row-bot-a8-"))
+    root = _a8_cgroup
+    (root / "memory.max").write_text(str(size), encoding="ascii")
+    (root / "memory.current").write_text(str(size // 4), encoding="ascii")
+    _server_memory.CGROUP_ROOT = root
+    return {"limit_bytes": _server_memory.limit_bytes()}
+
+
+@app.post("/__a8_fixture/oom")
+def a8_out_of_memory(x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    size = _server_memory.limit_bytes()
+    if size is None:
+        raise HTTPException(status_code=409, detail="Set a memory limit first")
+    (_server_memory.CGROUP_ROOT / "memory.current").write_text(str(int(size * 0.97)), encoding="ascii")
+    _server_memory.started()  # A run whose working set came within 10% of the limit…
+    _server_memory.started()  # …and the next start finds it never shut down.
+    return {"notice": _server_memory.notice() is not None}
+
+
+# ── R2 (A1, A2): the setup page's sign-in link, and Railway's own pages ─────
+# The fixture is a desktop, which has no setup page. This hands a spec the real page as /setup serves it
+# on a Railway template's service (its IDs and public address known), with its own headers, for a
+# Row-Bot nobody owns ("unclaimed") or one somebody does ("owned"); the spec serves it at /setup and
+# answers the page's own requests.
+_R2_RAILWAY_IDS = {
+    "RAILWAY_PROJECT_ID": "0f6e3c1a-5b2d-4c8e-9a71-2d4b6f8e1c30",
+    "RAILWAY_SERVICE_ID": "7a1c9e42-3f5b-4d6a-8e20-b1c3d5e7f901",
+    "RAILWAY_ENVIRONMENT_ID": "c2e4a6b8-1d3f-4a5c-9e7b-0f2d4c6e8a10",
+}
+
+
+@app.post("/__r2_fixture/setup-page/{state}")
+def r2_setup_page(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    from row_bot.access.routes import SETUP_PAGE_HEADERS
+    from row_bot.access.setup_page import render_setup_page
+    from row_bot.hosting import hosted_by
+
+    predecessor._authorize(x_fixture_token)
+    if state not in {"unclaimed", "owned"}:
+        raise HTTPException(status_code=422, detail="Unknown setup page state")
+    host = hosted_by({"ROW_BOT_HOSTED_BY": "railway", **_R2_RAILWAY_IDS})
+    html = render_setup_page(owned=state == "owned", host=host, paused_seconds=0, link_logged=True)
+    return {"html": html, "headers": dict(SETUP_PAGE_HEADERS)}
+
+
+# "on" gives the service Railway's IDs, as Railway does every service: its host entry then links the
+# service's own pages (A2). "off" takes them away again.
+@app.post("/__r2_fixture/railway-ids/{state}")
+def r2_railway_ids(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    if state not in {"on", "off"}:
+        raise HTTPException(status_code=422, detail="Unknown state")
+    for name, value in _R2_RAILWAY_IDS.items():
+        if state == "on":
+            os.environ[name] = value
+        else:
+            os.environ.pop(name, None)
+    return {"railway_ids": state}
+
+
+# ── A9 (Devices on a hosted Row-Bot) ────────────────────────────────────────
+# The fixture's browser is on a loopback address, which no phone reaches. A pod's own https address is
+# what Devices offers there: "on" saves that address as the server's own, the way a pod's
+# ROW_BOT_PUBLIC_URL names it, and "off" takes it away again.
+_A9_POD_ADDRESS = "https://row-bot-demo.pikapod.net"
+
+
+@app.post("/__a9_fixture/pod-address/{state}")
+def a9_pod_address(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    from row_bot.access.access_routes import AccessRouteConfigStore
+
+    predecessor._authorize(x_fixture_token)
+    store = AccessRouteConfigStore()
+    if state == "on":
+        store.add_configured_origin(_A9_POD_ADDRESS)
+    elif state == "off":
+        store.remove_configured_origin(_A9_POD_ADDRESS)
+    else:
+        raise HTTPException(status_code=422, detail="Unknown pod address state")
+    return {"origins": list(store.load_or_default().configured_origins)}
+
+
 # ── S8 (F10): many local models ─────────────────────────────────────────────
 # A person with twenty-odd models in Ollama: each is in the composer's picker
-# (a pinned choice with its saved catalog row) and on the synthetic local
-# runtime that Setup and Settings › Models read. Favourites and hidden models
-# start empty. Nothing reaches a runtime, a provider or the network.
+# (a ready model with its saved catalog row, nothing starred yet) and on the
+# synthetic local runtime that Setup and Settings › Models read. Stars start
+# empty. Nothing reaches a runtime, a provider or the network.
 _S8_LOCAL_MODELS = (
     "deepseek-r1:14b", "gemma3:12b", "gemma3:4b", "gpt-oss:20b", "granite3.3:8b", "llama3.1:8b",
     "llama3.2:3b", "llava:13b", "mistral-nemo:12b", "mistral-small3.2:24b", "mistral:7b", "phi4-mini:3.8b",
@@ -4446,15 +4837,13 @@ _s8_backup: dict | None = None
 
 
 @app.post("/__s8_fixture/models/{action}")
-def s8_models(action: str, favourites: str = "", hidden: str = "",
-              x_fixture_token: str = Header(default="")) -> dict:
-    """seed: twenty local models everywhere models are chosen, with any favourites
-    and hidden models given (comma-separated names); restore: the profile back."""
+def s8_models(action: str, favourites: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """seed: twenty local models everywhere models are chosen, with any stars given
+    (comma-separated names); restore: the profile back."""
     global _s8_backup
     predecessor._authorize(x_fixture_token)
     from row_bot.providers import config as provider_config, model_catalog_cache as cache, saved_model_settings
     from row_bot.providers.model_visibility import update_model_visibility
-    from row_bot.providers.selection import add_quick_choice_for_model
 
     files = {
         "providers": Path(provider_config.CONFIG_PATH),
@@ -4480,16 +4869,11 @@ def s8_models(action: str, favourites: str = "", hidden: str = "",
               "capabilities_snapshot": chat(name)} for name in _S8_LOCAL_MODELS],
             {"ollama": {"status": "ok", "count": len(_S8_LOCAL_MODELS)}}, (), "synthetic-browser",
         ))
-        for name in _S8_LOCAL_MODELS:
-            add_quick_choice_for_model(name, provider_id="ollama", display_name=name,
-                                       capabilities_snapshot=chat(name), surface="chat")
         saved_model_settings.update_saved_model_settings(
             lambda raw: {key: value for key, value in raw.items() if key != "model_visibility"},
             path=files["settings"])
         for name in filter(None, favourites.split(",")):
             update_model_visibility("favourite", f"model:ollama:{name}", path=files["settings"])
-        for name in filter(None, hidden.split(",")):
-            update_model_visibility("hide", f"model:ollama:{name}", path=files["settings"])
         # Setup and Settings › Models read the same models from the local runtime.
         _p10_state.update(runtime="running", models=[*_S8_LOCAL_MODELS, "nomic-embed-text:latest"])
     elif action == "restore":
@@ -4514,6 +4898,75 @@ def s8_models(action: str, favourites: str = "", hidden: str = "",
     else:
         raise HTTPException(status_code=422, detail="Unknown model fixture action")
     return {"action": action, "models": len(_S8_LOCAL_MODELS)}
+
+
+# ── #140: the backup model ──────────────────────────────────────────────────
+# A local main model (one of S8's) with a cloud backup, and a chat the backup
+# finished. Synthetic settings and messages only; nothing calls a model.
+_backup_fixture: dict = {}
+_BACKUP_REF = "model:openai:gpt-5-mini"
+
+
+@app.post("/__backup_fixture/{action}")
+def backup_model_fixture(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """seed: the main model local and GPT-5 mini its backup, switched on (after S8's seed);
+    chat: a conversation whose turn the backup took over; outage: the main model not running;
+    restore: the settings and readiness back."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import models, threads
+    from row_bot.providers import backup, model_catalog_cache as cache, saved_model_settings
+
+    settings = Path(saved_model_settings.SETTINGS_PATH)
+    if not settings.resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    if action == "seed":
+        _backup_fixture.setdefault("settings", settings.read_text(encoding="utf-8") if settings.exists() else None)
+        _backup_fixture.setdefault("model", models.get_current_model())
+        snapshot = cache.read_model_catalog_cache()
+        cloud = {**snapshot.cloud_cache, _BACKUP_REF: {
+            "provider": "openai", "model_id": "gpt-5-mini", "label": "GPT-5 mini",
+            "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"],
+                                      "tool_calling": True}}}
+        cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+            1, snapshot.generated_at + 1, cloud, snapshot.ollama_rows,
+            {**snapshot.provider_status, "openai": {"status": "ok", "count": len(cloud)}}, (), "synthetic-browser"))
+        main = "model:ollama:qwen3:8b"
+        saved_model_settings.update_saved_model_settings(lambda raw: {**raw, "model": main})
+        models.adopt_saved_default(main)
+        backup.save_setting(enabled=True, ref=_BACKUP_REF)
+        return {"main": main, "backup": _BACKUP_REF}
+    if action == "chat":
+        thread = threads.create_thread("Plan my day", name_source="manual", seed_default_skills=False)
+        line = backup.note("qwen3:8b", "GPT-5 mini", "it couldn't be reached")
+        threads.append_checkpoint_messages(thread, [
+            HumanMessage(id=fixture_id(thread + ":ask"), content="Plan my day around the 3pm dentist appointment."),
+            HumanMessage(id=fixture_id(thread + ":handover"), content="[Row-Bot] My main model couldn't answer.",
+                         additional_kwargs={"row_bot_ui": {"thread_event": True, "backup_model": {"text": line}}}),
+            AIMessage(id=fixture_id(thread + ":reply"), content=(
+                "Here's a plan that keeps the afternoon clear:\n\n- **9:00** Deep work on the report\n"
+                "- **12:30** Lunch, then leave by 2:30\n- **3:00** Dentist\n- **4:30** Email and wrap up")),
+        ])
+        return {"conversation_id": thread}
+    if action == "outage":
+        # The local main model isn't running; the backup is ready (the composer's case).
+        from row_bot.application.client_platform import client_platform_service
+
+        client_platform_service.readiness_factory = lambda controls: (
+            (controls.get("model_selection") or {}).get("model_ref") != "model:ollama:qwen3:8b")
+        return {"action": action}
+    if action == "restore":
+        from row_bot.application.client_platform import client_platform_service
+
+        client_platform_service.readiness_factory = lambda _: True
+        if "settings" in _backup_fixture:
+            saved = _backup_fixture.pop("settings")
+            if saved is None:
+                settings.unlink(missing_ok=True)
+            else:
+                settings.write_text(saved, encoding="utf-8")
+            models.adopt_saved_default(_backup_fixture.pop("model", "") or "")
+        return {"action": action}
+    raise HTTPException(status_code=422, detail="Unknown backup fixture action")
 
 
 def _p17_install_connection_check_fakes() -> None:
@@ -5229,12 +5682,19 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
         _l1a_saved["used"] = spending.used_this_month
         _l1a_saved["gpu_memory"] = hardware.gpu_memory
         _l1a_saved["memory_free"] = hardware.memory_free_for_training
+        from row_bot.application import client_learning
+        _l1a_saved["hardware_read"] = client_learning.read_learning_hardware
     if action == "preview":
         learning._PREVIEW = True  # the start-up flag, as if launched with ROW_BOT_LEARNING_PREVIEW=1
         learning.invalidate()
         # The personal model's download (L2b): a stand-in whose states the specs set; never a real one.
         from row_bot.learning.training import downloads as _downloads
         _downloads._downloads = _FixtureDownloads()
+        # The hardware read's free space too, as the stand-in's: the runner's real disk would decide whether
+        # the download and starting-model asks may go ahead (CI runners can have less than they need).
+        from row_bot.application import client_learning
+        hardware_read = _l1a_saved["hardware_read"]
+        client_learning.read_learning_hardware = lambda **kwargs: {**hardware_read(**kwargs), "free_bytes": 512 * _GB}
     elif action in {"gpu", "small-gpu", "no-gpu"}:
         # A 16 GB laptop card (the 9B's smallest tier, O124) on a computer with memory to spare: the fake
         # card's memory and this computer's, never the real ones (a busy card or a computer short of
@@ -5305,6 +5765,8 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
             leftover.unlink(missing_ok=True)
         from row_bot.learning.training import downloads as _downloads
         _downloads._downloads = None
+        from row_bot.application import client_learning
+        client_learning.read_learning_hardware = _l1a_saved["hardware_read"]
         learning._PREVIEW = False
         learning.invalidate()
     else:
@@ -6482,7 +6944,6 @@ def l2c2_learning(action: str, name: str = "", x_fixture_token: str = Header(def
         _l2c2_chat()
     elif action == "picker":  # v1 in the composer's picker, beside the synthetic local models (s8's seed first)
         from row_bot.providers import model_catalog_cache as cache
-        from row_bot.providers.selection import add_quick_choice_for_model
 
         snapshot = cache.read_model_catalog_cache()
         tag = _L2C2_REF.split(":", 2)[2]
@@ -6492,8 +6953,6 @@ def l2c2_learning(action: str, name: str = "", x_fixture_token: str = Header(def
         cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
             1, snapshot.generated_at + 1, snapshot.cloud_cache, rows,
             {"ollama": {"status": "ok", "count": len(rows)}}, (), "synthetic-browser"))
-        add_quick_choice_for_model(tag, provider_id="ollama", display_name=tag, capabilities_snapshot=_S8_CHAT,
-                                   surface="chat")
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
     return {"action": action}

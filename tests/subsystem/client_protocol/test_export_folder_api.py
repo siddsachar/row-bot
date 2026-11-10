@@ -39,7 +39,7 @@ def test_the_local_owner_saves_an_export_into_exports_and_shows_it(service, work
     from row_bot.application.attachments import register_attachment
 
     shown = []
-    monkeypatch.setattr(export_folder, "_show_in_folder", shown.append)
+    monkeypatch.setattr(export_folder, "show_in_folder", shown.append)
     with _client(service) as client:
         _, headers = bootstrap(client)
         created = _command(client, headers, "conversation.create", {"title": "Export owner"})
@@ -75,7 +75,7 @@ def test_another_device_saves_into_exports_but_the_file_manager_stays_on_that_co
     from row_bot.application.attachments import register_attachment
 
     shown = []
-    monkeypatch.setattr(export_folder, "_show_in_folder", shown.append)
+    monkeypatch.setattr(export_folder, "show_in_folder", shown.append)
     remote, active = _remote_client(service)
     with remote as client:
         _, headers = bootstrap(client)
@@ -115,3 +115,15 @@ def test_export_names_are_made_safe_and_stay_inside_exports(workspace):
     with pytest.raises(PermissionError):
         export_folder.save_export("late.md", b"x", validate=refuse)
     assert not (workspace / "Exports" / "late.md").exists()
+
+
+def test_show_in_folder_selects_a_file_whose_path_has_spaces_on_windows(monkeypatch, tmp_path):
+    """9 Nov: a Save As to "Red Bicycle by a Canal.md" in Downloads opened Explorer's default folder instead."""
+    started: list = []
+    monkeypatch.setattr(export_folder.sys, "platform", "win32")
+    monkeypatch.setattr(export_folder.subprocess, "Popen", lambda command, **kwargs: started.append(command))
+    path = tmp_path / "My exports" / "Red Bicycle by a Canal.md"
+
+    export_folder.show_in_folder(path)
+
+    assert started == [f'explorer /select,"{path}"']

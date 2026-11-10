@@ -9,6 +9,7 @@ browser: the engine's page work is a fake that records what would have run.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from types import SimpleNamespace
@@ -41,6 +42,8 @@ class FakeEngine(BrowserEngine):
         return dict(self.state.targets.get(ref, {})) or None
 
     def act(self, chat_id, label, step, *, settle=True, timeout=120.0):
+        if not self.state.browser:
+            raise RuntimeError("Row-Bot's browser couldn't start.")
         self.state.acts.append((chat_id, label))
         return ActionResult(f"{label}: done")
 
@@ -56,7 +59,7 @@ def browser(monkeypatch):
     monkeypatch.setenv("ROW_BOT_PORT", "8080")
     state = SimpleNamespace(conversation="conversation-a", acts=[], asked=[], reviewed=[], mode="approve",
                             answer=True, verdict=ReviewVerdict("approve", "You asked to book the plumber."),
-                            servers=[], targets={}, url="https://www.homeserve.co.uk/claim/5")
+                            servers=[], targets={}, url="https://www.homeserve.co.uk/claim/5", browser=True)
     manager = BrowserSessionManager()
     engine = FakeEngine(state)
     manager._engine = engine
@@ -146,6 +149,54 @@ def test_hands_off_runs_it_and_block_refuses_it(browser):
     assert len(browser.acts) == 1
 
 
+def test_without_chrome_or_edge_the_browser_asks_once_to_download_its_own_then_goes_on(browser, monkeypatch):
+    """5.3.1 beta: on a Mac without Chrome or Edge the browser only said it couldn't start; it now offers its own,
+    as ffmpeg and the voice do."""
+    from row_bot.browser import runtime
+
+    browser.targets["e2"] = NEXT
+    browser.browser = False
+    downloads: list[str] = []
+
+    def install(**_kw):
+        downloads.append("chromium")
+        browser.browser = True
+        return runtime.BrowserRuntimeInstallResult(True, "Installed.")
+
+    monkeypatch.setattr(service_module, "can_start", lambda: browser.browser)
+    monkeypatch.setattr(runtime, "install_managed_browser_runtime", install)
+
+    browser.answer = False
+    refused = _tool("browser_click", ref="e2")
+    assert "The person didn't allow downloading Row-Bot's browser; nothing was downloaded." in refused
+    assert "Settings › System › Browser and computer use" in refused and downloads == []
+    [card] = browser.asked
+    assert card["question"] == ("Using websites needs a browser, and this computer has no Chrome or Edge. "
+                                "Download Row-Bot's own (about 300 MB) now?")
+    # What it downloads, from where, and the room it takes once unpacked (U29).
+    assert card["description"] == ("Row-Bot will download Chromium, the open-source browser Chrome is built on: "
+                                   "about 300 MB from cdn.playwright.dev, about 550 MB once unpacked in Row-Bot's "
+                                   "data folder. This happens once.")
+
+    browser.mode = "block"
+    assert _tool("browser_click", ref="e2").startswith("BLOCKED: using websites needs a browser")
+
+    browser.mode, browser.answer = "approve", True
+    done = _tool("browser_click", ref="e2")
+    assert done.endswith('Clicking button "Next": done') and downloads == ["chromium"]
+    assert _tool("browser_click", ref="e2") == 'Clicking button "Next": done', "once: it's there now"
+    assert len(browser.asked) == 2
+
+
+def test_a_browser_that_is_there_but_fails_to_start_offers_no_download(browser, monkeypatch):
+    browser.targets["e2"] = NEXT
+    browser.browser = False
+    monkeypatch.setattr(service_module, "can_start", lambda: True)
+
+    assert _tool("browser_click", ref="e2").startswith("Row-Bot's browser couldn't start.")
+    assert browser.asked == []
+
+
 def test_ordinary_steps_run_without_asking(browser):
     browser.targets["e2"] = NEXT
     browser.targets["e5"] = {**NEXT, "role": "radio", "name": "Leak"}
@@ -202,6 +253,28 @@ def test_hovering_never_makes_row_bot_wait_and_the_person_is_never_refused(brows
     assert len(page_open) == 2
 
 
+def test_the_wait_counts_from_the_last_key_the_page_received_however_long_the_typing_took(
+        browser, monkeypatch):
+    """A long password plays key by key; Row-Bot's wait starts when the last key lands, not when the first did."""
+
+    clock = [100.0]
+    monkeypatch.setattr(service_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(BrowserEngine, "running", property(lambda self: True))
+
+    async def press(_key: str) -> None:
+        clock[0] += 0.5  # A slow machine: each key takes half a second to reach the page.
+
+    keyboard = SimpleNamespace(down=press, up=press)
+    engine = browser.engine
+    engine._chat("conversation-a").active = SimpleNamespace(page=SimpleNamespace(keyboard=keyboard))
+    monkeypatch.setattr(engine, "_run", lambda job, **_kw: asyncio.run(job()))
+    keys = [{"type": "key", "action": action, "key": "a"} for _ in range(4) for action in ("down", "up")]
+
+    assert engine.person_input("conversation-a", keys)["status"] == "ok"
+    assert clock[0] == 104.0  # Four seconds of typing, longer than the wait itself.
+    assert engine.person_still_for("conversation-a") == 0.0
+
+
 def test_while_the_person_uses_the_page_the_agent_waits_until_they_are_still(browser, page_open, monkeypatch):
     monkeypatch.setattr(service_module, "PERSON_STILL_SECONDS", 0.4)
     browser.targets["e2"] = NEXT
@@ -248,6 +321,14 @@ def test_ask_asks_about_one_address_once_then_it_opens(browser):
     assert len(browser.asked) == 1 and len(browser.acts) == 2
     [grant] = browser.engine.local_address_grants("conversation-a")
     assert (grant.address, grant.source) == ("localhost:5173", "you")
+
+
+def test_a_file_address_says_to_serve_its_folder_and_asks_nothing(browser):
+    # A file:/// address is not a host called "file" on the person's network.
+    result = _tool("browser_navigate", url="file:///D:/Shop/workspace/hello.html")
+
+    assert result.startswith("BLOCKED: Files don't open in Row-Bot's browser.") and "http.server" in result
+    assert browser.asked == [] and browser.acts == []
 
 
 def test_a_denied_address_never_opens(browser):

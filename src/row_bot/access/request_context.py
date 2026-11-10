@@ -11,6 +11,7 @@ from typing import Iterable, Mapping
 from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
 
 from row_bot.access.config import (
+    DEFAULT_ALLOWED_HOSTS,
     AccessConfig,
     AccessConfigError,
     DeploymentMode,
@@ -36,10 +37,11 @@ SUPPORTED_FORWARDED_HEADERS = frozenset(
 )
 # Trusted proxies may attach these beside a validated Forwarded or
 # X-Forwarded-* model (Cloudflare sends CF-Connecting-IP beside the
-# X-Forwarded-For it appends to). They are not a client, scheme, host, or
-# origin source, and they do not form a forwarding model on their own. They
+# X-Forwarded-For it appends to; Railway's edge sends X-Real-IP beside its
+# X-Forwarded-For and X-Forwarded-Proto). They are not a client, scheme, host,
+# or origin source, and they do not form a forwarding model on their own. They
 # stay recognized, so they still mark a request as forwarded.
-ANCILLARY_FORWARDING_HEADERS = frozenset({"cf-connecting-ip"})
+ANCILLARY_FORWARDING_HEADERS = frozenset({"cf-connecting-ip", "x-real-ip"})
 RECOGNIZED_FORWARDING_HEADERS = frozenset(
     set(SUPPORTED_FORWARDED_HEADERS)
     | ANCILLARY_FORWARDING_HEADERS
@@ -445,8 +447,27 @@ class RequestContextResolver:
             )
             scheme = forwarded.scheme or scheme
             host = forwarded.host or direct_host
+            # A known host's proxy names the visitor in its own header, replacing any a visitor sent; its
+            # X-Forwarded-For can end at the host's edge, which the walk above stops at (Railway, R1).
+            client_header = self.config.client_address_header
+            raw_client = _single_header(headers, client_header) if client_header else ""
+            if raw_client:
+                named = normalize_ip(raw_client, allow_localhost=False)
+                if named is None or named.is_loopback:  # an edge never names this computer
+                    raise RequestContextError("malformed_client_address")
+                effective = named
 
-        if not self.config.host_allowed(host):
+        # Straight from this computer, a loopback name is always this computer, whatever a server's exact
+        # ROW_BOT_ALLOWED_HOSTS lists: its health check and its own launcher ask by 127.0.0.1. A server grants
+        # loopback nothing more than its launcher's secret routes; on the desktop loopback is the owner, so there
+        # an exact list stays exact (a proxy that forwards no headers must not make everyone the owner).
+        this_computer = (
+            self.config.deployment_mode is not DeploymentMode.DESKTOP
+            and transport.is_loopback
+            and not forwarding_headers
+            and host_without_port(host) in DEFAULT_ALLOWED_HOSTS
+        )
+        if not (this_computer or self.config.host_allowed(host)):
             raise RequestContextError("unexpected_host", status_code=400)
         try:
             origin = canonical_origin(f"{scheme}://{host}")

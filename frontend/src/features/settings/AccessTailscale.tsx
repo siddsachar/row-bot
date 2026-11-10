@@ -7,6 +7,7 @@ import {
   type TailscaleStatus,
 } from '../../api/access';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
 import { useOverlay } from '../../ui/overlays';
@@ -39,7 +40,10 @@ function host(url: string) {
 }
 
 /** A Tailscale state in words, with the next step when there is one (B138). */
-export function tailscaleWords(status: TailscaleStatus): {
+export function tailscaleWords(
+  status: TailscaleStatus,
+  place: PlaceWords,
+): {
   line: string;
   tone: Tone;
   next?: ReactNode;
@@ -47,7 +51,7 @@ export function tailscaleWords(status: TailscaleStatus): {
   switch (status.state) {
     case 'cli_not_found':
       return {
-        line: 'Tailscale isn’t installed on this computer.',
+        line: `Tailscale isn’t installed ${place.on}.`,
         tone: 'neutral',
         next: (
           <a
@@ -61,12 +65,12 @@ export function tailscaleWords(status: TailscaleStatus): {
       };
     case 'signed_out':
       return {
-        line: 'Tailscale is installed but signed out. Sign in to Tailscale on this computer, then check again.',
+        line: `Tailscale is installed but signed out. Sign in to Tailscale ${place.on}, then check again.`,
         tone: 'warning',
       };
     case 'daemon_unavailable':
       return {
-        line: 'Tailscale isn’t running on this computer. Start it, then check again.',
+        line: `Tailscale isn’t running ${place.on}. Start it, then check again.`,
         tone: 'warning',
       };
     case 'ready':
@@ -81,7 +85,7 @@ export function tailscaleWords(status: TailscaleStatus): {
       };
     case 'route_conflict':
       return {
-        line: 'Tailscale already shares something else from this computer, and Row-Bot won’t change it.',
+        line: `Tailscale already shares something else from ${place.noun}, and Row-Bot won’t change it.`,
         tone: 'warning',
         next: (
           <ol className="access-next-steps">
@@ -109,7 +113,7 @@ export function tailscaleWords(status: TailscaleStatus): {
       };
     case 'funnel_active':
       return {
-        line: 'Tailscale Funnel makes this computer public, so Row-Bot won’t use it for a private link. Turn Funnel off to share privately.',
+        line: `Tailscale Funnel makes ${place.noun} public, so Row-Bot won’t use it for a private link. Turn Funnel off to share privately.`,
         tone: 'warning',
       };
     case 'unsupported_cli':
@@ -160,6 +164,7 @@ export default function AccessTailscale({
   onChanged?: () => void;
   writeClipboard?: ClientPlatform['writeClipboard'];
 }) {
+  const place = usePlace();
   const overlay = useOverlay();
   const [status, setStatus] = useState<TailscaleStatus | null | undefined>(
     undefined,
@@ -257,7 +262,7 @@ export default function AccessTailscale({
     }
   }
 
-  const words = status ? tailscaleWords(status) : null;
+  const words = status ? tailscaleWords(status, place) : null;
   const recovery = pending && (
     <>
       <Button disabled={busy} onClick={() => void recover()}>
@@ -285,7 +290,9 @@ export default function AccessTailscale({
       <div className="access-status-line" data-tone="success">
         <p>
           <strong>Private</strong>{' '}
-          {status ? tailscaleWords(status).line : 'A Tailscale change is open.'}
+          {status
+            ? tailscaleWords(status, place).line
+            : 'A Tailscale change is open.'}
         </p>
         <div className="button-row">
           {status?.serve_url && (
@@ -369,7 +376,9 @@ export default function AccessTailscale({
                 returnFocusTo: event.currentTarget,
                 title: 'Share Row-Bot privately on your tailnet?',
                 description:
-                  'Devices signed in to your tailnet can open Row-Bot at this computer’s tailnet address, and each still needs a code from this page to sign in. This changes Tailscale’s settings on this computer; Tailscale may ask you to allow HTTPS once. Row-Bot restarts to use the new address.',
+                  place.kind === 'this_computer'
+                    ? 'Devices signed in to your tailnet can open Row-Bot at this computer’s tailnet address, and each still needs a code from this page to sign in. This changes Tailscale’s settings on this computer; Tailscale may ask you to allow HTTPS once. Row-Bot restarts to use the new address.'
+                    : `Devices signed in to your tailnet can open Row-Bot at the tailnet address of ${place.noun}, and each still needs a code from this page to sign in. This changes Tailscale’s settings there; Tailscale may ask you to allow HTTPS once. Row-Bot restarts to use the new address.`,
                 confirmLabel: 'Share privately',
                 onConfirm: () => {
                   overlay.close();

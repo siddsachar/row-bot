@@ -615,7 +615,7 @@ def test_add_another_x_account_signs_in_through_this_computers_browser(tmp_path,
     monkeypatch.setattr(x_accounts, "transport", fake.transport())
     x_accounts.add(fake.sign_in(*ROWBOT))
     fake.codes["fixture-code"] = fake.sign_in(*PERSONAL)  # The account signed in on x.com in the browser.
-    opened, answered = [], []
+    opened, answered, browsers = [], [], []
 
     def browser(url):
         """X's page: the person allows access, and X sends the browser back to the loopback address."""
@@ -625,6 +625,7 @@ def test_add_another_x_account_signs_in_through_this_computers_browser(tmp_path,
         direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # Loopback, never a proxy.
         thread = threading.Thread(target=lambda: answered.append(direct.open(back, timeout=10).status))
         thread.start()
+        browsers.append(thread)
         return True
 
     # A free port, not X's registered 17638, which a running Row-Bot's own sign-in may be listening on.
@@ -637,6 +638,8 @@ def test_add_another_x_account_signs_in_through_this_computers_browser(tmp_path,
     monkeypatch.setattr(owner, "Thread", ImmediateThread)
     before = owner.read_account_auth(account="x")
     completed = owner.execute_account_auth(**_command(before, "start"))
+    for thread in browsers:
+        thread.join(10)  # The browser reads the answer after Row-Bot has the code (macOS CI, 29 Oct).
     assert completed["phase"] == "completed", completed["message"]
     assert completed["message"] == "Connected @sidd on X."
     assert len(opened) == 1 and opened[0].startswith("https://x.com/i/oauth2/authorize?")

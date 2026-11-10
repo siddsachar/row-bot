@@ -45,12 +45,24 @@ async function everywhere(
   keepNotices = false,
 ) {
   for (const phone of [false, true]) {
-    await page.setViewportSize(phone ? PHONE : DESKTOP);
+    await resize(page, phone ? PHONE : DESKTOP);
     await reach(phone);
     await views(page, info, phone ? `${name}-phone` : name, keepNotices);
     await closeOverlays(page);
   }
-  await page.setViewportSize(DESKTOP);
+  await resize(page, DESKTOP);
+}
+
+/** A new size, once its layout has rendered: just after a resize the desktop
+ *  sidebar can still be showing before the phone's drawer replaces it. */
+async function resize(page: Page, size: { width: number; height: number }) {
+  await page.setViewportSize(size);
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => done())),
+      ),
+  );
 }
 
 /** Closes open menus and the phone's navigation drawer, one Escape each. */
@@ -70,10 +82,16 @@ function navigation(page: Page): Locator {
 
 async function showNavigation(page: Page): Promise<Locator> {
   const nav = navigation(page);
+  // Open when its own New chat control shows, not just its landmark (a closing
+  // drawer's or the folded rail's).
+  const open = nav.getByRole('button', {
+    name: 'New chat options',
+    exact: true,
+  });
   // A drawer on phones; on desktop the sidebar may have folded to its rail,
   // and a resize can fold it again just after it opened: try until it stays.
   await expect(async () => {
-    if (!(await nav.isVisible())) {
+    if (!(await open.isVisible())) {
       const toggles = page.getByRole('button', {
         name: /^(Toggle|Expand) navigation$/,
       });
@@ -83,7 +101,7 @@ async function showNavigation(page: Page): Promise<Locator> {
           break;
         }
     }
-    await expect(nav).toBeVisible({ timeout: 1000 });
+    await expect(open).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 15_000 });
   return nav;
 }

@@ -12,6 +12,8 @@ from row_bot.providers.selection import format_model_choice_label, model_ref
 
 CATALOG_SURFACES = ("chat", "vision", "image", "video", "voice")
 MISSING_METADATA_REASON = "No saved details for this model yet. Refresh the catalog."
+CUSTOM_ENDPOINT_NOT_CHECKED_REASON = "Row-Bot hasn't checked this server yet. Probe it in Settings › Models."
+CUSTOM_ENDPOINT_CHECK_FAILED_REASON = "This server didn't pass Row-Bot's check. Probe it again in Settings › Models."
 logger = logging.getLogger(__name__)
 _AGENT_MODE_MIN_CONTEXT = 32_000
 _CHAT_ONLY_MIN_CONTEXT = 16_384
@@ -61,8 +63,8 @@ class CatalogModelRow:
     configured: bool = True
     installed: bool = True
     downloadable: bool = False
-    pinned_surfaces: tuple[str, ...] = ()
-    default_surfaces: tuple[str, ...] = ()
+    # Learning's offered personal models are listed in chat without a star (L2c2).
+    offered: bool = False
     source: str = "catalog"
     risk_label: str = "api_key"
     status_reason: str = ""
@@ -81,13 +83,13 @@ def _richness(snapshot: dict[str, Any]) -> int:
     return sum(_known(value) for value in snapshot.values())
 
 
-def _merged_row(existing: CatalogModelRow | None, row: CatalogModelRow, *, fill_only: bool) -> CatalogModelRow:
+def _merged_row(existing: CatalogModelRow | None, row: CatalogModelRow) -> CatalogModelRow:
     """One model from several saved sources: the richer capability metadata
-    leads and the other only fills what it lacks (``fill_only`` never leads)."""
+    leads and the other only fills what it lacks."""
     if existing is None:
         return row
     rich, poor = (existing, row)
-    if not fill_only and _richness(row.capabilities_snapshot) > _richness(existing.capabilities_snapshot):
+    if _richness(row.capabilities_snapshot) > _richness(existing.capabilities_snapshot):
         rich, poor = row, existing
     snapshot = normalize_snapshot({
         **{key: value for key, value in poor.capabilities_snapshot.items() if _known(value)},
@@ -214,18 +216,14 @@ def build_saved_model_catalog_rows(
     Unlike the interactive catalog, missing capabilities stay unknown and
     subscription fallbacks, curated models and runtime probes are not consulted.
     This is a passive projection of the existing catalog, not another catalog.
-    Rows for one model from several sources merge; a pinned model keeps the
-    metadata saved with its pin, so it is listed even without a catalog row.
+    Rows for one model from several sources merge, the richer metadata leading.
     """
     from row_bot.providers.catalog import split_model_cache_key
     from row_bot.providers.custom import normalize_custom_endpoint
 
-    quick = [item for item in provider_config.get("quick_choices", []) if isinstance(item, dict)]
-    pinned = _pinned_surfaces_by_ref(quick, infer_unknown=False)
     rows: dict[str, CatalogModelRow] = {}
 
-    def add(provider: str, model: str, info: dict[str, Any], *, label: str = "", local: bool = False,
-            pin: bool = False) -> None:
+    def add(provider: str, model: str, info: dict[str, Any], *, label: str = "", local: bool = False) -> None:
         if not isinstance(provider, str) or not isinstance(model, str) or not provider or not model:
             return
         snapshot = info.get("capabilities_snapshot")
@@ -245,9 +243,8 @@ def build_saved_model_catalog_rows(
             categories=categories_for_snapshot(normalized), capabilities_snapshot=normalized,
             context_window=context, runtime_ready=False, configured=False,
             installed=info.get("installed") is True if local else False,
-            pinned_surfaces=tuple(sorted(pinned.get(ref, set()))),
-            source="pinned_choice" if pin else "saved_catalog",
-        ), fill_only=pin)
+            source="saved_catalog",
+        ))
 
     for key, info in cloud_cache.items():
         if not isinstance(info, dict):
@@ -274,12 +271,6 @@ def build_saved_model_catalog_rows(
     for info in ollama_rows:
         if isinstance(info, dict):
             add("ollama", info.get("model_id") or "", info, local=True)
-    for choice in quick:
-        if choice.get("kind") == "model":
-            add(choice.get("provider_id") or "", choice.get("model_id") or "", {
-                "display_name": choice.get("display_name"),
-                "capabilities_snapshot": choice.get("capabilities_snapshot") or {},
-            }, pin=True)
     return sorted(rows.values(), key=lambda row: (
         row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id,
     ))
@@ -298,12 +289,11 @@ def project_saved_catalog_readiness(rows: Iterable[CatalogModelRow]) -> list[Cat
             provider_id=row.provider_id, model_id=row.model_id,
             display_name=row.display_name, categories=row.categories,
             capabilities_snapshot=row.capabilities_snapshot,
-            provider_status=statuses, pinned_by_ref={row.selection_ref: set(row.pinned_surfaces)},
-            default_refs={}, context_window=row.context_window,
+            provider_status=statuses, context_window=row.context_window,
             installed=row.installed if row.provider_id == "ollama" else True,
             downloadable=False, source=row.source, risk_label=row.risk_label,
         )
-        projected.append(replace(assessed, provider_display_name=row.provider_display_name))
+        projected.append(replace(assessed, provider_display_name=row.provider_display_name, offered=row.offered))
     return projected
 
 
@@ -312,13 +302,13 @@ def picker_options(
 ) -> list[dict[str, Any]]:
     """The one model list and availability rule for every picker and save check.
 
-    A picker lists the models pinned for its surface, the person's favourites
-    that can do its job (U10: a star always lists a model) and its current
-    value; with none pinned or starred for its job, every ready model that can
-    do it. A pinned model without saved capability metadata stays listed,
-    unavailable with a reason to refresh, instead of vanishing. Rows must carry
-    readiness (``project_saved_catalog_readiness``); nothing here reads a
-    provider. ``favourites`` defaults to the saved preference.
+    A picker lists your starred models that can do its job and its current
+    value; a provider with none starred for the job (a new profile, a provider
+    just connected) lists every ready model of its that can do it. A starred
+    model without saved capability metadata stays listed, unavailable with a
+    reason to refresh, instead of vanishing. Rows must carry readiness
+    (``project_saved_catalog_readiness``); nothing here reads a provider.
+    ``favourites`` defaults to the saved stars.
     """
     if favourites is None:
         from row_bot.providers.model_visibility import read_model_visibility
@@ -327,17 +317,17 @@ def picker_options(
     starred = set(favourites)
     rows = list(rows)
 
-    def chosen(row: Any) -> bool:
-        return surface in row.pinned_surfaces or (row.selection_ref in starred and surface in row.categories)
+    def starred_for_job(row: Any) -> bool:
+        return row.selection_ref in starred and (surface in row.categories or not row.categories)
 
-    # Nothing pinned or starred for this job yet (a new profile, a provider just connected): its ready models,
-    # rather than an empty picker beside a catalog full of them. A star keeps the list to the starred ones.
-    everything = not any(chosen(row) for row in rows)
+    # A star keeps its provider's list to the starred ones.
+    choosing = {row.provider_id for row in rows if starred_for_job(row)}
     options = []
     for row in rows:
         known = bool(row.categories)
-        listed = chosen(row) or (everything and known and surface in row.categories and row.configured
-                                 and row.runtime_ready and row.installed)
+        listed = (starred_for_job(row) or (row.offered and surface == "chat")
+                  or (row.provider_id not in choosing and known and surface in row.categories
+                      and row.configured and row.runtime_ready and row.installed))
         if row.selection_ref != current and (not listed or (known and surface not in row.categories)):
             continue
         unavailable, reason = None, ""
@@ -355,6 +345,8 @@ def picker_options(
             "source": row.source[:80], "available": unavailable is None,
             "unavailable_reason": unavailable, "reason": reason[:256],
             "context_window": row.context_window or None, "billing": provider_billing(row.provider_id),
+            # It can't use tools: chat only (I15).
+            "chat_only": row.runtime_mode == "chat_only",
         })
     return options
 
@@ -367,8 +359,6 @@ def _catalog_row(
     categories: tuple[str, ...],
     capabilities_snapshot: dict[str, Any],
     provider_status: dict[str, dict[str, Any]],
-    pinned_by_ref: dict[str, set[str]],
-    default_refs: dict[str, str],
     context_window: int,
     installed: bool,
     downloadable: bool,
@@ -393,7 +383,7 @@ def _catalog_row(
         status_reason = "Codex account is connected, but direct chat runtime is not enabled yet."
     if provider_id == "claude_subscription" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
-        status_reason = "Set up Claude in Settings › Providers: it runs Claude Code on this computer."
+        status_reason = "Set up Claude in Settings › Models: it runs Claude Code on this computer."
     if provider_id == "xai_oauth" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
         status_reason = "xAI Grok runtime needs a Row-Bot OAuth connection."
@@ -420,8 +410,6 @@ def _catalog_row(
         configured=configured,
         installed=installed,
         downloadable=downloadable,
-        pinned_surfaces=tuple(sorted(pinned_by_ref.get(ref, set()))),
-        default_surfaces=tuple(sorted(surface for surface, default_ref in default_refs.items() if default_ref == ref)),
         source=source,
         risk_label=risk_label,
         status_reason=status_reason,
@@ -449,8 +437,6 @@ def _catalog_runtime_summary(
         return False, availability or "blocked", f"Transport {transport} is not supported for chat."
     if context_window and context_window < _CHAT_ONLY_MIN_CONTEXT:
         return False, availability or "blocked", "Context window is too small for chat."
-    if context_window and context_window < _AGENT_MODE_MIN_CONTEXT:
-        return True, availability or "chat_only", "Chat Only: tools and actions are off."
     if provider_id.startswith("custom_openai_"):
         try:
             from row_bot.providers.custom import custom_probe_for_model
@@ -458,12 +444,19 @@ def _catalog_runtime_summary(
             probe = custom_probe_for_model(provider_id, model_id)
         except Exception:
             probe = {}
-        if probe.get("chat_ok") is False:
-            return False, "blocked", "Endpoint probe did not verify chat completions."
-        if probe.get("chat_ok") is True:
-            if probe.get("tool_calling") is True and probe.get("tool_round_trip") is True:
-                return True, "agent", status_reason
-            return True, "chat_only", "Chat Only: endpoint probe did not verify a tool round trip."
+        # Chat readiness needs the endpoint's own check to have answered a chat: an
+        # endpoint not checked yet is not ready, as its model can't be used until it is.
+        if not probe:
+            return False, "", CUSTOM_ENDPOINT_NOT_CHECKED_REASON
+        if probe.get("chat_ok") is not True:
+            return False, "blocked", CUSTOM_ENDPOINT_CHECK_FAILED_REASON
+        if context_window and context_window < _AGENT_MODE_MIN_CONTEXT:
+            return True, availability or "chat_only", "Chat Only: tools and actions are off."
+        if probe.get("tool_calling") is True and probe.get("tool_round_trip") is True:
+            return True, "agent", status_reason
+        return True, "chat_only", "Chat Only: endpoint probe did not verify a tool round trip."
+    if context_window and context_window < _AGENT_MODE_MIN_CONTEXT:
+        return True, availability or "chat_only", "Chat Only: tools and actions are off."
     if provider_id in {"openrouter", "requesty"} and tool_calling is not True:
         return True, availability or "chat_only", "Chat Only: tools and actions are off."
     if tool_calling is False:
@@ -471,27 +464,6 @@ def _catalog_runtime_summary(
     if provider_id in _CATALOG_TRUSTED_AGENT_PROVIDERS or tool_calling is True:
         return True, availability or "agent", status_reason
     return True, availability or "chat_only", "Chat Only: tools and actions are off."
-
-
-def _pinned_surfaces_by_ref(
-    quick: Iterable[dict[str, Any]], *, infer_unknown: bool = True,
-) -> dict[str, set[str]]:
-    result: dict[str, set[str]] = {}
-    for choice in quick:
-        ref = str(choice.get("id") or "")
-        if not ref:
-            continue
-        surfaces = set()
-        snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-        for surface in CATALOG_SURFACES:
-            if (snapshot or infer_unknown) and snapshot_supports_surface(snapshot, surface):
-                surfaces.add(surface)
-        visibility = choice.get("visibility")
-        if isinstance(visibility, list):
-            surfaces.update(str(item) for item in visibility if str(item) in CATALOG_SURFACES)
-        if surfaces:
-            result[ref] = surfaces
-    return result
 
 
 def _provider_status_by_id() -> dict[str, dict[str, Any]]:

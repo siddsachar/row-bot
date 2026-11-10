@@ -9,6 +9,7 @@ only classifies; ``browser.guard`` enforces it on the pages' requests.
 from __future__ import annotations
 
 import ipaddress
+import re
 import socket
 from typing import Callable, Iterable
 from urllib.parse import urlsplit
@@ -102,3 +103,14 @@ def url_host_kind(url: str) -> str | None:
     if scheme not in {"http", "https", "ws", "wss"}:
         return None
     return host_kind(host)
+
+
+_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+_BARE_SCHEMES = ("file:", "data:", "about:", "blob:", "chrome:", "edge:", "view-source:", "javascript:")
+
+
+def has_scheme(address: str) -> bool:
+    """Whether *address* names its own scheme ("file:///D:/page.html", "ftp://…"), so it isn't a bare host
+    to put "https://" in front of. "localhost:5173" is a host and a port, not a scheme."""
+    text = str(address or "").strip()
+    return bool(_SCHEME.match(text)) or text.casefold().startswith(_BARE_SCHEMES)

@@ -193,11 +193,15 @@ def test_an_address_row_bot_never_clones_is_refused_first(root_api, fake_git):
     assert fake_git == []
 
 
-def test_add_resource_without_a_conversation_clones_at_the_default_level(root_api, fake_git):
+def test_add_resource_without_a_conversation_clones_at_the_level_new_conversations_start_at(root_api, fake_git):
+    from row_bot import full_autonomy
+
+    full_autonomy.remember_level("approve")  # The person chose Ask last: the new conversation asks.
     unconfirmed = _command(root_api, {"kind": "workspace", "intent": "create", "root_folder": "",
                                       "clone_workspace": {"repo_url": REPO}})
     assert unconfirmed.json()["code"] == "clone_confirmation_required"
-    confirmed = _command(root_api, {"kind": "workspace", "intent": "create", "root_folder": "",
-                                    "clone_workspace": {"repo_url": REPO}, "confirm_network": True})
-    assert confirmed.status_code == 200, confirmed.text
+    full_autonomy.remember_level("auto")  # Auto lets the person's own clone go ahead.
+    started = _command(root_api, {"kind": "workspace", "intent": "create", "root_folder": "",
+                                  "clone_workspace": {"repo_url": REPO}})
+    assert started.status_code == 200, started.text
     assert (root_api.root / "demo" / ".git").is_dir()

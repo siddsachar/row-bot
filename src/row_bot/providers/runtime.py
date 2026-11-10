@@ -10,6 +10,7 @@ from typing import Any, TYPE_CHECKING
 from row_bot.providers.capabilities import snapshot_supports_surface
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status
 from row_bot.providers.catalog import get_provider_definition
+from row_bot.providers.presets import PRESETS, get_preset, preset_endpoint
 from row_bot.providers.custom import (
     custom_endpoint_auth_missing_message,
     custom_endpoint_secret,
@@ -415,7 +416,8 @@ def captured_chat_model(
             model = Transport(model_name=resolved.runtime_model,base_url=resolved.base_url,
                 http_client=sync,reasoning_plan=capture.reasoning_plan)
             model.bind_captured_credentials(capture.oauth_snapshot,validate,headers=capture.headers)
-        elif transport == "openai_chat" and (is_custom_openai_provider(provider) or provider in {"opencode_zen","opencode_go"}):
+        elif transport == "openai_chat" and (is_custom_openai_provider(provider)
+                or provider in {"opencode_zen","opencode_go",*PRESETS}):
             from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
             model = ChatOpenAICompatible(model_name=resolved.runtime_model,api_key=capture.credential,
                 base_url=resolved.base_url,endpoint=resolved.endpoint,http_client=sync,timeout=120,
@@ -423,6 +425,10 @@ def captured_chat_model(
                 context_captured=True)
         elif provider in {"openai", "xai", "requesty", "atlascloud"} or transport == "openai_responses":
             from langchain_openai import ChatOpenAI
+            if is_custom_openai_provider(provider):
+                from row_bot.providers.endpoint_addresses import check_clients
+
+                check_clients(resolved.endpoint, sync, asynchronous)
             responses = transport == "openai_responses" or (
                 provider == "openai" and openai_model_uses_responses_api(resolved.runtime_model))
             kwargs = {"model":resolved.runtime_model,"api_key":capture.credential,"base_url":resolved.base_url,
@@ -481,11 +487,12 @@ def captured_chat_model(
                 max_retries=0, client=root,
                 **_reasoning_constructor_kwargs(capture.reasoning_plan, provider=provider))
         elif provider == "google" or transport == "google_genai":
-            from langchain_google_genai import ChatGoogleGenerativeAI
+            from row_bot.providers.transports.google_gemini import chat_gemini
+            ChatGemini = chat_gemini()
             from pydantic import model_validator
             client = captured_google_client(capture.credential, resolved.base_url, sync, asynchronous,
                 **({"api_version":"v1"} if provider in {"opencode_zen","opencode_go"} else {}))
-            class CapturedGoogle(ChatGoogleGenerativeAI):
+            class CapturedGoogle(ChatGemini):
                 @model_validator(mode="after")
                 def validate_environment(self):
                     # The canonical wrapper otherwise creates another SDK client
@@ -545,6 +552,7 @@ def list_configured_provider_ids() -> list[str]:
             "google",
             "xai",
             "minimax",
+            *PRESETS,
         )
         if is_provider_available(provider_id)
     ]
@@ -578,6 +586,32 @@ class ProviderSignInRequired(ValueError):
         super().__init__(message)
         self.provider_id = provider_id
         self.label = label
+
+
+def require_signed_in(provider_id: str) -> None:
+    """Raise a sign-in provider's own reason it can't take a call (signed out, Claude Code missing); else nothing."""
+    if provider_id == "codex":
+        from row_bot.providers.codex import codex_runtime_available
+
+        if not codex_runtime_available():
+            raise ProviderSignInRequired(
+                "codex", "ChatGPT",
+                "Codex subscription runtime needs an in-app ChatGPT login with runnable OAuth tokens. "
+                "Connect ChatGPT in Settings -> Providers, then try the Codex model again."
+            )
+    elif provider_id == "claude_subscription":
+        from row_bot.providers.claude_subscription import require_claude_plan
+
+        require_claude_plan()
+    elif provider_id == "xai_oauth":
+        from row_bot.providers.xai_oauth import xai_oauth_runtime_available
+
+        if not xai_oauth_runtime_available():
+            raise ProviderSignInRequired(
+                "xai_oauth", "xAI Grok",
+                "xAI Grok runtime needs Row-Bot-owned OAuth tokens. "
+                "Connect xAI Grok in Settings -> Providers, then try the provider-qualified model again."
+            )
 
 
 def provider_status(provider_id: str, *, refresh_tokens: bool = True) -> dict:
@@ -890,9 +924,10 @@ def _create_chat_model(
                 **_reasoning_constructor_kwargs(reasoning_plan, provider=provider),
             )
         if transport == "google_genai" or transport.value == "google_genai":
-            from langchain_google_genai import ChatGoogleGenerativeAI
+            from row_bot.providers.transports.google_gemini import chat_gemini
+            ChatGemini = chat_gemini()
 
-            return ChatGoogleGenerativeAI(
+            return ChatGemini(
                 model=model_name,
                 google_api_key=api_key,
                 base_url=opencode_anthropic_base_url(provider),
@@ -913,14 +948,17 @@ def _create_chat_model(
         api_key = api_key or "not-needed"
         if endpoint.get("transport") == "openai_responses":
             from langchain_openai import ChatOpenAI
+            from row_bot.providers.endpoint_addresses import check_clients
             from row_bot.providers.transports.cancellable_http import cancellable_http_client
             from row_bot.providers.transports.openai_direct import OpenAIRequestStopped
 
+            http_client = cancellable_http_client(stopped=OpenAIRequestStopped)
+            check_clients(endpoint, http_client)
             kwargs = {
                 "model": model_name,
                 "api_key": api_key,
                 "base_url": endpoint["base_url"],
-                "http_client": cancellable_http_client(stopped=OpenAIRequestStopped),
+                "http_client": http_client,
                 # A custom http_client silently turns stream usage off.
                 "stream_usage": True,
             }
@@ -941,32 +979,19 @@ def _create_chat_model(
             reasoning_plan=reasoning_plan,
         )
     if provider == "codex":
-        from row_bot.providers.codex import codex_runtime_available
         from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
-        if not codex_runtime_available():
-            raise ProviderSignInRequired(
-                "codex", "ChatGPT",
-                "Codex subscription runtime needs an in-app ChatGPT login with runnable OAuth tokens. "
-                "Connect ChatGPT in Settings -> Providers, then try the Codex model again."
-            )
+        require_signed_in(provider)
         return ChatCodexResponses(model_name=model_name, reasoning_plan=reasoning_plan)
     if provider == "claude_subscription":
-        from row_bot.providers.claude_subscription import require_claude_plan
         from row_bot.providers.transports.claude_plan_cli import ChatClaudePlan
 
-        require_claude_plan()
+        require_signed_in(provider)
         return ChatClaudePlan(model_name=model_name, reasoning_plan=reasoning_plan)
     if provider == "xai_oauth":
         from row_bot.providers.transports.xai_oauth_responses import ChatXAIOAuthResponses
-        from row_bot.providers.xai_oauth import xai_oauth_runtime_available
 
-        if not xai_oauth_runtime_available():
-            raise ProviderSignInRequired(
-                "xai_oauth", "xAI Grok",
-                "xAI Grok runtime needs Row-Bot-owned OAuth tokens. "
-                "Connect xAI Grok in Settings -> Providers, then try the provider-qualified model again."
-            )
+        require_signed_in(provider)
         return ChatXAIOAuthResponses(model_name=model_name, reasoning_plan=reasoning_plan)
     if provider == "openai":
         from row_bot.providers.transports.cancellable_http import cancellable_http_client
@@ -1013,11 +1038,12 @@ def _create_chat_model(
             **_reasoning_constructor_kwargs(reasoning_plan, provider="anthropic"),
         )
     if provider == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from row_bot.providers.transports.google_gemini import chat_gemini
+        ChatGemini = chat_gemini()
         api_key = get_provider_secret("google")
         if not api_key:
             raise ValueError("Google AI API key not configured. Set it in Settings → Providers.")
-        return ChatGoogleGenerativeAI(
+        return ChatGemini(
             model=model_name,
             google_api_key=api_key,
             **_reasoning_constructor_kwargs(reasoning_plan, provider="google"),
@@ -1072,6 +1098,20 @@ def _create_chat_model(
                 "transport": "openai_chat",
                 "profile": "atlascloud",
             },
+            reasoning_plan=reasoning_plan,
+        )
+
+    if preset := get_preset(provider):
+        from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
+
+        api_key = get_provider_secret(provider)
+        if not api_key:
+            raise ValueError(f"{preset.name} API key not configured. Set it in Settings → Models.")
+        return ChatOpenAICompatible(
+            model_name=model_name,
+            api_key=api_key,
+            base_url=preset.base_url,
+            endpoint=preset_endpoint(preset),
             reasoning_plan=reasoning_plan,
         )
 

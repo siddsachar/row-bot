@@ -563,6 +563,30 @@
       "title": "DreamCycleSettingsSnapshot",
       "type": "object"
     },
+    "HostTrial": {
+      "additionalProperties": false,
+      "description": "A host's trial server, by its memory (A4): what works there, and the host's page to upgrade.",
+      "properties": {
+        "note": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "upgrade_url": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Upgrade Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "note",
+        "upgrade_url"
+      ],
+      "title": "HostTrial",
+      "type": "object"
+    },
     "IdentitySettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1094,6 +1118,164 @@
       "title": "SettingsFileOperationsSnapshot",
       "type": "object"
     },
+    "SettingsHostSnapshot": {
+      "additionalProperties": false,
+      "description": "The company that runs this Row-Bot (H13): a reviewed entry; a link nobody confirmed is null.",
+      "properties": {
+        "applies_updates": {
+          "title": "Applies Updates",
+          "type": "boolean"
+        },
+        "backups_note": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backups Note"
+        },
+        "home_url": {
+          "maxLength": 512,
+          "title": "Home Url",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "manage_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Manage Url"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "runs": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Runs",
+          "type": "string"
+        },
+        "settings_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Settings Url"
+        },
+        "spending_limit_step": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spending Limit Step"
+        },
+        "status_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Url"
+        },
+        "support_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Support Url"
+        },
+        "trial": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostTrial"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unit": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "updates_help": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Updates Help",
+          "type": "string"
+        },
+        "usage_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usage Url"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "home_url",
+        "support_url",
+        "status_url",
+        "manage_url",
+        "unit",
+        "runs",
+        "applies_updates",
+        "updates_help"
+      ],
+      "title": "SettingsHostSnapshot",
+      "type": "object"
+    },
     "SettingsLoggingSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1306,6 +1488,28 @@
       "title": "SettingsRuntimeToggleSnapshot",
       "type": "object"
     },
+    "SettingsServerMemorySnapshot": {
+      "additionalProperties": false,
+      "description": "A server's memory limit and the working set now (H12), for the host card (U5).",
+      "properties": {
+        "limit_bytes": {
+          "minimum": 1,
+          "title": "Limit Bytes",
+          "type": "integer"
+        },
+        "used_bytes": {
+          "minimum": 0,
+          "title": "Used Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "limit_bytes",
+        "used_bytes"
+      ],
+      "title": "SettingsServerMemorySnapshot",
+      "type": "object"
+    },
     "SettingsShellSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1463,8 +1667,30 @@
         "file_operations": {
           "$ref": "#/$defs/SettingsFileOperationsSnapshot"
         },
+        "hosted_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsHostSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "logging": {
           "$ref": "#/$defs/SettingsLoggingSnapshot"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsServerMemorySnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "mobile_access": {
           "$ref": "#/$defs/SettingsMobileAccessSnapshot"
@@ -1553,6 +1779,26 @@
         "credentials"
       ],
       "title": "ToolSettingsItem",
+      "type": "object"
+    },
+    "ToolSettingsResetWorkspace": {
+      "additionalProperties": false,
+      "properties": {
+        "folder": {
+          "maxLength": 512,
+          "title": "Folder",
+          "type": "string"
+        },
+        "kept": {
+          "title": "Kept",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kept",
+        "folder"
+      ],
+      "title": "ToolSettingsResetWorkspace",
       "type": "object"
     },
     "ToolSettingsSnapshot": {
@@ -2305,6 +2551,22 @@
     },
     "system": {
       "$ref": "#/$defs/SystemSettingsSnapshot"
+    },
+    "tool_settings_reset_workspace": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolSettingsResetWorkspace"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "tool_settings_unreadable": {
+      "default": false,
+      "title": "Tool Settings Unreadable",
+      "type": "boolean"
     },
     "tools": {
       "$ref": "#/$defs/ToolSettingsSnapshot"

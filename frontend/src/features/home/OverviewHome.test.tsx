@@ -39,9 +39,14 @@ const runtime = vi.hoisted(() => ({
   taskRun: vi.fn(),
   waits: vi.fn(async () => ({ schema_version: 1, items: [] as unknown[] })),
   stopWait: vi.fn(async () => ({ schema_version: 1, items: [] })),
+  dismissMemoryNotice: vi.fn(async () => ({ dismissed: true })),
+}));
+const platform = vi.hoisted(() => ({
+  openExternal: vi.fn(async () => ({ status: 'ok' })),
+  writeClipboard: vi.fn(async () => ({ status: 'ok' })),
 }));
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: runtime }),
+  useRuntime: () => ({ controller: runtime, platform }),
 }));
 
 /** Friday 26 September 2026, 9:30 local time. */
@@ -480,6 +485,23 @@ it('all quiet: names the next workflow run instead', async () => {
   expect(screen.queryByRole('region', { name: /^Needs you/ })).toBeNull();
 });
 
+it('a run about to start is "in under a minute", never "just now"', async () => {
+  show({
+    loadApprovals: vi.fn().mockResolvedValue(approvals()),
+    loadAttention: attention(),
+    loadTasks: vi.fn().mockResolvedValue(
+      page([
+        task('digest', 'Morning digest', {
+          next_run: new Date(now.getTime() + 30_000).toISOString(),
+        }),
+      ]),
+    ),
+  });
+  await vi.waitFor(() =>
+    expect(summary()).toBe('Next: Morning digest in under a minute.'),
+  );
+});
+
 it('error: an unreadable source is one quiet line under Today, not a box', async () => {
   show({
     loadTasks: vi.fn().mockRejectedValue(new Error('offline')),
@@ -561,10 +583,10 @@ it('shows the same number on Home and in the sidebar for the same items, without
   expect(screen.getByRole('heading', { name: /^Needs you/ })).toHaveTextContent(
     'Needs you4',
   );
-  // The setup reminder shows as a row but is not one of the four.
+  // The optional setup shows under Explore, never as one of the four (U1).
   expect(
-    screen.getByRole('region', { name: 'Continue setup' }),
-  ).toHaveTextContent('Finish setup');
+    screen.getByRole('region', { name: 'More you can set up' }),
+  ).toBeVisible();
   // One read of each, shared by both.
   expect(loadAttention).toHaveBeenCalledOnce();
   expect(loadApprovals).toHaveBeenCalledOnce();
@@ -850,14 +872,16 @@ it('runs a failed workflow again in place with the reviewed run (Phase 18)', asy
 
 it('reminds about optional setup as a row until hidden and reports a hide failure', () => {
   const { rerender } = show({ setup: setupSnapshot() });
-  const region = screen.getByRole('region', { name: 'Continue setup' });
-  expect(region).toHaveTextContent('Finish setup');
-  expect(region).toHaveTextContent('1 of 2 done');
-  expect(
-    within(region).getByRole('link', { name: 'Continue setup' }),
-  ).toHaveAttribute('href', '/setup');
-  // A reminder, not a need: no count.
-  expect(screen.getByRole('heading', { name: 'Needs you' })).toBeVisible();
+  const region = screen.getByRole('region', { name: 'More you can set up' });
+  // Optional, not a need: under Explore, with no count of what's left (U1, U2).
+  expect(region).toHaveTextContent('More you can set up');
+  expect(region).not.toHaveTextContent(/of \d+ done/);
+  expect(within(region).getByRole('link', { name: 'Explore' })).toHaveAttribute(
+    'href',
+    '/setup',
+  );
+  expect(screen.getByRole('heading', { name: 'Explore' })).toBeVisible();
+  expect(screen.queryByRole('heading', { name: /^Needs you/ })).toBeNull();
   fireEvent.click(
     within(region).getByRole('button', { name: 'Hide setup reminder' }),
   );
@@ -876,15 +900,15 @@ it('reminds about optional setup as a row until hidden and reports a hide failur
     </MemoryRouter>,
   );
   expect(
-    within(screen.getByRole('region', { name: 'Continue setup' })).getByRole(
-      'status',
-    ),
+    within(
+      screen.getByRole('region', { name: 'More you can set up' }),
+    ).getByRole('status'),
   ).toHaveTextContent(
     'Could not hide the setup reminder. Refresh this page and try again.',
   );
 });
 
-it('counts skipped areas apart from done ones', () => {
+it('never counts what is left of the optional setup', () => {
   show({
     setup: setupSnapshot({
       steps: [
@@ -897,8 +921,8 @@ it('counts skipped areas apart from done ones', () => {
     }),
   });
   expect(
-    screen.getByRole('region', { name: 'Continue setup' }),
-  ).toHaveTextContent('1 of 3 done · 1 skipped');
+    screen.getByRole('region', { name: 'More you can set up' }),
+  ).not.toHaveTextContent(/done|skipped/);
 });
 
 it.each([
@@ -906,7 +930,9 @@ it.each([
   ['finished', { completed_steps: ['models'], skipped_steps: ['voice'] }],
 ])('does not remind about optional setup once %s', (_label, extra) => {
   show({ setup: setupSnapshot(extra) });
-  expect(screen.queryByRole('region', { name: 'Continue setup' })).toBeNull();
+  expect(
+    screen.queryByRole('region', { name: 'More you can set up' }),
+  ).toBeNull();
   expect(screen.queryByRole('region', { name: /^Needs you/ })).toBeNull();
 });
 
@@ -943,6 +969,8 @@ it('lists what conversations wait for under Waiting, not Needs you, each with St
     'CI on PR 590 is greenShip 5.3.1 · checks every 2 min',
   );
   expect(screen.queryByRole('list', { name: 'Needs you' })).toBeNull();
+  // Not "All quiet" while something is waited for.
+  expect(summary()).toBe('Waiting for 1 thing.');
   await user.click(
     within(waiting).getByRole('button', { name: 'Open Ship 5.3.1' }),
   );
@@ -1419,7 +1447,17 @@ it('Review shows each post or email waiting to go out in full, sets one aside, a
           action: 'post',
           text: 'Morning post about local AI.',
           post_at: '2026-09-26T18:00',
-          media: [],
+          media: [
+            {
+              name: 'demo.mp4',
+              size: 2048,
+              sha256: '0123456789ab',
+              kind: 'video' as const,
+              silent: true,
+              ref: 'conversation-a:00000000-0000-4000-8000-000000000001',
+              mime: 'video/mp4',
+            },
+          ],
         },
       ],
     }),
@@ -1453,6 +1491,12 @@ it('Review shows each post or email waiting to go out in full, sets one aside, a
 
   const scheduled = list('Scheduled posts');
   expect(within(scheduled).getByText(/^Today, .* · @rowbot_ai$/)).toBeVisible();
+  // Its video plays silent on X too: said before it goes (3 Nov).
+  expect(within(scheduled).getByText('Its video has no sound')).toBeVisible();
+  // Its video opens full size from here, to check before it goes.
+  expect(
+    within(scheduled).getByRole('button', { name: 'Open demo.mp4' }),
+  ).toBeVisible();
   await act(async () => {
     fireEvent.click(
       within(scheduled).getByRole('button', { name: 'Cancel this post' }),
@@ -1460,6 +1504,77 @@ it('Review shows each post or email waiting to go out in full, sets one aside, a
   });
   expect(cancel).toHaveBeenCalledWith('xs-0123456789ab');
   expect(screen.queryByRole('list', { name: 'Scheduled posts' })).toBeNull();
+});
+
+it('edits a scheduled post in place: its text and which pictures go, at the same time', async () => {
+  const edit = vi.fn().mockResolvedValue({ edited: true });
+  const waiting = {
+    id: 'xs-0123456789ab',
+    account_id: '111',
+    username: 'rowbot_ai',
+    name: 'Row-Bot',
+    limit: 280,
+    action: 'post' as const,
+    text: 'Tonight’s chart',
+    post_at: '2026-09-26T21:00',
+    media: [
+      {
+        name: 'chart.png',
+        size: 4096,
+        sha256: 'c89670e22e36',
+        kind: 'image' as const,
+      },
+      {
+        name: 'photo.png',
+        size: 2048,
+        sha256: 'ab12cd34ef56',
+        kind: 'image' as const,
+      },
+    ],
+    status: 'scheduled' as const,
+  };
+  show({
+    loadScheduledPosts: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      items: [waiting],
+    }),
+    onEditScheduledPost: edit,
+  });
+  const scheduled = await screen.findByRole('list', {
+    name: 'Scheduled posts',
+  });
+  fireEvent.click(
+    within(scheduled).getByRole('button', { name: 'Edit this post' }),
+  );
+  const box = within(scheduled).getByRole('textbox', {
+    name: 'Edit the post as @rowbot_ai',
+  });
+  expect(within(scheduled).getByText('15 of 280')).toBeVisible();
+  fireEvent.change(box, { target: { value: 'x'.repeat(281) } });
+  expect(
+    within(scheduled).getByRole('button', { name: 'Save edits' }),
+  ).toBeDisabled();
+  fireEvent.change(box, {
+    target: { value: 'Tonight’s chart, with the photo' },
+  });
+  fireEvent.click(
+    within(scheduled).getByRole('button', { name: 'Remove chart.png' }),
+  );
+  await act(async () => {
+    fireEvent.click(
+      within(scheduled).getByRole('button', { name: 'Save edits' }),
+    );
+  });
+
+  expect(edit).toHaveBeenCalledWith('xs-0123456789ab', {
+    text: 'Tonight’s chart, with the photo',
+    media: ['ab12cd34ef56'],
+  });
+  const [row] = within(scheduled).getAllByRole('listitem');
+  expect(row).toHaveTextContent('Tonight’s chart, with the photo');
+  expect(
+    within(scheduled).queryByRole('textbox', { name: /Edit the post/ }),
+  ).toBeNull();
 });
 
 it('keeps a scheduled post that didn’t go out in Review, with why, Try again, without the picture and Dismiss', async () => {
@@ -1525,4 +1640,151 @@ it('keeps a scheduled post that didn’t go out in Review, with why, Try again, 
     screen.queryByRole('list', { name: "Posts that didn't go out" }),
   ).toBeNull();
   expect(dismiss).not.toHaveBeenCalled();
+});
+
+const GUIDE = 'https://row-bot.ai/docs/operations/hosting#memory';
+/** U8: what the server says after Row-Bot restarted for lack of memory on a 2 GB pod. */
+function outOfMemory(host: boolean): AttentionProblem {
+  return {
+    id: 'memory:restarted',
+    title: 'Row-Bot restarted because the server ran out of memory',
+    detail: `Your server has 2 GB. Local speech-to-text together with the search model and browser needs about 3.2 GB. ${host ? 'Make the pod 4 GB in PikaPods' : 'Give the server 4 GB'}, or use cloud speech-to-text.`,
+    place: 'memory',
+    fix: null,
+    links: [
+      { label: 'How to resize', url: GUIDE },
+      ...(host
+        ? [
+            {
+              label: 'Manage your pod in PikaPods',
+              url: 'https://www.pikapods.com/pods',
+            },
+          ]
+        : []),
+    ],
+  };
+}
+
+it('says Row-Bot restarted for lack of memory, how to resize and how to dismiss it (U8)', async () => {
+  const loadAttention = vi
+    .fn()
+    .mockResolvedValueOnce({
+      schema_version: 1,
+      update: null,
+      problems: [outOfMemory(true)],
+    })
+    .mockResolvedValue({ schema_version: 1, update: null, problems: [] });
+  show({ loadAttention });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText(
+    'Row-Bot restarted because the server ran out of memory',
+  );
+  expect(needs).toHaveTextContent(
+    'Your server has 2 GB. Local speech-to-text together with the search model and browser needs about 3.2 GB. Make the pod 4 GB in PikaPods, or use cloud speech-to-text.',
+  );
+  // How to resize: the guide and the host's own page, each in a new tab.
+  for (const [name, href] of [
+    ['How to resize', GUIDE],
+    ['Manage your pod in PikaPods', 'https://www.pikapods.com/pods'],
+  ]) {
+    const link = within(needs).getByRole('link', { name });
+    expect(link).toHaveAttribute('href', href);
+    expect(link).toHaveAttribute('target', '_blank');
+  }
+  expect(
+    within(needs).getByRole('link', { name: 'Use cloud speech-to-text' }),
+  ).toHaveAttribute('href', '/settings/voice#talk');
+  fireEvent.click(
+    within(needs).getByRole('button', {
+      name: 'Open Row-Bot restarted because the server ran out of memory',
+    }),
+  );
+  expect(handlers.onOpenTab).toHaveBeenCalledWith('monitor');
+
+  fireEvent.click(within(needs).getByRole('button', { name: 'Dismiss' }));
+  expect(runtime.dismissMemoryNotice).toHaveBeenCalledOnce();
+  await vi.waitFor(() =>
+    expect(
+      screen.queryByText(
+        'Row-Bot restarted because the server ran out of memory',
+      ),
+    ).toBeNull(),
+  );
+  expect(loadAttention).toHaveBeenCalledTimes(2);
+  expect(summary()).toBe('All quiet.');
+});
+
+it('without a known host the memory notice links only the guide, and only to web pages (U8)', async () => {
+  const notice = outOfMemory(false);
+  show({
+    loadAttention: attention({
+      ...notice,
+      links: [
+        ...(notice.links ?? []),
+        { label: 'Open a script', url: 'javascript:alert(1)' },
+      ],
+    }),
+  });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText(/Give the server 4 GB/);
+  expect(
+    within(needs).getByRole('link', { name: 'How to resize' }),
+  ).toBeVisible();
+  expect(
+    within(needs).queryByRole('link', { name: /Manage your pod/ }),
+  ).toBeNull();
+  expect(
+    within(needs).queryByRole('link', { name: 'Open a script' }),
+  ).toBeNull();
+  expect(summary()).toBe('1 thing needs you.');
+});
+
+it('offers the draft and the post, never Try again, for a reply X takes only from its own app', async () => {
+  const retry = vi.fn();
+  const target = 'https://x.com/i/status/1900000000000000001';
+  show({
+    loadScheduledPosts: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      items: [
+        {
+          id: 'xs-0123456789ab',
+          account_id: '222',
+          username: 'sidd',
+          action: 'reply' as const,
+          text: 'Row-Bot keeps it local.',
+          target_url: target,
+          post_at: '2026-09-26T12:00',
+          status: 'by_hand' as const,
+          reason:
+            'Nothing was sent to X: X allows this reply only from its own app or website.',
+        },
+      ],
+    }),
+    onRetryScheduledPost: retry,
+    onCancelScheduledPost: vi.fn(),
+  });
+  const rows = await screen.findByRole('list', {
+    name: "Posts that didn't go out",
+  });
+  const [row] = within(rows).getAllByRole('listitem');
+  expect(row).toHaveTextContent('Row-Bot keeps it local.');
+  expect(row).toHaveTextContent('only from its own app or website');
+  expect(
+    within(row).queryByRole('button', { name: 'Try again now' }),
+  ).toBeNull();
+  await act(async () => {
+    fireEvent.click(
+      within(row).getByRole('button', { name: 'Copy the draft' }),
+    );
+  });
+  expect(platform.writeClipboard).toHaveBeenCalledWith(
+    'Row-Bot keeps it local.',
+  );
+  expect(within(row).getByRole('button', { name: 'Copied' })).toBeVisible();
+  fireEvent.click(
+    within(row).getByRole('button', { name: 'Open the post on X' }),
+  );
+  expect(platform.openExternal).toHaveBeenCalledWith(target);
+  expect(within(row).getByRole('button', { name: 'Dismiss' })).toBeVisible();
+  expect(retry).not.toHaveBeenCalled();
 });

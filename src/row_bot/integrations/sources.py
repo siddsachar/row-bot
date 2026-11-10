@@ -11,11 +11,13 @@ from dataclasses import dataclass, field
 from functools import cache
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
+from row_bot.hosting import on_server
 from row_bot.integrations import apps, facts, icons, index
 from row_bot.integrations.safe import public_url
 
@@ -65,10 +67,14 @@ def skill_identities(*, content_hash: str = "", origin: str = "", description: s
     return keys
 
 
+_WORDS = re.compile(r"[^\W_]+")
+
+
 def matches(query: str, *texts: str) -> bool:
-    """Every query word appears among the entry's and its app's words."""
-    haystack = " ".join(texts).casefold()
-    return all(word in haystack for word in tokens(query))
+    """Every query word begins one of the entry's or its app's words, as the Registry index matches:
+    "reddit" finds "Reddit tools" and "reddit-mcp", never "subreddit"."""
+    words = set(_WORDS.findall(" ".join(texts).casefold()))
+    return all(any(word.startswith(term) for word in words) for term in tokens(query))
 
 
 @dataclass
@@ -79,6 +85,10 @@ class Search:
     cancelled: Callable[[], bool] = lambda: False
     validate: Callable[[], None] = lambda: None
     everything: bool = False  # Also placeholder, test and duplicate records ("Show all results").
+    # Filters, applied where the results are chosen so counts stay true (None: every label).
+    labels: frozenset[str] | None = None
+    runs: str = "anywhere"
+    no_sign_in: bool = False
 
 
 @dataclass
@@ -143,9 +153,10 @@ def mcp_identity(install: dict | None, version: str = "", registry: str = "", *,
     install = install or {}
     parts = urlsplit(str(install.get("url") or ""))
     if parts.hostname:
-        # Fixed header values (a tenant, a workspace) make another deployment of the same endpoint,
-        # and so does signing in through the person's own OAuth app rather than with a key.
+        # Fixed header or query values (a tenant, a workspace, the tools a shared endpoint serves) make another
+        # deployment of the same endpoint, and so does signing in through the person's own OAuth app.
         fixed = sorted((name.lower(), value) for name, value in (install.get("headers") or {}).items() if "{" not in value)
+        fixed += sorted(["?" + name, value] for name, value in parse_qsl(parts.query) if "{" not in value)
         suffix = "#" + hashlib.sha256(json.dumps(fixed).encode()).hexdigest()[:12] if fixed else ""
         suffix += "#own-client" if own_client else ""
         return f"mcp:endpoint:{install.get('transport', '')}:{parts.hostname.lower()}{parts.path.rstrip('/') or '/'}{suffix}"
@@ -153,6 +164,35 @@ def mcp_identity(install: dict | None, version: str = "", registry: str = "", *,
     if refs:
         return "mcp:" + refs[0] + ("@" + version if version else "")
     return "mcp:registry:" + registry + "@" + version if registry else ""
+
+
+def launchable(install: dict | None) -> bool:
+    """A recipe Row-Bot can run or reach: an endpoint, a command or a Registry bundle."""
+    install = install or {}
+    return bool(install.get("url") or install.get("command") or (install.get("bundle") or {}).get("url"))
+
+
+def sign_in(install: dict | None, auth_mode: str = "", requires_auth: bool = False) -> str:
+    """Whether a way to connect works without an account or key: "none", "required" or "unknown".
+    A key the recipe asks for but can do without (higher rate limits, say) is not required."""
+    install = install or {}
+    secret = any(isinstance(item, dict) and item.get("secret") and item.get("required") for item in install.get("inputs") or [])
+    if auth_mode in {"oauth", "api_key"} or requires_auth or secret:
+        return "required"
+    return "none" if auth_mode == "none" or (not install.get("url") and launchable(install)) else "unknown"
+
+
+def shipped_signals(url: str, registry_name: str, updated: int) -> dict:
+    """What the signals shipped with this release say about a listing's repository and Registry record.
+    Read from the installed file only; Row-Bot never asks GitHub or the Registry for them."""
+    from row_bot.mcp_client import registry_signals
+    found = registry_signals.repository(facts.repository(url))
+    first = registry_signals.record(registry_name)[0] if registry_name else 0
+    pushed = found.pushed if found else 0
+    public = {"stars": found.stars if found else None, "last_activity_at": pushed or updated or None}
+    return {"pushed_at": pushed, "archived": bool(found and found.archived), "fork_parent": found.parent if found else "",
+            "fork": bool(found and found.fork), "first_published": first, "licence": found.licence if found else "",
+            "signals": {key: value for key, value in public.items() if value is not None} or None}
 
 
 class _McpCatalog(Source):
@@ -173,16 +213,23 @@ class _McpCatalog(Source):
         if canonical:  # A Registry record: its server part when it has no title, its owner as publisher.
             name = canonical.rpartition("/")[2] if name == canonical else name
             publisher = apps.publisher_of(canonical.partition("/")[0])
-        supported = bool(entry.install and (entry.install.get("url") or entry.install.get("command")
-                                            or (entry.install.get("bundle") or {}).get("url")))  # A Registry bundle.
+        supported = launchable(entry.install)
         known = metadata.get("auth_mode") in {"oauth", "api_key", "none"} or not (entry.install or {}).get("url") or bool(
             app and app.auth in {"oauth", "api_key", "none"})
+        updated = index.epoch(metadata.get("updated_at", ""))
+        shipped = shipped_signals(entry.url, canonical, updated)
         row = _available("mcp", entry.source + ":" + entry.id, name, app=app, source=entry.source,
             verified=apps.verified(app, refs), setup_tier=0 if supported and known else 1 if supported else 2,
-            updated_at=index.epoch(metadata.get("updated_at", "")), icon=icons.entry_icon(app, metadata.get("icon", ""), entry.name),
+            updated_at=updated, icon=icons.entry_icon(app, metadata.get("icon", ""), name),
+            # A Registry record is also known by its server part ("reddit-mcp-buddy"), as the index matches it.
+            keywords=[canonical.rpartition("/")[2]] if canonical else [], has_icon=bool(metadata.get("icon")),
+            sign_in=sign_in(entry.install, metadata.get("auth_mode", ""), entry.requires_auth),
+            signals=shipped["signals"], pushed_at=shipped["pushed_at"], archived=shipped["archived"],
+            fork_parent=shipped["fork_parent"], fork=shipped["fork"], first_published=shipped["first_published"],
+            identities=facts.merge_keys(entry.install, entry.url, name),
             unsupported="" if supported else "No supported launch recipe is available; use advanced configuration.",
             description=entry.description[:2048], source_url=public_url(entry.url), publisher=publisher[:160],
-            compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license", ""),
+            compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license") or shipped["licence"],
             pin=metadata.get("version_policy", ""), version=str(metadata.get("version", ""))[:128],
             auth_requirement="required" if entry.requires_auth else "unknown", auth_mode=metadata.get("auth_mode", ""),
             canonical_identity=mcp_identity(entry.install, metadata.get("version", ""), metadata.get("canonical_name", ""),
@@ -221,7 +268,10 @@ class Curated(_McpCatalog):
 
 class Registry(_McpCatalog):
     id, label, access, network = "official", "Official MCP Registry", "snapshot", "explicit"
-    message = "The whole Registry, searched on this computer; updated only when you ask."
+
+    @property
+    def message(self) -> str:
+        return f"The whole Registry, searched {on_server()}; updated only when you ask."
 
     def lookup(self, reference: str):
         return index.lookup(reference.removeprefix(self.id + ":"))
@@ -229,14 +279,15 @@ class Registry(_McpCatalog):
     def search(self, search: Search) -> Found:
         from row_bot.mcp_client.registry_snapshot import MAX_AGE, read_header
         try:
-            results, total, current, hidden = index.search(search.query, everything=search.everything)
+            results, total, current, hidden = index.search(search.query, everything=search.everything, labels=search.labels,
+                                                           runs=search.runs, no_sign_in=search.no_sign_in)
         except LookupError:  # Start-up has not finished building the local mirror; show what it is built from.
             import lzma
             try:
                 shipped = read_header()
             except (OSError, ValueError, EOFError, lzma.LZMAError):
                 shipped = {}
-            return Found(statuses=[self.status(status="pending", message="Preparing the Registry on this computer.",
+            return Found(statuses=[self.status(status="pending", message=f"Preparing the Registry {on_server()}.",
                 fetched_at=shipped.get("captured_at"), snapshot_version="v0.1" if shipped else "",
                 snapshot_digest=shipped.get("digest", ""))])
         found = Found(hidden=hidden)
@@ -295,7 +346,7 @@ class WindowsConnectors(_McpCatalog):
 
     def row(self, entry) -> tuple[dict, dict]:
         row, reference = super().row(entry)
-        row["canonical_identity"] = "mcp:windows:" + entry.id
+        row["canonical_identity"], row["identities"] = "mcp:windows:" + entry.id, []
         return row, reference
 
     def search(self, search: Search) -> Found:
@@ -329,6 +380,7 @@ class Composio(_McpCatalog):
 
     def row(self, entry) -> tuple[dict, dict]:
         row, reference = super().row(entry)
+        row["identities"] = []
         if entry.id.endswith("-key"):  # The same endpoint with a key: another way, not the same card.
             row["canonical_identity"] += "#consumer-key"
         return row, reference
@@ -449,7 +501,8 @@ class Native(Source):
             page = plugin_commands.read_plugin_catalog(query=search.query, source="marketplace", cursor=cursor, limit=50,
                                                        validate=search.validate)
             for row in page["items"]:
-                found.add(*self.row(row["plugin_id"], row["name"], row["description"], row["version"]))
+                if matches(search.query, row["name"], row["plugin_id"], row["description"]):  # Words, not substrings.
+                    found.add(*self.row(row["plugin_id"], row["name"], row["description"], row["version"]))
             cursor = page.get("next_cursor")
             if not cursor:
                 break
@@ -501,13 +554,15 @@ class Skills(Source):
             refresh=search.refresh, cached_only=not search.refresh, limit=96, cancelled=search.cancelled)
         found = Found()
         for entry in result["entries"]:
+            if not matches(search.query, entry["name"], entry["description"], entry["author"]):
+                continue  # The hub's own search also finds words inside words; only whole-word starts count.
             listed = client_skill_hub.listed_entry(search.owner_id, result["revision"], entry["id"])
             meta = listed.metadata if listed is not None else {}
             signals = {key: meta[key] for key in ("downloads", "stars", "official") if meta.get(key) is not None} or None
             origin = f"https://github.com/{meta['repository']}/{meta.get('path', '')}".rstrip("/") if meta.get("repository") else ""
             found.add(_available("skill", entry["id"], plain_text(entry["name"], 160), app=None, installed=entry["installed"],
                 source=entry["source"], description=entry["description"], publisher=entry["author"],
-                source_url=public_url(entry.get("url")), compatibility="not_inspected", signals=signals,
+                source_url=public_url(entry.get("url")), compatibility="not_inspected", signals=signals, sign_in="none",
                 popularity=(signals or {}).get("downloads") or 0, identities=skill_identities(
                     content_hash=str(meta.get("content_hash") or ""), origin=origin, description=entry["description"])),
                 {"kind": "skill", "revision": result["revision"], "entry_id": entry["id"]})
@@ -568,7 +623,8 @@ class FeaturedSkills(Source):
         row = _available("skill", "featured:" + skill["id"], skill["name"], app=app, source=self.id, installed=install_ref in installed,
             description=skill["summary"], publisher=skill["publisher"], license=skill["license"], version=skill["commit"][:12],
             pin=skill["commit"], source_url=f"https://{skill['repo']}/tree/{skill['commit']}/{skill['path']}",
-            compatibility="not_inspected", identities=skill_identities(origin=origin), featured_rank=skill["featured_rank"])
+            compatibility="not_inspected", identities=skill_identities(origin=origin), featured_rank=skill["featured_rank"],
+            keywords=[*skill["synonyms"], *skill["jobs"]], sign_in="none")
         return row, {"kind": "skill", "install_ref": install_ref, "name": skill["name"], "publisher": skill["publisher"]}
 
     def search(self, search: Search) -> Found:
@@ -652,16 +708,104 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
     return (facts.finish(found[0]), found[1]) if found else None
 
 
-def order(*, exact: bool, preferred: bool, strong: bool, featured_rank: int | None, setup: int, updated: float,
-          popularity: int, precedence: int, name: str, ident: str, now: float | None = None) -> tuple:
-    """The one ranking key, inside the Registry index and across sources: featured or
-    vendor-verified first (a community record never wins on its name alone), then an exact name,
-    a strong text hit, featured order, known authentication with an installable plan, freshness
-    (90 days, a year), source popularity, and stable ties."""
-    age = (time.time() if now is None else now) - updated if updated else None
-    fresh = 0 if age is None else 2 if age <= 90 * 86400 else 1 if age <= 365 * 86400 else 0
-    return (not preferred, not exact, not strong, featured_rank or 1_000_000, setup, -fresh, -popularity, precedence,
-            name.casefold(), ident)
+# Search ranking. The weights are named so that tuning them is a reviewed change: the golden queries in
+# tests/subsystem/integrations/test_search_ranking.py say what each query must show first.
+MATCHES = ("exact", "name", "description")  # The query is a name; every word starts a name word; only elsewhere.
+EXACT, NAME, DESCRIPTION = range(3)
+LABELS = ("official", "reviewed", "built_in", "community")
+# Built in ranks with Official: Row-Bot's own code, signing in to the vendor itself.
+_LABEL_ORDER = {"official": 0, "built_in": 0, "reviewed": 1, "community": 2}
+# Sources Row-Bot reviews: setup recipes (as listed, and once added), the featured skills and its own examples.
+_REVIEWED = {"curated", "recommended", "featured_skills", "examples"}
+_SETUP_ORDER = {"hosted_sign_in": 0, "hosted": 0, "built_in": 0, "api_key": 1, "local": 2}
+_DAY = 86400
+STARS = 3                      # Times log10(1 + stars): 10 stars give 3, 100 give 6, 1,000 give 9.
+ACTIVE, ALIVE = 2, 1           # Pushed (or, without a repository, updated) within 90 days; within a year.
+ARCHIVED = -2                  # Its repository is archived.
+COMPLETE_WORDS = 12            # A description of at least this many words; a licence; an icon; a known sign-in: 1 each.
+FORK = 3                       # A fork whose parent is listed too.
+NEW, NEW_DAYS = 2, 30          # A first version under 30 days old that nobody has starred yet.
+BEST_STANDING = 6              # Stars and activity (about 50 stars, kept up) that let a community result lead.
+
+
+def label(row: dict) -> str:
+    """Who stands behind a result, by rule only: the vendor (official), Row-Bot (built in, or reviewed:
+    a setup recipe, a featured skill, or a way tested through Row-Bot), or anyone else (community)."""
+    if row["kind"] == "builtin" or row["source"] == "bundled":
+        return "built_in"
+    if row["verified"]:
+        return "official"
+    if row["tested_with_row_bot"] or row["source"] in _REVIEWED or any(a["source"] in _REVIEWED for a in row["attributions"]):
+        return "reviewed"
+    return "community"
+
+
+def strength(row: dict, query: str, app: apps.App | None) -> int:
+    """Where a non-empty query matched: the name itself, every word in a name (the entry's, its app's,
+    their synonyms and jobs), or only elsewhere (a description, a publisher)."""
+    wanted = query.casefold().strip()
+    if wanted in {row["name"].casefold(), app.name.casefold() if app else row["name"].casefold()}:
+        return EXACT
+    return NAME if matches(query, row["name"], *row["keywords"], *apps.names(app)) else DESCRIPTION
+
+
+def merit(*, stars: int, words: int, licence: bool, icon: bool, sign_in_known: bool, fork: bool) -> float:
+    """The part of quality that does not age: popularity, completeness and penalties (the index stores it)."""
+    return (STARS * math.log10(1 + stars) + int(words >= COMPLETE_WORDS) + int(licence) + int(icon) + int(sign_in_known)
+            - FORK * int(fork))
+
+
+def activity(pushed: float, archived: bool, now: float) -> int:
+    return (ARCHIVED if archived else 0 if not pushed else ACTIVE if now - pushed <= 90 * _DAY
+            else ALIVE if now - pushed <= 365 * _DAY else 0)
+
+
+def quality(merit_: float, *, stars: int, pushed: float, archived: bool, first: float, now: float) -> float:
+    """Merit plus activity, less a new listing nobody has starred: the index computes the same in SQL."""
+    return merit_ + activity(pushed, archived, now) - (NEW if first and now - first < NEW_DAYS * _DAY and not stars else 0)
+
+
+def row_quality(row: dict, now: float) -> float:
+    stars = (row["signals"] or {}).get("stars") or 0
+    found = merit(stars=stars, words=len(row["description"].split()), licence=bool(row["license"]), icon=row["has_icon"],
+                  sign_in_known=row["sign_in"] != "unknown", fork=row["fork"])
+    return quality(found, stars=stars, pushed=row["pushed_at"] or row["updated_at"], archived=row["archived"],
+                   first=row["first_published"], now=now)
+
+
+def standing(row: dict, now: float) -> float:
+    """Popularity and upkeep alone (stars and activity): what lets a community result lead as the best match,
+    where a complete listing nobody uses should not."""
+    stars = (row["signals"] or {}).get("stars") or 0
+    return STARS * math.log10(1 + stars) + activity(row["pushed_at"] or row["updated_at"], row["archived"], now)
+
+
+def order(*, match: int, label: str, featured_rank: int | None, quality: float, setup: int, popularity: int = 0,
+          precedence: int = 0, name: str, ident: str) -> tuple:
+    """The one ranking key, inside the Registry index and across sources. Relevance gates: a name match
+    (exact or every word) before one found only in a description, and a community record never wins on its
+    name alone. Among results Row-Bot or a vendor stands behind, an exact name comes first ("git" is Git before
+    GitHub), then official and built in before reviewed, and Row-Bot's featured order. Then quality orders (a
+    well-kept community server before a bare one that only shares the name), then an exact name, setup (hosted,
+    a key, runs here, no recipe) and stable ties."""
+    backed = label != "community"
+    return (match == DESCRIPTION, not backed, match if backed else 0, _LABEL_ORDER[label], featured_rank or 1_000_000,
+            -quality, match, setup, -popularity, precedence, name.casefold(), ident)
+
+
+def connects(hosted: bool, auth: str) -> str:
+    return "api_key" if auth == "api_key" else "local" if not hosted else "hosted_sign_in" if auth == "oauth" else "hosted"
+
+
+def catalog_method(identity: str, auth: str) -> str:
+    """How a catalog way connects, from its source-neutral identity and declared authentication."""
+    hosted = identity.startswith("mcp:endpoint:")
+    return connects(hosted, auth) if hosted or identity.startswith("mcp:registry:") else "local"
+
+
+def setup_order(how: str, setup_tier: int) -> int:
+    """Easiest first: a hosted way (signing in), a key, runs on this computer, no supported recipe."""
+    return 3 if setup_tier == 2 else _SETUP_ORDER.get(how, 2)
 
 
 def method(row: dict) -> str:
@@ -674,14 +818,22 @@ def method(row: dict) -> str:
         return ""
     setup = row.get("setup")
     if setup:
-        hosted, auth = setup["execution"] == "hosted", setup["auth_mode"]
-    else:
-        hosted = row["canonical_identity"].startswith("mcp:endpoint:")
-        auth = (row.get("auth_mode") or (row["app"] or {}).get("auth")
-                or ("oauth" if row["auth_requirement"] == "required" else ""))
-        if not hosted and not row["canonical_identity"].startswith("mcp:registry:"):
-            return "local"
-    return "api_key" if auth == "api_key" else "local" if not hosted else "hosted_sign_in" if auth == "oauth" else "hosted"
+        return connects(setup["execution"] == "hosted", setup["auth_mode"])
+    return catalog_method(row["canonical_identity"], row.get("auth_mode") or (row["app"] or {}).get("auth")
+                          or ("oauth" if row["auth_requirement"] == "required" else ""))
+
+
+def runs(row: dict) -> str:
+    """Where a way runs: on a hosted server, or on this computer (Row-Bot's own ways, skills and packages too)."""
+    setup = row.get("setup")
+    hosted = setup["execution"] == "hosted" if setup else row["canonical_identity"].startswith("mcp:endpoint:")
+    return "hosted" if row["kind"] == "mcp" and hosted else "local"
+
+
+def wanted(labels: frozenset[str] | None, where: str, no_sign_in: bool) -> Callable[[dict], bool]:
+    """The search filters as one test of a labelled row."""
+    return lambda row: ((labels is None or row["label"] in labels) and (where == "anywhere" or runs(row) == where)
+                        and (not no_sign_in or row["sign_in"] == "none"))
 
 
 def way_order(row: dict, app: apps.App | None) -> tuple:
@@ -695,11 +847,22 @@ def way_order(row: dict, app: apps.App | None) -> tuple:
             variants.index(kind) if kind in variants else len(variants), how == "local", row["name"].casefold(), row["id"])
 
 
-def rank(rows: list[dict], query: str) -> list[dict]:
-    """Merge rows that share any source-neutral identity, keeping every attribution; then one order,
-    and one card per app: an app's other ways to connect are on its page (skills are never grouped)."""
-    sources, words, wanted = list(SOURCES), tokens(query), query.casefold().strip()
+def best_match(rows: list[dict]) -> str | None:
+    """The first result leads as the best match only when its name matched and Row-Bot or the vendor stands
+    behind it, or many people use it and it is kept up (standing)."""
+    first = rows[0] if rows else None
+    if first is None or first.get("match") not in {"exact", "name"}:
+        return None
+    return first["id"] if first["label"] != "community" or first["standing"] >= BEST_STANDING else None
+
+
+def rank(rows: list[dict], query: str, keep: Callable[[dict], bool] = lambda row: True, now: float | None = None) -> list[dict]:
+    """Merge rows that share any source-neutral identity, keeping every attribution; label and filter them
+    (``keep``); then one order, and one card per app: an app's other ways to connect are on its page (skills
+    are never grouped). Each row gains its ``label``, ``match`` (None without a query) and ``quality``."""
+    sources, searched = list(SOURCES), bool(tokens(query))
     known = apps.catalog()[0]
+    now = time.time() if now is None else now
 
     def precedence(row: dict) -> int:
         source = (row["attributions"] or [{"source": row["source"]}])[0]["source"]
@@ -707,13 +870,18 @@ def rank(rows: list[dict], query: str) -> list[dict]:
 
     def key(row: dict) -> tuple:
         app = row["app"] or {}
-        featured = row["featured_rank"] or app.get("featured_rank")
-        strong = " ".join([row["name"], row["publisher"], apps.text(known.get(app.get("id", "")))]).casefold()
-        return order(exact=bool(wanted) and wanted in {row["name"].casefold(), app.get("name", "").casefold()},
-                     preferred=featured is not None or row["verified"],
-                     strong=all(word in strong for word in words), featured_rank=featured,
-                     setup=row["setup_tier"], updated=row["updated_at"], popularity=row["popularity"],
+        return order(match=MATCHES.index(row["match"]) if row["match"] else EXACT, label=row["label"],
+                     featured_rank=row["featured_rank"] or app.get("featured_rank"), quality=row["quality"],
+                     setup=setup_order(method(row), row["setup_tier"]), popularity=row["popularity"],
                      precedence=precedence(row), name=row["name"], ident=row["id"])
+    def absorb(primary: dict, row: dict) -> None:
+        primary["attributions"].extend(a for a in row["attributions"] if a not in primary["attributions"])
+        primary["forks"] += row["forks"]
+        if row["verified"] and primary["app"]:
+            primary["verified"] = primary["app"]["verified"] = True
+
+    def stars(row: dict) -> int:
+        return (row["signals"] or {}).get("stars") or 0
     merged: dict[str, dict] = {}
     shown: list[dict] = []
     # The most reviewed source supplies the merged record; then the vendor's, the official, the most used copy.
@@ -725,14 +893,39 @@ def rank(rows: list[dict], query: str) -> list[dict]:
             primary = row
             shown.append(row)
         else:
-            primary["attributions"].extend(a for a in row["attributions"] if a not in primary["attributions"])
-            if row["verified"] and primary["app"]:
-                primary["verified"] = primary["app"]["verified"] = True
+            absorb(primary, row)
         for identity in keys:
             merged.setdefault(identity, primary)
+    # Near-identical listings by one owner are one: the most reviewed source leads, then the freshest.
+    kept: list[dict] = []
+    for row in shown:
+        at_ = next((i for i, other in enumerate(kept) if facts.near_identical(other, row)), None)
+        if at_ is None:
+            kept.append(row)
+            continue
+        other = kept[at_]
+        lead, folded = ((other, row) if (precedence(other), -other["updated_at"]) <= (precedence(row), -row["updated_at"])
+                        else (row, other))
+        absorb(lead, folded)
+        kept[at_] = lead
+    # A fork folds into its parent's card, unless more people starred the fork.
+    by_repository: dict[str, list[dict]] = {}
+    for row in kept:
+        by_repository.setdefault(facts.repository(row["source_url"]), []).append(row)
+    shown = []
+    for row in kept:
+        parents = by_repository.get(row["fork_parent"], []) if row["fork_parent"] else []
+        if len(parents) == 1 and parents[0] is not row and stars(row) <= stars(parents[0]):
+            absorb(parents[0], row)
+            parents[0]["forks"] += 1
+        else:
+            shown.append(row)
+    for row in shown:
+        row.update(label=label(row), quality=row_quality(row, now), standing=standing(row, now),
+                   match=MATCHES[strength(row, query, known.get((row["app"] or {}).get("id", "")))] if searched else None)
     at: dict[str, int] = {}
     grouped = []
-    for row in sorted(shown, key=key):
+    for row in sorted(filter(keep, shown), key=key):
         app = (row["app"] or {}).get("id") if row["kind"] != "skill" else None
         if app is None:
             grouped.append(row)
@@ -740,7 +933,14 @@ def rank(rows: list[dict], query: str) -> list[dict]:
             at[app] = len(grouped)
             grouped.append(row)
         elif way_order(row, known.get(app)) < way_order(grouped[at[app]], known.get(app)):
-            grouped[at[app]] = row  # The card opens the app's recommended way, where the app ranks.
+            # The card opens the app's recommended way, where the app ranks, under the best label of its ways.
+            leading = grouped[at[app]]
+            row.update(match=leading["match"], quality=leading["quality"], standing=leading["standing"],
+                       label=min(leading["label"], row["label"], key=_LABEL_ORDER.__getitem__))
+            grouped[at[app]] = row
+        else:
+            leading = grouped[at[app]]
+            leading["label"] = min(leading["label"], row["label"], key=_LABEL_ORDER.__getitem__)
     return grouped
 
 

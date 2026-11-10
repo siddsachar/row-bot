@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import sys
 import threading
-import time
 
 import psutil
 import pytest
@@ -43,6 +42,25 @@ def model_listings(monkeypatch):
     claude.forget_claude_plan_status()
 
 
+@pytest.fixture(autouse=True)
+def no_claude_code_left_waiting():
+    from row_bot.providers.transports.claude_plan_cli import stop_waiting_runs
+
+    yield
+    stop_waiting_runs()
+
+
+def _ended(pid: int, timeout: float = 10.0) -> bool:
+    """Whether the process is gone (or a zombie) within ``timeout``."""
+    try:
+        psutil.Process(pid).wait(timeout)
+    except psutil.NoSuchProcess:
+        pass
+    except psutil.TimeoutExpired:
+        return psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+    return True
+
+
 def _model(**kwargs):
     from row_bot.providers.transports.claude_plan_cli import ChatClaudePlan
 
@@ -55,7 +73,7 @@ def _card():
     return next(card for card in read_live_provider_cards()["providers"] if card["provider_id"] == "claude_subscription")
 
 
-# ── Settings › Providers: what Claude Code says ─────────────────────────────
+# ── Settings › Models: what Claude Code says ─────────────────────────────
 
 
 @pytest.mark.parametrize(("setup", "state", "words"), [
@@ -123,17 +141,18 @@ def test_a_reply_streams_and_the_conversation_goes_in_as_frames(store, tmp_path,
     [run] = fake.model_runs()
     assert run["argv"] == [
         "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-        "--include-partial-messages", "--model", SONNET, "--tools", "", "--max-turns", "1",
-        "--permission-mode", "dontAsk", "--no-session-persistence", "--setting-sources", "",
-        "--strict-mcp-config", "--mcp-config", run["argv"][20], "--system-prompt-file", run["argv"][22],
-        "--disable-slash-commands"]
+        "--include-partial-messages", "--model", SONNET, "--tools", "", "--max-turns", run["argv"][12],
+        "--permission-mode", "dontAsk", "--allowedTools", "mcp__rowbot", "--no-session-persistence",
+        "--setting-sources", "", "--strict-mcp-config", "--mcp-config", run["argv"][22],
+        "--system-prompt-file", run["argv"][24], "--disable-slash-commands"]
+    assert int(run["argv"][12]) > 1  # one Claude Code may ask the model again within the turn
     assert run["system"] == "You are Row-Bot."
     assert [(frame["type"], frame.get("shouldQuery")) for frame in run["frames"]] == [
         ("user", False), ("assistant", None), ("user", None)]
     assert run["frames"][1]["message"]["content"][0]["name"] == "mcp__rowbot__read_calendar"
     # Claude Code ran in Row-Bot's own empty folder, and the call's files are gone.
     assert run["cwd"] == str(claude.claude_code_workdir())
-    assert not os.path.exists(run["argv"][22])
+    assert not os.path.exists(run["argv"][24])
 
 
 def test_tool_calls_come_back_under_row_bots_names_and_claude_code_never_runs_them(store, tmp_path, monkeypatch):
@@ -152,26 +171,103 @@ def test_tool_calls_come_back_under_row_bots_names_and_claude_code_never_runs_th
         ran.append(calendar)
         return "none"
 
-    fake = install_fake_claude(tmp_path, monkeypatch, call_tool=True,
-                               reply=tool_reply(wire_tool_name(long_name), {"calendar": "team"}))
+    from row_bot.cancellation import CancellationScope, use_cancellation_scope
+
+    fake = install_fake_claude(tmp_path, monkeypatch, reply=tool_reply(wire_tool_name(long_name), {"calendar": "team"}))
     tools = [StructuredTool.from_function(read_calendar),
              StructuredTool.from_function(shared, name=long_name)]
+    scope = CancellationScope()
 
-    started = time.monotonic()
-    message = _model().bind_tools(tools).invoke([HumanMessage(content="What's on the team calendar?")])
+    with use_cancellation_scope(scope):
+        message = _model().bind_tools(tools).invoke([HumanMessage(content="What's on the team calendar?")])
 
     assert message.tool_calls == [{"name": long_name, "args": {"calendar": "team"}, "id": "toolu_synthetic01",
                                    "type": "tool_call"}]
-    assert ran == []  # nothing ran: the call goes back to Row-Bot's own loop
     [run] = fake.model_runs()
     assert [tool["name"] for tool in run["listed"]] == ["read_calendar", wire_tool_name(long_name)]
     assert run["listed"][0]["inputSchema"]["properties"]["day"]["type"] == "string"
-    # The tool server refuses every call, whatever Claude Code does.
-    assert run["tool_call"]["isError"] is True and "Nothing ran here" in run["tool_call"]["content"][0]["text"]
-    # Claude Code was stopped at the model's own stop, not left to try another turn.
-    assert time.monotonic() - started < 30
-    for pid in (run["pid"], run["server_pid"]):
-        assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+    # Claude Code waits in the tool server, which runs nothing: the call goes back to Row-Bot's own loop.
+    assert ran == [] and fake.model_runs()[0]["tool_calls"] == []
+    assert psutil.pid_exists(run["pid"])
+    # Stop while Row-Bot runs the tool ends the waiting Claude Code and its tool server.
+    scope.cancel()
+    assert _ended(run["pid"]) and _ended(run["server_pid"])
+
+
+def _calendar_tool(ran: list[str]) -> StructuredTool:
+    def read_calendar(day: str) -> str:
+        """Read the calendar for a day."""
+        ran.append(day)
+        return "Dentist"
+
+    return StructuredTool.from_function(read_calendar)
+
+
+def test_one_claude_code_runs_a_whole_turn_and_gets_the_results_row_bot_ran(store, tmp_path, monkeypatch):
+    """The prompt cache fix: the model's next call in the turn comes from the same Claude Code, so it builds
+    on its own transcript instead of a new process replaying (and re-caching) the whole conversation."""
+    ran: list[str] = []
+    fake = install_fake_claude(tmp_path, monkeypatch, replies=[
+        tool_reply("read_calendar", {"day": "Friday"}),
+        tool_reply("read_calendar", {"day": "Saturday"}, call_id="toolu_synthetic02"),
+        text_reply("Dentist on Friday, Saturday is free."),
+    ])
+    model = _model().bind_tools([_calendar_tool(ran)])
+    messages = [SystemMessage(content="You are Row-Bot."), HumanMessage(content="What's on this weekend?")]
+
+    first = model.invoke(messages)
+    messages += [first, ToolMessage(content="Dentist at 3pm", tool_call_id=first.tool_calls[0]["id"])]
+    second = model.invoke(messages)
+    messages += [second, ToolMessage(content=[{"type": "text", "text": "Nothing planned"}],
+                                     tool_call_id=second.tool_calls[0]["id"])]
+    answer = model.invoke(messages)
+
+    assert first.tool_calls[0]["args"] == {"day": "Friday"}
+    assert second.tool_calls[0]["args"] == {"day": "Saturday"}
+    assert answer.content == "Dentist on Friday, Saturday is free."
+    [run] = fake.model_runs()  # one Claude Code for the whole turn
+    assert [frame["type"] for frame in run["frames"]] == ["user"]  # the conversation went in once
+    assert run["tool_calls"] == [
+        {"name": "read_calendar", "arguments": {"day": "Friday"},
+         "answer": {"isError": False, "content": [{"type": "text", "text": "Dentist at 3pm"}]}},
+        {"name": "read_calendar", "arguments": {"day": "Saturday"},
+         "answer": {"isError": False, "content": [{"type": "text", "text": "Nothing planned"}]}},
+    ]
+    assert ran == []  # Row-Bot's loop runs tools; the tool server only hands its results over
+    # A finished answer ends Claude Code.
+    assert _ended(run["pid"]) and _ended(run["server_pid"])
+
+
+def test_a_conversation_changed_between_calls_starts_a_new_claude_code(store, tmp_path, monkeypatch):
+    fake = install_fake_claude(tmp_path, monkeypatch, replies=[
+        tool_reply("read_calendar", {"day": "Friday"}), text_reply("Done.")])
+    model = _model().bind_tools([_calendar_tool([])])
+    messages = [SystemMessage(content="You are Row-Bot."), HumanMessage(content="What's on Friday?")]
+
+    first = model.invoke(messages)
+    # The person steers before the next call: not just the results of the waiting run's tool calls.
+    model.invoke(messages + [first, ToolMessage(content="Dentist", tool_call_id=first.tool_calls[0]["id"]),
+                             HumanMessage(content="And Saturday?")])
+
+    waiting, fresh = fake.model_runs()
+    assert waiting["tool_calls"] == []  # never handed a result
+    assert _ended(waiting["pid"]) and _ended(waiting["server_pid"])
+    assert [frame["type"] for frame in fresh["frames"]] == ["user", "assistant", "user"]
+
+
+def test_claude_code_that_goes_on_without_row_bots_results_is_ended_at_once(store, tmp_path, monkeypatch):
+    # A Claude Code that refused the tool server would ask the model again by itself; that run is ended.
+    fake = install_fake_claude(tmp_path, monkeypatch, refuse_tools=True, replies=[
+        tool_reply("read_calendar", {"day": "Friday"}), text_reply("I couldn't read it.")])
+    model = _model().bind_tools([_calendar_tool([])])
+    messages = [HumanMessage(content="What's on Friday?")]
+
+    first = model.invoke(messages)
+    [run] = fake.model_runs()
+    assert _ended(run["pid"])
+
+    model.invoke(messages + [first, ToolMessage(content="Dentist", tool_call_id=first.tool_calls[0]["id"])])
+    assert len(fake.model_runs()) == 2  # the next call started a new Claude Code with the whole conversation
 
 
 def test_effort_and_an_output_cap_reach_claude_code_as_its_own_flags(store, tmp_path, monkeypatch):
@@ -223,13 +319,16 @@ def test_a_document_job_needs_a_claude_code_that_can_take_it(store, tmp_path, mo
 
 
 @pytest.mark.parametrize(("setup", "expected", "words"), [
-    ({"installed": False}, "ClaudePlanUnavailable", "isn't installed"),
-    ({"version": "2.1.100 (Claude Code)"}, "ClaudePlanUnavailable", "claude update"),
-    ({"auth": {"loggedIn": False}, "auth_exit": 1}, "ProviderSignInRequired", "claude auth login"),
+    ({"installed": False}, "ClaudePlanUnavailable",
+     "Your Claude plan isn't set up. Choose Use my Claude plan in Settings › Models › Claude (your Claude plan)."),
+    ({"version": "2.1.100 (Claude Code)"}, "ClaudePlanUnavailable",
+     "Row-Bot needs Claude Code 2.1.263 or newer. Update Claude Code in Settings › Models"),
+    ({"auth": {"loggedIn": False}, "auth_exit": 1}, "ProviderSignInRequired",
+     "Claude signed you out. Sign in again to keep using your plan."),
     ({"reply": error_reply("authentication_failed", "OAuth token has expired")}, "ProviderSignInRequired",
-     "claude auth login"),
+     "Claude signed you out. Sign in again to keep using your plan."),
     ({"reply": error_reply("rate_limit", "You've hit your weekly limit · resets Mon 9am")}, "ClaudePlanUnavailable",
-     "usage limit is reached (You've hit your weekly limit · resets Mon 9am)"),
+     "Your Claude plan's limit is reached until Mon 9am. Pick another model for now."),
     ({"reply": error_reply("rate_limit", "API Error: 429")}, "ClaudePlanUnavailable", "limiting requests"),
     ({"reply": text_reply("Half an ans")[:4] + [{"exit": 3}]}, "ClaudeCodeEnded", "ended before it finished"),
 ])
@@ -249,7 +348,7 @@ def test_claude_code_gone_since_it_was_checked_says_so_and_is_checked_again(stor
     for shim in fake.bin_dir.glob("claude*"):
         shim.unlink()
 
-    with pytest.raises(claude.ClaudePlanUnavailable, match="Claude Code didn't start on this computer"):
+    with pytest.raises(claude.ClaudePlanUnavailable, match="Claude Code didn't start. Check Claude"):
         _model().invoke([HumanMessage(content="Hello")])
     assert claude.claude_plan_status().state == "not_installed"
 
@@ -320,6 +419,52 @@ def test_row_bot_never_opens_a_claude_credential_file(store, tmp_path, monkeypat
     touched = [path for path in opened_files if ".credentials.json" in path or path.endswith(".claude.json")
                or os.sep + ".claude" + os.sep in path]
     assert touched == []
+
+
+def test_signing_out_is_claude_codes_own_logout_and_row_bot_never_opens_its_files(
+        store, tmp_path, monkeypatch, opened_files):
+    home = tmp_path / "fake-claude-home"
+    fake = install_fake_claude(tmp_path, monkeypatch)
+    credentials = home / ".claude" / ".credentials.json"
+    credentials.parent.mkdir(parents=True)
+    credentials.write_text('{"claudeAiOauth": {"accessToken": "never-read"}}', encoding="utf-8")
+    assert claude.claude_plan_status().ready
+    opened_files.clear()
+
+    assert claude.sign_out_claude_code() is True
+
+    assert [run["argv"] for run in fake.runs()][-1] == ["auth", "logout"]
+    # The answer Row-Bot had is forgotten: the next look asks Claude Code again.
+    assert claude.claude_plan_status().state == "signed_out"
+    assert not credentials.exists()  # Claude Code's own doing
+    assert [path for path in opened_files if os.sep + ".claude" + os.sep in path] == []
+
+
+def test_a_sign_out_claude_code_refuses_says_so(store, tmp_path, monkeypatch):
+    install_fake_claude(tmp_path, monkeypatch, logout_exit=1)
+    assert claude.sign_out_claude_code() is False
+    assert claude.claude_plan_status().ready
+    install_fake_claude(tmp_path, monkeypatch, installed=False)
+    (tmp_path / "fake-claude-bin" / "claude.cmd").unlink(missing_ok=True)
+    (tmp_path / "fake-claude-bin" / "claude").unlink(missing_ok=True)
+    assert claude.sign_out_claude_code() is False
+
+
+def test_the_plan_is_the_one_claude_codes_live_session_names(store, tmp_path, monkeypatch):
+    """``claude auth status`` can name an older plan of the same account (max after a switch to Ultra); the
+    plan shown is the one Claude Code's ``initialize`` names, from the last model listing of this sign-in."""
+    fake = install_fake_claude(tmp_path, monkeypatch, account_plan="Claude Ultra")
+    assert _card()["claude_plan"]["plan"] == "Claude Max"  # before any listing: auth status's
+
+    claude.list_claude_subscription_model_infos(force_refresh=True)
+
+    assert _card()["claude_plan"]["plan"] == "Claude Ultra"
+    # Another sign-in (auth status answers differently): its own plan until its models are listed.
+    config_file = fake.bin_dir / "config.json"
+    config_file.write_text(config_file.read_text(encoding="utf-8").replace(
+        '"subscriptionType": "max"', '"subscriptionType": "pro"'), encoding="utf-8")
+    claude.forget_claude_plan_status()
+    assert _card()["claude_plan"]["plan"] == "Claude Pro"
 
 
 def test_inherited_keys_endpoints_and_other_clouds_never_reach_claude_code(store, tmp_path, monkeypatch):
@@ -421,6 +566,31 @@ def test_the_models_are_claude_codes_own_list_and_listing_them_asks_no_model(sto
     assert [frame["type"] for frame in listing["frames"]] == ["control_request"]  # no message to any model
     assert [info.model_id for info in claude.list_claude_subscription_model_infos_for_status()] == [
         info.model_id for info in infos]
+
+
+def test_a_model_claude_code_offers_at_1m_keeps_its_1m_choice(store, tmp_path, monkeypatch):
+    """Claude Code 2.1.322 (a Max plan, 10 Nov) asks for Fable's 1M context in the row's value, not in its
+    resolved model; the list read it as a 200K model and chats asked Claude Code for that one."""
+    efforts = {"supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+               "supportsAdaptiveThinking": True}
+    install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)", models=[
+        {"value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)",
+         "description": "Opus 5.5 · Best for everyday, complex tasks", **efforts},
+        {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus",
+         "description": "Opus 5.5 · Best for everyday, complex tasks", **efforts},
+        {"value": "claude-fable-5-1[1m]", "resolvedModel": "claude-fable-5-1", "displayName": "Fable",
+         "description": "Fable 5.1 · Most capable for your hardest and longest-running tasks", **efforts},
+        {"value": "haiku", "resolvedModel": "claude-haiku-5-5", "displayName": "Haiku",
+         "description": "Haiku 5.5 · Fastest for quick answers", **efforts},
+    ])
+
+    infos = claude.list_claude_subscription_model_infos(force_refresh=True)
+
+    assert [(info.model_id, info.context_window) for info in infos] == [
+        ("claude-opus-5-5", 200_000), ("claude-fable-5-1[1m]", 1_000_000), ("claude-haiku-5-5", 200_000)]
+    fake = install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)")
+    _model(model_name="claude-fable-5-1[1m]").invoke([HumanMessage(content="Hi")])
+    assert fake.model_runs()[0]["argv"][8] == "claude-fable-5-1[1m]"
 
 
 def test_a_chat_saved_on_an_older_claude_model_keeps_its_choice(store, tmp_path, monkeypatch):

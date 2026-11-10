@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -18,6 +19,7 @@ import type {
 } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
+import { setPlace } from '../../api/place';
 import { WorkspaceActionsContext } from '../shell/workspace-actions';
 import AccessSheet from './AccessSheet';
 import AppsArea from './AppsArea';
@@ -237,6 +239,62 @@ const page = (items: IntegrationEntry[], sources: unknown[] = []) => ({
 
 afterEach(() => {
   vi.useRealTimers();
+  setPlace(null);
+});
+
+it('says where a local app runs: this computer here, the Row-Bot server elsewhere (U7)', async () => {
+  const files = entry({
+    id: 'mcp:curated:filesystem',
+    name: 'Files on this computer',
+    method: 'local',
+    installed: true,
+    lifecycle: 'installed',
+    readiness: 'ready',
+  });
+  const value = detail({
+    entry: files,
+    plan: null,
+    about: {
+      ...detail().about,
+      destination: '',
+      runs_locally: true,
+      signs_in: false,
+    },
+  });
+  const controller = () => ({
+    integrationItems: vi.fn(async () => page([files])),
+    integrationDetail: vi.fn(async () => value),
+  });
+  const read = async (path: string, card: string, page: string) => {
+    show('/settings/apps', controller());
+    const yours = await screen.findByRole('region', { name: 'Your apps' });
+    expect(within(yours).getByRole('link')).toHaveTextContent(card);
+    cleanup();
+    show(
+      `/settings/apps/item?id=${encodeURIComponent(files.id)}`,
+      controller(),
+    );
+    expect(await screen.findByRole('heading', { name: path })).toBeVisible();
+    expect(screen.getByText(page)).toBeVisible();
+    cleanup();
+  };
+  await read(
+    'Files on this computer',
+    'Runs on this computer',
+    'Runs on this computer.',
+  );
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  await read(
+    'Files on your Row-Bot server',
+    'Runs on your Row-Bot server',
+    'Runs on your Row-Bot server at PikaPods.',
+  );
+  setPlace({ kind: 'server' });
+  await read(
+    'Files on your Row-Bot server',
+    'Runs on your Row-Bot server',
+    'Runs on the computer Row-Bot runs on.',
+  );
 });
 
 it('puts your apps first, attention first, and only searches online when asked', async () => {
@@ -371,72 +429,6 @@ it('loads every icon on screen in one local request, and draws letters itself', 
   expect(document.querySelector('.app-letter')?.textContent).toBe('A');
   // A dark single-colour mark is flagged so dark mode can invert it.
   expect(document.querySelectorAll('.app-icon img[data-mono]')).toHaveLength(1);
-});
-
-it('puts vendor apps first, the community after, and shows hidden results on request', async () => {
-  const items = vi.fn(async (options: { scope?: string; all?: string }) =>
-    options.scope === 'installed'
-      ? page([])
-      : {
-          ...page([
-            entry({
-              id: 'mcp:official:io.github.fan/notion@1.0.0',
-              name: 'notion',
-              publisher: 'fan on GitHub',
-            }),
-            entry({
-              verified: true,
-              app: {
-                id: 'notion',
-                name: 'Notion',
-                publisher: 'Notion',
-                category: 'productivity',
-                icon: 'si:notion',
-                verified: true,
-                featured_rank: 4,
-              },
-            }),
-          ]),
-          hidden: options.all ? 0 : 3,
-        },
-  );
-  show('/settings/apps?q=notion', { integrationItems: items });
-  const community = await screen.findByRole('heading', {
-    name: 'More from the community',
-  });
-  const section = community.closest('section') as HTMLElement;
-  expect(within(section).getByText('Community · fan on GitHub')).toBeVisible();
-  expect(within(section).queryByText(/by Notion/)).toBeNull();
-  expect(screen.getByText('by Notion')).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Show all results' }));
-  await waitFor(() =>
-    expect(items).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: 'catalog', all: 'true' }),
-      expect.anything(),
-    ),
-  );
-});
-
-it('gives a search found only in the community one heading, not an empty one above it', async () => {
-  show('/settings/apps?q=zzzz', {
-    integrationItems: vi.fn(async (options: { scope?: string }) =>
-      page(
-        options.scope === 'installed'
-          ? []
-          : [
-              entry({
-                id: 'mcp:official:io.github.fan/zzzz@1.0.0',
-                name: 'zzzz tools',
-                publisher: 'fan on GitHub',
-              }),
-            ],
-      ),
-    ),
-  });
-  expect(
-    await screen.findByRole('heading', { name: 'From the community' }),
-  ).toBeVisible();
-  expect(screen.queryByRole('heading', { name: /^Results for/ })).toBeNull();
 });
 
 it("lists an app's other ways to connect, recommended first", async () => {

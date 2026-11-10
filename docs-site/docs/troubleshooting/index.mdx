@@ -10,13 +10,13 @@ Start with what Row-Bot already tells you. The sidebar's attention indicator app
 ## Setup Problems
 
 - If Row-Bot keeps opening setup, finish **How should Row-Bot think?** or choose **Set up later**. Open Setup Center from Overview or the command palette to continue optional setup.
-- Check Settings › Providers and Settings › Models before troubleshooting a conversation.
+- Check Settings › Models before troubleshooting a conversation.
 - Check Settings › System if local files, browser automation, or command execution are involved, and Settings › Devices & remote access for other devices or the public link.
 - For native application control, open the Computer Use setup in Settings › System and resolve its driver or operating-system permission status before retrying.
 
 ## Model Problems
 
-- Refresh the provider in Settings › Providers, then refresh the catalog in Settings › Models.
+- Refresh the provider's model list in its sheet in Settings › Models.
 - A model marked **Unavailable** in a picker says why; reconnecting its provider usually fixes it.
 - Choose a tool-capable model for workflows, designs, code folders, and multi-step tool use.
 - For local and custom endpoints, use enough context for Row-Bot's instructions and tool schemas; lower the **Reading limit** in Settings › Models on smaller computers.
@@ -40,6 +40,7 @@ Start with what Row-Bot already tells you. The sidebar's attention indicator app
 
 - **Linux** runs as a browser app: open the address Row-Bot prints. Computer use and the native window aren't available there.
 - **Docker** keeps everything in its data volume; see [Docker And VPS Operations](/docs/operations/docker/) for backups and upgrades.
+- **A Row-Bot that PikaPods runs for you:** see [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted) for the setup code, out-of-memory restarts, sign-ins, local models and moving.
 
 ## Chat, Tool, And Approval Problems
 

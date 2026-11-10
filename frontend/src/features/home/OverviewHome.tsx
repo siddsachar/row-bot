@@ -13,18 +13,24 @@ import {
   Bot,
   Brain,
   CalendarClock,
+  Check,
   ChevronDown,
   ChevronRight,
   Code2,
+  Copy,
+  ExternalLink,
   HeartPulse,
   Hourglass,
   ImageOff,
+  MemoryStick,
   MessageSquare,
   Palette,
   Paperclip,
+  Pencil,
   RotateCw,
   Send,
   ShieldAlert,
+  VolumeX,
   Workflow,
   X,
 } from 'lucide-react';
@@ -41,10 +47,16 @@ import type {
   SystemDiagnosis,
   TaskSummary,
   TaskSummaryPage,
+  XPostEdit,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { writeClipboardText } from '../../platform/clipboard';
+import { useRuntime } from '../../runtime';
 import { Hint, IconButton } from '../../ui/primitives';
 import ApprovalCard from '../shell/ApprovalCard';
+import { openMediaViewer } from '../shell/MediaPreview';
+import { MediaTile, XPostEditor } from '../shell/XPostDetails';
+import { useOverlay } from '../../ui/overlays';
 import { fallbackDue } from '../../api/live-updates';
 import { useLive, useLiveUpdate } from '../../live';
 import { parseTimestamp, relativeTime } from '../../ui/format';
@@ -64,6 +76,7 @@ import {
 } from '../shell/needs';
 import { usePendingApprovals } from '../shell/pending-approvals';
 import FixAction, { RunAgain } from './FixAction';
+import MemoryNoticeActions from './MemoryNotice';
 import { useWaits } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
 
@@ -89,6 +102,8 @@ export type OverviewHomeProps = {
     id: string,
     withoutMedia: boolean,
   ) => Promise<unknown>;
+  /** The person's edit of a post waiting for its time: its text and which files go. */
+  onEditScheduledPost?: (id: string, edit: XPostEdit) => Promise<unknown>;
   /** Buddy's live avatar beside the greeting. */
   buddy?: ReactNode;
   /**
@@ -351,6 +366,82 @@ function savedThisWeek(monitor: MonitorSnapshot | null, from: Date, to: Date) {
   }, 0);
 }
 
+/** A reply or quote X takes only from its own app or website (its reply rule):
+ * the draft to copy and the post to open, to post it there by hand. */
+function PostByHand({ post }: { post: ScheduledPost }) {
+  const { platform } = useRuntime();
+  const [copied, setCopied] = useState(false);
+  const target = post.target_url ?? '';
+  return (
+    <>
+      <IconButton
+        size="sm"
+        label={copied ? 'Copied' : 'Copy the draft'}
+        onClick={() =>
+          void writeClipboardText(
+            post.text ?? '',
+            platform.writeClipboard,
+          ).then(setCopied)
+        }
+      >
+        {copied ? (
+          <Check size={15} aria-hidden />
+        ) : (
+          <Copy size={15} aria-hidden />
+        )}
+      </IconButton>
+      {target && (
+        <IconButton
+          size="sm"
+          label="Open the post on X"
+          onClick={() => void platform.openExternal(target)}
+        >
+          <ExternalLink size={15} aria-hidden />
+        </IconButton>
+      )}
+    </>
+  );
+}
+
+/** A scheduled post's pictures and videos, each opening full size to check
+ * before it goes; a video with nothing to hear says so (it plays silent on X
+ * too). */
+function ScheduledMedia({
+  media,
+}: {
+  media: NonNullable<ScheduledPost['media']>;
+}) {
+  const overlay = useOverlay();
+  if (!media.length) return null;
+  return (
+    <span className="overview-scheduled-media">
+      {media.map((file) => (
+        <MediaTile
+          key={`${file.name}-${file.sha256}`}
+          item={file}
+          onOpen={
+            file.ref && file.mime
+              ? () =>
+                  openMediaViewer(overlay, {
+                    reference: file.ref ?? '',
+                    mime: file.mime ?? '',
+                    name: file.name,
+                    size: file.size,
+                  })
+              : undefined
+          }
+        />
+      ))}
+      {media.some((file) => file.silent) && (
+        <span className="overview-row-meta x-post-media-silent">
+          <VolumeX size={14} aria-hidden />
+          Its video has no sound
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function OverviewHome({
   conversations,
   setup,
@@ -378,6 +469,7 @@ export default function OverviewHome({
   loadScheduledPosts,
   onCancelScheduledPost,
   onRetryScheduledPost,
+  onEditScheduledPost,
 }: OverviewHomeProps) {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<readonly TaskSummary[] | null>(null);
@@ -387,8 +479,10 @@ export default function OverviewHome({
   const [needsOpen, setNeedsOpen] = useState(false);
   // A fix changed something: read workflows and checks again.
   const [fixed, setFixed] = useState(0);
-  const [clock, setClock] = useState(() => new Date());
-  const now = suppliedNow ?? clock;
+  // Ticks once a minute; times are read at each render, so a run starting
+  // or a chat saved since the last tick is never words from the past minute.
+  const [, setClock] = useState(0);
+  const now = suppliedNow ?? new Date();
   const reduced = useReducedMotion();
   const approvalsFeed = usePendingApprovals(loadApprovals);
   const attentionFeed = useAttention(loadAttention);
@@ -396,6 +490,9 @@ export default function OverviewHome({
   const [later, setLater] = useState<ReadonlySet<string>>(() => new Set());
   const [scheduled, setScheduled] = useState<readonly ScheduledPost[]>([]);
   const [scheduleError, setScheduleError] = useState('');
+  // The post being edited in place (its id), and whether its edit is being saved.
+  const [editingPost, setEditingPost] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
   const reviewKey = (approvalsFeed.page?.items ?? [])
     .filter((item) => item.goes_out)
     .map((item) => item.id)
@@ -419,6 +516,33 @@ export default function OverviewHome({
       setScheduled((items) => items.filter((item) => item.id !== post.id));
     } catch (cause) {
       setScheduleError(clientError(cause).message);
+    }
+  }
+  async function editScheduled(post: ScheduledPost, change: XPostEdit) {
+    if (!onEditScheduledPost) return;
+    setScheduleError('');
+    setSavingEdit(true);
+    try {
+      await onEditScheduledPost(post.id, change);
+      const kept = new Set(change.media ?? []);
+      setScheduled((items) =>
+        items.map((item) =>
+          item.id === post.id
+            ? {
+                ...item,
+                text: change.text,
+                media: (item.media ?? []).filter((file) =>
+                  kept.has(file.sha256),
+                ),
+              }
+            : item,
+        ),
+      );
+      setEditingPost('');
+    } catch (cause) {
+      setScheduleError(clientError(cause).message);
+    } finally {
+      setSavingEdit(false);
     }
   }
   async function retryScheduled(post: ScheduledPost, withoutMedia: boolean) {
@@ -517,7 +641,10 @@ export default function OverviewHome({
   // Keep "in 2 hours" and "3 minutes ago" honest while the tab stays open.
   useEffect(() => {
     if (suppliedNow) return;
-    const timer = window.setInterval(() => setClock(new Date()), 60_000);
+    const timer = window.setInterval(
+      () => setClock((tick) => tick + 1),
+      60_000,
+    );
     return () => window.clearInterval(timer);
   }, [suppliedNow]);
 
@@ -590,6 +717,24 @@ export default function OverviewHome({
     },
   );
   const problemNeeds = problems.map((problem: AttentionProblem): Item => {
+    // Row-Bot restarted for lack of memory (U8): its own actions; Monitor has the whole notice.
+    if (problem.place === 'memory')
+      return {
+        key: `problem:${problem.id}`,
+        icon: <MemoryStick size={16} />,
+        tone: 'warning',
+        title: problem.title,
+        meta: problem.detail,
+        label: `Open ${problem.title}`,
+        onOpen: () => onOpenTab('monitor'),
+        actions: (
+          <MemoryNoticeActions
+            problem={problem}
+            look="icon"
+            onDismissed={refixed}
+          />
+        ),
+      };
     // A workflow its removed code folder stopped (N9): running it again can't help;
     // its fix is choosing a folder, as on the run itself.
     const folder =
@@ -797,7 +942,9 @@ export default function OverviewHome({
       ? ''
       : next
         ? `Next: ${next.name} ${relativeTime(next.next_run, now)}.`
-        : 'All quiet.';
+        : waits.length
+          ? `Waiting for ${plural(waits.length, 'thing')}.`
+          : 'All quiet.';
 
   const quickStarts = [
     onNewResource && (
@@ -893,7 +1040,7 @@ export default function OverviewHome({
         )}
       </header>
 
-      {!needsModel && (needRows.length > 0 || showSetup) && (
+      {!needsModel && needRows.length > 0 && (
         <Section
           id="overview-needs"
           className="overview-card overview-needs"
@@ -944,38 +1091,6 @@ export default function OverviewHome({
                 <ChevronRight size={13} aria-hidden />
               )}
             </button>
-          )}
-          {showSetup && (
-            <div
-              className="overview-setup"
-              role="region"
-              aria-label="Continue setup"
-            >
-              <span className="overview-row-text">
-                <strong className="overview-row-title">Finish setup</strong>
-                <span className="overview-row-meta">
-                  {setupDone} of {setup.steps.length} done
-                  {setupSkipped ? ` · ${setupSkipped} skipped` : ''}
-                </span>
-              </span>
-              <Link className="button small" to="/setup">
-                Continue setup
-              </Link>
-              {onHideSetup && (
-                <IconButton
-                  size="sm"
-                  label="Hide setup reminder"
-                  onClick={onHideSetup}
-                >
-                  <X size={15} aria-hidden />
-                </IconButton>
-              )}
-              {setupError && (
-                <p role="status" className="overview-setup-error">
-                  {setupError}
-                </p>
-              )}
-            </div>
           )}
         </Section>
       )}
@@ -1046,28 +1161,34 @@ export default function OverviewHome({
                         <span className="overview-row-meta overview-review-text">
                           {post.text}
                         </span>
+                        <ScheduledMedia media={post.media ?? []} />
                         <span className="overview-row-meta overview-not-sent-reason">
                           {post.reason}
                         </span>
                       </span>
                     </div>
                     <div className="overview-row-actions">
-                      <IconButton
-                        size="sm"
-                        label="Try again now"
-                        onClick={() => void retryScheduled(post, false)}
-                      >
-                        <RotateCw size={15} aria-hidden />
-                      </IconButton>
-                      {(post.media?.length ?? 0) > 0 && (
+                      {post.status === 'by_hand' ? (
+                        <PostByHand post={post} />
+                      ) : (
                         <IconButton
                           size="sm"
-                          label="Post it now without the picture"
-                          onClick={() => void retryScheduled(post, true)}
+                          label="Try again now"
+                          onClick={() => void retryScheduled(post, false)}
                         >
-                          <ImageOff size={15} aria-hidden />
+                          <RotateCw size={15} aria-hidden />
                         </IconButton>
                       )}
+                      {post.status !== 'by_hand' &&
+                        (post.media?.length ?? 0) > 0 && (
+                          <IconButton
+                            size="sm"
+                            label="Post it now without the picture"
+                            onClick={() => void retryScheduled(post, true)}
+                          >
+                            <ImageOff size={15} aria-hidden />
+                          </IconButton>
+                        )}
                       <IconButton
                         size="sm"
                         label="Dismiss"
@@ -1085,36 +1206,63 @@ export default function OverviewHome({
             <>
               <h4 className="overview-review-heading">Scheduled</h4>
               <ul className="overview-rows" aria-label="Scheduled posts">
-                {upcoming.map((post) => (
-                  <li
-                    key={post.id}
-                    className="overview-row overview-row-approval"
-                  >
-                    <div className="overview-row-body">
-                      <Tile tone="4">
-                        <CalendarClock size={16} />
-                      </Tile>
-                      <span className="overview-row-text">
-                        <strong className="overview-row-title">
-                          {slotWords(post.post_at, now)}
-                          {post.username && ` · @${post.username}`}
-                        </strong>
-                        <span className="overview-row-meta overview-review-text">
-                          {post.text}
+                {upcoming.map((post) =>
+                  editingPost === post.id ? (
+                    <li key={post.id} className="overview-row-edit">
+                      <XPostEditor
+                        post={{
+                          ...post,
+                          username: post.username ?? '',
+                        }}
+                        busy={savingEdit}
+                        onSave={(change) => void editScheduled(post, change)}
+                        onCancel={() => setEditingPost('')}
+                      />
+                    </li>
+                  ) : (
+                    <li
+                      key={post.id}
+                      className="overview-row overview-row-approval"
+                    >
+                      <div className="overview-row-body">
+                        <Tile tone="4">
+                          <CalendarClock size={16} />
+                        </Tile>
+                        <span className="overview-row-text">
+                          <strong className="overview-row-title">
+                            {slotWords(post.post_at, now)}
+                            {post.username && ` · @${post.username}`}
+                          </strong>
+                          <span className="overview-row-meta overview-review-text">
+                            {post.text}
+                          </span>
+                          <ScheduledMedia media={post.media ?? []} />
                         </span>
-                      </span>
-                    </div>
-                    <div className="overview-row-actions">
-                      <IconButton
-                        size="sm"
-                        label="Cancel this post"
-                        onClick={() => void cancelScheduled(post)}
-                      >
-                        <X size={15} aria-hidden />
-                      </IconButton>
-                    </div>
-                  </li>
-                ))}
+                      </div>
+                      <div className="overview-row-actions">
+                        {onEditScheduledPost && (
+                          <IconButton
+                            size="sm"
+                            label="Edit this post"
+                            onClick={() => {
+                              setScheduleError('');
+                              setEditingPost(post.id);
+                            }}
+                          >
+                            <Pencil size={15} aria-hidden />
+                          </IconButton>
+                        )}
+                        <IconButton
+                          size="sm"
+                          label="Cancel this post"
+                          onClick={() => void cancelScheduled(post)}
+                        >
+                          <X size={15} aria-hidden />
+                        </IconButton>
+                      </div>
+                    </li>
+                  ),
+                )}
               </ul>
             </>
           )}
@@ -1153,6 +1301,46 @@ export default function OverviewHome({
               <Row key={item.key} item={item} />
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* Once a model works Row-Bot is set up; the rest is optional, never
+          a "needs you" item or a count of what's left (U1, U2). */}
+      {showSetup && (
+        <Section id="overview-explore" title="Explore" order={4}>
+          {showSetup && (
+            <div
+              className="overview-setup"
+              role="region"
+              aria-label="More you can set up"
+            >
+              <span className="overview-row-text">
+                <strong className="overview-row-title">
+                  More you can set up
+                </strong>
+                <span className="overview-row-meta">
+                  Optional: voice, your phone, apps and more, whenever you like.
+                </span>
+              </span>
+              <Link className="button small" to="/setup">
+                Explore
+              </Link>
+              {onHideSetup && (
+                <IconButton
+                  size="sm"
+                  label="Hide setup reminder"
+                  onClick={onHideSetup}
+                >
+                  <X size={15} aria-hidden />
+                </IconButton>
+              )}
+              {setupError && (
+                <p role="status" className="overview-setup-error">
+                  {setupError}
+                </p>
+              )}
+            </div>
+          )}
         </Section>
       )}
 

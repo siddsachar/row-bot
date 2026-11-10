@@ -14,7 +14,7 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Input } from '../../ui/primitives';
+import { Button, Disclosure, Input } from '../../ui/primitives';
 import ChatConnect from '../apps/ChatConnect';
 import AppViewFrame from '../apps/AppViewFrame';
 import { ProcessCard } from './BackgroundProcess';
@@ -61,7 +61,11 @@ export type TranscriptCard =
   /** A recording of Row-Bot's browser or the screen a step started or stopped (F2). */
   | { kind: 'recording'; recordingId: string }
   /** A video edit a step started, followed or stopped (F3). */
-  | { kind: 'video_edit'; editId: string }
+  | {
+      kind: 'video_edit';
+      editId: string;
+      /** Stills, not a version of a video. */ frames?: boolean;
+    }
   /** Files a step sent to the person's devices or a chat app (F7). */
   | { kind: 'delivery'; deliveryId: string }
   /** Prepare sandbox, or the sandbox image's download, a step started (F18). */
@@ -157,6 +161,7 @@ export function cardOf(value: Specialization | null | undefined, callId = '') {
     return {
       kind: 'video_edit',
       editId: value.edit_id,
+      ...(value.media_kind === 'frames' ? { frames: true } : {}),
     } satisfies TranscriptCard;
   if (
     value.kind === 'setup_needed' &&
@@ -512,84 +517,97 @@ function AnsweredCard({
 
 export function TranscriptCards({
   cards,
+  earlier = [],
   live = false,
   conversation,
 }: {
   cards: TranscriptCard[];
+  /** Earlier versions of this reply's newest video, folded under it. */
+  earlier?: TranscriptCard[];
   live?: boolean;
   /** The chat a view belongs to; views show only where it is known. */
   conversation?: string | null;
 }) {
-  if (!cards.length) return null;
+  if (!cards.length && !earlier.length) return null;
+  const show = (card: TranscriptCard) => (
+    <CardView
+      key={cardKey(card)}
+      card={card}
+      live={live}
+      conversation={conversation}
+    />
+  );
   return (
     <div className="transcript-cards">
-      {cards.map((card) =>
-        card.kind === 'resource' ? (
-          <ResourceCard key={cardKey(card)} card={card} live={live} />
-        ) : card.kind === 'apps' ? (
-          <AppsCard key={cardKey(card)} card={card} />
-        ) : card.kind === 'process' ? (
-          <ProcessCard
-            key={cardKey(card)}
-            processId={card.processId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'recording' ? (
-          <RecordingCard
-            key={cardKey(card)}
-            recordingId={card.recordingId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'delivery' ? (
-          <DeliveryCard key={cardKey(card)} deliveryId={card.deliveryId} />
-        ) : card.kind === 'sandbox_job' ? (
-          <SandboxJobCard key={cardKey(card)} jobId={card.jobId} />
-        ) : card.kind === 'sandbox_offer' ? (
-          <SandboxPrepareOffer
-            key={cardKey(card)}
-            conversationId={conversation}
-            reason={card.reason}
-          />
-        ) : card.kind === 'answer' ? (
-          <AnsweredCard key={cardKey(card)} card={card} />
-        ) : card.kind === 'page' ? (
-          <PageCard
-            key={cardKey(card)}
-            pageId={card.pageId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'video_project' ? (
-          <VideoProjectCard
-            key={cardKey(card)}
-            projectId={card.projectId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'linked' ? (
-          <LinkedConversationCard
-            key={cardKey(card)}
-            linkId={card.linkId}
-            title={card.title}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'video_edit' ? (
-          <VideoEditCard
-            key={cardKey(card)}
-            editId={card.editId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'view' ? (
-          conversation ? (
-            <AppViewFrame
-              key={cardKey(card)}
-              conversation={conversation}
-              callId={card.callId}
-              app={card.app}
-            />
-          ) : null
-        ) : (
-          <ConnectCard key={cardKey(card)} card={card} />
-        ),
+      {cards.map(show)}
+      {earlier.length > 0 && (
+        <Disclosure
+          className="transcript-earlier-videos"
+          summary={
+            earlier.length === 1
+              ? '1 earlier version'
+              : `${earlier.length} earlier versions`
+          }
+        >
+          <div className="transcript-cards">{earlier.map(show)}</div>
+        </Disclosure>
       )}
     </div>
+  );
+}
+
+function CardView({
+  card,
+  live,
+  conversation,
+}: {
+  card: TranscriptCard;
+  live: boolean;
+  conversation?: string | null;
+}) {
+  return card.kind === 'resource' ? (
+    <ResourceCard card={card} live={live} />
+  ) : card.kind === 'apps' ? (
+    <AppsCard card={card} />
+  ) : card.kind === 'process' ? (
+    <ProcessCard processId={card.processId} conversationId={conversation} />
+  ) : card.kind === 'recording' ? (
+    <RecordingCard
+      recordingId={card.recordingId}
+      conversationId={conversation}
+    />
+  ) : card.kind === 'delivery' ? (
+    <DeliveryCard deliveryId={card.deliveryId} />
+  ) : card.kind === 'sandbox_job' ? (
+    <SandboxJobCard jobId={card.jobId} />
+  ) : card.kind === 'sandbox_offer' ? (
+    <SandboxPrepareOffer conversationId={conversation} reason={card.reason} />
+  ) : card.kind === 'answer' ? (
+    <AnsweredCard card={card} />
+  ) : card.kind === 'page' ? (
+    <PageCard pageId={card.pageId} conversationId={conversation} />
+  ) : card.kind === 'video_project' ? (
+    <VideoProjectCard
+      projectId={card.projectId}
+      conversationId={conversation}
+    />
+  ) : card.kind === 'linked' ? (
+    <LinkedConversationCard
+      linkId={card.linkId}
+      title={card.title}
+      conversationId={conversation}
+    />
+  ) : card.kind === 'video_edit' ? (
+    <VideoEditCard editId={card.editId} conversationId={conversation} />
+  ) : card.kind === 'view' ? (
+    conversation ? (
+      <AppViewFrame
+        conversation={conversation}
+        callId={card.callId}
+        app={card.app}
+      />
+    ) : null
+  ) : (
+    <ConnectCard card={card} />
   );
 }

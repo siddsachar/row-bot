@@ -22,12 +22,15 @@ INLINE_SECONDS = 15
 
 class _Scene(BaseModel):
     scene_id: str = Field(default="", description="Keep a scene's id when changing it (new scenes: leave empty).")
-    source: str = Field(description="Its video: a recording (rec-…), an edit (edit-…), a file in this chat or a "
-                                    "workspace path.")
+    source: str = Field(default="", description="Its video: a recording (rec-…), an edit (edit-…), a file in this "
+                                                "chat or a workspace path. Empty: a title card (its card on the "
+                                                "brand colour for end seconds, 3 by default), so a title, an end "
+                                                "card or a whole video of cards needs no made-up background video.")
     start: float = Field(default=0.0, description="Seconds into that video.")
     end: float | None = Field(default=None, description="Seconds into that video (empty: to its end).")
     speed: float = Field(default=1.0, description="2 = twice as fast (shows a 2× badge), 0.5 = half.")
-    zoom: list[float] | None = Field(default=None, description="[x, y, width, height], 0-1: punch in on it.")
+    zoom: list[float] | None = Field(default=None, description="Leave empty: on a recording the camera follows "
+                                                             "what was done. [x, y, width, height], 0-1: hold there.")
     card: str = Field(default="", description="A title laid over its first 3 seconds.")
     line: str = Field(default="", description="The words said over it (voiced when the video is made).")
     voice: str = Field(default="", description="A voice file made with speak for this line (empty: voiced for you).")
@@ -38,16 +41,22 @@ class _VideoInput(BaseModel):
     project: str = Field(default="", description="change, make, status, undo: the project (vid-…).")
     title: str = Field(default="", description="create: the video's name.")
     recording: str = Field(default="", description="create: make the scenes from a browser recording's beats "
-                                                   "(rec-…): live as it is, work sped up, cut left out.")
+                                                   "(rec-…), each with its title and line: live as it is, work "
+                                                   "sped up, cut left out.")
     scenes: list[_Scene] | None = Field(default=None, description="create, change: every scene, in order.")
     music: str | None = Field(default=None, description="A music file (make_music) under the whole video; '' none.")
     music_volume: float | None = Field(default=None, description="0-1, default 0.3 (it dips under the voice).")
+    narration: str | None = Field(default=None, description="One voice file (speak a whole script) said over the "
+                                                           "whole video instead of each scene's line; '' none.")
     captions: bool | None = Field(default=None, description="Show each line as a caption under its scene.")
     voice_lines: bool | None = Field(default=None, description="Say the lines (default true).")
     aspect: Literal["", "16:9", "1:1", "9:16"] | None = Field(
         default=None, description="create, change: the video's shape ('' keeps its first video's).")
     brand: bool | None = Field(default=None, description="create, change: use the brand kit (default true): "
                                                           "its colour, captions, logo, intro and outro.")
+    voice: str | None = Field(default=None, description="create, change: this video's voice for its lines "
+                                                        "('' the brand kit's).")
+    voice_speed: float | None = Field(default=None, description="create, change: its speed, 0.9-1.25 (0 the kit's).")
     shape: Literal["16:9", "1:1", "9:16", "gif"] | None = Field(
         default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "
                                   "each scene reframed on its zoom, or a GIF.")
@@ -79,22 +88,68 @@ def _wait_for(project_id: str, conversation: str, number: int, seconds: float) -
         time.sleep(0.2)
 
 
+def _both_downloads_consent() -> tuple[str, str] | None:
+    """(refusal, approval line) for a narrated video that needs ffmpeg and Row-Bot's voice: one card for both,
+    asked once before making it, not two in a row (U25). None when they aren't both missing."""
+    from row_bot import ffmpeg_runtime, tts
+    from row_bot.tools.approval_gate import approval_check
+
+    if ffmpeg_runtime.find() is not None or tts.TTSService().is_installed():
+        return None
+    wheel = ffmpeg_runtime.current_wheel()
+    if wheel is None:
+        return None
+    voice = f"about {round(tts.VOICE_DOWNLOAD_BYTES / 1_000_000)} MB"
+    request = ffmpeg_runtime.consent_request(
+        "edit", "video", wheel=wheel,
+        also=(f"It also downloads Row-Bot's voice (Kokoro and its voices, {voice}) from {tts.VOICE_DOWNLOAD_HOST}, "
+              "checked against the fingerprints saved in Row-Bot, to read the lines aloud on this computer."))
+    request["label"] = "Download ffmpeg and Row-Bot's voice"
+    request["question"] = (f"Making this video needs ffmpeg (about {ffmpeg_runtime.size_words(wheel.size)}) and "
+                           f"Row-Bot's voice (Kokoro, {voice}). Download both now?")
+    request["args"] = {**request["args"], "voice": f"Kokoro voice ({voice}) from {tts.VOICE_DOWNLOAD_HOST}"}
+    refusal, line = approval_check(
+        request,
+        risks=(*ffmpeg_runtime.consent_risks(wheel),
+               f"downloads a voice model ({voice}) from GitHub and keeps it in Row-Bot's data folder"),
+        blocked_message=("BLOCKED: making this video needs ffmpeg and Row-Bot's voice, and downloading them needs "
+                         "approval, but this chat is on Block. Install the voice in Settings › Voice, or change "
+                         "the approval level."),
+        cancelled_message="The person didn't allow the downloads; nothing was downloaded or made.",
+    )
+    if refusal:
+        return refusal, ""
+    try:
+        tts.TTSService().download_model()
+    except Exception as error:  # A network or fingerprint problem: said in words, nothing kept.
+        return f"Row-Bot's voice couldn't be downloaded: {error}", ""
+    return "", line
+
+
 def _make(project, number: int | None) -> str:
     from row_bot import video_projects
     from row_bot.tools.approval_gate import with_approval
     from row_bot.tools.video_editing_tool import ffmpeg_consent
 
-    refusal, line, download = ffmpeg_consent("edit", "video")
-    if refusal:
-        return refusal
     target = project.version(number) if number else project.latest
-    if target is not None and video_projects.needs_voice(target):
-        from row_bot.tools.sound_tool import voice_consent
-
-        refusal, voiced = voice_consent("video", "Narrating this video")
+    narrated = target is not None and video_projects.needs_voice(target)
+    both = _both_downloads_consent() if narrated else None
+    if both is not None:
+        refusal, line = both
         if refusal:
             return refusal
-        line = "\n".join(part for part in (line, voiced) if part)
+        download = True
+    else:
+        refusal, line, download = ffmpeg_consent("edit", "video")
+        if refusal:
+            return refusal
+        if narrated:
+            from row_bot.tools.sound_tool import voice_consent
+
+            refusal, voiced = voice_consent("video", "Narrating this video")
+            if refusal:
+                return refusal
+            line = "\n".join(part for part in (line, voiced) if part)
     version = video_projects.make(project, number, download=download)
     _wait_for(project.project_id, project.conversation_id, version.number, INLINE_SECONDS)
     fresh = video_projects.get(project.project_id, project.conversation_id) or project
@@ -124,9 +179,10 @@ def _export(project, shape: str, number: int | None) -> str:
 
 def _video(action: str = "status", project: str = "", title: str = "", scenes: list | None = None,
            recording: str = "",
-           music: str | None = None, music_volume: float | None = None, captions: bool | None = None,
-           voice_lines: bool | None = None, note: str = "", version: int | None = None, aspect: str | None = None,
-           shape: str | None = None, brand: bool | None = None) -> str:
+           music: str | None = None, music_volume: float | None = None, narration: str | None = None,
+           captions: bool | None = None, voice_lines: bool | None = None, note: str = "", version: int | None = None, aspect: str | None = None,
+           shape: str | None = None, brand: bool | None = None, voice: str | None = None,
+           voice_speed: float | None = None) -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
 
@@ -140,18 +196,19 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                 raw = video_projects.scenes_from_beats(recording.strip(), conversation)
             found = video_projects.create(conversation, title, raw, music=music or "",
                                           music_volume=0.3 if music_volume is None else music_volume,
+                                          narration=narration or "",
                                           captions=bool(captions), voice_lines=voice_lines is not False,
                                           aspect=aspect or "", brand=brand is not False, by="row-bot",
-                                          note=note)
+                                          note=note, voice=voice or "", voice_speed=voice_speed)
             return _make(found, None)
         found = video_projects.get(project, conversation)
         if found is None:
             return f"{project or 'That'} isn't a video project in this chat: use action create."
         if action == "change":
             changed = video_projects.change(found, by="row-bot", note=note, scenes=raw if scenes is not None else None,
-                                            title=title or None, music=music, music_volume=music_volume,
+                                            title=title or None, music=music, music_volume=music_volume, narration=narration,
                                             captions=captions, voice_lines=voice_lines, aspect=aspect,
-                                            brand=brand)
+                                            brand=brand, voice=voice, voice_speed=voice_speed)
             return _make(found, changed.number)
         if action == "undo":
             if len(found.versions) < 2:
@@ -182,9 +239,11 @@ def langchain_tool():
             "Make a video as scenes the person also edits in the Video panel: each scene a piece of a video "
             "(start, end), with speed, zoom, a card and its line (voiced when made). create, then change with "
             "every scene (keep scene ids) and a note; each change is a new version and makes the video again, "
-            "saved to this chat. Read the checks in the result: never say it's done until they pass. undo goes "
-            "back one version; export makes the same version in another shape or a GIF. For one quick edit use "
-            "edit_video."
+            "saved to this chat. Read the checks and look at its review sheet: never say it's done until both are "
+            "right. undo goes back one version; export makes the same version in another shape or a GIF. For one "
+            "quick edit use "
+            "edit_video. A title or end card is a scene without a video: never make background videos or other "
+            "working files in the person's workspace for it."
         ),
         args_schema=_VideoInput,
     )

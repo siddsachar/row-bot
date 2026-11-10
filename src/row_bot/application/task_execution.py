@@ -116,6 +116,17 @@ def get_task_run_review(task_id: str, *, enabled_tool_names: Sequence[str]) -> T
     )
 
 
+def revision_with_conversation(task_id: str, *, reviewed_revision: str, reviewed_thread_id: str | None) -> str:
+    """The reviewed revision, carried over the conversation a first run just gave the workflow."""
+    _identity(task_id)
+    _revision(reviewed_revision)
+    try:
+        return tasks.reviewed_revision_with_conversation(
+            task_id, reviewed_revision=reviewed_revision, reviewed_thread_id=reviewed_thread_id)
+    except tasks.TaskMutationError as exc:
+        raise TaskExecutionError(exc.code) from exc
+
+
 def _summary(row: dict) -> TaskRunSummary:
     for key in ("id", "task_id", "thread_id"):
         _identity(row[key])

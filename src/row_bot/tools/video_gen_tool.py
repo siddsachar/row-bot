@@ -1,4 +1,4 @@
-"""Video generation tool — generate videos via Google Veo / xAI.
+"""Video generation tool — generate videos via Google Veo, xAI, OpenRouter or Together AI.
 
 The agent calls ``generate_video`` to create videos from text prompts, or
 ``animate_image`` to turn a still image into a short video clip.
@@ -8,8 +8,9 @@ inline in the desktop chat via an HTML5 video player.  Channel adapters
 attach the saved MP4 as a file.
 
 The user picks a provider+model combination in Settings → Models (e.g.
-``google/veo-3.1-generate-preview`` or ``xai/grok-imagine-video``).
-Only providers whose API key is configured appear in the dropdown.
+``google/veo-3.1-generate-preview`` or ``xai/grok-imagine-video``). The
+choices are the video models each connected provider's own model list offers,
+so new models appear without a Row-Bot change.
 
 Google Veo:
   - Uses the ``generate_videos`` long-running operation API.
@@ -33,6 +34,7 @@ from __future__ import annotations
 import base64
 import contextvars
 import logging
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -50,30 +52,8 @@ logger = logging.getLogger(__name__)
 # ── Timeouts & polling ───────────────────────────────────────────────────
 _GOOGLE_POLL_INTERVAL = 10   # seconds
 _XAI_POLL_INTERVAL = 5       # seconds
+_JOB_POLL_INTERVAL = 5       # seconds, providers with their own video job APIs
 _POLL_TIMEOUT = 360           # 6 minutes hard ceiling
-
-# ── Available video generation models ────────────────────────────────────
-
-_GOOGLE_MODELS = [
-    {"id": "veo-3.1-generate-preview", "label": "Veo 3.1"},
-    {"id": "veo-3.1-fast-generate-preview", "label": "Veo 3.1 Fast"},
-]
-
-_XAI_MODELS = [
-    {"id": "grok-imagine-video", "label": "Grok Imagine Video"},
-]
-
-VIDEO_GEN_MODELS = _GOOGLE_MODELS + _XAI_MODELS
-
-_PROVIDER_MODELS = {
-    "google": _GOOGLE_MODELS,
-    "xai": _XAI_MODELS,
-}
-
-_PROVIDERS = {
-    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
-    "xai":    {"key": "XAI_API_KEY",    "label": "xAI",    "emoji": "𝕏"},
-}
 
 # No preset: video generation stays off and unset until the person chooses a
 # model in Settings › Models (decision 9).
@@ -223,22 +203,10 @@ def get_available_video_models() -> dict[str, str]:
 
     Used by the Settings UI to populate the model dropdown.
     """
-    try:
-        from row_bot.models import _cloud_model_cache, _sync_custom_model_cache
-        from row_bot.providers.media import media_model_options
-        _sync_custom_model_cache()
-        return media_model_options("video", _cloud_model_cache)
-    except Exception:
-        from row_bot.api_keys import get_key
-
-        opts: dict[str, str] = {}
-        for prov_id, prov in _PROVIDERS.items():
-            if not get_key(prov["key"]):
-                continue
-            for m in _PROVIDER_MODELS.get(prov_id, []):
-                config_val = f"{prov_id}/{m['id']}"
-                opts[config_val] = f"{prov['emoji']}  {m['label']}  ({prov['label']})"
-        return opts
+    from row_bot.models import _cloud_model_cache, _sync_custom_model_cache
+    from row_bot.providers.media import media_model_options
+    _sync_custom_model_cache()
+    return media_model_options("video", _cloud_model_cache)
 
 
 def _get_configured_selection() -> str:
@@ -257,6 +225,15 @@ def _get_configured_selection() -> str:
     return ""
 
 
+def _unlisted_note() -> str:
+    """Why a request may have failed: the chosen model's provider no longer lists it."""
+    from row_bot.models import _cloud_model_cache
+    from row_bot.providers.media import unlisted_media_note
+
+    note = unlisted_media_note("video", _get_configured_selection(), _cloud_model_cache)
+    return f" {note}" if note else ""
+
+
 def _get_configured_model() -> str:
     """Return just the model ID from the stored config."""
     _, model_id = _parse_model_config(_get_configured_selection())
@@ -268,8 +245,8 @@ def _get_google_client():
     from row_bot.providers.media_auth import current_media_auth, google_client
     if current_media_auth("google") is not None:
         return google_client()
-    from row_bot.api_keys import get_key
-    api_key = get_key("GOOGLE_API_KEY")
+    from row_bot.providers.media import media_api_key
+    api_key = media_api_key("google")
     if not api_key:
         raise RuntimeError(
             "No Google API key configured. "
@@ -281,8 +258,8 @@ def _get_google_client():
 
 def _get_xai_key() -> str:
     """Return the xAI API key or raise."""
-    from row_bot.api_keys import get_key
-    api_key = get_key("XAI_API_KEY")
+    from row_bot.providers.media import media_api_key
+    api_key = media_api_key("xai")
     if not api_key:
         raise RuntimeError(
             "No xAI API key configured. "
@@ -448,7 +425,7 @@ def _generate_video_google(
         if _strict_output.get() is not None:
             raise
         logger.error("Video generation request failed: %s", e, exc_info=True)
-        return f"Video generation failed: {e}"
+        return f"Video generation failed: {e}{_unlisted_note()}"
 
     # Poll until done
     elapsed = 0
@@ -578,7 +555,7 @@ def _generate_video_xai(
         if _strict_output.get() is not None:
             raise
         logger.error("%s video generation request failed: %s", provider_label, e, exc_info=True)
-        return f"Video generation failed: {e}"
+        return f"Video generation failed: {e}{_unlisted_note()}"
 
     logger.info("%s video generation started: request_id=%s", provider_label, request_id)
 
@@ -656,6 +633,333 @@ def _generate_video_xai(
     return result
 
 
+# ── Providers with their own video job APIs: submit a job, poll it, download the clip ─────
+
+# The short side of each resolution, for providers that take width and height.
+_SHORT_SIDE = {"480p": 480, "720p": 720, "1080p": 1080, "4k": 2160}
+_HIGH_RESOLUTIONS = {"1080p", "4k"}
+
+_MINIMAX_RATIOS = {"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}
+_DASHSCOPE_RATIOS = {"16:9", "9:16", "1:1", "4:3", "3:4"}
+# The sizes CogVideoX-3 takes, by aspect ratio and resolution.
+_ZAI_SIZES = {
+    "16:9": {"720p": "1280x720", "1080p": "1920x1080", "4k": "3840x2160"},
+    "9:16": {"720p": "720x1280", "1080p": "1080x1920"},
+    "1:1": {"720p": "1024x1024"},
+}
+
+
+def _frame_size(resolution: str, aspect_ratio: str) -> tuple[int, int]:
+    """Width and height for a resolution and aspect ratio, rounded to even pixels."""
+    short = _SHORT_SIDE.get(resolution.lower(), 720)
+    w, _, h = aspect_ratio.partition(":")
+    ratio_w, ratio_h = (int(w), int(h)) if w.isdigit() and h.isdigit() and int(h) else (16, 9)
+    long = round(short * max(ratio_w, ratio_h) / min(ratio_w, ratio_h) / 2) * 2
+    return (long, short) if ratio_w >= ratio_h else (short, long)
+
+
+def _settings(duration: int, aspect_ratio: str, resolution: str) -> str:
+    return f"Duration: {duration}s | Aspect ratio: {aspect_ratio} | Resolution: {resolution}"
+
+
+def _job_request(provider_id: str, method: str, path: str, *, json: dict | None = None, timeout: float = 30,
+                 headers: dict | None = None):
+    """Call a video provider's own API with its key, raising its error message."""
+    import httpx
+
+    from row_bot.providers.media import VIDEO_PROVIDER_META, media_api_key, media_error_text
+
+    meta = VIDEO_PROVIDER_META[provider_id]
+    _validate_generation()
+    response = httpx.request(
+        method, f"{meta['base_url']}{path}", json=json, timeout=timeout,
+        headers={"Authorization": f"Bearer {media_api_key(provider_id)}", **(headers or {})},
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}: {media_error_text(response)}")
+    return response
+
+
+# Each route submits a job, returning its ID and the settings it asked for, and reads a
+# job's state: ("running", ""), ("done", the clip's link) or (how it ended, why).
+
+def _submit_openrouter(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,
+                       resolution: str, image: str) -> tuple[str, str]:
+    from row_bot.providers.media import (
+        generation_options, nearest_aspect_ratio, nearest_duration, nearest_resolution, nearest_size,
+    )
+
+    sent: dict = {"duration": duration, "aspect_ratio": aspect_ratio, "resolution": resolution}
+    options = generation_options(provider_id, model)
+    if options is not None:
+        # Each setting is the nearest the model lists; one it lists nothing for is left to the model.
+        sent = {"duration": nearest_duration(duration, options.get("duration", [])),
+                "aspect_ratio": nearest_aspect_ratio(aspect_ratio, options.get("aspect_ratio", [])),
+                "resolution": nearest_resolution(resolution, options.get("resolution", []))}
+        if sent["resolution"] is None:
+            sent["size"] = nearest_size(aspect_ratio, resolution, options.get("size", []))
+    body: dict = {"model": model, "prompt": prompt, **{key: value for key, value in sent.items() if value is not None}}
+    if image:
+        body["frame_images"] = [{"type": "image_url", "image_url": {"url": image}, "frame_type": "first_frame"}]
+    job = _job_request(provider_id, "POST", "/videos", json=body).json()
+
+    def shown(value, unit: str = "") -> str:
+        return f"{value}{unit}" if value is not None else "the model's own"
+
+    return str(job.get("id") or ""), (
+        f"Duration: {shown(sent['duration'], 's')} | Aspect ratio: {shown(sent['aspect_ratio'])} | "
+        f"Resolution: {shown(sent.get('size') or sent['resolution'])}")
+
+
+def _submit_together(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,
+                     resolution: str, image: str) -> tuple[str, str]:
+    # Resolution and ratio, not pixels: each model makes its own frame of them (Seedance 1.0 Lite's
+    # 720p is 1248×704 and it refuses 1280×720), and Together's list gives no model's sizes (I25).
+    body: dict = {"model": model, "prompt": prompt, "seconds": str(duration), "resolution": resolution,
+                  "ratio": aspect_ratio}
+    if image:
+        body["media"] = {"frame_images": [{"input_image": image, "frame": "first"}]}
+    job = _job_request(provider_id, "POST", "/videos", json=body).json()
+    return str(job.get("id") or ""), _settings(duration, aspect_ratio, resolution)
+
+
+def _openai_style_state(job: dict, link: str) -> tuple[str, str]:
+    status = str(job.get("status") or "")
+    if status == "completed":
+        return "done", link
+    if status in {"failed", "cancelled", "expired"}:
+        error = job.get("error")
+        return status, str((error.get("message") if isinstance(error, dict) else error) or "")
+    return "running", ""
+
+
+def _poll_openrouter(provider_id: str, job_id: str) -> tuple[str, str]:
+    # OpenRouter's clip is downloaded from the job itself, with the key.
+    return _openai_style_state(_job_request(provider_id, "GET", f"/videos/{job_id}").json(), "")
+
+
+def _poll_together(provider_id: str, job_id: str) -> tuple[str, str]:
+    job = _job_request(provider_id, "GET", f"/videos/{job_id}").json()
+    return _openai_style_state(job, str((job.get("outputs") or {}).get("video_url") or ""))
+
+
+def _submit_minimax(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,
+                    resolution: str, image: str) -> tuple[str, str]:
+    # MiniMax H3 makes 768P or 2K; its Highspeed, Lite and Max models 480P or 768P.
+    if model == "MiniMax-H3":
+        res = "2K" if resolution in _HIGH_RESOLUTIONS else "768P"
+    else:
+        res = "480P" if resolution == "480p" else "768P"
+    seconds = max(5 if model == "MiniMax-H3-Max" else 4, min(15, duration))
+    content: list[dict] = [{"type": "text", "text": prompt}]
+    if image:
+        content.append({"type": "image_url", "image_url": {"url": image}, "role": "first_frame"})
+    # A clip from an image takes the image's shape, except on Lite, which needs a ratio.
+    ratio = aspect_ratio if aspect_ratio in _MINIMAX_RATIOS else "16:9"
+    if image and model != "MiniMax-H3-Lite":
+        ratio = "adaptive"
+    body = {"model": model, "content": content, "resolution": res, "duration": seconds, "ratio": ratio}
+    job = _job_request(provider_id, "POST", "/video_generation", json=body).json()
+    return str(job.get("task_id") or ""), _settings(seconds, ratio, res)
+
+
+def _poll_minimax(provider_id: str, job_id: str) -> tuple[str, str]:
+    task = _job_request(provider_id, "GET", f"/query/video_generation/{job_id}").json().get("task") or {}
+    status = str(task.get("status") or "")
+    if status == "succeeded":
+        return "done", str((task.get("content") or {}).get("url") or "")
+    if status in {"failed", "cancelled"}:
+        return status, str((task.get("error") or {}).get("message") or "")
+    return "running", ""
+
+
+def _submit_zai(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,
+                resolution: str, image: str) -> tuple[str, str]:
+    sizes = _ZAI_SIZES.get(aspect_ratio, _ZAI_SIZES["16:9"])
+    wanted = resolution if resolution in sizes else "1080p" if resolution == "4k" and "1080p" in sizes else "720p"
+    seconds = 5 if duration <= 7 else 10
+    body: dict = {"model": model, "prompt": prompt, "size": sizes[wanted], "duration": seconds}
+    if image:
+        body["image_url"] = [image]
+    job = _job_request(provider_id, "POST", "/videos/generations", json=body).json()
+    ratio = aspect_ratio if aspect_ratio in _ZAI_SIZES else "16:9"
+    return str(job.get("id") or ""), _settings(seconds, ratio, sizes[wanted])
+
+
+def _poll_zai(provider_id: str, job_id: str) -> tuple[str, str]:
+    job = _job_request(provider_id, "GET", f"/async-result/{job_id}").json()
+    status = str(job.get("task_status") or "")
+    if status == "SUCCESS":
+        videos = job.get("video_result") or []
+        return "done", str(videos[0].get("url") or "") if videos and isinstance(videos[0], dict) else ""
+    if status == "FAIL":
+        return "failed", ""
+    return "running", ""
+
+
+def _wan_takes_media(model: str) -> bool:
+    """Wan 2.7 and later take a ratio and a media list; earlier Wan models a size and img_url."""
+    match = re.match(r"wan(\d+)\.(\d+)", model.lower())
+    return not match or (int(match.group(1)), int(match.group(2))) >= (2, 7)
+
+
+def _submit_dashscope(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,
+                      resolution: str, image: str) -> tuple[str, str]:
+    res = "1080P" if resolution in _HIGH_RESOLUTIONS else "720P"
+    ratio = aspect_ratio if aspect_ratio in _DASHSCOPE_RATIOS else "16:9"
+    seconds = max(2, min(15, duration))
+    task_input: dict = {"prompt": prompt}
+    parameters: dict = {"resolution": res, "duration": seconds}
+    if _wan_takes_media(model):
+        if image:
+            task_input["media"] = [{"type": "first_frame", "url": image}]
+        else:
+            parameters["ratio"] = ratio
+    elif image:
+        task_input["img_url"] = image
+    else:
+        width, height = _frame_size(res.lower(), ratio)
+        parameters = {"size": f"{width}*{height}", "duration": seconds}
+    job = _job_request(provider_id, "POST", "/services/aigc/video-generation/video-synthesis",
+                       json={"model": model, "input": task_input, "parameters": parameters},
+                       headers={"X-DashScope-Async": "enable"}).json()
+    return str((job.get("output") or {}).get("task_id") or ""), _settings(seconds, ratio, res)
+
+
+def _poll_dashscope(provider_id: str, job_id: str) -> tuple[str, str]:
+    output = _job_request(provider_id, "GET", f"/tasks/{job_id}").json().get("output") or {}
+    status = str(output.get("task_status") or "")
+    if status == "SUCCEEDED":
+        return "done", str(output.get("video_url") or "")
+    if status in {"FAILED", "CANCELED", "UNKNOWN"}:
+        return status.lower(), str(output.get("message") or "")
+    return "running", ""
+
+
+_ATLASCLOUD_ENDED = {"failed", "canceled", "cancelled", "error", "timeout"}
+
+
+def _submit_atlascloud(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,
+                       resolution: str, image: str) -> tuple[str, str]:
+    # Each Atlas Cloud model names its own duration and size fields, so the model's defaults are used.
+    job = _job_request(provider_id, "POST", "/model/generateVideo", json={"model": model, "prompt": prompt}).json()
+    return str((job.get("data") or {}).get("id") or ""), "Duration, aspect ratio and resolution: the model's own"
+
+
+def _poll_atlascloud(provider_id: str, job_id: str) -> tuple[str, str]:
+    result = _job_request(provider_id, "GET", f"/model/prediction/{job_id}").json().get("data") or {}
+    status = str(result.get("status") or "")
+    if status == "completed":
+        outputs = result.get("outputs") or []
+        return "done", outputs[0] if outputs and isinstance(outputs[0], str) else ""
+    if status in _ATLASCLOUD_ENDED:
+        return status, str(result.get("error") or "")
+    return "running", ""
+
+
+_VIDEO_JOBS: dict[str, tuple[Callable[..., tuple[str, str]], Callable[[str, str], tuple[str, str]]]] = {
+    "openrouter": (_submit_openrouter, _poll_openrouter),
+    "together": (_submit_together, _poll_together),
+    "minimax": (_submit_minimax, _poll_minimax),
+    "zai": (_submit_zai, _poll_zai),
+    "dashscope": (_submit_dashscope, _poll_dashscope),
+    "atlascloud": (_submit_atlascloud, _poll_atlascloud),
+}
+# Atlas Cloud's models name their source-image field differently, so they make clips from text only here.
+_TEXT_TO_VIDEO_ONLY = {"atlascloud"}
+
+
+def _job_route(provider_id: str) -> str:
+    from row_bot.providers.media import VIDEO_PROVIDER_META
+
+    meta = VIDEO_PROVIDER_META.get(provider_id)
+    return meta["route"] if meta and meta["route"] in _VIDEO_JOBS else ""
+
+
+def _generate_video_job(
+    prompt: str,
+    duration: int,
+    aspect_ratio: str,
+    resolution: str,
+    image_bytes: bytes | None = None,
+    *,
+    provider_id: str,
+) -> str:
+    """Generate a video on a provider with its own job API.  Blocks until completion or timeout."""
+    import httpx
+
+    from row_bot.providers.media import VIDEO_PROVIDER_META
+
+    label, route = VIDEO_PROVIDER_META[provider_id]["label"], _job_route(provider_id)
+    if image_bytes is not None and route in _TEXT_TO_VIDEO_ONLY:
+        return (f"{label} video models can only make videos from text here. "
+                "Choose another video model in Settings › Models to animate an image.")
+    submit, poll = _VIDEO_JOBS[route]
+    model = _get_configured_model()
+    image = ""
+    if image_bytes is not None:
+        image = f"data:{_detect_mime(image_bytes)};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+
+    logger.info("generate_video (%s): model=%s, duration=%ds, aspect=%s, res=%s",
+                label, model, duration, aspect_ratio, resolution)
+    try:
+        job_id, settings = submit(provider_id, model, prompt, duration, aspect_ratio, resolution, image)
+    except Exception as e:
+        logger.error("%s video generation request failed: %s", label, e, exc_info=True)
+        return f"Video generation failed: {e}{_unlisted_note()}"
+    if not job_id:
+        return f"{label} started no video job."
+
+    elapsed = 0
+    while True:
+        if elapsed >= _POLL_TIMEOUT:
+            return (f"Video generation timed out after {_POLL_TIMEOUT}s. "
+                    f"Job: {job_id}. The video may still be processing.")
+        time.sleep(_JOB_POLL_INTERVAL)
+        elapsed += _JOB_POLL_INTERVAL
+        try:
+            state, value = poll(provider_id, job_id)
+        except Exception as e:
+            logger.error("%s polling failed: %s", label, e, exc_info=True)
+            return f"Video generation polling failed: {e}"
+        if state == "done":
+            break
+        if state != "running":
+            return f"Video generation {state} on {label}'s side{f': {value}' if value else ''}. Job: {job_id}"
+
+    try:
+        if route == "openrouter":
+            video_bytes = _job_request(provider_id, "GET", f"/videos/{job_id}/content?index=0", timeout=120).content
+        else:
+            # The clip is at a short-lived link the provider gives; the key isn't sent there.
+            if not value:
+                return f"Video generation completed but no URL returned. Job: {job_id}"
+            _validate_generation()
+            download = httpx.get(value, timeout=120, follow_redirects=True)
+            download.raise_for_status()
+            video_bytes = download.content
+    except Exception as e:
+        logger.error("%s video download failed: %s", label, e, exc_info=True)
+        return f"Video generated but download failed: {e}"
+    if not video_bytes:
+        return "Video download returned no data."
+
+    saved = _save_video_to_disk(video_bytes)
+    mode = "image-to-video" if image_bytes else "text-to-video"
+    _set_pending_video({
+        "path": saved,
+        "filename": Path(saved).name if saved else None,
+        "provider": label,
+        "model": model,
+        "duration": duration,
+        "mode": mode,
+    })
+    result = f"Video generated successfully. Model: {model} | {settings} | Mode: {mode} | Provider: {label}"
+    if saved:
+        result += f"\nSaved to: {saved}"
+    return result
+
+
 # ── Core generation functions (dispatchers) ──────────────────────────────
 
 def _generate_video(
@@ -674,6 +978,8 @@ def _generate_video(
         return _generate_video_google(prompt, duration_seconds, aspect_ratio, resolution)
     if provider in {"xai", "xai_oauth"}:
         return _generate_video_xai(prompt, duration_seconds, aspect_ratio, resolution, provider_id=provider)
+    if _job_route(provider):
+        return _generate_video_job(prompt, duration_seconds, aspect_ratio, resolution, provider_id=provider)
 
     return f"Unknown video generation provider '{provider}'. Please select a valid model in Settings."
 
@@ -700,6 +1006,8 @@ def _animate_image(
         return _generate_video_google(prompt, duration_seconds, aspect_ratio, resolution, image_bytes)
     if provider in {"xai", "xai_oauth"}:
         return _generate_video_xai(prompt, duration_seconds, aspect_ratio, resolution, image_bytes, provider_id=provider)
+    if _job_route(provider):
+        return _generate_video_job(prompt, duration_seconds, aspect_ratio, resolution, image_bytes, provider_id=provider)
 
     return f"Unknown video generation provider '{provider}'. Please select a valid model in Settings."
 

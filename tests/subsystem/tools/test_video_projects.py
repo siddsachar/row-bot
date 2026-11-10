@@ -14,6 +14,20 @@ pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 MP4 = b"\x00\x00\x00\x18ftypmp42" + b"0" * 64
 
 
+def _wav(seconds: float) -> bytes:
+    """A silent WAV this long: the length a scene's voice line is measured by."""
+    import io
+    import wave
+
+    out = io.BytesIO()
+    with wave.open(out, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8000)
+        audio.writeframes(b"\x00\x00" * int(8000 * seconds))
+    return out.getvalue()
+
+
 @pytest.fixture
 def studio(platform, monkeypatch):  # noqa: F811
     """A chat holding two clips; speaking returns a tiny voice file; edits are captured, not run."""
@@ -23,11 +37,13 @@ def studio(platform, monkeypatch):  # noqa: F811
     for name in ("signup.mp4", "pricing.mp4"):
         register_attachment("conversation-a", name, MP4)
     said: list[str] = []
+    voices: list[dict] = []
     started: list = []
 
-    def speak(text, **_options):
+    def speak(text, **options):
         said.append(text)
-        return sound.Speech(wav=b"RIFF\x00\x00\x00\x00WAVE" + b"0" * 32, seconds=1.5, voice="test-voice")
+        voices.append(options)
+        return sound.Speech(wav=_wav(1.5), seconds=1.5, voice="test-voice")
 
     def start(request):
         started.append(request)
@@ -41,7 +57,7 @@ def studio(platform, monkeypatch):  # noqa: F811
     monkeypatch.setattr(sound, "speak", speak)
     monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: True)  # Row-Bot's voice is here.
     monkeypatch.setattr(video_edits, "start", start)
-    return {"said": said, "started": started}
+    return {"said": said, "voices": voices, "started": started}
 
 
 def _wait(project_id: str, number: int):
@@ -152,9 +168,82 @@ def test_making_a_version_renders_its_scenes_in_one_edit_with_its_voices_music_a
     assert scenes.scenes[1].zoom == (0.5, 0.0, 0.5, 0.5)
     assert (music.op, music.role, music.source, music.volume) == ("sound", "music", "music-calm.wav", 0.3)
     assert set(request.sounds) == {cut.voice for cut in scenes.scenes} | {"music-calm.wav"}
+    assert [cut.voice_seconds for cut in scenes.scenes] == [1.5, 1.5], "each scene lasts at least its line"
     assert request.check, "the review card's checks are read from the finished video"
     view = video_projects.view(video_projects.get(project.project_id))
     assert (view["status"], view["edit"]["edit_id"]) == ("rendering", version.edit_id)
+
+
+def test_each_scene_says_its_own_line_when_the_title_has_a_version_number_and_runs_long(studio):
+    """A title like "Row-Bot 5.3.1 beta | …" once named every scene's voice "Row-Bot 5.3.wav", so each scene
+    played the last one's line."""
+    from row_bot import video_projects
+
+    title = "Row-Bot 5.3.1 beta | Linked conversations, from meeting notes to a checklist in a sandbox"
+    project = video_projects.create("conversation-a", title, SCENES)
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+
+    request = studio["started"][0]
+    voices = [cut.voice for cut in request.steps[0].scenes]
+    assert len(set(voices)) == 2 and all(voice.startswith("Row-Bot 5.3.1 beta") for voice in voices)
+    assert set(request.sounds) == set(voices)
+    assert request.output_name.startswith("Row-Bot 5.3.1 beta") and request.output_name.endswith(" v1.mp4")
+
+
+def test_narration_said_over_the_whole_video_is_part_of_the_project_and_its_lines_are_not_said_again(studio):
+    """The Release kit dubbed a whole-video voice onto a picture-only version outside the project, so the Video
+    panel showed a silent video. Narration is the project's own now."""
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment("conversation-a", "launch-script.wav", b"RIFF\x00\x00\x00\x00WAVE" + b"0" * 32)
+    project = video_projects.create("conversation-a", "Launch demo", SCENES, narration="launch-script.wav")
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+
+    request = studio["started"][0]
+    scenes, narration = request.steps
+    assert studio["said"] == [] and all(not cut.voice for cut in scenes.scenes), "no line is said one by one"
+    assert (narration.op, narration.role, narration.source, narration.start) == (
+        "sound", "voice", "launch-script.wav", 0.0)
+    assert set(request.sounds) == {"launch-script.wav"}
+    assert video_projects.view(video_projects.get(project.project_id))["narration"] == "launch-script.wav"
+    assert "Narration: launch-script.wav" in video_projects.summary(video_projects.get(project.project_id))
+
+    back = video_projects.change(video_projects.get(project.project_id), by="you", narration="")
+    video_projects.make(video_projects.get(project.project_id), back.number)
+    _wait(project.project_id, back.number)
+    assert studio["said"] == ["First, sign up.", "Then pick a plan."], "without it, each scene says its line"
+
+
+def test_a_title_card_scene_needs_no_video_and_a_video_of_cards_alone_needs_none_at_all(studio):
+    """5.3.1 beta F17: a 3-second title card couldn't be made without a source clip, so the model made background
+    videos with ffmpeg in the person's workspace."""
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "Launch demo", [
+        {"card": "Row-Bot 5.3", "line": "Meet Row-Bot.", "speed": 2, "zoom": [0, 0, 0.5, 0.5]},
+        {"source": "signup.mp4", "start": 1, "end": 4},
+        {"card": "row-bot.ai", "end": 2}])
+    title, _clip, end = project.latest.scenes
+    assert (title.source, title.start, title.end, title.speed, title.zoom) == ("", 0.0, 3.0, 1.0, None)
+    assert (end.start, end.end) == (0.0, 2.0)
+    view = video_projects.view(project)
+    assert view["scenes"][0]["source_ref"] is None, "the preview shows it as a still card"
+    assert "1. [" in (text := video_projects.summary(project)) and "title card 0–3 s" in text
+
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    request = studio["started"][0]
+    assert len(request.sources) == 1, "only the clip is an input"
+    cuts = request.steps[0].scenes
+    assert [cut.input for cut in cuts] == [None, 0, None] and cuts[0].voice, "the card still says its line"
+
+    cards = video_projects.create("conversation-a", "Teaser", [{"card": "Coming soon"}])
+    video_projects.make(cards, 1)
+    _wait(cards.project_id, 1)
+    assert studio["started"][1].sources == [], "a video of cards alone has no input"
 
 
 def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
@@ -222,6 +311,39 @@ def test_the_brand_kit_is_used_for_every_video_unless_a_version_turns_it_off(stu
     assert video_projects.view(video_projects.get(project.project_id))["brand"] is False
 
 
+def test_how_recordings_show_and_who_says_the_lines_are_the_persons_choice(studio):
+    """5.3.2: nothing about a video's look or voice is fixed: the brand kit sets it for every video, and a video
+    may choose its own voice; choosing another voice says its lines again in it."""
+    from row_bot import video_brand, video_projects
+
+    for wrong, words in (({"framing": "tilted"}, "Footage is"), ({"camera": "shaky"}, "The camera is"),
+                         ({"voice": "nobody"}, "no voice called"), ({"voice_speed": 3}, "speed is")):
+        with pytest.raises(video_brand.BrandError, match=words):
+            video_brand.save(wrong)
+    video_brand.save({"framing": "full", "camera": "still", "voice": "bm_george", "voice_speed": 0.9})
+
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    look = studio["started"][-1].steps[0].look
+    assert (look.framing, look.camera) == ("full", "still")
+    assert studio["voices"] and all(options == {"voice": "bm_george", "speed": 0.9} for options in studio["voices"])
+
+    studio["voices"].clear()
+    own = video_projects.change(project, by="you", voice="af_heart", note="Another voice")
+    video_projects.make(project, own.number)
+    _wait(project.project_id, own.number)
+    assert len(studio["voices"]) == len(SCENES) and studio["voices"][0] == {"voice": "af_heart", "speed": 0.9}, \
+        "every line said again in the video's own voice, at the kit's speed"
+    view = video_projects.view(video_projects.get(project.project_id))
+    assert (view["voice"], view["voice_speed"]) == ("af_heart", 0.0)
+    studio["voices"].clear()
+    again = video_projects.change(project, by="you", note="Same voice")
+    video_projects.make(project, again.number)
+    _wait(project.project_id, again.number)
+    assert studio["voices"] == [], "lines already said in that voice aren't said again"
+
+
 def test_a_recordings_beats_become_its_scenes_live_as_it_is_work_sped_up_and_cuts_left_out(studio):
     import time
 
@@ -232,14 +354,18 @@ def test_a_recordings_beats_become_its_scenes_live_as_it_is_work_sped_up_and_cut
     record = recordings.Recording(recording_id="rec-0a0b0c0d", conversation_id="conversation-a", kind="browser",
                                   started_at=time.time() - 30, max_seconds=300, status="saved",
                                   media_ref=saved["attachment_ref"], mime_type="video/mp4",
-                                  beats=[[4.0, "work", "Waiting for the build"], [16.5, "live", ""],
-                                         [22.0, "cut", ""], [25.0, "live", ""]])
+                                  beats=[[4.0, "work", "Waiting for the build"],
+                                         [16.5, "live", "Your shop's orders", "Here are this morning's orders."],
+                                         [22.0, "cut", "", ""], [25.0, "live", "", ""]])
     recordings._ensure_loaded()
     recordings._RECORDS[record.recording_id] = record
 
     scenes = video_projects.scenes_from_beats("rec-0a0b0c0d", "conversation-a")
     assert [(scene["start"], scene["end"], scene["speed"]) for scene in scenes] == [
         (0.0, 4.0, 1.0), (4.0, 16.5, 4.0), (16.5, 22.0, 1.0), (25.0, None, 1.0)]
+    assert [(scene["card"], scene["line"]) for scene in scenes[1:3]] == [
+        ("Waiting for the build", ""), ("Your shop's orders", "Here are this morning's orders.")], \
+        "each beat's note is its scene's title and its line is said over it (a beat from before 5.3.2 has none)"
     project = video_projects.create("conversation-a", "Sign-up walkthrough", scenes)
     assert [scene.source for scene in project.latest.scenes] == ["rec-0a0b0c0d"] * 4
     with pytest.raises(video_projects.ProjectError, match="isn't a recording in this chat"):
@@ -274,7 +400,8 @@ def test_scenes_that_cannot_be_used_are_refused_plainly(studio):
 
     for scenes, words in (([], "at least one scene"), ([{"source": "missing.mp4"}], "Scene 1"),
                           ([{"source": "signup.mp4", "speed": 9}], "speed is 0.25 to 4"),
-                          ([{"source": "signup.mp4", "start": 5, "end": 4}], "ends before it starts")):
+                          ([{"source": "signup.mp4", "start": 5, "end": 4}], "ends before it starts"),
+                          ([{"line": "Hello."}], "or give it a card")):
         with pytest.raises(video_projects.ProjectError, match=words):
             video_projects.create("conversation-a", "Demo", scenes)
 
@@ -336,3 +463,80 @@ def test_making_a_narrated_video_without_rowbots_voice_asks_for_it_first(studio,
     assert said.startswith("The person didn't allow downloading Row-Bot's voice")
     assert asked == ["Narrating this video needs Row-Bot's voice (Kokoro, about 206 MB) from GitHub. Download it now?"]
     assert video_projects.get(project.project_id, "conversation-a").latest.status != "rendering", "nothing made"
+
+
+def test_a_made_video_comes_with_a_review_sheet_row_bot_looks_at_before_saying_its_done(studio):
+    """5.3.2: Row-Bot checks what it made, as a viewer sees it, before it says the video is finished."""
+    from row_bot import video_edits, video_projects
+
+    assert video_edits.review_times([0.0, 5.0, 6.0]) == [(1, 1.0), (1, 4.4), (2, 5.5)], \
+        "a second into each scene and near its end; a short scene once"
+    assert len(video_edits.review_times([float(at) for at in range(0, 200, 5)])) == video_edits.REVIEW_TILES
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    made = video_edits.get(_wait(project.project_id, 1).edit_id)
+    assert "Review sheet" not in video_projects.summary(video_projects.get(project.project_id)), "not before it's made"
+    video_edits._set(made, status="saved", sheet="Launch demo v1 review.jpg")
+
+    words = video_projects.summary(video_projects.get(project.project_id))
+    assert "Review sheet: Launch demo v1 review.jpg" in words and "analyze_image before saying the video is done" in words
+    assert video_projects.view(video_projects.get(project.project_id))["review_sheet"] == "Launch demo v1 review.jpg"
+
+
+def test_a_narrated_video_needing_ffmpeg_and_the_voice_asks_once_for_both(studio, monkeypatch):
+    """U25: one card before making it, naming both downloads, not two in a row."""
+    from row_bot import ffmpeg_runtime, video_projects
+    from row_bot.tools import approval_gate, video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: None)
+    wheel = ffmpeg_runtime.WHEELS["windows-x86_64"]
+    monkeypatch.setattr(ffmpeg_runtime, "current_wheel", lambda: wheel)
+    monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: False)
+    asked: list[str] = []
+    monkeypatch.setattr(approval_gate, "approval_check", lambda payload, **_: asked.append(payload["question"]) or (
+        "The person didn't allow the downloads; nothing was downloaded or made.", ""))
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+
+    said = video_project_tool._video(action="make", project=project.project_id)
+
+    assert said.startswith("The person didn't allow the downloads")
+    assert asked == [f"Making this video needs ffmpeg (about {ffmpeg_runtime.size_words(wheel.size)}) and Row-Bot's "
+                     "voice (Kokoro, about 206 MB). Download both now?"]
+    assert video_projects.get(project.project_id, "conversation-a").latest.status != "rendering", "nothing made"
+
+
+def test_a_wait_in_a_recorded_scene_needs_attention_once_its_line_is_said(studio):
+    """Run 10: a "Thinking… 26s" shot survived into a finished demo; a spinner or a ticking timer moves, so the
+    still check missed it. What the recording logged (clicks, typing, scrolls) shows where nothing was done: a
+    wait of 8 s or more on the video after the scene's line needs attention; one sped up below that doesn't."""
+    import time
+
+    from row_bot import recordings, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.video_editing import InputVideo, SceneCut, Step, VideoInfo, build_plan
+
+    saved = register_attachment("conversation-a", "generated-recording.mp4", MP4)
+    record = recordings.Recording(recording_id="rec-1a2b3c4d", conversation_id="conversation-a", kind="browser",
+                                  started_at=time.time() - 60, max_seconds=300, status="saved",
+                                  media_ref=saved["attachment_ref"], mime_type="video/mp4",
+                                  actions=[[1.0, 2.0, "click"], [3.0, 6.0, "type"], [40.0, 41.0, "scroll"]])
+    record.duration_seconds = 50.0
+    recordings._ensure_loaded()
+    recordings._RECORDS[record.recording_id] = record
+
+    waits = video_projects.scene_waits("rec-1a2b3c4d", 0.0, 50.0)
+    assert waits == ((0.0, 1.0), (2.0, 3.0), (6.0, 40.0), (41.0, 50.0))
+
+    recording = [InputVideo("input-1.mp4", VideoInfo(50.0, 640, 360, 30.0, False))]
+
+    def review(speed: float) -> list[str]:
+        scene = SceneCut(input=0, start=0.0, end=50.0, speed=speed, line="Row-Bot reads the brief.",
+                         voice="line-1.wav", voice_seconds=5.0, waits=waits)
+        return build_plan(recording, [Step(op="scenes", scenes=[scene])], "output.mp4",
+                          sounds={"line-1.wav": "sound-1.wav"}).review
+
+    assert [line for line in review(1.0) if line.startswith("Waiting")] == [
+        "Waiting: 0:06–0:40 shows nothing being done. Speed that part up or cut it.",
+        "Waiting: 0:41–0:50 shows nothing being done. Speed that part up or cut it."]
+    assert not [line for line in review(8.0) if line.startswith("Waiting")], "sped up, the waits pass quickly"

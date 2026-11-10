@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { clientError } from '../../api/errors';
-import type { MediaItem, VideoBrand } from '../../api/types';
+import type { MediaItem, SettingsChoice, VideoBrand } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button, Field, Select, Skeleton } from '../../ui/primitives';
 
@@ -16,13 +16,46 @@ const CORNERS: [VideoBrand['logo_corner'], string][] = [
   ['bottom-right', 'Bottom right'],
 ];
 const MOODS: VideoBrand['music_mood'][] = ['calm', 'upbeat', 'focused', 'warm'];
+const FRAMINGS: [VideoBrand['framing'], string][] = [
+  ['framed', 'Framed on the colour'],
+  ['full', 'Edge to edge'],
+];
+const CAMERAS: [VideoBrand['camera'], string][] = [
+  ['follow', 'Follows what is done'],
+  ['still', 'Stays still'],
+];
+const SPEEDS: [number, string][] = [
+  [0.9, 'Slower'],
+  [1, 'Normal'],
+  [1.1, 'A little faster'],
+  [1.25, 'Faster'],
+];
+
+/** The local voices Row-Bot speaks in (Settings › Voice), for a video's lines. */
+export function useVoiceChoices(): SettingsChoice[] {
+  const { controller } = useRuntime();
+  const [voices, setVoices] = useState<SettingsChoice[]>([]);
+  useEffect(() => {
+    const abort = new AbortController();
+    Promise.resolve()
+      .then(() => controller.settingsSnapshot(abort.signal))
+      .then(
+        (snapshot) => setVoices(snapshot?.voice.tts_voice_options ?? []),
+        () => undefined,
+      );
+    return () => abort.abort();
+  }, [controller]);
+  return voices;
+}
 
 /**
  * The brand kit (5.3.1 B3): one look for every video. Its colour fills title
- * cards and badges, its caption style sets how lines show, its logo (a picture
- * from Library › Media) sits in a corner, its intro and outro are cards before
- * and after, and its music mood is what Row-Bot picks. A version can turn it
- * off; changing the kit applies the next time a video is made.
+ * cards, titles and badges, its caption style sets how lines show, its logo (a
+ * picture from Library › Media) sits in a corner, its intro and outro are cards
+ * before and after, its footage and camera set how recordings are shown, its
+ * voice and speed say the lines, and its music mood is what Row-Bot picks. A
+ * version can turn it off; changing the kit applies the next time a video is
+ * made.
  */
 export function VideoBrandEditor({ onSaved }: { onSaved: () => void }) {
   const { controller } = useRuntime();
@@ -31,6 +64,7 @@ export function VideoBrandEditor({ onSaved }: { onSaved: () => void }) {
   const [pictures, setPictures] = useState<MediaItem[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const voices = useVoiceChoices();
 
   useEffect(() => {
     const abort = new AbortController();
@@ -159,6 +193,65 @@ export function VideoBrandEditor({ onSaved }: { onSaved: () => void }) {
             value={brand.outro}
             onChange={(event) => set({ outro: event.target.value })}
           />
+        </Field>
+        <Field label="Footage" layout="row">
+          <Select
+            aria-label="Footage"
+            value={brand.framing}
+            onChange={(event) =>
+              set({ framing: event.target.value as VideoBrand['framing'] })
+            }
+          >
+            {FRAMINGS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Camera" layout="row">
+          <Select
+            aria-label="Camera"
+            value={brand.camera}
+            onChange={(event) =>
+              set({ camera: event.target.value as VideoBrand['camera'] })
+            }
+          >
+            {CAMERAS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Voice" layout="row">
+          <Select
+            aria-label="Voice"
+            value={brand.voice}
+            onChange={(event) => set({ voice: event.target.value })}
+          >
+            <option value="">As in Settings</option>
+            {voices.map((voice) => (
+              <option key={voice.value} value={voice.value}>
+                {voice.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Voice speed" layout="row">
+          <Select
+            aria-label="Voice speed"
+            value={String(brand.voice_speed)}
+            onChange={(event) =>
+              set({ voice_speed: Number(event.target.value) })
+            }
+          >
+            {SPEEDS.map(([value, label]) => (
+              <option key={value} value={String(value)}>
+                {label}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field label="Music mood" layout="row">
           <Select

@@ -48,7 +48,13 @@ export interface MediaTransport {
  * window reconnects, a copy the server wrote into the Exports folder.
  */
 export type SavedFile =
-  | { kind: 'file' }
+  | {
+      kind: 'file';
+      /** The chosen file's own name (never its folder), when the host says. */
+      fileName?: string;
+      /** Show the file chosen in the Save dialog in the file manager. */
+      reveal?(): Promise<boolean>;
+    }
   | { kind: 'download' }
   | {
       kind: 'exports';

@@ -1,5 +1,6 @@
 import type { BrowserContext, Page } from '@playwright/test';
 import { assertNoOverflow, expect, screenshot, test } from './evidence';
+import { signInPage } from './sign-in-helpers';
 import {
   blockFixtureServiceWorkers,
   composer,
@@ -37,11 +38,10 @@ async function send(page: Page, text: string) {
 /** Sign in on the synthetic provider's page, which opens in its own tab. */
 async function approveSignIn(
   context: BrowserContext,
+  chat: Page,
   start: () => Promise<void>,
 ) {
-  const signIn = context.waitForEvent('page');
-  await start();
-  const page = await signIn;
+  const page = await signInPage(context, chat, start);
   await page.getByRole('link', { name: 'Allow' }).click();
   await expect(
     page.getByText('Signed in to the synthetic service.'),
@@ -81,7 +81,7 @@ test('an app found in the chat connects there, names itself on its steps, and fo
   await consent
     .getByRole('radio', { name: /^Look things up and make changes/ })
     .check();
-  await approveSignIn(context, () =>
+  await approveSignIn(context, page, () =>
     consent.getByRole('button', { name: 'Connect', exact: true }).click(),
   );
   const access = page.getByRole('dialog', {

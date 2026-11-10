@@ -15,7 +15,8 @@ def test_shell_command_classification_regressions() -> None:
     assert classify_command('echo "hello > world"') == "safe"
     assert classify_command("echo 'hello | world'") == "safe"
     assert classify_command("echo hello > /tmp/out") == "needs_approval"
-    assert classify_command("ls | grep foo") == "needs_approval"
+    assert classify_command("ls | grep foo") == "safe"  # Both only read (5.3.1).
+    assert classify_command("ls | sh") == "needs_approval"
     assert classify_command("echo safe\nrm -rf /") == "blocked"
     assert classify_command("ls\npwd\nwhoami") == "safe"
     assert classify_command("ls\npip install foo") == "needs_approval"

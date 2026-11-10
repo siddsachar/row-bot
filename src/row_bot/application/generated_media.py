@@ -40,7 +40,7 @@ def save_generated_output(conversation_id: str, data: bytes, *, prefix: str, ext
             continue
 
 
-def _image(conversation_id: str, encoded: str) -> dict:
+def _image(conversation_id: str, encoded: str, name: str = "") -> dict:
     if not isinstance(encoded, str):
         raise AttachmentError("media_unavailable")
     if len(encoded) > 4 * ((MAX_ATTACHMENT_BYTES + 2) // 3):
@@ -54,7 +54,7 @@ def _image(conversation_id: str, encoded: str) -> dict:
     if len(data) > MAX_ATTACHMENT_BYTES:
         raise AttachmentError("payload_too_large")
     suffix = ".png" if data.startswith(b"\x89PNG\r\n\x1a\n") else ".jpg" if data.startswith(b"\xff\xd8\xff") else ".bin"
-    return register_attachment(conversation_id, "generated-image" + suffix, data)
+    return register_attachment(conversation_id, (Path(name).stem or "generated-image") + suffix, data)
 
 
 def _video(conversation_id: str, metadata: dict) -> dict:
@@ -89,18 +89,18 @@ def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCac
     The ToolNode wrapper adds native issuing message/tool-call identities to each
     outcome. A failed output cannot discard another successfully captured output.
     """
-    image, video = caches.pending_image, caches.pending_video
-    caches.pending_image = None
+    image, name, video = caches.pending_image, caches.pending_image_name, caches.pending_video
+    caches.pending_image, caches.pending_image_name = None, ""
     caches.pending_video = None
     outcomes = []
-    for capture, value in ((_image, image), (_video, video)):
+    for kind, value in (("image", image), ("video", video)):
         if value is None:
             continue
         try:
             if caches.conversation_id != conversation_id:
                 raise AttachmentError("action_denied")
             _conversation(conversation_id)
-            result = capture(conversation_id, value)
+            result = _image(conversation_id, value, name) if kind == "image" else _video(conversation_id, value)
             outcomes.append({"type": "media.available", "payload": {
                 "media_ref": result["attachment_ref"], "mime_type": result["mime_type"],
             }})

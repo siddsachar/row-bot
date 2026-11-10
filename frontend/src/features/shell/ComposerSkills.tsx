@@ -28,7 +28,8 @@ export function ComposerSkillChips({
         <span
           className="composer-skill-chip"
           key={skill.id}
-          title={skill.description}
+          // An on skill, not a suggestion: say so, then what it does (U23).
+          title={`${skill.display_name} is on in this chat${skill.description ? `: ${skill.description}` : '.'}`}
         >
           <span aria-hidden>{skill.icon}</span> {skill.display_name}
           {skill.removable && (

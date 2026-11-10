@@ -27,10 +27,18 @@ Row-Bot uses semantic versioning:
   width, and a Linux package build and install smoke.
   Weekly (or `weekly: true` on a manual run): Installer Verify on Windows and
   macOS and the browser smoke on Firefox and WebKit.
+- **Pull requests that touch the image, and every release** (`container.yml`):
+  native `linux/amd64` and `linux/arm64` images, each smoked in the Compose
+  shape (`scripts/smoke_docker_server.py`) and as a hosting service runs it
+  (`scripts/smoke_hosting_partner.py`: one container, one volume, the host's
+  generated setup code and key, a fake model, a restart). The hosting smoke
+  writes the container's memory high-water mark to the job summary. A release
+  pushes an image only after both smokes pass.
 - **Release** (`release.yml`): the `release-gate` job checks the lock files,
   checks that the requested version matches `src/row_bot/version.py` and
   `installer/row_bot_setup.iss`, refuses a run that is not from the tag
-  `vX.Y.Z`, and refuses a commit without a green `CI / ci-ok`. It runs the
+  `vX.Y.Z`, refuses release notes for the version that still say `TODO:`, and
+  refuses a commit without a green `CI / ci-ok`. It runs the
   nightly suite once only if that commit has no green nightly run. Nothing else
   is re-tested; each build install-smokes its own package and rehearses a
   background update from the release's own update parts.
@@ -71,8 +79,33 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    the reference pages from the code, builds the site with its search index and
    syncs it into `docs/`, never touching the landing page. Pull requests between
    releases change only the docs' sources (`docs-site/docs`), so the published
-   site describes the release people can install. `--no-docs` skips it; then
-   run `python scripts/docs/publish.py` before opening the release-prep PR.
+   site describes the release people can install. With it, it refreshes the
+   model capabilities bundled with the release
+   (`scripts/refresh_model_capabilities.py` writes
+   `src/row_bot/providers/model_capabilities.json` from models.dev), the copy
+   Row-Bot reads when its live fetch fails. `--no-docs` skips both; then run
+   `python scripts/docs/publish.py` and
+   `python scripts/refresh_model_capabilities.py` before opening the
+   release-prep PR.
+
+   It adds the version's section to `RELEASE_NOTES.md` when it has none, and a
+   `### For Hosts` section at its end. Write there what changes for hosts that
+   package the image (breaking changes, a new recommended size, new host
+   settings), or "No changes for hosts." Hosts act on it: a breaking change for
+   hosts must be flagged there and announced to them at least 7 days before the
+   tag. The release refuses a section that still says `TODO:` (see the
+   [Hosting checklist](#hosting-checklist)).
+
+   Refresh the app catalog's quality signals for the Registry snapshot this
+   release ships: run the **Catalog signals** workflow on the release-prep
+   branch (Actions → Catalog signals → Run workflow), download its
+   `registry-signals` artifact and commit it as
+   `src/row_bot/mcp_client/registry_signals.json.xz`. It reads stars, last
+   push, archived, fork parent and licence per repository from GitHub, and
+   first publish and version count per Registry record, with the workflow's own
+   read-only token (`scripts/build_catalog_signals.py`; locally,
+   `GITHUB_TOKEN=$(gh auth token) python scripts/build_catalog_signals.py`).
+   Searches only read the file. Without it, search ranks without stars.
 
    Then sweep the human-facing text: `RELEASE_NOTES.md`, `README.md` and the
    version sentence on `docs-site/docs/index.mdx` (publish again if you change
@@ -149,6 +182,26 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    dispatch `gh workflow run nightly.yml --ref main` on that commit first (or
    wait for the scheduled run).
 
+### Hosting checklist
+
+Hosts that package the image update their users' Row-Bots unattended, from
+`latest` (stable releases only) or the version tag. Before tagging:
+
+- [ ] The hosting smoke is green on amd64 and arm64: the "as a hosting service
+      runs it" steps of `container.yml` on the release-prep pull request (it
+      changes `src/`, so the workflow runs). The release runs it again before
+      it pushes the image; if it fails there, no image is pushed: say so in the
+      notes and tell the hosts.
+- [ ] The version's `### For Hosts` section is written, or says "No changes for
+      hosts." `release.yml` refuses a section that still says `TODO:`.
+- [ ] Breaking changes for hosts (a new required setting, a migration that
+      needs them, a larger recommended size) were announced to the hosts at
+      least 7 days before the tag.
+- [ ] The memory high-water mark in the hosting smoke's job summary is under
+      3.2 GB on both architectures, or the recommended size in
+      `docs-site/docs/operations/hosting.mdx` and the hosts' listings is
+      updated.
+
 ## Build and publish
 
 A release is built in CI from its tag and ends as a draft GitHub release with
@@ -194,7 +247,10 @@ the updater trusts only files listed there.
 - **SimplySign Desktop** with the Certum code signing certificate
   (thumbprint `2341B4B36A21DF948E538A88BB194FAE4D1CAE51`). The script asks you
   to log in (the code from the phone app) once, before the first signature, and
-  signs both files in that session.
+  signs both files in that session. Before the first signature it checks the
+  certificate with a fresh OCSP answer (`certutil -verify -urlfetch`) and
+  refuses a revoked one: Windows keeps a CRL for a week, so its own checks
+  (`Get-AuthenticodeSignature`, `signtool verify`) can still call it valid.
 - **GitHub CLI** logged in with write access to the repository (`gh auth login`).
 - **Python 3.11 or newer** on `PATH` (`python` or `py -3`); no packages needed.
 - About 5 GB free in `%LOCALAPPDATA%\rbr\<run id>` (the installer stage is 1.9 GB
@@ -352,6 +408,25 @@ signed but not submitted: one submission per dry run), and runs
 packed by ISCC, the release is checked and the SHA-256 block is printed, with
 no signing, upload or publishing. The same works locally:
 `.\scripts\release_windows.ps1 -Version <version> -RunId <dry run ID> -DryRun`.
+
+### Re-signing the Windows installer
+
+If Certum revokes the certificate that signed a published Windows installer,
+Windows distrusts it once a machine has a fresh revocation list (a signature
+timestamped before the revocation stays valid). Re-sign that release with the
+certificate Certum issued in its place:
+
+```powershell
+.\scripts\release_windows.ps1 -Version X.Y.Z -Resign -CertificateSha1 <new thumbprint>
+```
+
+It signs the same run's stage again, packs and signs the installer, checks
+that every other file on the release is still the one its SHA-256 block lists,
+and after you type `resign X.Y.Z` replaces only the installer and its line in
+the block. This is the one change a published release takes: the update
+description names the installer without a hash and the update parts hold no
+programs, so installs that already prepared the update are unaffected. Until
+it is done, point the landing page's Windows download at the previous release.
 
 ### Pulling a bad release
 

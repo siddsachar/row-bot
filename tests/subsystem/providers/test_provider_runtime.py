@@ -1024,7 +1024,8 @@ def test_minimax_model_facade_fetches_live_catalog_and_capabilities(monkeypatch)
         }
         count = models.fetch_cloud_models("minimax")
 
-        assert count == 3
+        # Its three listed models, and the image and video models its docs name beside them (I24).
+        assert count == 8
         assert calls[0]["url"] == "https://api.minimax.io/anthropic/v1/models"
         assert calls[0]["params"] == {"limit": 100}
         assert calls[1]["params"] == {"limit": 100, "after_id": "MiniMax-M2.7"}
@@ -1114,7 +1115,7 @@ def test_minimax_live_catalog_does_not_rewrite_current_default(monkeypatch):
 
         count = models.fetch_cloud_models("minimax")
 
-        assert count == 1
+        assert count == 6  # MiniMax-M3 and the five media models its docs name
         assert "MiniMax-M2.7" not in models._cloud_model_cache
         assert models._current_model == "model:minimax:MiniMax-M2.7"
     finally:
@@ -1186,8 +1187,9 @@ def test_atlascloud_model_facade_fetches_openai_compatible_catalog(monkeypatch):
             }
 
     def _fake_get(url, **kwargs):
-        captured["url"] = url
-        captured["headers"] = dict(kwargs.get("headers") or {})
+        # The chat catalogue first; Atlas Cloud's own media list follows.
+        captured.setdefault("url", url)
+        captured.setdefault("headers", dict(kwargs.get("headers") or {}))
         return _Response()
 
     monkeypatch.setattr(auth_store, "get_provider_secret", lambda provider_id: "test-atlas-key" if provider_id == "atlascloud" else "")

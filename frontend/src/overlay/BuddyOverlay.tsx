@@ -25,6 +25,7 @@ import type { ApprovalView, WriteTarget } from '../api/types';
 import type { ClientPlatform, PlatformInfo } from '../platform';
 import { BuddyAvatar, rememberBuddyMedia } from '../features/buddy/BuddyAvatar';
 import type { BuddyPack, BuddySnapshot } from '../features/shell/BuddyControls';
+import { resolveApproval } from '../features/shell/resolve-approval';
 import { approvalQuestion, keyArgument } from '../features/shell/tool-activity';
 import { IconButton } from '../ui/primitives';
 import {
@@ -342,12 +343,7 @@ export default function BuddyOverlay({
     setResolving(decision);
     setError('');
     try {
-      await controller.intent(
-        approval.id,
-        'approval.resolve',
-        { decision, nonce: approval.nonce },
-        approval.revision,
-      );
+      await resolveApproval(controller, approval.id, approval, { decision });
     } catch (cause) {
       setResolving('');
       setError(clientError(cause).message);

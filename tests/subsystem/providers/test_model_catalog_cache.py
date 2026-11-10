@@ -92,28 +92,6 @@ def test_minimax_provider_refresh_does_not_preclear_on_failed_fetch(monkeypatch)
         models._cloud_model_cache.update(old_cache)
 
 
-def test_model_catalog_refresh_prunes_stale_custom_quick_choices(tmp_path, monkeypatch):
-    import row_bot.api_keys as api_keys
-    import row_bot.providers.config as provider_config
-    import row_bot.providers.model_catalog_cache as cache
-    from row_bot.providers.selection import add_quick_choice_for_model
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
-    monkeypatch.setattr(cache, "_refresh_cloud_cache", lambda provider_id=None: (
-        {"gpt-test": {"provider": "openai", "label": "GPT Test"}},
-        {"openai": {"status": "ok", "count": 1}},
-    ))
-    monkeypatch.setattr(cache, "_refresh_ollama_rows", lambda: [])
-    add_quick_choice_for_model("ghost-model", provider_id="custom_openai_deleted")
-
-    refreshed = cache.refresh_model_catalog_cache(reason="test", force=True)
-
-    assert refreshed.total_rows == 1
-    assert provider_config.load_provider_config()["quick_choices"] == []
-
-
 def test_background_model_catalog_refresh_coalesces(monkeypatch):
     import row_bot.providers.model_catalog_cache as cache
 
@@ -336,3 +314,101 @@ def test_google_second_page_failure_does_not_commit_partial_catalog(monkeypatch)
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)
+
+
+def test_a_refresh_for_claude_alone_still_lists_ollama_when_none_is_saved(tmp_path, monkeypatch):
+    """Claude's plan-ready refresh (the first on a computer where Claude Code is signed in) wrote a
+    fresh cache without Ollama, so the startup refresh after it skipped and Ollama listed no model.
+    Both providers are faked: no Ollama and no Claude Code is reached."""
+    import row_bot.providers.model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    claude = {"model:claude_subscription:claude-sonnet-5": {"provider": "claude_subscription"}}
+    ollama = [{"model_id": "qwen3:14b", "installed": True}]
+    asked: list[str] = []
+
+    def ollama_rows():
+        asked.append("ollama")
+        return [dict(row) for row in ollama]
+
+    monkeypatch.setattr(cache, "_refresh_cloud_cache",
+                        lambda provider_id=None: (dict(claude), {provider_id: {"status": "live", "count": 1}}))
+    monkeypatch.setattr(cache, "_refresh_ollama_rows", ollama_rows)
+
+    cache.refresh_model_catalog_cache(reason="claude_plan_ready", force=True, provider_id="claude_subscription")
+
+    assert cache.read_model_catalog_cache().ollama_rows == ollama
+    assert asked == ["ollama"]
+    # Ollama's rows saved, another provider's refresh leaves them to Ollama's own and the full ones.
+    cache.refresh_model_catalog_cache(reason="claude_plan_ready", force=True, provider_id="claude_subscription")
+    assert asked == ["ollama"]
+    assert cache.read_model_catalog_cache().ollama_rows == ollama
+
+
+def test_connecting_one_provider_does_not_stop_the_full_refresh_of_the_others(tmp_path, monkeypatch):
+    """On 9 Nov each newly connected provider refreshed its own list and stamped the whole catalog fresh, so
+    the startup and 6-hourly refreshes skipped all day: Requesty's list stayed two days old, without the
+    image models a newer Row-Bot lists. Providers are faked."""
+    import row_bot.providers.model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    monkeypatch.setattr(cache, "_refresh_ollama_rows", lambda: [])
+    refreshed: list[str] = []
+
+    def cloud(provider_id=None):
+        refreshed.append(provider_id or "all")
+        return {f"model:{provider_id or 'requesty'}:m": {"provider": provider_id or "requesty"}}, {
+            provider_id or "requesty": {"status": "live", "count": 1}}
+
+    monkeypatch.setattr(cache, "_refresh_cloud_cache", cloud)
+    cache.refresh_model_catalog_cache(reason="startup", force=True)
+    monkeypatch.setattr(cache.time, "time", lambda: cache.read_model_catalog_cache().generated_at
+                        + cache.CATALOG_CACHE_TTL_SECONDS + 1)
+
+    cache.refresh_model_catalog_cache(reason="provider_connection", force=True, provider_id="cerebras")
+    # The other providers' statuses stay beside the one just refreshed.
+    assert {"requesty", "cerebras"} <= set(cache.read_model_catalog_cache().provider_status)
+    cache.refresh_model_catalog_cache(reason="scheduled", force=False)
+
+    assert refreshed == ["all", "cerebras", "all"]
+
+def test_the_scheduled_refresh_reads_an_old_catalog_only_while_a_cloud_provider_is_connected(tmp_path, monkeypatch):
+    """I23: the start-up and 6-hourly refresh. A local-only install contacts nobody; with a provider
+    connected a catalog older than six hours is read again and a fresh one is left alone. Providers are faked."""
+    import row_bot.providers.model_catalog_cache as cache
+    import row_bot.providers.runtime as runtime
+
+    path = tmp_path / "model_catalog_cache.json"
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", path)
+    monkeypatch.setattr(cache, "_refresh_ollama_rows", lambda: [])
+    monkeypatch.setattr(cache, "_publish_live", lambda topic: None)
+    old = time.time() - cache.CATALOG_CACHE_TTL_SECONDS - 60
+    cache.write_model_catalog_cache(CatalogCacheSnapshot(
+        version=cache.CACHE_VERSION, generated_at=old, cloud_cache={"model:requesty:m": {"provider": "requesty"}},
+        ollama_rows=[], provider_status={}, warnings=(), reason="startup"))
+    refreshed: list[str] = []
+
+    def cloud(provider_id=None):
+        refreshed.append(provider_id or "all")
+        return {"model:requesty:m": {"provider": "requesty"}}, {"requesty": {"status": "live", "count": 1}}
+
+    monkeypatch.setattr(cache, "_refresh_cloud_cache", cloud)
+
+    def scheduled(reason: str) -> bool:
+        started = cache.refresh_stale_catalog_if_connected(reason)
+        for thread in threading.enumerate():
+            if thread.name == "model-catalog-refresh":
+                thread.join(timeout=5)
+        return started
+
+    monkeypatch.setattr(runtime, "list_configured_provider_ids", lambda: [])
+    assert scheduled("startup") is False
+    assert refreshed == []
+    assert cache.read_model_catalog_cache().generated_at == old
+
+    monkeypatch.setattr(runtime, "list_configured_provider_ids", lambda: ["requesty"])
+    assert scheduled("startup") is True
+    assert refreshed == ["all"]
+    assert cache.read_model_catalog_cache().generated_at > old
+    scheduled("scheduled")
+    assert refreshed == ["all"]

@@ -1,14 +1,14 @@
 import {
-  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { ProviderLiveCard, ProviderLiveSnapshot } from '../../api/types';
 import ProviderStatus from './ProviderStatus';
+import { setPlace } from '../../api/place';
 
 const card: ProviderLiveCard = {
   provider_id: 'openai',
@@ -34,29 +34,101 @@ const card: ProviderLiveCard = {
 };
 const snapshot: ProviderLiveSnapshot = { schema_version: 1, providers: [card] };
 
-it('shows the live NiceGUI connection facts without saved-catalog internals', async () => {
-  const load = vi.fn(async () => snapshot);
+const unconnected = (provider_id: string, display_name: string, icon = '◇') =>
+  ({
+    ...card,
+    provider_id,
+    display_name,
+    icon,
+    configured: false,
+    runtime_enabled: false,
+    source: 'none',
+    model_count: null,
+    fingerprint: '',
+  }) satisfies ProviderLiveCard;
+
+/** Opens a provider's sheet from its tile. */
+async function openSheet(name: string) {
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: (accessible) => accessible.startsWith(name),
+    }),
+  );
+  return screen.findByRole('dialog', { name });
+}
+
+/** Opens Add a provider and one of its tabs. */
+async function openGallery(tab: string) {
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add a provider' }),
+  );
+  const gallery = await screen.findByRole('dialog', { name: 'Add a provider' });
+  const trigger = within(gallery).getByRole('tab', { name: tab });
+  fireEvent.mouseDown(trigger);
+  fireEvent.click(trigger);
+  return gallery;
+}
+
+it('gives each connected provider a tile: how it is paid and how many models', async () => {
+  const load = vi.fn(async () => ({
+    schema_version: 1 as const,
+    providers: [{ ...card, billing: 'pay_per_use' as const }],
+  }));
   render(
     <ProviderStatus load={load} refresh={vi.fn()} refreshState={vi.fn()} />,
   );
-  expect(await screen.findByText('OpenAI API')).toBeVisible();
-  expect(screen.getByText('Connected')).toBeVisible();
-  expect(screen.getByText(/Saved in keyring · 91 models · key/)).toBeVisible();
+  const tile = await screen.findByRole('button', { name: /^OpenAI API/ });
+  expect(tile).toHaveTextContent('Pay per use · 91 models');
+  expect(tile).toHaveTextContent('Connected');
+  expect(
+    within(screen.getByLabelText('API providers')).getAllByRole('listitem'),
+  ).toHaveLength(1);
   // Bare counts ("85 chat", "6 media") meant nothing on their own.
   expect(screen.queryByText(/chat|media/)).toBeNull();
-  expect(screen.getByLabelText('Provider summary')).toHaveTextContent(
-    /^1 connected$/,
-  );
-  expect(screen.getByLabelText('API providers')).toBeVisible();
-  expect(screen.getByText('API key')).toBeVisible();
-  expect(screen.queryByText(/connection readiness not checked/i)).toBeNull();
-  expect(
-    screen.queryByRole('button', { name: /Reload saved status/ }),
-  ).toBeNull();
   expect(load).toHaveBeenCalledOnce();
 });
 
-it('uses the row refresh icon to request and display a targeted catalog update', async () => {
+it('a tile opens the provider’s sheet with its state and its models', async () => {
+  const models = vi.fn((provider: ProviderLiveCard) => (
+    <p>Models from {provider.display_name}</p>
+  ));
+  render(
+    <ProviderStatus
+      load={async () => ({
+        schema_version: 1,
+        providers: [{ ...card, billing: 'pay_per_use' }],
+      })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      models={models}
+    />,
+  );
+  const sheet = await openSheet('OpenAI API');
+  expect(sheet).toHaveAccessibleDescription(
+    'Connected · Pay per use · 91 models',
+  );
+  expect(within(sheet).getByText('Models from OpenAI API')).toBeVisible();
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Close OpenAI API' }),
+  );
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('a link with ?provider= opens that provider’s sheet at once', async () => {
+  render(
+    <ProviderStatus
+      load={async () => snapshot}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      openProvider="openai"
+    />,
+  );
+  expect(
+    await screen.findByRole('dialog', { name: 'OpenAI API' }),
+  ).toBeVisible();
+});
+
+it('refreshes one provider’s model list from its sheet and says how it went', async () => {
   const load = vi.fn(async () => snapshot);
   const refresh = vi.fn(async () => ({ running: true, started: true }));
   const refreshState = vi.fn(async () => ({
@@ -74,14 +146,15 @@ it('uses the row refresh icon to request and display a targeted catalog update',
       refreshState={refreshState}
     />,
   );
+  const sheet = await openSheet('OpenAI API');
   fireEvent.click(
-    await screen.findByRole('button', {
+    within(sheet).getByRole('button', {
       name: 'Refresh OpenAI API model list',
     }),
   );
   await waitFor(() => expect(refresh).toHaveBeenCalledWith('openai'));
   expect(
-    await screen.findByText('OpenAI API catalog refreshed: 92 models.'),
+    await within(sheet).findByText('OpenAI API catalog refreshed: 92 models.'),
   ).toBeVisible();
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
@@ -95,16 +168,20 @@ it('does not credit another running refresh to the selected provider', async () 
       refreshState={refreshState}
     />,
   );
+  const sheet = await openSheet('OpenAI API');
   fireEvent.click(
-    await screen.findByRole('button', {
+    within(sheet).getByRole('button', {
       name: 'Refresh OpenAI API model list',
     }),
   );
   expect(
-    await screen.findByText('Model catalog refresh is already running.'),
+    await within(sheet).findByText(
+      'Row-Bot is already updating the model list.',
+    ),
   ).toBeVisible();
   expect(refreshState).not.toHaveBeenCalled();
 });
+
 it('reports a targeted refresh failure even if the catalog worker had no provider result', async () => {
   render(
     <ProviderStatus
@@ -117,15 +194,18 @@ it('reports a targeted refresh failure even if the catalog worker had no provide
       refreshState={async () => ({ running: false, started: false, ok: false })}
     />,
   );
+  const sheet = await openSheet('OpenAI API');
   fireEvent.click(
-    await screen.findByRole('button', {
+    within(sheet).getByRole('button', {
       name: 'Refresh OpenAI API model list',
     }),
   );
-  expect(await screen.findByText('OpenAI API refresh failed.')).toBeVisible();
+  expect(
+    await within(sheet).findByText('OpenAI API refresh failed.'),
+  ).toBeVisible();
 });
 
-it('runs a real subscription runtime test from the row and shows its outcome', async () => {
+it('runs a real subscription runtime test from the sheet and shows its outcome', async () => {
   const subscription: ProviderLiveCard = {
     ...card,
     provider_id: 'xai_oauth',
@@ -147,32 +227,18 @@ it('runs a real subscription runtime test from the row and shows its outcome', a
       testRuntime={testRuntime}
     />,
   );
-  const more = await screen.findByRole('button', {
-    name: 'More actions for xAI Grok',
-  });
-  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  const sheet = await openSheet('xAI Grok');
   fireEvent.click(
-    screen.getByRole('menuitem', { name: 'Test xAI Grok runtime' }),
+    within(sheet).getByRole('button', { name: 'Test xAI Grok runtime' }),
   );
   await waitFor(() => expect(testRuntime).toHaveBeenCalledWith('xai_oauth'));
   expect(
-    await screen.findByText('xAI Grok: Runtime and tool calls work.'),
+    await within(sheet).findByText('xAI Grok: Runtime and tool calls work.'),
   ).toBeVisible();
 });
 
-it('lists connected providers first and folds the rest into one quiet list', async () => {
-  const unconnected = (provider_id: string, display_name: string, icon = '◇') =>
-    ({
-      ...card,
-      provider_id,
-      display_name,
-      icon,
-      configured: false,
-      runtime_enabled: false,
-      source: 'none',
-      model_count: null,
-      fingerprint: '',
-    }) satisfies ProviderLiveCard;
+it('keeps providers not connected in Add a provider, by how they are paid', async () => {
+  const onAddServer = vi.fn();
   render(
     <ProviderStatus
       load={async () => ({
@@ -190,30 +256,141 @@ it('lists connected providers first and folds the rest into one quiet list', asy
       })}
       refresh={vi.fn()}
       refreshState={vi.fn()}
+      onAddServer={onAddServer}
     />,
   );
-  const api = await screen.findByLabelText('API providers');
-  const more = within(api).getByText('More API providers').closest('details')!;
-  expect(more).not.toHaveAttribute('open');
-  expect(within(api).getAllByRole('listitem')[0]).toHaveTextContent(
-    'OpenAI API',
-  );
-  // Folded rows: the name only, no repeated status or per-row refresh.
-  for (const name of ['Mistral', 'Groq']) {
-    const row = within(more).getByText(name).closest('li')!;
-    expect(row).not.toHaveTextContent(/Not connected|Needs an API key/);
-    expect(within(row).queryByRole('button', { name: /Refresh/ })).toBeNull();
-  }
-  // A local runtime keeps its own refresh: it may have new models.
+  // A local runtime always has its tile, and says when it isn't running.
   expect(
-    screen.getByRole('button', { name: 'Refresh Ollama Local model list' }),
-  ).toBeVisible();
+    await screen.findByRole('button', { name: /^Ollama Local/ }),
+  ).toHaveTextContent('Not running');
+  expect(screen.queryByRole('button', { name: /^Mistral/ })).toBeNull();
   // One mark style: a letter tile, never an emoji.
   expect(
     [...document.querySelectorAll('.settings-provider-mark')].map(
       (mark) => mark.textContent,
     ),
-  ).toEqual(['O', 'O', 'M', 'G']);
+  ).toEqual(['O', 'O']);
+
+  const gallery = await openGallery('API key');
+  expect(
+    within(gallery)
+      .getAllByRole('tab')
+      .map((tab) => tab.textContent),
+  ).toEqual(['On this computer', 'API key', 'Your server']);
+  expect(
+    within(gallery)
+      .getAllByRole('button', { name: /Mistral|Groq/ })
+      .map((option) => option.textContent),
+  ).toEqual(['MMistralNeeds an API key', 'GGroqNeeds an API key']);
+  fireEvent.click(within(gallery).getByRole('button', { name: /Mistral/ }));
+  expect(await screen.findByRole('dialog', { name: 'Mistral' })).toBeVisible();
+  expect(screen.queryByRole('dialog', { name: 'Add a provider' })).toBeNull();
+});
+
+it('Find a provider narrows the gallery, and says when nothing matches', async () => {
+  render(
+    <ProviderStatus
+      load={async () => ({
+        schema_version: 1,
+        providers: [
+          card,
+          unconnected('mistral', 'Mistral'),
+          unconnected('deepseek', 'DeepSeek'),
+          unconnected('groq', 'Groq'),
+        ],
+      })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  const gallery = await openGallery('API key');
+  const find = within(gallery).getByRole('searchbox', {
+    name: 'Find a provider',
+  });
+
+  fireEvent.change(find, { target: { value: 'deep' } });
+  expect(
+    within(gallery)
+      .getAllByRole('button', { name: /Needs an API key/ })
+      .map((option) => option.textContent),
+  ).toEqual(['DDeepSeekNeeds an API key']);
+
+  fireEvent.change(find, { target: { value: 'nothing like it' } });
+  expect(
+    within(gallery).queryAllByRole('button', { name: /Needs an API key/ }),
+  ).toEqual([]);
+  expect(gallery).toHaveTextContent(
+    'No provider here matches “nothing like it”.',
+  );
+});
+
+it('Add a provider › Your server opens the custom endpoint dialog', async () => {
+  const onAddServer = vi.fn();
+  render(
+    <ProviderStatus
+      load={async () => snapshot}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      onAddServer={onAddServer}
+    />,
+  );
+  const gallery = await openGallery('Your server');
+  fireEvent.click(
+    within(gallery).getByRole('button', { name: /OpenAI-compatible server/ }),
+  );
+  expect(onAddServer).toHaveBeenCalledOnce();
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('Add a provider › On this computer offers LM Studio, vLLM and llama.cpp at their usual addresses', async () => {
+  const onAddServer = vi.fn();
+  render(
+    <ProviderStatus
+      load={async () => snapshot}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      onAddServer={onAddServer}
+    />,
+  );
+  const gallery = await openGallery('On this computer');
+  expect(
+    within(gallery)
+      .getAllByRole('button', { name: /localhost:/ })
+      .map((option) => option.textContent),
+  ).toEqual([
+    'LM Studiolocalhost:1234Local · free',
+    'vLLMlocalhost:8000Local · free',
+    'llama.cpplocalhost:8080Local · free',
+  ]);
+  fireEvent.change(
+    within(gallery).getByRole('searchbox', { name: 'Find a provider' }),
+    { target: { value: 'llama' } },
+  );
+  fireEvent.click(within(gallery).getByRole('button', { name: /llama\.cpp/ }));
+  expect(onAddServer).toHaveBeenCalledWith('llama_cpp');
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('offers no model server on this computer when Row-Bot is hosted (U3)', async () => {
+  render(
+    <ProviderStatus
+      hideLocal
+      load={async () => snapshot}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      onAddServer={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add a provider' }),
+  );
+  const gallery = await screen.findByRole('dialog', { name: 'Add a provider' });
+  expect(
+    within(gallery).queryByRole('tab', { name: 'On this computer' }),
+  ).toBeNull();
+  expect(
+    within(gallery).getByRole('tab', { name: 'Your server' }),
+  ).toBeVisible();
 });
 
 it('says in plain words when a subscription can borrow another app’s sign-in', async () => {
@@ -239,15 +416,17 @@ it('says in plain words when a subscription can borrow another app’s sign-in',
       refreshState={vi.fn()}
     />,
   );
+  const gallery = await openGallery('Subscription');
   expect(
-    await screen.findByText(
+    within(gallery).getByText(
       /Codex is signed in on this computer; not used yet · 4 models/,
     ),
   ).toBeVisible();
-  expect(screen.queryByText(/CLI|chat/)).toBeNull();
+  expect(within(gallery).queryByText(/CLI|chat/)).toBeNull();
 });
 
 it('asks for a ChatGPT sign-in, not a key, and names the plan as ChatGPT does (U8)', async () => {
+  const onSubscription = vi.fn();
   const codex = {
     ...card,
     provider_id: 'codex',
@@ -272,14 +451,24 @@ it('asks for a ChatGPT sign-in, not a key, and names the plan as ChatGPT does (U
       })}
       refresh={vi.fn()}
       refreshState={vi.fn()}
+      onSubscription={onSubscription}
     />,
   );
-  expect(
-    await screen.findByText(
-      'Sign in with your ChatGPT account · 9 known models',
-    ),
-  ).toBeVisible();
-  expect(screen.queryByText(/API key/)).toBeNull();
+  const gallery = await openGallery('Subscription');
+  fireEvent.click(
+    within(gallery).getByRole('button', { name: /ChatGPT \/ Codex/ }),
+  );
+  const sheet = await screen.findByRole('dialog', { name: 'ChatGPT / Codex' });
+  expect(sheet).toHaveAccessibleDescription(
+    'Not connected · Sign in with your ChatGPT account · 9 known models',
+  );
+  expect(within(sheet).queryByText(/API key/)).toBeNull();
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Connect ChatGPT / Codex' }),
+  );
+  // Its sign-in has its own dialog: the sheet steps aside.
+  expect(onSubscription).toHaveBeenCalledWith('codex', 'connect', false);
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   unmount();
   render(
     <ProviderStatus
@@ -291,12 +480,12 @@ it('asks for a ChatGPT sign-in, not a key, and names the plan as ChatGPT does (U
       refreshState={vi.fn()}
     />,
   );
-  expect(
-    await screen.findByText(/^Signed in with ChatGPT · Pro plan · 9 /),
-  ).toBeVisible();
+  expect(await openSheet('ChatGPT / Codex')).toHaveAccessibleDescription(
+    'Connected · Pro plan · 9 models',
+  );
 });
 
-it('a ChatGPT row that says Reconnect offers Reconnect and says the sign-in expired (B342)', async () => {
+it('a ChatGPT sign-in that expired says Reconnect and offers it (B342)', async () => {
   const onSubscription = vi.fn();
   render(
     <ProviderStatus
@@ -319,8 +508,12 @@ it('a ChatGPT row that says Reconnect offers Reconnect and says the sign-in expi
       onSubscription={onSubscription}
     />,
   );
+  expect(
+    await screen.findByRole('button', { name: /^ChatGPT/ }),
+  ).toHaveTextContent('Reconnect');
+  const sheet = await openSheet('ChatGPT');
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Reconnect ChatGPT' }),
+    within(sheet).getByRole('button', { name: 'Reconnect ChatGPT' }),
   );
   expect(onSubscription).toHaveBeenCalledWith('codex', 'connect', true);
 });
@@ -350,7 +543,7 @@ const claude = (plan: Partial<NonNullable<ProviderLiveCard['claude_plan']>>) =>
     },
   }) satisfies ProviderLiveCard;
 
-it('Claude says what Claude Code says, and Set up Claude opens the one next step', async () => {
+it('Claude says what Claude Code says, and its sheet has the one next step', async () => {
   const load = vi.fn(async () => ({
     schema_version: 1 as const,
     providers: [claude({ state: 'signed_out', version: '2.1.282' })],
@@ -363,32 +556,57 @@ it('Claude says what Claude Code says, and Set up Claude opens the one next step
       onSubscription={vi.fn()}
     />,
   );
-  const row = (await screen.findByText('Claude (your Claude plan)')).closest(
-    'li',
-  )!;
-  expect(row).toHaveTextContent('Not signed in');
-  expect(row).toHaveTextContent('Sign in to Claude Code to use your plan');
-  // No Row-Bot sign-in, token import or disconnect: Claude Code signs in by itself.
-  expect(
-    within(row).queryByRole('button', { name: /More actions/ }),
-  ).toBeNull();
-  expect(
-    within(row).queryByRole('button', { name: /Connect|Disconnect/ }),
-  ).toBeNull();
-
-  fireEvent.click(within(row).getByRole('button', { name: 'Set up Claude' }));
-  const dialog = await screen.findByRole('dialog', {
+  const gallery = await openGallery('Subscription');
+  const option = within(gallery).getByRole('button', {
+    name: /Claude \(your Claude plan\)/,
+  });
+  expect(option).toHaveTextContent('Sign in to Claude to use your plan');
+  fireEvent.click(option);
+  const sheet = await screen.findByRole('dialog', {
     name: 'Claude (your Claude plan)',
   });
-  expect(dialog).toHaveTextContent(
-    'Runs Claude Code on this computer; uses your Claude plan’s limits.',
+  // What it is and whose limits apply, before anything to press (U11).
+  expect(sheet).toHaveTextContent(
+    'Row-Bot runs Claude Code, Anthropic’s program, with your own Claude plan. Its limits apply.',
   );
-  expect(within(dialog).getByText('claude auth login')).toBeVisible();
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Check again' }));
+  // One next step, Claude's own sign-in; never a command to run in a terminal.
+  expect(
+    within(sheet).getByRole('button', { name: 'Use my Claude plan' }),
+  ).toBeVisible();
+  expect(sheet).not.toHaveTextContent(/terminal|claude auth login/i);
+  // No Row-Bot sign-in, token import or disconnect: Claude Code signs in by itself.
+  expect(
+    within(sheet).queryByRole('button', { name: /Connect|Disconnect/ }),
+  ).toBeNull();
+});
+
+it('a Claude that could not be checked asks Claude Code again from its sheet', async () => {
+  const load = vi.fn(async () => ({
+    schema_version: 1 as const,
+    providers: [claude({ state: 'error', detail: 'It did not answer.' })],
+  }));
+  render(
+    <ProviderStatus
+      load={load}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+      onSubscription={vi.fn()}
+    />,
+  );
+  const gallery = await openGallery('Subscription');
+  fireEvent.click(
+    within(gallery).getByRole('button', {
+      name: /Claude \(your Claude plan\)/,
+    }),
+  );
+  const sheet = await screen.findByRole('dialog', {
+    name: 'Claude (your Claude plan)',
+  });
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Check again' }));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
 
-it('a ready Claude row: the plan and its models, with Claude Code’s status in the menu', async () => {
+it('a ready Claude: the plan and its models, with Claude Code’s status in its sheet', async () => {
   render(
     <ProviderStatus
       load={async () => ({
@@ -402,27 +620,19 @@ it('a ready Claude row: the plan and its models, with Claude Code’s status in 
       onSubscription={vi.fn()}
     />,
   );
-  const row = (await screen.findByText('Claude (your Claude plan)')).closest(
-    'li',
-  )!;
-  expect(row).toHaveTextContent('Ready');
-  expect(row).toHaveTextContent(
-    'Runs Claude Code on this computer · Claude Max · 3 models',
+  expect(
+    await screen.findByRole('button', { name: /^Claude \(your Claude plan\)/ }),
+  ).toHaveTextContent('Subscription · 3 models');
+  const sheet = await openSheet('Claude (your Claude plan)');
+  expect(sheet).toHaveAccessibleDescription(
+    'Ready · Runs Claude Code with your Claude plan · Claude Max · 3 models',
+  );
+  expect(sheet).toHaveTextContent(
+    /Claude plan connected\s*Claude Max · Claude Code 2\.1\.282/,
   );
   expect(
-    within(row).queryByRole('button', { name: 'Set up Claude' }),
+    within(sheet).queryByRole('button', { name: /Connect|Disconnect/ }),
   ).toBeNull();
-  const more = within(row).getByRole('button', {
-    name: 'More actions for Claude (your Claude plan)',
-  });
-  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
-  expect(
-    screen.getAllByRole('menuitem').map((item) => item.textContent),
-  ).toEqual(['Check Claude Code']);
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Check Claude Code' }));
-  expect(
-    await screen.findByRole('dialog', { name: 'Claude (your Claude plan)' }),
-  ).toHaveTextContent('Ready Claude Max · Claude Code 2.1.282');
 });
 
 it('a profile the old Claude sign-in had set up says to set Claude up again', async () => {
@@ -436,11 +646,79 @@ it('a profile the old Claude sign-in had set up says to set Claude up again', as
       refreshState={vi.fn()}
     />,
   );
-  const row = (await screen.findByText('Claude (your Claude plan)')).closest(
-    'li',
-  )!;
-  expect(row).toHaveTextContent('Set up again');
-  expect(row).toHaveTextContent(
-    'Claude now works through Claude Code. Set it up again',
+  const gallery = await openGallery('Subscription');
+  expect(
+    within(gallery).getByRole('button', {
+      name: /Claude \(your Claude plan\)/,
+    }),
+  ).toHaveTextContent('Claude now works through Claude Code. Set it up again');
+});
+
+it('offers no Ollama on a hosted server, unless one is connected (U3)', async () => {
+  const ollama: ProviderLiveCard = {
+    ...unconnected('ollama', 'Ollama Local'),
+    group: 'local',
+    source: 'not_running',
+  };
+  const { unmount } = render(
+    <ProviderStatus
+      hideLocal
+      load={async () => ({ schema_version: 1, providers: [card, ollama] })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
   );
+  expect(await screen.findByLabelText('API providers')).toBeVisible();
+  expect(screen.queryByLabelText('On this computer')).toBeNull();
+  expect(screen.queryByText('Ollama Local')).toBeNull();
+  unmount();
+  render(
+    <ProviderStatus
+      hideLocal
+      load={async () => ({
+        schema_version: 1,
+        providers: [
+          card,
+          { ...ollama, configured: true, source: 'local_daemon' },
+        ],
+      })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText('Ollama Local')).toBeVisible();
+});
+
+afterEach(() => setPlace(null));
+
+it('names where local models run: this device here, the Row-Bot server elsewhere (U7)', async () => {
+  const ollama: ProviderLiveCard = {
+    ...card,
+    provider_id: 'ollama',
+    display_name: 'Ollama Local',
+    group: 'local',
+    source: 'local_daemon',
+  };
+  const show = () =>
+    render(
+      <ProviderStatus
+        load={async () => ({ schema_version: 1, providers: [card, ollama] })}
+        refresh={vi.fn()}
+        refreshState={vi.fn()}
+      />,
+    );
+  const desktop = show();
+  const here = await screen.findByRole('region', { name: 'On this computer' });
+  expect(within(here).getByText('Ollama Local')).toBeVisible();
+  desktop.unmount();
+  for (const kind of ['hosted', 'server'] as const) {
+    setPlace({ kind, host_name: kind === 'hosted' ? 'PikaPods' : null });
+    const view = show();
+    const group = await screen.findByRole('region', {
+      name: 'On your Row-Bot server',
+    });
+    expect(within(group).getByText('Ollama Local')).toBeVisible();
+    expect(screen.queryByText(/this (computer|device)/)).toBeNull();
+    view.unmount();
+  }
 });

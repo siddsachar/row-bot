@@ -67,7 +67,8 @@ export function relativeTime(
   const date = value instanceof Date ? value : parseTimestamp(value);
   if (!date) return 'Unknown';
   let delta = (date.getTime() - now.getTime()) / 1000;
-  if (Math.abs(delta) < 45) return 'just now';
+  // A run due in 30 seconds isn't "just now"; a few seconds' clock drift still is.
+  if (Math.abs(delta) < 45) return delta > 5 ? 'in under a minute' : 'just now';
   const format = new Intl.RelativeTimeFormat(locale, {
     numeric: 'auto',
     style: 'long',
@@ -240,16 +241,24 @@ export function maskedTail(fingerprint: string | null | undefined): string {
 
 const CREDENTIAL_SOURCES: Record<string, string> = {
   keyring: 'in keychain',
-  encrypted_file: 'encrypted on this device',
   environment: 'from environment',
   secret_file: 'server secret file',
   session: 'this session only',
   legacy_plaintext: 'plain file (legacy)',
 };
 
-/** Where a saved secret lives, in words ("in keychain"). */
-export function credentialSourceLabel(source: string | null | undefined) {
+/**
+ * Where a saved secret lives, in words ("in keychain"). `server` names the
+ * computer Row-Bot runs on when this browser isn't on it ("your Row-Bot
+ * server", U7).
+ */
+export function credentialSourceLabel(
+  source: string | null | undefined,
+  server?: string,
+) {
   const key = String(source ?? '').trim();
   if (!key || key === 'none') return '';
+  if (key === 'encrypted_file')
+    return `encrypted on ${server ?? 'this device'}`;
   return CREDENTIAL_SOURCES[key] ?? humanizeToken(key).toLowerCase();
 }

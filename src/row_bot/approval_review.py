@@ -65,6 +65,8 @@ _SYSTEM_PROMPT = (
     "You review one action an AI assistant wants to take for a person, before it runs.\n"
     "Approve it only when it clearly does what the person asked for in their own messages "
     "(or, for a saved workflow, what its instructions ask for).\n"
+    "A request often takes several steps: judge whether this step serves the request, not whether it does "
+    "all of it alone. A step that only reads or checks something one part of the request needs is within it.\n"
     "A message, email or file going to someone the person named, saying what they asked for, is "
     "within the request: approve it. So is reading their data or capturing the screen when the task "
     "they asked for needs it.\n"
@@ -276,7 +278,8 @@ def current_request(runtime: Mapping[str, Any] | None = None) -> ReviewRequest:
         except Exception:
             runtime = {}
     runtime = runtime or {}
-    thread_id = _conversation_of(str(runtime.get("thread_id") or ""))
+    own_thread = str(runtime.get("thread_id") or "")
+    thread_id = _conversation_of(own_thread)
     surface = str(runtime.get("runtime_surface") or "chat")
     workspace = _workspace_name(thread_id) if thread_id else ""
     if not thread_id:
@@ -289,9 +292,13 @@ def current_request(runtime: Mapping[str, Any] | None = None) -> ReviewRequest:
         # A workflow run whose workflow can't be found: its messages are filled-in prompts.
         return ReviewRequest(source="workflow", workspace=workspace)
     try:
+        from row_bot.agent import current_turn_messages
         from row_bot.threads import get_latest_checkpoint_messages
 
-        messages = person_messages(get_latest_checkpoint_messages(thread_id))
+        # The running turn's own messages hold what the person just sent; its checkpoint may not yet.
+        # A helper's are the agent's words, so its review reads the person's conversation instead.
+        live = current_turn_messages() if thread_id == own_thread else ()
+        messages = person_messages(live or get_latest_checkpoint_messages(thread_id))
     except Exception:
         logger.debug("Could not read the person's messages for review", exc_info=True)
         messages = ()

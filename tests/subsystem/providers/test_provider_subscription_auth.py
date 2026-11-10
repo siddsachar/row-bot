@@ -22,12 +22,10 @@ from row_bot.providers.codex import (
     refresh_codex_token,
     save_external_reference,
     save_codex_oauth_tokens,
-    seed_recommended_codex_quick_choices,
     start_codex_device_flow,
     summarize_auth_json,
 )
 from row_bot.providers.models import AuthMethod, TransportMode
-from row_bot.providers.selection import add_quick_choice_for_model, list_quick_model_ids
 from row_bot.secret_store import _set_backend_for_tests
 
 
@@ -678,61 +676,6 @@ def test_codex_saved_catalog_rows_keep_chat_and_vision_for_the_pickers(tmp_path,
                                           provider_config=provider_config.load_provider_config())
 
     assert [(row.selection_ref, set(row.categories)) for row in rows] == [("model:codex:gpt-live", {"chat", "vision"})]
-
-
-def test_codex_quick_choice_seed_only_adds_recommended_model(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("row_bot.providers.runtime.provider_status", lambda provider_id: {
-        "configured": True,
-        "runtime_enabled": True,
-    })
-
-    quick = seed_recommended_codex_quick_choices(max_choices=5)
-    codex_refs = [
-        choice.get("id")
-        for choice in quick
-        if isinstance(choice, dict) and choice.get("provider_id") == "codex"
-    ]
-
-    assert codex_refs == ["model:codex:gpt-5.6-sol"]
-
-
-def test_codex_quick_choice_seed_requires_configured_provider(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    _set_backend_for_tests(_MemoryKeyring())
-    try:
-        assert seed_recommended_codex_quick_choices() == []
-
-        auth_path = tmp_path / "auth.json"
-        auth_path.write_text(json.dumps({"access_token": "external-secret"}), encoding="utf-8")
-        save_external_reference(auth_path)
-        quick = seed_recommended_codex_quick_choices()
-    finally:
-        _set_backend_for_tests(None)
-
-    assert quick == []
-
-
-def test_codex_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypatch):
-    import row_bot.api_keys as api_keys
-    import row_bot.providers.selection as selection
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    monkeypatch.setattr("row_bot.providers.runtime.provider_status", lambda provider_id: {
-        "configured": True,
-        "runtime_enabled": False,
-    })
-    selection._provider_status_picker_cache.clear()
-
-    add_quick_choice_for_model(
-        "gpt-5.4",
-        provider_id="codex",
-        display_name="GPT-5.4 (Codex)",
-        capabilities_snapshot=list_codex_model_infos()[0].capability_snapshot(),
-    )
-
-    assert list_quick_model_ids("chat") == []
 
 
 def test_codex_runtime_builds_official_responses_request_shape(tmp_path, monkeypatch):

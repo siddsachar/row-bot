@@ -41,7 +41,7 @@ def test_create_exact_saved_fields_without_execution(owner, fields):
     assert result.created and not result.replayed
     assert result.task.fields == fields
     assert result.task.id == "command-task-1"
-    assert result.task.approval_mode == "block"
+    assert result.task.approval_mode == "auto"  # Where new workflows start until the person picks a level.
     assert result.task.conversation_id is None
     assert len(result.task.revision) == 64
     assert owner.get_recent_runs() == []

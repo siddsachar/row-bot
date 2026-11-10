@@ -16,12 +16,13 @@ from row_bot.application import buddy_policy
 def env(tmp_path, monkeypatch):
     from row_bot import api_keys, tasks
     from row_bot.providers import auth_store, config
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
     from row_bot.tools import profile_policy  # noqa: F401 -- canonical package initialized before fake registry
 
     monkeypatch.setattr(tasks, "_DB_PATH", str(tmp_path / "tasks.db"))
     monkeypatch.setattr(tasks, "_SCHEMA_READY_PATH", None)
     values = {
-        "image_gen": "openai/gpt-image-1.5",
+        "image_gen": "openai/gpt-image-2",
         "video_gen": "google/veo-3.1-generate-preview",
     }
     enabled = {"image_gen": True, "video_gen": True}
@@ -43,8 +44,19 @@ def env(tmp_path, monkeypatch):
         _config_path=lambda: tmp_path / "tools_config.json",
     )
     monkeypatch.setitem(sys.modules, "row_bot.tools.registry", registry)
+    # The media models each provider's own list offers.
+    listed = [
+        ("openai", "gpt-image-2"),
+        ("openai", "gpt-image-2.5-flare"),
+        ("google", "veo-3.1-generate-preview"),
+        ("xai_oauth", "grok-imagine-video"),
+    ]
+    cloud_cache = {
+        f"model:{provider}:{model}": model_info_to_cache_entry(model_info_from_metadata(provider, model))
+        for provider, model in listed
+    }
     monkeypatch.setitem(
-        sys.modules, "row_bot.models", SimpleNamespace(_cloud_model_cache={})
+        sys.modules, "row_bot.models", SimpleNamespace(_cloud_model_cache=cloud_cache)
     )
     monkeypatch.setattr(
         auth_store, "get_provider_secret", lambda provider: keys.get(provider, "")
@@ -128,7 +140,7 @@ def test_auto_and_full_autonomy_never_create_another_confirmation(env, mode):
 def test_current_policy_change_rejects_original_capture(env, change):
     captured = env.policy.capture_provider_policy("full")
     if change == "selection":
-        env.values["image_gen"] = "openai/gpt-image-1"
+        env.values["image_gen"] = "openai/gpt-image-2.5-flare"
     elif change == "enabled":
         env.enabled["image_gen"] = False
     elif change == "key":
@@ -314,6 +326,13 @@ assert not {'row_bot.tools', 'row_bot.tools.registry', 'row_bot.tools.image_gen_
 def test_noncanonical_or_unknown_media_selection_is_never_guessed(env, selection):
     env.values["image_gen"] = selection
     with pytest.raises(ValueError, match="invalid_media_selection"):
+        env.policy.capture_provider_policy("full")
+
+
+
+def test_a_media_model_its_provider_does_not_list_is_not_admitted(env):
+    env.values["image_gen"] = "openai/gpt-image-1"
+    with pytest.raises(ValueError, match="buddy_media_capability_unavailable"):
         env.policy.capture_provider_policy("full")
 
 

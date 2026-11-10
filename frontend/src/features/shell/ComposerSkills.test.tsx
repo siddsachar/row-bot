@@ -95,9 +95,10 @@ it('gives a default skill a chip with only its name, whose × removes it from th
   const chips = screen.getByLabelText('Smart Skills');
   expect(chips).toHaveTextContent('Careful review');
   expect(chips).not.toHaveTextContent('default');
-  expect(screen.getByTitle('Review carefully.')).toHaveTextContent(
-    'Careful review',
-  );
+  // It says it is on, then what it does: not mistaken for a suggestion (U23).
+  expect(
+    screen.getByTitle('Careful review is on in this chat: Review carefully.'),
+  ).toHaveTextContent('Careful review');
   await act(async () =>
     fireEvent.click(
       screen.getByRole('button', {

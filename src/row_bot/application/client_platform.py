@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 from row_bot.runtime import admissions
 from row_bot.runtime.executions import generation_registry
-from row_bot.projection.conversation import conversation_projection
+from row_bot.projection.conversation import conversation_projection, without_saved_steps
 from row_bot.application.live_updates import publish as _publish_live, publishes as _publishes_live
 
 
@@ -128,6 +128,48 @@ def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, 
     return [(indexed[0], row) for indexed, row in zip(records, projected)]
 
 
+def with_run_failures(conversation_id: str, rows: list[dict]) -> list[dict]:
+    """A workflow run that didn't finish says why under its last line in the chat.
+
+    A run's lines are its first message's note and the notes of the messages after it; a run's outcome lives
+    with the run (``tasks.runs_by_first_message``), never in the saved messages the model reads.
+    """
+    lines = [row["message_id"] for row in rows if row.get("note") == "continuation" and row.get("message_id")]
+    if not lines:
+        return rows
+    from row_bot import tasks
+    try:
+        runs = tasks.runs_by_first_message(conversation_id, lines)
+    except sqlite3.Error:
+        _LOG.debug("Could not read the workflow runs of %s", conversation_id, exc_info=True)
+        return rows
+    last_line: dict[str, int] = {}
+    current = ""
+    for index, row in enumerate(rows):
+        if row.get("note") != "continuation":
+            continue
+        current = row.get("message_id") if row.get("message_id") in runs else current
+        if current:
+            last_line[current] = index
+    failed = {last_line[first]: runs[first]["notice"] or "The run didn't finish."
+              for first in last_line if runs[first]["status"] == "failed"
+              and not _error_follows(rows, last_line[first])}
+    return [{**row, "run_failure": failed[index][:512]} if index in failed else row
+            for index, row in enumerate(rows)]
+
+
+def _error_follows(rows: list[dict], line: int) -> bool:
+    """Whether the turn after a run's line already shows its error ("⚠️ Rate limit reached…")."""
+    for row in rows[line + 1:]:
+        if row.get("role") == "user":
+            return False
+        text = next((str(block.get("text") or "") for block in row.get("blocks") or []
+                     if block.get("type") in {"text", "markdown"}), "")
+        if row.get("role") == "assistant" and text.lstrip().startswith("⚠"):
+            return True
+    return False
+
+
 def _buddy(conversation_id: str, event_type: str, label: str, **payload: Any) -> None:
     """Tell Buddy what a turn is doing; Buddy never breaks a turn."""
     try:
@@ -199,15 +241,68 @@ def _x_post_edit(interrupt: Any, payload: dict) -> tuple[str, dict]:
     return str(items[0]["__interrupt_id"]), {"x_post_edit": {"text": str(edit.get("text") or ""), "media": kept}}
 
 
+_DENIED_INSTRUCTION = (
+    "The person said no to the last action, so it wasn't done, and no tools are available now. Answer their "
+    "request with what the earlier steps below already found, then say in one sentence what wasn't done because "
+    "they said no. Don't suggest another way to do what they declined.")
+
+
+def _denied_reply(conversation_id: str, model_ref: str) -> str:
+    """After a no, what the turn had already found (U19): one call to the chat's own model with no tools, so it
+    can't try the declined action again or another way round it. Empty when nothing was found before the no, or
+    the call fails (the plain reply stands)."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from row_bot import threads
+    from row_bot.tools.approval_gate import APPROVAL_DENIED
+    from row_bot.turn_context import is_turn_context_message
+
+    def words(message: Any) -> str:
+        content = getattr(message, "content", "")
+        if isinstance(content, list):
+            content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+        return str(content or "").strip()
+
+    messages = [message for message in threads.get_latest_checkpoint_messages(conversation_id)
+                if not is_turn_context_message(message)]
+    start = max((index for index, message in enumerate(messages) if getattr(message, "type", "") == "human"),
+                default=-1)
+    turn = messages[start + 1:]
+    if start < 0 or not any(message.type == "tool" and words(message) != APPROVAL_DENIED for message in turn):
+        return ""
+    steps = []
+    for message in turn:
+        if message.type == "ai":
+            steps += [words(message)] if words(message) else []
+            steps += [f"Ran {call.get('name')} {json.dumps(call.get('args') or {}, ensure_ascii=False)[:500]}"
+                      for call in getattr(message, "tool_calls", ()) or ()]
+        elif message.type == "tool":
+            steps.append(f"Result of {getattr(message, 'name', '') or 'the step'}:\n{words(message)[:4000]}")
+    try:
+        from row_bot.models import get_llm_for
+        from row_bot.providers.resolution import resolve_provider_config
+        from row_bot.providers.usage_ledger import with_usage_purpose
+
+        model = with_usage_purpose(get_llm_for(resolve_provider_config(model_ref, allow_legacy_local=True).selection_ref),
+                                   "main", thread_id=conversation_id)
+        answer = model.invoke([SystemMessage(content=_DENIED_INSTRUCTION), HumanMessage(content=(
+            f"Their request:\n{words(messages[start])[:4000]}\n\nThe steps so far:\n" + "\n\n".join(steps)))])
+        return str(answer.text).strip()
+    except Exception as exc:  # A provider failure keeps the plain reply; nothing is lost but the summary.
+        _LOG.warning("The reply after a no for %s failed (%s)", conversation_id, type(exc).__name__)
+        return ""
+
+
 def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: str,
-                    expected_results: int, computer: bool, memory: bool = False) -> Iterator[tuple]:
+                    expected_results: int, computer: bool, memory: bool = False,
+                    model_ref: str = "") -> Iterator[tuple]:
     """A denied approval ends the turn once the denied calls have their results.
 
-    The model is not asked again, so it cannot retry the action or reach for
+    The model is not asked to go on, so it cannot retry the action or reach for
     another way to do it: the stream is closed there, and the reply says so.
     Closing it before LangGraph saves the tool step leaves the results unsaved,
     so they are recorded before the reply (B234). The reply never claims nothing
-    happened: earlier steps of the turn may have acted (U13).
+    happened: earlier steps of the turn may have acted (U13), and what they found
+    is reported (U19).
     """
     message = ("You said no, so Row-Bot didn't use the computer for that." if computer
                else "You chose not to save that, so Row-Bot didn't." if memory
@@ -235,6 +330,10 @@ def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: 
     from langchain_core.messages import AIMessage
     from row_bot import threads
     from row_bot.tools.approval_gate import APPROVAL_DENIED
+    if model_ref and not computer and not memory:
+        # The denied calls get their results first, so the reply is written from the turn as it ended.
+        threads.answer_open_tool_calls(conversation_id, APPROVAL_DENIED)
+        message = _denied_reply(conversation_id, model_ref) or message
     if threads.answer_open_tool_calls(conversation_id, APPROVAL_DENIED,
                                       then=[AIMessage(id=identity, content=message)]):
         yield ("output_binding", {"native_message_id": identity,
@@ -340,12 +439,13 @@ class ClientPlatformService:
                         resume_pending: bool = False,
                         attachments: list[dict[str, Any]] | None = None,
                         note: str = "", retry: bool = False, shown: dict[str, str] | None = None,
-                        linked: dict[str, Any] | None = None) -> Any:
+                        linked: dict[str, Any] | None = None, held: tuple[dict, ...] = ()) -> Any:
         """Single admission path for every conversation turn.
 
         ``retry`` runs the person's last message again in place: the turn it replaces goes in the same write that
         admits the new one, after every check has passed (``threads.append_checkpoint_messages``). ``shown``: what
-        the transcript shows instead of the text, and its note (the person's message sent from a page)."""
+        the transcript shows instead of the text, and its note (the person's message sent from a page). ``held``:
+        with a note, the messages other conversations left for a workflow run, shown under its line."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
         from row_bot.models import get_current_model
@@ -394,6 +494,13 @@ class ClientPlatformService:
                 # A server-started follow-up: the transcript shows the note,
                 # the model reads the prompt.
                 public_metadata = {"platform_public_content": note, "platform_note": "continuation"}
+                if held:
+                    from row_bot.runtime.checkpoint_reader import HELD_TEXT_CHARS, MAX_HELD_SHOWN
+                    cut = HELD_TEXT_CHARS - 1
+                    public_metadata["row_bot_ui"] = {"held": [
+                        {"id": item["id"], "title": item["title"][:160],
+                         "text": item["text"] if len(item["text"]) <= HELD_TEXT_CHARS else item["text"][:cut] + "…"}
+                        for item in held[-MAX_HELD_SHOWN:]]}
             elif shown:
                 # The person's message from a page (N5): the chat shows its decisions in words, the model reads
                 # them with their structured list. Its note keeps it from counting as the person's request when
@@ -491,6 +598,9 @@ class ClientPlatformService:
                     client_queue.pause_pending(self, conversation_id)
             final_view = {**handle.view(), "status": status, "revision": str(handle.revision + 1),
                           "quiesced": True, "cleanup_complete": True, "can_stop": False}
+            if status == "interrupted" and handle.failure_reason:
+                # A reload reads the turn's state, not the error event: it keeps the reason (I4).
+                final_view["failure_reason"] = handle.failure_reason
             # And Row-Bot's reply (or its question) moves it up again when the turn ends.
             with _turn_end_step(conversation_id, "moving the chat up the list"):
                 from row_bot.threads import touch_thread
@@ -762,32 +872,37 @@ class ClientPlatformService:
         return {"items": items, "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
-    def _refresh_checkpoint(self, conversation_id: str, *, settle: tuple[str, bool] | None = None) -> None:
+    def _refresh_checkpoint(self, conversation_id: str, *, settle: tuple[str, bool] | None = None,
+                            reread: bool = False) -> None:
         """Read the saved messages in; with *settle* (a live row, adopted or not), retire that live row in the
-        same step, so no read shows the saved answer and its live row together."""
+        same step, so no read shows the saved answer and its live row together. *reread*: read them in again
+        though they're unchanged (what's shown beside them, a run's outcome, changed)."""
         from row_bot import threads
         from row_bot.runtime.checkpoint_reader import open_checkpoint
         with threads.checkpoint_mutation(conversation_id):
             threads.migrate_checkpoint_message_ids(conversation_id)
             with open_checkpoint(conversation_id) as reader:
-                if reader and reader.revision != self.projection.snapshot(conversation_id)["checkpoint_revision"]:
+                if reader and (reread or reader.revision != self.projection.snapshot(conversation_id)["checkpoint_revision"]):
                     records = list(reader.records(start=-100))
-                    rows = [row for _, row in project_checkpoint_records(reader, records)]
-                    self.projection.install_rows(conversation_id, reader.revision, rows, settle=settle)
+                    rows = with_run_failures(conversation_id,
+                                             [row for _, row in project_checkpoint_records(reader, records)])
+                    self.projection.install_rows(conversation_id, reader.revision, rows, settle=settle,
+                                                 replace=reread)
                     return
         if settle is not None:
             self.projection.settle_live(conversation_id, settle[0], adopted=settle[1])
 
-    def conversation_changed(self, conversation_id: str) -> None:
+    def conversation_changed(self, conversation_id: str, *, reread: bool = False) -> None:
         """A conversation was written outside its own turns (a delegated
-        agent's approval notice in its parent, the agent's paused turn): pages
-        showing it re-read it (B186). Best effort, off the writer's thread."""
+        agent's approval notice in its parent, the agent's paused turn), or a
+        workflow run in it ended (*reread*): pages showing it re-read it (B186).
+        Best effort, off the writer's thread."""
 
         def publish() -> None:
             try:
                 with _COMMAND_LOCK:
                     before = self.projection.snapshot(conversation_id)["projection_revision"]
-                    self._refresh_checkpoint(conversation_id)
+                    self._refresh_checkpoint(conversation_id, reread=reread)
                     current = self.projection.snapshot(conversation_id)
                     if current["projection_revision"] == before:
                         self.projection.publish(conversation_id, "transcript.checkpoint",
@@ -832,6 +947,29 @@ class ClientPlatformService:
                 "external_outcome": "not_applicable", "approval_id": approval_id,
                 "can_stop": False}
 
+    @staticmethod
+    def _interrupted_generation(conversation_id: str) -> dict | None:
+        """The conversation's last turn, when it ended interrupted (it failed, or Row-Bot closed while it ran).
+
+        Its live state is in memory only, so after a restart the chat showed neither that it stopped nor Resume
+        (D6); the turn's own record restores both. Resume reads the saved conversation, not that state.
+        """
+        try:
+            with admissions.transaction() as conn:
+                row = conn.execute(
+                    "SELECT pass_id, generation_id, state FROM generation_passes WHERE conversation_id=? AND "
+                    "state IN ('terminal','interrupted') ORDER BY admission_sequence DESC LIMIT 1",
+                    (conversation_id,)).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None or row["state"] != "interrupted":
+            return None
+        return {"execution_id": f"pass:{row['pass_id']}", "conversation_id": conversation_id,
+                "generation_id": str(row["generation_id"]), "pass_id": str(row["pass_id"]), "segment_id": None,
+                "status": "interrupted", "revision": "0", "cancel_requested": False, "quiesced": True,
+                "cleanup_complete": True, "external_outcome": "not_applicable", "approval_id": None,
+                "can_stop": False}
+
     def snapshot(self, conversation_id: str) -> dict:
         from row_bot.application.live_content import references
         with _COMMAND_LOCK:
@@ -839,7 +977,8 @@ class ClientPlatformService:
             self._refresh_checkpoint(conversation_id)
             snapshot = self.projection.snapshot(conversation_id)
             if snapshot.get("generation") is None and not self.registry.active(conversation_id):
-                snapshot["generation"] = self._paused_approval_generation(conversation_id)
+                snapshot["generation"] = (self._paused_approval_generation(conversation_id)
+                                          or self._interrupted_generation(conversation_id))
             present = {row["id"] for row in snapshot["rows"]}
             # Only live rows the projection dropped to stay within its bound come back from their live text. A
             # live row retired as the twin of its saved answer never does: it came back as an empty "Paged
@@ -854,6 +993,7 @@ class ClientPlatformService:
                     snapshot["rows"].append(row)
                     while len(json.dumps(snapshot["rows"], ensure_ascii=False).encode()) > self.projection.MAX_CONTENT_BYTES:
                         snapshot["rows"].pop(0)
+            snapshot["rows"] = without_saved_steps(snapshot["rows"])
             return snapshot
 
     def transcript(self, conversation_id: str, limit: int = 100, cursor: str | None = None) -> dict:
@@ -874,7 +1014,9 @@ class ClientPlatformService:
         with open_checkpoint(conversation_id, snap["checkpoint_revision"]) as reader:
             if reader:
                 records = list(reader.records(start=max(0, offset - 256)))
-                for index, row in project_checkpoint_records(reader, records):
+                projected = project_checkpoint_records(reader, records)
+                rows = with_run_failures(conversation_id, [row for _, row in projected])
+                for (index, _), row in zip(projected, rows):
                     if index < offset:
                         continue
                     encoded_size = len(json.dumps(row, ensure_ascii=False).encode())
@@ -1203,9 +1345,14 @@ class ClientPlatformService:
                 ).rowcount
                 if not changed:
                     raise ClientPlatformError("revision_conflict")
+            if normalize_approval_mode(payload["approval_mode"]) != normalize_approval_mode(row.get("approval_mode")):
+                # The person's choice: new conversations start there.
+                full_autonomy.remember_level(payload["approval_mode"])
             if reasoning_selection is not None:
-                from row_bot.providers.reasoning import clear_reasoning_suppression
+                from row_bot.providers.reasoning import clear_reasoning_suppression, remember_reasoning_choice
                 clear_reasoning_suppression(target, model)
+                # The person's choice: new chats with this model start there.
+                remember_reasoning_choice(model, reasoning_selection)
             self.projection.publish(target, "resource.changed", {"revision": str(row["client_revision"] + 1)})
             return {"conversation_id": target, "revision": str(row["client_revision"] + 1), "status": "completed"}
         if kind == "conversation.skills":
@@ -1410,7 +1557,8 @@ class ClientPlatformService:
                     raise ClientPlatformError("resource_revision_conflict")
         if targets is not None:
             from row_bot.application.workspace_setup import generation_readiness
-            if not generation_readiness(self, {"model_selection": selection, "runtime_mode": runtime_mode}):
+            if not generation_readiness(self, {"model_selection": selection, "runtime_mode": runtime_mode},
+                                        conversation_id):
                 raise ClientPlatformError("model_configuration_required")
             selected = []
             seen_kinds = set()
@@ -1558,7 +1706,8 @@ class ClientPlatformService:
                 retry=not resume and queue_record is None and followup is None and payload.get("retry") is True,
                 shown=shown,
                 linked=({"text": followup.shown or followup.prompt, **(followup.linked_from or {})}
-                        if followup is not None and followup.kind == "linked" else None))
+                        if followup is not None and followup.kind == "linked" else None),
+                held=followup.held if followup is not None else ())
         except BaseException:
             if page_id:
                 from row_bot import pages
@@ -1599,7 +1748,7 @@ class ClientPlatformService:
                         self.registry.check_dispatch(handle)
                         metadata, data = read_attachment(reference)
                         files.append({"name": metadata["name"], "data": data})
-                from row_bot.agent import stream_agent, resume_stream_agent
+                from row_bot.agent import resume_stream_agent, stream_agent, stream_agent_without_backup
                 from row_bot.tools import registry as tool_registry
                 # Every enabled tool, every turn: what this message leaves out is in its app scope.
                 enabled = [tool.name for tool in tool_registry.get_enabled_tools()]
@@ -1649,8 +1798,9 @@ class ClientPlatformService:
                                 raise ClientPlatformError("resource_revision_conflict")
                     if learning_route is not None:
                         from row_bot.learning import routing as learning_routing
+                        # Learning finishes a stuck personal model with the main model: no backup on top.
                         events = learning_routing.stream(
-                            learning_route, self.stream_factory or stream_agent, prepared_text, enabled, config,
+                            learning_route, self.stream_factory or stream_agent_without_backup, prepared_text, enabled, config,
                             stop_event=handle.cancel_scope.stop_event)
                     else:
                         # A question's answer resumes its own interrupt only (N4).
@@ -1670,7 +1820,7 @@ class ClientPlatformService:
                             identity=str(uuid.uuid5(uuid.NAMESPACE_URL, f"row-bot:denied:{handle.pass_id}")),
                             expected_results=len(approval_context.get("interrupt_ids") or ()),
                             computer=bool(approval_context.get("computer")),
-                            memory=bool(approval_context.get("memory")))
+                            memory=bool(approval_context.get("memory")), model_ref=handle.model_ref)
                     for event in events:
                         self.registry.check_dispatch(handle)
                         if self.stream_factory is not None and event[0] in {"token", "tool_start", "tool_done", "output_binding"}:
@@ -1832,7 +1982,7 @@ class ClientPlatformService:
                 ).hexdigest()[:32]
             group_name, group_kind = canonical_group(tool_name)
             group_id = f"{handle.segment_id}:{group_kind}:{group_name}"[:256]
-            from row_bot.application.conversation_traces import safe_tool_input
+            from row_bot.application.conversation_traces import media_prompt, safe_tool_input
 
             safe_input = safe_tool_input(getter("args") or {})
             result_message_id = str(getter("message_id") or "")
@@ -1842,6 +1992,11 @@ class ClientPlatformService:
             if call_id not in apps:
                 apps[call_id] = app_of_tool(getter("runtime_name") or raw_tool, getter("args"), words=True)
             app = apps[call_id]
+            # A picture's or video's prompt, read when its call starts: it names the output (5.3.3).
+            prompts = handle.__dict__.setdefault("media_prompts", {})
+            if call_id not in prompts:
+                prompts[call_id] = media_prompt(own_name, getter("media_prompt"))
+            prompt = prompts[call_id]
             item = build_trace_item(
                 item_id=call_id,
                 group_id=group_id,
@@ -1861,6 +2016,7 @@ class ClientPlatformService:
                 content_ref=result_message_id if kind == "tool_done" else "",
                 safe_input=safe_input,
                 app=app,
+                media_prompt=prompt,
             )
             self.projection.publish(conversation_id, "tool.activity", {
                 "tool_name": tool_name[:128],
@@ -1883,6 +2039,7 @@ class ClientPlatformService:
                 for metadata in getter("media", []) or []:
                     self.projection.publish(conversation_id, metadata["type"], {
                         **metadata["payload"],
+                        **({"prompt": prompt} if prompt and metadata["type"] == "media.available" else {}),
                         "tool_call_id": str(getter("tool_call_id") or ""),
                         "message_id": str(getter("message_id") or "")})
                 if getter("media_error"):
@@ -1897,6 +2054,7 @@ class ClientPlatformService:
                         metadata = register_attachment(conversation_id, f"generated-{uuid.uuid4().hex}.png", data, "image/png")
                         self.projection.publish(conversation_id, "media.available", {
                             "media_ref": metadata["attachment_ref"], "mime_type": metadata["mime_type"],
+                            **({"prompt": prompt} if prompt else {}),
                             "tool_call_id": str(getter("tool_call_id") or getter("id") or ""),
                             "message_id": str(getter("message_id") or "")})
         elif kind == "thinking":
@@ -1948,8 +2106,13 @@ class ClientPlatformService:
                 self.projection.publish(conversation_id, "approval.required", {
                     "status": "waiting_approval", "approval_id": handle.approval_id,
                     **public_approval})
+        elif kind == "provider_refusal":
+            handle.refusal = dict(payload)
         elif kind == "error":
-            self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
+            from row_bot.application.turn_failure import failure_reason
+            handle.failure_reason = (handle.refusal or {}).get("message") or failure_reason(str(payload or ""))
+            self.projection.publish(conversation_id, "generation.error", handle.refusal or {
+                "code": "generation_failed", "message": handle.failure_reason})
 
     def get_approval(self, approval_id: str) -> dict:
         from row_bot.application.approval_projection import project_approval_context

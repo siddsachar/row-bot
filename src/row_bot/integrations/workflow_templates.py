@@ -82,6 +82,5 @@ def use(template_id: str) -> dict:
                 if candidate not in taken)
     task_id = tasks.create_task(name=name, description=template["description"], icon=template["icon"],
                                 schedule=template["schedule"], prompts=[template["prompt"]], enabled=False,
-                                safety_mode="approve",
                                 agent_profile_id=tasks.DEFAULT_WORKFLOW_AGENT_PROFILE_ID, apply_default_skills=False)
     return {"task_id": task_id, "name": name}

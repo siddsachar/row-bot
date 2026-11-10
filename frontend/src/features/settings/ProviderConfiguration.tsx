@@ -10,6 +10,7 @@ import {
   ListChecks,
   KeyRound,
   MoreHorizontal,
+  ShieldAlert,
 } from 'lucide-react';
 import type {
   ProviderConfigurationPage,
@@ -30,19 +31,16 @@ import {
 } from '../../ui/primitives';
 import { apiKeyLabel, humanizeToken } from '../../ui/format';
 import { ModalTask } from '../../ui/overlays';
+import { OWN_MODEL_SERVER_GUIDE } from '../shell/hosted-links';
+import { localServer } from './local-servers';
 
 type Operation =
   | 'provider.endpoint.create'
   | 'provider.endpoint.save'
   | 'provider.endpoint.delete'
   | 'provider.endpoint.probe'
-  | 'provider.endpoint.refresh'
-  | 'provider.model.pin'
-  | 'provider.model.unpin';
-type Fields =
-  | ProviderEndpointFields
-  | { endpoint_id: string }
-  | { provider_id: string; model_id: string; surface: string };
+  | 'provider.endpoint.refresh';
+type Fields = ProviderEndpointFields | { endpoint_id: string };
 type Review = {
   configuration_revision: string;
   operation: string;
@@ -72,7 +70,76 @@ const blank = (): ProviderEndpointFields => ({
   supports_reasoning_content: false,
   supports_reasoning_replay: false,
   extra_body_json: '{}',
+  allow_private_address: false,
 });
+
+/** Ollama has no server type of its own: Row-Bot talks to its OpenAI-compatible
+ * API at its `/v1` address, so the choice saves as OpenAI-compatible. */
+const OLLAMA = 'ollama';
+const sendable = (draft: ProviderEndpointFields): ProviderEndpointFields =>
+  draft.profile === OLLAMA
+    ? { ...draft, profile: 'generic_openai' }
+    : structuredClone(draft);
+/** OpenAI-compatible and Ollama first, then the others by name. */
+function serverTypes(page: ProviderConfigurationPage | null) {
+  const types = (page?.profiles ?? [])
+    .filter(({ id }) => id !== 'generic_openai')
+    .map(({ id, name }) => ({ value: id, label: name }))
+    .sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+    );
+  const generic = page?.profiles.find(({ id }) => id === 'generic_openai');
+  return [
+    ...(generic ? [{ value: generic.id, label: generic.name }] : []),
+    { value: OLLAMA, label: 'Ollama' },
+    ...types,
+  ];
+}
+function serverTypeName(
+  page: ProviderConfigurationPage | null,
+  id: string | undefined,
+) {
+  return (
+    page?.profiles.find((profile) => profile.id === id)?.name ??
+    humanizeToken(id)
+  );
+}
+function urlHost(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return url;
+  }
+}
+const possessive = (name: string) =>
+  name.endsWith('s') ? `${name}'` : `${name}'s`;
+/** Refreshes and probes that end with one of these were refused with a reason: nothing to check again. */
+const ENDPOINT_PROBLEMS = new Set([
+  'endpoint_unreachable',
+  'endpoint_key_rejected',
+  'endpoint_key_missing',
+  'endpoint_private_address',
+  'endpoint_address_blocked',
+]);
+const KEY_PROBLEMS = new Set(['endpoint_key_rejected', 'endpoint_key_missing']);
+const THIS_SERVER = /^(?:localhost|::1|0\.0\.0\.0|127(?:\.\d+){3})$/;
+/** What went wrong with an endpoint at `url`, in words that name it. */
+function endpointProblem(
+  failure: { code: string; message: string },
+  { url, allowed }: { url: string; allowed: boolean },
+  hostName: string | null,
+) {
+  if (!url) return failure.message;
+  if (failure.code === 'endpoint_unreachable')
+    // A hosted server reaches the endpoint over the internet, unless it runs on the
+    // server itself or at a private address its owner allowed.
+    return hostName && !allowed && !THIS_SERVER.test(urlHost(url))
+      ? `Row-Bot couldn't reach ${url}. Check it's running and reachable from the internet.`
+      : `Row-Bot couldn't reach ${url}. Check the address and that the server is running.`;
+  if (failure.code === 'endpoint_private_address')
+    return `${urlHost(url)} is on ${hostName ? possessive(hostName) : "your host's"} private network. Edit the endpoint to allow it.`;
+  return failure.message;
+}
 
 const probeLabels = {
   agent_ready: 'Agent ready',
@@ -89,15 +156,16 @@ type State = {
   editing: boolean;
   dirty: boolean;
   operation: Operation;
-  provider: string;
-  model: string;
-  surface: string;
   busy: string;
   error: string;
   notice: string;
   reviewed: Review | null;
   pending: Pending | null;
   active: boolean;
+  /** The address the owner is asked about (H16), while asking. */
+  ask: string;
+  /** The endpoint whose key was refused or is missing, for "Enter API key". */
+  keyFor: string;
 };
 const initial = (): State => ({
   page: null,
@@ -108,15 +176,14 @@ const initial = (): State => ({
   editing: false,
   dirty: false,
   operation: 'provider.endpoint.save',
-  provider: '',
-  model: '',
-  surface: 'chat',
   busy: '',
   error: '',
   notice: '',
   reviewed: null,
   pending: null,
   active: true,
+  ask: '',
+  keyFor: '',
 });
 
 /** One bounded private configuration editor, retained by the authenticated runtime. */
@@ -165,6 +232,10 @@ export type ProviderConfigurationProps = {
   compact?: boolean;
   /** Open "Add custom endpoint" once the list has loaded (Setup's link). */
   autoAdd?: boolean;
+  /** The server type it opens with: a hosted first run's "Use my own model server" picks Ollama (U3). */
+  addProfile?: string | null;
+  /** A new or edited endpoint answered with its models (not when it couldn't be reached). */
+  onModelsReady?: () => void;
   credentialRefreshRequest?: { providerId: string; token: number };
   session?: ProviderConfigurationSession;
   load: (
@@ -191,6 +262,8 @@ export type ProviderConfigurationProps = {
   ) => Promise<'completed' | 'rejected' | 'uncertain'>;
   onSaved: () => void;
   onCredentials: (providerId?: string) => void;
+  /** The company hosting this Row-Bot, when one is known. */
+  hostName?: string | null;
 };
 
 export default function ProviderConfiguration(
@@ -215,30 +288,52 @@ export default function ProviderConfiguration(
     if (!props.autoAdd || autoAdded.current || !page || locked || state.editing)
       return;
     autoAdded.current = true;
+    const known = serverTypes(page).some(
+      (type) => type.value === props.addProfile,
+    );
+    // A server on this computer starts with its name and usual address; a hosted
+    // Row-Bot's own localhost isn't where it runs.
+    const server = localServer(props.addProfile);
+    // Its id is the server's own name, made unique among the endpoints here.
+    const taken = new Set(page.items.map((item) => item.fields.endpoint_id));
+    let endpointId = props.addProfile ?? '';
+    for (let n = 2; taken.has(endpointId); n++)
+      endpointId = `${props.addProfile}-${n}`;
+    const usual =
+      server && !props.hostName
+        ? {
+            endpoint_id: endpointId,
+            display_name: server.name,
+            base_url: server.url,
+          }
+        : {};
     session.update({
-      fields: blank(),
+      fields: known
+        ? { ...blank(), profile: props.addProfile!, ...usual }
+        : blank(),
       revision: page.revision,
       existing: false,
       editing: true,
       operation: 'provider.endpoint.create',
       reviewed: null,
     });
-  }, [props.autoAdd, page, locked, state.editing, session]);
-  const modelAction = operation.startsWith('provider.model.');
+  }, [
+    props.autoAdd,
+    props.addProfile,
+    props.hostName,
+    page,
+    locked,
+    state.editing,
+    session,
+  ]);
   const networkAction =
     operation === 'provider.endpoint.probe' ||
     operation === 'provider.endpoint.refresh';
   const payload = (): Fields =>
-    modelAction
-      ? {
-          provider_id: state.provider,
-          model_id: state.model,
-          surface: state.surface,
-        }
-      : operation === 'provider.endpoint.save' ||
-          operation === 'provider.endpoint.create'
-        ? structuredClone(fields)
-        : { endpoint_id: fields.endpoint_id };
+    operation === 'provider.endpoint.save' ||
+    operation === 'provider.endpoint.create'
+      ? sendable(fields)
+      : { endpoint_id: fields.endpoint_id };
 
   async function load(cursor?: string) {
     if (
@@ -286,14 +381,42 @@ export default function ProviderConfiguration(
         reviewed: null,
         error: '',
         notice: '',
+        ask: '',
+        keyFor: '',
       });
   }
   function field<K extends keyof ProviderEndpointFields>(
     name: K,
     value: ProviderEndpointFields[K],
   ) {
-    changed({ fields: { ...fields, [name]: value } });
+    // An OK for a private address is for that address only (H16).
+    changed({
+      fields: {
+        ...fields,
+        [name]: value,
+        ...(name === 'base_url' ? { allow_private_address: false } : {}),
+      },
+    });
   }
+  const hostName = props.hostName ?? null;
+  const addressOf = (captured: Fields) => {
+    const endpoint =
+      'base_url' in captured
+        ? captured
+        : page?.items.find(
+            (item) =>
+              'endpoint_id' in captured &&
+              item.fields.endpoint_id === captured.endpoint_id,
+          )?.fields;
+    return {
+      url: endpoint?.base_url ?? '',
+      allowed: endpoint?.allow_private_address ?? false,
+    };
+  };
+  const keyOf = (captured: Fields, code: string) =>
+    KEY_PROBLEMS.has(code) && 'endpoint_id' in captured
+      ? `custom_openai_${captured.endpoint_id}`
+      : '';
   async function review() {
     if (
       locked ||
@@ -404,7 +527,11 @@ export default function ProviderConfiguration(
       session.update({ busy: '' });
     }
   }
-  async function performDirect(next: Operation, captured: Fields) {
+  async function performDirect(
+    next: Operation,
+    captured: Fields,
+    fresh?: string,
+  ) {
     if (
       locked ||
       !page ||
@@ -413,9 +540,9 @@ export default function ProviderConfiguration(
     )
       return;
     const generation = epoch.current;
-    const revision = page.revision;
+    const revision = fresh ?? page.revision;
     const abort = session.read();
-    session.update({ busy: 'review', error: '', notice: '' });
+    session.update({ busy: 'review', error: '', notice: '', keyFor: '' });
     let reviewed: Review;
     try {
       reviewed = await props.review(
@@ -425,8 +552,12 @@ export default function ProviderConfiguration(
         abort.signal,
       );
     } catch (cause) {
-      if (!abort.signal.aborted)
-        session.update({ busy: '', error: clientError(cause).message });
+      if (abort.signal.aborted) return;
+      const failure = clientError(cause);
+      // A private address on a hosted server: ask the owner here (H16).
+      if (failure.code === 'endpoint_private_address' && 'base_url' in captured)
+        session.update({ busy: '', ask: captured.base_url });
+      else session.update({ busy: '', error: failure.message });
       return;
     } finally {
       session.finishRead(abort);
@@ -522,22 +653,36 @@ export default function ProviderConfiguration(
               busy: '',
               notice: 'Endpoint saved and models refreshed.',
             });
-            if (generation === epoch.current) props.onSaved();
-            void load();
+            if (generation === epoch.current) {
+              props.onSaved();
+              props.onModelsReady?.();
+            }
+            // A new endpoint's models can be chosen only once a probe has
+            // checked them, so check it now rather than leave it Not checked.
+            if (next === 'provider.endpoint.create')
+              void load().then(() =>
+                performDirect(
+                  'provider.endpoint.probe',
+                  fields,
+                  session.getSnapshot().page?.revision,
+                ),
+              );
+            else void load();
           } catch (cause) {
             const failure = clientError(cause);
-            // An endpoint that doesn't answer is a definite outcome: nothing
-            // to check again, and the list shows it as Not reachable (B114).
-            if (failure.code === 'endpoint_unreachable')
-              session.update({ pending: null });
+            // An endpoint that doesn't answer, refuses its key or may not be
+            // reached is a definite outcome: nothing to check again, and the
+            // list shows it as Unavailable (B114).
+            const definite = ENDPOINT_PROBLEMS.has(failure.code);
+            if (definite) session.update({ pending: null });
             session.update({
               busy: '',
-              error:
-                failure.code === 'endpoint_unreachable' ? '' : failure.message,
+              error: definite ? '' : failure.message,
+              keyFor: keyOf(captured, failure.code),
               notice: session.getSnapshot().pending
                 ? "Endpoint saved, but Row-Bot couldn't confirm the model refresh. Check again."
-                : failure.code === 'endpoint_unreachable'
-                  ? `Endpoint saved. ${failure.message}`
+                : definite
+                  ? `Endpoint saved. ${endpointProblem(failure, addressOf(captured), hostName)}`
                   : 'Endpoint saved, but model refresh did not start.',
             });
             if (!session.getSnapshot().pending) void load();
@@ -546,8 +691,13 @@ export default function ProviderConfiguration(
       } else void load();
     } catch (cause) {
       const failure = clientError(cause);
-      if (failure.code === 'endpoint_unreachable') {
-        session.update({ pending: null, busy: '', notice: failure.message });
+      if (ENDPOINT_PROBLEMS.has(failure.code)) {
+        session.update({
+          pending: null,
+          busy: '',
+          notice: endpointProblem(failure, addressOf(captured), hostName),
+          keyFor: keyOf(captured, failure.code),
+        });
         void load();
         return;
       }
@@ -570,12 +720,125 @@ export default function ProviderConfiguration(
     )
       return;
     handledCredentialRefresh.current = request.token;
-    void performDirect('provider.endpoint.refresh', {
-      endpoint_id: request.providerId.replace(/^custom_openai_/, ''),
-    });
+    // Saving the key changed the configuration: refresh against a fresh read.
+    void load().then(() =>
+      performDirect(
+        'provider.endpoint.refresh',
+        { endpoint_id: request.providerId.replace(/^custom_openai_/, '') },
+        session.getSnapshot().page?.revision,
+      ),
+    );
     // Refresh requests come only from a successfully saved endpoint credential.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.credentialRefreshRequest, props.compact, locked, page]);
+  const keyAction = state.keyFor ? (
+    <div className="action-cluster">
+      <Button
+        variant="ghost"
+        className="small"
+        disabled={locked}
+        onClick={() => props.onCredentials(state.keyFor)}
+      >
+        <KeyRound size={16} aria-hidden /> Enter API key
+      </Button>
+    </div>
+  ) : null;
+  const askHost = urlHost(state.ask);
+  const ask = state.ask ? (
+    <div
+      role="alertdialog"
+      aria-label="Allow a private address"
+      className="settings-endpoint-ask"
+    >
+      <strong>
+        <ShieldAlert size={16} aria-hidden /> Allow a private address?
+      </strong>
+      <p>
+        {askHost}{' '}
+        {/^[\d.]+$/.test(askHost) || askHost.includes(':')
+          ? 'is a private address'
+          : 'leads to a private address'}{' '}
+        inside {hostName ? possessive(hostName) : "your host's"} network, not on
+        the internet. Row-Bot connects there only if you allow it for this
+        endpoint. Allow it only if your model server runs there.
+      </p>
+      <div className="action-cluster">
+        <Button
+          variant="primary"
+          disabled={locked}
+          onClick={() => {
+            const allowed = { ...fields, allow_private_address: true };
+            session.update({ fields: allowed, ask: '' });
+            void performDirect(
+              state.existing
+                ? 'provider.endpoint.save'
+                : 'provider.endpoint.create',
+              sendable(allowed),
+            );
+          }}
+        >
+          Allow and save
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={locked}
+          onClick={() => session.update({ ask: '' })}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  ) : null;
+  // A new server on this computer whose usual port is Row-Bot's own says why
+  // its address was moved.
+  const movedNote = state.existing
+    ? undefined
+    : localServer(fields.profile)?.note;
+  const allowedNote =
+    state.existing && fields.allow_private_address ? (
+      <p className="settings-help">
+        Allowed to use a private address inside{' '}
+        {hostName ? possessive(hostName) : "your host's"} network.
+      </p>
+    ) : null;
+  const serverType = (
+    <Field label="Server type">
+      <Select
+        value={fields.profile}
+        disabled={locked || state.existing}
+        onChange={(event) => field('profile', event.target.value)}
+      >
+        {serverTypes(page).map((type) => (
+          <option key={type.value} value={type.value}>
+            {type.label}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  );
+  const ollamaHint = (
+    <>
+      {fields.profile === OLLAMA && !state.existing && (
+        <p className="settings-help">
+          Ollama's address ends in /v1, such as
+          http://&lt;computer&gt;:11434/v1. Set its context size under Advanced:
+          Ollama doesn't report it.
+        </p>
+      )}
+      {hostName && !state.existing && (
+        // A hosted Row-Bot reaches a model server over the internet (U3, W4.5).
+        <p className="settings-help">
+          <a
+            href={OWN_MODEL_SERVER_GUIDE}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            How to reach your model server safely
+          </a>
+        </p>
+      )}
+    </>
+  );
   if (props.compact)
     return (
       <section
@@ -589,6 +852,7 @@ export default function ProviderConfiguration(
         {/* While the dialog is open its errors show inside it (B114). */}
         {state.error && !state.editing && <p role="alert">{state.error}</p>}
         {state.notice && <p role="status">{state.notice}</p>}
+        {keyAction}
         {page && page.items.length > 0 && (
           <ul className="settings-provider-list settings-custom-endpoint-list">
             {page.items.map((item) => {
@@ -654,8 +918,10 @@ export default function ProviderConfiguration(
               const meta = [
                 item.fields.base_url,
                 humanizeToken(item.fields.execution_location),
-                humanizeToken(item.fields.profile),
-                item.model_count !== null ? `${item.model_count} models` : '',
+                serverTypeName(page, item.fields.profile),
+                item.model_count !== null
+                  ? `${item.model_count} model${item.model_count === 1 ? '' : 's'}`
+                  : '',
               ]
                 .filter(Boolean)
                 .join(' · ');
@@ -777,6 +1043,7 @@ export default function ProviderConfiguration(
                   editing: false,
                   dirty: false,
                   reviewed: null,
+                  ask: '',
                   fields: blank(),
                 });
             }}
@@ -802,26 +1069,17 @@ export default function ProviderConfiguration(
                   }
                 />
               </Field>
-              <Field label="Base URL">
+              <Field label="Base URL" hint={movedNote}>
                 <Input
                   value={fields.base_url}
                   disabled={locked}
                   onChange={(event) => field('base_url', event.target.value)}
                 />
               </Field>
+              {allowedNote}
               {!state.existing && (
                 <div className="field-row">
-                  <Field label="Endpoint profile">
-                    <Select
-                      value={fields.profile}
-                      disabled={locked}
-                      onChange={(event) => field('profile', event.target.value)}
-                    >
-                      {page?.profiles.map((profile) => (
-                        <option key={profile}>{profile}</option>
-                      ))}
-                    </Select>
-                  </Field>
+                  {serverType}
                   <Field label="Execution location">
                     <Select
                       value={fields.execution_location}
@@ -840,6 +1098,7 @@ export default function ProviderConfiguration(
                   </Field>
                 </div>
               )}
+              {ollamaHint}
               <label className="actions">
                 <Toggle
                   label="Enable endpoint"
@@ -973,7 +1232,8 @@ export default function ProviderConfiguration(
                   {state.error}
                 </p>
               )}
-              <div className="actions">
+              {ask}
+              <div className="actions" hidden={!!state.ask}>
                 <Button
                   disabled={
                     locked ||
@@ -985,7 +1245,7 @@ export default function ProviderConfiguration(
                       state.existing
                         ? 'provider.endpoint.save'
                         : 'provider.endpoint.create',
-                      structuredClone(fields),
+                      sendable(fields),
                     )
                   }
                 >
@@ -999,6 +1259,7 @@ export default function ProviderConfiguration(
                       dirty: false,
                       reviewed: null,
                       error: '',
+                      ask: '',
                       fields: blank(),
                     })
                   }
@@ -1076,6 +1337,7 @@ export default function ProviderConfiguration(
       </p>
       {state.error && <p role="alert">{state.error}</p>}
       {state.notice && <p role="status">{state.notice}</p>}
+      {keyAction}
       {state.busy === 'load' && <Skeleton label="Loading saved endpoints" />}
       <div className="field-row settings-provider-endpoint-search">
         <Field label="Search saved endpoints">
@@ -1134,11 +1396,13 @@ export default function ProviderConfiguration(
                     <span className="status-chip">
                       {item.fields.execution_location}
                     </span>
-                    <span className="status-chip">{item.fields.profile}</span>
+                    <span className="status-chip">
+                      {serverTypeName(page, item.fields.profile)}
+                    </span>
                     <span className="status-chip">
                       {item.model_count == null
                         ? 'models unknown'
-                        : `${item.model_count} models`}
+                        : `${item.model_count} model${item.model_count === 1 ? '' : 's'}`}
                     </span>
                   </div>
                   <Button
@@ -1190,19 +1454,6 @@ export default function ProviderConfiguration(
           <Plus size={15} aria-hidden />
           New endpoint
         </Button>
-        <Button
-          disabled={locked || state.dirty || !page}
-          onClick={() =>
-            session.update({
-              revision: page!.revision,
-              editing: true,
-              operation: 'provider.model.pin',
-              reviewed: null,
-            })
-          }
-        >
-          Model picker settings
-        </Button>
         <Button onClick={() => props.onCredentials()}>
           Manage credentials
         </Button>
@@ -1217,307 +1468,240 @@ export default function ProviderConfiguration(
                 changed({ operation: event.target.value as Operation })
               }
             >
-              {modelAction ? (
-                <>
-                  <option value="provider.model.pin">
-                    List model in a picker
-                  </option>
-                  <option value="provider.model.unpin">
-                    Take model out of a picker
-                  </option>
-                </>
-              ) : (
-                <>
-                  <option
-                    value={
-                      state.existing
-                        ? 'provider.endpoint.save'
-                        : 'provider.endpoint.create'
-                    }
-                  >
-                    {state.existing ? 'Save endpoint' : 'Create endpoint'}
-                  </option>
-                  <option
-                    value="provider.endpoint.delete"
-                    disabled={!state.existing}
-                  >
-                    Remove endpoint
-                  </option>
-                  <option
-                    value="provider.endpoint.refresh"
-                    disabled={!state.existing}
-                  >
-                    Refresh endpoint models
-                  </option>
-                  <option
-                    value="provider.endpoint.probe"
-                    disabled={!state.existing}
-                  >
-                    Probe endpoint readiness
-                  </option>
-                </>
-              )}
+              <>
+                <option
+                  value={
+                    state.existing
+                      ? 'provider.endpoint.save'
+                      : 'provider.endpoint.create'
+                  }
+                >
+                  {state.existing ? 'Save endpoint' : 'Create endpoint'}
+                </option>
+                <option
+                  value="provider.endpoint.delete"
+                  disabled={!state.existing}
+                >
+                  Remove endpoint
+                </option>
+                <option
+                  value="provider.endpoint.refresh"
+                  disabled={!state.existing}
+                >
+                  Refresh endpoint models
+                </option>
+                <option
+                  value="provider.endpoint.probe"
+                  disabled={!state.existing}
+                >
+                  Probe endpoint readiness
+                </option>
+              </>
             </Select>
           </Field>
-          {modelAction ? (
-            <>
-              <Field label="Provider ID">
-                <Input
-                  disabled={locked}
-                  maxLength={128}
-                  value={state.provider}
-                  onChange={(event) =>
-                    changed({ provider: event.target.value })
-                  }
-                />
-              </Field>
-              <Field label="Exact model ID">
-                <Input
-                  disabled={locked}
-                  maxLength={512}
-                  value={state.model}
-                  onChange={(event) => changed({ model: event.target.value })}
-                />
-              </Field>
-              <Field label="Picker">
-                <Select
-                  disabled={locked}
-                  value={state.surface}
-                  onChange={(event) => changed({ surface: event.target.value })}
-                >
-                  {['chat', 'vision', 'image', 'video', 'voice'].map(
-                    (surface) => (
-                      <option key={surface}>{surface}</option>
-                    ),
-                  )}
-                </Select>
-              </Field>
-              <p>
-                Provider identity is preserved. Listing does not select a
-                default or prove runtime readiness.
-              </p>
-            </>
-          ) : (
-            <>
-              <Field label="Endpoint ID">
-                <Input
-                  value={fields.endpoint_id}
-                  disabled={locked || state.existing}
-                  maxLength={64}
-                  onChange={(event) => field('endpoint_id', event.target.value)}
-                />
-              </Field>
-              <Field label="Display name">
-                <Input
-                  value={fields.display_name}
-                  disabled={
-                    locked ||
-                    (operation !== 'provider.endpoint.save' &&
-                      operation !== 'provider.endpoint.create')
-                  }
-                  maxLength={160}
-                  onChange={(event) =>
-                    field('display_name', event.target.value)
-                  }
-                />
-              </Field>
-              <Field label="Base URL">
-                <Input
-                  value={fields.base_url}
-                  disabled={
-                    locked ||
-                    (operation !== 'provider.endpoint.save' &&
-                      operation !== 'provider.endpoint.create')
-                  }
-                  maxLength={2048}
-                  onChange={(event) => field('base_url', event.target.value)}
-                />
-              </Field>
-              {(operation === 'provider.endpoint.save' ||
-                operation === 'provider.endpoint.create') && (
-                <>
-                  <div className="field-row">
-                    <Field label="Endpoint profile">
-                      <Select
-                        disabled={locked || state.existing}
-                        value={fields.profile}
-                        onChange={(event) =>
-                          field('profile', event.target.value)
+          <>
+            <Field label="Endpoint ID">
+              <Input
+                value={fields.endpoint_id}
+                disabled={locked || state.existing}
+                maxLength={64}
+                onChange={(event) => field('endpoint_id', event.target.value)}
+              />
+            </Field>
+            <Field label="Display name">
+              <Input
+                value={fields.display_name}
+                disabled={
+                  locked ||
+                  (operation !== 'provider.endpoint.save' &&
+                    operation !== 'provider.endpoint.create')
+                }
+                maxLength={160}
+                onChange={(event) => field('display_name', event.target.value)}
+              />
+            </Field>
+            <Field label="Base URL" hint={movedNote}>
+              <Input
+                value={fields.base_url}
+                disabled={
+                  locked ||
+                  (operation !== 'provider.endpoint.save' &&
+                    operation !== 'provider.endpoint.create')
+                }
+                maxLength={2048}
+                onChange={(event) => field('base_url', event.target.value)}
+              />
+            </Field>
+            {(operation === 'provider.endpoint.save' ||
+              operation === 'provider.endpoint.create') && (
+              <>
+                {allowedNote}
+                <div className="field-row">
+                  {serverType}
+                  <Field label="Execution location">
+                    <Select
+                      disabled={locked || state.existing}
+                      value={fields.execution_location}
+                      onChange={(event) =>
+                        field(
+                          'execution_location',
+                          event.target
+                            .value as ProviderEndpointFields['execution_location'],
+                        )
+                      }
+                    >
+                      <option value="local">Local/private</option>
+                      <option value="remote">Remote/proxy</option>
+                    </Select>
+                  </Field>
+                </div>
+                {ollamaHint}
+                <label className="actions">
+                  <Toggle
+                    label="Enable this endpoint"
+                    checked={fields.enabled}
+                    disabled={locked}
+                    onChange={(event) => field('enabled', event.target.checked)}
+                  />
+                  Enable this endpoint
+                </label>
+                <label className="actions">
+                  <Toggle
+                    label="Require an existing saved credential"
+                    checked={fields.auth_required}
+                    disabled={locked}
+                    onChange={(event) =>
+                      field('auth_required', event.target.checked)
+                    }
+                  />
+                  Require an existing saved credential
+                </label>
+                <p>
+                  Credential bytes are managed separately. This form never
+                  replaces or deletes them.
+                </p>
+                <details>
+                  <summary>Advanced capabilities and reasoning</summary>
+                  <div className="stack">
+                    {(
+                      ['vision_mode', 'tool_mode', 'reasoning_mode'] as const
+                    ).map((key) => (
+                      <Field
+                        key={key}
+                        label={
+                          {
+                            vision_mode: 'Vision input',
+                            tool_mode: 'Tool calling',
+                            reasoning_mode: 'Reasoning mode',
+                          }[key]
                         }
                       >
-                        {page?.profiles.map((profile) => (
-                          <option key={profile}>{profile}</option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Execution location">
-                      <Select
-                        disabled={locked || state.existing}
-                        value={fields.execution_location}
-                        onChange={(event) =>
-                          field(
-                            'execution_location',
-                            event.target
-                              .value as ProviderEndpointFields['execution_location'],
-                          )
-                        }
-                      >
-                        <option value="local">Local/private</option>
-                        <option value="remote">Remote/proxy</option>
-                      </Select>
-                    </Field>
-                  </div>
-                  <label className="actions">
-                    <Toggle
-                      label="Enable this endpoint"
-                      checked={fields.enabled}
-                      disabled={locked}
-                      onChange={(event) =>
-                        field('enabled', event.target.checked)
-                      }
-                    />
-                    Enable this endpoint
-                  </label>
-                  <label className="actions">
-                    <Toggle
-                      label="Require an existing saved credential"
-                      checked={fields.auth_required}
-                      disabled={locked}
-                      onChange={(event) =>
-                        field('auth_required', event.target.checked)
-                      }
-                    />
-                    Require an existing saved credential
-                  </label>
-                  <p>
-                    Credential bytes are managed separately. This form never
-                    replaces or deletes them.
-                  </p>
-                  <details>
-                    <summary>Advanced capabilities and reasoning</summary>
-                    <div className="stack">
-                      {(
-                        ['vision_mode', 'tool_mode', 'reasoning_mode'] as const
-                      ).map((key) => (
+                        <Select
+                          disabled={locked}
+                          value={fields[key]}
+                          onChange={(event) =>
+                            field(
+                              key,
+                              event.target
+                                .value as ProviderEndpointFields[typeof key],
+                            )
+                          }
+                        >
+                          {['auto', 'on', 'off'].map((mode) => (
+                            <option key={mode}>{mode}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                    ))}
+                    {(['context_window', 'thinking_budget'] as const).map(
+                      (key) => (
                         <Field
                           key={key}
                           label={
-                            {
-                              vision_mode: 'Vision input',
-                              tool_mode: 'Tool calling',
-                              reasoning_mode: 'Reasoning mode',
-                            }[key]
+                            key === 'context_window'
+                              ? 'Native context limit'
+                              : 'Thinking budget'
                           }
                         >
-                          <Select
+                          <Input
+                            type="number"
+                            min={1}
+                            max={10000000}
                             disabled={locked}
-                            value={fields[key]}
+                            value={fields[key] ?? ''}
                             onChange={(event) =>
                               field(
                                 key,
-                                event.target
-                                  .value as ProviderEndpointFields[typeof key],
+                                event.target.value === ''
+                                  ? null
+                                  : Number(event.target.value),
                               )
                             }
-                          >
-                            {['auto', 'on', 'off'].map((mode) => (
-                              <option key={mode}>{mode}</option>
-                            ))}
-                          </Select>
-                        </Field>
-                      ))}
-                      {(['context_window', 'thinking_budget'] as const).map(
-                        (key) => (
-                          <Field
-                            key={key}
-                            label={
-                              key === 'context_window'
-                                ? 'Native context limit'
-                                : 'Thinking budget'
-                            }
-                          >
-                            <Input
-                              type="number"
-                              min={1}
-                              max={10000000}
-                              disabled={locked}
-                              value={fields[key] ?? ''}
-                              onChange={(event) =>
-                                field(
-                                  key,
-                                  event.target.value === ''
-                                    ? null
-                                    : Number(event.target.value),
-                                )
-                              }
-                            />
-                          </Field>
-                        ),
-                      )}
-                      {(
-                        [
-                          'supports_reasoning_content',
-                          'supports_reasoning_replay',
-                        ] as const
-                      ).map((key) => (
-                        <label className="actions" key={key}>
-                          <Toggle
-                            label={
-                              key === 'supports_reasoning_content'
-                                ? 'Endpoint returns reasoning content'
-                                : 'Send earlier reasoning back'
-                            }
-                            checked={fields[key]}
-                            disabled={locked}
-                            onChange={(event) =>
-                              field(key, event.target.checked)
-                            }
                           />
-                          {key === 'supports_reasoning_content'
-                            ? 'Endpoint returns reasoning content'
-                            : 'Send earlier reasoning back'}
-                        </label>
-                      ))}
-                      <Field label="Credential-free extra request JSON">
-                        <textarea
-                          className="input"
-                          value={fields.extra_body_json}
-                          maxLength={16384}
-                          disabled={locked}
-                          onChange={(event) =>
-                            field('extra_body_json', event.target.value)
+                        </Field>
+                      ),
+                    )}
+                    {(
+                      [
+                        'supports_reasoning_content',
+                        'supports_reasoning_replay',
+                      ] as const
+                    ).map((key) => (
+                      <label className="actions" key={key}>
+                        <Toggle
+                          label={
+                            key === 'supports_reasoning_content'
+                              ? 'Endpoint returns reasoning content'
+                              : 'Send earlier reasoning back'
                           }
+                          checked={fields[key]}
+                          disabled={locked}
+                          onChange={(event) => field(key, event.target.checked)}
                         />
-                      </Field>
-                    </div>
-                  </details>
-                </>
-              )}
-              {operation === 'provider.endpoint.delete' && (
-                <p>
-                  Removes this endpoint and its models from the model lists.
-                  Credential recovery bytes and global model selections are
-                  retained; unavailable selections require an explicit new
-                  choice.
-                </p>
-              )}
-              {networkAction && (
-                <p>
-                  This explicit action contacts the saved endpoint and may
-                  consume provider quota. It sends synthetic probe content,
-                  never conversation history. Changing this form does not probe
-                  automatically.
-                </p>
-              )}
-            </>
-          )}
+                        {key === 'supports_reasoning_content'
+                          ? 'Endpoint returns reasoning content'
+                          : 'Send earlier reasoning back'}
+                      </label>
+                    ))}
+                    <Field label="Credential-free extra request JSON">
+                      <textarea
+                        className="input"
+                        value={fields.extra_body_json}
+                        maxLength={16384}
+                        disabled={locked}
+                        onChange={(event) =>
+                          field('extra_body_json', event.target.value)
+                        }
+                      />
+                    </Field>
+                  </div>
+                </details>
+              </>
+            )}
+            {operation === 'provider.endpoint.delete' && (
+              <p>
+                Removes this endpoint and its models from the model lists.
+                Credential recovery bytes and global model selections are
+                retained; unavailable selections require an explicit new choice.
+              </p>
+            )}
+            {networkAction && (
+              <p>
+                This explicit action contacts the saved endpoint and may consume
+                provider quota. It sends synthetic probe content, never
+                conversation history. Changing this form does not probe
+                automatically.
+              </p>
+            )}
+          </>
           {operation === 'provider.endpoint.delete' && state.reviewed && (
             <p role="status">
               Confirm removal of this endpoint and its models from the model
               lists.
             </p>
           )}
-          <div className="actions">
+          {ask}
+          <div className="actions" hidden={!!state.ask}>
             <Button
               disabled={locked}
               onClick={() =>
@@ -1532,13 +1716,9 @@ export default function ProviderConfiguration(
                   ? 'Check endpoint'
                   : operation === 'provider.endpoint.refresh'
                     ? 'Refresh models'
-                    : operation === 'provider.model.pin'
-                      ? 'List model'
-                      : operation === 'provider.model.unpin'
-                        ? 'Take model out'
-                        : state.existing
-                          ? 'Save endpoint'
-                          : 'Create endpoint'}
+                    : state.existing
+                      ? 'Save endpoint'
+                      : 'Create endpoint'}
             </Button>
             {operation === 'provider.endpoint.delete' && state.reviewed && (
               <Button

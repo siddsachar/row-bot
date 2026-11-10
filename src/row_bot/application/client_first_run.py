@@ -80,14 +80,15 @@ def local_models() -> list[str]:
     return list_local_models()
 
 
-def _recommend(models: list[dict[str, Any]], *, default: str | None, skip: set[str]) -> None:
+def _recommend(models: list[dict[str, Any]], *, default: str | None, skip: set[str]) -> list[dict[str, Any]]:
     """Mark Row-Bot's suggested first picks (F10).
 
     A pick is a chat model that can use Row-Bot's tools (the same judgement as
     "Chat only"), not an embedding model, not an "abliterated" or "uncensored"
     variant, and not already a favourite or hidden. The saved default comes
     first, then the larger models (the most capable one installed), then the
-    runtime's order (N16).
+    runtime's order (N16). The models come back with the picks first, in that order, so a list shows the
+    strongest first (U3); the rest keep the runtime's order.
     """
     from row_bot.providers.ollama import is_ollama_chat_candidate
 
@@ -95,15 +96,17 @@ def _recommend(models: list[dict[str, Any]], *, default: str | None, skip: set[s
              and is_ollama_chat_candidate(row["name"])
              and not any(marker in row["name"].lower() for marker in _UNSUGGESTED_MARKERS)]
     picks.sort(key=lambda row: (row["model_ref"] != default, -_parameters_in_billions(row["name"])))
-    for row in picks[:RECOMMENDED_PICKS]:
+    chosen = picks[:RECOMMENDED_PICKS]
+    for row in chosen:
         row["recommended"] = True
+    return [*chosen, *(row for row in models if row not in chosen)]
 
 
 def detect_local_runtime() -> dict[str, Any]:
     """Loopback-only detection; lists models only when the runtime answers.
 
-    Each model says whether it is a favourite or hidden and whether Row-Bot
-    suggests it first (F10); Setup and Settings › Models list them that way.
+    Each model says whether it is starred and whether Row-Bot suggests it
+    first; Setup and Settings › Models list them that way.
     """
     from row_bot.models import is_tool_compatible
     from row_bot.providers.model_visibility import annotate, read_model_visibility, withheld
@@ -122,7 +125,7 @@ def detect_local_runtime() -> dict[str, Any]:
         models.append({"model_ref": f"model:ollama:{name}", "name": name, "agent_ready": agent_ready})
     if models:
         shown = read_model_visibility()
-        _recommend(models, default=saved_default_model(), skip={*shown.favourites, *shown.hidden})
+        models = _recommend(models, default=saved_default_model(), skip=set(shown.favourites))
         models = annotate(models, key="model_ref", visibility=shown)
     return {
         "schema_version": 1,
@@ -178,15 +181,56 @@ def _chat_row(model_ref: str):
     return next((row for row in rows if row.selection_ref == model_ref and "chat" in row.categories), None)
 
 
+def _provider_order(provider_id: str) -> list[str]:
+    """A signed-in provider's models in its own order: ChatGPT's recommended model first,
+    Claude Code's list as it gives it (its default first), Grok's as xAI lists it."""
+    from row_bot.providers import claude_subscription, codex, xai_oauth
+
+    if provider_id == codex.CODEX_PROVIDER_ID:
+        recommended = [str(model["id"]) for model in codex.FALLBACK_CODEX_MODELS if model.get("recommended")]
+        return [*recommended, *(info.model_id for info in codex.list_codex_model_infos_for_status())]
+    if provider_id == claude_subscription.CLAUDE_SUBSCRIPTION_PROVIDER_ID:
+        return [info.model_id for info in claude_subscription.list_claude_subscription_model_infos_for_status()]
+    if provider_id == xai_oauth.XAI_OAUTH_PROVIDER_ID:
+        return [info.model_id for info in xai_oauth.list_xai_oauth_model_infos_for_status()]
+    return []
+
+
+def suggested_model(provider_id: str) -> str | None:
+    """The model a sign-in starts on, or None while the provider lists none ready.
+
+    A hosted first run (U3) goes from "Sign in with ChatGPT" or "Use my Claude plan"
+    straight to a chat, so it doesn't ask which model: the provider's own first pick
+    among its chat models that are ready now. The person changes it any time in the
+    model picker; nothing is chosen until they sign in (decision 9).
+    """
+    from row_bot.providers import client_status
+
+    _snapshot, rows = client_status._read(None, include_readiness=True)
+    ready = [row for row in rows if row.provider_id == provider_id and "chat" in row.categories
+             and row.configured and row.runtime_ready and row.installed]
+    if not ready:
+        return None
+    try:
+        order = _provider_order(provider_id)
+    except Exception:
+        logger.warning("The provider's own model order could not be read", exc_info=True)
+        order = []
+    place = {model_id: index for index, model_id in reversed(list(enumerate(order)))}
+    ready.sort(key=lambda row: place.get(row.model_id, len(place)))
+    return ready[0].selection_ref
+
+
 def choose_model(model_ref: str) -> str:
-    """Save the person's pick as the default and pin it for the composer.
+    """Save the person's pick as the default and star it, so every picker lists it.
 
     Only a model that is available right now can be chosen: an installed local
     model the runtime serves, or a connected provider's chat model.
     """
     from row_bot.application.client_platform import ClientPlatformError
     from row_bot.providers import saved_model_settings as settings
-    from row_bot.providers.selection import add_quick_choice_for_model, model_ref as build_ref, parse_model_ref
+    from row_bot.providers.model_visibility import star_model
+    from row_bot.providers.selection import model_ref as build_ref, parse_model_ref
 
     parsed = parse_model_ref(str(model_ref or ""))
     if not parsed:
@@ -212,9 +256,9 @@ def choose_model(model_ref: str) -> str:
 
     recheck_default_model()
     try:
-        add_quick_choice_for_model(model_id, provider_id=provider_id, surface="chat")
+        star_model(reference)
     except Exception:
-        logger.warning("The chosen model could not be pinned to the picker", exc_info=True)
+        logger.warning("The chosen model could not be starred", exc_info=True)
     return reference
 
 
@@ -283,7 +327,10 @@ def _validate_openai_key(api_key: str) -> bool:
 
 
 def _key_validators() -> dict[str, Callable[[str], bool]]:
+    from functools import partial
+
     from row_bot import models
+    from row_bot.providers.presets import PRESETS, validate_preset_key
 
     return {
         "openai": _validate_openai_key,
@@ -294,6 +341,7 @@ def _key_validators() -> dict[str, Callable[[str], bool]]:
         "xai": models.validate_xai_key,
         "minimax": models.validate_minimax_key,
         "atlascloud": models.validate_atlascloud_key,
+        **{provider_id: partial(validate_preset_key, provider_id) for provider_id in PRESETS},
     }
 
 

@@ -161,6 +161,24 @@ def test_waiting_for_another_conversation_carries_on_when_its_turn_ends(waits, p
     assert "“conversation-b” finished its turn." in fake.prompts[0]
 
 
+def test_a_message_from_the_awaited_conversation_ends_the_wait_without_a_second_turn(waits, platform):  # noqa: F811
+    from row_bot import linked_conversations
+
+    fake = Recording(reply("Here is B's draft; it looks good."))
+    platform.stream_factory = fake.stream
+    _set(kind="conversation", label="conversation-b has finished", conversation="conversation-b")
+    [record] = waits.waiting("conversation-a")
+
+    # conversation-b sends its draft back to conversation-a, the one waiting for it.
+    linked_conversations.current["origin"] = linked_conversations.Origin("conversation-b", "turn-b", "conversation-b")
+    linked_conversations.send("conversation-a", "Draft: Welcome to Fernleaf Teas.", reply=False)
+    settle(platform, "conversation-a")
+
+    assert waits.waiting("conversation-a") == [], "the draft is the answer the wait was for"
+    assert waits.get(record["id"])["status"] == "done"
+    assert len(fake.prompts) == 1, "one turn reads the draft; no 'Checked back' turn repeats it"
+
+
 def test_the_api_lists_waits_with_their_conversation_and_stops_one(waits, platform):  # noqa: F811
     from tests.subsystem.client_protocol.test_protocol_application import _client
     from tests.subsystem.client_protocol.test_protocol_security import bootstrap
@@ -181,3 +199,25 @@ def test_the_api_lists_waits_with_their_conversation_and_stops_one(waits, platfo
         assert stopped.status_code == 200 and stopped.json()["items"] == []
         again = client.post(f"/api/v1/waits/{item['wait_id']}/stop", headers=headers)
         assert (again.status_code, again.json()["code"]) == (404, "wait_unavailable")
+
+
+@pytest.mark.parametrize("wanted", ["Sold out", "Status: all systems normal"])
+def test_a_page_wait_finds_text_that_sits_only_in_a_sidebar_or_footer(waits, platform, monkeypatch,  # noqa: F811
+                                                                       wanted):
+    """read_url gives the agent a page's main content (#139); a page wait still looks at the whole page."""
+    from tests.fixtures.public_web import PUBLIC_ADDRESS, public_web
+
+    page = (b"<html><body><nav>Shop | Basket</nav><main><article><h1>Tide clock</h1>"
+            b"<p>A brass clock that shows high and low water at any port.</p></article></main>"
+            b"<aside><span class='badge'>Sold out</span></aside>"
+            b"<footer>Status: all systems normal</footer></body></html>")
+    with public_web(monkeypatch) as web:
+        web.dns["shop.example"] = [PUBLIC_ADDRESS]
+        web.page("http://shop.example/tide-clock", page)
+        said = _set(kind="check", label="the tide clock page changes", url="http://shop.example/tide-clock",
+                    text=wanted, every_minutes=5, hours=1)
+        assert "Waiting for" in said
+        [record] = waits.waiting("conversation-a")
+        outcome = waits.check(record, record["next_at"])
+
+    assert outcome.met and f"shows “{wanted}”" in outcome.words

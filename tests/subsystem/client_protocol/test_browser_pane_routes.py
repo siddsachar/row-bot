@@ -9,6 +9,7 @@ real one with its page work faked.
 from __future__ import annotations
 
 import json
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -123,6 +124,25 @@ def test_the_live_stream_sends_the_pane_state_and_the_latest_picture_at_the_pane
     assert events["frame"] == {"seq": 4, "css_width": 1280.0, "css_height": 800.0, "image_base64": "/9j/4AAQ"}
 
 
+def test_the_log_says_when_a_pane_s_stream_opened_and_why_it_ended(service, browser, caplog):  # noqa: F811
+    """A pane's stream ended without a trace in the log, like the window's streams did (#568)."""
+    chat = _chat(service)
+    engine = _Engine()
+    browser._engine = engine
+    engine._status = "running"
+    engine._live[chat] = _Live(frame=Frame(1, "/9j/4AAQ", 1280, 800))
+    engine.quit_after_picture = True
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        with caplog.at_level(logging.DEBUG, logger="row_bot.api.v1.routes"):
+            response = client.get(f"/api/v1/conversations/{chat}/browser/live", headers=headers)
+    assert response.status_code == 200
+    lines = [record.getMessage() for record in caplog.records if "Browser pane stream" in record.getMessage()]
+    assert lines[0].startswith("Browser pane stream opened (session ")
+    assert lines[-1].startswith("Browser pane stream ended after ")
+    assert ": the browser closed, or Row-Bot is stopping" in lines[-1]
+
+
 def test_the_persons_input_is_checked_and_played_on_the_page(service, browser):  # noqa: F811
     chat = _chat(service)
     engine = _Engine()
@@ -138,12 +158,17 @@ def test_the_persons_input_is_checked_and_played_on_the_page(service, browser): 
         # Copy reads the page's selection for the person's clipboard.
         copied = client.post(url, json={"events": [{"type": "copy"}]}, headers=headers)
         assert copied.json() == {"status": "ok", "copied": "ABCD-1234"}
+        # A paste is the page's own paste, long text included (a pasted message, not only a code).
+        pasted = client.post(url, json={"events": [{"type": "paste", "text": "x" * 20_000}]}, headers=headers)
+        assert pasted.status_code == 200, pasted.text
         for bad in ([{"type": "mouse", "action": "type", "x": 1, "y": 1}],
                     [{"type": "key", "action": "down", "key": ""}],
                     [{"type": "text", "text": "\x1b[2J"}],
+                    [{"type": "paste", "text": ""}],
                     [{"type": "mouse", "action": "move"}] * 65):
             assert client.post(url, json={"events": bad}, headers=headers).status_code == 422
-    assert len(engine.played) == 2 and engine.played[0][2]["text"] == "Leak under the sink"
+    assert len(engine.played) == 3 and engine.played[0][2]["text"] == "Leak under the sink"
+    assert engine.played[2][0]["type"] == "paste" and len(engine.played[2][0]["text"]) == 20_000
 
 
 def test_the_address_bar_refuses_what_never_opens_and_allows_what_the_person_typed(service, browser):  # noqa: F811

@@ -240,9 +240,9 @@ def test_an_earlier_edit_can_be_edited_again_without_replacing_it(studio):
     first = _edit_id(studio.edit(inputs=["demo.mp4"], name="demo"))
     second = studio.edit(inputs=[first], steps=[{"op": "text", "text": "v2"}], name="demo")
 
-    assert ": saved" in second
+    assert "to this chat's files as demo-3.mp4" in second  # Each file in a chat has its own name.
     names = [item["name"] for item in list_conversation_files(studio.chat)]
-    assert names.count("demo.mp4") == 3  # The original, the first edit and the second: none replaced.
+    assert sorted(names) == ["demo-2.mp4", "demo-3.mp4", "demo.mp4"]  # None replaced; each has its own name.
 
 
 def test_saving_into_the_workspace_writes_a_new_file_and_replacing_one_asks(studio):
@@ -309,7 +309,7 @@ def test_a_result_too_large_for_the_chat_says_how_to_make_it_smaller(studio, mon
 
     result = studio.edit(inputs=["clips/intro.mp4"])
 
-    assert "more than a chat can hold (25 MB)" in result
+    assert "more than a chat can hold" in result
     assert studio.edits.get(_edit_id(result)).problem == "too_large"
 
 
@@ -395,3 +395,31 @@ def test_the_tool_waits_for_and_stops_an_edit_by_its_id(studio, monkeypatch):
 
     assert "carries on in the background" in studio.edit(action="status", edit_id=edit_id)
     assert studio.edit(action="stop", edit_id=edit_id).endswith("stopped by you; nothing was saved.")
+
+
+def test_a_result_name_keeps_its_apostrophe_and_drops_what_files_cant_hold():
+    """U28: "Mountain's" stays "Mountain's", never "Mountain-s"; a curly apostrophe becomes a plain one."""
+    from row_bot.tools.video_editing_tool import output_name
+
+    assert output_name("Find a Mountain's Height on Wikipedia v3", default="video") == (
+        "Find a Mountain's Height on Wikipedia v3.mp4")
+    assert output_name("Ana’s demo: take 2?", default="video") == "Ana's demo- take 2.mp4"
+    assert output_name("'quoted'", default="video") == "quoted.mp4"
+
+
+def test_a_cut_with_nothing_to_hear_says_it_has_no_sound(studio, monkeypatch):
+    """A demo cut only from screen recordings (which have no sound) went out to X silent twice, with nothing in
+    the result to say so (3 Nov). The result now says it, and the edit remembers it."""
+    from row_bot import sound
+
+    heard = {"value": False}
+    monkeypatch.setattr(sound, "has_sound", lambda _path: heard["value"])
+
+    silent = studio.edit(inputs=["demo.mp4"], steps=[{"op": "speed", "start": 1, "end": 3, "factor": 4}],
+                         name="demo cut")
+    assert "It has no sound: whoever watches it hears nothing." in silent
+    edit = studio.edits.get(_edit_id(silent))
+    assert edit.silent and studio.edits._load(studio.edits._record_path(edit)).silent, "kept with the edit"
+
+    heard["value"] = True
+    assert "no sound" not in studio.edit(inputs=["demo.mp4"], name="narrated")

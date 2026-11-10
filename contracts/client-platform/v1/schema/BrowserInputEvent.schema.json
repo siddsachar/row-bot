@@ -1,6 +1,6 @@
 {
   "additionalProperties": false,
-  "description": "The person's mouse, wheel or key in the pane, in the page's CSS pixels; ``copy`` reads the selection.",
+  "description": "The person's mouse, wheel or key in the pane, in the page's CSS pixels; ``copy`` reads the selection and\n``paste`` pastes text as the page's own paste.",
   "properties": {
     "action": {
       "default": "",
@@ -53,7 +53,7 @@
     },
     "text": {
       "default": "",
-      "maxLength": 4096,
+      "maxLength": 65536,
       "title": "Text",
       "type": "string"
     },
@@ -62,6 +62,7 @@
         "mouse",
         "key",
         "text",
+        "paste",
         "copy"
       ],
       "title": "Type",

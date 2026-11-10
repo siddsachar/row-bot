@@ -57,7 +57,8 @@ APP_LANES = ("tests", "--ignore=tests/docs", "--ignore=tests/marketing")
 # processes (start, view output, stop), Row-Bot's browser (a local address asked
 # for once per chat, screenshots, page sizes, recordings), computer use on a fake desktop
 # (its step and live picture, asking first, "Carry on?", a setup problem) and video edits and many
-# images at once (the ffmpeg download asked for once, edits with Stop, contact sheets),
+# images at once (the ffmpeg download asked for once, edits with Stop, contact sheets), a turn of
+# several steps read in the order it happened (each step's words, activity and media, live and reloaded),
 # files sent to the person's devices (the download on another device, its notice) or a chat app,
 # a workflow's steps as a flowchart (branches, loops, a broken branch, a card opening its step),
 # favourite and hidden models (the picker's menu, More models, Settings › Models and Setup),
@@ -89,6 +90,7 @@ BROWSER_SMOKE_SPECS = (
     "browser-pane",
     "computer-use",
     "conversation-media",
+    "turn-steps",
     "conversation-delivery",
     "workspace-folders",
     "sandbox-prepare",
@@ -115,13 +117,16 @@ BROWSER_SMOKE_SPECS = (
     "learning-changes",
     "learning-method",
     "learning-hugging-face",
+    # The setup page's sign-in link clears its code from the address (A1): security-sensitive.
+    "setup-link",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
     "capability-surfaces", "conversation-layout", "install-count", "ledger-fixes", "media", "message-content",
     "navigation", "panels", "persistence", "polish-visual", "resources",
     "settings-claude-plan", "settings-models", "settings-routes", "settings", "sidebar", "suggestions",
-    "terminal", "theme", "visual-alignment", "voice", "workflows",
+    "terminal", "theme", "visual-alignment", "voice", "workflows", "hosted-first-run", "place-words",
+    "memory-guidance", "hosted-settings", "backup-model",
 )
 # Apps in chat connect fake apps and run fake turns: a backend of their own, so no other spec sees them.
 BROWSER_APPS_SPECS = ("apps-in-chat", "app-views")
@@ -143,7 +148,8 @@ BROWSER_PHONE_SPECS = (
     "model-visibility", "learning", "learning-training", "learning-download", "learning-version", "learning-use", "learning-starting-model",
     "learning-method",
     "learning-hugging-face",
-    "settings-claude-plan", "install-count",
+    "settings-claude-plan", "install-count", "hosted-first-run", "place-words", "memory-guidance",
+    "hosted-settings", "backup-model",
 )
 # Performance budgets and pixel baselines (recorded on Windows): a quiet local machine only.
 BROWSER_BUDGET_SPECS = ("unified-startup", "unified-memory", "unified-performance", "polish-snapshots")
@@ -166,6 +172,22 @@ def _browser(name: str, *playwright_args: str, engine: str = "chromium") -> Comm
     # channel named by ROW_BOT_BROWSER_CHANNEL (msedge on the maintainer's machine).
     return _cmd(name, "uv", "run", "python", "tests/browser/client_workspace/run_browser.py", "--engine", engine,
                 "--timeout", "7200", "--", *playwright_args, env=TEST_ENV)
+
+
+def _browser_smoke(specs: tuple[str, ...]) -> CommandSpec:
+    return _browser("browser-smoke", "--project=chromium-desktop", "--project=chromium-buddy-overlay", *_specs(*specs))
+
+
+def smoke_shard(shard: str) -> tuple[str, ...]:
+    """The browser smoke specs one CI job runs for ROW_BOT_TEST_SHARD=k/N.
+
+    Dealt round-robin in listed order, so the slow Learning specs at the end are
+    spread across the jobs. Every spec lands in exactly one shard.
+    """
+    index, _, total = shard.partition("/")
+    if not (index.isdigit() and total.isdigit() and 1 <= int(index) <= int(total)):
+        raise ValueError(f"ROW_BOT_TEST_SHARD must look like 1/2, not {shard!r}")
+    return BROWSER_SMOKE_SPECS[int(index) - 1::int(total)]
 
 
 # pytest-xdist: one worker per CPU; a file's tests stay on one worker (module
@@ -244,9 +266,13 @@ COMMANDS: dict[str, CommandSpec] = {
         "install-count-worker", "node", "services/install-count/node_modules/vitest/vitest.mjs", "run",
         "--root", "services/install-count", env={"WRANGLER_SEND_METRICS": "false"},
     ),
-    "browser-smoke": _browser(
-        "browser-smoke", "--project=chromium-desktop", "--project=chromium-buddy-overlay", *_specs(*BROWSER_SMOKE_SPECS),
+    # The relay for row-bot.ai/railway/ (services/railway-relay): its Worker in workerd, with Railway's API
+    # mocked. Install it first (npm ci --ignore-scripts --prefix services/railway-relay).
+    "railway-relay-worker": _cmd(
+        "railway-relay-worker", "node", "services/railway-relay/node_modules/vitest/vitest.mjs", "run",
+        "--root", "services/railway-relay", env={"WRANGLER_SEND_METRICS": "false"},
     ),
+    "browser-smoke": _browser_smoke(BROWSER_SMOKE_SPECS),
     "browser-nightly-desktop": _browser("browser-nightly-desktop", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_NIGHTLY_SPECS)),
     "browser-nightly-unified": _browser("browser-nightly-unified", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_UNIFIED_SPECS)),
     "browser-nightly-apps": _browser("browser-nightly-apps", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_APPS_SPECS)),
@@ -299,6 +325,7 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "installer-contracts": ("installer-contracts",),
     "docs": ("docs",),
     "install-count": ("install-count-worker",),
+    "railway-relay": ("railway-relay-worker",),
 }
 
 
@@ -372,6 +399,8 @@ def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
         commands.append(COMMANDS["dependency-requirements"])
     if any(path.replace("\\", "/").startswith("services/install-count/") for path in changed_files):
         commands.append(COMMANDS["install-count-worker"])
+    if any(path.replace("\\", "/").startswith("services/railway-relay/") for path in changed_files):
+        commands.append(COMMANDS["railway-relay-worker"])
     if paths := changed_test_paths(changed_files):
         commands.append(_pytest("changed-tests", *paths))
     return commands
@@ -382,6 +411,9 @@ def commands_for_tier(tier: str, changed_files: list[str] | None = None) -> list
         return changed_commands(changed_files or [])
     if tier not in TIER_COMMANDS:
         raise KeyError(f"unknown tier: {tier}")
+    # CI splits the browser smoke set across jobs, as it splits the python tier.
+    if tier == "browser-smoke" and (shard := os.environ.get("ROW_BOT_TEST_SHARD", "").strip()):
+        return [_browser_smoke(smoke_shard(shard))]
     return _dedupe_commands(TIER_COMMANDS[tier])
 
 

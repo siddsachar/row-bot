@@ -117,8 +117,8 @@ class LinkedConversationsTool(BaseTool):
         return [
             StructuredTool.from_function(
                 func=_start, name="conversation_start", args_schema=_StartInput,
-                description=("Start a conversation of its own for longer work: it runs now and the person can "
-                             "open and stop it. At most 3 per turn. For a quick sub-task, use a helper.")),
+                description=("Only when the person asks for a separate conversation: start one that runs now, "
+                             "which they can open and stop. Otherwise do the work here (a helper for a sub-task).")),
             StructuredTool.from_function(
                 func=_send, name="conversation_send", args_schema=_SendInput,
                 description=("Message another conversation (a workflow's too) by name or id. It starts a turn "

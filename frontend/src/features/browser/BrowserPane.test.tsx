@@ -150,7 +150,11 @@ function setup(
   };
   const platform = {
     managedWindow: vi.fn(async () => ({ status: 'ok' })),
-  } as unknown as ClientPlatform & { managedWindow: ReturnType<typeof vi.fn> };
+    readClipboard: vi.fn(async () => ({ status: 'ok', value: 'WXYZ-9876' })),
+  } as unknown as ClientPlatform & {
+    managedWindow: ReturnType<typeof vi.fn>;
+    readClipboard: ReturnType<typeof vi.fn>;
+  };
   render(
     <RuntimeContext.Provider value={{ controller, platform }}>
       <OverlayProvider>
@@ -271,6 +275,40 @@ it('Ctrl+C copies the page’s selection to the clipboard', async () => {
   expect(await screen.findByText('Copied')).toBeVisible();
   // The copy is read from the page, never sent to it as keys.
   expect(sent.flat()).toEqual([{ type: 'copy' }]);
+});
+
+it('a paste reaches the page as its own paste, from the keyboard or the menu', async () => {
+  const { sent, platform } = setup({});
+  await screen.findByRole('img', { name: 'Live page: Make a claim' });
+  const keys = screen.getByRole('textbox', { name: /Type into the page/ });
+  fireEvent.paste(keys, {
+    clipboardData: { getData: () => 'ABCD-1234' },
+  });
+  await waitFor(() =>
+    expect(sent.flat()).toContainEqual({ type: 'paste', text: 'ABCD-1234' }),
+  );
+
+  await userEvent.click(
+    screen.getByRole('button', { name: 'More browser actions' }),
+  );
+  await userEvent.click(
+    await screen.findByRole('menuitem', { name: 'Paste into the page' }),
+  );
+  await waitFor(() =>
+    expect(sent.flat()).toContainEqual({ type: 'paste', text: 'WXYZ-9876' }),
+  );
+
+  platform.readClipboard.mockResolvedValueOnce({
+    status: 'unavailable',
+    message: '',
+  });
+  await userEvent.click(
+    screen.getByRole('button', { name: 'More browser actions' }),
+  );
+  await userEvent.click(
+    await screen.findByRole('menuitem', { name: 'Paste into the page' }),
+  );
+  expect(await screen.findByText(/couldn't read the clipboard/)).toBeVisible();
 });
 
 it('a crash says so and restarts on one click', async () => {

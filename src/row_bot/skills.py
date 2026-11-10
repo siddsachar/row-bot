@@ -242,6 +242,8 @@ def _save_config(metadata: dict | None = None):
 # ── In-Memory Cache ─────────────────────────────────────────────────────────
 
 _skills_cache: dict[str, Skill] = {}  # name → Skill
+# The user skills folder as last loaded: each SKILL.md's folder, change time and size (#630).
+_user_skills_seen: tuple[tuple[str, int, int], ...] | None = None
 
 
 def _discover_skills() -> dict[str, Skill]:
@@ -293,16 +295,33 @@ def _ordered_unique(names: Iterable[str]) -> list[str]:
     return result
 
 
+def _user_skills_state() -> tuple[tuple[str, int, int], ...]:
+    """What the user skills folder holds now: one directory listing and a stat per skill."""
+    found = []
+    try:
+        children = list(USER_SKILLS_DIR.iterdir())
+    except OSError:
+        return ()
+    for child in children:
+        try:
+            info = (child / "SKILL.md").stat()
+        except OSError:
+            continue
+        found.append((child.name, info.st_mtime_ns, info.st_size))
+    return tuple(sorted(found))
+
+
 @_serialized
 def load_skills():
     """Discover all skills, apply persisted enable/disable state, populate cache."""
-    global _skills_cache, _enabled, _pinned
+    global _skills_cache, _enabled, _pinned, _user_skills_seen
 
     from row_bot.docs_capture import is_docs_real_data_capture
 
     if not is_docs_real_data_capture():
         USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
+    _user_skills_seen = _user_skills_state()  # Before the scan: a change during it is seen next time.
     _skills_cache = _discover_skills()
 
     config = _load_config()
@@ -521,8 +540,9 @@ def get_manual_skills() -> list[Skill]:
 
 
 def _ensure_skills_loaded():
-    """Populate the in-memory cache on first read for status/reporting paths."""
-    if not _skills_cache:
+    """Populate the in-memory cache on first read, and again when the user skills folder changed outside
+    Row-Bot (a skill dropped in by an admin tool or a sync, #630): no restart needed."""
+    if not _skills_cache or _user_skills_state() != _user_skills_seen:
         load_skills()
 
 

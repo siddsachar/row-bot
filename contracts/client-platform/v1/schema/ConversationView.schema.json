@@ -53,6 +53,12 @@
           "title": "External Outcome",
           "type": "string"
         },
+        "failure_reason": {
+          "default": "",
+          "maxLength": 400,
+          "title": "Failure Reason",
+          "type": "string"
+        },
         "generation_id": {
           "maxLength": 128,
           "minLength": 1,

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import mimetypes
 import os
 import pathlib
 import re
@@ -259,6 +260,47 @@ def _token_list(text: str) -> list[str]:
 
 def _tokens(text: str) -> set[str]:
     return set(_token_list(text))
+
+
+# "In 2 minutes", "a few hours": when, not what the message is about.
+_DURATION = re.compile(
+    r"\b(\d+(\.\d+)?|an?|a few|few|several|couple of)\s*(sec|second|min|minute|hr|hour|day|week|month)s?\b",
+    re.IGNORECASE)
+
+
+# Waiting to look again is about time, not the message's topic ("check back in 2 minutes").
+_WAITING = re.compile(r"\b(check|come|get) back\b", re.IGNORECASE)
+# A shorter word stands for a longer one only when the rest is an ending ("summarize", "summarized"), never a
+# second word ("check" is not "checklist").
+_WORD_ENDINGS = frozenset({"ing", "ings", "ation", "ations", "ment", "ments", "ness", "able", "ible"})
+
+
+# Everyday words a skill's long instructions use for anything ("create", "check", "note"): found only there or in
+# its headings they say nothing about the message's topic (U22). Its name, description, tags and activation
+# phrases still count them.
+_EVERYDAY_WORDS = frozenset({
+    "add", "back", "check", "create", "file", "files", "get", "list", "long", "make", "new", "note", "notes",
+    "short", "show", "tell", "use", "write",
+})
+
+
+def _same_word(short: str, long: str) -> bool:
+    if not long.startswith(short):
+        return False
+    rest = long[len(short):]
+    return len(rest) <= 3 or rest in _WORD_ENDINGS
+
+
+def _topic_text(text: str) -> str:
+    """The message without the files it names or how long things take: "check back on kettle-note.txt in 2
+    minutes" is about a file and a time, so neither its "note" nor its "minutes" suggests Meeting Notes."""
+    kept = []
+    for word in str(text or "").split():
+        bare = word.strip("\"'`()[]<>,;:!?").rstrip(".")
+        suffix = pathlib.PurePath(bare.replace("\\", "/")).suffix if bare else ""
+        if not (suffix and mimetypes.guess_type("name" + suffix)[0]):
+            kept.append(word)
+    return _WAITING.sub(" ", _DURATION.sub(" ", " ".join(kept)))
 
 
 def _is_generic_query(query_tokens: set[str]) -> bool:
@@ -938,7 +980,10 @@ def _skill_score(
         reason, raw = phrase_hits[0]
         reasons.append(f"matched {reason} {raw}")
 
-    overlap = query_tokens & set(profile.weighted_terms)
+    overlap = {
+        term for term in query_tokens & set(profile.weighted_terms)
+        if not (term in _EVERYDAY_WORDS and profile.term_sources.get(term) in {"instructions", "heading"})
+    }
     for term in overlap:
         specificity = corpus.specificity.get(term, 1.0)
         term_score = profile.weighted_terms.get(term, 0.0) * specificity
@@ -951,13 +996,13 @@ def _skill_score(
     prefix_term_hits: set[str] = set()
     weighted_terms = set(profile.weighted_terms)
     for query_token in query_tokens - overlap:
-        if len(query_token) < 5:
+        if len(query_token) < 5 or query_token in _EVERYDAY_WORDS:
             continue
         best: tuple[float, str, str, float] | None = None
         for term in weighted_terms:
             if len(term) < 5:
                 continue
-            if not (term.startswith(query_token) or query_token.startswith(term)):
+            if not (_same_word(query_token, term) or _same_word(term, query_token)):
                 continue
             specificity = corpus.specificity.get(term, 1.0)
             term_score = profile.weighted_terms.get(term, 0.0) * specificity * 0.65
@@ -1076,6 +1121,7 @@ def suggest_skills(
     state = _thread_state(store, thread_id)
     if state.get("smart_off"):
         return []
+    current_text = _topic_text(current_text)
     query_norm = _normalize(current_text)
     query_tokens = _tokens(current_text)
     if not query_tokens:
@@ -1142,6 +1188,7 @@ def suggest_skills_from_snapshot(
         state = _read_thread_state(store, thread_id)
     if state["smart_off"]:
         return []
+    current_text = _topic_text(current_text)
     query_norm = _normalize(current_text)
     query_tokens = _tokens(current_text)
     if not query_tokens or _is_generic_query(query_tokens):

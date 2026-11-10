@@ -14,9 +14,9 @@ check_process: 638
 clone_repository: 608
 conversation_links: 205
 conversation_send: 858
-conversation_start: 894
+conversation_start: 904
 create_chart: 1950
-create_code_folder: 639
+create_code_folder: 654
 create_design: 931
 custom_tool_builder: 1823
 delegate_work: 3330
@@ -83,11 +83,11 @@ save_memory: 732
 search_conversations: 703
 search_memory: 620
 send_file: 885
-speak: 797
-start_process: 1300
+speak: 875
+start_process: 1256
 stop_process: 332
 suggest_apps: 861
-task_create: 4025
+task_create: 4198
 task_delete: 277
 task_list: 448
 task_run_now: 263
@@ -98,8 +98,8 @@ tracker_query: 597
 transcribe: 447
 update_memory: 1056
 use_code_folder: 628
-video: 4084
-wait_for: 1851
+video: 5004
+wait_for: 1899
 wait_stop: 259
 waits: 160
 wiki_export_conversation: 344
@@ -116,4 +116,4 @@ workspace_read_file: 867
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (118 tools): 86353
+TOTAL (118 tools): 87553

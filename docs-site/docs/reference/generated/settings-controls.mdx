@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Settings Controls
 
 <!-- generated-from: frontend/src/features/settings/model.ts -->
-<!-- inventory-hash: 330c0eed36fca647 -->
+<!-- inventory-hash: d32a2f913b276617 -->
 
 <GeneratedNotice source="frontend/src/features/settings/model.ts" />
 
@@ -47,26 +47,20 @@ Dependencies: Desktop overlay behaviour depends on native-window support.
 | Show Buddy |  | `/app-v2/settings/buddy#buddy-visibility` | `frontend/src/features/settings/model.ts#buddy-visibility` |
 | Buddy look and motion | avatar pack | `/app-v2/settings/buddy#buddy-look` | `frontend/src/features/settings/model.ts#buddy-look` |
 
-## Providers Controls
+## Models Controls
 
-Group: Models. Open in Row-Bot: `/app-v2/settings/providers`. Guide: [/docs/settings/providers](/docs/settings/providers).
+Group: Models. Open in Row-Bot: `/app-v2/settings/models`. Guide: [/docs/settings/models](/docs/settings/models).
 
 Security: Credentials are stored through the configured secret store; values are not shown in this reference.
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| On this device | ollama local models computer | `/app-v2/settings/providers#providers-local` | `frontend/src/features/settings/model.ts#providers-local` |
-| Subscriptions | claude chatgpt codex grok xai sign in plan account | `/app-v2/settings/providers#providers-subscription` | `frontend/src/features/settings/model.ts#providers-subscription` |
-| API providers | api key credentials openai anthropic claude gemini google openrouter mistral groq deepseek | `/app-v2/settings/providers#providers-api` | `frontend/src/features/settings/model.ts#providers-api` |
-| Custom endpoints | base url openai compatible self-hosted | `/app-v2/settings/providers#custom-endpoints` | `frontend/src/features/settings/model.ts#custom-endpoints` |
-
-## Models Controls
-
-Group: Models. Open in Row-Bot: `/app-v2/settings/models`. Guide: [/docs/settings/models](/docs/settings/models).
-
-| Setting | Search keywords | Open in Row-Bot | Source |
-| --- | --- | --- | --- |
-| Brain model | default model chat main | `/app-v2/settings/models#default-model` | `frontend/src/features/settings/model.ts#default-model` |
+| On this computer | ollama local models computer | `/app-v2/settings/models#providers-local` | `frontend/src/features/settings/model.ts#providers-local` |
+| Subscriptions | claude chatgpt codex grok xai sign in plan account | `/app-v2/settings/models#providers-subscription` | `frontend/src/features/settings/model.ts#providers-subscription` |
+| API providers | api key credentials openai anthropic claude gemini google openrouter mistral groq deepseek | `/app-v2/settings/models#providers-api` | `frontend/src/features/settings/model.ts#providers-api` |
+| Custom endpoints | base url openai compatible self-hosted | `/app-v2/settings/models#custom-endpoints` | `frontend/src/features/settings/model.ts#custom-endpoints` |
+| Main model | default model chat brain | `/app-v2/settings/models#default-model` | `frontend/src/features/settings/model.ts#default-model` |
+| Backup model | fallback outage down offline failover | `/app-v2/settings/models#backup-model` | `frontend/src/features/settings/model.ts#backup-model` |
 | Vision model | camera images screenshots see look | `/app-v2/settings/models#vision-model` | `frontend/src/features/settings/model.ts#vision-model` |
 | Image model | generation pictures | `/app-v2/settings/models#image-model` | `frontend/src/features/settings/model.ts#image-model` |
 | Video model | clips animate generation | `/app-v2/settings/models#video-model` | `frontend/src/features/settings/model.ts#video-model` |
@@ -207,3 +201,4 @@ Group: System. Open in Row-Bot: `/app-v2/settings/data`. Guide: [/docs/operation
 | --- | --- | --- | --- |
 | Back up and restore | backup restore copy archive move computer | `/app-v2/settings/data#backup` | `frontend/src/features/settings/model.ts#backup` |
 | Import from another assistant | hermes openclaw migration | `/app-v2/settings/data#migration` | `frontend/src/features/settings/model.ts#migration` |
+| Sandboxes | sandbox demo try test made-up data second copy | `/app-v2/settings/data#sandboxes` | `frontend/src/features/settings/model.ts#sandboxes` |

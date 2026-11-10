@@ -2,6 +2,571 @@
 
 ---
 
+## v5.3.3 - Row-Bot In Your Browser, Every Model In One Place
+
+Row-Bot 5.3.3 runs in your browser, in your own Railway account, with nothing to
+install. Settings brings providers and models onto one page, adds twelve API
+providers and three model servers, and lets images and video come from far more
+providers. Apps search puts the app you meant first. From 5.3.2 it arrives
+through background updates.
+
+### Row-Bot In Your Browser
+
+- **Run in your browser** - on row-bot.ai, Continue with Railway signs you in to
+  Railway and creates your own Row-Bot in your own Railway account in a few
+  minutes. It opens already signed in: no address or setup code to find. Railway
+  bills you directly, usually $5-10 a month.
+- **Nothing kept on the way** - Railway's sign-in goes straight to Railway. The
+  page's calls to Railway pass through a small relay that can only create a
+  Row-Bot, never delete or change anything else, and keeps no logs, no tokens
+  and no addresses.
+- **In Railway's words** - on Railway, Row-Bot's pages link straight to your
+  service's settings, variables and usage. Settings › Updates says your
+  automatic updates install new versions, and the Data page says Railway backs
+  up volumes only on its Pro plan, so Download backup comes first.
+- **Fits a small server** - below 4 GB, local speech-to-text is marked "Needs a
+  4 GB server", and Row-Bot's browser closes ten minutes after its last use. If
+  the server runs out of memory, Home and System Monitor say so, with how to
+  resize it.
+- **The deploy template** works too, and so does any host that runs the image.
+
+### Models
+
+- **One Models page** - Settings › Providers and Models are now one page: your
+  defaults (Main model, Vision, Image, Video), your models, and every connected
+  provider, with what each model can do.
+- **Stars** - a star is the one way to put a model in your lists. Every picker
+  shows your starred models that can do its job. On first start, your
+  favourites and pinned models become stars, and the old files are kept beside
+  the new ones (`.pre-5.3.3.json`).
+- **Twelve more API providers** - DeepSeek, Mistral, Groq, Kimi (Moonshot), Z.AI
+  (GLM), Qwen (Alibaba Cloud), Together AI, Fireworks AI, Cerebras, Hugging Face,
+  NVIDIA NIM and Vercel AI Gateway.
+- **Model servers on this computer** - Add a provider › On this computer offers
+  LM Studio, vLLM and llama.cpp.
+- **A picker that finds anything** - search every connected model as you type.
+  Your starred and recent models come first, the rest wait under Browse by
+  provider, and a model several providers offer shows once, with a +N routes
+  chip to choose another. Connect or Reconnect opens that provider in
+  Settings › Models.
+- **First run** lists every provider that takes an API key.
+- **A backup model** - choose one in Settings › Models › Defaults (off until you
+  do). When your main model can't answer (its server isn't running, it timed out,
+  hit a rate limit, ran out of credit or lost its sign-in), the backup finishes
+  the turn, and the chat says which model answered. It never steps in when you
+  press Stop or when the request itself was the problem, and an incognito chat
+  never goes to a cloud backup. Chats, channels and workflows all use it.
+- **Thinking remembered** - the Thinking level you choose for a model is where
+  new chats with it start. Chats you already have keep their own.
+- **New models know what they can do** - where a provider's own list doesn't
+  say, Row-Bot fills in context size, tools, vision and output kind from
+  models.dev's open catalogue. It's fetched at most hourly when model lists
+  refresh, with only the request sent; when that fails, the copy shipped with
+  the release is used. Settings › System › Privacy lists it.
+- **Claude Code stays up to date** - while your Claude plan is set up, Row-Bot
+  checks Anthropic about once a day for a newer Claude Code and installs it,
+  checked against Anthropic's checksum, while Claude isn't answering. Claude's
+  model list is then read again, so new models (such as Sonnet 5.5 and Haiku
+  5.5) appear without pressing Update Claude Code. A failed update keeps the
+  version you have and tries again the next day; Claude Code's own updater
+  stays off. Settings › System › Privacy and the privacy page list the check.
+- **Use another Claude account** - when your Claude plan is connected, the
+  two-arrows button in its sheet switches Row-Bot to another Claude account. It
+  asks first, because Claude Code keeps one sign-in on your computer: this signs
+  it out everywhere there, `claude` in a terminal included. Claude Code signs
+  itself out with its own command, Claude's own sign-in opens for the other
+  account, and the model picker then shows that account's models. Row-Bot never
+  sees either sign-in.
+- **The right plan name** - the Claude sheet names the plan Claude Code's own
+  session runs on. Before, it could show an older plan of the same Claude
+  account (Claude Max after a switch to Ultra), because `claude auth status`
+  still named it. After a sign-in the plan is right at once.
+
+### Images And Video
+
+- **From more providers** - image and video tools also work with OpenRouter
+  (images, edits and video), Vercel AI Gateway (images), Together AI (images and
+  video), Requesty (images), Qwen (Alibaba Cloud), Atlas Cloud, MiniMax and Z.AI.
+  MiniMax's and Z.AI's model lists leave out their image and video models, so
+  Row-Bot adds the ones their docs name. Together AI video asks each model for a
+  resolution and aspect ratio, so models that take only their own frame sizes,
+  such as Seedance 1.0 Lite, work.
+- **Models from each provider's own list** - a retired model no longer lingers.
+  OpenAI retired gpt-image-1 on 23 Oct and retires gpt-image-1-mini and
+  gpt-image-1.5 on 1 Dec. A saved model the provider no longer lists says so in
+  Settings › Models.
+- **Settings that fit the model** - OpenRouter image and video models get the
+  length, size and aspect ratio nearest the one asked for, of those OpenRouter
+  lists for each model.
+- **Outputs** - a chat's Outputs are a grid of thumbnails, newest first, each
+  labelled with the start of the prompt that made it (the whole prompt on
+  hover). Click opens it full size; ⋯ shows it in the chat, saves it to the
+  workspace or uses it in code or a design.
+- **Videos after a reload** - a chat shows the videos it made, with the newest
+  in full and earlier versions folded under one row, live and after a reload.
+- **Every file in a chat has its own name** - five generated videos are
+  `generated-video.mp4`, `generated-video-2.mp4` and so on, so the video editor
+  can open each one. In older chats, files that share a name are told apart the
+  same way, newest first.
+
+### Apps Search
+
+- **The app you meant, first** - a Best match, then four more good ones, then
+  the rest folded under Official, Reviewed by Row-Bot, Built in and Community.
+  When nothing official or reviewed matches, it says so.
+- **Words, not fragments** - "reddit" no longer finds "subreddit".
+- **One card per app** - the same server listed in several places shows once.
+- **Labels and stars** - each card says who stands behind it and how
+  well-kept it is (★ 1.2k · active), from data shipped with the release.
+- **Filters** - kind, Official & reviewed only, where it runs and No sign-in;
+  on a phone, in one Filters sheet.
+
+### Fixes
+
+- **Security: tool settings that can't be read keep tools off** - if
+  `tools_config.json` was cut short or locked, tools you'd switched off came
+  back on and the shell's blocked-commands list emptied. Now tools stay as they
+  were, or off at start-up, and Settings says so and offers Start from defaults,
+  which keeps the unreadable file and your workspace folder. If Row-Bot started
+  with the file already unreadable, it can't tell your folder, so it says the
+  workspace goes back to Documents › Row-Bot, before and after. Reported
+  privately; advisory GHSA-68j6-243q-h2hp (low).
+- **A long chat that starts with generated media opens again** instead of
+  showing "Connection interrupted".
+- **Saving is one way everywhere** - every Download and Export asks where to
+  save, then offers Show in folder. The notice names the file you chose, and a
+  chat exports under its own title.
+- **Web pages read cleanly** - reading a page gives its main text as Markdown,
+  with headings, lists, tables and full links, and without menus, sidebars or
+  cookie banners. It's done on your computer; nothing goes to a reading service.
+- **Phones stay signed in** - a phone that connected before 5.3.2 kept an old
+  cookie its browser left out when Row-Bot was opened from the home screen.
+  Each session check now renews the cookie (never the session's length).
+- **Ollama's models show** after Claude Code is signed in on the same computer.
+- **llama.cpp** suggests port 8081 when Row-Bot itself is on 8080.
+- **Model servers on this computer** - LM Studio, vLLM and llama.cpp save on
+  the first try and are checked as they're added, so their models are ready to
+  use. A server's models count as ready only once its check passed, and when a
+  model can't answer, the chat box says why.
+- **Your Claude plan lasts much longer** - every model call in a turn started
+  a new Claude Code that sent the whole conversation again, and Anthropic's
+  prompt cache stored it again each time instead of reading it back, so a long
+  agent turn used up a 5-hour limit in under an hour. Now one Claude Code
+  stays with the turn: Row-Bot still runs every tool through its own approval
+  check and hands Claude Code the result, and the conversation is read from
+  the cache.
+- **1M context where your plan offers it** - newer Claude Code marks a model it
+  runs with 1M context (Fable 5.1 on Max, for one) differently, and Row-Bot
+  listed it as a 200K model and asked for that. It now reads 1M and asks for
+  it. The models are always the ones your plan's Claude Code lists, and Row-Bot
+  now keeps Claude Code up to date, so newer ones appear.
+- **Videos in order** - while Row-Bot makes videos, each step's words, its
+  activity and the video it made show in the order they happened, with the
+  newest step at the bottom, live and after a reload.
+- **A new workflow runs on the first click** after it's saved.
+- **Wikipedia reads again** - Row-Bot's page reader names itself
+  (`Row-Bot/5.3.3`) instead of posing as a browser, as Wikipedia asks.
+- **Settings switches** show what's saved when it changes elsewhere, such as
+  after Start from defaults.
+- **Workflow chats** move up the sidebar only when something new shows in them;
+  a run that didn't finish says why.
+- **Selecting workflows** shows a checkbox in each row, and Select all.
+- **X replies** - X allows a reply or quote from its API only when the post's
+  author mentioned or quoted you. Row-Bot now checks before asking you, and
+  otherwise gives you the draft and the link to post it on X yourself.
+- **Security and conduct reports** go to syd@row-bot.ai.
+- **A failed reply says why** - instead of only "The response was
+  interrupted", the chat shows the reason, such as running out of credits or
+  the provider's own words, and keeps it after a reload.
+- **Gemini answers again** on Google's own API and through gateways such as
+  Vercel: a few tools offered an empty choice, which Gemini refuses.
+- **Images and video work with keys saved in the new provider panel** (Qwen,
+  Together, Vercel and the others).
+- **Model lists keep themselves current again** - as before 5.0, about a minute
+  after start-up and then every six hours, a list older than six hours is read
+  again from your connected providers (their model lists only: no prompt, no
+  tokens). With no cloud provider connected nothing is contacted. Connecting a
+  provider or Refresh under Settings › Models › Catalog still updates at once.
+- **OpenRouter's image and video lists** offer only the models its image and
+  video services take, so Auto Router and its kin stay in the chat list.
+- **Thinking controls for more models** - a model that reasons gets a thinking
+  control on Groq, Cerebras, Fireworks, Together, Hugging Face, Vercel, NVIDIA,
+  Z.AI, DeepSeek, Kimi and Qwen, and on newer OpenAI, Anthropic and Google
+  models.
+- **Mistral's thinking** goes to the thinking panel instead of showing as raw
+  text in the answer. **Cerebras** answers: it gets Row-Bot's instructions as
+  one message, as its models need.
+- **Cleaner model lists** - one model from several providers shows once with
+  its other routes (one per provider), Mistral no longer repeats a model per
+  alias, Qwen's image makers stay out of the chat list, Fireworks models read by
+  name, and a model the catalogue lists without tools says Chat only.
+- **Smaller fixes** - a bold link in an answer stays a link; reading a short
+  page no longer sends the model to the browser; Show in folder finds a file
+  whose path has a space; exports skip empty steps and say where an image was
+  made; a workflow's notice says what went out; outputs are named after their
+  subject; the API-key sheet keeps the provider's name and has icons on its
+  buttons.
+
+### For Hosts
+
+- **Railway** - Row-Bot knows Railway as a host (`ROW_BOT_HOSTED_BY=railway`).
+  Its pages use Railway's words and, with the IDs Railway gives every service
+  (`RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT_ID`, each
+  checked as a UUID), link the service's own Settings and Variables and the
+  workspace's Usage. Started as root (`RAILWAY_RUN_UID=0`), the image hands
+  `/data` to uid 10001 once and drops to it for good. Row-Bot's template and
+  its Railway page set 8 GB / 8 vCPU (the Hobby plan's ceiling, billed by use),
+  nightly automatic updates (Overnight, 02:00-06:00 UTC), `PORT=8080` and no
+  health check: Railway's probe gets a 400 and the deploy hangs.
+  `deploy/railway/README.md` has the definition.
+- **Visitor address on Railway** - from a trusted proxy, Row-Bot accepts
+  `X-Real-IP` beside `X-Forwarded-For`, and on Railway takes the visitor from
+  `X-Real-IP`, since Railway's `X-Forwarded-For` ends with its edge's own
+  address. On Railway set `ROW_BOT_TRUSTED_PROXY_CIDRS=100.64.0.0/10`. Other
+  hosts are unchanged.
+- **Health checks from inside the container** - a check from a loopback
+  address with no `Forwarded` or `X-Forwarded-*` header now passes whatever
+  host names Row-Bot allows. A check through a proxy, or from another
+  computer, still needs a host name Row-Bot knows.
+- **Container logs on stdout** - In the container, Row-Bot's console output
+  goes to stdout and warnings and errors to stderr; the setup code and its
+  sign-in link are on stdout. Log views that colour stderr no longer show
+  every line as an error.
+- **A sign-in link beside the setup code** - while nobody owns a server and
+  `ROW_BOT_PUBLIC_URL` is set, the start-up output adds `Open this link to
+  sign in: https://<address>/setup#code=<code>`. Like the code, it's only in
+  the console, never in Row-Bot's log files, and never printed once someone
+  owns the server or for a recovery code. The code now appears twice at the
+  first start (its line and the link).
+- **`/setup#code=...`** - opening the setup page with the code in its fragment
+  signs in with one click, with the same checks, refusals and pauses; the page
+  clears the fragment at once, and the fragment never reaches the server.
+- **Updates in the host's words** - with `ROW_BOT_HOSTED_BY` set, Settings ›
+  Updates says who installs new versions: PikaPods installs each one, and on
+  Railway the owner's automatic updates do, with a link to the service's
+  settings.
+- **Memory on a small server** - Row-Bot reads the container's limit (cgroup
+  `memory.max`) and keeps, in `/data`, the highest working set it has seen.
+  Nothing is turned off: below 3.5 GB, Settings › Voice marks local
+  speech-to-text "Needs a 4 GB server" and asks before it's chosen, and
+  Row-Bot's browser closes ten minutes after its last use. If Row-Bot
+  restarts because the server ran out of memory, Home and System Monitor say
+  so, with the server's size and how to resize it in the host, until the
+  owner dismisses it.
+- **Memory in the host's unit** - a limit set in decimal GB (Railway's
+  8,000,000,000 bytes) shows as 8 GB, and Docker's `--memory 4g` as 4 GB.
+- **Backups on Railway** - Railway backs up volumes only on its Pro plan.
+  Row-Bot's Data page says so on Railway; on any hosted Row-Bot, Download
+  backup is the main action, and Back up now says its copy stays on the server.
+- No new required setting. The recommended size for a pod stays 4 GB. The
+  hosting smoke's memory high-water mark is about 0.5 GB on amd64 and arm64.
+
+---
+
+## v5.3.2 - Videos That Look And Sound Right, A Calmer App
+
+Row-Bot 5.3.2 makes its videos look like a studio made them and never lets a
+silent one slip out, asks you less for the things you clearly asked for, and
+makes Home and Settings calmer. It comes from a week of using Row-Bot like you
+would, on Windows and a Mac, with ChatGPT and a model on this computer. From
+5.3.1 it arrives through background updates.
+
+### Videos
+
+- **Made like a studio** - a camera that follows what's done, the page framed
+  on your brand's backdrop, titles as lit slides and lower thirds, captions a
+  phrase at a time, and a review sheet Row-Bot checks before it says it's done.
+- **Recordings are 1920x1080** and fill the frame: the page keeps one 16:9 size
+  while it records, whatever the Browser pane does.
+- **Every shape, full size** - phone (9:16) and square cuts show wide footage
+  whole instead of cutting words.
+- **Voice and timing** - each scene lasts until its line is said; a voice is
+  never slowed to fill time; several lines voiced at once no longer fail.
+- **A video with no sound says so** - in Row-Bot's own result, on the X card
+  you approve and in Home's scheduled posts. A cut made only from a screen
+  recording has no sound; a video for people to watch is made with a voice.
+- **Checks catch waits** - a recorded stretch where nothing happens after the
+  line is said ("Thinking...", a page loading) needs attention before it's done.
+- **Long captions** show phrase by phrase instead of being cut short.
+- **One ask** for Row-Bot's two downloads a narrated video needs (ffmpeg and
+  its voice), no leftover speed badge, numbers that read as numbers, and file
+  names that keep their apostrophes.
+- **Check before it posts** - a post's pictures and videos open full size from
+  its card and from Home's scheduled posts, in a viewer that fills the window.
+
+### Browser And Sandboxes
+
+- **Paste in the Browser pane** reaches the page as its own paste (sign-in code
+  boxes fill), and the pane's menu has Paste into the page.
+- **Page sizes** - a desktop page is a desktop window, whatever the pane's width.
+- **Row-Bot's own browser** - offered when you have no Chrome or Edge, with its
+  real size; on a Mac it never asks to send you notifications.
+- **Sandboxes** - Row-Bot reuses a signed-in sandbox instead of making another,
+  Reset keeps its sign-in, one made from a chat on a local model uses that model,
+  it starts at your chat's approval level, and a new one opens signed in. The
+  shop has a customer inbox to answer.
+
+### Approvals That Fit The Request
+
+- **Auto judges the step** - a step that only reads or checks something the
+  request needs runs; the reviewer reads the message you just sent.
+- **Read-only commands** - Get-Process, Import-Csv and property filters run
+  without asking, and on Block.
+- **Installing software asks you** - winget, Homebrew, apt and the like always
+  come to you, even on Auto.
+- **After a no** - the reply says what Row-Bot had already found and what it
+  didn't do.
+- **New chats and workflows start on Auto**, or the level you last chose.
+
+### A Calmer App
+
+- **Home** - setup is optional ("Explore"), Monitor says "Everything's working"
+  in one line, Needs you shows only when something does, and workflow rows say
+  each thing once.
+- **Settings** - one theme control, quiet empty states, Import on request,
+  backups that skip a running chat's pieces, and Restore opens your Backups.
+- **ChatGPT sign-in** - one status line, nothing to press while Row-Bot checks,
+  and an expired code frees sign-in for a new one.
+- **Setup** lists the strongest model that fits your computer first.
+- **Library and Home fit a phone**, and Home's tabs show they scroll.
+- **Skills** - a plain note suggests no skill, and a skill that's on says so.
+- **Mac** - the menu bar has Edit and Window menus.
+
+### Fixes
+
+- **Big files** - attachments up to 200 MB attach, open and save, recordings
+  included, and Download saves in the desktop app.
+- **Voice memos** transcribe without ffmpeg; the speech model is asked for once.
+- **Long tasks on local models** finish instead of stopping halfway.
+- **A chat opened mid-run** shows each step once.
+- **After a restart** - a turn that stopped offers Resume, and a message the
+  turn already read no longer waits for good.
+- **One-off workflows** run at their time, keep no notes, and "in 2 minutes"
+  counts down.
+- **Pages that limit readers** - Row-Bot waits and tries once more, or says the
+  site refused.
+- **Windows sign-ins** save again when Credential Manager is full.
+- **127.0.0.1** from this computer always reaches Row-Bot.
+- **Phones stay connected** - a phone opening Row-Bot from its home screen or
+  another app no longer asks you to connect again after a day; its connection
+  lasts its full 30 days.
+- **From your phone** - Setup says to install Ollama on Row-Bot's computer
+  instead of offering a download for the phone.
+- **Your own model server** - a new guide, Use Your Own Model Server, for
+  connecting your own Ollama or vLLM server.
+- **One chat, one job** - Row-Bot starts another conversation only when you ask.
+
+### For Hosts
+
+- **Setup code** - a Row-Bot server nobody owns yet prints "Row-Bot setup code:
+  …" in its log at every start; open its address and enter it. Set
+  `ROW_BOT_SETUP_CODE` (12 to 64 letters or digits) to choose your own.
+  Changing it and restarting lets one browser back in and signs out the others.
+  On a server, `/connect` without an invitation opens this setup page;
+  `row-bot access invite` still works.
+- **Secret-store key** - `ROW_BOT_SECRET_STORE_KEY` (64 hex characters) hands
+  Row-Bot its key, taken out of its environment at start. Compose's key file
+  still works. A container with neither makes its own key on the data volume,
+  left out of Row-Bot's backups.
+- **A wrong or missing key stops the start** - if the key doesn't open the
+  saved secrets, or saved secrets have no key, Row-Bot stops and says what to
+  do. Nothing is deleted.
+- **An exact `ROW_BOT_ALLOWED_HOSTS`** - Row-Bot's own start-up check and the
+  image's health check now pass when the list holds only the public host, as
+  the VPS Compose file asks; `127.0.0.1` no longer needs to be in it.
+- **Kept private** - on Linux, other programs of the same user can't read
+  Row-Bot's environment, and the image's health check runs with an empty one,
+  so neither shows the key or the setup code.
+- **Sizes** - Hosting Row-Bot now lists them: 4 GB memory, 2 cores and 10 GB
+  disk recommended; 2 GB is the minimum without local speech-to-text.
+- **New pages** - Operations › Hosting Row-Bot and Privacy And Safety › What
+  Your Host Can See.
+- No breaking change for Compose setups.
+
+### Upgrade Notes
+
+- **From 5.3.1, in the background** - Row-Bot downloads 5.3.2 and says Restart
+  to update.
+- **Installing software asks** - a workflow on Auto that installs software
+  with winget, Homebrew or apt now waits for you to approve it.
+- **Scheduled posts** - check Home › Review: a scheduled video with no sound now
+  says so.
+- **Servers** - a Row-Bot server nobody has claimed asks for its setup code in
+  the browser, and a missing or wrong secret-store key stops the start (see For
+  Hosts).
+
+---
+
+## v5.3.1 - Real Work, Video, Linked Conversations & Waits
+
+Row-Bot 5.3.1 is about getting real work done. It follows the approval level you
+chose, with far fewer refusals. It can make and edit videos and talk to its
+other conversations. A chat or workflow can wait for something without using
+your plan, and Row-Bot tells you what it's doing as it works. From 5.3.0 it
+arrives through background updates: Settings › Updates offers **Restart now**.
+Read **Upgrade Notes** below before upgrading.
+
+### New Since The Beta
+
+- **Weekday schedules run on weekdays** - a workflow set to "1-5" runs Monday
+  to Friday, as in standard cron, and its label and next run say so.
+- **"Check back in 10 minutes"** waits in the chat instead of making a
+  one-time workflow, and a one-time run keeps its answer after it goes.
+- **Updates** - switching the channel or finishing a check no longer makes Check
+  now fail with "Update status changed".
+- **Linked conversations** - a message from another chat says where it came
+  from, and a chat waiting on that chat answers once.
+- **The Browser pane opens by itself** when Row-Bot starts using the browser in
+  the chat you're looking at; a `file://` address gets a plain answer.
+- **A provider you connect later** lists its ready models in the pickers.
+- **Read-only pipelines** - a listing piped into a sort, a pick or a count runs
+  without asking; a command that needs ffmpeg offers Row-Bot's own.
+- **Library › Media** keeps pictures and videos sent from the workspace, and a
+  video from the turn in flight opens in the Video panel.
+- **Narrated videos** - each scene says its own line when the title has a
+  version number in it; a video can be narrated as a whole, shown on the
+  timeline; and its checks catch long quiet gaps and pictures held too long.
+- **Video Download** saves the video in the desktop app, and turning a video's
+  own sound off works.
+- **Sandboxes** - one without a model shows under Needs you, and Settings ›
+  Data › Sandboxes is easy to find.
+- **Clearer cards and Home** - an approval for one value names it, and Home says
+  what it's waiting for instead of "All quiet".
+
+### One Safety Rule That Fits Real Work
+
+- **Your approval level decides** - every action follows the level you chose:
+  Block, Ask, Auto or Hands-off. Row-Bot still refuses, at any level, to touch
+  secrets and passwords, approve its own cards or raise its own level, wipe a
+  drive, or go past a platform's limits.
+- **Files and folders outside the workspace** - reading or changing them asks
+  with a clear card instead of being refused, and the shell can use Row-Bot's
+  own ffmpeg. Approve "for this chat" as well as "for this turn", for any tool.
+- **Your network** - addresses on your LAN, Tailscale or intranet open in the
+  browser and `read_url` once you allow them for the chat; workspace `file://`
+  pages open too.
+- **Computer use in workflows and helpers**, with the Stop bar on screen; typing
+  into a terminal goes through the command check instead of being refused.
+- **Bigger files** - long dictation, 150 MB Outlook attachments, larger uploads,
+  downloads and PDFs, and up to 20 background processes per chat.
+- **Apps, skills and plugins** - MCP tools that change things are on, gated by
+  your level; skills can be updated; a plugin may run programs when it says so
+  on its install card.
+- **Auto does what you asked** - the reviewer approves a send that clearly
+  matches your request. Money, posts in your name and permission changes still
+  come to you.
+- **Safer at home** - a request to Row-Bot's port from this computer no longer
+  counts as you unless it comes from the app, the launcher or a signed-in
+  session. Row-Bot's browser and child processes can never approve anything.
+
+### Video In Row-Bot
+
+- **Library › Media** - every picture, video and sound Row-Bot made or you
+  added, with search and tags.
+- **The Video panel** - a video as scenes on a timeline, with versions and a
+  live preview of edits.
+- **Every shape** - one video as wide, tall, square or a GIF. Square and tall
+  cuts follow the pointer, and captions fit each shape.
+- **A brand kit** - one look for every video.
+- **Recording** - full size, with a drawn pointer, paced steps and beats.
+- **Voice, music and checks** - Row-Bot's own voice (one download, asked once),
+  original music, transcripts, a narrated mix, and checks before it says a
+  video is done.
+- **Sandboxes** - a second Row-Bot on made-up data, for demos and trials, with
+  its own workspace. Its cards name it and say nothing leaves this computer; a
+  sandbox left behind by a crash is ended.
+
+### Conversations That Work Together
+
+- **Linked conversations** - a chat can start another, propose one, send it a
+  message and hear back. A note can go without asking for a reply, or wait for
+  a workflow's next run.
+- **Wait and come back** - a chat or workflow can wait without using your plan
+  for a background process to finish, a check (a command or a page) to pass, a
+  time, or another conversation to finish. Then it carries on with "Checked
+  back: …". The chat shows one "Waiting for …" row with Stop, and Home lists
+  waits under Needs you.
+- **Row-Bot reads what you send while it works** at its next step, instead of
+  after the whole reply.
+- **Row-Bot says what it's doing** - a short line as it works through tools,
+  in chats and workflow runs.
+- **Conversation details** show Waiting, Running, Workflow and Linked
+  conversations.
+
+### Workflows
+
+- **Workflows are scheduled chats** - one conversation each, written as
+  messages, with no steps, tool lists or step limit. Long runs ask "Keep going?"
+  after 1,000 rounds.
+- **What a chat has** - skills, their own details and notes, a time zone, and
+  helpers they can hand work to. Reach a workflow by its name.
+- **After a denial** - a denied action ends only that action; the run says what
+  it made, what's left, and remembers it.
+- **Guides that say how** - the workflow guide covers review slots, waiting
+  instead of hourly checks, and least access.
+
+### X And Growth
+
+- **Home › Review** - posts with a time wait there together in time slots;
+  edit a scheduled post's text or drop a picture before it goes. A post that
+  didn't go out stays in Review with the reason and what to do.
+- **Pictures and video on X** - posted through X's upload. A picture can come
+  from Library › Media or a chat file, and each screenshot has its own name.
+- **Numbers** - X post numbers and totals, and Google Analytics through Apps.
+- **Post limits and Edit** on X's cards; adding another account signs in again
+  instead of failing.
+
+### Fixes And Polish
+
+- **An open page no longer keeps Row-Bot busy** - it used to hold a write lock
+  on every read.
+- **A local page rides out a network drop** - a Row-Bot page on this computer
+  stays connected, with your draft, when Wi-Fi drops.
+- **Ready, not Idle** - Buddy says Ready after a turn, with a quieter sidebar
+  card; no toast repeats the waiting line.
+- **The chats list follows activity**, and "Row-Bot sent you …" shows at once.
+- **One shared browser** - no Take control or Give back; Row-Bot asks with a
+  question when it needs you.
+- **Local models** - recover from broken or dropped tool calls, and Stop ends a
+  local reply that streams nothing.
+- **Tool search** finds tools by their word forms.
+- **Skills** - a skill dropped into your skills folder is used without a
+  restart; a skill drafted in chat can be saved; applying a proposal asks with
+  the approval card. The self-improvement filter matches whole words only.
+- **Copy over plain HTTP** - Copy works when Row-Bot is opened at a LAN address
+  without HTTPS.
+- **Long-open approval cards** - an answer to a card left open for a while still
+  goes through.
+- **Smaller fixes** - the details card on wide windows, a page's script errors
+  named with their line, clearer data-folder hints, and access renewal only
+  when it's due.
+- **Libraries with security fixes** - filelock, brotli, fpdf2, langgraph,
+  hydra-core, msgpack and the client's and docs site's build tools.
+
+### Upgrade Notes
+
+- **From 5.3.0 or the beta, in the background** - Row-Bot downloads 5.3.1 and
+  says Restart to update.
+- **Weekday schedules** - a workflow whose cron schedule names days by number
+  ran a day late before ("1-5" ran Tuesday to Saturday). It now runs on the
+  standard days; check any workflow you shifted to make up for it.
+- **X: sign in once more** - posting pictures and video needs X's media access.
+  Row-Bot asks you to reconnect each X account once, before its next post.
+- **Fewer refusals** - actions that used to be refused now follow your approval
+  level. Under Hands-off they run without asking. Check the level of any chat
+  or workflow you set to Hands-off.
+- **Scripts that call Row-Bot's port** - a request from this computer now needs
+  the app's sign-in like any other device.
+
+---
+
+## v5.3.1-beta.1 - The First 5.3.1 Beta
+
+The first 5.3.1 beta, delivered through 5.3.0's background updates on the Beta
+channel. Everything in it is in v5.3.1 above.
+
+---
+
 ## v5.3.0 - A Browser In The App, Pages, Outlook & Reviewed Approvals
 
 Row-Bot 5.3 puts its browser inside the app and rebuilds computer use. Row-Bot

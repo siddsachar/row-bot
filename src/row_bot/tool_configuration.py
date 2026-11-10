@@ -106,6 +106,30 @@ def _read_saved(path: Path) -> SavedToolConfiguration:
         raise ToolConfigurationError("tool_configuration_unavailable") from None
 
 
+def unreadable(path: Path | None = None) -> bool:
+    """Whether the saved file exists but can't be read or parsed (the registry then keeps tools off)."""
+    try:
+        read_saved(path)
+    except ToolConfigurationError:
+        return True
+    return False
+
+
+def set_aside_unreadable(path: Path | None = None) -> str | None:
+    """Rename an unreadable saved file so the defaults apply; the kept copy's name, or None when it reads."""
+    path = (path or configuration_path()).absolute()
+    with LOCK:
+        if not unreadable(path):
+            return None
+        require_write_available()
+        kept = path.with_name(f"{path.stem}.unreadable-{uuid4().hex[:8]}{path.suffix}")
+        try:
+            os.rename(path, kept)
+        except OSError:
+            raise ToolConfigurationError("tool_configuration_unavailable") from None
+        return kept.name
+
+
 def tools_map(document: dict) -> dict:
     return document["tools"] if "tools" in document else document
 

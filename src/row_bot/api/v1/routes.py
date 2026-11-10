@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -71,6 +73,12 @@ _LOCAL_APPLICATION_CAPABILITIES = (
     "computer:interactive",
 )
 _PRESENTATION_FEATURES = frozenset({"panels", "responsive", "pwa", "compact"})
+
+
+def _hosted() -> bool:
+    from row_bot.hosting import hosted_by
+
+    return hosted_by() is not None
 
 
 def _learning_preview() -> bool:
@@ -600,6 +608,8 @@ _STATUS.update(
             "subscription_cancelled",
             "subscription_expired",
             "subscription_storage_unavailable",
+            "subscription_callback_invalid",
+            "subscription_denied",
         ),
         409,
     )
@@ -711,10 +721,36 @@ _STATUS["plugin_environment_ready"] = 409
 # "Send a test message to me" needs a running channel that knows the person.
 _STATUS["channel_not_running"] = 409
 _STATUS["channel_test_target_missing"] = 409
-# A custom endpoint that did not answer a refresh or probe (B114).
-_STATUS["endpoint_unreachable"] = 409
+# A custom endpoint that did not answer a refresh or probe (B114), refused its key or has none,
+# or whose address is on a hosted server's private network (H16).
+_STATUS.update(
+    dict.fromkeys(
+        (
+            "endpoint_unreachable",
+            "endpoint_key_rejected",
+            "endpoint_key_missing",
+            "endpoint_private_address",
+            "endpoint_address_blocked",
+        ),
+        409,
+    )
+)
 # "Enable in chat" (B130): the MCP tool isn't registered in this process.
 _STATUS["native_mcp_unavailable"] = 409
+# The Claude plan (H14, H15): Claude Code to install, or Claude's own sign-in.
+_STATUS.update(
+    dict.fromkeys(
+        (
+            "claude_code_missing",
+            "claude_code_present",
+            "claude_code_installing",
+            "claude_sign_in_ended",
+            "claude_sign_in_unavailable",
+            "claude_sign_out_failed",
+        ),
+        409,
+    )
+)
 _STATUS.update(dict.fromkeys(("invalid_plugin_query", "invalid_plugin_command"), 422))
 _STATUS.update(
     dict.fromkeys(
@@ -931,6 +967,8 @@ _STATUS.update(
     {
         "invalid_model_selection": 422,
         "model_configuration_unavailable": 409,
+        # A send whose model isn't ready (signed out, not running): unlisted, it read "Part of Row-Bot isn't responding".
+        "model_configuration_required": 409,
         "model_settings_unavailable": 503,
         "command_metadata_unavailable": 503,
         "provider_settings_unavailable": 503,
@@ -1108,6 +1146,7 @@ _STATUS['question_answer_invalid'] = 422
 _STATUS['approval_edit_invalid'] = 422
 _STATUS['media_unavailable'] = 404
 _STATUS['scheduled_post_unavailable'] = 404
+_STATUS['scheduled_post_invalid'] = 422
 _STATUS['app_not_connected'] = 409  # A workflow template whose app is not connected yet.
 # Pages (N5): gone, not valid, too big, written to too often, or nothing to send.
 _STATUS.update({"chat_page_unavailable": 404, "chat_page_invalid": 422, "chat_page_too_large": 413,
@@ -1232,7 +1271,12 @@ def _wire(model: Any, value: Any, *, status_code: int = 200) -> JSONResponse:
     # internal fields fail closed rather than leaking through JSONResponse.
     try:
         record = model.model_validate_json(json.dumps(value))
-    except (ValueError, ValidationError, TypeError):
+    except (ValueError, ValidationError, TypeError) as exc:
+        # Only the record's name and the failing fields: never their values.
+        fields = sorted({".".join(map(str, error["loc"])) for error in exc.errors()}) if isinstance(
+            exc, ValidationError) else []
+        logger.warning("Outgoing %s failed its schema (%s)", getattr(model, "__name__", "record"),
+                       ", ".join(fields[:5]) or type(exc).__name__)
         raise ProtocolError("dependency_unavailable", 503) from None
     return JSONResponse(
         record.model_dump(mode="json", exclude_unset=True),
@@ -1282,8 +1326,16 @@ def cached_choices() -> dict:
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
     snapshot = read_model_catalog_cache()
-    # The composer offers the Brain picker's list, judged by the same rule,
-    # with each person's favourites and hidden models marked (F10).
+    from row_bot.application.provider_default_model import read_default_model
+    from row_bot.providers.config import ProviderConfigError
+
+    # The composer offers the Brain picker's list, judged by the same rule, with
+    # each person's stars marked; the main model is always in it, starred or not.
+    try:
+        main_model = read_default_model().selection_ref or ""
+    except ProviderConfigError:
+        # model_settings.json can't be read: the list still opens, without it.
+        main_model = ""
     models = annotate(
         (
             {
@@ -1293,10 +1345,11 @@ def cached_choices() -> dict:
                 "available": option["available"],
                 "unavailable_reason": option["unavailable_reason"],
                 "billing": option["billing"],
+                "chat_only": bool(option.get("chat_only")),
                 # Learning (preview, D11): a personal-model version, tagged Personal in the picker.
                 "personal": withheld(option["provider_id"], option["selection_ref"]),
             }
-            for option in picker_choices("chat")
+            for option in picker_choices("chat", main_model)
         ),
         key="model_ref",
     )
@@ -1408,6 +1461,10 @@ def create_router(
                 terminal_clients.clear()
             for terminal_client in closing_terminals:
                 terminal_client.disconnect()
+            # Claude's sign-in never outlives the server (never opened: never loaded).
+            claude_sign_in = sys.modules.get("row_bot.providers.claude_sign_in")
+            if claude_sign_in is not None:
+                await asyncio.to_thread(claude_sign_in.close_claude_sign_ins)
             if not await asyncio.to_thread(runtime_installations.close):
                 logger.warning(
                     "Managed runtime shutdown has admitted work still stopping"
@@ -1558,6 +1615,13 @@ def create_router(
                     for item in discovery["capabilities"]
                 ],
             }
+        # Where Row-Bot runs, from this browser's side (U7): "this computer" only when it is.
+        from row_bot.hosting import hosted_by, request_place
+        from row_bot.server_memory import limit_bytes
+
+        kind = request_place(not local_owner)
+        host = hosted_by() if kind == "hosted" else None
+        place = {"kind": kind, "host_name": host.name if host else None}
         # The native bridge is a person's window: only a signed-in one gets its token.
         native_window = local_owner and context.may_act
         native_attestation = (
@@ -1580,6 +1644,8 @@ def create_router(
                 "application_capabilities": [
                     *_APPLICATION_CAPABILITIES,
                     *(_LOCAL_APPLICATION_CAPABILITIES if local_owner else ()),
+                    # A known host runs this Row-Bot (H13): its first chat and phone card (U3, U10).
+                    *(("hosted",) if _hosted() else ()),
                     # Learning (preview) surfaces exist only in a build with its flag (O34).
                     *(("learning:preview",) if _learning_preview() else ()),
                 ],
@@ -1596,6 +1662,8 @@ def create_router(
                 # A new schedule keeps its times in this zone unless another is chosen (N9).
                 "server_timezone": _schedule_zone_name(),
                 "sandbox": _is_sandbox(),
+                "place": place,
+                "memory_limit_bytes": limit_bytes(),
                 "native_adapter": {
                     "available": native_window,
                     "proof_required": True,
@@ -1895,10 +1963,15 @@ def create_router(
                 raise ProtocolError("action_denied", 403)
 
         authorize()
+        from row_bot.application import save_offers
         from row_bot.application.attachments import read_attachment
         from urllib.parse import quote
 
-        metadata, data = await call(read_attachment, reference)
+        # The Save dialog reads a conversation's file, or a file offered to this window's session.
+        if save_offers.is_offer(reference):
+            metadata, data = await call(save_offers.take, reference, body.session_id)
+        else:
+            metadata, data = await call(read_attachment, reference)
         authorize()
         return Response(
             data,
@@ -2701,8 +2774,11 @@ def create_router(
 
         async def stream() -> Any:
             sent_seq, sent_revision = -1, -1
-            heartbeat = security.clock()
+            heartbeat = opened = security.clock()
             slow = 0
+            # How it ended, for the log, as for /events and /live (#568).
+            ended = "the window went away"
+            logger.debug("Browser pane stream opened (session %s)", current.id[:8])
             try:
                 yield ": connected\n\n"
                 # The stream ends with the browser too (Row-Bot quitting), so shutdown never waits on it.
@@ -2728,10 +2804,15 @@ def create_router(
                     if not changed and security.clock() - heartbeat >= 15:
                         yield ": heartbeat\n\n"
                         heartbeat = security.clock()
-            except ProtocolError:
+                if engine.closed:
+                    ended = "the browser closed, or Row-Bot is stopping"
+            except ProtocolError as error:
+                ended = f"refused ({error.code})"
                 return
             finally:
                 watch.close()
+                logger.debug("Browser pane stream ended after %.0f s: %s (session %s)",
+                             security.clock() - opened, ended, current.id[:8])
 
         return StreamingResponse(stream(), media_type="text/event-stream", headers=HEADERS)
 
@@ -4603,11 +4684,13 @@ def create_router(
 
     @router.get("/integrations/items")
     async def integration_items(request: Request, query: str = "", kind: str = "all", scope: str = "installed",
-                                cursor: str | None = None, limit: int = 50, all: bool = False) -> JSONResponse:
+                                cursor: str | None = None, limit: int = 50, all: bool = False, labels: str = "",
+                                runs: str = "anywhere", no_sign_in: bool = False) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_integrations import read_items
         result = await call(read_items, owner_id=await integration_owner(request), query=query, kind=kind, scope=scope,
-            cursor=cursor, limit=limit, everything=all, validate=dispatch_validation(request, current))
+            cursor=cursor, limit=limit, everything=all, labels=labels.split(",") if labels else None, runs=runs,
+            no_sign_in=no_sign_in, validate=dispatch_validation(request, current))
         return await respond(request, dto.IntegrationEntryPage, result)
 
     @router.post("/integrations/items/search")
@@ -5254,6 +5337,15 @@ def create_router(
         result = await call(read_attention, include_update=True)
         return await respond(request, dto.AttentionSnapshot, result)
 
+    @router.delete("/monitor/memory-notice")
+    async def monitor_dismiss_memory_notice(request: Request) -> JSONResponse:
+        # The person read "Row-Bot restarted because the server ran out of memory" (U8): it stays away
+        # until the next such restart.
+        await session(request, lane="mutation")
+        from row_bot.server_memory import dismiss
+
+        return await respond(request, dto.MemoryNoticeDismissed, {"dismissed": await call(dismiss)})
+
     @router.get("/monitor/approvals")
     async def monitor_approvals(request: Request) -> JSONResponse:
         # Every pending approval, wherever it was raised (B255). Each one is
@@ -5281,6 +5373,21 @@ def create_router(
         if not await call(x_posting.cancel_scheduled, post_id):
             raise ProtocolError("scheduled_post_unavailable", 404)
         return await respond(request, dto.ScheduledPostCancelled, {"cancelled": True})
+
+    @router.post("/monitor/scheduled-posts/{post_id}/edit")
+    async def monitor_edit_scheduled_post(post_id: str, request: Request) -> JSONResponse:
+        # The person's Edit on a post waiting for its time (5.3.1): its text and which files go; it keeps its time.
+        await session(request, lane="mutation")
+        body = await _body(request, dto.XPostEdit, 128 * 1024)
+        from row_bot.tools import x_posting
+
+        try:
+            edited = await call(x_posting.edit_scheduled, post_id, body.text, list(body.media))
+        except x_posting.XPostError:
+            raise ProtocolError("scheduled_post_invalid", 422) from None
+        if not edited:
+            raise ProtocolError("scheduled_post_unavailable", 404)
+        return await respond(request, dto.ScheduledPostEdited, {"edited": True})
 
     @router.post("/monitor/scheduled-posts/{post_id}/retry")
     async def monitor_retry_scheduled_post(post_id: str, request: Request) -> JSONResponse:
@@ -5484,9 +5591,11 @@ def create_router(
             raise ProtocolError("sandbox_job_unavailable", 404)
         return await respond(request, dto.SandboxJobView, result)
 
+    # A video edit card reads its edit every second while it runs: the person is looking at it, so it
+    # reads in the view lane and never waits behind background reads (as an approval card does).
     @router.get("/video-edits")
     async def list_video_edits(request: Request, conversation_id: str | None = None) -> JSONResponse:
-        await session(request)
+        await session(request, lane="view")
         from row_bot.application.video_edit_views import read_video_edits
 
         result = await call(read_video_edits, (conversation_id or "")[:256] or None)
@@ -5494,7 +5603,7 @@ def create_router(
 
     @router.get("/video-edits/{edit_id}")
     async def video_edit(request: Request, edit_id: str) -> JSONResponse:
-        await session(request)
+        await session(request, lane="view")
         from row_bot.application.video_edit_views import read_video_edit
 
         result = await call(read_video_edit, _edit_id(edit_id))
@@ -5732,61 +5841,6 @@ def create_router(
             raise ProtocolError("sent_file_unavailable", 404)
         return await respond(request, dto.DeliveryView, result)
 
-    @router.get("/deliveries/{delivery_id}/files/{index}")
-    async def delivery_file(request: Request, delivery_id: str, index: str) -> Response:
-        current = await session(request)
-        from urllib.parse import quote
-
-        from row_bot.file_deliveries import CHUNK_BYTES, DeliveryError, open_file
-
-        identifier, number = _delivery(delivery_id, index)
-        try:
-            name, size, handle = await call(open_file, identifier, number)
-        except DeliveryError as exc:
-            raise _delivery_failure(exc) from None
-
-        async def chunks() -> Any:
-            try:
-                while True:
-                    # The person's session is checked again for every part sent.
-                    security.session(await _context(request), current.id, current.csrf)
-                    data = await call(handle.read, CHUNK_BYTES)
-                    if not data:
-                        return
-                    yield data
-            except ProtocolError:
-                return
-            finally:
-                handle.close()
-
-        return StreamingResponse(
-            chunks(),
-            # Never shown in the page: always a download, whatever the file is.
-            media_type="application/octet-stream",
-            headers={
-                **HEADERS,
-                "Content-Length": str(size),
-                "Content-Security-Policy": "default-src 'none'; sandbox",
-                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name, safe=""),
-            },
-        )
-
-    @router.post("/deliveries/{delivery_id}/files/{index}/save")
-    async def delivery_file_save(request: Request, delivery_id: str, index: str) -> JSONResponse:
-        """The desktop window can't download (B275): the file is saved into Exports on this computer."""
-        current = await session(request, lane="mutation")
-        require_this_computer(await _context(request))
-        from row_bot.application.export_folder import save_export
-        from row_bot.file_deliveries import DeliveryError, read_file
-
-        identifier, number = _delivery(delivery_id, index)
-        try:
-            name, data = await call(read_file, identifier, number)
-        except DeliveryError as exc:
-            raise _delivery_failure(exc) from None
-        result = await call(save_export, name, data, validate=dispatch_validation(request, current))
-        return await respond(request, dto.ExportSaved, result)
-
     @router.post("/deliveries/{delivery_id}/to-devices")
     async def delivery_to_devices(request: Request, delivery_id: str) -> JSONResponse:
         """The person's own "Send to your devices instead": no approval (their own devices)."""
@@ -5895,26 +5949,6 @@ def create_router(
 
         found = require(page_id)
         return download_name(found), document(found, theme, standalone=True)
-
-    @router.post("/pages/{page_id}/download")
-    async def page_download(request: Request, page_id: str) -> JSONResponse:
-        """Download as HTML: one file that works on its own in any browser (it saves nothing)."""
-        await session(request, lane="mutation")
-        body = await _body(request, dto.PageFrameRequest, 16 * 1024)
-        name, html = await _page_call(_standalone, _page_id(page_id), body.theme.model_dump())
-        return await respond(request, dto.PageDownload, {"file_name": name, "html": html})
-
-    @router.post("/pages/{page_id}/save")
-    async def page_save(request: Request, page_id: str) -> JSONResponse:
-        """The desktop window can't download (B275): the page is saved into Exports on this computer."""
-        current = await session(request, lane="mutation")
-        require_this_computer(await _context(request))
-        body = await _body(request, dto.PageFrameRequest, 16 * 1024)
-        from row_bot.application.export_folder import save_export
-
-        name, html = await _page_call(_standalone, _page_id(page_id), body.theme.model_dump())
-        result = await call(save_export, name, html.encode("utf-8"), validate=dispatch_validation(request, current))
-        return await respond(request, dto.ExportSaved, result)
 
     @router.post("/monitor/diagnosis")
     async def monitor_diagnosis(request: Request) -> JSONResponse:
@@ -6262,6 +6296,8 @@ def create_router(
             profile=body.profile,
             step=body.step,
             model_ref=body.model_ref,
+            provider_id=body.provider_id,
+            conversation_id=body.conversation_id,
         )
         return await respond(request, dto.OnboardingReceipt, result)
 
@@ -6271,8 +6307,10 @@ def create_router(
         await session(request)
         from row_bot.application.client_first_run import detect_local_runtime
 
+        snapshot = await call(detect_local_runtime)
+        on_machine = on_this_computer(await _context(request))
         return await respond(
-            request, dto.LocalRuntimeSnapshot, await call(detect_local_runtime)
+            request, dto.LocalRuntimeSnapshot, {**snapshot, "on_this_computer": on_machine}
         )
 
     @router.post("/setup/model-test")
@@ -7091,6 +7129,128 @@ def create_router(
                 else "Runtime test failed",
             },
         )
+
+    # ── The Claude plan: Claude Code on request (H14) and Claude's own sign-in (H15) ──
+
+    @router.get("/settings/providers/claude-plan/install")
+    async def claude_code_install_state(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.providers.claude_install import claude_code_installer
+
+        state = (await call(claude_code_installer().state)).to_json()
+        await call(dispatch_validation(request, current))
+        return await respond(request, dto.ClaudeCodeInstallState, state)
+
+    @router.post("/settings/providers/claude-plan/install")
+    async def claude_code_install(request: Request) -> JSONResponse:
+        """Install the newest Claude Code from Anthropic, only when the person asks (never at start-up)."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ClaudeCodeInstallRequest, 1024)
+        from row_bot.providers.claude_install import claude_code_installer
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+        from row_bot.providers.claude_subscription import find_claude_code
+
+        await call(dispatch_validation(request, current))
+        if not body.update and await call(find_claude_code):
+            raise ProtocolError("claude_code_present", 409)
+        # A sign-in left open (a closed tab, another device) never holds an install or update back.
+        await call(claude_sign_ins().close_running)
+        state = (await call(claude_code_installer().start)).to_json()
+        return await respond(request, dto.ClaudeCodeInstallState, state)
+
+    def claude_sign_in_problem(exc: Exception) -> ProtocolError:
+        code = getattr(exc, "code", "")
+        if code == "not_found":
+            return ProtocolError("not_found", 404)
+        if code == "sign_in_ended":
+            return ProtocolError("claude_sign_in_ended", 409)
+        if code in {"claude_code_missing", "claude_code_installing"}:
+            return ProtocolError(code, 409)
+        if code == "sign_out_failed":
+            return ProtocolError("claude_sign_out_failed", 409)
+        if isinstance(exc, ValueError):
+            return ProtocolError("invalid_command", 422)
+        return ProtocolError("claude_sign_in_unavailable", 409)
+
+    @router.post("/settings/providers/claude-plan/sign-in")
+    async def claude_sign_in_open(request: Request) -> JSONResponse:
+        """Start Claude's own sign-in: ``claude auth login`` and nothing else, for this device session.
+
+        ``switch_account``: Claude Code's own ``claude auth logout`` first, to sign in to another account.
+        """
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        body = await _body(request, dto.ClaudeSignInOpenRequest, 1024)
+        from row_bot.providers.claude_install import claude_code_installer
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        await call(dispatch_validation(request, current))
+        try:
+            sign_in = await call(
+                claude_sign_ins().open,
+                current.id,
+                cols=body.cols,
+                rows=body.rows,
+                busy=claude_code_installer().running,
+                switch_account=body.switch_account,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            if not getattr(exc, "code", ""):
+                logger.info("Claude's sign-in didn't start", exc_info=True)
+            raise claude_sign_in_problem(exc) from None
+        return await respond(
+            request,
+            dto.ClaudeSignInView,
+            {"sign_in_id": sign_in.id, "browser_opens": on_this_computer(context)},
+        )
+
+    @router.get("/settings/providers/claude-plan/sign-in/{sign_in_id}")
+    async def claude_sign_in_read(
+        sign_in_id: str, request: Request, cursor: int = 0
+    ) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            value = await call(claude_sign_ins().read, sign_in_id, current.id, cursor)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.ClaudeSignInOutput, value)
+
+    @router.post("/settings/providers/claude-plan/sign-in/{sign_in_id}/input")
+    async def claude_sign_in_input(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        body = await _body(request, dto.NativeTerminalInput, 32768)
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().input, sign_in_id, current.id, body.data)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.post("/settings/providers/claude-plan/sign-in/{sign_in_id}/resize")
+    async def claude_sign_in_resize(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        body = await _body(request, dto.NativeTerminalResize, 4096)
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().resize, sign_in_id, current.id, body.cols, body.rows)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.delete("/settings/providers/claude-plan/sign-in/{sign_in_id}")
+    async def claude_sign_in_close(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().close, sign_in_id, current.id)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalClosed, {"disconnected": True})
 
     @router.post("/settings/providers/commands")
     async def provider_mutation(request: Request) -> JSONResponse:
@@ -9308,8 +9468,6 @@ def create_router(
         binding_id: str,
         export_id: str,
         request: Request,
-        *,
-        download: bool = False,
     ) -> Response:
         current = await session(request, lane="view")
         try:
@@ -9325,40 +9483,10 @@ def create_router(
             if bound_resource(conversation_id, binding_id, "artifact") != identity:
                 raise ProtocolError("resource_binding_revoked", 403)
 
-        from row_bot.designer.client_exports import read_export, read_export_payload
+        from row_bot.designer.client_exports import read_export
 
-        if not download:
-            result = await call(
-                read_export,
-                identity,
-                export_id,
-                binding_id=binding_id,
-                validate=validate,
-            )
-            return await respond(request, dto.ArtifactExport, asdict(result))
-        descriptor, data = await call(
-            read_export_payload,
-            identity,
-            export_id,
-            binding_id=binding_id,
-            validate=validate,
-        )
-        # Validate closed metadata and current access before releasing immutable
-        # bytes. Never reopen a filesystem path after the ownership check.
-        dto.ArtifactExport.model_validate_json(json.dumps(asdict(descriptor)))
-        await call(validate)
-        from urllib.parse import quote
-
-        return Response(
-            data,
-            media_type=descriptor.media_type,
-            headers={
-                **HEADERS,
-                "Content-Security-Policy": "sandbox; default-src 'none'",
-                "Content-Disposition": "attachment; filename=export; filename*=UTF-8''"
-                + quote(descriptor.filename, safe=""),
-            },
-        )
+        result = await call(read_export, identity, export_id, binding_id=binding_id, validate=validate)
+        return await respond(request, dto.ArtifactExport, asdict(result))
 
     @router.get(
         "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}"
@@ -9367,16 +9495,6 @@ def create_router(
         conversation_id: str, binding_id: str, export_id: str, request: Request
     ) -> Response:
         return await bound_export(conversation_id, binding_id, export_id, request)
-
-    @router.get(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download"
-    )
-    async def artifact_export_download(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> Response:
-        return await bound_export(
-            conversation_id, binding_id, export_id, request, download=True
-        )
 
     @router.post(
         "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion"
@@ -9397,7 +9515,7 @@ def create_router(
     async def local_export(
         conversation_id: str, binding_id: str, export_id: str, request: Request
     ) -> tuple[str, Callable[[], None]]:
-        """Saving an export into the workspace's Exports folder, from any device."""
+        """A design's export, checked against its binding for a save offer (5.3.3)."""
         current = await session(request, lane="mutation")
         try:
             if str(UUID(export_id)) != export_id:
@@ -9413,43 +9531,6 @@ def create_router(
                 raise ProtocolError("resource_binding_revoked", 403)
 
         return identity, validate
-
-    @router.post(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save"
-    )
-    async def artifact_export_save(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> JSONResponse:
-        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
-        from row_bot.designer.client_exports import save_export_copy
-
-        result = await call(
-            save_export_copy, identity, export_id, binding_id=binding_id, validate=validate
-        )
-        return await respond(request, dto.ArtifactSavedExport, asdict(result))
-
-    @router.post(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal"
-    )
-    async def artifact_export_reveal(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> JSONResponse:
-        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
-        # Open and Show in folder open an app or the file manager on this
-        # computer's screen.
-        require_this_computer(await _context(request))
-        body = await _body(request, dto.ArtifactExportReveal)
-        from row_bot.designer.client_exports import reveal_export_copy
-
-        result = await call(
-            reveal_export_copy,
-            identity,
-            export_id,
-            binding_id=binding_id,
-            action=body.action,
-            validate=validate,
-        )
-        return await respond(request, dto.ArtifactExportRevealResult, result)
 
     @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/inspector")
     async def workspace_inspector(
@@ -11273,13 +11354,71 @@ def create_router(
             },
         )
 
+    @router.post("/saves")
+    async def save_offer(request: Request) -> JSONResponse:
+        """One file to save, the one way every Download and Export button saves (5.3.3): its reference
+        then goes to the desktop app's Save dialog, a browser download, or Exports while reconnecting."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SaveOfferRequest, 16 * 1024 * 1024)
+        source = body.source
+        validate = dispatch_validation(request, current)
+        if source.kind == "page":
+            name, html = await _page_call(_standalone, _page_id(source.page_id), source.theme.model_dump())
+            data = html.encode("utf-8")
+        elif source.kind == "delivery":
+            from row_bot.file_deliveries import DeliveryError, read_file
+
+            identifier, number = _delivery(source.delivery_id, str(source.index))
+            try:
+                name, data = await call(read_file, identifier, number)
+            except DeliveryError as exc:
+                raise _delivery_failure(exc) from None
+        elif source.kind == "design_export":
+            identity, check = await local_export(source.conversation_id, source.binding_id, source.export_id, request)
+            from row_bot.designer.client_exports import read_export_payload
+
+            descriptor, data = await call(
+                read_export_payload, identity, source.export_id, binding_id=source.binding_id, validate=check)
+            # Closed metadata and current access are checked again before the bytes are offered.
+            dto.ArtifactExport.model_validate_json(json.dumps(asdict(descriptor)))
+            await call(check)
+            name = descriptor.filename
+        elif source.kind == "workflow_webhook":
+            from row_bot.application.task_settings_controls import TaskSettingsError, export_webhook_configuration
+
+            try:
+                data = await call(export_webhook_configuration, source.task_id,
+                                  expected_revision=source.revision, validate=validate)
+            except TaskSettingsError as exc:
+                raise ProtocolError(exc.code, _STATUS.get(exc.code, 422)) from exc
+            name = "workflow-webhook.json"
+        else:
+            try:
+                data = base64.b64decode(source.content_base64, validate=True)
+            except (ValueError, binascii.Error):
+                raise ProtocolError("invalid_command", 422) from None
+            name = source.name
+        from row_bot.application import save_offers
+
+        await call(validate)
+        result = await call(save_offers.offer, current.id, save_offers.plain_name(name), data)
+        return await respond(request, dto.SaveOffer, result)
+
+    def _saveable(reference: str, session_id: str) -> tuple[dict, bytes]:
+        """A conversation's file, or a file offered to this session to save (``save:…``)."""
+        from row_bot.application import save_offers
+        from row_bot.application.attachments import read_attachment
+
+        if save_offers.is_offer(reference):
+            return save_offers.take(reference, session_id)
+        return read_attachment(reference)
+
     @router.get("/attachments/{reference}")
     async def attachment(reference: str, request: Request) -> Response:
         current = await session(request)
-        from row_bot.application.attachments import read_attachment
         from urllib.parse import quote
 
-        metadata, data = await call(read_attachment, reference)
+        metadata, data = await call(_saveable, reference, current.id)
         await _context(request)
 
         async def chunks() -> Any:
@@ -11302,13 +11441,12 @@ def create_router(
 
     @router.post("/attachments/{reference}/save")
     async def attachment_save(reference: str, request: Request) -> JSONResponse:
-        """Save a conversation export into Exports when the desktop window
-        cannot show its Save dialog (B238)."""
+        """Save a conversation's file, or one offered to save, into Exports when the desktop
+        window cannot show its Save dialog (B238)."""
         current = await session(request, lane="mutation")
-        from row_bot.application.attachments import read_attachment
         from row_bot.application.export_folder import save_export
 
-        metadata, data = await call(read_attachment, reference)
+        metadata, data = await call(_saveable, reference, current.id)
         result = await call(
             save_export,
             metadata["name"],

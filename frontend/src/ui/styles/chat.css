@@ -1248,6 +1248,26 @@
 .x-post-media abbr {
   text-decoration: none;
 }
+.x-post-media-open {
+  display: grid;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: zoom-in;
+}
+.x-post-media-open:hover > *,
+.x-post-media-open:focus-visible > * {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.x-post-media-silent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--status-warning-text);
+  font-weight: 600;
+}
 .x-post-slot {
   display: flex;
   align-items: center;
@@ -1750,6 +1770,18 @@
   display: grid;
   gap: 8px;
   margin-top: 12px;
+}
+/* Earlier versions of a reply's newest video: one quiet row, opened on demand. */
+.transcript-earlier-videos > .disclosure-summary {
+  width: fit-content;
+  min-height: 28px;
+  padding-inline-end: 6px;
+}
+.transcript-earlier-videos > .disclosure-body {
+  padding: 0 0 4px;
+}
+.transcript-earlier-videos .transcript-cards {
+  margin-top: 4px;
 }
 .transcript-card {
   display: grid;
@@ -2679,20 +2711,73 @@
   color: var(--status-danger-text);
   font-size: var(--text-13);
 }
-.media-lightbox {
-  max-width: min(94vw, 1280px);
+/* The media viewer: the picture or video as large as the window allows, its
+   name in a slim header and its download below it. */
+.dialog.media-lightbox {
+  width: min(calc(100vw - 32px), 1600px);
+  height: min(calc(100dvh - 32px), 1200px);
+  max-height: none;
 }
-.media-lightbox-figure {
-  display: grid;
-  justify-items: center;
+.media-lightbox > .dialog-header {
+  align-items: center;
+  padding: 10px 10px 8px 20px;
+}
+.media-lightbox .dialog-title {
+  overflow: hidden;
+  font-size: var(--text-15);
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-lightbox .dialog-description {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: var(--text-13);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.media-lightbox .dialog-description:empty {
+  display: none;
+}
+.media-lightbox > .dialog-body {
+  display: flex;
+  flex: 1;
+  padding: 0 16px 16px;
+  overflow: hidden;
+}
+.media-lightbox-figure,
+.media-lightbox .media-preview[data-fill] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 12px;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
 }
-.media-lightbox-figure img {
+/* The picture or video takes what's left above its download. */
+.media-lightbox-figure img,
+.media-lightbox .media-preview[data-fill] > img,
+.media-lightbox .media-preview[data-fill] > video {
+  width: auto;
   max-width: 100%;
-  max-height: 72vh;
+  height: auto;
+  min-height: 0;
+  max-height: calc(100% - 52px);
   border-radius: 8px;
+  background: var(--surface-sunken);
   object-fit: contain;
+}
+.media-lightbox .media-preview[data-fill] > video {
+  width: 100%;
+  background: #000;
+}
+/* The header's close is the only one: no second Close in a footer. */
+.media-lightbox > .dialog-footer {
+  display: none;
 }
 
 /* Code. */
@@ -2954,6 +3039,107 @@
   line-height: 18px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+/* U10: "Add Row-Bot to your phone", once, after the first answer. */
+.phone-card {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 12px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 12px 8px 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-sizing: border-box;
+}
+.phone-card-icon {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--accent-solid);
+}
+.phone-card-text {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.phone-card-text h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+.phone-card-text p {
+  margin: 0;
+}
+.phone-card-steps {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.phone-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.phone-card-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.phone-card-code p {
+  flex: 1 1 180px;
+}
+.phone-card-connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+.phone-card-connected svg {
+  color: var(--status-success-text);
+}
+.phone-card-dismiss {
+  margin-top: -4px;
+}
+
+/* A hosted Row-Bot's first chat: one message, sent with a tap (U3). */
+.chat-empty-first-message {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 10px;
+  margin-top: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--accent-solid);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-solid) 8%, var(--surface));
+  color: var(--text-primary);
+  font: var(--weight-medium) var(--text-15) / 20px var(--font-sans);
+  cursor: pointer;
+}
+.chat-empty-first-message svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent-solid);
+}
+.chat-empty-first-message:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-solid) 14%, var(--surface));
+}
+.chat-empty-first-message:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.chat-empty-first-message:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .chat-empty-more {
   justify-self: start;
@@ -3791,7 +3977,7 @@ button.attachment-tile-face:hover {
 .model-picker {
   display: flex;
   flex-direction: column;
-  width: min(360px, calc(100vw - 24px));
+  width: min(440px, calc(100vw - 24px));
   max-height: min(520px, var(--radix-popover-content-available-height, 520px));
   padding: 0;
   overflow: hidden;
@@ -3881,6 +4067,8 @@ button.attachment-tile-face:hover {
 .model-picker-option-reason {
   flex: 0 1 auto;
   min-width: 0;
+  /* A long reason truncates; the model's name always keeps the rest. */
+  max-width: 55%;
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--text-12);
@@ -3904,15 +4092,8 @@ button.attachment-tile-face:hover {
 .model-picker-connect:hover {
   background: var(--accent-subtle);
 }
-/* F10: "More models (N)" opens the hidden models in place. */
-.model-picker-more {
-  color: var(--text-muted);
-}
-.model-picker-more > svg {
-  flex: none;
-}
-/* A row's favourite/hide menu, beside its option: shown on the hovered or
-   highlighted row, always on touch. */
+/* A row's star, beside its option: shown on the hovered or highlighted row,
+   always on touch, and always while the model is in your models. */
 .model-picker-row {
   position: relative;
 }
@@ -3926,30 +4107,84 @@ button.attachment-tile-face:hover {
   display: inline-flex;
   transform: translateY(-50%);
 }
-.model-picker-row-menu-button.button {
+.model-picker-row-menu-button {
+  display: inline-grid;
+  place-items: center;
   inline-size: 24px;
   block-size: 24px;
-  min-width: 24px;
-  min-height: 24px;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: none;
-  box-shadow: none;
   color: var(--text-muted);
+  cursor: pointer;
   opacity: 0;
 }
 .model-picker-row:hover .model-picker-row-menu-button,
-.model-picker-row[data-menu] .model-picker-row-menu-button,
+.model-picker-row[data-starred] .model-picker-row-menu-button,
 .model-picker-option[aria-selected='true']
   + .model-picker-row-menu
   .model-picker-row-menu-button {
   opacity: 1;
 }
-.model-picker-row-menu-button.button:hover,
-.model-picker-row-menu-button.button[data-state='open'] {
+.model-picker-row[data-starred] .model-picker-row-menu-button {
+  color: var(--accent-solid);
+}
+/* One model through several providers: "+2 routes" opens the others. */
+.model-picker-row-menu {
+  align-items: center;
+  gap: 2px;
+}
+.model-picker-row[data-routes] > .model-picker-option {
+  padding-inline-end: 116px;
+}
+.model-picker-row[data-routes]:not([data-star]) > .model-picker-option {
+  padding-inline-end: 88px;
+}
+/* On a narrow screen the provider truncates before it reaches the chip, and
+   before the model's name does. */
+.model-picker-row[data-routes] .model-picker-option-name {
+  min-width: 40%;
+}
+.model-picker-row[data-routes] .model-picker-option-provider {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-picker-routes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  block-size: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-secondary);
+  font: var(--weight-medium) var(--text-12) / 1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.model-picker-routes:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.model-picker-routes[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.model-picker-option[data-route] {
+  padding-inline-start: 24px;
+}
+.model-picker-row-menu-button:hover {
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
+}
+.model-picker-row-menu-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  opacity: 1;
 }
 @media (hover: none), (pointer: coarse) {
   .model-picker-option {
@@ -3958,37 +4193,41 @@ button.attachment-tile-face:hover {
   .model-picker-row > .model-picker-option {
     padding-inline-end: 40px;
   }
-  .model-picker-row-menu-button.button {
+  .model-picker-row-menu-button {
     inline-size: 32px;
     block-size: 32px;
-    min-width: 32px;
-    min-height: 32px;
     opacity: 0.6;
   }
-}
-/* F10: "<model> is under More models. Undo", in place of a toast. */
-.model-picker-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-hairline);
-  color: var(--text-secondary);
-  font-size: var(--text-12);
-}
-.model-picker-note > span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .model-picker-empty {
   margin: 0;
   padding: 16px 12px;
   color: var(--text-muted);
   font-size: var(--text-13);
+}
+/* Browse by provider: the providers fold under it while you have stars. */
+.model-picker-browse {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 8px 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+.model-picker-browse:hover,
+.model-picker-browse:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.model-picker-browse[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 .model-picker-footer {
   display: grid;
@@ -4012,6 +4251,11 @@ button.attachment-tile-face:hover {
   font: var(--weight-medium) 11px / 1 var(--font-mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+.model-picker-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
 }
 .model-picker-budget-row {
   display: flex;
@@ -4452,6 +4696,10 @@ button.attachment-tile-face:hover {
   display: block;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A workflow run that didn't finish: why, under its line. */
+.transcript-note-failure svg {
+  color: var(--status-warning-text);
 }
 
 /* A delegated agent's approval that was answered here or elsewhere. */

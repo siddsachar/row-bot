@@ -9,7 +9,8 @@
 #
 # Jobs:
 #   release-gate   version and lock checks; a release runs from its tag and only
-#                  for a commit with a green CI / ci-ok (a dry run skips these)
+#                  for a commit with a green CI / ci-ok, and its notes no longer
+#                  say TODO: (a dry run skips these)
 #   nightly        the nightly suite, only when that commit has no green nightly
 #   build-parts    the update parts, built once from the installers' payload:
 #                  code and assets archives and the lock export; the check for
@@ -54,7 +55,7 @@ on:
       version:
         description: Version to build. Must match src/row_bot/version.py and installer/row_bot_setup.iss.
         type: string
-        default: "5.3.0"
+        default: "5.3.3"
       dry_run:
         description: Build everything without publishing (any branch; no draft release; the app is notarized once)
         type: boolean
@@ -90,7 +91,7 @@ concurrency:
 # Tracks the version this workflow is currently shipping. Kept in sync with
 # `installer/row_bot_setup.iss` (#define MyAppVersion) and `src/row_bot/version.py`.
 env:
-  ROW_BOT_VERSION: ${{ inputs.version || '5.3.0' }}
+  ROW_BOT_VERSION: ${{ inputs.version || '5.3.3' }}
   WINDOWS_PYTHON_VERSION: "3.13.2"
   # python-build-standalone in installer/build_mac_app.sh and build_linux_app.sh;
   # the wheel check plans for it and checksums-and-manifest checks the builds agree.
@@ -135,12 +136,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_VERSION: ${{ inputs.version || '5.3.0' }}
+          RELEASE_VERSION: ${{ inputs.version || '5.3.3' }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           args=(--version "$RELEASE_VERSION" --sha "$GITHUB_SHA" --ref "$GITHUB_REF")
           if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
           python scripts/release_gate.py "${args[@]}"
+
+      # The draft's notes, made now: a section that still says TODO: (cut_release.py's For Hosts
+      # placeholder) is refused before anything builds. Hosts act on these notes.
+      - name: The version's release notes are written
+        if: ${{ !inputs.dry_run }}
+        run: >-
+          python scripts/build_update_parts.py release-notes --version "$ROW_BOT_VERSION" --notes RELEASE_NOTES.md
+          --title-out "$RUNNER_TEMP/release-title.txt" --body-out "$RUNNER_TEMP/release-notes.md"
 
   # ---------------------------------------------------------------------------
   #  The nightly suite (full deterministic suite on Linux, Windows and macOS,

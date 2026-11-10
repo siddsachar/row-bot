@@ -1,7 +1,15 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { OnboardingSnapshot } from '../../api/types';
+import { setPlace } from '../../api/place';
 import FirstRun, { SETUP_LATER_KEY } from './FirstRun';
 
 const mock = vi.hoisted(() => ({
@@ -59,6 +67,7 @@ const runtime = (
   state,
   platform: 'windows' as const,
   download_url: 'https://ollama.com/download',
+  on_this_computer: true,
   models: models.map((name) => ({
     model_ref: `model:ollama:${name}`,
     name,
@@ -113,6 +122,60 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  setPlace(null);
+});
+
+it('on a phone reaching Row-Bot, local models are on the computer Row-Bot runs on (U7)', async () => {
+  setPlace({ kind: 'server' });
+  show();
+  const choices = screen.getByRole('group', {
+    name: 'How should Row-Bot think?',
+  });
+  expect(
+    within(choices)
+      .getAllByRole('button')
+      .map((button) => button.querySelector('strong')?.textContent),
+  ).toEqual([
+    'On your Row-Bot server',
+    'With my subscription',
+    'With an API key',
+  ]);
+  await within(choices).findByText("Ollama isn't installed yet");
+  fireEvent.click(
+    within(choices).getByRole('button', { name: /On your Row-Bot server/ }),
+  );
+  expect(
+    screen.getByText(/^Ollama runs models on the computer Row-Bot runs on:/),
+  ).toBeVisible();
+  expect(screen.queryByText(/this computer/)).toBeNull();
+  mock.controller.localRuntime.mockResolvedValue(
+    runtime('running', ['qwen3.8:27b']),
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3100);
+  });
+  expect(
+    await screen.findByRole('list', { name: 'Models on your Row-Bot server' }),
+  ).toBeVisible();
+});
+
+it('from a phone, says to install Ollama on the computer Row-Bot runs on instead of offering a download', async () => {
+  mock.controller.localRuntime.mockResolvedValue({
+    ...runtime('not_installed'),
+    on_this_computer: false,
+  });
+  show();
+  const choices = screen.getByRole('group', {
+    name: 'How should Row-Bot think?',
+  });
+  fireEvent.click(
+    await within(choices).findByRole('button', { name: /On this computer/ }),
+  );
+  expect(screen.getByRole('heading', { name: 'Install Ollama' })).toBeVisible();
+  expect(
+    screen.getByText('Install it on that computer, not on this device.'),
+  ).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Download Ollama' })).toBeNull();
 });
 
 it('asks one question and detects Ollama without a refresh button', async () => {
@@ -196,6 +259,27 @@ it('keeps the person in Setup with the reason when the quick test fails', async 
   expect(actions.finish).toHaveBeenCalledTimes(1);
 });
 
+it('says a window that is not signed in can only look, not that the model failed', async () => {
+  mock.controller.localRuntime.mockResolvedValue(
+    runtime('running', ['qwen3.8:27b']),
+  );
+  mock.controller.testChosenModel.mockRejectedValueOnce({
+    code: 'sign_in_required',
+    status: 403,
+  });
+  show();
+  fireEvent.click(screen.getByRole('button', { name: /On this computer/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /qwen3\.8:27b/ }));
+  expect(
+    await screen.findByRole('heading', { name: 'This window can only look' }),
+  ).toBeVisible();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    "This window isn't signed in",
+  );
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  expect(location()).toBe('/setup');
+});
+
 it('offers an import only when another assistant was found', async () => {
   mock.controller.localRuntime.mockResolvedValue(
     runtime('running', ['qwen3.8:27b']),
@@ -234,6 +318,39 @@ it('lists recommended key providers first, the rest under More providers', async
   ).toEqual(['OpenAI', 'Anthropic', 'Google Gemini', 'OpenRouter']);
   expect(within(providers).getAllByText('Pay per use')).toHaveLength(4);
   expect(screen.getByText('More providers')).toBeVisible();
+});
+
+it('lists every other API-key provider Row-Bot knows under More providers, as Settings does', async () => {
+  const api = (provider_id: string, display_name: string) => ({
+    provider_id,
+    display_name,
+    group: 'api',
+    configured: false,
+    billing: 'pay_per_use',
+  });
+  mock.controller.liveProviderStatus.mockResolvedValue({
+    schema_version: 1,
+    providers: [
+      api('openai', 'OpenAI API'),
+      api('mistral', 'Mistral'),
+      api('deepseek', 'DeepSeek'),
+      api('xai', 'xAI API'),
+      { ...api('codex', 'ChatGPT / Codex'), group: 'subscription' },
+    ],
+  });
+  show();
+  fireEvent.click(screen.getByRole('button', { name: /With an API key/ }));
+  const more = await screen.findByRole('list', {
+    name: 'More providers',
+    hidden: true,
+  });
+  await waitFor(() =>
+    expect(
+      within(more)
+        .getAllByRole('button', { hidden: true })
+        .map((button) => button.querySelector('span')?.textContent),
+    ).toEqual(['DeepSeek', 'Mistral', 'xAI']),
+  );
 });
 
 it('says once that an installed Row-Bot downloads updates in the background', async () => {
@@ -293,7 +410,7 @@ it('never traps the person: Set up later and the custom endpoint link', () => {
   expect(location()).toBe('/');
 });
 
-it('Claude in the first run says what Claude Code says and the command to run, never a Row-Bot sign-in', async () => {
+it('Claude in the first run offers Use my Claude plan: Claude’s own sign-in, never a Row-Bot one', async () => {
   mock.controller.liveProviderStatus.mockResolvedValue({
     schema_version: 1,
     providers: [
@@ -318,15 +435,14 @@ it('Claude in the first run says what Claude Code says and the command to run, n
   fireEvent.click(await screen.findByRole('radio', { name: 'Claude' }));
   expect(
     await screen.findByText(
-      'Runs Claude Code on this computer; uses your Claude plan’s limits.',
+      'Row-Bot runs Claude Code, Anthropic’s program, with your own Claude plan. Its limits apply.',
     ),
   ).toBeVisible();
-  expect(screen.getByText('claude auth login')).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Use my Claude plan' }),
+  ).toBeVisible();
+  expect(screen.queryByText(/claude auth login/)).toBeNull();
   expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
-  await vi.waitFor(() =>
-    expect(mock.controller.liveProviderStatus).toHaveBeenCalledTimes(2),
-  );
 });
 
 it("lists a connected provider's usable chat models from the assessed catalog", async () => {
@@ -380,7 +496,7 @@ it("lists a connected provider's usable chat models from the assessed catalog", 
   );
 });
 
-it('lists favourites, then Row-Bot’s picks, with every other model one step away (F10)', async () => {
+it('lists your models, then Row-Bot’s picks, with every other model one step away', async () => {
   const names = [
     'gemma3:4b',
     'gpt-oss:20b',
@@ -397,7 +513,6 @@ it('lists favourites, then Row-Bot’s picks, with every other model one step aw
     'qwen3:32b': { favourite_rank: 1 },
     'gpt-oss:20b': { recommended: true },
     'mistral:7b': { recommended: true },
-    'phi4:14b': { hidden: true },
   };
   mock.controller.localRuntime.mockResolvedValue({
     ...listed,
@@ -413,11 +528,11 @@ it('lists favourites, then Row-Bot’s picks, with every other model one step aw
       .getAllByRole('button')
       .map((button) => button.textContent?.replace(/Use$/, ''));
   expect(
-    await screen.findByRole('heading', { name: 'Your favourites' }),
+    await screen.findByRole('heading', { name: 'Your models' }),
   ).toBeVisible();
-  expect(rows('Your favourites')).toEqual(['qwen3:32b', 'qwen3:8b']);
+  expect(rows('Your models')).toEqual(['qwen3:32b', 'qwen3:8b']);
   expect(rows('Recommended')).toEqual(['gpt-oss:20b', 'mistral:7b']);
-  // The rest wait behind one line, hidden models last and marked.
+  // The rest wait behind one line.
   const all = screen.getByText('Show all models (4)');
   expect(
     screen.getByRole('list', { name: 'All models on this computer' }),
@@ -427,7 +542,7 @@ it('lists favourites, then Row-Bot’s picks, with every other model one step aw
     'gemma3:4b',
     'llama3.1:8b',
     'nomic-embed-text',
-    'phi4:14bHidden',
+    'phi4:14b',
   ]);
   fireEvent.click(screen.getByRole('button', { name: /phi4:14b/ }));
   await vi.waitFor(() =>

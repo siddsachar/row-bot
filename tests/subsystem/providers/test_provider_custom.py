@@ -18,7 +18,7 @@ from row_bot.providers.custom import (
     refresh_custom_endpoint_models,
     save_custom_endpoint,
 )
-from row_bot.providers.selection import add_quick_choice_for_model, list_quick_choices, model_choice_value
+from row_bot.providers.selection import model_choice_value
 from row_bot.secret_store import _set_backend_for_tests
 
 
@@ -472,39 +472,6 @@ def test_auth_required_custom_endpoint_refresh_fails_before_http_without_secret(
         refresh_custom_endpoint_models("missing-key")
 
 
-def test_custom_endpoint_refresh_prunes_removed_model_quick_choices(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    save_custom_endpoint({
-        "id": "dummy",
-        "base_url": "http://127.0.0.1:8000/v1",
-        "auth_required": False,
-        "models": [
-            {"id": "old-chat", "model_id": "old-chat"},
-            {"id": "new-chat", "model_id": "new-chat"},
-        ],
-    })
-    provider_id = custom_provider_id("dummy")
-    add_quick_choice_for_model("old-chat", provider_id=provider_id)
-    add_quick_choice_for_model("new-chat", provider_id=provider_id)
-
-    class _Response:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"data": [{"id": "new-chat", "context_length": 8192}]}
-
-    import httpx
-    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _Response())
-
-    infos = refresh_custom_endpoint_models("dummy")
-
-    assert [info.model_id for info in infos] == ["new-chat"]
-    assert getattr(infos, "stale_pin_count") == 1
-    assert [choice["id"] for choice in list_quick_choices("")] == [f"model:{provider_id}:new-chat"]
-
-
 def test_custom_endpoint_refresh_keeps_default_for_removed_model(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -520,7 +487,6 @@ def test_custom_endpoint_refresh_keeps_default_for_removed_model(tmp_path, monke
             {"id": "new-chat", "model_id": "new-chat"},
         ],
     })
-    add_quick_choice_for_model("new-chat", provider_id=provider_id)
 
     class _Response:
         def raise_for_status(self):
@@ -551,7 +517,6 @@ def test_custom_endpoint_refresh_keeps_default_even_without_previous_model_cache
         "base_url": "http://127.0.0.1:8000/v1",
         "auth_required": False,
     })
-    add_quick_choice_for_model("new-chat", provider_id=provider_id)
 
     class _Response:
         def raise_for_status(self):

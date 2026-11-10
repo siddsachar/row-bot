@@ -61,6 +61,18 @@ def test_full_autonomy_needs_the_dialog_the_first_time_and_never_again(platform,
     assert level(platform) == "full"
 
 
+def test_the_level_the_person_chooses_is_where_the_next_new_conversation_starts(platform, data_dir):
+    from row_bot import full_autonomy
+
+    assert full_autonomy.new_level() == "auto"  # Nothing chosen yet.
+    save_level(platform, "to-block", "block")
+    assert full_autonomy.new_level() == "block"
+    save_level(platform, "to-ask", "approve")
+    assert full_autonomy.new_level() == "approve"
+    save_level(platform, "full", "full", confirm_full_autonomy=True)
+    assert full_autonomy.new_level() == "auto", "Hands-off is turned on in each conversation"
+
+
 def test_an_older_clients_allow_all_is_reviewed_auto(platform, data_dir):
     save_level(platform, "legacy-auto", "allow_all")
     assert level(platform) == "auto"

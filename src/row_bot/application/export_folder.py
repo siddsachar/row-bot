@@ -78,10 +78,13 @@ def save_export(name: str, data: bytes, *, validate: Callable[[], None]) -> dict
     raise ValueError("export_capacity_reached")
 
 
-def _show_in_folder(path: Path) -> None:
-    """Show a file in the file manager; argv only, never a shell."""
+def show_in_folder(path: Path) -> None:
+    """Show a file in the file manager; never a shell."""
     if sys.platform == "win32":
-        subprocess.Popen(["explorer", f"/select,{path}"], close_fds=True)
+        # Explorer reads /select,"C:\My files\a.md" but not "/select,C:\My files\a.md", the quoting a
+        # list of arguments gets for a path with a space (it opened its default folder instead). A Windows
+        # path holds no quote.
+        subprocess.Popen(f'explorer /select,"{path}"', close_fds=True)
     elif sys.platform == "darwin":
         subprocess.Popen(["open", "-R", str(path)], close_fds=True, start_new_session=True)
     else:
@@ -97,7 +100,7 @@ def reveal_export(file_name: str) -> dict[str, str]:
     if path.is_symlink() or not path.is_file() or path.resolve(strict=True).parent != folder.resolve(strict=True):
         return {"status": "not_found"}
     try:
-        _show_in_folder(path)
+        show_in_folder(path)
     except OSError:
         return {"status": "unavailable"}
     return {"status": "opened"}

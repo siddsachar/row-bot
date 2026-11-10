@@ -4,7 +4,7 @@ const CHECK_MS = 60 * 1000;
 /** After a failed attempt (offline, server restarting), try again this soon. */
 const RETRY_MS = 10 * 60 * 1000;
 /** When each session last renewed, kept across page loads and tabs of this browser. */
-const RENEWED_KEY = 'row-bot.access-renewed.';
+export const RENEWED_KEY = 'row-bot.access-renewed.';
 
 function remembered(target: Window, session: string): number {
   try {

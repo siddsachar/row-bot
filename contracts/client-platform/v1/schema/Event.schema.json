@@ -979,9 +979,16 @@
         "code": {
           "enum": [
             "generation_failed",
-            "sign_in_required"
+            "sign_in_required",
+            "provider_unavailable"
           ],
           "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "maxLength": 400,
+          "title": "Message",
           "type": "string"
         },
         "provider": {
@@ -1149,6 +1156,12 @@
             "not_applicable"
           ],
           "title": "External Outcome",
+          "type": "string"
+        },
+        "failure_reason": {
+          "default": "",
+          "maxLength": 400,
+          "title": "Failure Reason",
           "type": "string"
         },
         "generation_id": {
@@ -1351,6 +1364,12 @@
             "application/octet-stream"
           ],
           "title": "Mime Type",
+          "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
           "type": "string"
         },
         "tool_call_id": {
@@ -2672,6 +2691,12 @@
         "mime_type": {
           "maxLength": 128,
           "title": "Mime Type",
+          "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
           "type": "string"
         }
       },

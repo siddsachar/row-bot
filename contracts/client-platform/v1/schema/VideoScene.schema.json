@@ -55,7 +55,6 @@
     },
     "source": {
       "maxLength": 512,
-      "minLength": 1,
       "title": "Source",
       "type": "string"
     },

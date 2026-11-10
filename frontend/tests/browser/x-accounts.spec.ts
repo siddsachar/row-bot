@@ -280,6 +280,25 @@ test('Home › Review shows the waiting post in full with its time; approving sc
   await expect(review).toHaveCount(0);
   await everywhere(page, info, 'review-scheduled', scheduled);
 
+  // Edit before it goes out: the text and which files go; it keeps its time.
+  await scheduled.getByRole('button', { name: 'Edit this post' }).click();
+  const box = scheduled.getByRole('textbox', {
+    name: 'Edit the post as @rowbot_ai',
+  });
+  await box.fill('Row-Bot 5.3 is out. Edited before it goes out.');
+  await everywhere(page, info, 'review-scheduled-edit', scheduled);
+  await scheduled.getByRole('button', { name: 'Save edits' }).click();
+  await expect(box).toHaveCount(0);
+  await expect(
+    scheduled.getByText('Row-Bot 5.3 is out. Edited before it goes out.'),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page
+      .getByRole('list', { name: 'Scheduled posts' })
+      .getByText('Row-Bot 5.3 is out. Edited before it goes out.'),
+  ).toBeVisible();
+
   await scheduled.getByRole('button', { name: 'Cancel this post' }).click();
   await expect(scheduled).toHaveCount(0);
 });

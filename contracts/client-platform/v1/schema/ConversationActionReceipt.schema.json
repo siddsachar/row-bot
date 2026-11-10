@@ -50,10 +50,8 @@
           "type": "string"
         },
         "file_name": {
-          "enum": [
-            "conversation-export.md",
-            "conversation-export.pdf"
-          ],
+          "maxLength": 120,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]*\\.(md|pdf)$",
           "title": "File Name",
           "type": "string"
         },

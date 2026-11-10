@@ -70,6 +70,8 @@ class Media:
     mime: str
     kind: str  # image, gif or video
     thumbnail: str = ""  # A small JPEG as a data URL, for the card; "" for a video.
+    source: str = ""  # What finds it again at its time slot: its path, or its Library › Media reference.
+    silent: bool = False  # A video with nothing to hear: the card says so before the person approves it.
 
     @property
     def short(self) -> str:
@@ -120,20 +122,55 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def media_facts(paths: list[str] | None) -> list[Media]:
+def _find(value: str, conversation_id: str) -> tuple[Path, str, str, str]:
+    """A file to attach: its path, name, MIME type and what finds it again. It is a file on this computer, a
+    Library › Media item by its reference (media_find), or a file in this chat by its name (the newest)."""
+    from row_bot import media_library, media_sources
+
+    path = Path(value).expanduser()
+    if path.is_file():
+        return path, path.name, mimetypes.guess_type(path.name)[0] or "", str(path)
+    ref = value if media_library.REF.fullmatch(value) else ""
+    if not ref and conversation_id and not ("/" in value or "\\" in value):
+        found = media_sources.chat_file(conversation_id, value)
+        ref = found.ref if found is not None else ""
+    if ref:
+        try:
+            facts, stored = media_library.locate(ref)
+        except media_library.MediaError:
+            raise XPostError(f"{value} isn't in Library › Media any more, so nothing was posted.") from None
+        return stored, str(facts["name"]), str(facts["mime_type"]), ref
+    raise XPostError(f"{path.name or value} isn't a file Row-Bot can read, a file in this chat or a Library › Media "
+                     "item (media_find gives its reference), so nothing was posted.")
+
+
+def _library_ref(source: str) -> str:
+    """A file's Library › Media reference, which the card opens to check it before it goes; "" for a file on this
+    computer (its path never reaches the card)."""
+    from row_bot import media_library
+
+    return source if media_library.REF.fullmatch(source) else ""
+
+
+def _silent(path: Path) -> bool:
+    """A video with nothing to hear (no sound track, or only silence): X plays it silent too."""
+    from row_bot.sound import has_sound
+
+    return has_sound(path) is False
+
+
+def media_facts(paths: list[str] | None, conversation_id: str = "") -> list[Media]:
     """Each file to attach: its name, size, SHA-256 and kind (with a thumbnail for a picture)."""
     found: list[Media] = []
     for raw in paths or []:
-        path = Path(str(raw)).expanduser()
-        if not path.is_file():
-            raise XPostError(f"{path.name or raw} isn't a file Row-Bot can read, so nothing was posted.")
-        mime = mimetypes.guess_type(path.name)[0] or ""
+        path, name, mime, source = _find(str(raw).strip(), conversation_id)
         if mime not in _IMAGE_TYPES | _SINGLE_TYPES:
-            raise XPostError(f"X takes JPEG, PNG, WebP or GIF pictures and MP4 or MOV videos; {path.name} isn't "
+            raise XPostError(f"X takes JPEG, PNG, WebP or GIF pictures and MP4 or MOV videos; {name} isn't "
                              "one, so nothing was posted.")
         kind = "video" if mime.startswith("video/") else "gif" if mime == "image/gif" else "image"
-        found.append(Media(path, path.name[:256], path.stat().st_size, _sha256(path), mime, kind,
-                           _thumbnail(path) if kind != "video" else ""))
+        found.append(Media(path, name[:256], path.stat().st_size, _sha256(path), mime, kind,
+                           _thumbnail(path) if kind != "video" else "", source,
+                           silent=kind == "video" and _silent(path)))
     singles = [item for item in found if item.kind != "image"]
     if len(found) > _MAX_IMAGES or (singles and len(found) > 1):
         raise XPostError("A post takes up to four pictures, or one video or GIF, so nothing was posted.")
@@ -150,6 +187,57 @@ def payload_hash(account: XAccount, action: str, text: str, target: str, media: 
 
 def target_url(target: str) -> str:
     return f"https://x.com/i/status/{target}" if target else ""
+
+
+# ── X's reply rule ───────────────────────────────────────────────────────────
+# Since 23 Feb 2026 X's self-serve API refuses (403) a reply or quote unless the post's author summoned the account:
+# mentioned it, quoted one of its posts, or is the account. Row-Bot checks first, so such a reply never reaches X;
+# the person gets the draft and the link, to post it in X's own app or website.
+
+
+def summoned(account: XAccount, target: str) -> bool | None:
+    """Whether X's API lets ``account`` reply to or quote the post ``target`` (by the account's own user ID); None
+    when X doesn't say."""
+    token = x_accounts.valid_token(account)
+    if token is None:
+        return None
+    try:
+        response = x_accounts.send("GET", f"{x_accounts.API_BASE}/tweets/{target}", headers=x_accounts.bearer(token),
+                                   params={"tweet.fields": "author_id,entities,referenced_tweets",
+                                           "expansions": "referenced_tweets.id"}, timeout=10)
+        found = response.json() if response.status_code == 200 else {}
+        post = found.get("data")
+        if not isinstance(post, dict):
+            return None
+        mentions = (post.get("entities") or {}).get("mentions") or []
+        quoted = {str(item.get("id")) for item in post.get("referenced_tweets") or [] if item.get("type") == "quoted"}
+        included = (found.get("includes") or {}).get("tweets") or []
+        return (str(post.get("author_id")) == account.id
+                or any(str(item.get("id")) == account.id for item in mentions)
+                or any(str(item.get("id")) in quoted and str(item.get("author_id")) == account.id
+                       for item in included))
+    except Exception as exc:
+        logger.warning("Reading the post %s replies to failed (%s)", account.handle, type(exc).__name__)
+        return None
+
+
+def not_allowed(account: XAccount, action: str, *, refused: bool = False) -> str:
+    """Why a reply or quote can't go out through X's API, in plain words."""
+    lead = f"Nothing was posted as {account.handle}. X refused it" if refused else "Nothing was sent to X"
+    return (f"{lead}: X allows this {'reply' if action == 'reply' else 'quote'} only from its own app or website. "
+            f"Through other apps, X allows a reply or quote only when the post's author mentioned {account.handle} "
+            f"or quoted one of {account.handle}'s posts.")
+
+
+def by_hand(account: XAccount, action: str, text: str, target: str, *, refused: bool = False) -> str:
+    """``not_allowed`` with the post's link and the draft, ready to copy."""
+    return (f"{not_allowed(account, action, refused=refused)}\n{'Reply to' if action == 'reply' else 'Quote'} it "
+            f"there: {target_url(target)}\nThe draft, ready to copy:\n{text}")
+
+
+def _reply_rule(response: Any) -> bool:
+    """Whether X refused a reply or quote by its reply rule (the target's author didn't summon the account)."""
+    return response.status_code == 403 and "mentioned" in _detail(response).casefold()
 
 
 def question(account: XAccount, action: str) -> str:
@@ -199,7 +287,9 @@ def card(account: XAccount, action: str, text: str, target: str, media: list[Med
         "target_url": account.post_url(target) if action == "delete" and target else target_url(target),
         "target_text": target_text[:_MAX_TEXT],
         "media": [{"name": item.name, "size": item.size, "sha256": item.short, "kind": item.kind,
-                   "thumbnail": item.thumbnail} for item in media],
+                   "thumbnail": item.thumbnail, "silent": item.silent, "ref": _library_ref(item.source),
+                   "mime": item.mime}
+                  for item in media],
         "limit": _LIMITS.get(account.id, 0),  # How long a post the account may send, when X said (0: unknown).
         "post_at": post_at.isoformat(timespec="minutes") if post_at else "",
     }
@@ -214,7 +304,8 @@ def _words(account: XAccount, action: str, text: str, target: str, media: list[M
     quoted = text if action != "delete" else target_text
     sentence = f"{lead}: “{quoted[:600]}{'…' if len(quoted) > 600 else ''}”" if quoted else lead
     if media:
-        sentence += " with " + ", ".join(f"{item.name} ({_size(item.size)}, SHA-256 {item.short})" for item in media)
+        sentence += " with " + ", ".join(f"{item.name} ({_size(item.size)}, SHA-256 {item.short}"
+                                         f"{', no sound' if item.silent else ''})" for item in media)
     return sentence + "."
 
 
@@ -320,7 +411,8 @@ def schedule(account: XAccount, action: str, text: str, target: str, media: list
     """Keep an approved post for its time slot; the scheduler sends it then."""
     item = {"id": f"xs-{uuid.uuid4().hex[:12]}", "account_id": account.id, "action": action, "text": text,
             "target": target, "post_at": post_at.isoformat(timespec="minutes"),
-            "media": [{"path": str(entry.path), "sha256": entry.sha256} for entry in media],
+            "media": [{"path": entry.source or str(entry.path), "sha256": entry.sha256, "name": entry.name}
+                      for entry in media],
             "created_at": _stamp(_now()), "status": "scheduled"}
     with _SCHEDULE_LOCK:
         _save_scheduled([*_scheduled(), item])
@@ -328,7 +420,9 @@ def schedule(account: XAccount, action: str, text: str, target: str, media: list
 
 
 # A scheduled post that didn't go out stays in Home's Review with why, until the person tries it again or dismisses it.
-_NOT_SENT = ("failed", "missed", "unknown")
+# A reply or quote X's reply rule stops (by_hand) is never tried again: it stays with its draft and link to post by hand.
+_RETRIABLE = ("failed", "missed", "unknown")
+_NOT_SENT = (*_RETRIABLE, "by_hand")
 
 
 def scheduled_posts() -> list[dict[str, Any]]:
@@ -346,16 +440,23 @@ def scheduled_posts() -> list[dict[str, Any]]:
         account = accounts.get(str(item.get("account_id")))
         files = []
         for entry in item.get("media") or []:
-            path = Path(str(entry.get("path") or ""))
+            path = None
             try:
+                path, name, mime, _ = _find(str(entry.get("path") or ""), "")
                 size = path.stat().st_size
-            except OSError:
-                size = 0
-            mime = mimetypes.guess_type(path.name)[0] or ""
-            files.append({"name": path.name[:256], "size": size, "sha256": str(entry.get("sha256") or "")[:12],
-                          "kind": "video" if mime.startswith("video/") else "gif" if mime == "image/gif" else "image"})
+            except (XPostError, OSError):
+                name = str(entry.get("name") or Path(str(entry.get("path") or "")).name)
+                size, mime = 0, mimetypes.guess_type(name)[0] or ""
+            kind = "video" if mime.startswith("video/") else "gif" if mime == "image/gif" else "image"
+            files.append({"name": name[:256], "size": size, "sha256": str(entry.get("sha256") or "")[:12],
+                          "kind": kind, "silent": kind == "video" and path is not None and _silent(path),
+                          "ref": _library_ref(str(entry.get("path") or "")) if path is not None else "",
+                          "mime": mime})
         shown.append({"id": item["id"], "account_id": str(item.get("account_id") or ""),
-                      "username": account.username if account else "", "action": str(item.get("action") or "post"),
+                      "username": account.username if account else "", "name": account.name[:80] if account else "",
+                      # The editor's count: the limit X already said for the account, never a call to X here.
+                      "limit": (_LIMITS.get(account.id) or 0) if account else 0,
+                      "action": str(item.get("action") or "post"),
                       "text": str(item.get("text") or ""), "target_url": target_url(str(item.get("target") or "")),
                       "post_at": str(item.get("post_at") or ""), "media": files,
                       "status": str(item.get("status")), "reason": str(item.get("result") or "")[:2000]
@@ -376,6 +477,35 @@ def cancel_scheduled(item_id: str) -> bool:
     return False
 
 
+def edit_scheduled(item_id: str, text: str, kept: list[str]) -> bool:
+    """The person's edit of a post waiting for its time (Home › Review): its text, and which of its files still go
+    (by their SHA-256 start). False when no post waits under that id.
+
+    The person approved this post; the edit is their own, so it keeps its time and goes out as edited. Raises
+    XPostError when the edit can't go out: no text, or longer than the account may post.
+    """
+    with _SCHEDULE_LOCK:
+        item = next((entry for entry in _scheduled() if entry.get("id") == item_id
+                     and entry.get("status") == "scheduled"), None)
+    if item is None:
+        return False
+    account = next((entry for entry in x_accounts.listed() if entry.id == str(item.get("account_id"))), None)
+    if account is None:
+        return False
+    action = str(item.get("action") or "post")
+    words, _ = check_text(action, text, str(item.get("target") or "") or None)
+    check_length(account, action, words)  # May ask X the account's limit: outside the lock.
+    with _SCHEDULE_LOCK:
+        items = _scheduled()
+        for entry in items:
+            if entry.get("id") == item_id and entry.get("status") == "scheduled":
+                entry.update(text=words, media=[file for file in entry.get("media") or []
+                                                if str(file.get("sha256") or "")[:12] in kept])
+                _save_scheduled(items)
+                return True
+    return False
+
+
 def retry_scheduled(item_id: str, *, without_media: bool = False) -> bool:
     """The person's Try again (or Post without the picture) on a post that didn't go out: due now (the next
     ``send_due`` sends it).
@@ -385,7 +515,7 @@ def retry_scheduled(item_id: str, *, without_media: bool = False) -> bool:
     """
     with _SCHEDULE_LOCK:
         items = _scheduled()
-        item = next((entry for entry in items if entry.get("id") == item_id and entry.get("status") in _NOT_SENT),
+        item = next((entry for entry in items if entry.get("id") == item_id and entry.get("status") in _RETRIABLE),
                     None)
         if item is None:
             return False
@@ -428,6 +558,9 @@ def send_due(now: datetime | None = None) -> list[dict[str, Any]]:
         elif moment - when > SLOT_LATE:
             status, result, url = "missed", (f"Row-Bot wasn't running at {when:%H:%M} on {when:%a %d %b}, so it "
                                              "wasn't posted. Approve it again to post it."), ""
+        elif item["action"] in ("reply", "quote") and summoned(account, str(item.get("target") or "")) is False:
+            # Approved before Row-Bot checked X's reply rule: it never goes to X.
+            status, result, url = "by_hand", not_allowed(account, str(item["action"])), ""
         else:
             try:
                 media = media_facts([entry["path"] for entry in item.get("media") or []])
@@ -435,8 +568,10 @@ def send_due(now: datetime | None = None) -> list[dict[str, Any]]:
                     raise XPostError("A file changed after you approved the post, so it wasn't posted.")
                 sent = post_as(account, str(item["action"]), str(item["text"]), str(item.get("target") or ""),
                                media)
-                status = {"posted": "posted", "unknown": "unknown"}.get(sent.status, "failed")
-                result, url = sent.text, sent.url
+                status = {"posted": "posted", "unknown": "unknown", "by_hand": "by_hand"}.get(sent.status, "failed")
+                # Review shows the draft and the link beside the reason.
+                result = not_allowed(account, str(item["action"]), refused=True) if status == "by_hand" else sent.text
+                url = sent.url
             except XPostError as exc:
                 status, result, url = "failed", str(exc), ""
         _settle_scheduled(item, status, result, url)
@@ -446,9 +581,10 @@ def send_due(now: datetime | None = None) -> list[dict[str, Any]]:
         if status == "posted":
             notify(title=f"Posted on X as {handle}", message=url or result, source="x", requested=True)
         else:
-            notify(title=f"A scheduled post as {handle} didn't go out",
-                   message=f"{result} It's in Home › Review, where you can try it again.", toast_type="warning",
-                   source="x")
+            after = ("It's in Home › Review, with the draft to copy." if status == "by_hand"
+                     else "It's in Home › Review, where you can try it again.")
+            notify(title=f"A scheduled post as {handle} didn't go out", message=f"{result} {after}",
+                   toast_type="warning", source="x")
     return done
 
 
@@ -510,7 +646,7 @@ def _unsettled(account: XAccount, digest: str) -> dict[str, Any] | None:
 
 @dataclass(frozen=True)
 class Outcome:
-    status: str  # posted, failed or unknown
+    status: str  # posted, failed, unknown or by_hand (X's reply rule refused it)
     post_id: str = ""
     at: str = ""
     detail: str = ""
@@ -523,16 +659,20 @@ def _definite(exc: Exception) -> bool:
     return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout, httpx.UnsupportedProtocol))
 
 
+def _detail(response: Any) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    return str(body.get("detail") or body.get("title") or "").strip()[:300] if isinstance(body, dict) else ""
+
+
 def _refusal(response: Any, account: XAccount) -> str:
     if response.status_code == 401:
         return f"X turned down the sign-in of {account.handle}. The person can reconnect it in Settings › Apps › X."
     if response.status_code == 429:
         return "X is limiting requests right now. Try again later."
-    try:
-        body = response.json()
-    except ValueError:
-        body = {}
-    detail = str(body.get("detail") or body.get("title") or "").strip()[:300] if isinstance(body, dict) else ""
+    detail = _detail(response)
     return f"X refused it ({response.status_code}){': ' + detail if detail else ''}."
 
 
@@ -616,6 +756,8 @@ def _create(account: XAccount, token: dict, body: dict[str, Any]) -> Outcome:
         return Outcome("unknown")
     if response.status_code >= 500:
         return Outcome("unknown")
+    if _reply_rule(response):
+        return Outcome("by_hand")
     if response.status_code not in (200, 201):
         return Outcome("failed", detail=_refusal(response, account))
     try:
@@ -703,7 +845,8 @@ def _settled_text(account: XAccount, action: str, target: str, outcome: Outcome,
 
 @dataclass(frozen=True)
 class Sent:
-    """How one send ended: ``posted`` (deleted, for a delete), ``failed`` or ``unknown``, and in words."""
+    """How one send ended: ``posted`` (deleted, for a delete), ``failed``, ``unknown`` or ``by_hand`` (X's reply rule
+    refused it: trying again fails again), and in words."""
     status: str
     text: str
     url: str = ""
@@ -758,6 +901,9 @@ def _send_once(account: XAccount, action: str, text: str, target: str, media: li
     except XPostError as exc:
         _settle(operation, "failed")
         return Sent("failed", str(exc))
+    if outcome.status == "by_hand":
+        _settle(operation, "failed")
+        return Sent("by_hand", by_hand(account, action, text, target, refused=True))
     checked = outcome.status == "unknown"
     if checked:
         _settle(operation, "unknown")

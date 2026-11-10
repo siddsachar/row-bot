@@ -17,11 +17,22 @@ import pytest
 from row_bot import profile_restore
 from row_bot.application import profile_backup as backup
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 KEY = "sk-live-SYNTHETIC-DO-NOT-ARCHIVE-1234567890"
 WEBHOOK = "webhook-SYNTHETIC-secret-abcdef"
 MCP_KEY = "mcp-SYNTHETIC-header-key-xyz"
+
+
+@pytest.fixture(autouse=True)
+def keychain():
+    """The sign-ins a backup lists are read from the keychain: this process's memory, never the computer's."""
+    from row_bot import secret_store
+
+    backend = secret_store.MemoryBackend()
+    secret_store._set_backend_for_tests(backend)
+    yield backend
+    secret_store._set_backend_for_tests(None)
 
 
 def _db(path: Path, statements: list[str]) -> None:
@@ -82,6 +93,28 @@ def _profile(root: Path) -> Path:
 def _archive_text(archive: Path) -> str:
     with zipfile.ZipFile(archive) as bundle:
         return "\n".join(bundle.read(name).decode("utf-8", "replace") for name in bundle.namelist())
+
+
+def _accounts(data: Path, destination: Path) -> list[str]:
+    result = backup.create_backup(data, destination, now=datetime(2026, 10, 31, 9, 0))
+    manifest = json.loads(zipfile.ZipFile(result["path"]).read(backup.MANIFEST))
+    return [item["name"] for item in manifest["sign_in_again"] if item["kind"] == "account"]
+
+
+def test_a_backup_lists_only_the_accounts_signed_in_on_this_computer(tmp_path, monkeypatch):
+    """Gmail, Calendar and X make their folders whenever Row-Bot loads them: a folder is no sign-in."""
+    from row_bot import account_tokens
+
+    data = tmp_path / "profile"
+    for folder in ("gmail", "calendar", "x"):
+        (data / folder).mkdir(parents=True)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    assert _accounts(data, tmp_path / "first") == []
+
+    account_tokens.write("google", {"token": "fixture-access", "refresh_token": "fixture-refresh",
+                                    "scopes": list(account_tokens.GOOGLE_SCOPES)})
+    account_tokens.write("microsoft", {"refresh_token": "fixture-refresh", "account": "pat@example.com"})
+    assert _accounts(data, tmp_path / "second") == ["Gmail", "Google Calendar", "Outlook"]
 
 
 def test_a_backup_holds_the_profile_without_secrets_caches_or_logs(tmp_path):
@@ -282,7 +315,7 @@ def test_an_older_backup_with_files_now_left_out_still_restores_without_them(tmp
 
 
 @pytest.mark.platform
-def test_a_backup_leaves_out_an_open_upload_staging_file_but_keeps_attachments(tmp_path):
+def test_a_backup_leaves_out_upload_staging_and_live_reply_files_but_keeps_attachments(tmp_path):
     """B289: on Windows an attachment upload's open staging file can't be read; it is never user data."""
     import tempfile
 
@@ -290,9 +323,13 @@ def test_a_backup_leaves_out_an_open_upload_staging_file_but_keeps_attachments(t
     media = data / "media" / "conversation-1"
     media.mkdir(parents=True)
     (media / "upload_notes.pdf").write_bytes(b"%PDF-1.4 kept")
-    with tempfile.TemporaryFile(mode="w+b", dir=media, prefix="upload_") as staging:
+    with tempfile.TemporaryFile(mode="w+b", dir=media, prefix="upload_") as staging, \
+            tempfile.TemporaryFile(mode="w+b", dir=media, prefix="live_") as live:
+        # A running reply's streaming text (U11): rewritten every moment, and saved with the chat once done.
         staging.write(b"chunk")
         staging.flush()
+        live.write(b'{"text": "Half an answer"}')
+        live.flush()
         result = backup.create_backup(data, tmp_path / "out", now=datetime(2026, 10, 7, 9, 0))
 
     with zipfile.ZipFile(result["path"]) as archive:
@@ -403,3 +440,47 @@ def test_a_failed_container_restore_puts_the_workspace_back_too(tmp_path, monkey
     assert json.loads((data / "tools_config.json").read_text(encoding="utf-8")) == {"enabled": ["web_search"]}
     assert not [path for path in data.iterdir()
                 if path.name.startswith((profile_restore.PARKED_PREFIX, profile_restore.ASIDE_PREFIX))]
+
+
+CLAUDE_TOKEN = "sk-ant-oat-SYNTHETIC-claude-sign-in"
+
+
+@pytest.mark.platform
+@pytest.mark.parametrize("layout", ["image", "home_inside", "config_dir"])
+def test_a_backup_never_reads_claude_codes_sign_in_or_install(tmp_path, monkeypatch, layout):
+    """In the image the home is the data folder, so Claude Code's sign-in and install sit beside the profile
+    (H14). A backup leaves them out without opening them, Claude's credential file included, and a restore
+    leaves them where they are."""
+    from tests.helpers.open_audit import watch_opens
+
+    data = tmp_path / "data"
+    data.mkdir()
+    home = data if layout == "image" else data / "home"
+    home.mkdir(exist_ok=True)
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(home))
+    claude = home / ".claude"
+    if layout == "config_dir":
+        claude = data / "claude-config"
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude))
+    claude.mkdir()
+    (claude / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": CLAUDE_TOKEN}}),
+                                              encoding="utf-8")
+    (claude / "settings.json").write_text(json.dumps({"note": CLAUDE_TOKEN}), encoding="utf-8")
+    (home / ".claude.json").write_text(json.dumps({"oauthAccount": CLAUDE_TOKEN}), encoding="utf-8")
+    (home / ".local" / "share" / "claude" / "versions").mkdir(parents=True)
+    (home / ".local" / "share" / "claude" / "versions" / "2.1.300").write_bytes(b"claude " + CLAUDE_TOKEN.encode())
+    (home / ".local" / "bin").mkdir(parents=True)
+    (home / ".local" / "bin" / "claude").write_bytes(b"launcher " + CLAUDE_TOKEN.encode())
+    _db(data / "threads.db", ["CREATE TABLE threads(id TEXT)", "INSERT INTO threads VALUES ('t1')"])
+
+    with watch_opens(claude, home / ".claude.json", home / ".local") as opened:
+        result = backup.create_backup(data, tmp_path / "out", now=datetime(2026, 10, 30, 23, 0))
+        backup.stage_restore(Path(result["path"]), data, source_name="backup.zip")  # by this Row-Bot
+        applied = profile_restore.apply_pending(data, now=datetime(2026, 10, 30, 23, 5))
+
+    assert opened == []
+    assert CLAUDE_TOKEN not in _archive_text(Path(result["path"]))
+    assert applied["status"] == "applied"
+    assert json.loads((claude / ".credentials.json").read_text(encoding="utf-8"))["claudeAiOauth"]
+    assert (home / ".local" / "bin" / "claude").exists()

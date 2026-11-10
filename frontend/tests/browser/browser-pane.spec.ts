@@ -272,6 +272,19 @@ test('the Browser pane in every state, from nothing open to a crash', async ({
     () => paint(page, conversation, signIn, 'sign-in'),
   );
 
+  // A code to paste: the menu pastes the clipboard as the page's own paste, beside the keyboard's.
+  const pasteItem = page.getByRole('menuitem', { name: 'Paste into the page' });
+  await everywhere(page, info, 'pane-paste-menu', async () => {
+    await paneInView(page);
+    if (!(await pasteItem.isVisible()))
+      await pane(page)
+        .getByRole('button', { name: 'More browser actions' })
+        .click();
+    await expect(pasteItem).toBeVisible();
+  });
+  await page.keyboard.press('Escape');
+  await expect(pasteItem).toHaveCount(0);
+
   // Signing in: the person just uses the page, and moving the mouse there takes nothing over.
   await pane(page).locator('.browser-viewport').hover();
   await page.mouse.move(40, 40);

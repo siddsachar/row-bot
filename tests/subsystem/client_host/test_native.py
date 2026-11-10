@@ -38,8 +38,8 @@ class Driver:
     def capabilities(self) -> list[str]:
         return ["select_file", "select_folder", "clipboard_read", "clipboard_write", "open_external", "managed_window", "save"]
 
-    def select(self, kind: str) -> str | None:
-        self.calls.append("select:" + kind)
+    def select(self, kind: str, start: str | None = None) -> str | None:
+        self.calls.append("select:" + kind + (" in " + start if start else ""))
         self.on_select()
         return self.selected
 
@@ -268,6 +268,32 @@ def test_native_exception_never_exposes_private_paths(native) -> None:
     assert bridge.native_client_dispatch(proof, "select_file", _picker_payload()) == {"status": "unavailable", "reason": "operation_failed"}
 
 
+def test_a_saved_file_is_shown_in_its_folder_by_a_token_never_by_its_path(native, tmp_path: Path) -> None:
+    """Show in folder after a Save dialog (5.3.3): the page gets a one-time token for the file chosen and
+    the name the person gave it, never the path; an unknown or malformed token reveals nothing."""
+    bridge, proof, driver, _, _ = native
+    chosen = tmp_path / "launch-deck-final.pdf"
+    chosen.write_bytes(b"%PDF")
+    revealed: list[Path] = []
+    driver.save = lambda reference, name, authorized: chosen if authorized() else False
+    driver.reveal = lambda path: revealed.append(path) or True
+    assert "reveal_saved" in bridge.native_client_dispatch(proof, "discover", {})["value"]["capabilities"]
+
+    result = bridge.native_client_dispatch(proof, "save", {"reference": "save:" + "a" * 32, "name": "launch-deck.pdf"})
+    assert result["status"] == "ok" and set(result["value"]) == {"saved", "name"}
+    assert result["value"]["name"] == "launch-deck-final.pdf"  # Renamed in the dialog: the name chosen.
+    assert str(tmp_path) not in str(result)
+    token = result["value"]["saved"]
+
+    assert bridge.native_client_dispatch(proof, "reveal_saved", {"saved": token}) == {"status": "ok", "value": None}
+    assert revealed == [chosen]
+    for wrong in ({"saved": "f" * 32}, {"saved": str(chosen)}, {"saved": token, "path": str(chosen)}, {}):
+        assert bridge.native_client_dispatch(proof, "reveal_saved", wrong)["status"] == "unavailable", wrong
+    chosen.unlink()  # Moved away since: nothing to show.
+    assert bridge.native_client_dispatch(proof, "reveal_saved", {"saved": token})["status"] == "unavailable"
+    assert revealed == [chosen]
+
+
 def test_pywebview_driver_uses_exact_supplied_window_and_backend_save_guard(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import sys
@@ -303,14 +329,14 @@ def test_a_save_dialog_answering_one_path_saves_exactly_there(monkeypatch: pytes
     saved: list[tuple[str, Path]] = []
     driver = PyWebViewDriver(window, save_reference=lambda reference, path: saved.append((reference, path)) or True)
 
-    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is True
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) == Path(chosen)
     assert saved == [("fixture", Path(chosen))]
     # The dialog opens in Downloads with the suggested name (pywebview's own
     # Windows default folder has no drive).
     assert dialogs[0] == (30, {"save_filename": "conversation-export.pdf", "directory": str(tmp_path / "Downloads")})
     # A one-item tuple (GTK, Qt) is the same choice.
     answer["value"] = (chosen,)
-    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is True
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) == Path(chosen)
     assert saved[-1] == ("fixture", Path(chosen))
     # A cancelled dialog writes nothing and says so.
     answer["value"] = None
@@ -954,3 +980,14 @@ def test_a_refused_grant_asks_for_a_fresh_attestation_only_before_any_effect() -
     assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-3"}) == {
         "status": "unavailable", "reason": "native_proof_required"}
     assert "grant-attest-3" not in state["granted"]
+
+
+def test_a_backup_to_restore_is_looked_for_in_the_backups_folder(native, tmp_path, monkeypatch) -> None:
+    """U13: the picker opens where Row-Bot saves backups, not wherever the system's last dialog was."""
+    bridge, proof, driver, _, registered = native
+    (tmp_path / "Backups").mkdir()
+    monkeypatch.setattr("row_bot.application.conversation_creation.configured_workspace_root", lambda: tmp_path)
+    restore = _picker_payload(intent="restore_backup", conversationId=None, destination="data-restore")
+    assert bridge.native_client_dispatch(proof, "select_file", restore)["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "select_file", _picker_payload())["status"] == "ok"
+    assert driver.calls == [f"select:file in {tmp_path / 'Backups'}", "select:file"]

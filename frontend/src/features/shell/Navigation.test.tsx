@@ -830,7 +830,7 @@ it('delegates sidebar New chat and navigates Settings to the persistent shell', 
   fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
   expect(onNewChat).toHaveBeenCalledTimes(1);
   expect(screen.getByLabelText('Current route')).toHaveTextContent(
-    '/settings/providers',
+    '/settings/models',
   );
   expect(transport.counters.commands).toBe(0);
 });
@@ -1206,7 +1206,7 @@ it('keeps Home, New chat, commands and Settings reachable on the collapsed rail 
   expect(onCommands).toHaveBeenCalledTimes(1);
   expect(within(rail).getByRole('link', { name: 'Settings' })).toHaveAttribute(
     'href',
-    '/settings/providers',
+    '/settings/models',
   );
   fireEvent.click(within(rail).getByRole('link', { name: 'Home' }));
   expect(

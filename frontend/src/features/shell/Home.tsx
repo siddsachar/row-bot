@@ -578,6 +578,7 @@ export default function Home({
                 }
                 onCancelScheduledPost={controller.cancelScheduledPost}
                 onRetryScheduledPost={controller.retryScheduledPost}
+                onEditScheduledPost={controller.editScheduledPost}
                 buddy={<BuddyPortrait />}
                 onAsk={onAsk}
                 asking={asking}

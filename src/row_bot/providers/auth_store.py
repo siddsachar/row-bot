@@ -17,6 +17,7 @@ from row_bot.providers.config import (
     save_provider_config, update_provider_config,
 )
 from row_bot.providers.models import AuthMethod, ProviderHealth
+from row_bot.providers.presets import PRESETS
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ PROVIDER_API_KEY_ENV: dict[str, str] = {
     "google": "GOOGLE_API_KEY",
     "xai": "XAI_API_KEY",
     "minimax": "MINIMAX_API_KEY",
+    **{preset.id: preset.key_env for preset in PRESETS.values()},
 }
 PROVIDER_SECRET_CHUNK_SIZE = 512
 OAUTH_PROVIDER_IDS = frozenset({"codex", "xai_oauth"})

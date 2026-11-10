@@ -39,6 +39,9 @@ const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const reference = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9:_-]{1,256}$/.test(value);
+// A saved file's own name, as the person typed it: never a path.
+const savedName = (value: unknown): value is string =>
+  typeof value === 'string' && /^[^\\/\p{Cc}]{1,255}$/u.test(value);
 const placementValue = (value: unknown): value is BuddyPlacement =>
   object(value) &&
   ['docked', 'desktop'].includes(String(value.placement)) &&
@@ -284,13 +287,39 @@ export function createPyWebViewPlatform(
       if (signal?.aborted) return { status: 'cancelled' };
       if (!reference(ref) || !safeDownloadName(name))
         return unavailable('invalid_request');
-      const result = await call('save', { reference: ref, name }, nullValue);
+      const result = await call(
+        'save',
+        { reference: ref, name },
+        (value): value is { saved: string; name?: string } | null =>
+          value === null ||
+          (object(value) &&
+            Object.keys(value).every(
+              (key) => key === 'saved' || key === 'name',
+            ) &&
+            typeof value.saved === 'string' &&
+            /^[0-9a-f]{32}$/.test(value.saved) &&
+            (value.name === undefined || savedName(value.name))),
+      );
       // Discard late completion; this cannot undo an already performed host save.
       if (signal?.aborted) return { status: 'cancelled' };
-      // The host answers ok only once the chosen file is written.
-      return result.status === 'ok'
-        ? { status: 'ok', value: { kind: 'file' } }
-        : result;
+      if (result.status !== 'ok') return result;
+      // The host answers ok only once the chosen file is written; Show in
+      // folder finds it by a token, never by the path chosen. The notice
+      // names the file as the person named it in the dialog.
+      const saved = result.value?.saved;
+      const fileName = result.value?.name;
+      return {
+        status: 'ok',
+        value: saved
+          ? {
+              kind: 'file',
+              ...(fileName ? { fileName } : {}),
+              reveal: async () =>
+                (await call('reveal_saved', { saved }, nullValue)).status ===
+                'ok',
+            }
+          : { kind: 'file' },
+      };
     },
   };
 }

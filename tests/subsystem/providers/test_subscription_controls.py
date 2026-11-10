@@ -543,3 +543,27 @@ def test_xai_strict_listener_releases_accepted_partial_header_after_cancel(monke
     with socket.socket() as rebound:
         rebound.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         rebound.bind(("127.0.0.1", port))
+
+
+@pytest.mark.parametrize("account", ["codex"], indirect=True)
+def test_an_expired_device_code_frees_chatgpt_for_a_new_sign_in(account):
+    """A code nobody approved in time ends the sign-in; Connect starts a new code at once instead of
+    saying another sign-in is still running until Row-Bot restarts (U6)."""
+    provider, owner, module, calls, *_ = account
+    now = [0.0]
+    owner._clock = lambda: now[0]
+    module.start_codex_device_flow = lambda **_kw: (calls.append("start"), SimpleNamespace(
+        verification_uri="https://example.invalid/device", user_code="SYNTHETIC", interval_seconds=0.01,
+        expires_at="2030-01-01T00:00:00+00:00"))[1]
+    module.poll_codex_device_authorization = lambda *_a, **_kw: None
+
+    first = execute(owner, command(provider))["flow"]
+    now[0] += 3600  # Nobody approves the code before it runs out.
+    owner._flows[first["flow_id"]].thread.join(5)
+    expired = owner.read(owner_id="synthetic-owner", flow_id=first["flow_id"],
+                         server_epoch=first["server_epoch"], validate=lambda: None)
+    assert expired.state == "expired"
+
+    second = execute(owner, command(provider))["flow"]
+    assert second["flow_id"] != first["flow_id"] and second["state"] == "waiting"
+    assert calls.count("start") == 2

@@ -251,6 +251,19 @@ def _no_outbound_network(request: pytest.FixtureRequest):
         pytest.fail("A deterministic test tried to reach the network: " + "; ".join(attempts), pytrace=False)
 
 
+def _refuse_catalogue_download() -> bytes:
+    raise RuntimeError("deterministic tests don't fetch models.dev")
+
+
+@pytest.fixture(autouse=True)
+def _no_live_model_catalogue(monkeypatch: pytest.MonkeyPatch):
+    """A model refresh in a test reads the bundled catalogue; the catalogue's own tests fake its download."""
+    from row_bot.providers import capability_catalog
+
+    monkeypatch.setattr(capability_catalog, "_download", _refuse_catalogue_download)
+    monkeypatch.setattr(capability_catalog, "_loaded", None)
+
+
 def shard_files(files: set[str], shard: str) -> set[str]:
     """The files one shard runs for ROW_BOT_TEST_SHARD=k/N.
 
@@ -487,6 +500,8 @@ def _small_registry_snapshot(_registry_fixture_snapshot: Path, monkeypatch: pyte
     # The shipped Registry mirror holds tens of thousands of records. Deterministic tests
     # index a one-record fixture instead; a test of the shipped snapshot sets SHIPPED itself.
     monkeypatch.setattr("row_bot.mcp_client.registry_snapshot.SHIPPED", _registry_fixture_snapshot)
+    # And no shipped quality signals: a test that ranks with signals ships its own (tests/helpers/registry.py).
+    monkeypatch.setattr("row_bot.mcp_client.registry_signals.SHIPPED", _registry_fixture_snapshot.with_name("no-signals.json.xz"))
 
 
 @pytest.fixture

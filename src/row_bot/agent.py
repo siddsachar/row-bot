@@ -22,6 +22,7 @@ from row_bot.prompt_cache import (
     prompt_cache_lifetime,
     with_conversation_cache,
 )
+from row_bot.providers import backup as backup_model
 from row_bot.providers import deferred_tools
 from row_bot.providers.capabilities import PROMPT_CACHE_SYSTEM_BREAKPOINT_ROUTES, prompt_cache_route
 from row_bot import prompt_prefix_diff
@@ -778,6 +779,11 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
                             "kind": str(fallback.get("kind") or "")[:64],
                             "reason": str(fallback.get("reason") or "")[:64],
                         }
+                    # The backup model taking over a turn (#140): the chat shows only its note.
+                    backup_note = (item.get("row_bot_ui") or {}).get("backup_model") if isinstance(
+                        item.get("row_bot_ui"), dict) else None
+                    if isinstance(backup_note, dict) and isinstance(backup_note.get("text"), str):
+                        ui["backup_model"] = {"text": backup_note["text"][:300]}
                     event_messages.append(
                         HumanMessage(content=content, additional_kwargs={"row_bot_ui": ui})
                     )
@@ -1111,6 +1117,11 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
         return "⚠️ I got stuck in a tool loop and had to stop. Try rephrasing your request or starting a new conversation."
     if "insufficient_quota" in s or "exceeded your current quota" in s:
         return "⚠️ API quota exceeded — please check your billing dashboard."
+    if any(marker in s for marker in (
+        "no credits", "insufficient balance", "insufficient credit", "out of credits", "credit card",
+        "payment required", "http 402", "status code: 402", "error code: 402",
+    )):
+        return "⚠️ Out of credits — add credits with the provider, or switch to another model."
     if "rate_limit" in s or "rate limit" in s or "429" in s:
         # Keep the provider's own wait, so a goal can wait for the reset (B244).
         wait = re.search(r"(?:try again|retry|resets?)\s+(?:in|after)\s+(?:\d+(?:\.\d+)?\s*[a-z]*\s?)+",
@@ -1188,8 +1199,41 @@ def _refused_by_caller(exc: BaseException) -> bool:
     return False
 
 
+def _provider_refusal(exc: BaseException) -> list[tuple] | None:
+    """The events for a provider that said why it can't answer (signed out, a plan's limit), possibly
+    wrapped: ``provider_refusal`` with a code the chat shows instead of "interrupted", then the error."""
+    from row_bot.providers.claude_subscription import ClaudePlanUnavailable
+    from row_bot.providers.runtime import ProviderSignInRequired
+    current: BaseException | None = exc
+    for _ in range(8):
+        if current is None:
+            return None
+        if isinstance(current, ProviderSignInRequired):
+            refusal = {"code": "sign_in_required", "provider": current.label}
+        elif isinstance(current, ClaudePlanUnavailable):
+            refusal = {"code": "provider_unavailable", "message": str(current)[:400]}
+        else:
+            current = current.__cause__ or current.__context__
+            continue
+        return [("provider_refusal", refusal), ("error", str(current))]
+    return None
+
+
+def _readiness_refusal(provider_id: str) -> list[tuple] | None:
+    """A sign-in provider's own reason its readiness check failed (signed out, Claude Code missing), as
+    ``_provider_refusal``'s events; None for any other provider or reason."""
+    from row_bot.providers.runtime import require_signed_in
+    try:
+        require_signed_in(provider_id)
+    except Exception as exc:
+        return _provider_refusal(exc)
+    return None
+
+
 def _notify_api_error(friendly_msg: str) -> None:
     """Fire a persistent desktop notification for an API error."""
+    if backup_model.hold_notice(friendly_msg):
+        return  # shown only if the backup model doesn't answer
     try:
         from row_bot.notifications import notify
         # An open conversation already shows its own error with a next step;
@@ -1212,6 +1256,20 @@ def _is_browser_tool_name(tool_name: str) -> bool:
     """Return True for native browser tools and MCP-prefixed browser tools."""
     name = str(tool_name or "")
     return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
+
+
+# How many browser actions one turn may take before it is stopped as a runaway loop; filming a demo (its browser
+# recording) is a long run of deliberate page actions, so it may take more.
+BROWSER_TOOL_LIMIT = 80
+RECORDING_BROWSER_TOOL_LIMIT = 400
+
+
+def _browser_tool_limit(thread_id: str) -> int:
+    """The browser actions this turn may take: more while this chat's browser is being recorded."""
+    from row_bot import recordings
+
+    recording = bool(thread_id) and recordings.active_for(thread_id, "browser") is not None
+    return RECORDING_BROWSER_TOOL_LIMIT if recording else BROWSER_TOOL_LIMIT
 
 
 def _browser_action_name(tool_name: str) -> str:
@@ -2441,6 +2499,7 @@ def _render_tool_results(
     *,
     boundary: int,
     shrink_budget: int | None = None,
+    clear: frozenset[int] = frozenset(),
 ) -> dict[int, Any]:
     """The model-facing content of each tool result, by position.
 
@@ -2452,7 +2511,7 @@ def _render_tool_results(
     inner: dict[int, str] = {}
     rescan: set[int] = set()
     for view in views:
-        if _is_cleared(view, marks):
+        if _is_cleared(view, marks) or view.position in clear:
             inner[view.position] = _browser_stub(view) if view.browser else _summarize_tool_result(
                 view.name or "tool", view.text
             )
@@ -2571,9 +2630,13 @@ def _apply_history_hygiene(
     *history* is the raw history (summary validation); *visible* the same messages as they appear
     in *trimmed* (index-aligned, turn-context tags neutralized).
     """
+    newest_person = max((index for index, message in enumerate(visible) if is_person_message(message)), default=0)
     views = _tool_result_views(visible)
     if not views:
-        return trimmed
+        current = _without_earlier_reasoning(visible, before=newest_person)
+        replacements = {id(visible[position]): current[position] for position in range(len(visible))
+                        if current[position] is not visible[position]}
+        return [replacements.get(id(message), message) for message in trimmed] if replacements else trimmed
     thread_id = _current_thread_id_var.get() or ""
     marks = history_hygiene.load_marks(thread_id, visible)
     summary = _agent_summary_state(history) or {}
@@ -2622,27 +2685,61 @@ def _apply_history_hygiene(
     if rendered is None:
         rendered = _render_tool_results(views, marks, boundary=boundary)
         current = _with_rendered_results(visible, rendered)
+    current = _without_earlier_reasoning(current, before=newest_person)
+    # The part only clearing can shorten: the turn in flight, or under pressure (compaction couldn't make room, or
+    # the provider refused the request) every turn a jump keeps whole.
+    kept_whole = max(boundary, history_hygiene.protected_start(visible)) if pressure else newest_person
     if compact_at:
-        newest = max(
-            (index for index, message in enumerate(visible) if is_person_message(message)),
-            default=0,
-        )
-        emergency = request_size("", current[newest:]) >= compact_at
+        emergency = request_size("", current[kept_whole:]) >= compact_at
     else:
         emergency = request_size(summary_text, current[boundary:]) >= max_tokens
     if emergency:
-        logger.debug("History hygiene: emergency shrink of tool results (thread=%s)", thread_id[:8])
-        rendered = _render_tool_results(views, marks, boundary=boundary, shrink_budget=int(max_tokens * 0.65))
-        current = _with_rendered_results(visible, rendered)
+        # The turn in flight alone reaches the limit (compaction can't shorten it): send only the newest step's
+        # reasoning, then clear this turn's earlier results, oldest first, until it fits (a page outline from ten
+        # steps ago is stale), keeping the newest few whole; shrinking every result is the last resort.
+        logger.debug("History hygiene: emergency in the turn in flight (thread=%s)", thread_id[:8])
+        current = _without_earlier_reasoning(current, before=len(visible))
+        limit = compact_at or max_tokens
+        stale = sorted(view.position for view in views if view.position >= kept_whole)[:-_KEEP_NEWEST_RESULTS]
+        cleared: set[int] = set()
+        for position in stale:
+            if request_size("", current[kept_whole:]) < limit:
+                break
+            cleared.add(position)
+            rendered = _render_tool_results(views, marks, boundary=boundary, clear=frozenset(cleared))
+            current = _without_earlier_reasoning(_with_rendered_results(visible, rendered), before=len(visible))
+        if request_size("", current[kept_whole:]) >= limit:
+            rendered = _render_tool_results(views, marks, boundary=boundary, shrink_budget=int(max_tokens * 0.65),
+                                            clear=frozenset(cleared))
+            current = _without_earlier_reasoning(_with_rendered_results(visible, rendered), before=len(visible))
 
     replacements = {
         id(visible[position]): current[position]
-        for position in rendered
+        for position in range(len(visible))
         if current[position] is not visible[position]
     }
     if not replacements:
         return trimmed
     return [replacements.get(id(message), message) for message in trimmed]
+
+
+# Results of the turn in flight that stay whole when the turn alone reaches the limit.
+_KEEP_NEWEST_RESULTS = 3
+
+
+def _without_earlier_reasoning(messages: list, *, before: int) -> list:
+    """*messages* without the kept reasoning (``reasoning_content``, sent back as Ollama's ``thinking``) of the
+    steps before *before*, but always the newest step's: a model's templates leave an earlier turn's reasoning
+    out anyway, and under pressure one long turn of a thinking model keeps room to answer (compaction can't
+    shorten the turn in flight). Nothing is changed in the conversation itself."""
+    carrying = [index for index, message in enumerate(messages)
+                if isinstance(message, AIMessage) and (message.additional_kwargs or {}).get("reasoning_content")]
+    kept = list(messages)
+    for index in [index for index in carrying[:-1] if index < before]:
+        message = messages[index]
+        kept[index] = _copy_message(message, additional_kwargs={
+            key: value for key, value in message.additional_kwargs.items() if key != "reasoning_content"})
+    return kept
 
 
 def _root_system_prompt(small_profile: bool) -> str:
@@ -3111,8 +3208,14 @@ _THINKING_BLOCK_TYPES = frozenset({"thinking", "redacted_thinking"})
 
 
 def _counted_message(message: BaseMessage) -> BaseMessage:
-    """*message* as it is counted: a thinking block by its text, not by its repr and signature (F29)."""
+    """*message* as it is counted: a thinking block by its text, not by its repr and signature (F29); reasoning
+    kept beside the reply (``reasoning_content``, sent back as Ollama's ``thinking``) counts too."""
     content = getattr(message, "content", None)
+    reasoning = (getattr(message, "additional_kwargs", None) or {}).get("reasoning_content")
+    if isinstance(message, AIMessage) and isinstance(reasoning, str) and reasoning:
+        blocks = list(content) if isinstance(content, list) else ([{"type": "text", "text": content}] if content else [])
+        return _counted_message(_copy_message(message, content=[*blocks, {"type": "text", "text": reasoning}],
+                                              additional_kwargs={}))
     if not isinstance(message, AIMessage) or not isinstance(content, list):
         return message
     if not any(isinstance(block, dict) and block.get("type") in _THINKING_BLOCK_TYPES for block in content):
@@ -4239,7 +4342,13 @@ def _prepare_agent_request(
         prepared = _prepare_with_compaction(inputs, force=True)
     else:
         inputs = _collect_agent_preparation_inputs(state, config)
-        prepared = _prepare_with_compaction(inputs)
+        try:
+            prepared = _prepare_with_compaction(inputs)
+        except ContextCompactionError:
+            # Compaction couldn't make room (the latest turns, kept whole, are too large to summarize): once more
+            # under pressure, which clears their stale results, oldest first.
+            inputs = _collect_agent_preparation_inputs(state, config, pressure=True)
+            prepared = _prepare_with_compaction(inputs)
     _current_compaction_succeeded_var.set(False)
     # A summary stands in for older turn contexts: this turn gets a full snapshot. Checked on every
     # call, so a compaction made outside this hook (an overflow retry, a resumed call) is followed
@@ -4434,7 +4543,8 @@ def _request_after_overflow(exc: BaseException, config: dict | None) -> list | N
         return None
     retried = int(getattr(prepared, "raw_estimated_input_tokens", 0) or 0)
     if estimate and retried >= estimate:
-        logger.warning("Context overflow: compaction found nothing to shorten; not retrying")
+        logger.warning("Context overflow: compaction found nothing to shorten; not retrying (the provider said: %s)",
+                       str(exc)[:400])
         return None
     logger.warning(
         "Context overflow: compacted and retrying once (~%d estimated tokens, was ~%d, thread=%s)",
@@ -4704,6 +4814,17 @@ _current_learning_turn_var: _contextvars.ContextVar[Any] = _contextvars.ContextV
 _current_learning_tool_call_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "current_learning_tool_call", default=""
 )
+# The turn's messages as the graph holds them while one of its tools runs. The Auto reviewer reads
+# the person's newest words here: the checkpoint is written in the background and may still be the
+# previous turn's.
+_current_turn_messages_var: _contextvars.ContextVar[tuple] = _contextvars.ContextVar(
+    "current_turn_messages", default=()
+)
+
+
+def current_turn_messages() -> tuple:
+    """The running turn's messages while one of its tools runs; empty outside a tool call."""
+    return _current_turn_messages_var.get()
 # Surfaces where a turn starts with the person's own message (a next-message marker).
 _LEARNING_PERSON_SURFACES = frozenset({"normal_chat", "remote_client", "channel"})
 # The stream's last event says how the turn ended.
@@ -5229,7 +5350,9 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                            else {"input": args[0] if len(args) == 1 else list(args)}), **sent}
             description = approval_fields(sent) or "Nothing else is sent with it."
         else:
-            args_str = ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
+            # One value says itself ("Delete file: summary.md"); several name what each is.
+            args_str = (_argument(next(iter(given.values()))) if len(given) == 1 and not args else
+                        ", ".join(f"{key}={_argument(value)}" for key, value in given.items()))
             if args:
                 args_str = _argument(args[0]) if len(args) == 1 else _argument(args)
                 if given:
@@ -6144,7 +6267,12 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             "forced_resume": force_external_discovery,
         },
     )
-    offered_parents = tuple(sorted({str(entry["parent"]) for entry in eager_core_entries}))
+    # The groups the tool-guide index names (effective_parent_names below): MCP tools come as external ones, so
+    # without "mcp" here the index offered mcp_guide and skill_load refused it.
+    offered = {str(entry["parent"]) for entry in eager_core_entries}
+    if any(record.parent == "mcp" or record.source.startswith("mcp") for record in external_records):
+        offered.add("mcp")
+    offered_parents = tuple(sorted(offered))
     (
         authorized_skill_records,
         active_skill_ids,
@@ -7004,12 +7132,14 @@ class ToolCallPayload(str):
         args: dict[str, Any] | None = None,
         call_id: str = "",
         runtime_name: str = "",
+        media_prompt: str = "",
     ):
         obj = str.__new__(cls, str(name or "tool"))
         obj.raw_name = str(raw_name or "")
         obj.runtime_name = str(runtime_name or raw_name or "")
         obj.args = dict(args or {})
         obj.call_id = str(call_id or "")
+        obj.media_prompt = str(media_prompt or "")
         return obj
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -7023,6 +7153,8 @@ class ToolCallPayload(str):
             return self.args
         if key == "id":
             return self.call_id
+        if key == "media_prompt":
+            return self.media_prompt
         return default
 
     def as_dict(self) -> dict[str, Any]:
@@ -7058,14 +7190,21 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
     exact ToolMessage in parallel tool batches. With Learning (preview) on, the call and its
     capped result are captured too.
     """
-    turn = _current_learning_turn_var.get() if learning.is_enabled() else None
-    if turn is None:
-        return _platform_tool_call(request, execute, None)
-    token = _current_learning_tool_call_var.set(str((request.tool_call or {}).get("id") or ""))
+    state = getattr(request, "state", None)
+    messages = state if isinstance(state, list) else (
+        state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None))
+    messages_token = _current_turn_messages_var.set(tuple(messages or ()))
     try:
-        return _platform_tool_call(request, execute, turn)
+        turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+        if turn is None:
+            return _platform_tool_call(request, execute, None)
+        token = _current_learning_tool_call_var.set(str((request.tool_call or {}).get("id") or ""))
+        try:
+            return _platform_tool_call(request, execute, turn)
+        finally:
+            _current_learning_tool_call_var.reset(token)
     finally:
-        _current_learning_tool_call_var.reset(token)
+        _current_turn_messages_var.reset(messages_token)
 
 
 def _learning_tool_call(turn: Any, request: Any, result: Any = None, *, untrusted: bool = False,
@@ -7149,6 +7288,8 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
 
 
 def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
+    from row_bot.application.conversation_traces import media_prompt
+
     raw_name = str(tc.get("name") or "")
     args = tc.get("args")
     effective_name = _tool_call_runtime_name(tc)
@@ -7158,6 +7299,8 @@ def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
         args=_safe_tool_call_args(args),
         call_id=str(tc.get("id") or raw_name),
         runtime_name=effective_name,
+        # A picture's or video's prompt names it in the chat's Outputs (5.3.3); no other argument rides along.
+        media_prompt=media_prompt(effective_name, args.get("prompt") if isinstance(args, dict) else None),
     )
 
 
@@ -7356,7 +7499,8 @@ def _chat_only_request_after_overflow(
         logger.warning("Context overflow: the request could not be compacted (%s)", type(retry_exc).__name__)
         return None
     if retried.raw_estimated_input_tokens >= prepared.raw_estimated_input_tokens:
-        logger.warning("Context overflow: compaction found nothing to shorten; not retrying")
+        logger.warning("Context overflow: compaction found nothing to shorten; not retrying (the provider said: %s)",
+                       str(exc)[:400])
         return None
     logger.warning(
         "Context overflow: compacted and retrying once (~%d estimated tokens, was ~%d)",
@@ -7438,7 +7582,7 @@ def _stream_chat_only_events(
         time.perf_counter() - _readiness_started
     ) * 1000.0
     if not readiness.ready:
-        yield ("error", readiness.user_message())
+        yield from _readiness_refusal(readiness.provider_id) or [("error", readiness.user_message())]
         return
     _current_runtime_reason_var.set("chat_only_ready")
     _log_runtime_decision(
@@ -7466,6 +7610,7 @@ def _stream_chat_only_events(
             time.perf_counter() - _llm_started
         ) * 1000.0
     except Exception as exc:
+        backup_model.note_failure(exc)
         yield ("error", _friendly_api_error(str(exc), model_label))
         return
     _messages_started = time.perf_counter()
@@ -7656,6 +7801,7 @@ def _stream_chat_only_events(
             if _is_context_overflow_error(exc):
                 _mark_context_overflow(preparation_inputs)
             learn(exc)
+            backup_model.note_failure(exc)
             yield ("error", _friendly_api_error(str(exc), model_label))
             return
         break
@@ -7794,7 +7940,18 @@ NO_MODEL_CHANNEL_REPLY = (
 
 
 def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
-                  *, stop_event: threading.Event | None = None):
+                 *, stop_event: threading.Event | None = None):
+    """:func:`stream_agent_without_backup`, finished by the backup model when the turn's model can't
+    answer (#140). It also yields ``("backup_model", {note, reason, model_ref})`` when it switches."""
+    return backup_model.stream(
+        lambda: stream_agent_without_backup(user_input, enabled_tool_names, config, stop_event=stop_event),
+        lambda handed: stream_agent_without_backup(user_input, enabled_tool_names, handed, stop_event=stop_event),
+        config, user_input, stop_event=stop_event, notify=_notify_api_error,
+    )
+
+
+def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], config: dict,
+                                *, stop_event: threading.Event | None = None):
     """Stream the agent response as structured events.
 
     Yields tuples of ``(event_type, payload)`` where *event_type* is one of:
@@ -7917,7 +8074,9 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                 reason=runtime_readiness.selection_reason,
                 context_window=_readiness_context_window(runtime_readiness, "chat"),
             )
-            yield ("error", runtime_readiness.selection_reason)
+            backup_model.note_failure(backup_model.MainModelNotReady(runtime_readiness.selection_reason))
+            yield from (_readiness_refusal(runtime_readiness.chat.provider_id)
+                        or [("error", runtime_readiness.selection_reason)])
             return
         _current_selected_runtime_mode_var.set("agent")
         _current_runtime_reason_var.set(runtime_readiness.selection_reason)
@@ -7984,7 +8143,9 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
             tool_allowlist=_tool_allowlist,
         )
     except AgentCompatibilityError as exc:
-        yield ("error", str(exc))
+        # The model can't run (its server isn't running, its provider isn't connected): the backup's case.
+        backup_model.note_failure(backup_model.MainModelNotReady(str(exc)))
+        yield from _readiness_refusal(exc.result.provider_id) or [("error", str(exc))]
         return
     phase_timings["generation.graph_build_ms"] = (
         time.perf_counter() - _graph_build_started
@@ -8134,6 +8295,21 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
                         *, interrupt_ids: list[str] | None = None,
                         resume_values: Mapping[str, Any] | None = None,
                         stop_event: threading.Event | None = None):
+    """:func:`_resume_stream_agent_turn`, finished by the backup model when the turn's model can't
+    answer after the approval (#140)."""
+    return backup_model.stream(
+        lambda: _resume_stream_agent_turn(enabled_tool_names, config, approved, interrupt_ids=interrupt_ids,
+                                          resume_values=resume_values, stop_event=stop_event),
+        lambda handed: stream_agent_without_backup("", enabled_tool_names, handed, stop_event=stop_event),
+        config, str((config.get("configurable") or {}).get("root_objective") or ""),
+        stop_event=stop_event, notify=_notify_api_error,
+    )
+
+
+def _resume_stream_agent_turn(enabled_tool_names: list[str], config: dict, approved: bool,
+                              *, interrupt_ids: list[str] | None = None,
+                              resume_values: Mapping[str, Any] | None = None,
+                              stop_event: threading.Event | None = None):
     """Resume an interrupted agent graph after user approval/denial.
 
     ``resume_values`` (a question's answer, by its interrupt id) resumes only
@@ -8177,7 +8353,9 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
             tool_allowlist=_tool_allowlist,
         )
     except AgentCompatibilityError as exc:
-        yield ("error", str(exc))
+        # The model can't run (its server isn't running, its provider isn't connected): the backup's case.
+        backup_model.note_failure(backup_model.MainModelNotReady(str(exc)))
+        yield from _readiness_refusal(exc.result.provider_id) or [("error", str(exc))]
         return
     try:
         config = _resume_agent_graph_config(agent, config)
@@ -8827,7 +9005,7 @@ def _stream_graph(agent, input_data, config: dict,
     # (a multi-step form) takes dozens of page actions; this only stops a
     # runaway loop.
     _loop_detected = False
-    _BROWSER_TOOL_LIMIT = 80
+    _browser_thread = str((config.get("configurable") or {}).get("thread_id") or "")
     _browser_tool_count = 0
     _recent_browser_actions: list[str] = []
     _browser_budget_exceeded = False
@@ -8864,6 +9042,11 @@ def _stream_graph(agent, input_data, config: dict,
         return
     except Exception as exc:
         exc_str = str(exc)
+        refusal = _provider_refusal(exc)
+        if refusal:
+            logger.warning("The provider can't answer: %s", exc_str)
+            yield from refusal
+            return
         # Auto-repair orphaned tool calls and retry once. A provider overflow reaching here already
         # had its one compacted retry inside the model call (_AgentModelCall): the graph is not replayed.
         if _is_context_overflow_error(exc):
@@ -8994,7 +9177,8 @@ def _stream_graph(agent, input_data, config: dict,
                                     action in {"snapshot", "take_screenshot", "screenshot", "wait_for"}
                                     for action in _recent_browser_actions[-8:]
                                 )
-                                if _browser_tool_count >= _BROWSER_TOOL_LIMIT or _snapshot_heavy:
+                                if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
+                                                       >= _browser_tool_limit(_browser_thread)):
                                     _browser_budget_exceeded = True
 
                     # Tool result returned
@@ -9120,6 +9304,13 @@ def _stream_graph(agent, input_data, config: dict,
             logger.info("A model call was refused by its caller's limit: %s", exc_str)
             yield ("error", exc_str)
             return
+        backup_model.note_failure(exc)
+        refusal = _provider_refusal(exc)
+        if refusal:
+            logger.warning("The provider can't answer: %s", exc_str)
+            _notify_api_error(refusal[-1][1])
+            yield from refusal
+            return
         # Auto-repair orphaned tool calls and retry once. Never replay overflow (its retry was in the call).
         if _is_context_overflow_error(exc):
             _mark_context_overflow(_last_preparation_inputs(config))
@@ -9203,6 +9394,7 @@ def _stream_graph(agent, input_data, config: dict,
                     logger.info("A model call was refused by its caller's limit: %s", retry_exc)
                     yield ("error", str(retry_exc))
                     return
+                backup_model.note_failure(retry_exc)
                 _rmsg = _friendly_api_error(str(retry_exc))
                 logger.error(
                     "_stream_graph retry failed during iteration: %s diagnostics=%s",
@@ -9273,7 +9465,9 @@ def _stream_graph(agent, input_data, config: dict,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
-            repair_orphaned_tool_calls(config=config, agent_graph=agent)
+            # Its unfinished step says why it stopped: not the person.
+            repair_orphaned_tool_calls(config=config, agent_graph=agent,
+                                       orphan_message="[Stopped: too many browser actions in one turn]")
         except Exception:
             pass
         _browser_msg = (

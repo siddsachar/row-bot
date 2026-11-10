@@ -21,11 +21,10 @@ export function pickerModel(option: ModelPickerOption): ListedModel {
     unavailable_reason: option.unavailable_reason ?? null,
     billing: option.billing ?? null,
     reason: option.available ? undefined : option.reason,
-    // Favourites first and hidden models under More models, as in the composer.
+    // Your starred models first, as in the composer.
     ...(option.favourite_rank != null
       ? { favourite_rank: option.favourite_rank }
       : {}),
-    ...(option.hidden ? { hidden: true } : {}),
   };
 }
 
@@ -91,8 +90,12 @@ export default function DefaultModelPicker({
   const name = selected
     ? splitModelLabel(selected.label).name
     : modelRefName(current) || 'Choose a model';
+  // A model server on this computer is local too, whatever its provider id.
   const Glyph =
-    selected && isLocalProvider(selected.provider_id) ? HardDrive : Cloud;
+    selected &&
+    (selected.billing === 'local' || isLocalProvider(selected.provider_id))
+      ? HardDrive
+      : Cloud;
   const detail = selected
     ? (selected.detail ??
       [splitModelLabel(selected.label).provider, billingLabel(selected.billing)]

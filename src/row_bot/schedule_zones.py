@@ -116,10 +116,39 @@ def cron_trigger(**fields: object) -> BaseTrigger:
     return CronTrigger(timezone=timezone.utc, **fields)
 
 
+_CRON_DAYS = ("sun", "mon", "tue", "wed", "thu", "fri", "sat", "sun")
+_NUMERIC_DAYS = re.compile(r"([0-7])(?:-([0-7]))?(?:/([1-7]))?")
+
+
+def _standard_days(field: str) -> str:
+    """A day-of-week field read as standard cron (0 or 7 Sunday, 1 Monday), in day names.
+
+    APScheduler numbers days from Monday = 0, so "1-5" would run Tuesday to Saturday; people and
+    models mean Monday to Friday. Numbers become names ("1-5" → "mon,tue,wed,thu,fri"); names,
+    "*" and steps over "*" pass through.
+    """
+    parts = []
+    for part in field.split(","):
+        found = _NUMERIC_DAYS.fullmatch(part)
+        if not found:
+            parts.append(part)
+            continue
+        start = int(found[1])
+        stop = int(found[2]) if found[2] else start
+        step = int(found[3]) if found[3] else 1
+        if stop < start:
+            raise ValueError(f"day range {part} runs backwards")
+        parts.extend(dict.fromkeys(_CRON_DAYS[day] for day in range(start, stop + 1, step)))
+    return ",".join(dict.fromkeys(parts))
+
+
 def crontab_trigger(expression: str) -> BaseTrigger:
     from apscheduler.triggers.cron import CronTrigger
 
-    return CronTrigger.from_crontab(expression, timezone=timezone.utc)
+    fields = expression.split()
+    if len(fields) == 5:
+        fields[4] = _standard_days(fields[4])
+    return CronTrigger.from_crontab(" ".join(fields), timezone=timezone.utc)
 
 
 def latest_fire_time(trigger: BaseTrigger, after: datetime, until: datetime) -> datetime | None:

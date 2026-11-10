@@ -55,9 +55,9 @@ def xai_media_auth_context(provider_id: str, *, refresh_if_needed: bool = True) 
             {"Authorization": f"Bearer {captured.credential}", "Accept": "application/json", "Content-Type": "application/json"},
             oauth=provider == "xai_oauth")
     if provider == "xai":
-        from row_bot.api_keys import get_key
+        from row_bot.providers.media import media_api_key
 
-        api_key = str(get_key("XAI_API_KEY") or "").strip()
+        api_key = media_api_key("xai")
         if not api_key:
             raise XAIMediaError(
                 "No xAI API key configured. Please add your xAI API key in Settings -> Providers.",

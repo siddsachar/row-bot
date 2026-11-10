@@ -34,7 +34,6 @@ function fixture() {
     retryCommand: vi.fn(),
     receipt: vi.fn(),
     artifactExport: vi.fn().mockResolvedValue(descriptor),
-    artifactDownload: vi.fn(),
   };
   return {
     state,
@@ -79,7 +78,6 @@ it('exports exactly the captured binding without starting a download', async () 
     'binding',
     'export',
   );
-  expect(controller.artifactDownload).not.toHaveBeenCalled();
 });
 
 it('recovers a lost response by receipt without rendering a second export', async () => {
@@ -157,8 +155,4 @@ it('rejects revoked bindings and inconsistent completed metadata', async () => {
   await expect(exports.create(options, 'version')).rejects.toMatchObject({
     code: 'protocol_incompatible',
   });
-  await expect(exports.download('export')).rejects.toMatchObject({
-    code: 'export_unavailable',
-  });
-  expect(controller.artifactDownload).not.toHaveBeenCalled();
 });

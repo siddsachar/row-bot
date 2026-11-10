@@ -663,7 +663,7 @@
               "application/octet-stream": {
                 "schema": {
                   "format": "binary",
-                  "maxLength": 26214400,
+                  "maxLength": 209715200,
                   "type": "string"
                 }
               }
@@ -2219,246 +2219,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "./ArtifactExport.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "binding_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "export_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "format": "binary",
-                  "maxLength": 67108864,
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "binding_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "export_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "./ArtifactExportReveal.schema.json"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./ArtifactExportRevealResult.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "binding_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "export_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./ArtifactSavedExport.schema.json"
                 }
               }
             },
@@ -10254,140 +10014,6 @@
         }
       }
     },
-    "/api/v1/deliveries/{delivery_id}/files/{index}": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "delivery_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "index",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "format": "binary",
-                  "maxLength": 26214400,
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/deliveries/{delivery_id}/files/{index}/save": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "delivery_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "index",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./ExportSaved.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
     "/api/v1/deliveries/{delivery_id}/to-devices": {
       "post": {
         "parameters": [
@@ -15077,6 +14703,52 @@
         }
       }
     },
+    "/api/v1/monitor/memory-notice": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./MemoryNoticeDismissed.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
     "/api/v1/monitor/scheduled-posts": {
       "get": {
         "parameters": [
@@ -15161,6 +14833,72 @@
               "application/json": {
                 "schema": {
                   "$ref": "./ScheduledPostCancelled.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/monitor/scheduled-posts/{post_id}/edit": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./XPostEdit.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./ScheduledPostEdited.schema.json"
                 }
               }
             },
@@ -15275,7 +15013,7 @@
               "application/octet-stream": {
                 "schema": {
                   "format": "binary",
-                  "maxLength": 26214400,
+                  "maxLength": 209715200,
                   "type": "string"
                 }
               }
@@ -16037,72 +15775,6 @@
         }
       }
     },
-    "/api/v1/pages/{page_id}/download": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "page_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "./PageFrameRequest.schema.json"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./PageDownload.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
     "/api/v1/pages/{page_id}/frame": {
       "post": {
         "parameters": [
@@ -16151,72 +15823,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "./PageFrame.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/pages/{page_id}/save": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "page_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "./PageFrameRequest.schema.json"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./ExportSaved.schema.json"
                 }
               }
             },
@@ -17482,6 +17088,62 @@
               "application/json": {
                 "schema": {
                   "$ref": "./SandboxJobView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/saves": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./SaveOfferRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./SaveOffer.schema.json"
                 }
               }
             },
@@ -19879,6 +19541,404 @@
               "application/json": {
                 "schema": {
                   "$ref": "./ProviderStatusSnapshot.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/settings/providers/claude-plan/install": {
+      "get": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./ClaudeCodeInstallState.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./ClaudeCodeInstallRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./ClaudeCodeInstallState.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/settings/providers/claude-plan/sign-in": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./ClaudeSignInOpenRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./ClaudeSignInView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/settings/providers/claude-plan/sign-in/{sign_in_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sign_in_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./NativeTerminalClosed.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sign_in_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./ClaudeSignInOutput.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/settings/providers/claude-plan/sign-in/{sign_in_id}/input": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sign_in_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./NativeTerminalInput.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./NativeTerminalChanged.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/settings/providers/claude-plan/sign-in/{sign_in_id}/resize": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sign_in_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./NativeTerminalResize.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./NativeTerminalChanged.schema.json"
                 }
               }
             },

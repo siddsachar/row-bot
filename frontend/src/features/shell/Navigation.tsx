@@ -1184,11 +1184,11 @@ export default function Navigation({
         {/* Settings is its own row under Buddy's large avatar (B225). */}
         <Link
           className="button ghost nav-row nav-settings"
-          to="/settings/providers"
+          to="/settings/models"
           aria-current={
             location.pathname.startsWith('/settings') ? 'page' : undefined
           }
-          onClick={openRoute('/settings/providers')}
+          onClick={openRoute('/settings/models')}
         >
           <Settings size={16} aria-hidden />
           <span className="nav-row-label">Settings</span>
@@ -1277,7 +1277,7 @@ export function NavigationRail({
         <Hint label="Settings">
           <Link
             className="button ghost icon-button icon-action icon-action-md"
-            to="/settings/providers"
+            to="/settings/models"
             aria-label="Settings"
             aria-current={
               location.pathname.startsWith('/settings') ? 'page' : undefined

@@ -61,6 +61,14 @@
     min-height: 44px;
   }
 }
+/* On a narrow screen the tabs scroll: the right edge fades so the hidden ones
+   read as more to come, not as cut off. */
+@media (max-width: 640px) {
+  .home-view .home-tabs > .tabs {
+    padding-right: 40px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  }
+}
 .home-view .home-tabs > .tab-content {
   flex: 1;
   min-height: 0;
@@ -500,6 +508,32 @@
   line-height: var(--leading-12);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A scheduled post's pictures and videos: small tiles that open full size. */
+.overview-scheduled-media {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 6px;
+}
+.overview-scheduled-media img,
+.overview-scheduled-media .x-post-media-icon {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+  object-fit: cover;
+}
+.overview-scheduled-media .x-post-media-icon {
+  display: grid;
+  place-items: center;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+/* A scheduled post whose video has no sound: a warning, not a muted fact. */
+.overview-row-meta.x-post-media-silent {
+  color: var(--status-warning-text);
 }
 .overview-row-time {
   color: var(--text-muted);
@@ -1033,9 +1067,25 @@
     opacity: 1;
   }
 }
+/* Selecting workflows: a checkbox leads each row, and a chosen row is tinted. */
+.workflow-select-control {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-inline-start: -6px;
+  cursor: pointer;
+}
 .workflow-select-control input {
   width: 16px;
   height: 16px;
+  margin: 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.workflow-row[data-selected='true'] {
+  background: var(--accent-subtle);
 }
 .workflow-more-rows {
   justify-self: center;
@@ -3947,4 +3997,16 @@
 .workflow-chart-title .app-icon {
   flex: none;
   align-self: center;
+}
+
+/* Monitor when everything passes: one line, details on request (U38). */
+.monitor-all-good {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
 }

@@ -14,6 +14,7 @@ workspace, and running ffmpeg on them, needs none.
 
 from __future__ import annotations
 
+import mimetypes
 import os
 import re
 import uuid
@@ -40,9 +41,15 @@ def _conversation() -> str:
 
 
 def output_name(value: str, *, default: str, suffix: str = ".mp4") -> str:
-    """A plain file name for a result: letters, digits, spaces, dots, dashes and brackets, ending in *suffix*."""
-    text = Path(str(value or "").replace("\\", "/")).name
-    stem = re.sub(r"[^A-Za-z0-9 ._()\-]+", "-", Path(text).stem).strip(" .-")[:80]
+    """A plain file name for a result: letters, digits, spaces, dots, dashes, brackets and apostrophes, ending in
+    *suffix*.
+
+    Only a real file type comes off the end: "Row-Bot 5.3.1 demo" keeps its whole name, and "Find a Mountain's
+    Height" keeps its apostrophe (U28; it is fine on every system)."""
+    text = Path(str(value or "").replace("\\", "/")).name.replace("’", "'")
+    if mimetypes.guess_type("name" + Path(text).suffix)[0]:
+        text = Path(text).stem
+    stem = re.sub(r"[^A-Za-z0-9 ._()'\-]+", "-", text).strip(" .-'")[:80]
     return (stem or default) + suffix
 
 

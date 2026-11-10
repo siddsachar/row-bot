@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "description": "A short-lived reference to save once: the Save dialog, a download, or Exports while reconnecting.",
+  "properties": {
+    "file_name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "File Name",
+      "type": "string"
+    },
+    "reference": {
+      "pattern": "^save:[0-9a-f]{32}$",
+      "title": "Reference",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reference",
+    "file_name"
+  ],
+  "title": "SaveOffer",
+  "type": "object"
+}

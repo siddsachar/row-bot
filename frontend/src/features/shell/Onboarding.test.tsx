@@ -293,3 +293,49 @@ it('shows live areas as done and never offers to skip them (decision 13)', async
     screen.getByRole('menuitem', { name: 'Skip Developer' }),
   ).toHaveAttribute('aria-disabled', 'true');
 });
+
+it('a hosted Setup Center adds the phone and a backup, and says where local AI comes from (U4)', async () => {
+  const hosted: OnboardingSnapshot = {
+    ...snapshot,
+    setup_complete: true,
+    needs_model: false,
+    host_name: 'PikaPods',
+    intents: [{ id: 'local', label: 'Local/private AI' }],
+    steps: [
+      { id: 'models', title: 'Models', description: 'Connect a model.' },
+      { id: 'phone', title: 'Add your phone', description: 'Scan a code.' },
+      { id: 'backup', title: 'Back up', description: 'Download a backup.' },
+    ],
+  };
+  show(vi.fn(async () => hosted));
+  const checklist = await screen.findByRole('region', {
+    name: 'Setup checklist',
+  });
+  expect(
+    within(checklist).getByRole('link', { name: 'Connect a phone' }),
+  ).toHaveAttribute('href', '/settings/access#connect');
+  expect(
+    within(checklist).getByRole('link', { name: 'Download a backup' }),
+  ).toHaveAttribute('href', '/settings/data#backup');
+  const note = screen.getByText(/^Local\/private AI:/).closest('p')!;
+  expect(note).toHaveTextContent(
+    'Local/private AI: Use your own model server, or Row-Bot on your own computer.',
+  );
+  expect(
+    within(note).getByRole('link', { name: 'Use your own model server' }),
+  ).toHaveAttribute('href', 'https://row-bot.ai/docs/guides/own-model-server');
+  expect(
+    within(note).getByRole('link', { name: 'Row-Bot on your own computer' }),
+  ).toHaveAttribute('href', 'https://row-bot.ai/#install');
+});
+
+it('says nothing about hosting on a computer', async () => {
+  show(
+    vi.fn(async () => ({
+      ...snapshot,
+      intents: [{ id: 'local', label: 'Local/private AI' }],
+    })),
+  );
+  await screen.findByRole('checkbox', { name: 'Local/private AI' });
+  expect(screen.queryByText(/Use your own model server/)).toBeNull();
+});

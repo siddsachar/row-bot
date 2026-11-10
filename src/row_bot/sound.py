@@ -5,15 +5,15 @@ from __future__ import annotations
 
 import io
 import re
-import subprocess
 import tempfile
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 
 MAX_SPEAK_CHARS = 20_000
+# A voice file's own speed stays near normal: Kokoro sounds harsh dragged out or rushed.
+SPEAK_SPEEDS = (0.9, 1.5)
 MAX_TRANSCRIBE_SECONDS = 2 * 60 * 60
-_DECODE_TIMEOUT = 600
 
 
 class SoundError(ValueError):
@@ -35,6 +35,15 @@ class Segment:
     words: tuple[tuple[float, float, str], ...] = field(default_factory=tuple)
 
 
+# About how fast the voices speak: what a line's length is guessed from before it is voiced.
+WORDS_PER_SECOND = 2.6
+
+
+def speaking_seconds(text: str) -> float:
+    """About how long *text* takes to say."""
+    return len(str(text or "").split()) / WORDS_PER_SECOND
+
+
 def wav_seconds(data: bytes) -> float:
     with wave.open(io.BytesIO(data), "rb") as audio:
         return audio.getnframes() / float(audio.getframerate() or 1)
@@ -52,8 +61,9 @@ def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dic
                          "make one file per scene.")
     if voice and voice not in VOICE_CATALOG:
         raise SoundError(f"There's no voice called {voice}. Voices: {', '.join(sorted(VOICE_CATALOG))}.")
-    if speed and not 0.5 <= speed <= 2.0:
-        raise SoundError("Speed is between 0.5 and 2 (1 is normal).")
+    if speed and not SPEAK_SPEEDS[0] <= speed <= SPEAK_SPEEDS[1]:
+        raise SoundError(f"Speed is between {SPEAK_SPEEDS[0]:g} and {SPEAK_SPEEDS[1]:g} (1 is normal). To fill more "
+                         "time, write more words or cut the video shorter: a slowed voice sounds harsh.")
     tts = TTSService()
     if not tts.is_installed():
         raise SoundError("Speaking needs Row-Bot's voice (Kokoro). Install it in Settings › Voice, then try again.")
@@ -68,29 +78,66 @@ def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dic
     return Speech(data, wav_seconds(data), chosen)
 
 
+def decoded_speech(path: Path) -> bytes:
+    """The first two hours of a file's sound as 16 kHz mono 16-bit PCM, read with PyAV (the decoder Whisper itself
+    uses), so transcribing needs no ffmpeg."""
+    import av
+
+    limit = 16000 * 2 * MAX_TRANSCRIBE_SECONDS
+    decoded = bytearray()
+    try:
+        with av.open(str(path), metadata_errors="ignore") as container:
+            if not container.streams.audio:
+                raise SoundError("That file has no sound Row-Bot can read.")
+            resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+            for frame in container.decode(audio=0):
+                for piece in resampler.resample(frame):
+                    decoded += piece.to_ndarray().tobytes()
+                if len(decoded) >= limit:
+                    break
+            else:
+                for piece in resampler.resample(None):
+                    decoded += piece.to_ndarray().tobytes()
+    except (av.error.FFmpegError, OSError, ValueError):
+        raise SoundError("That file has no sound Row-Bot can read.") from None
+    return bytes(decoded[:limit])
+
+
+# A peak below this is silence: nothing a viewer would hear.
+SILENT_PEAK = 0.001  # -60 dBFS
+
+
+def has_sound(path: Path) -> bool | None:
+    """Whether a video or sound file has something to hear: a sound track that isn't silence. A screen recording
+    has none, so a video cut only from recordings plays silent, there and on X. None when it can't be read."""
+    import av
+
+    try:
+        with av.open(str(path), metadata_errors="ignore") as container:
+            if not container.streams.audio:
+                return False
+            resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+            for frame in container.decode(audio=0):
+                for piece in resampler.resample(frame):
+                    if abs(piece.to_ndarray().astype("int32")).max(initial=0) > SILENT_PEAK * 32768:
+                        return True
+    except (av.error.FFmpegError, OSError, ValueError):
+        return None
+    return False
+
+
 def transcribe(path: Path) -> tuple[list[Segment], str]:
     """Each stretch of speech in an audio or video file, with each word's time, and the language heard."""
-    from row_bot import ffmpeg_runtime
     from row_bot.voice import get_voice_service
 
-    ffmpeg = ffmpeg_runtime.find()
-    if ffmpeg is None:
-        raise SoundError("Transcribing needs ffmpeg. Ask Row-Bot to edit a video once (it offers to download it), "
-                         "then try again.")
     voice = get_voice_service()
     if not voice.whisper_model_available():
-        raise SoundError("Transcribing needs the Whisper model. Install it in Settings › Voice, then try again.")
-    try:
-        decoded = subprocess.run(
-            ffmpeg.command("-nostdin", "-hide_banner", "-loglevel", "error", "-i", str(path),
-                           "-t", str(MAX_TRANSCRIBE_SECONDS), "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le",
-                           "pipe:1"),
-            capture_output=True, timeout=_DECODE_TIMEOUT, check=False)
-    except subprocess.TimeoutExpired:
-        raise SoundError("Reading the sound took too long.") from None
-    if decoded.returncode != 0 or len(decoded.stdout) < 3200:
+        raise SoundError("Transcribing needs the Whisper speech model. Install it in Settings › Voice, then try "
+                         "again.")
+    decoded = decoded_speech(path)
+    if len(decoded) < 3200:
         raise SoundError("That file has no sound Row-Bot can read.")
-    return voice.transcribe_words(decoded.stdout)
+    return voice.transcribe_words(decoded)
 
 
 def transcribe_bytes(data: bytes, suffix: str) -> tuple[list[Segment], str]:

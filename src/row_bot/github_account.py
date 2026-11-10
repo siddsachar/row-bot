@@ -235,7 +235,8 @@ def shared_github_status() -> GitHubAccountStatus:
                                    or (not token.configured and remembered[1].source == "github_cli")):
         return remembered[1]
     if not token.configured and _github_cli_installed():
-        message = "The GitHub CLI is on this computer. Check GitHub to see whether Row-Bot can use its sign-in."
+        from row_bot.hosting import on_server
+        message = f"The GitHub CLI is {on_server()}. Check GitHub to see whether Row-Bot can use its sign-in."
         return GitHubAccountStatus(
             connected=False,
             source="github_cli",

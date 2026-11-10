@@ -64,7 +64,11 @@ def _invitation(
 
 
 def test_neutral_connect_page_reveals_no_instance_details(tmp_path) -> None:
-    _app, client, _service, _registration = _application(tmp_path)
+    # The desktop app's page; a server shows its claim page instead (H1).
+    _app, client, _service, _registration = _application(
+        tmp_path,
+        config=AccessConfig.build(deployment_mode="desktop", allowed_hosts=("localhost",)),
+    )
 
     response = client.get("/connect")
 

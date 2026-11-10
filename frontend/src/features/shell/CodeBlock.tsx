@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Download, WrapText } from 'lucide-react';
-import { saveTextDownload } from '../../platform/download';
 import { CopyGlyph, IconButton } from '../../ui/primitives';
 import type { Token } from './syntax';
 import { languageLabel, resolveLanguage } from './syntax-languages';
+import { copyUnavailableMessage } from '../../platform/clipboard';
+import { saveProblem, textBase64, useSaveFile } from './save-file';
 
 export { languageForFile } from './syntax-languages';
 
@@ -36,6 +37,7 @@ export function CodeBlock({
   title?: string;
 }) {
   const [status, setStatus] = useState('');
+  const saveFile = useSaveFile();
   const [copied, setCopied] = useState(false);
   const [wrap, setWrap] = useState(false);
   const [highlighted, setHighlighted] = useState<{
@@ -78,25 +80,23 @@ export function CodeBlock({
     try {
       const ok = await (copyText ?? (async () => false))(text);
       setCopied(ok);
-      setStatus(ok ? 'Code copied.' : 'Copy is unavailable.');
+      setStatus(ok ? 'Code copied.' : copyUnavailableMessage());
     } catch {
       setStatus('Code could not be copied.');
     }
   }
   async function download() {
-    const result = await saveTextDownload(
-      text,
-      title && /^[\w .-]{1,80}$/.test(title) ? title : `code.${extension}`,
-    );
-    setStatus(
-      result.status === 'ok'
-        ? 'Code download prepared.'
-        : result.status === 'unavailable' &&
-            result.reason === 'desktop_download_unavailable'
-          ? 'Downloads don’t work in the desktop window. Copy the code instead.'
-          : 'Code download is unavailable.',
-    );
+    if (!saveFile) return;
+    const name =
+      title && /^[\w .-]{1,80}$/.test(title) ? title : `code.${extension}`;
+    const result = await saveFile({
+      kind: 'content',
+      name,
+      content_base64: textBase64(text),
+    });
+    setStatus(saveProblem(result, 'the code'));
   }
+
   return (
     <figure
       className="code-block"
@@ -116,13 +116,15 @@ export function CodeBlock({
           >
             <WrapText size={15} aria-hidden />
           </IconButton>
-          <IconButton
-            size="sm"
-            label="Download code"
-            onClick={() => void download()}
-          >
-            <Download size={15} aria-hidden />
-          </IconButton>
+          {saveFile && (
+            <IconButton
+              size="sm"
+              label="Download code"
+              onClick={() => void download()}
+            >
+              <Download size={15} aria-hidden />
+            </IconButton>
+          )}
           <IconButton size="sm" label="Copy code" onClick={() => void copy()}>
             <CopyGlyph copied={copied} />
           </IconButton>

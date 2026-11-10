@@ -1215,7 +1215,7 @@ def create_task(
     delay_minutes: float | None = None,
     skills_override: list[str] | None = None,
     steps: list[dict] | None = None,
-    safety_mode: str = "block",
+    safety_mode: str = "",
     concurrency_group: str | None = None,
     trigger: dict | None = None,
     tools_override: list[str] | None = None,
@@ -1274,6 +1274,10 @@ def create_task(
     agent_profile_id = _canonicalize_agent_profile_reference(
         agent_profile_id or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
     )
+    if not str(safety_mode or "").strip():
+        from row_bot.full_autonomy import new_level
+
+        safety_mode = new_level()
     safety_mode = legacy_safety_mode_to_approval_mode(safety_mode)
     profile_migration_status = "not_needed"
     profile_migration_note = "Profile-first workflow."
@@ -1726,7 +1730,8 @@ def sync_task_schedule(task_id: str, *, validate: Callable[[], None] | None = No
 @_schema_retry
 def delete_task(task_id: str, *, expected_revision: str | None = None,
                 validate: Callable[[], None] | None = None,
-                preserve_conversations: bool = False) -> None:
+                preserve_conversations: bool = False, keep_conversations: bool = False) -> None:
+    """Delete a task. *keep_conversations*: a one-time run's answer stays where the person can read it."""
     if expected_revision is not None or validate is not None or preserve_conversations:
         if not preserve_conversations or not isinstance(expected_revision, str) or len(expected_revision) != 64:
             raise TaskMutationError("task_delete_review_required", task_id)
@@ -1795,7 +1800,7 @@ def delete_task(task_id: str, *, expected_revision: str | None = None,
     conn.close()
 
     # Cascade thread cleanup (LangGraph checkpoints, media, external state).
-    if linked_thread_ids:
+    if linked_thread_ids and not keep_conversations:
         try:
             from row_bot.thread_cleanup import delete_thread
             for tid in linked_thread_ids:
@@ -1947,6 +1952,32 @@ def capture_task_run_review(task_id: str, enabled_tool_names: Sequence[str]) -> 
         task = _row_to_dict(row)
         policy = _workflow_profile_runtime_policy(task, enabled_tool_names, single_snapshot=True, profile_connection=conn)
         return task, _task_row_revision(row), policy
+    finally:
+        conn.close()
+
+
+def reviewed_revision_with_conversation(
+    task_id: str, *, reviewed_revision: str, reviewed_thread_id: str | None,
+) -> str:
+    """The revision a reviewed run claims once the run has given the workflow its conversation.
+
+    A workflow's first run makes its one conversation and records it in the row (F31). That is
+    the run's own bookkeeping, not an edit, so the reviewed revision carries over to the row
+    with it; any other change since the review is still a conflict.
+    """
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN")
+        row = _task_editor_row(conn, task_id)
+        if row is None:
+            raise TaskMutationError("task_not_found", task_id)
+        current = _task_row_revision(row)
+        if current == reviewed_revision:
+            return current
+        before = {**dict(row), "persistent_thread_id": reviewed_thread_id}
+        if _task_row_revision(before) != reviewed_revision:
+            raise TaskMutationError("task_revision_conflict", task_id)
+        return current
     finally:
         conn.close()
 
@@ -2412,6 +2443,21 @@ def note_run_first_message(run_id: str, message_id: str) -> None:
         conn.close()
 
 
+@_schema_retry
+def runs_by_first_message(thread_id: str, message_ids: list[str]) -> dict[str, dict[str, str]]:
+    """The runs in a conversation that began with these messages: first message id -> its status and notice."""
+    if not thread_id or not message_ids:
+        return {}
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            f"SELECT first_message_id, status, COALESCE(notice, '') AS notice FROM task_runs WHERE thread_id = ? "
+            f"AND first_message_id IN ({', '.join('?' * len(message_ids))})", (thread_id, *message_ids)).fetchall()
+    finally:
+        conn.close()
+    return {row["first_message_id"]: {"status": row["status"], "notice": row["notice"]} for row in rows}
+
+
 @_publishes_live("runs")
 @_schema_retry
 def note_run_retry(run_id: str, notice: str) -> None:
@@ -2495,7 +2541,7 @@ def after_run_finished(task: dict, run_id: str, thread_id: str, status: str, not
         notify(title="Delivery failed", message=f"{task['name']} — {delivery_detail}", sound="timer",
                toast_type="warning", source="workflow")
     if task.get("delete_after_run") and status != "stopped":
-        delete_task(task["id"])
+        delete_task(task["id"], keep_conversations=True)
 
 
 _RUN_ENDING_WORDS = {"denied": "you said no", "unsure": "not sure it went through", "failed": "didn't finish",
@@ -3471,7 +3517,7 @@ def run_task_background(
                 )
             if task.get("delete_after_run"):
                 _validate_effect()
-                delete_task(task_id, **({"expected_revision": reviewed_capture["task_revision"], "validate": _validate_effect, "preserve_conversations": True} if reviewed_capture else {}))
+                delete_task(task_id, **({"expected_revision": reviewed_capture["task_revision"], "validate": _validate_effect, "preserve_conversations": True} if reviewed_capture else {"keep_conversations": True}))
             return
 
         except BaseException as exc:
@@ -3810,10 +3856,10 @@ def _prepare_task_thread(task: dict) -> str:
     - model_override propagation
     """
     from row_bot.threads import (
-        _save_thread_meta,
         _set_thread_agent_profile,
         _set_thread_approval_mode,
         _set_thread_model_override,
+        _set_thread_name,
     )
 
     from row_bot.threads import _thread_exists, _thread_write_blocked, create_thread
@@ -3828,7 +3874,9 @@ def _prepare_task_thread(task: dict) -> str:
                       seed_default_skills=False)
         update_task(task["id"], persistent_thread_id=thread_id)
     else:
-        _save_thread_meta(thread_id, f"\u26a1 {task['name']}")
+        # Its name follows the workflow's; the chat moves up the list only when its run's turn starts
+        # (a run skipped because the last one is still going adds nothing to it).
+        _set_thread_name(thread_id, f"\u26a1 {task['name']}")
     if task.get("model_override"):
         _set_thread_model_override(thread_id, task["model_override"])
     try:

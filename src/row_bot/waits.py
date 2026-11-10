@@ -173,6 +173,14 @@ def stop(wait_id: str, *, conversation_id: str = "", by: str = "person") -> bool
     return True
 
 
+def heard_from(conversation_id: str, sender_id: str) -> None:
+    """A message from *sender_id* arrived in *conversation_id*: a wait there for that conversation has its
+    answer in the message, so it ends without starting a turn of its own."""
+    for record in waiting(conversation_id):
+        if record["kind"] == "conversation" and record["spec"].get("conversation_id") == sender_id:
+            _update(record["id"], status="done", result="Its message arrived.", ended_at=time.time())
+
+
 def stop_all_for(conversation_id: str) -> None:
     """A conversation that's deleted waits for nothing more."""
     for record in waiting(conversation_id):
@@ -229,7 +237,7 @@ def _check_page(spec: dict[str, Any]) -> Outcome:
     from row_bot.tools.url_reader_tool import _read_url
 
     url, wanted = str(spec.get("url") or ""), str(spec.get("text") or "")
-    page = _read_url(url)
+    page = _read_url(url, readable=False)  # the whole page: the text may sit in a sidebar or footer
     if page.startswith(("Error", "Blocked", "BLOCKED", "Couldn't", "Could not")):
         return Outcome(False, "")
     if _contains(page, wanted):

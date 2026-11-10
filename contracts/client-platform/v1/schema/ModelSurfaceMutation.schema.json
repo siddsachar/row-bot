@@ -53,7 +53,8 @@
       "enum": [
         "vision",
         "image",
-        "video"
+        "video",
+        "backup"
       ],
       "title": "Surface",
       "type": "string"

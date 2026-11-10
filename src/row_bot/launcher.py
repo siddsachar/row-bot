@@ -68,12 +68,15 @@ from row_bot.data_paths import (
     get_row_bot_data_dir,
 )
 from row_bot import install_layout
+from row_bot.console_logging import route_console_by_level
 from row_bot.runtime_paths import app_icon_path, app_root, static_dir
 
 if TYPE_CHECKING:
     from PIL import Image as _PILImage
 
 # ── Setup logging ────────────────────────────────────────────────────────────
+# On stderr, so a command's own output (``row-bot access doctor --json``) has stdout to itself. Only
+# ``row-bot serve`` in Row-Bot's image splits it by level (F2, ``route_console_by_level``).
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 _LAUNCH_STARTED = time.perf_counter()
@@ -1460,6 +1463,11 @@ class _RowBotProcess:
         )
         env[ROW_BOT_HOST_ENV] = self.host
         env.update(self._launch_environment)
+        # The secret-store key `row-bot serve` took out of its own environment: for its server
+        # alone, which takes it out of its environment at start (H2).
+        from row_bot.secret_store import server_child_environment
+
+        env.update(server_child_environment())
 
         try:
             self._proc = subprocess.Popen(
@@ -2126,6 +2134,40 @@ def _on_loaded(window):
     except Exception:
         pass
 
+def _add_mac_edit_and_window_menus():
+    # pywebview's menu bar has only the app and View menus. Its own key handling makes Cmd-C/V/X/A/Z
+    # work, but a Mac person looks for them under Edit, and for Minimize under Window (U35). Added on the
+    # main thread once pywebview has built its menu; each item goes to whatever has focus.
+    from AppKit import NSApp, NSEventModifierFlagCommand, NSEventModifierFlagShift, NSMenu, NSMenuItem
+    from PyObjCTools import AppHelper
+
+    def menu(bar, title, entries, index):
+        submenu = NSMenu.alloc().initWithTitle_(title)
+        for entry in entries:
+            if entry is None:
+                submenu.addItem_(NSMenuItem.separatorItem())
+                continue
+            name, action, key, shifted = entry
+            item = submenu.addItemWithTitle_action_keyEquivalent_(name, action, key)
+            if shifted:
+                item.setKeyEquivalentModifierMask_(NSEventModifierFlagCommand | NSEventModifierFlagShift)
+        holder = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
+        holder.setSubmenu_(submenu)
+        bar.insertItem_atIndex_(holder, min(index, bar.numberOfItems()))
+        return submenu
+
+    def build():
+        bar = NSApp.mainMenu()
+        if bar is None or bar.itemWithTitle_("Edit") is not None:
+            return
+        menu(bar, "Edit", [("Undo", "undo:", "z", False), ("Redo", "redo:", "z", True), None,
+                           ("Cut", "cut:", "x", False), ("Copy", "copy:", "c", False),
+                           ("Paste", "paste:", "v", False), ("Select All", "selectAll:", "a", False)], 1)
+        NSApp.setWindowsMenu_(menu(bar, "Window", [("Minimize", "performMiniaturize:", "m", False),
+                                                   ("Zoom", "performZoom:", "", False)], bar.numberOfItems()))
+
+    AppHelper.callAfter(build)
+
 def _on_main_window_closing():
     return _BUDDY.main_closing()
 
@@ -2363,6 +2405,8 @@ def _attach_client_v2(window, instance_id, role="main"):
             _NATIVE_AUTHORITIES.pop(str(context.window_id) + ":context", None)
 
     def save_reference(reference, target):
+        from row_bot.application.attachments import MAX_ATTACHMENT_BYTES
+
         authority = _NATIVE_AUTHORITIES.get(str(window.uid))
         if authority is None:
             return False
@@ -2389,9 +2433,9 @@ def _attach_client_v2(window, instance_id, role="main"):
         )
         temporary = None
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                data = response.read(26214401)
-            if not data or len(data) > 26214400:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                data = response.read(MAX_ATTACHMENT_BYTES + 1)
+            if not data or len(data) > MAX_ATTACHMENT_BYTES:
                 return False
             target = os.path.abspath(str(target))
             directory = os.path.dirname(target)
@@ -2524,8 +2568,16 @@ try:
     os.makedirs(_WEBVIEW_STORAGE_PATH, exist_ok=True)
 except Exception:
     pass
+def _on_started():
+    if sys.platform == "darwin":
+        try:
+            _add_mac_edit_and_window_menus()
+        except Exception as exc:
+            _buddy_window_log(f"Edit and Window menus unavailable: {exc}")
+    _on_loaded(main_window)
+
 webview.start(
-    func=lambda: _on_loaded(main_window),
+    func=_on_started,
     private_mode=False,
     storage_path=_WEBVIEW_STORAGE_PATH,
     icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None,
@@ -4102,6 +4154,14 @@ def _request_update_apply(port: int, server: "_RowBotProcess") -> str:
 
 def main(argv: list[str] | None = None) -> None:
     global _ACTIVE_TRAY, _EARLY_SPLASH_PROC
+    # A host that starts the container as root (Railway): the data folder becomes the image user's, and
+    # Row-Bot becomes that user for good, before it writes anything, reads a secret or starts a program.
+    from row_bot.container_user import ContainerUserError, run_as_container_user
+
+    try:
+        run_as_container_user()
+    except ContainerUserError as exc:
+        raise SystemExit(f"Row-Bot didn't start: {exc}") from None
     _ensure_launcher_file_logging()
     _launch_event(
         "process_start",
@@ -4122,6 +4182,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(plugin_devtools.run_cli(args))
     _warn_deprecated_client_flags(args)
     if getattr(args, "command", "") == "serve":
+        # The container's main process: its console is the host's log, so INFO goes to stdout there (F2).
+        route_console_by_level()
         from row_bot.access.access_routes import AccessRouteConfigStore
         from row_bot.access.cli import resolve_serve_options, serve_startup_lines
 
@@ -4154,6 +4216,21 @@ def main(argv: list[str] | None = None) -> None:
         handed_off = _hand_off_to_running_instance(args)
         if handed_off is not None:
             raise SystemExit(handed_off)
+    if getattr(args, "server", False):
+        # `row-bot serve` or the older `--server`, before any program starts: the host's
+        # secret-store key and setup code leave the environment, the key must open the saved
+        # secrets (H2), and an unclaimed server prints its code (H1).
+        from row_bot.access.setup_code import prepare_setup_code_at_start
+        from row_bot.environment_secrets import keep_environment_private
+        from row_bot.secret_store import SecretStoreError, prepare_server_store_at_start
+
+        # The environment this process started with keeps both secrets: only root may read it.
+        keep_environment_private()
+        try:
+            prepare_server_store_at_start()
+        except SecretStoreError as exc:
+            raise SystemExit(f"Row-Bot didn't start: {exc}") from None
+        prepare_setup_code_at_start()
     args._dynamic_host_input = args.host
     args.host = _resolve_launch_host(args.host)
     preferred_mode = "browser" if args.browser else "native" if args.native else None

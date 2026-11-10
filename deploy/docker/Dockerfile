@@ -165,13 +165,17 @@ RUN python /opt/row-bot/app/scripts/verify_runtime_dependencies.py all \
     } >> /opt/row-bot/build-metadata.txt
 
 WORKDIR /data
+# A host that starts the container as root anyway (Railway's RAILWAY_RUN_UID=0) gets the same
+# user: `row-bot` first makes /data 10001's, then drops to 10001 for good.
 USER 10001:10001
 
 VOLUME ["/data"]
 EXPOSE 8080
 
+# Docker starts the check with the container's environment, a host's secret-store key and setup
+# code included; `env -i` gives the check none, so no program of the same user can read them in it.
 HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=5 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read()"]
+    CMD ["env", "-i", "/opt/row-bot/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read()"]
 
 ENTRYPOINT ["row-bot"]
 CMD ["serve"]

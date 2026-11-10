@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.providers.presets import PRESETS
 
 try:
     import ollama as _ollama_mod
@@ -197,6 +198,7 @@ REFRESHABLE_CLOUD_PROVIDER_IDS: tuple[str, ...] = (
     "opencode_go",
     "atlascloud",
     "claude_subscription",
+    *PRESETS,
 )
 
 _SUBSCRIPTION_CATALOG_PROVIDER_IDS = frozenset({"codex", "claude_subscription", "xai_oauth"})
@@ -1559,6 +1561,7 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     "google": "💎",
     "xai": "𝕏",
     "minimax": "M",
+    **{preset.id: preset.icon for preset in PRESETS.values()},
     None: "☁️",  # fallback for unknown cloud
 }
 
@@ -1717,19 +1720,6 @@ def reset_current_model_if_removed(
     _override_llm_cache.clear()
     logger.info("The default model's provider was removed; the default is kept and now unavailable")
     return False
-
-
-def list_starred_cloud_models() -> list[str]:
-    """Return cloud models the user has starred (for the thread picker)."""
-    from row_bot.providers.selection import list_quick_model_ids, migrate_legacy_starred_models
-    from row_bot.api_keys import get_cloud_config
-    _sync_custom_model_cache()
-    migrate_legacy_starred_models(cloud_models=_cloud_model_cache.keys())
-    quick_models = [m for m in list_quick_model_ids("chat") if m in _cloud_model_cache]
-    if quick_models:
-        return quick_models
-    starred = set(get_cloud_config().get("starred_models", []))
-    return [m for m in _cloud_model_cache if m in starred]
 
 
 def get_cloud_model_context(model_name: str) -> int:
@@ -2105,6 +2095,11 @@ def _catalog_or_heuristic(provider_id: str, model_id: str) -> int:
             cat_val = _context_catalog.get(runtime_model)
             if cat_val:
                 return cat_val
+    from row_bot.providers.capability_catalog import lookup
+
+    known = lookup(provider, runtime_model)
+    if known and known.context_window:
+        return known.context_window
     return _maintained_context_limit(provider, runtime_model)
 
 
@@ -2184,6 +2179,7 @@ def _fetch_cloud_models(provider: str) -> int:
     import httpx
     from row_bot.providers.auth_store import get_provider_secret
     from row_bot.providers.capabilities import model_supports_surface
+    from row_bot.providers.capability_catalog import lookup
     from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
 
     if provider == "openai":
@@ -2201,7 +2197,8 @@ def _fetch_cloud_models(provider: str) -> int:
         api_key = get_provider_secret(provider)
         if not api_key:
             return 0
-        url = f"{OPENROUTER_BASE_URL}/models"
+        # Every kind of model, not only text: image and video models are kept for their tools.
+        url = f"{OPENROUTER_BASE_URL}/models?output_modalities=all"
         headers = {"Authorization": f"Bearer {api_key}"}
     elif provider == "requesty":
         api_key = get_provider_secret(provider)
@@ -2240,6 +2237,11 @@ def _fetch_cloud_models(provider: str) -> int:
         if not api_key:
             return 0
         return _fetch_atlascloud_models(api_key)
+    elif provider in PRESETS:
+        api_key = get_provider_secret(provider)
+        if not api_key:
+            return 0
+        return _fetch_preset_models(provider, api_key)
     elif provider == "codex":
         return _fetch_codex_models()
     elif provider == "claude_subscription":
@@ -2254,6 +2256,7 @@ def _fetch_cloud_models(provider: str) -> int:
     except Exception as exc:
         logger.warning("Failed to fetch %s models: %s", provider, exc)
         return 0
+    media_parameters, media_named = _openrouter_media_parameters(headers) if provider == "openrouter" else ({}, {})
 
     entries: dict[str, dict] = {}
     if provider == "openai":
@@ -2263,6 +2266,11 @@ def _fetch_cloud_models(provider: str) -> int:
             mid = str(m.get("id") or "").strip()
             if not mid:
                 continue
+            # OpenAI's list names its models and nothing else; models.dev says what each one does.
+            known = lookup("openai", mid)
+            if known:
+                m = {**m, "tool_calling": known.tool_calling, "vision": known.vision,
+                     "output_modalities": sorted(known.outputs)}
             model_info = model_info_from_metadata(
                 "openai", mid, m,
                 display_name=mid,
@@ -2281,6 +2289,20 @@ def _fetch_cloud_models(provider: str) -> int:
             # Only include models with a '/' (provider/model format)
             if "/" not in mid:
                 continue
+            if mid in media_parameters:
+                m = {**m, "generation_parameters": media_parameters[mid]}
+            # Its images and videos are made through /images and /videos, which take only the models their
+            # own lists name; the chat list says its routers (Auto Router) draw too (I26). A list that
+            # couldn't be read leaves the chat list's word.
+            architecture = m.get("architecture") if isinstance(m.get("architecture"), dict) else {}
+            outputs = m.get("output_modalities") or architecture.get("output_modalities")
+            if isinstance(outputs, list):
+                kept = [kind for kind in outputs if not (
+                    (kind == "image" and media_named.get("images") is not None and mid not in media_named["images"])
+                    or (kind == "video" and media_named.get("videos") is not None and mid not in media_named["videos"]))]
+                if not kept:
+                    continue
+                m = {**m, "output_modalities": kept, "architecture": {**architecture, "output_modalities": kept}}
             model_info = model_info_from_metadata(
                 "openrouter", mid, m,
                 display_name=name,
@@ -2292,6 +2314,25 @@ def _fetch_cloud_models(provider: str) -> int:
     count = _replace_provider_cloud_cache_entries(provider, entries)
     logger.info("Fetched %d %s models", count, provider)
     return count
+
+
+def _openrouter_media_parameters(headers: dict[str, str]) -> tuple[dict[str, dict], dict[str, set[str] | None]]:
+    """The sizes, lengths and ratios OpenRouter lists for its image and video models, and the models each
+    list names (``images``, ``videos``); none, and None, where a list fails."""
+    import httpx
+    from row_bot.providers.openrouter_catalog import openrouter_media_parameters
+
+    rows: dict[str, list] = {}
+    for kind in ("videos", "images"):
+        try:
+            resp = httpx.get(f"{OPENROUTER_BASE_URL}/{kind}/models", headers=headers, timeout=15)
+            resp.raise_for_status()
+            rows[kind] = resp.json().get("data") or []
+        except Exception as exc:
+            logger.warning("Failed to fetch OpenRouter's %s model settings: %s", kind[:-1], exc)
+    named = {kind: {str(row.get("id") or "").strip() for row in rows[kind] if isinstance(row, dict)}
+             if isinstance(rows.get(kind), list) else None for kind in ("images", "videos")}
+    return openrouter_media_parameters(rows.get("videos"), rows.get("images")), named
 
 
 def fetch_cloud_models(provider: str) -> int:
@@ -2611,7 +2652,7 @@ def _fetch_xai_models(api_key: str) -> int:
 
     pages: list[list] = []
     errors: list[str] = []
-    for path in ("/models", "/language-models", "/image-generation-models"):
+    for path in ("/models", "/language-models", "/image-generation-models", "/video-generation-models"):
         try:
             resp = httpx.get(
                 f"{XAI_BASE_URL}{path}",
@@ -2624,6 +2665,10 @@ def _fetch_xai_models(api_key: str) -> int:
             body = resp.json()
             entries = body.get("data") or body.get("models")
             if isinstance(entries, list):
+                if path == "/video-generation-models":
+                    # Every row of this list is a video model, whatever its name.
+                    entries = [{**item, "output_modalities": ["video"]} if isinstance(item, dict) else item
+                               for item in entries]
                 pages.append(entries)
         except Exception as exc:
             errors.append(f"{path}: {exc}")
@@ -2741,6 +2786,7 @@ def _fetch_requesty_models(api_key: str) -> int:
         if not any(model_supports_surface(model_info, surface) for surface in ("chat", "vision")):
             continue
         model_infos.append(model_info)
+    model_infos.extend(_requesty_image_model_infos(api_key, verified_at, seen))
 
     if not model_infos:
         logger.warning("Requesty model fetch returned no usable chat model rows; preserving previous cache")
@@ -2753,6 +2799,144 @@ def _fetch_requesty_models(api_key: str) -> int:
     count = _replace_provider_cloud_cache_entries("requesty", entries)
     logger.info("Fetched %d requesty models", count)
     return count
+
+
+def _requesty_image_model_infos(api_key: str, verified_at: str, seen: set[str]) -> list:
+    """Requesty's image models, from its separate image list; none when that list fails."""
+    import httpx
+    from dataclasses import replace
+    from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.requesty import requesty_models_url
+
+    try:
+        resp = httpx.get(f"{requesty_models_url()}/image", headers={"Authorization": f"Bearer {api_key}"}, timeout=15)
+        resp.raise_for_status()
+        rows = resp.json().get("data", [])
+    except Exception as exc:
+        logger.warning("Failed to fetch requesty image models: %s", exc)
+        return []
+    infos = []
+    for row in rows if isinstance(rows, list) else []:
+        model_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        info = model_info_from_metadata("requesty", model_id, {"output_modalities": ["image"]},
+                                        display_name=model_id, context_window=0)
+        infos.append(replace(info, last_verified_at=verified_at))
+    return infos
+
+
+def _dashscope_media_model_infos(api_key: str, verified_at: str, seen: set[str]) -> list:
+    """Qwen's (Alibaba Cloud's) image and video models, from its own model list; none when that list fails."""
+    import httpx
+    from dataclasses import replace
+    from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.media import IMAGE_PROVIDER_META
+
+    rows: list = []
+    try:
+        for page in range(1, 11):
+            resp = httpx.get(
+                f"{IMAGE_PROVIDER_META['dashscope']['base_url']}/models",
+                params={"capabilities": ["IG", "VG"], "page_no": page, "page_size": 100},
+                headers={"Authorization": f"Bearer {api_key}"}, timeout=15,
+            )
+            resp.raise_for_status()
+            output = resp.json().get("output") or {}
+            batch = output.get("models") if isinstance(output.get("models"), list) else []
+            rows.extend(batch)
+            if not batch or len(rows) >= int(output.get("total") or 0):
+                break
+    except Exception as exc:
+        logger.warning("Failed to fetch Qwen (Alibaba Cloud) image and video models: %s", exc)
+        return []
+    infos = []
+    for row in rows:
+        model_id = str(row.get("model") or "").strip() if isinstance(row, dict) else ""
+        modality = (row.get("inference_metadata") or {}).get("response_modality") if model_id else None
+        outputs = {str(item).lower() for item in modality} if isinstance(modality, list) else set()
+        kind = "video" if "video" in outputs else "image" if outputs == {"image"} else ""
+        if not kind or model_id in seen:
+            continue
+        seen.add(model_id)
+        info = model_info_from_metadata("dashscope", model_id, {"output_modalities": [kind]},
+                                        display_name=str(row.get("name") or model_id), context_window=0,
+                                        source="dashscope_media_list")
+        infos.append(replace(info, last_verified_at=verified_at))
+    return infos
+
+
+def _documented_media_model_infos(provider_id: str, seen: set[str]) -> list:
+    """The image and video models a provider's docs name but its model list leaves out (MiniMax, Z.AI; I24)."""
+    from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.media import UNLISTED_MEDIA_MODELS
+
+    return [
+        model_info_from_metadata(provider_id, model_id, {"output_modalities": [kind]}, display_name=label,
+                                 context_window=0, source="provider_docs")
+        for kind in ("image", "video")
+        for model_id, label in UNLISTED_MEDIA_MODELS[kind].get(provider_id, {}).items()
+        if model_id not in seen
+    ]
+
+
+def _fetch_preset_models(provider_id: str, api_key: str) -> int:
+    """Fetch one table provider's models from its OpenAI-compatible ``/models``."""
+    import httpx
+    from row_bot.providers.catalog import model_info_to_cache_entry
+    from row_bot.providers.presets import model_infos_from_catalog, models_url
+
+    preset = PRESETS[provider_id]
+    try:
+        resp = httpx.get(models_url(preset), headers={"Authorization": f"Bearer {api_key}"}, timeout=15)
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as exc:
+        logger.warning("Failed to fetch %s models: %s; keeping the saved list", preset.name, exc)
+        return 0
+    verified_at = _utc_now_iso()
+    model_infos = model_infos_from_catalog(preset, payload, verified_at=verified_at)
+    if model_infos and provider_id == "dashscope":
+        # Its compatible list has the chat models; its own list says which models draw or film.
+        model_infos.extend(_dashscope_media_model_infos(api_key, verified_at, {info.model_id for info in model_infos}))
+    if model_infos:
+        model_infos.extend(_documented_media_model_infos(provider_id, {info.model_id for info in model_infos}))
+    if not model_infos:
+        logger.warning("%s listed no chat models; keeping the saved list", preset.name)
+        return 0
+    entries = {info.selection_ref: model_info_to_cache_entry(info) for info in model_infos}
+    count = _replace_provider_cloud_cache_entries(provider_id, entries)
+    logger.info("Fetched %d %s models", count, preset.name)
+    return count
+
+
+def _atlascloud_media_model_infos(api_key: str, verified_at: str, seen: set[str]) -> list:
+    """Atlas Cloud's image and video models, from its own model list; none when that list fails."""
+    import httpx
+    from row_bot.providers.atlascloud import atlascloud_media_model_info
+    from row_bot.providers.media import IMAGE_PROVIDER_META
+
+    try:
+        resp = httpx.get(f"{IMAGE_PROVIDER_META['atlascloud']['base_url']}/models",
+                         headers={"Authorization": f"Bearer {api_key}"}, timeout=15)
+        resp.raise_for_status()
+        rows = resp.json().get("data")
+    except Exception as exc:
+        logger.warning("Failed to fetch Atlas Cloud image and video models: %s", exc)
+        return []
+    infos = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or row.get("display_console") is False:
+            continue
+        model_id = str(row.get("model") or "").strip()
+        kind = str(row.get("type") or "").lower()
+        if not model_id or kind not in {"image", "video"} or model_id in seen:
+            continue
+        seen.add(model_id)
+        infos.append(atlascloud_media_model_info(model_id, kind, display_name=str(row.get("displayName") or model_id),
+                                                 last_verified_at=verified_at))
+    return infos
 
 
 def _fetch_atlascloud_models(api_key: str) -> int:
@@ -2830,6 +3014,9 @@ def _fetch_atlascloud_models(api_key: str) -> int:
     if not model_infos:
         return 0
 
+    if source == "live":
+        model_infos.extend(_atlascloud_media_model_infos(api_key, verified_at, {info.model_id for info in model_infos}))
+
     if source == "fallback" and existing_atlas_rows:
         logger.warning("Atlas Cloud fallback skipped because previous Atlas cache exists")
         return 0
@@ -2906,6 +3093,7 @@ def _fetch_minimax_models(api_key: str) -> int:
     if not model_infos:
         logger.warning("MiniMax model fetch contained no usable model ids; preserving previous cache")
         return 0
+    model_infos.extend(_documented_media_model_infos("minimax", seen))
 
     entries = {
         model_info.model_id: model_info_to_cache_entry(model_info)
@@ -3135,8 +3323,12 @@ def _fetch_xai_oauth_models() -> int:
 
 def refresh_cloud_provider_models(provider_id: str) -> ProviderCatalogRefreshResult:
     """Refresh one provider while retaining its last-known-good catalog."""
+    from row_bot.providers import capability_catalog
+
     provider = str(provider_id or "").strip()
     before_stamp = _provider_catalog_cache_stamp(provider)
+    # What models.dev says fills gaps in lists that only name their models (at most hourly).
+    capability_catalog.refresh()
     try:
         update_count = _fetch_cloud_models(provider)
     except Exception as exc:

@@ -6,6 +6,7 @@ import type {
   SandboxStatusView,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { useRuntime } from '../../runtime';
 import { Button, Disclosure, Skeleton } from '../../ui/primitives';
 import { SandboxJobCard } from './SandboxJobCard';
@@ -196,6 +197,7 @@ export function SandboxReadiness({
   /** Re-read when this changes (the sandbox settings were saved). */
   revisionKey?: string;
 }) {
+  const place = usePlace();
   const sandbox = useSandboxStatus(conversationId);
   const run = useStart(conversationId);
   const [asking, setAsking] = useState(false);
@@ -251,7 +253,7 @@ export function SandboxReadiness({
             <strong>Download the sandbox image?</strong>
             <span className="sandbox-image-name">{status.image}</span>
             <p>
-              It isn&apos;t on this computer yet. Docker downloads it once
+              It isn&apos;t {place.on} yet. Docker downloads it once
               {status.image_download
                 ? ` (${status.image_download} from Docker Hub)`
                 : ''}

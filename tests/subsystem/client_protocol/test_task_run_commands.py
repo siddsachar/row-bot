@@ -74,6 +74,49 @@ def test_stale_review_has_no_execution_or_new_conversation(run_api, monkeypatch,
         assert not effects and not tasks.get_recent_runs() and not service.list_conversations()["items"]
 
 
+@pytest.fixture
+def saved_workflow(run_api, monkeypatch):
+    """A workflow with one message, saved and never run: its first run makes its conversation."""
+    service, tasks, _, _ = run_api
+    from row_bot import workflow_turns
+    # The faked start never finishes its run: keep its in-flight entry out of the shared registry.
+    monkeypatch.setattr(tasks, "_active_runs", {})
+    started = []
+    monkeypatch.setattr(workflow_turns, "start", lambda task, thread_id, run_id, trigger="Run": started.append(
+        (list(task["prompts"]), thread_id)) or True)
+    task = tasks.create_task("Backup check", prompts=["Check the backup"], channels=[], enabled=False)
+    return service, tasks, task, started
+
+
+def test_a_just_saved_workflow_runs_on_the_first_click(saved_workflow):
+    service, tasks, task, started = saved_workflow
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        started_run = send(client, headers, command(client, headers, task))
+        assert started_run.status_code == 200, started_run.text
+        receipt = started_run.json()
+        assert receipt["status"] == "completed" and receipt["task_run_reserved"]
+        assert started == [(["Check the backup"], receipt["conversation_id"])]
+        # The run made the workflow's one conversation, which later runs reuse.
+        assert tasks.get_task(task)["persistent_thread_id"] == receipt["conversation_id"]
+
+
+def test_an_edit_while_a_first_run_starts_still_stops_it(saved_workflow, monkeypatch):
+    service, tasks, task, started = saved_workflow
+    prepare = tasks._prepare_task_thread
+    def edited_meanwhile(workflow):
+        conversation = prepare(workflow)
+        tasks.update_task(task, name="Concurrent edit")
+        return conversation
+    monkeypatch.setattr(tasks, "_prepare_task_thread", edited_meanwhile)
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        rejected = send(client, headers, command(client, headers, task))
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()["code"] == "task_revision_conflict"
+        assert not started and not tasks.get_recent_runs()
+
+
 def test_crash_after_reservation_never_reexecutes_or_infers_completion(run_api, monkeypatch):
     service, tasks, task, effects = run_api
     with _client(service) as client:

@@ -13,9 +13,10 @@ const WEEKDAYS: Record<string, string> = {
   sat: 'Saturday',
   sun: 'Sunday',
 };
-// The scheduler (APScheduler) numbers weekdays from Monday = 0, unlike
-// standard cron. Numeric days are described as they actually fire.
 const SCHEDULER_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+// Numeric days are standard cron (0 or 7 Sunday, 1 Monday), as the scheduler
+// reads them since 5.3.1.
+const CRON_NUMBERS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 export function clockTime(hour: number, minute: number) {
   return new Intl.DateTimeFormat(undefined, {
@@ -26,7 +27,7 @@ export function clockTime(hour: number, minute: number) {
 
 function dayKey(value: string) {
   const key = value.trim().toLowerCase();
-  if (/^[0-6]$/.test(key)) return SCHEDULER_DAYS[Number(key)];
+  if (/^[0-7]$/.test(key)) return CRON_NUMBERS[Number(key)];
   const short = key.slice(0, 3);
   return SCHEDULER_DAYS.includes(short) ? short : null;
 }
@@ -36,7 +37,7 @@ function weekday(value: string) {
   return key ? WEEKDAYS[key] : undefined;
 }
 
-/** Expand a day-of-week field ("mon-fri", "mon,wed", "0-4") to day keys. */
+/** Expand a day-of-week field ("mon-fri", "mon,wed", "1-5") to day keys. */
 export function cronDays(field: string): string[] | null {
   const days = new Set<string>();
   for (const part of field.toLowerCase().split(',')) {

@@ -52,6 +52,7 @@ from row_bot.browser.runtime import (
     check_managed_browser_runtime,
     check_packaged_browser_runtime,
     ensure_profile_engine,
+    headless_executable,
 )
 from row_bot.browser.snapshot import RefMap, compact
 from row_bot.cancellation import current_cancellation_scope
@@ -75,8 +76,13 @@ MAX_SCREENSHOT_BYTES = 15 * 1024 * 1024
 # The live picture: the pane's size is honoured up to this, a thumbnail is small.
 MAX_PANE_WIDTH = 1600
 THUMB_WIDTH = 480
-# A recording's width, whoever else watches the page.
-RECORD_WIDTH = 1280
+# While a recording runs the page keeps this size, whatever the pane does: a 16:9 desktop window drawn at
+# 1920×1080, so the video fills its frame and text stays sharp when a scene zooms in.
+RECORD_METRICS = (1440, 810, 4 / 3)
+MAX_RECORD_SIDE = 1920
+# The drawn pointer's height in a recording, in the page's CSS pixels.
+RECORD_POINTER_CSS = 24
+RECORD_QUALITY = 90
 # The page follows the Browser pane's size (CSS pixels and device scale), so sites lay out
 # for it and the picture shows 1:1. Narrower than this, the page keeps this width and the
 # picture scales down; with no pane showing, the page is an ordinary desktop window.
@@ -90,6 +96,8 @@ PERSON_STILL_SECONDS = 2.0
 # What the pane's Copy may carry.
 COPY_LIMIT = 65_536
 NAVIGATION_TIMEOUT_MS = 30_000
+# Tabs nobody has used this long close; on a server with a memory limit, Chromium then closes too (H4).
+IDLE_CLOSE_SECONDS = 10 * 60
 MAX_EXTRACT_CHARS = 20_000
 STOPPED = "Stopped: the person pressed Stop."
 _BLANK_URLS = frozenset({"", "about:blank", "chrome://newtab/", "edge://newtab/"})
@@ -101,6 +109,17 @@ _SELECTION_SCRIPT = """() => {
   }
   if (field && field.tagName === 'INPUT') return '';
   return String(window.getSelection() || '');
+}"""
+# The person's paste, as the page's own: a paste event with the text, for code boxes and editors that read it;
+# true when the page took it. Otherwise the text goes in as typed.
+_PASTE_SCRIPT = """(text) => {
+  let field = document.activeElement;
+  while (field && field.shadowRoot && field.shadowRoot.activeElement) field = field.shadowRoot.activeElement;
+  if (!field || field === document.body || field.tagName === 'IFRAME') return false;
+  const data = new DataTransfer();
+  data.setData('text/plain', text);
+  const event = new ClipboardEvent('paste', {clipboardData: data, bubbles: true, cancelable: true, composed: true});
+  return !field.dispatchEvent(event);
 }"""
 _IDENTITY_FILE = "row-bot-identity.json"
 # Fields Row-Bot never types into; the person does, in the pane.
@@ -156,6 +175,11 @@ class BrowserStopped(Exception):
 
 class TargetGone(Exception):
     """A ref the agent used isn't on the page any more."""
+
+
+def can_start() -> bool:
+    """A browser is there to start: the person's Chrome or Edge, or Row-Bot's own (read-only, no launch)."""
+    return bool(_installed_channel()) or check_packaged_browser_runtime().ready or check_managed_browser_runtime().ready
 
 
 def _installed_channel() -> str | None:
@@ -497,7 +521,7 @@ class BrowserEngine:
         if not readiness.ready:
             readiness = check_managed_browser_runtime()
         if readiness.ready:
-            attempts.append({"executable_path": readiness.executable_path})
+            attempts.append({"executable_path": headless_executable(readiness) or readiness.executable_path})
         if not attempts:
             raise RuntimeError("No browser is installed: install Chrome or Edge, or Row-Bot's browser in Settings.")
         return attempts
@@ -784,8 +808,8 @@ class BrowserEngine:
             from row_bot.application.attachments import register_attachment
             from row_bot.file_deliveries import size_words
 
-            register_attachment(owner, name, data)
-            self._chat(owner).notes.append(f"Downloaded {name} ({size_words(len(data))}) to this chat's files.")
+            kept = register_attachment(owner, name, data)["name"]  # A taken name is kept as name-2, ….
+            self._chat(owner).notes.append(f"Downloaded {kept} ({size_words(len(data))}) to this chat's files.")
         except Exception:
             logger.info("A browser download could not be kept", exc_info=True)
             self._chat(owner).notes.append(f"Downloaded {name}, but it couldn't be kept in this chat's files.")
@@ -1067,8 +1091,11 @@ class BrowserEngine:
         return max(panes)[1] if panes else None
 
     def page_metrics(self, chat_id: str) -> tuple[int, int, float]:
-        """The page size for a conversation: its pane's (CSS width, height, scale), else a desktop window."""
+        """The page size for a conversation: a recording's while one runs, its pane's (CSS width, height,
+        scale), else a desktop window."""
 
+        if chat_id in self._recorders:
+            return RECORD_METRICS
         fit = self._pane_fit(chat_id)
         if fit is None:
             return DESKTOP_METRICS
@@ -1099,9 +1126,14 @@ class BrowserEngine:
             logger.debug("The page could not take the pane's size", exc_info=True)
             return
         if tab.fitted is not None and tab.fitted[0] != wanted[0]:
-            where = "the Browser pane's size" if wanted != DESKTOP_METRICS else "a desktop window's size"
-            chat.notes.append(f"The page is now {wanted[0]}×{wanted[1]}, {where}; its layout may have changed.")
+            chat.notes.append(f"The page is now {wanted[0]}×{wanted[1]}, {self._where(chat.id, wanted)}; "
+                              "its layout may have changed.")
         tab.fitted = wanted
+
+    def _where(self, chat_id: str, size: tuple[int, int, float]) -> str:
+        if chat_id in self._recorders and size == RECORD_METRICS:
+            return "the recording's size"
+        return "a desktop window's size" if size == DESKTOP_METRICS else "the Browser pane's size"
 
     async def _follow_live(self, chat_id: str, after: float = 0.0) -> None:
         """Size the active tab for whoever watches, and run its screencast while someone does."""
@@ -1125,7 +1157,11 @@ class BrowserEngine:
             await self._stop_screencast(live)
             return
         quality = 70 if any(v.kind != "thumb" for v in viewers) else 55
-        if any(viewer.fit is not None for viewer in viewers) and chat.active.fitted is not None:
+        recorder = self._recorders.get(chat_id)
+        if recorder is not None and recorder.size is not None:
+            # The recording's own pixels, whoever else watches: the pane shows them scaled.
+            (width, height), quality = recorder.size, RECORD_QUALITY
+        elif any(viewer.fit is not None for viewer in viewers) and chat.active.fitted is not None:
             # 1:1 with the pane: the page's own pixels, at most the cap.
             css_width, css_height, scale = chat.active.fitted
             width = min(MAX_PANE_WIDTH, round(css_width * scale))
@@ -1258,9 +1294,18 @@ class BrowserEngine:
                         await page.keyboard.up(key)
                 elif kind == "text":
                     await page.keyboard.insert_text(str(event.get("text") or ""))
+                elif kind == "paste":
+                    text = str(event.get("text") or "")
+                    if not await page.evaluate(_PASTE_SCRIPT, text):
+                        await page.keyboard.insert_text(text)
             except Exception:
                 # An unknown key name, or the page moved on: the next event still plays.
                 logger.debug("A pane input event was skipped", exc_info=True)
+            finally:
+                if not (kind == "mouse" and event.get("action") == "move"):
+                    # The wait counts from the person's last key or click as it lands, not from the batch's first:
+                    # a long typed password can take longer to play than the wait itself.
+                    chat.person_at = time.monotonic()
         chat.last_used = time.monotonic()
         return {"status": "ok", "copied": copied}
 
@@ -1572,7 +1617,7 @@ class BrowserEngine:
             self._chats.pop(chat_id, None)
         self._notify(chat_id)
 
-    def evict_idle(self, ttl_seconds: float = 600.0) -> int:
+    def evict_idle(self, ttl_seconds: float = IDLE_CLOSE_SECONDS) -> int:
         """Close tabs nobody has used for a while (not while a turn runs, someone watches or the person uses them)."""
 
         if not self.running:
@@ -1586,6 +1631,63 @@ class BrowserEngine:
         for chat_id in idle:
             self.release_thread(chat_id)
         return len(idle)
+
+    def _in_use(self, cutoff: float) -> bool:
+        """A turn, an action, a pane or picture, a recording or the person uses the browser, or did since *cutoff*."""
+
+        busy = _active_generation_thread_ids() | set(self._recorders)
+        return bool(self._viewers) or any(
+            chat.id in busy or chat.acting or (chat.lock is not None and chat.lock.locked())
+            or self._person_active(chat) or chat.last_used >= cutoff
+            for chat in list(self._chats.values()))
+
+    def close_when_idle(self, idle_seconds: float, *, now: float | None = None) -> bool:
+        """Close Chromium once nothing has used it for *idle_seconds* (H4), so its memory goes back to the server.
+
+        Nothing is turned off: the next use starts it again, with the same signed-in profile. Never while
+        it is in use (``_in_use``); the idle conversations' tabs are let go as ``evict_idle`` lets them go.
+        *now* is a monotonic time.
+        """
+
+        if not self.running:
+            return False
+        cutoff = (time.monotonic() if now is None else now) - idle_seconds
+        if self._in_use(cutoff):
+            return False
+        closed = bool(self._run(lambda: self._close_unused(cutoff), timeout=30.0, cancellable=False))
+        if closed:
+            logger.info("Row-Bot's browser closed after %.0f idle minutes; it starts again when used",
+                        idle_seconds / 60)
+        return closed
+
+    async def _close_unused(self, cutoff: float) -> bool:
+        assert self._start_lock is not None
+        async with self._start_lock:
+            # Checked again on the browser's own loop: an action that began since keeps it open. One that
+            # comes during the close waits for this lock, then starts the browser again (_agent_tab, _start).
+            if self._context is None or self._in_use(cutoff):
+                return False
+            for chat in [chat for chat in self._chats.values() if chat.tabs]:
+                self.revoke_local_addresses(chat.id)
+                self._chats.pop(chat.id, None)
+            context, self._context = self._context, None
+            self._closing = True
+            try:
+                self._set_status("stopped")
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+                self._forget_pages()
+                if self._pw is not None:
+                    try:
+                        await self._pw.stop()
+                    except Exception:
+                        pass
+                    self._pw = None
+            finally:
+                self._closing = False
+        return True
 
     def close(self) -> None:
         if self._closed:
@@ -1734,11 +1836,13 @@ class BrowserEngine:
         return image
 
     def set_viewport(self, preset: str, device_scale: float | None = None, thread_id: str = "default") -> str:
-        """Show this conversation's page at a phone, tablet or desktop size (optionally another device scale)."""
+        """Show this conversation's page at a phone, tablet or desktop size (optionally another device scale), or
+        ``pane``: back to the Browser pane's size. While a recording runs, desktop is the recording's size."""
 
-        if preset not in VIEWPORT_PRESETS:
-            return "Choose phone, tablet or desktop."
-        width, height, scale, touch = VIEWPORT_PRESETS[preset]
+        if preset not in VIEWPORT_PRESETS and preset != "pane":
+            return "Choose phone, tablet, desktop or pane."
+        follow = preset == "pane" or (preset == "desktop" and thread_id in self._recorders)
+        width, height, scale, touch = VIEWPORT_PRESETS.get(preset, VIEWPORT_PRESETS["desktop"])
         if device_scale is not None:
             try:
                 scale = float(device_scale)
@@ -1750,26 +1854,28 @@ class BrowserEngine:
         async def step(tab: _Tab) -> str:
             session = tab.session or await self._context.new_cdp_session(tab.page)
             tab.session = session
-            if preset == "desktop" and device_scale is None:
-                # Back to the size the person sees it at (or a desktop window).
+            if follow:
+                # Back to the size the person sees it at (or a desktop window, or the recording's).
                 await session.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
                 tab.viewport, tab.fitted = None, None
                 await self._fit(self._chat(thread_id))
                 tab.refs.reset()
                 size = tab.fitted or DESKTOP_METRICS
-                where = "desktop size" if size == DESKTOP_METRICS else "the Browser pane's size"
+                where = "desktop size" if size == DESKTOP_METRICS else self._where(thread_id, size)
                 return f"The page now shows at {where}: {size[0]}×{size[1]} at {size[2]:g}× scale."
             else:
                 await session.send("Emulation.setDeviceMetricsOverride", {
                     "width": width, "height": height, "deviceScaleFactor": scale, "mobile": touch})
-                await session.send("Emulation.setTouchEmulationEnabled", {"enabled": touch,
-                                                                         "maxTouchPoints": 5 if touch else 0})
+                # Chromium refuses touch points outside 1-16, even when switching touch off.
+                await session.send("Emulation.setTouchEmulationEnabled",
+                                   {"enabled": True, "maxTouchPoints": 5} if touch else {"enabled": False})
                 tab.viewport, tab.fitted = (preset, scale), None
             tab.refs.reset()
             return (f"The page now shows at {preset} size: {width}×{height} at {scale:g}× scale"
                     + (", as a touch screen." if touch else "."))
 
-        return self.act(thread_id, f"Showing the page at {preset} size", step).text
+        label = "the Browser pane's size" if preset == "pane" else f"{preset} size"
+        return self.act(thread_id, f"Showing the page at {label}", step).text
 
     # ---- Recordings (F2) ------------------------------------------------------------
 
@@ -1782,22 +1888,43 @@ class BrowserEngine:
             raise RuntimeError("already_recording")
         if not self.running or chat is None or chat.active is None or str(chat.active.page.url) in _BLANK_URLS:
             raise LookupError("no_page")
-        recorder = PageRecorder(path, max_seconds=max_seconds, size_limit=size_limit, width=RECORD_WIDTH,
+        css_width, css_height, scale = self._record_metrics(chat.active)
+        width, height = css_width * scale, css_height * scale
+        shrink = min(1.0, MAX_RECORD_SIDE / max(width, height))
+        recorder = PageRecorder(path, max_seconds=max_seconds, size_limit=size_limit,
+                                size=(round(width * shrink), round(height * shrink)),
+                                pointer_size=RECORD_POINTER_CSS * scale * shrink,
+                                touch=chat.active.viewport is not None
+                                and VIEWPORT_PRESETS.get(chat.active.viewport[0], (0, 0, 1.0, False))[3],
                                 on_end=lambda reason, video: self._recording_ended(thread_id, on_end, reason, video))
         self._recorders[thread_id] = recorder
+        # The page takes the recording's size before the first picture is kept.
+        self._run(lambda: self._follow_live(thread_id), timeout=15.0, cancellable=False)
         frame = self.latest_frame(thread_id)
-        if frame is not None:
+        if frame is not None and (round(frame.css_width), round(frame.css_height)) == (css_width, css_height):
             recorder.offer_frame(base64.b64decode(frame.data))
-        recorder.watch = self.watch(thread_id, kind="record", width=RECORD_WIDTH)
+        recorder.watch = self.watch(thread_id, kind="record", width=recorder.size[0])
         recorder.start()
         self._publish(thread_id)
         return recorder
+
+    def _record_metrics(self, tab: _Tab) -> tuple[int, int, float]:
+        """The page size a recording keeps: a phone or tablet size the agent chose, else the recording's own."""
+
+        if tab.viewport is not None and tab.viewport[0] != "desktop":
+            width, height, _scale, _touch = VIEWPORT_PRESETS[tab.viewport[0]]
+            return width, height, tab.viewport[1]
+        # A desktop size chosen earlier gives way to the recording's.
+        tab.viewport, tab.fitted = None, None
+        return RECORD_METRICS
 
     def _recording_ended(self, chat_id: str, on_end: Any, reason: str, video: Path | None) -> None:
         recorder = self._recorders.pop(chat_id, None)
         watch = getattr(recorder, "watch", None)
         if watch is not None:
             watch.close()
+        if self.running:
+            self._soon(self._follow_live(chat_id))  # Back to the pane's size.
         self._publish(chat_id)
         on_end(reason, video)
 
@@ -1942,8 +2069,20 @@ class BrowserSessionManager:
     def take_screenshot(self, thread_id: str) -> bytes | None:
         return self._engine.take_screenshot(thread_id) if self._engine else None
 
-    def evict_idle(self, ttl_seconds: float = 600.0) -> int:
+    def evict_idle(self, ttl_seconds: float = IDLE_CLOSE_SECONDS) -> int:
         return self._engine.evict_idle(ttl_seconds=ttl_seconds) if self._engine else 0
+
+    def close_when_idle(self, idle_seconds: float = IDLE_CLOSE_SECONDS, *, now: float | None = None) -> bool:
+        """Close Chromium after *idle_seconds* unused, only on a server with a memory limit (H4, a container).
+
+        The desktop has none, so its browser stays open as it always did.
+        """
+
+        from row_bot.server_memory import limit_bytes
+
+        if self._engine is None or limit_bytes() is None:
+            return False
+        return self._engine.close_when_idle(idle_seconds, now=now)
 
     def kill_session(self, thread_id: str) -> None:
         if self._engine:

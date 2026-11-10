@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "description": "Installing Claude Code: progress and a plain reason, never a path, a URL or the installer's output.",
+  "properties": {
+    "reason": {
+      "enum": [
+        "",
+        "no_internet",
+        "download_failed",
+        "checksum_mismatch",
+        "disk_full",
+        "unsupported_platform",
+        "install_failed"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "received": {
+      "minimum": 0,
+      "title": "Received",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "idle",
+        "running",
+        "done",
+        "failed"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "step": {
+      "enum": [
+        "",
+        "download",
+        "check",
+        "install"
+      ],
+      "title": "Step",
+      "type": "string"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    },
+    "version": {
+      "maxLength": 40,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state",
+    "step",
+    "received",
+    "total",
+    "version",
+    "reason"
+  ],
+  "title": "ClaudeCodeInstallState",
+  "type": "object"
+}

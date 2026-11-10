@@ -190,6 +190,12 @@ test('Clone from URL clones into Row-Bot’s workspace folder after the download
   page,
 }, info) => {
   await newConversation(page);
+  // A new conversation starts on Auto, which clones without asking; under Ask the download is confirmed.
+  await page.getByRole('button', { name: /^Approvals: / }).click();
+  await page.getByRole('menuitem', { name: /^Ask/ }).click();
+  await expect(
+    page.getByRole('button', { name: 'Approvals: Ask' }),
+  ).toBeVisible();
   const dialog = await codeFolderSetup(page, 'clone_repository');
   await dialog
     .getByRole('textbox', { name: 'Repository URL', exact: true })
@@ -221,4 +227,9 @@ test('Clone from URL clones into Row-Bot’s workspace folder after the download
     headers: fixtureHeaders(),
   });
   expect((await state.json()).folders).toContain('demo');
+  // Choosing Ask is remembered for new conversations: later specs start on Auto again.
+  const reset = await page.request.post('/__a0_fixture/full-autonomy/reset', {
+    headers: fixtureHeaders(),
+  });
+  expect(reset.ok()).toBe(true);
 });

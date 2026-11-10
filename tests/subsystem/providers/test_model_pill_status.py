@@ -25,8 +25,11 @@ def service():
 
 
 @pytest.fixture(autouse=True)
-def _no_vision_lookup(monkeypatch):
+def _no_vision_lookup(monkeypatch, tmp_path):
+    from row_bot.providers import saved_model_settings
+
     monkeypatch.setattr(workspace_setup, "_sees_images", lambda _ref: None)
+    monkeypatch.setattr(saved_model_settings, "SETTINGS_PATH", tmp_path / "model_settings.json")
 
 
 def _status(monkeypatch, service, readiness, *, provider="ollama", model="qwen3.8:27b", mode="agent"):
@@ -39,12 +42,14 @@ def _status(monkeypatch, service, readiness, *, provider="ollama", model="qwen3.
 def test_no_model_yet_offers_choose_a_model(service):
     assert workspace_setup.model_status(service, {"model_selection": None}) == {
         "state": "missing", "reason": "No model chosen yet", "fix": "choose", "local": False, "sees_images": None,
+        "backup_name": "",
     }
 
 
 def test_ready_models_carry_the_local_glyph(monkeypatch, service):
     local = _status(monkeypatch, service, _readiness())
-    assert local == {"state": "ready", "reason": "", "fix": None, "local": True, "sees_images": None}
+    assert local == {"state": "ready", "reason": "", "fix": None, "local": True, "sees_images": None,
+                     "backup_name": ""}
     cloud = _status(monkeypatch, service, _readiness(), provider="codex", model="gpt-5.6-sol")
     assert cloud["state"] == "ready" and cloud["local"] is False
 
@@ -65,6 +70,54 @@ def test_unavailable_models_say_why_and_offer_one_fix(monkeypatch, service):
     small = _status(monkeypatch, service, _readiness(agent=False, chat=False,
                                                     errors=["context window is 8,192 tokens"]))
     assert small["reason"] == "Its context window is too small"
+
+
+BACKUP = "model:codex:gpt-6.1-sol"
+
+
+def _main_down_backup_ready(monkeypatch, *, backup_ready=True):
+    """Ollama not running; the backup, a ChatGPT model, ready or not."""
+    down, ready = _readiness(agent=False, chat=False, credential="missing"), _readiness(agent=backup_ready,
+                                                                                         chat=backup_ready)
+    monkeypatch.setattr("row_bot.providers.readiness.evaluate_runtime_readiness",
+                        lambda ref, **_k: ready if ref == BACKUP else down)
+
+
+def test_an_unavailable_model_names_the_backup_that_answers_instead(monkeypatch, service):
+    """#140: a local model that isn't running still lets a message go when the backup answers."""
+    from row_bot.providers import backup
+
+    controls = {"model_selection": {"provider_id": "ollama", "model_ref": "model:ollama:gpt-oss:20b"},
+                "runtime_mode": "agent"}
+    _main_down_backup_ready(monkeypatch)
+    off = workspace_setup.model_status(service, controls)
+    assert (off["state"], off["fix"], off["backup_name"]) == ("unavailable", "reconnect", "")
+    assert workspace_setup.generation_readiness(service, controls) is False
+
+    backup.save_setting(enabled=True, ref=BACKUP)
+    on = workspace_setup.model_status(service, controls)
+    assert (on["state"], on["fix"], on["backup_name"]) == ("unavailable", "reconnect", "gpt-6.1-sol")
+    assert workspace_setup.generation_readiness(service, controls) is True
+
+    _main_down_backup_ready(monkeypatch, backup_ready=False)
+    assert workspace_setup.model_status(service, controls)["backup_name"] == "", "a backup that isn't ready"
+    assert workspace_setup.generation_readiness(service, controls) is False
+
+
+def test_an_incognito_chat_with_a_cloud_backup_still_cant_send(monkeypatch, service, tmp_path, reload_for_data_dir):
+    from row_bot.providers import backup
+
+    (threads,) = reload_for_data_dir(tmp_path / "data", "row_bot.threads")
+    threads.create_thread("Private", thread_id="incognito-chat", seed_default_skills=False)
+    threads.set_thread_incognito("incognito-chat", True)
+    backup.save_setting(enabled=True, ref=BACKUP)
+    _main_down_backup_ready(monkeypatch)
+    controls = {"model_selection": {"provider_id": "ollama", "model_ref": "model:ollama:gpt-oss:20b"},
+                "runtime_mode": "agent"}
+
+    status = workspace_setup.model_status(service, controls, "incognito-chat")
+    assert (status["state"], status["fix"], status["backup_name"]) == ("unavailable", "reconnect", "")
+    assert workspace_setup.generation_readiness(service, controls, "incognito-chat") is False
 
 
 def test_chat_only_mode_needs_only_chat_readiness(monkeypatch, service):

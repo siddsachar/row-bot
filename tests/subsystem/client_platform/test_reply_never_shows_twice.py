@@ -138,3 +138,54 @@ def test_a_retired_twin_never_comes_back_as_an_empty_paged_row(platform):
     for rows in (during, after):
         assert [row["id"] for row in rows if row.get("content_status") == "lazy"] == []
         assert [row["id"] for row in rows if row["role"] == "assistant"] == ["assistant:checkpoint:" + native_id]
+
+
+def test_a_chat_opened_mid_run_shows_each_step_once(platform):
+    """U12: the live row streams every step's text, and opening the chat mid-run also read in the steps saved
+    so far: each step showed with its tool, then again in one block with the rest below them."""
+    from langchain_core.messages import ToolMessage
+
+    from tests.helpers.client_platform_fakes import StreamBarrier
+
+    step_id, done_id = fixture_id("mid-run-step"), fixture_id("mid-run-step-result")
+    call = {"name": "workspace_list", "args": {}, "id": "call-mid-run"}
+    barrier = StreamBarrier()
+    fake = ScriptedAgentStream((("token", "Let me look at the workspace."),
+                               CheckpointCommit((AIMessage(content="Let me look at the workspace.", id=step_id,
+                                                           tool_calls=[call]),
+                                                 ToolMessage(content="3 files", tool_call_id="call-mid-run",
+                                                             id=done_id))),
+                               ("token", " It holds three files."), barrier, ("done", "It holds three files.")))
+    handle = platform.registry.get(submit(platform, fake, "mid-run")["execution_id"])
+    try:
+        assert barrier.entered.wait(10)
+        rows = platform.snapshot("conversation-a")["rows"]  # The chat is opened again now.
+        shown = ["".join(block.get("text", "") for block in row.get("blocks", []))
+                 for row in rows if row["role"] == "assistant"]
+        assert shown == ["Let me look at the workspace.", "It holds three files."]
+    finally:
+        barrier.release.set()
+        assert handle.producer_done.wait(10)
+
+
+def test_a_chat_read_mid_run_shows_each_model_steps_words_once():
+    """5.3.3: each model step streams into a live row of its own. A read mid-run brings in the steps saved
+    so far beside their live rows, which stay until the turn ends: each step's words showed twice, the saved
+    step with its tool and media, then its live twin, until the turn ended."""
+    from row_bot.projection.conversation import without_saved_steps
+
+    def row(row_id: str, role: str, text: str, **extra) -> dict:
+        return {"id": row_id, "role": role, "blocks": [{"type": "text", "text": text}], **extra}
+
+    rows = [
+        row("user:submission:u1", "user", "Make the sign-up videos."),
+        row("assistant:checkpoint:a1", "assistant", "First, a video of the sign-up flow.", tool_call_ids=["c1"]),
+        row("assistant:checkpoint:a2", "assistant", "", tool_call_ids=["c2"]),
+        row("assistant:checkpoint:a3", "assistant", "Now a still of the form.", tool_call_ids=["c3"]),
+        row("assistant:live:p:s1", "assistant", "First, a video of the sign-up flow."),
+        row("assistant:live:p:s3", "assistant", "Now a still of the form."),
+        row("assistant:live:p:s4", "assistant", "Next, a shorter cut."),
+    ]
+    assert [item["id"] for item in without_saved_steps(rows)] == [
+        "user:submission:u1", "assistant:checkpoint:a1", "assistant:checkpoint:a2", "assistant:checkpoint:a3",
+        "assistant:live:p:s4"]

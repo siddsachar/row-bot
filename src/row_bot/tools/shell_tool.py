@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import platform
+import posixpath
 import re
 import threading
 import time
@@ -37,7 +38,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from row_bot.approval_policy import normalize_approval_mode
 from row_bot.brand import APP_DATA_DIR_ENV, DEFAULT_DATA_DIR_NAME
-from row_bot.data_paths import get_row_bot_data_dir, private_data_dirs, sandbox_workspace, shared_data_folder
+from row_bot.data_paths import get_row_bot_data_dir, own_workspaces, private_data_dirs, shared_data_folder
 from row_bot.process_cancellation import run_cancellable_subprocess
 from row_bot.secret_store import SERVER_SECRETS_DIR_ENV
 from row_bot.tools.base import BaseTool
@@ -94,7 +95,7 @@ _SAFE_COMMANDS: dict[str, tuple[str, ...]] = {
     "get-location": (), "set-location": (), "get-childitem": (),
     # Reading
     "cat": (), "head": (), "tail": (), "less": ("-o", "--log-file"), "more": (), "type": (),
-    "get-content": (), "select-string": (),
+    "get-content": (), "select-string": (), "import-csv": (),
     "wc": (), "file": ("-c", "--compile"), "stat": (), "du": (), "df": (),
     # Info
     "echo": (), "whoami": (), "uname": (), "which": (), "where": (), "get-command": (),
@@ -104,6 +105,8 @@ _SAFE_COMMANDS: dict[str, tuple[str, ...]] = {
     "grep": (), "rg": ("--pre", "--hostname-bin"), "fd": ("-x", "--exec", "--exec-batch"), "ag": ("--pager",),
     # System info
     "systeminfo": (), "ver": (), "lsb_release": (), "ps": (), "tasklist": (),
+    # -ComputerName (or any abbreviation of it) signs in to another computer.
+    "get-process": ("-c",),
     "ping": (), "nslookup": (), "dig": (), "traceroute": (), "tracert": (),
 }
 # Exact read-only command lines.
@@ -130,7 +133,7 @@ _HOSTNAME_READ_OPTIONS = frozenset({"-s", "-f", "-d", "-i", "-I", "-A", "--short
 # and "HKLM:" reads the registry, not files.
 _POWERSHELL_PATH_COMMANDS = frozenset({
     "ls", "dir", "cat", "type", "more", "cd", "pushd",
-    "get-childitem", "get-content", "set-location", "select-string",
+    "get-childitem", "get-content", "set-location", "select-string", "import-csv",
 })
 _PROVIDER_PATH = re.compile(r"^(env|variable|function|alias|cert|hklm|hkcu|wsman):|\w::", re.IGNORECASE)
 # \\server\share (or //server/share): reading it connects to that server and, on Windows, signs in to it.
@@ -197,6 +200,96 @@ def _shell_words(line: str) -> list[str] | None:
     if in_word:
         words.append("".join(word))
     return words
+
+
+# ffmpeg or ffprobe run as a command: first on a line, or after a pipe or a chaining operator.
+_FFMPEG_COMMAND = re.compile(r"(?:^|[|;&]\s*|\n\s*)(?:ffmpeg|ffprobe)(?:\.exe)?(?=\s|$)", re.IGNORECASE)
+
+# What a read-only listing may be piped into: they only sort, pick, count or lay out what they're given. The
+# words of each part go through _shell_words, so no script block, variable or substitution reaches here.
+_PIPE_FILTERS: dict[str, tuple[str, ...]] = {
+    "select-object": (), "select": (), "sort-object": (), "measure-object": (), "measure": (),
+    "group-object": (), "format-table": (), "ft": (), "format-list": (), "fl": (),
+    "convertto-json": (), "convertto-csv": (), "out-string": (),
+    "sort": ("-o", "--output", "--compress-program"),
+    "where-object": (),
+}
+
+# Where-Object with a script block that only compares the item's properties with plain values
+# ("{ $_.LastWriteTime -gt (Get-Date).AddDays(-1) -and $_.Name -like '*.log' }"). A command, a method call, a
+# variable or an expanding string in it could run anything, so those still ask.
+_WHERE_FILTER = re.compile(r"where-object[ \t]+(-filterscript[ \t]+)?\{(?P<body>[^{}]*)\}", re.IGNORECASE)
+_WHERE_TOKEN = re.compile(r"""
+    [ \t]+
+    | \$(_|psitem)(\.[a-z_]\w*)*(?![\w.(\[])
+    | \$(true|false|null)\b
+    | '(?:[^']|'')*'
+    | "[^"$`\\]*"
+    | \(get-date\)(\.add(days|hours|minutes|seconds|months|years)\(-?\d+(\.\d+)?\))?(?![\w.(\[])
+    | -?\d+(\.\d+)?(kb|mb|gb|tb)?\b
+    | -[ic]?(eq|ne|gt|ge|lt|le|like|notlike|match|notmatch|contains|notcontains|in|notin)\b
+    | -(and|or|xor|not)\b
+    | [!(),]
+""", re.IGNORECASE | re.VERBOSE)
+
+
+def _where_filter(part: str) -> bool:
+    match = _WHERE_FILTER.fullmatch(part)
+    if match is None or not _LOOKALIKE_QUOTES.isdisjoint(part):
+        return False
+    body, position = match["body"], 0
+    while position < len(body):
+        token = _WHERE_TOKEN.match(body, position)
+        if token is None:
+            return False
+        position = token.end()
+    return True
+
+
+def _pipe_parts(line: str) -> list[str] | None:
+    """The parts of a plain pipeline ("ls -t | head -5"), or None when the line has no pipe or isn't one.
+
+    A "|" inside quotes is text; "||" chains, so it isn't a pipeline.
+    """
+    parts, start, quote = [], 0, ""
+    for index, char in enumerate(line):
+        if quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif char == "|":
+            if line[index + 1:index + 2] == "|" or line[index - 1:index] == "|":
+                return None
+            parts.append(line[start:index])
+            start = index + 1
+    if not parts or quote:
+        return None
+    parts.append(line[start:])
+    return [part.strip() for part in parts]
+
+
+def _read_only_pipeline(line: str) -> bool:
+    """True for a pipeline of read-only programs: a read-only command, then filters or read-only commands.
+
+    Each part is checked as it would be alone; a filter only reorders, picks or counts its input. A program
+    that runs its input (sh, iex, xargs, python) or writes (tee) is none of these, so it still asks.
+    """
+    parts = _pipe_parts(line)
+    if not parts:
+        return False
+    for index, part in enumerate(parts):
+        if index and _where_filter(part):
+            continue
+        words = _shell_words(part)
+        if not words:
+            return False
+        name = words[0].lower()
+        if index and name in _PIPE_FILTERS:
+            if _uses_option([word.lower() for word in words[1:]], _PIPE_FILTERS[name]):
+                return False
+        elif not _is_read_only(words):
+            return False
+    return True
 
 
 def _uses_option(args: list[str], options: tuple[str, ...]) -> bool:
@@ -289,30 +382,38 @@ def _slashes(text: str) -> str:
     return re.sub(r"/+", "/", text.lower().replace("\\", "/"))
 
 
-def names_private_data(command: str) -> bool:
+def names_private_data(command: str, cwd: str | os.PathLike[str] | None = None) -> bool:
     """True when a command names a private part of Row-Bot's data folder or the server secrets folder: a
-    path in any common spelling, or its variable.
+    path in any common spelling, or its variable; with *cwd*, the folder the command runs in, a relative path
+    there too (F5).
 
     The data folder's shared parts (the managed ffmpeg, recordings, exports, logs) are not private: a
     command naming only them is classified like any other (5.3.1 A1).
     """
+    if _names_private_data(command):
+        return True
+    return cwd is not None and _reaches_private_data(command, cwd)
+
+
+def _names_private_data(command: str) -> bool:
+    """The data folder named in full, by its variable, or as a ".row-bot" word of its own."""
     text = _slashes(command)
     if APP_DATA_DIR_ENV.lower() in text or SERVER_SECRETS_DIR_ENV.lower() in text:
         return True
     home = _slashes(str(Path.home()))
     text = _HOME_REFERENCES.sub(lambda _match: home, text)
     data_dir = _slashes(str(get_row_bot_data_dir(create=False).expanduser().resolve()))
-    workspace = sandbox_workspace()
-    own = _slashes(str(workspace)) if workspace is not None else ""
+    owns = [_slashes(str(workspace)) for workspace in own_workspaces()]
     for folder in (_slashes(str(folder.expanduser().resolve())) for folder in private_data_dirs()):
         start = text.find(folder)
         while start != -1:
             rest = text[start + len(folder):]
             inside = re.split(r"[\s\"'*;|&<>]", rest[1:], maxsplit=1)[0] if rest.startswith("/") else ""
-            # A sandbox's own workspace, inside the folder it was started from, is its to use.
-            in_own = (own.startswith(folder + "/") and text.startswith(own, start)
-                      and re.match(r"(/|[\s\"';|&<>]|$)", text[start + len(own):]) is not None
-                      and ".." not in inside.split("/"))
+            # An own workspace inside a private folder (a sandbox's, or the container's default) is the agent's.
+            in_own = ".." not in inside.split("/") and any(
+                own.startswith(folder + "/") and text.startswith(own, start)
+                and re.match(r"(/|[\s\"';|&<>]|$)", text[start + len(own):]) is not None
+                for own in owns)
             # The folder itself, or anything in it but its shared parts (the secrets folder has none);
             # ".." could climb out of a shared part.
             if not in_own and (folder != data_dir or not shared_data_folder(inside) or ".." in inside.split("/")):
@@ -321,12 +422,109 @@ def names_private_data(command: str) -> bool:
     return _DATA_DIR_SEGMENT.search(text) is not None
 
 
+# What a command reaches by a relative path depends on the folder it runs in (F5): the shell session's own,
+# and wherever a "cd" earlier on the line moved it. In the container image the default workspace and the home
+# folder lie inside the data folder (HOME=/data), and on a computer "../.." from Documents/Row-Bot is the home
+# folder with ".row-bot" in it, so "cat ../../.row-bot/threads.db" names no private folder in so many words.
+_FOLDER_CHANGES = frozenset({"cd", "chdir", "pushd", "set-location", "sl", "push-location"})
+# Where one command ends and the next begins: sh's and PowerShell's separators, cmd's "&", a pipe, a new line.
+_COMMAND_BREAKS = re.compile(r"&&|\|\||[;&|\n]")
+_COMMAND_WORDS = re.compile(r"\"([^\"]*)\"|'([^']*)'|([^\s\"']+)")
+_GLOB = re.compile(r"[*?\[]")
+_DRIVE_ROOT = re.compile(r"^[a-z]:/")
+# Folders a line may be in, at most: each "cd" adds where it leads from each folder so far.
+_MAX_FOLDERS = 16
+
+
+def _absolute_path(word: str, folder: str, home: str) -> str:
+    """*word* (with / separators, lower case) as an absolute path from *folder*, "~" and its spellings
+    being the home folder."""
+    word = _HOME_REFERENCES.sub(lambda _match: home, word)
+    if not (word.startswith("/") or _DRIVE_ROOT.match(word)):
+        word = f"{folder.rstrip('/')}/{word}"
+    return posixpath.normpath(word)
+
+
+def _private_place(path: str, folders: list[str], data_dir: str, owns: list[str]) -> bool:
+    """True when the absolute *path* is a private folder or inside one, by the rules for a path named in full:
+    an own workspace inside it is the agent's, and so are the data folder's shared parts."""
+    for folder in folders:
+        if path != folder and not path.startswith(folder + "/"):
+            continue
+        if any(path == own or path.startswith(own + "/") for own in owns if own.startswith(folder + "/")):
+            continue
+        inside = path[len(folder):].strip("/")
+        if folder == data_dir and inside and shared_data_folder(inside):
+            continue
+        return True
+    return False
+
+
+def _reaches_private_data(command: str, cwd: str | os.PathLike[str]) -> bool:
+    """True when a word of *command*, taken as a path from the folder it runs in, lands in a private folder.
+
+    A word with a separator, ".", "..", "~" or a wildcard is a path; any other word counts when a file or
+    folder of that name is there (``cat threads.db`` run inside the data folder). A "cd", "pushd" or
+    "Set-Location" moves what follows it on the line, and where it leads counts too.
+    """
+    home_real = str(Path.home())
+    home = _slashes(home_real)
+    data_dir = _slashes(str(get_row_bot_data_dir(create=False).expanduser().resolve()))
+    owns = [_slashes(str(workspace)) for workspace in own_workspaces()]
+    folders = [_slashes(str(folder.expanduser().resolve())) for folder in private_data_dirs()]
+    start = os.path.abspath(os.path.expanduser(str(cwd)))
+    places = [(_slashes(start), start)]
+
+    def private(word: str, folder: str) -> bool:
+        return _private_place(_absolute_path(_slashes(word), folder, home), folders, data_dir, owns)
+
+    for segment in _COMMAND_BREAKS.split(command):
+        words = [next(group for group in match.groups() if group is not None).strip("(){},")
+                 for match in _COMMAND_WORDS.finditer(segment)]
+        words = [word for word in words if word]
+        if not words:
+            continue
+        if words[0].lower().removesuffix(".exe") in _FOLDER_CHANGES:
+            # "cd" alone (or "cd ~") goes home; cmd's "/d" and options are not the folder.
+            targets = [word for word in words[1:] if not word.startswith("-") and word.lower() != "/d"]
+            target = targets[0] if targets else "~"
+            moved = []
+            for folder, real in places:
+                if targets and private(target, folder):
+                    return True
+                expanded = home_real + target[1:] if target.startswith("~") else target
+                moved_real = os.path.normpath(os.path.join(real, expanded))
+                moved.append((_absolute_path(_slashes(target), folder, home), moved_real))
+            places = (places + moved)[:_MAX_FOLDERS]
+            continue
+        for index, word in enumerate(words):
+            for part in (word, word.rsplit("=", 1)[1]) if "=" in word else (word,):
+                if not part or part.startswith("-"):
+                    continue
+                slashed = part.replace("\\", "/")
+                pathlike = ("/" in slashed or part in (".", "..") or part.startswith("~")
+                            or _GLOB.search(part) is not None)
+                if index == 0 and "/" not in slashed:
+                    continue  # The program's name, found on PATH.
+                for folder, real in places:
+                    if not pathlike and not os.path.lexists(os.path.join(real, part)):
+                        continue
+                    if private(part, folder):
+                        return True
+    return False
+
+
 def _append_process_note(output: str, note: str) -> str:
     text = str(output or "").rstrip()
     return f"{text}\n{note}" if text else note
 
 
-def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None) -> str:
+def classify_command(
+    command: str,
+    extra_blocked: list[re.Pattern] | None = None,
+    *,
+    cwd: str | os.PathLike[str] | None = None,
+) -> str:
     """Classify a command as ``'safe'``, ``'needs_approval'``, ``'private_data'`` or ``'blocked'``.
 
     Parameters
@@ -335,6 +533,9 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
         The shell command to classify.
     extra_blocked : list[re.Pattern] | None
         Additional user-configured blocked patterns.
+    cwd : str | os.PathLike | None
+        The folder it runs in, the shell session's own: a relative path into the data folder from
+        there is private data too (F5).
 
     Returns
     -------
@@ -353,7 +554,7 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            line_class = classify_command(line, extra_blocked)
+            line_class = classify_command(line, extra_blocked, cwd=cwd)
             # A trailing backslash joins the next line onto this one in sh, so "find . -name \" and
             # "ls -delete" are each safe but together delete.
             if line_class == "safe" and line.endswith("\\") and index < len(lines) - 1:
@@ -362,6 +563,9 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
                 worst = line_class
             if worst == "blocked":
                 return "blocked"
+        # A "cd" on one line moves the lines after it, which run in the same shell.
+        if cwd is not None and severities[worst] < severities["private_data"] and names_private_data(cmd, cwd):
+            return "private_data"
         return worst
 
     # Check built-in blocked patterns
@@ -375,13 +579,18 @@ def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None
             if pattern.search(cmd):
                 return "blocked"
 
-    if names_private_data(cmd):
+    if names_private_data(cmd, cwd):
         return "private_data"
 
-    # Safe only when the line runs one read-only program: no chaining, backgrounding, pipes, redirects or
-    # substitution (operators inside quotes are plain text), and no option that writes or runs.
+    # Safe when the line runs one read-only program, or pipes one into read-only filters: no chaining,
+    # backgrounding, redirects or substitution (operators inside quotes are plain text), and no option that
+    # writes or runs.
     words = _shell_words(cmd)
     if words and _is_read_only(words):
+        return "safe"
+    # A read-only listing piped into a sort, a pick or a count still only reads ("Get-ChildItem -Recurse |
+    # Sort-Object LastWriteTime | Select-Object -First 20"), so a Block workflow can use it.
+    if words is None and _read_only_pipeline(cmd):
         return "safe"
     return "needs_approval"
 
@@ -448,6 +657,13 @@ def _sets_git_identity(command: str) -> bool:
     from row_bot.developer.runtime import sets_git_identity
 
     return sets_git_identity(command)
+
+
+def _installs_system_software(command: str) -> bool:
+    """Whether the command installs software for everyone on the computer (only the person may)."""
+    from row_bot.developer.runtime import installs_system_software
+
+    return installs_system_software(command)
 
 class ShellSession:
     """A logical shell session that tracks cwd across commands.
@@ -888,13 +1104,19 @@ class ShellTool(BaseTool):
                 f"🚫 BLOCKED: This command matches a blocked pattern and "
                 f"cannot be executed: {command}"
             )
+        # From the folder this conversation's shell is in now: a relative path counts from there (F5).
+        thread_id, session_key, session = self._session_for(runtime_config)
+        if classification != "private_data" and names_private_data(command, session.cwd):
+            classification = "private_data"
 
         risks: tuple[str, ...] = ("runs a command that can change things on this computer",)
         if background:
             risks += (_BACKGROUND_RISK,)
         if _sets_git_identity(command):
             risks += (approval_gate.GIT_IDENTITY_RISK,)
-        thread_id, session_key, session = self._session_for(runtime_config)
+        if _installs_system_software(command):
+            # The Auto reviewer passed `winget install` as "a necessary step" of a video (D3): never its call.
+            risks += (approval_gate.SYSTEM_INSTALL_RISK,)
         refusal, approval = self._gate(
             command=command,
             classification=classification,
@@ -919,6 +1141,15 @@ class ShellTool(BaseTool):
         )
         if refusal:
             return refusal
+        # A command using ffmpeg on a computer without one gets Row-Bot's own, asked once (5.3.1 A1): once
+        # downloaded it's on every command's PATH.
+        if _FFMPEG_COMMAND.search(command):
+            from row_bot import ffmpeg_runtime
+
+            if ffmpeg_runtime.find() is None:
+                found, line = ffmpeg_runtime.ensure("command", "run_command")
+                if found is None:
+                    return with_approval(approval, f"$ {command}\n{line}")
 
         # ── Execute ──────────────────────────────────────────────────────
         try:
@@ -988,7 +1219,8 @@ class ShellTool(BaseTool):
             return f"Error: the folder {where} doesn't exist. Pass an existing folder, or leave it out to use {session.cwd}."
 
         # Classified exactly like run_command; the variables' values count as part of the command.
-        classification = classify_command("\n".join([command, *variables.values()]), self._get_extra_blocked())
+        classification = classify_command(
+            "\n".join([command, *variables.values()]), self._get_extra_blocked(), cwd=where)
         if classification == "blocked":
             return (
                 f"🚫 BLOCKED: This command matches a blocked pattern and "
@@ -1182,14 +1414,13 @@ class ShellTool(BaseTool):
                 name="start_process",
                 args_schema=_StartProcessInput,
                 description=(
-                    "Start a program that keeps running in the background, such as a "
-                    "development server, a local file server or a file watcher, in any folder "
-                    "(the person's workspace by default) and with extra environment variables. "
-                    "Use it, not run_command, for anything that serves or watches. "
-                    "Asks for approval like run_command. Returns its "
-                    "process_id, its first output and any local address it serves. Background "
-                    "processes belong to this conversation, stop when Row-Bot quits, and at "
-                    f"most {MAX_RUNNING_PER_CONVERSATION} run at once here."
+                    "Start a program that keeps running (a dev server, file server or watcher) in "
+                    "any folder (the workspace by default), with extra environment variables; "
+                    "use it, not run_command, for anything that serves or watches. Asks like "
+                    "run_command. Returns its process_id, first output and any local address. "
+                    "It belongs to this conversation and stops when Row-Bot quits; at most "
+                    f"{MAX_RUNNING_PER_CONVERSATION} run at once here. Stop one started only to "
+                    "preview or record a page once done."
                 ),
             ),
             StructuredTool.from_function(

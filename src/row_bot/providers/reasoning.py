@@ -6,6 +6,7 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 import logging
+from pathlib import Path
 from typing import Any, Mapping
 
 from row_bot.providers.selection import model_ref, parse_model_ref
@@ -261,6 +262,9 @@ def resolve_reasoning_capabilities(provider_id: str, model_id: str) -> Reasoning
     fallback = _EXACT_REASONING_CAPABILITIES.get((provider, model))
     if fallback:
         return fallback
+    catalogued = _catalogue_reasoning_capabilities(provider, model)
+    if catalogued:
+        return catalogued
     if provider in {"opencode_zen", "opencode_go"}:
         return _opencode_fallback_capabilities(provider, model)
     if provider in {"ollama", "ollama_cloud"}:
@@ -280,7 +284,8 @@ def reasoning_metadata_for_catalog(
     caps = ReasoningCapabilities.from_json(nested)
     if caps:
         return _with_default_request_style(caps, provider_id).to_json()
-    fallback = _EXACT_REASONING_CAPABILITIES.get((provider_id, model_id))
+    fallback = _EXACT_REASONING_CAPABILITIES.get((provider_id, model_id)) or _catalogue_reasoning_capabilities(
+        provider_id, model_id)
     if fallback:
         return fallback.to_json()
     if provider_id in {"opencode_zen", "opencode_go"}:
@@ -326,6 +331,7 @@ def request_plan_for(
                     validate_reasoning_selection(selection, caps)
                 except ValueError:
                     set_thread_reasoning_selection(thread_id, canonical_model_ref, None)
+                    forget_reasoning_choice(canonical_model_ref, selection)
                     queue_reasoning_notice(
                         thread_id,
                         {
@@ -413,6 +419,7 @@ def apply_reasoning_command(thread_id: str, canonical_model_ref: str, argument: 
         None if selection.is_default else selection.to_json(),
     )
     clear_reasoning_suppression(thread_id, canonical_model_ref)
+    remember_reasoning_choice(canonical_model_ref, selection)
     return f"Reasoning for {canonical_model_ref}: {selection.label}."
 
 
@@ -497,6 +504,84 @@ def background_reasoning_rejected(canonical_model_ref: str) -> bool:
 
 def clear_reasoning_suppression(thread_id: str | None, canonical_model_ref: str) -> None:
     _suppressed_overrides.discard((str(thread_id or ""), canonical_model_ref))
+
+
+# A new chat starts on the Thinking choice the person last made for each model (#80), as it
+# starts on the approval level they last chose (#687). Chats they already have keep theirs.
+# Kept in model_settings.json beside the starred models.
+REMEMBERED_REASONING_KEY = "reasoning_last"
+
+
+def _model_settings_path() -> Path:
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    return get_row_bot_data_dir(create=False) / "model_settings.json"
+
+
+def remembered_reasoning_choices() -> dict[str, dict[str, Any]]:
+    """The Thinking choice the person last made for each model, by canonical model ref."""
+    from row_bot.providers.saved_model_settings import read_saved_model_settings
+
+    try:
+        raw, _revision, _exists = read_saved_model_settings(_model_settings_path())
+    except Exception:
+        logger.warning("Remembered Thinking choices could not be read; new chats start on Default")
+        return {}
+    saved = raw.get(REMEMBERED_REASONING_KEY)
+    found: dict[str, dict[str, Any]] = {}
+    for ref, value in saved.items() if isinstance(saved, dict) else ():
+        try:
+            selection = ReasoningSelection.from_json(value)
+        except (TypeError, ValueError):
+            continue
+        if parse_model_ref(str(ref)) is not None and not selection.is_default:
+            found[str(ref)] = selection.to_json()
+    return found
+
+
+def remember_reasoning_choice(canonical_model_ref: str, selection: ReasoningSelection) -> None:
+    """The person chose *selection* for this model: new chats with it start there. Default forgets it."""
+    _update_remembered_choice(canonical_model_ref, selection)
+
+
+def forget_reasoning_choice(canonical_model_ref: str, selection: ReasoningSelection) -> None:
+    """The model refused or no longer offers *selection*: new chats stop starting there."""
+    _update_remembered_choice(canonical_model_ref, ReasoningSelection(), only_if=selection)
+
+
+def _update_remembered_choice(
+    canonical_model_ref: str,
+    selection: ReasoningSelection,
+    *,
+    only_if: ReasoningSelection | None = None,
+) -> None:
+    from row_bot.providers.saved_model_settings import update_saved_model_settings
+
+    current = remembered_reasoning_choices().get(canonical_model_ref)
+    if only_if is not None and current != only_if.to_json():
+        return
+    if current == (None if selection.is_default else selection.to_json()):
+        return
+
+    def merge(raw: dict) -> dict:
+        saved = raw.get(REMEMBERED_REASONING_KEY)
+        choices = dict(saved) if isinstance(saved, dict) else {}
+        if only_if is not None and choices.get(canonical_model_ref) != only_if.to_json():
+            return raw
+        if selection.is_default:
+            choices.pop(canonical_model_ref, None)
+        else:
+            choices[canonical_model_ref] = selection.to_json()
+        merged = {key: value for key, value in raw.items() if key != REMEMBERED_REASONING_KEY}
+        if choices:
+            merged[REMEMBERED_REASONING_KEY] = choices
+        return merged
+
+    try:
+        update_saved_model_settings(merge, path=_model_settings_path())
+    except Exception:
+        # The chat keeps the choice either way; only new chats miss it.
+        logger.warning("The Thinking choice could not be remembered for new chats", exc_info=True)
 
 
 def _positive_int(value: Any, *, default: int, allow_zero: bool = False) -> int:
@@ -584,6 +669,44 @@ for _model, _minimum, _maximum, _disable in (
     )
 for _model in ("gemini-3-flash-preview", "gemini-3.1-pro-preview"):
     _EXACT_REASONING_CAPABILITIES[("google", _model)] = _caps(("low", "high"), style="google_level")
+
+
+def _catalogue_caps(efforts: tuple[str, ...] = (), *, style: str, **kwargs: Any) -> ReasoningCapabilities:
+    return ReasoningCapabilities(**{**_caps(efforts, style=style, **kwargs).to_json(),
+                                    "source": "models_dev_catalogue", "revision": ""})
+
+
+# How each provider's API takes thinking, for a model models.dev says reasons and the provider's own list
+# doesn't describe. A setting the provider refuses falls back to its default (ReasoningFallbackChatModel).
+_CATALOGUE_REASONING: dict[str, ReasoningCapabilities] = {
+    "openai": _catalogue_caps(_OPENAI_EFFORTS, style="openai"),
+    "anthropic": _catalogue_caps(_ANTHROPIC_EFFORTS, style="anthropic", thinking_mode="adaptive"),
+    "claude_subscription": _catalogue_caps(_ANTHROPIC_EFFORTS, style="anthropic", thinking_mode="adaptive"),
+    "google": _catalogue_caps(("low", "high"), style="google_level"),
+    "xai": _catalogue_caps(("low", "high"), style="xai", mandatory=True),
+    # reasoning_effort, as OpenAI's chat API takes it (gpt-oss and the others these hosts run).
+    **{provider: _catalogue_caps(("low", "medium", "high"), style="openai")
+       for provider in ("groq", "cerebras", "fireworks", "together", "huggingface", "vercel", "nvidia")},
+    # thinking: {"type": "enabled" | "disabled"}.
+    **{provider: _catalogue_caps(style="thinking_type", can_disable=True, thinking_mode="toggle")
+       for provider in ("zai", "deepseek", "moonshot")},
+    # enable_thinking: true | false.
+    "dashscope": _catalogue_caps(style="enable_thinking", can_disable=True, thinking_mode="toggle"),
+}
+
+
+def _catalogue_reasoning_capabilities(provider_id: str, model_id: str) -> ReasoningCapabilities | None:
+    """A control for a model models.dev says reasons, in the style its provider's API takes."""
+    caps = _CATALOGUE_REASONING.get(provider_id)
+    if caps is None:
+        return None
+    try:
+        from row_bot.providers.capability_catalog import lookup
+
+        known = lookup(provider_id, model_id)
+    except Exception:
+        return None
+    return caps if known is not None and known.reasoning else None
 
 
 def _with_default_request_style(caps: ReasoningCapabilities, provider_id: str) -> ReasoningCapabilities:

@@ -12,6 +12,7 @@ const mock = vi.hoisted(() => ({
       state: 'running',
       platform: 'windows',
       download_url: 'https://ollama.com/download',
+      on_this_computer: true,
       models: [{ model_ref: 'model:ollama:qwen3.8:27b', name: 'qwen3.8:27b' }],
     })),
     liveProviderStatus: vi.fn(async () => ({

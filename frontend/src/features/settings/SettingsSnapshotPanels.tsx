@@ -1,11 +1,13 @@
 import { BrowserSites } from '../browser/BrowserSites';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
+  AlertTriangle,
   AtSign,
   BarChart3,
   BookOpen,
   AppWindow,
+  ExternalLink,
   Calculator,
   CalendarClock,
   CheckCircle2,
@@ -56,6 +58,9 @@ import {
   type ReactNode,
 } from 'react';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
+import { useSmallServer } from '../../api/server-memory';
+import { webPage } from '../shell/hosted-links';
 import { RuntimeContext } from '../../runtime';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
@@ -346,7 +351,7 @@ const operationLabels: Record<string, string> = {
 };
 const utilityPresentation: Record<
   string,
-  { label: string; description: string }
+  { label: string; description: string | ((place: PlaceWords) => string) }
 > = {
   task: {
     label: 'Tasks',
@@ -367,8 +372,10 @@ const utilityPresentation: Record<
   chart: { label: 'Charts', description: 'Create charts from supplied data.' },
   system_info: {
     label: 'System Info',
-    description:
-      'Reports this computer’s system, memory, disk, network and battery.',
+    description: (place) =>
+      place.kind === 'this_computer'
+        ? 'Reports this computer’s system, memory, disk, network and battery.'
+        : `Reports the system, memory, disk, network and battery of ${place.noun}.`,
   },
   conversation_search: {
     label: 'Conversation Search',
@@ -471,12 +478,17 @@ export function SavedSetting({
   const modified =
     defaultValue !== undefined && !sameValue(value, defaultValue);
 
+  // The saved value the draft started from. A draft still equal to it was
+  // never edited here, so when the saved value changes elsewhere (another
+  // device, Start from defaults) the control shows the new one.
+  const seed = useRef<SettingsValue>(value);
   useEffect(() => {
-    if (!dirty && !busy) {
-      mutation.drafts.discard(mutation.page, field);
-      setDraft(value);
-    }
-  }, [busy, dirty, field, mutation.drafts, mutation.page, value]);
+    if (busy) return;
+    if (!dirty) mutation.drafts.discard(mutation.page, field);
+    else if (!sameValue(draft, seed.current)) return; // An edit in progress.
+    seed.current = value;
+    setDraft(value);
+  }, [busy, dirty, draft, field, mutation.drafts, mutation.page, value]);
   useEffect(() => () => abort.current?.abort(), []);
   // A notice's Undo runs after later renders: it calls the current save
   // (current revision) with the value before the latest change.
@@ -798,6 +810,7 @@ function ReviewedSettingsAction({
   confirm,
   presentation = 'block',
   text,
+  busyText = 'Working…',
   icon,
 }: {
   mutation: SettingsMutationIO;
@@ -815,6 +828,8 @@ function ReviewedSettingsAction({
   presentation?: 'block' | 'button' | 'icon' | 'link';
   /** A shorter visible text than `label` ("Install"). */
   text?: string;
+  /** What it says while it runs ("Downloading…"), when that's more than Working (U33). */
+  busyText?: string;
   icon?: ReactNode;
 }) {
   const tunnelRecovery =
@@ -1021,7 +1036,7 @@ function ReviewedSettingsAction({
             disabled={busy}
             onClick={start}
           >
-            {busy ? 'Working…' : shown}
+            {busy ? busyText : shown}
           </Button>
         ) : (
           <Button
@@ -1031,7 +1046,7 @@ function ReviewedSettingsAction({
             onClick={start}
           >
             {glyph}
-            {busy ? 'Working…' : shown}
+            {busy ? busyText : shown}
           </Button>
         ))}
       {pendingCommand && (
@@ -1085,6 +1100,83 @@ function ReviewedSettingsAction({
         </div>
       </ModalTask>
     </Wrapper>
+  );
+}
+
+/**
+ * Shown on every Settings page while tools_config.json can't be read: the
+ * registry then keeps every tool off rather than at its defaults, and saving
+ * a tool setting is refused. The reset keeps the old file beside it, and the
+ * workspace folder when Row-Bot still knows it; when it can't, the confirm and
+ * the notice after say where the folder is now.
+ */
+export function ToolSettingsUnreadable({
+  unreadable,
+  workspace,
+  mutation,
+}: {
+  unreadable: boolean;
+  workspace?: SettingsSnapshot['tool_settings_reset_workspace'];
+  mutation: SettingsMutationIO | null;
+}) {
+  const notify = useNotify();
+  const navigate = useNavigate();
+  const was = useRef(unreadable);
+  // The folder as Settings last saw it while the file was unreadable: the
+  // snapshot after the reset no longer carries it.
+  const folder = useRef(workspace ?? null);
+  useEffect(() => {
+    if (unreadable && workspace) folder.current = workspace;
+  }, [unreadable, workspace]);
+  useEffect(() => {
+    if (was.current && !unreadable) {
+      const after = folder.current;
+      if (after?.kept) {
+        notify(
+          `Tool settings are back to their defaults; the workspace folder is still ${after.folder}. Add your blocked commands again.`,
+        );
+      } else {
+        notify(
+          `Tool settings are back to their defaults, and the workspace folder is now ${after ? after.folder : 'the default one'}. Add your blocked commands again.`,
+          'warning',
+          {
+            label: 'Choose folder',
+            title: 'Choose the workspace folder in Settings › System',
+            onAction: () => navigate('/settings/system#workspace-folder'),
+          },
+        );
+      }
+    }
+    was.current = unreadable;
+  }, [unreadable, notify, navigate]);
+  if (!unreadable || !mutation) return null;
+  const folderWords = workspace
+    ? workspace.kept
+      ? `Your workspace folder stays ${workspace.folder}.`
+      : `Row-Bot can’t tell which workspace folder you chose, so it goes back to ${workspace.folder}; you can choose yours again in Settings › System.`
+    : 'The workspace folder goes back to the default one; you can choose yours again in Settings › System.';
+  return (
+    <div className="settings-tool-notice" role="alert">
+      <AlertTriangle size={20} aria-hidden />
+      <div>
+        <strong>Tool settings can’t be read</strong>
+        <p>
+          Row-Bot couldn’t read its tool settings file, so every tool is off and
+          tool settings can’t be saved. Restore the file from a backup, or start
+          again from the defaults.
+        </p>
+        <ReviewedSettingsAction
+          mutation={mutation}
+          field="tools.reset_unreadable"
+          label="Start from defaults"
+          description="Keeps the unreadable file beside the new one and starts tool settings from the defaults."
+          presentation="button"
+          variant="primary"
+          icon={<RotateCcw size={14} aria-hidden />}
+          confirm={`Tools go back to their defaults, and your blocked commands are cleared. ${folderWords} The unreadable file is kept so nothing is lost.`}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1155,6 +1247,7 @@ export function SelectSetting({
   row,
   savedMessage,
   layout,
+  intercept,
 }: {
   mutation: SettingsMutationIO;
   field: string;
@@ -1167,6 +1260,8 @@ export function SelectSetting({
   row?: RowLook;
   savedMessage?: (value: SettingsValue) => string;
   layout?: 'row' | 'bare';
+  /** A choice that asks in a sheet of its own first: true holds it; `choose` makes a choice later. */
+  intercept?: (value: string, choose: (value: string) => void) => boolean;
 }) {
   const available = options.some((option) => option.value === value)
     ? options
@@ -1189,7 +1284,10 @@ export function SelectSetting({
           aria-label={layout === 'bare' ? label : undefined}
           value={String(draft)}
           disabled={disabled}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            if (!intercept?.(event.target.value, setValue))
+              setValue(event.target.value);
+          }}
         >
           {available.map((option) => (
             <option key={option.value} value={option.value}>
@@ -1570,7 +1668,11 @@ function SecretSetting({
     mutation.drafts.has(mutation.page, field),
   );
   const tail = maskedTail(fingerprint);
-  const where = credentialSourceLabel(source);
+  const place = usePlace();
+  const where = credentialSourceLabel(
+    source,
+    place.kind === 'this_computer' ? undefined : place.name,
+  );
   const saved = /key|token|credential/i.test(label) ? 'Key saved' : 'Saved';
   return (
     <div className="settings-secret-control" data-setting-anchor={field}>
@@ -1760,11 +1862,10 @@ function TestVoiceButton() {
 function voiceProviderLabel(
   kind: 'listen' | 'speak',
   option: { value: string; label: string },
+  place: PlaceWords,
 ) {
   if (option.value === 'local')
-    return kind === 'listen'
-      ? 'Whisper · on this computer'
-      : 'Kokoro · on this computer';
+    return `${kind === 'listen' ? 'Whisper' : 'Kokoro'} · on ${place.name}`;
   if (option.value === 'openai_realtime') return 'OpenAI Realtime · online';
   return option.label;
 }
@@ -1773,11 +1874,15 @@ export function VoiceSnapshotPanel({
   snapshot,
   conversationId,
   mutation,
+  host = null,
 }: {
   snapshot: SettingsSnapshot['voice'];
   conversationId: string | null;
   mutation: SettingsMutationIO;
+  /** The company that runs this Row-Bot: where its memory grows (A2, A4). */
+  host?: SettingsSnapshot['system']['hosted_by'];
 }) {
+  const place = usePlace();
   const [talkProvider, setTalkProvider] = useState(() =>
     mutation.drafts.has(mutation.page, 'runtime.talk_provider')
       ? String(mutation.drafts.read(mutation.page, 'runtime.talk_provider'))
@@ -1803,22 +1908,54 @@ export function VoiceSnapshotPanel({
   // Listening on this computer needs the speech model: until it is downloaded, the header says so.
   const missingSpeech =
     (!realtime || localDictation) && !snapshot.local.whisper_installed;
+  // Elsewhere the person talks on their own device; only the speech model runs where Row-Bot runs (U7).
+  const here = place.kind === 'this_computer';
+  // A server too small for local speech-to-text (U8): its size ("2 GB"); '' with room or no limit.
+  const small = useSmallServer();
+  const needsBigger = small
+    ? { status: <span className="status-chip">Needs a 4 GB server</span> }
+    : undefined;
+  // Where the server gets more memory: the host's paid plan on a trial, else
+  // the service's own settings (A2, A4).
+  const grow = host?.trial
+    ? { url: host.trial.upgrade_url, label: `Upgrade in ${host.name}` }
+    : host?.settings_url
+      ? { url: host.settings_url, label: 'Raise the memory limit' }
+      : null;
+  // Choosing Whisper there asks first; this makes the choice the person makes in the sheet.
+  const [localChoice, setLocalChoice] = useState<
+    ((value: string) => void) | null
+  >(null);
+  const chooseFromSheet = (value: string) => {
+    localChoice?.(value);
+    setLocalChoice(null);
+  };
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
       <SettingsStatus
         tone={missingSpeech ? 'warning' : 'success'}
         more={[
-          realtime && localDictation ? 'dictation on this computer' : '',
+          realtime && localDictation
+            ? here
+              ? 'dictation on this computer'
+              : `dictation transcribed on ${place.name}`
+            : '',
           readAloudOn ? 'read aloud on' : 'read aloud off',
         ]}
       >
         {missingSpeech
-          ? 'Download the speech model to talk on this computer'
+          ? here
+            ? 'Download the speech model to talk on this computer'
+            : `Download the speech model to ${place.name} to talk`
           : realtime
             ? 'Realtime Talk online'
             : localDictation
-              ? 'Talk and dictation on this computer'
-              : 'Talk on this computer'}
+              ? here
+                ? 'Talk and dictation on this computer'
+                : `Talk and dictation transcribed on ${place.name}`
+              : here
+                ? 'Talk on this computer'
+                : `Talk transcribed on ${place.name}`}
       </SettingsStatus>
       <SettingsGroup
         title="Talk"
@@ -1832,18 +1969,32 @@ export function VoiceSnapshotPanel({
           hint={
             realtime
               ? 'Sends live microphone audio only while you are talking.'
-              : 'On this computer keeps your voice private.'
+              : here
+                ? 'On this computer keeps your voice private.'
+                : `Your voice goes only to ${place.noun}, never to a speech service.`
           }
           value={snapshot.runtime.talk_provider}
           options={snapshot.talk_providers.map((option) => ({
             value: option.value,
-            label: voiceProviderLabel('listen', option),
+            label: voiceProviderLabel('listen', option, place),
           }))}
           onDraftChange={setTalkProvider}
+          row={talkProvider === 'local' ? needsBigger : undefined}
+          intercept={
+            small
+              ? (next, choose) => {
+                  if (next !== 'local') return false;
+                  setLocalChoice(() => choose);
+                  return true;
+                }
+              : undefined
+          }
           savedMessage={(next) =>
             next === 'openai_realtime'
               ? 'Talk now listens with OpenAI Realtime'
-              : 'Talk now listens on this computer'
+              : here
+                ? 'Talk now listens on this computer'
+                : `Talk now transcribes ${place.onAgain}`
           }
         />
         <SwitchSetting
@@ -1857,9 +2008,14 @@ export function VoiceSnapshotPanel({
           <SwitchSetting
             mutation={mutation}
             field="runtime.realtime_fallback_to_local"
-            label="Fall back to this computer"
+            label={
+              here
+                ? 'Fall back to this computer'
+                : `Fall back to Whisper on ${place.name}`
+            }
             hint="If Realtime is unavailable, Talk listens with Whisper instead."
             value={snapshot.runtime.realtime_fallback_to_local}
+            row={needsBigger}
           />
         )}
         <SettingsItem
@@ -1890,9 +2046,10 @@ export function VoiceSnapshotPanel({
           label="Dictate with"
           hint="Uses the same speech model as Talk."
           value={snapshot.runtime.dictation_provider}
+          row={localDictation ? needsBigger : undefined}
           options={snapshot.dictation_providers.map((option) => ({
             value: option.value,
-            label: voiceProviderLabel('listen', option),
+            label: voiceProviderLabel('listen', option, place),
           }))}
         />
         {/* Dictate needs the chosen Whisper model on this computer (B140). */}
@@ -1900,7 +2057,11 @@ export function VoiceSnapshotPanel({
           mutation={mutation}
           field="local.whisper_model"
           label="Speech model"
-          hint="Downloads once from Hugging Face (Systran), then works offline."
+          hint={
+            here
+              ? 'Downloads once from Hugging Face (Systran), then works offline.'
+              : `Downloads once from Hugging Face (Systran), then runs ${place.onAgain}.`
+          }
           value={snapshot.local.whisper_model}
           options={snapshot.whisper_options.map((option) => ({
             value: option.value,
@@ -1919,7 +2080,8 @@ export function VoiceSnapshotPanel({
                 field="whisper.install"
                 label={`Install Whisper ${size}`}
                 text="Install"
-                description="Downloads the speech recognition model from Hugging Face (Systran) once and keeps it on this computer; Dictate then works offline. This action uses network access."
+                busyText={`Downloading Whisper ${size}…`}
+                description={`Downloads the speech recognition model from Hugging Face (Systran) once and keeps it ${place.onAgain}; Dictate then ${here ? 'works offline' : 'needs no speech service'}. This action uses network access.`}
                 presentation="button"
               />
             ),
@@ -1932,13 +2094,13 @@ export function VoiceSnapshotPanel({
             mutation={mutation}
             field="tts.enabled"
             label="Read replies aloud"
-            hint="Speaks answers with Kokoro, on this computer."
+            hint={`Speaks answers with Kokoro, ${place.onAgain}.`}
             value={snapshot.tts.enabled}
           />
         ) : (
           <SettingsItem
             label="Read replies aloud"
-            help="Speaks answers with Kokoro, on this computer. Installing downloads the model and voices once."
+            help={`Speaks answers with Kokoro, ${place.onAgain}. Installing downloads the model and voices once.`}
             status={
               <StatusLine
                 tone="warning"
@@ -1966,7 +2128,7 @@ export function VoiceSnapshotPanel({
             value={snapshot.runtime.speech_output_provider}
             options={snapshot.speech_output_providers.map((option) => ({
               value: option.value,
-              label: voiceProviderLabel('speak', option),
+              label: voiceProviderLabel('speak', option, place),
             }))}
           />
         )}
@@ -2066,12 +2228,12 @@ export function VoiceSnapshotPanel({
         >
           <VoiceModelRow
             title={`Whisper ${snapshot.local.whisper_model}`}
-            description="Dictation and local Talk transcription · on this computer"
+            description={`Dictation and local Talk transcription · on ${place.name}`}
             status={savedStateLabel(snapshot.local.runtime_state)}
           />
           <VoiceModelRow
             title="SenseVoice"
-            description="Talk and Dictation multilingual transcription · on this computer"
+            description={`Talk and Dictation multilingual transcription · on ${place.name}`}
             status={
               snapshot.local.sensevoice_path_configured
                 ? 'Configured'
@@ -2108,7 +2270,7 @@ export function VoiceSnapshotPanel({
               snapshot.tts_voice_options.find(
                 (option) => option.value === snapshot.tts.voice,
               )?.label ?? humanizeToken(snapshot.tts.voice)
-            } · on this computer`}
+            } · on ${place.name}`}
             status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
             ready={snapshot.tts.installed}
           />
@@ -2140,6 +2302,36 @@ export function VoiceSnapshotPanel({
           />
         </SettingsGroup>
       </SettingsAdvanced>
+      <ModalTask
+        open={localChoice !== null}
+        onOpenChange={(open) => {
+          if (!open) setLocalChoice(null);
+        }}
+        kind="sheet"
+        title="Use local speech-to-text?"
+        description={`This server has ${small}. Local speech-to-text may make Row-Bot restart.`}
+      >
+        {grow && webPage(grow.url) && (
+          <p className="voice-sheet-grow">
+            <a href={grow.url} target="_blank" rel="noopener noreferrer">
+              {grow.label}
+              <ExternalLink size={12} aria-hidden />
+            </a>
+          </p>
+        )}
+        <div className="button-row">
+          <Button onClick={() => chooseFromSheet('local')}>
+            Use local anyway
+          </Button>
+          <Button
+            variant="primary"
+            data-initial-focus
+            onClick={() => chooseFromSheet('openai_realtime')}
+          >
+            Use cloud speech-to-text
+          </Button>
+        </div>
+      </ModalTask>
     </div>
   );
 }
@@ -2279,93 +2471,101 @@ export function SystemSnapshotPanel({
     appPwaClient.subscribe,
     appPwaClient.getSnapshot,
   );
+  const place = usePlace();
+  // A hosted Row-Bot has its own https address and its host runs the
+  // network: nothing here sets how it is reached.
+  const hosted = place.kind === 'hosted';
   if (part === 'access')
     return (
       <div className="stack settings-snapshot-page settings-access-page">
         <SettingsSummary>
-          <SummaryChip
-            tone={
-              snapshot.remote_access.listen_mode === 'local_only'
-                ? 'success'
-                : 'warning'
-            }
-          >
-            {snapshot.remote_access.listen_mode === 'local_only'
-              ? 'This computer only'
-              : 'Your network too'}
-          </SummaryChip>
+          {!hosted && (
+            <SummaryChip
+              tone={
+                snapshot.remote_access.listen_mode === 'local_only'
+                  ? 'success'
+                  : 'warning'
+              }
+            >
+              {snapshot.remote_access.listen_mode === 'local_only'
+                ? `${place.label} only`
+                : 'Your network too'}
+            </SummaryChip>
+          )}
           <SummaryChip>
             {snapshot.mobile_access.active_devices === 1
               ? '1 device'
               : `${snapshot.mobile_access.active_devices} devices`}
           </SummaryChip>
-          {snapshot.tunnel.runtime_state === 'active' && (
+          {!hosted && snapshot.tunnel.runtime_state === 'active' && (
             <SummaryChip tone="warning">Public link on</SummaryChip>
           )}
         </SettingsSummary>
-        <SettingsAdvanced
-          anchor="advanced"
-          meta="Network, allowed addresses and the public link"
-        >
-          <Section
-            title="Network"
-            description="Where Row-Bot listens and the addresses it accepts."
-            icon={ShieldCheck}
-            anchor="network"
+        {!hosted && (
+          <SettingsAdvanced
+            anchor="advanced"
+            meta="Network, allowed addresses and the public link"
           >
-            {network}
-          </Section>
-          <Section
-            title="Public link"
-            description="Reach Row-Bot from anywhere through ngrok. It opens only when you start it."
-            icon={Network}
-            anchor="tunnel"
-          >
-            <PublicLinkStatus
-              tunnel={snapshot.tunnel}
-              mutation={mutation}
-              writeClipboard={writeClipboard}
-            />
-            <SelectSetting
-              mutation={mutation}
-              field="tunnel.provider"
-              label="Tunnel provider"
-              value={snapshot.tunnel.provider}
-              options={[{ value: 'ngrok', label: 'ngrok' }]}
-            />
-            <SecretSetting
-              mutation={mutation}
-              field="tunnel.credential"
-              label="Tunnel credential"
-              configured={snapshot.tunnel.credential.configured}
-              source={snapshot.tunnel.credential.source}
-              fingerprint={snapshot.tunnel.credential.fingerprint}
-            />
-            <details>
-              <summary>Tunnel setup</summary>
-              <p className="settings-help">
-                Create an ngrok account at{' '}
-                <a
-                  href="https://ngrok.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  ngrok.com
-                </a>
-                , then copy your authtoken from the{' '}
-                <a
-                  href="https://dashboard.ngrok.com/get-started/your-authtoken"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  ngrok dashboard
-                </a>{' '}
-                and save it above. Opening Settings never starts the public
-                link.
-              </p>
-            </details>
-          </Section>
-        </SettingsAdvanced>
+            <Section
+              title="Network"
+              description="Where Row-Bot listens and the addresses it accepts."
+              icon={ShieldCheck}
+              anchor="network"
+            >
+              {network}
+            </Section>
+            <Section
+              title="Public link"
+              description="Reach Row-Bot from anywhere through ngrok. It opens only when you start it."
+              icon={Network}
+              anchor="tunnel"
+            >
+              <PublicLinkStatus
+                tunnel={snapshot.tunnel}
+                mutation={mutation}
+                writeClipboard={writeClipboard}
+              />
+              <SelectSetting
+                mutation={mutation}
+                field="tunnel.provider"
+                label="Tunnel provider"
+                value={snapshot.tunnel.provider}
+                options={[{ value: 'ngrok', label: 'ngrok' }]}
+              />
+              <SecretSetting
+                mutation={mutation}
+                field="tunnel.credential"
+                label="Tunnel credential"
+                configured={snapshot.tunnel.credential.configured}
+                source={snapshot.tunnel.credential.source}
+                fingerprint={snapshot.tunnel.credential.fingerprint}
+              />
+              <details>
+                <summary>Tunnel setup</summary>
+                <p className="settings-help">
+                  Create an ngrok account at{' '}
+                  <a
+                    href="https://ngrok.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    ngrok.com
+                  </a>
+                  , then copy your authtoken from the{' '}
+                  <a
+                    href="https://dashboard.ngrok.com/get-started/your-authtoken"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    ngrok dashboard
+                  </a>{' '}
+                  and save it above. Opening Settings never starts the public
+                  link.
+                </p>
+              </details>
+            </Section>
+          </SettingsAdvanced>
+        )}
       </div>
     );
   const cu = snapshot.computer_use;
@@ -2415,7 +2615,11 @@ export function SystemSnapshotPanel({
             mutation={mutation}
             field="shell.enabled"
             label="Run commands"
-            hint="Uses this computer’s shell, inside its limits."
+            hint={
+              place.kind === 'this_computer'
+                ? 'Uses this computer’s shell, inside its limits.'
+                : `Uses the shell ${place.on}, inside its limits.`
+            }
             value={snapshot.shell.enabled === true}
             row={{
               icon: <SquareTerminal size={16} aria-hidden />,
@@ -2504,7 +2708,7 @@ export function SystemSnapshotPanel({
           label="Log detail"
           hint={
             snapshot.logging.directory_available
-              ? 'Kept on this computer; more detail helps with bug reports.'
+              ? `Kept ${place.onAgain}; more detail helps with bug reports.`
               : 'The log folder is created when logging starts.'
           }
           value={snapshot.logging.level}
@@ -2520,7 +2724,7 @@ export function SystemSnapshotPanel({
                 mutation={mutation}
                 field="logging.open"
                 label="Open log folder"
-                description="Opens the folder on this computer where Row-Bot keeps its logs."
+                description={`Opens the folder ${place.onAgain} where Row-Bot keeps its logs.`}
                 presentation="icon"
                 icon={<FolderOpen size={16} aria-hidden />}
               />
@@ -2606,6 +2810,7 @@ function BrowserComputerSetup({
   computerAvailable: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const place = usePlace();
   const cu = snapshot.computer_use;
   return (
     <>
@@ -2614,7 +2819,7 @@ function BrowserComputerSetup({
         open={open}
         onOpenChange={setOpen}
         title="Browser and computer use"
-        description="Row-Bot's browser works on websites. Computer use works in apps on this computer, with your mouse and keyboard, while you watch."
+        description={`Row-Bot's browser works on websites. Computer use works in apps ${place.on}, with ${place.kind === 'this_computer' ? 'your' : 'its'} mouse and keyboard, while you watch.`}
       >
         <div className="settings-dialog-rows">
           <SettingsGroup title="Browser">
@@ -2755,7 +2960,7 @@ function BrowserComputerSetup({
                   mutation={mutation}
                   field="computer_use.install"
                   label="Install Cua Driver"
-                  description="Downloads the reviewed version of Cua Driver for this computer."
+                  description={`Downloads the reviewed version of Cua Driver for ${place.again}.`}
                 />
                 <details>
                   <summary>Use your own Cua Driver</summary>
@@ -2980,7 +3185,7 @@ function FileAccessSetting({
   return (
     <SettingsItem
       label="Work with files"
-      help="In the workspace folder only."
+      help="In the workspace folder. Elsewhere, it asks first."
       icon={<Files size={16} aria-hidden />}
       tone="1"
       anchor="file-operations"
@@ -3086,7 +3291,7 @@ function WorkspaceFolderSetting({
       mutation={mutation}
       field="workspace.folder_grant"
       label="Workspace folder"
-      hint="Row-Bot’s file tools only work inside this folder. Settings shows its name, never its full path."
+      hint="Row-Bot’s file tools work here freely and ask before reaching outside it. Settings shows its name, never its full path."
       value=""
       savedMessage={() => 'Workspace folder changed'}
       row={{
@@ -3182,6 +3387,11 @@ export function TrackerSnapshotPanel({
   showDanger?: boolean;
 }) {
   const newChat = useWorkspaceActions()?.newChat;
+  const place = usePlace();
+  const kept =
+    place.kind === 'this_computer'
+      ? 'Kept on this device.'
+      : `Kept ${place.on}.`;
   const tracking = snapshot.tool_available && snapshot.enabled === true;
   const empty = snapshot.items.length === 0;
   return (
@@ -3221,9 +3431,7 @@ export function TrackerSnapshotPanel({
       <Section
         title="Trackers"
         description={
-          empty
-            ? 'Kept on this device.'
-            : 'Kept on this device. Open one to see its latest entries.'
+          empty ? kept : `${kept} Open one to see its latest entries.`
         }
         icon={CalendarClock}
         anchor="trackers"
@@ -3992,11 +4200,12 @@ function GitHubAccount({
   access: GitHubAccess | null;
 }) {
   const state = accountState([account.authentication_state]);
+  const place = usePlace();
   const usable = access && access.snapshot;
   const source = access?.snapshot?.credential_source;
   const how =
     source === 'github_cli'
-      ? 'Through the GitHub CLI on this computer'
+      ? `Through the GitHub CLI on ${place.name}`
       : account.credential?.source === 'environment' || source === 'environment'
         ? 'With a token from your environment'
         : account.credential?.configured || source === 'keyring'
@@ -4036,7 +4245,7 @@ function GitHubAccount({
       guide={[
         {
           id: 'token',
-          text: 'Sign in with the GitHub CLI on this computer, or create a fine-grained token for the repositories Row-Bot should use.',
+          text: `Sign in with the GitHub CLI ${place.on}, or create a fine-grained token for the repositories Row-Bot should use.`,
           link: {
             href: ACCOUNT_LINKS.githubToken,
             label: 'Create a token',
@@ -4114,6 +4323,7 @@ function GoogleAccount({
     gmail.authentication_state,
     calendar.authentication_state,
   ]);
+  const place = usePlace();
   const configured = gmail.configured || calendar.configured;
   const usable = auth && auth.snapshot;
   // Row-Bot's public callback, when this device signs in through it: Google
@@ -4274,7 +4484,7 @@ function GoogleAccount({
       <SettingsItem
         sub
         label="Google sign-in file"
-        help="The client file from your Google Cloud project: a Desktop app, or a Web application to sign in from other devices. Its location stays on this computer."
+        help={`The client file from your Google Cloud project: a Desktop app, or a Web application to sign in from other devices. Its location stays ${place.on}.`}
         bind={false}
         control={
           <>
@@ -4853,6 +5063,7 @@ export function UtilitiesSnapshotPanel({
   snapshot: SettingsSnapshot['utilities'];
   mutation: SettingsMutationIO;
 }) {
+  const place = usePlace();
   const availableUtilities = snapshot.items.filter(
     (utility) => utility.available,
   );
@@ -4902,7 +5113,11 @@ export function UtilitiesSnapshotPanel({
               </span>
               <div className="settings-row-list-text">
                 <strong>{presentation.label}</strong>
-                <small>{presentation.description}</small>
+                <small>
+                  {typeof presentation.description === 'function'
+                    ? presentation.description(place)
+                    : presentation.description}
+                </small>
               </div>
               <div className="settings-utility-toggle">
                 <SwitchSetting
@@ -5017,6 +5232,9 @@ export function DocumentEmbeddingSnapshot({
   mutation: SettingsMutationIO;
 }) {
   const embedding = snapshot.embedding;
+  const place = usePlace();
+  // A small server (U8): suggest giving the search model's memory back between searches.
+  const small = useSmallServer();
   const [provider, setProvider] = useState(() =>
     mutation.drafts.has(mutation.page, 'embedding.provider')
       ? String(mutation.drafts.read(mutation.page, 'embedding.provider'))
@@ -5070,7 +5288,7 @@ export function DocumentEmbeddingSnapshot({
           vectors.state === 'current'
             ? ''
             : `search index ${healthWords(vectors.state).toLowerCase()}`,
-          local ? 'search runs on this computer' : 'search runs in the cloud',
+          local ? `search runs on ${place.name}` : 'search runs in the cloud',
         ]}
       >
         {local && modelMissing
@@ -5086,7 +5304,7 @@ export function DocumentEmbeddingSnapshot({
           label="Search runs"
           hint={
             local
-              ? 'On this computer, your documents never leave it.'
+              ? `On ${place.noun}, your documents never leave it.`
               : 'In the cloud, document text goes to the embedding provider.'
           }
           value={embedding.provider}
@@ -5094,7 +5312,7 @@ export function DocumentEmbeddingSnapshot({
           savedMessage={(next) =>
             next === 'cloud'
               ? 'Search now runs in the cloud'
-              : 'Search now runs on this computer'
+              : `Search now runs ${place.onAgain}`
           }
           confirm={(next) =>
             next === 'cloud'
@@ -5104,7 +5322,7 @@ export function DocumentEmbeddingSnapshot({
           options={[
             {
               value: 'local',
-              label: 'This computer',
+              label: place.label,
               icon: <HardDrive size={14} aria-hidden />,
             },
             {
@@ -5148,6 +5366,17 @@ export function DocumentEmbeddingSnapshot({
           label="Free memory when idle"
           hint="Unloads the search model after a few minutes."
           value={embedding.auto_unload}
+          row={
+            small && local && !embedding.auto_unload
+              ? {
+                  status: (
+                    <span className="status-chip">
+                      Suggested on a {small} server
+                    </span>
+                  ),
+                }
+              : undefined
+          }
         />
       </SettingsGroup>
       <SettingsAdvanced meta="Index health, rebuild, repair the model">
@@ -5502,6 +5731,7 @@ export function PreferencesSnapshotPanel({
   showUpdateControls = false,
   part = 'preferences',
   skillsMoved = false,
+  host = null,
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
@@ -5510,10 +5740,26 @@ export function PreferencesSnapshotPanel({
   part?: 'preferences' | 'updates' | 'data';
   /** "Learn new skills" lives in Settings › Learning (D29, a Learning preview build). */
   skillsMoved?: boolean;
+  /** The hosting company that runs this Row-Bot and installs its updates (H3). */
+  host?: SettingsSnapshot['system']['hosted_by'];
 }) {
   // The controls' own check time, newer than this page's snapshot after Check now (B373).
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const place = usePlace();
   const lastCheck = checkedAt ?? snapshot.updates.last_check;
+  // The host picks the release and installs it: no channel, check time or
+  // download details, only the version and who updates it.
+  if (part === 'updates' && host && showUpdateControls)
+    return (
+      <div className="stack settings-snapshot-page settings-updates-page">
+        <SettingsStatus tone="neutral">
+          Row-Bot {snapshot.updates.current_version}
+        </SettingsStatus>
+        <SettingsGroup label="Updates" anchor="updates">
+          <ConnectedUpdateControls host={host} />
+        </SettingsGroup>
+      </div>
+    );
   if (part === 'updates')
     return (
       <div className="stack settings-snapshot-page settings-updates-page">
@@ -5537,7 +5783,11 @@ export function PreferencesSnapshotPanel({
         </SettingsStatus>
         <SettingsGroup label="Updates" anchor="updates">
           {showUpdateControls ? (
-            <ConnectedUpdateControls onChecked={setCheckedAt} />
+            // A new channel is a new update status: read it again.
+            <ConnectedUpdateControls
+              key={snapshot.updates.channel}
+              onChecked={setCheckedAt}
+            />
           ) : (
             <SettingsItem
               label={`Row-Bot ${snapshot.updates.current_version}`}
@@ -5586,11 +5836,15 @@ export function PreferencesSnapshotPanel({
         {showUpdateControls && (
           <Section
             title="Back up and restore"
-            description="A copy of your Row-Bot on this computer, without passwords or sign-ins."
+            description={
+              place.kind === 'this_computer'
+                ? 'A copy of your Row-Bot on this computer, without passwords or sign-ins.'
+                : 'A copy of your conversations, memories, workflows, designs and settings, without passwords or sign-ins.'
+            }
             icon={HardDrive}
             anchor="backup"
           >
-            <ConnectedDataBackup />
+            <ConnectedDataBackup host={host} />
           </Section>
         )}
         <Section
@@ -5613,7 +5867,15 @@ export function PreferencesSnapshotPanel({
               </div>
             </div>
           )}
-          {showUpdateControls && <ConnectedMigrationControls />}
+          {/* Most people never import: the form opens on request (U14). */}
+          {showUpdateControls && (
+            <Disclosure
+              summary="Import…"
+              meta={snapshot.migration.sources.join(' and ')}
+            >
+              <ConnectedMigrationControls />
+            </Disclosure>
+          )}
         </Section>
       </div>
     );

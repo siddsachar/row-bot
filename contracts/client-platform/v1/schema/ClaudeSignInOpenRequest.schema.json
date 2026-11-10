@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "description": "Open Claude's own sign-in (H15). It names no program: the server runs only ``claude auth login``.\n\n``switch_account`` runs Claude Code's own ``claude auth logout`` first, to sign in to another account.",
+  "properties": {
+    "cols": {
+      "maximum": 500,
+      "minimum": 20,
+      "title": "Cols",
+      "type": "integer"
+    },
+    "rows": {
+      "maximum": 200,
+      "minimum": 5,
+      "title": "Rows",
+      "type": "integer"
+    },
+    "switch_account": {
+      "default": false,
+      "title": "Switch Account",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cols",
+    "rows"
+  ],
+  "title": "ClaudeSignInOpenRequest",
+  "type": "object"
+}

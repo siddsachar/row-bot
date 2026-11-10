@@ -545,7 +545,7 @@
           "type": "string"
         },
         "size_bytes": {
-          "maximum": 26214400,
+          "maximum": 209715200,
           "minimum": 1,
           "title": "Size Bytes",
           "type": "integer"
@@ -1170,9 +1170,16 @@
         "code": {
           "enum": [
             "generation_failed",
-            "sign_in_required"
+            "sign_in_required",
+            "provider_unavailable"
           ],
           "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "maxLength": 400,
+          "title": "Message",
           "type": "string"
         },
         "provider": {
@@ -1340,6 +1347,12 @@
             "not_applicable"
           ],
           "title": "External Outcome",
+          "type": "string"
+        },
+        "failure_reason": {
+          "default": "",
+          "maxLength": 400,
+          "title": "Failure Reason",
           "type": "string"
         },
         "generation_id": {
@@ -1511,6 +1524,38 @@
       "title": "GenerationStateEvent",
       "type": "object"
     },
+    "HeldMessage": {
+      "additionalProperties": false,
+      "description": "A message another conversation left for a workflow's next run, shown under that run's line.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "text"
+      ],
+      "title": "HeldMessage",
+      "type": "object"
+    },
     "LinkedFrom": {
       "additionalProperties": false,
       "properties": {
@@ -1604,6 +1649,12 @@
             "application/octet-stream"
           ],
           "title": "Mime Type",
+          "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
           "type": "string"
         },
         "tool_call_id": {
@@ -3130,6 +3181,12 @@
           "maxLength": 128,
           "title": "Mime Type",
           "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
+          "type": "string"
         }
       },
       "required": [
@@ -3746,6 +3803,14 @@
           "title": "Cut Short",
           "type": "boolean"
         },
+        "held": {
+          "items": {
+            "$ref": "#/$defs/HeldMessage"
+          },
+          "maxItems": 10,
+          "title": "Held",
+          "type": "array"
+        },
         "id": {
           "maxLength": 1024,
           "minLength": 1,
@@ -3785,7 +3850,8 @@
                 "agent_guidance",
                 "page",
                 "personal_model_fallback",
-                "linked"
+                "linked",
+                "backup_model"
               ],
               "type": "string"
             },
@@ -3817,6 +3883,19 @@
           ],
           "title": "Role",
           "type": "string"
+        },
+        "run_failure": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Failure"
         },
         "tool_call_id": {
           "default": "",

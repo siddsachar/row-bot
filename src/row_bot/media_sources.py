@@ -3,7 +3,7 @@
 A tool names a source in one of these ways, and nothing else is ever opened:
 
 - a recording (``rec-…``) or an earlier video edit (``edit-…``) of this conversation;
-- a file in this conversation's files, by its name (the newest with that name);
+- a file in this conversation's files, by its name (each file in a chat has its own name);
 - a file in the workspace, by its path: the code folder bound to the conversation when it has
   one, otherwise the workspace folder. Relative paths, or absolute ones inside it; ``..``,
   ``.git``, links below the workspace (symbolic links and junctions) and Row-Bot's own data
@@ -238,7 +238,7 @@ def _kind_of(name: str, mime: str = "") -> Kind | None:
     return None
 
 
-def _chat_file(conversation_id: str, name: str) -> Media | None:
+def chat_file(conversation_id: str, name: str) -> Media | None:
     from row_bot.application.attachments import AttachmentError, list_conversation_files
 
     wanted = name.strip().casefold()
@@ -246,12 +246,12 @@ def _chat_file(conversation_id: str, name: str) -> Media | None:
         files = list_conversation_files(conversation_id)
     except AttachmentError:
         return None
-    for item in files:
-        candidate = str(item["name"]).casefold()
-        if candidate == wanted or candidate == f"generated-{wanted}":
-            kind = _kind_of(item["name"], item["mime_type"])
-            if kind is not None:
-                return Media(label=str(item["name"]), kind=kind, ref=str(item["attachment_ref"]))
+    for candidate in (wanted, f"generated-{wanted}"):  # Its own name first, then a result's without "generated-".
+        for item in files:
+            if str(item["name"]).casefold() == candidate:
+                kind = _kind_of(item["name"], item["mime_type"])
+                if kind is not None:
+                    return Media(label=str(item["name"]), kind=kind, ref=str(item["attachment_ref"]))
     return None
 
 
@@ -295,7 +295,7 @@ def resolve(value: str, conversation_id: str) -> list[Media]:
             if kind is None:
                 raise SourceError(f"{text} isn't a video or a picture.")
             return [Media(label=_relative(place.root, str(path)), kind=kind, path=path)]
-    found = _chat_file(conversation_id, text)
+    found = chat_file(conversation_id, text)
     if found is not None:
         return [found]
     looks_like_path = "/" in text or "\\" in text or Path(text).is_absolute()

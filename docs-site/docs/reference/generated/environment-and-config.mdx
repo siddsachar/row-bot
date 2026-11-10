@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Environment And Config
 
 <!-- generated-from: src/row_bot/brand.py -->
-<!-- inventory-hash: 330c0eed36fca647 -->
+<!-- inventory-hash: d32a2f913b276617 -->
 
 <GeneratedNotice source="src/row_bot/brand.py" />
 
@@ -20,11 +20,11 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 | ROW_BOT_WORKSPACE | Override the default workspace used by file-oriented tools. | `src/row_bot/brand.py, src/row_bot/data_paths.py, src/row_bot/sandboxes.py` |
 | ROW_BOT_HOST | Choose the interface bound by the local application server. | `src/row_bot/access/access_routes.py, src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/access/routes.py, src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py, src/row_bot/sandboxes.py` |
 | ROW_BOT_PORT | Choose the preferred local application port. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py, src/row_bot/sandboxes.py` |
-| ROW_BOT_DEPLOYMENT_MODE | Choose desktop or authenticated server request policy. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/launcher.py, src/row_bot/secret_store.py` |
-| ROW_BOT_PUBLIC_URL | Set the canonical browser-facing origin for server mode. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py` |
+| ROW_BOT_DEPLOYMENT_MODE | Choose desktop or authenticated server request policy. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/container_user.py, src/row_bot/hosting.py, src/row_bot/launcher.py, src/row_bot/secret_store.py` |
+| ROW_BOT_PUBLIC_URL | Set the canonical browser-facing origin for server mode. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/access/setup_code.py` |
 | ROW_BOT_PUBLIC_ORIGINS | Set one or more allowed browser-facing origins. | `src/row_bot/access/config.py` |
-| ROW_BOT_ALLOWED_HOSTS | Allow exact HTTP Host authorities accepted by the access gate. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/access/routes.py, src/row_bot/app.py, src/row_bot/application/settings_snapshot.py` |
-| ROW_BOT_TRUSTED_PROXY_CIDRS | Trust forwarding headers only from exact connecting proxy networks. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py` |
+| ROW_BOT_ALLOWED_HOSTS | Allow exact HTTP Host authorities accepted by the access gate. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/access/request_context.py, src/row_bot/access/routes.py, src/row_bot/app.py, src/row_bot/application/settings_snapshot.py` |
+| ROW_BOT_TRUSTED_PROXY_CIDRS | Trust forwarding headers only from exact connecting proxy networks. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/hosting.py` |
 | ROW_BOT_UNTRUSTED_FORWARDED_ACTION | Reject or ignore forwarding headers received from an untrusted peer. | `src/row_bot/access/config.py` |
 | ROW_BOT_WORKERS | Set the server worker count; Row-Bot requires exactly one. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py` |
 | ROW_BOT_EPHEMERAL_DATA | Tell access diagnostics that server data is intentionally ephemeral. | `src/row_bot/access/diagnostics.py` |

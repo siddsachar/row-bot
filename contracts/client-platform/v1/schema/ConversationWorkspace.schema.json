@@ -566,6 +566,12 @@
       "additionalProperties": false,
       "description": "What the composer's model pill says about the conversation's model.",
       "properties": {
+        "backup_name": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Backup Name",
+          "type": "string"
+        },
         "fix": {
           "anyOf": [
             {
@@ -710,6 +716,12 @@
             "application/octet-stream"
           ],
           "title": "Mime Type",
+          "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
           "type": "string"
         },
         "tool_call_id": {

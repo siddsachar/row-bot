@@ -1,26 +1,42 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
-import row_bot.api_keys as api_keys
 import row_bot.providers.config as provider_config
 from row_bot.providers import selection
 
-
 pytestmark = pytest.mark.subsystem
+
+CHAT = {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"], "tool_calling": True}
 
 
 @pytest.fixture(autouse=True)
-def isolated_provider_config(tmp_path, monkeypatch):
+def isolated_profile(tmp_path, monkeypatch):
+    """Scratch providers.json, catalog and stars; Ollama and OpenAI connected, nothing contacted."""
+    import row_bot.providers.model_catalog_cache as cache
+    from row_bot.providers import model_catalog, model_visibility
+
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(selection, "load_provider_config", provider_config.load_provider_config)
-    monkeypatch.setattr(selection, "save_provider_config", provider_config.save_provider_config)
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    provider_config.save_provider_config({})
-    selection._provider_status_picker_cache.clear()
-    yield
-    provider_config.save_provider_config({})
-    selection._provider_status_picker_cache.clear()
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+        version=cache.CACHE_VERSION, generated_at=123.0, cloud_cache={
+            "model:anthropic:claude-sonnet-4-5": {"provider": "anthropic", "label": "Claude Work",
+                                                  "capabilities_snapshot": CHAT},
+            "model:openai:gpt-4o": {"provider": "openai", "label": "Fast OpenAI", "capabilities_snapshot": CHAT},
+        }, ollama_rows=[{"model_id": "qwen3:27b", "display_name": "Qwen 27B", "installed": True,
+                         "capabilities_snapshot": CHAT}], provider_status={}, warnings=(), reason="test",
+    ))
+    settings = tmp_path / "model_settings.json"
+    monkeypatch.setattr(model_visibility, "_settings_path", lambda: settings)
+    statuses = {provider: {"configured": True, "runtime_enabled": True} for provider in ("ollama", "openai")}
+    monkeypatch.setattr(model_catalog, "_provider_status_by_id", lambda: statuses)
+    return settings
+
+
+def _star(settings, *refs: str) -> None:
+    settings.write_text(json.dumps({"model_visibility": {"favourites": list(refs)}}), encoding="utf-8")
 
 
 def test_model_ref_parsing_labels_and_choice_value_roundtrip() -> None:
@@ -40,7 +56,7 @@ def test_model_ref_parsing_labels_and_choice_value_roundtrip() -> None:
     assert selection.format_model_choice_label("openai", "gpt-4o", include_icon=True).startswith("OpenAI ")
 
 
-def test_canonicalize_model_selection_handles_default_provider_refs_quick_choices_and_inactive() -> None:
+def test_canonicalize_model_selection_handles_default_provider_refs_stars_and_inactive(isolated_profile) -> None:
     with pytest.raises(selection.ModelSelectionError, match="empty"):
         selection.canonicalize_model_selection("")
     assert selection.canonicalize_model_selection("", allow_default=True).source == "default"
@@ -51,12 +67,13 @@ def test_canonicalize_model_selection_handles_default_provider_refs_quick_choice
     assert provider_ref.ref == "model:openai:gpt-4o"
     assert provider_ref.source == "provider_ref"
 
-    selection.add_quick_choice_for_model("claude-sonnet-4-5", provider_id="anthropic", display_name="Claude Work")
-    quick = selection.canonicalize_model_selection("Claude Work")
-    assert quick.ref == "model:anthropic:claude-sonnet-4-5"
-    assert quick.source == "quick_choice"
+    _star(isolated_profile, "model:openai:gpt-4o")
+    starred = selection.canonicalize_model_selection("Fast OpenAI")
+    assert starred.ref == "model:openai:gpt-4o"
+    assert starred.source == "star"
 
-    selection.deactivate_quick_choice(model_id="claude-sonnet-4-5", provider_id="anthropic", reason="removed")
+    # Anthropic isn't connected: its star is listed but can't be chosen by name.
+    _star(isolated_profile, "model:anthropic:claude-sonnet-4-5")
     with pytest.raises(selection.ModelSelectionError, match="inactive"):
         selection.canonicalize_model_selection("Claude Work")
 
@@ -122,39 +139,13 @@ def test_model_selection_diagnostics_reports_resolution_details(monkeypatch) -> 
     assert diagnostics["tools_bound"] is True
 
 
-def test_provider_status_picker_cache_and_codex_inactive_reason(monkeypatch) -> None:
-    import row_bot.providers.runtime as provider_runtime
-
-    calls = {"count": 0}
-
-    def fake_provider_status(provider_id: str, refresh_tokens: bool = False):
-        calls["count"] += 1
-        assert refresh_tokens is False
-        return {"runtime_enabled": False}
-
-    monkeypatch.setattr(provider_runtime, "provider_status", fake_provider_status)
-    choice = selection._quick_choice_for_model(
-        "gpt-5.5",
-        provider_id="codex",
-        capabilities_snapshot={"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]},
-    )
-
-    assert selection._surface_inactive_reason(choice, "chat") == (
-        "Codex account is connected, but direct chat runtime is not enabled yet."
-    )
-    assert selection._surface_inactive_reason(choice, "chat") == (
-        "Codex account is connected, but direct chat runtime is not enabled yet."
-    )
-    assert calls["count"] == 1
-
-
 def test_model_choice_options_include_diagnostics_and_inactive_include_values() -> None:
     ref = "model:openai:text-embedding-3-large"
 
     active_options, diagnostics = selection.list_model_choice_options("chat", return_diagnostics=True)
     assert active_options == []
     assert diagnostics["surface"] == "chat"
-    assert diagnostics["quick_choices_read_only"] is True
+    assert diagnostics["options"] == 0
 
     inactive = selection.list_model_choice_options("chat", include_values=[ref], include_inactive=True)
     included = next(option for option in inactive if option["value"] == ref)
@@ -163,7 +154,7 @@ def test_model_choice_options_include_diagnostics_and_inactive_include_values() 
     assert str(included["label"]).startswith("Unavailable:")
 
 
-def test_catalog_model_selection_requires_pinned_brain_choices() -> None:
+def test_catalog_model_selection_requires_a_starred_brain_choice(isolated_profile) -> None:
     with pytest.raises(selection.ModelSelectionError, match="not pinned for Brain"):
         selection.resolve_catalog_model_selection(
             "model:openai:gpt-4o",
@@ -172,16 +163,7 @@ def test_catalog_model_selection_requires_pinned_brain_choices() -> None:
             require_pinned=True,
         )
 
-    selection.add_quick_choice_for_model(
-        "gpt-4o",
-        provider_id="openai",
-        display_name="Fast OpenAI",
-        capabilities_snapshot={
-            "tasks": ["chat"],
-            "input_modalities": ["text"],
-            "output_modalities": ["text"],
-        },
-    )
+    _star(isolated_profile, "model:openai:gpt-4o")
 
     resolved = selection.resolve_catalog_model_selection(
         "model:openai:gpt-4o",
@@ -189,9 +171,7 @@ def test_catalog_model_selection_requires_pinned_brain_choices() -> None:
         require_agent_ready=True,
         require_pinned=True,
     )
-
     assert resolved.ref == "model:openai:gpt-4o"
-    assert resolved.source == "quick_choice"
     assert selection.resolve_catalog_model_selection(
         "Fast OpenAI",
         surface="chat",
@@ -200,17 +180,8 @@ def test_catalog_model_selection_requires_pinned_brain_choices() -> None:
     ).ref == "model:openai:gpt-4o"
 
 
-def test_pinned_model_choice_summaries_are_agent_readable() -> None:
-    selection.add_quick_choice_for_model(
-        "qwen3:27b",
-        provider_id="ollama",
-        display_name="Qwen 27B",
-        capabilities_snapshot={
-            "tasks": ["chat"],
-            "input_modalities": ["text"],
-            "output_modalities": ["text"],
-        },
-    )
+def test_starred_model_choice_summaries_are_agent_readable(isolated_profile) -> None:
+    _star(isolated_profile, "model:ollama:qwen3:27b")
 
     summaries = selection.pinned_model_choice_summaries("chat")
 
@@ -224,81 +195,10 @@ def test_pinned_model_choice_summaries_are_agent_readable() -> None:
     assert summary["model_id"] == "qwen3:27b"
     assert summary["active"] is True
     assert summary["reason"] == ""
-    assert summary["source"] == "manual"
+    assert summary["source"] == "star"
 
 
-def test_capability_snapshot_helpers_and_validation_reason_cleanup(monkeypatch) -> None:
-    provider_config.save_provider_config(
-        {
-            "quick_choices": [
-                {
-                    "id": "model:openai:gpt-image-1",
-                    "kind": "model",
-                    "provider_id": "openai",
-                    "model_id": "gpt-image-1",
-                    "display_name": "GPT Image",
-                    "visibility": ["chat", "image"],
-                    "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]},
-                    "inactive_surfaces": {"chat": selection._surface_unsupported_reason("chat"), "image": "manual"},
-                    "last_error": selection._surface_unsupported_reason("chat"),
-                    "active": True,
-                }
-            ]
-        }
-    )
-    monkeypatch.setattr(
-        selection,
-        "_inferred_capability_snapshot",
-        lambda choice: {"tasks": ["image_generation"], "input_modalities": ["text"], "output_modalities": ["image"]},
-    )
-
-    refreshed = selection.refresh_quick_choice_capability_snapshots()
-
-    assert refreshed[0]["capabilities_snapshot"]["tasks"] == ["image_generation"]
-    assert refreshed[0]["inactive_surfaces"] == {"image": "manual"}
-    assert refreshed[0]["last_error"] == ""
-    assert selection._is_auto_capability_reason(selection._surface_unsupported_reason("vision")) is True
-    assert selection._surface_unsupported_reason("status_tool").endswith("status tool.")
-
-
-def test_seed_configured_media_quick_choices_updates_existing_defaults(monkeypatch) -> None:
-    image_choice = {
-        "id": "model:openai:gpt-image-1",
-        "kind": "model",
-        "provider_id": "openai",
-        "model_id": "gpt-image-1",
-        "display_name": "GPT Image",
-        "visibility": ["image"],
-        "capabilities_snapshot": {"tasks": ["image_generation"], "input_modalities": ["text"], "output_modalities": ["image"]},
-        "source": "image_tool_default",
-        "active": True,
-        "inactive_reason": "",
-        "inactive_surfaces": {},
-    }
-    updated_choice = {**image_choice, "display_name": "GPT Image Updated"}
-    image_calls = iter([image_choice, updated_choice])
-
-    monkeypatch.setattr(selection, "_media_tool_selection", lambda tool_name: "openai/gpt-image-1")
-    monkeypatch.setattr(
-        selection,
-        "_quick_choice_for_media_selection",
-        lambda _selection, surface: next(image_calls) if surface == "image" else None,
-    )
-
-    first = selection.seed_configured_media_quick_choices()
-    second = selection.seed_configured_media_quick_choices()
-
-    assert first[0]["display_name"] == "GPT Image"
-    assert second[0]["display_name"] == "GPT Image Updated"
-
-
-def test_resolve_selection_routes_refs_and_unknown_bare_models_are_stable() -> None:
-    assert selection.route_ref("balanced") == "route:balanced"
-    route = selection.resolve_selection("route:balanced")
-    assert route is not None
-    assert route.kind == "route"
-    assert route.active is False
-
+def test_resolve_selection_refs_and_unknown_bare_models_are_stable() -> None:
     parsed = selection.resolve_selection("model:openai:gpt-4o")
     assert parsed is not None
     assert parsed.provider_id == "openai"

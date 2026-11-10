@@ -48,7 +48,7 @@ def test_a_template_makes_a_switched_off_scheduled_one_message_workflow(tasks):
     task = tasks.get_task(created["task_id"])
     assert task["name"] == "GitHub pull-request digest" and task["enabled"] in (False, 0)
     assert task["schedule"] == "daily:09:00" and not task.get("trigger")  # Scheduled; never a webhook.
-    assert task["safety_mode"] == "approve"
+    assert task["safety_mode"] == "auto"  # Where new workflows start (Auto until the person picks another level).
     [message] = task["prompts"]
     assert message.startswith("Using GitHub,")
 
@@ -63,5 +63,5 @@ def test_templates_without_apps_work_with_nothing_connected(tasks, monkeypatch, 
     created = api.use_workflow_template(template)
     task = tasks.get_task(created["task_id"])
     assert task["enabled"] in (False, 0) and task["schedule"] and not task.get("trigger")
-    assert task["safety_mode"] == "approve"
+    assert task["safety_mode"] == "auto"  # Where new workflows start (Auto until the person picks another level).
     assert len(task["prompts"]) == 1

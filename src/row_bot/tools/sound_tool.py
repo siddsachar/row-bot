@@ -49,7 +49,8 @@ class _SpeakInput(BaseModel):
     text: str = Field(description="The words to say, all of them (a scene's line or a whole script).")
     name: str = Field(default="", description="The voice file's name, e.g. scene-1.")
     voice: str = Field(default="", description="A Row-Bot voice id (empty: the one in Settings › Voice).")
-    speed: float = Field(default=0.0, description="0.5 to 2; 0 keeps the saved speed.")
+    speed: float = Field(default=0.0, description="0.9 to 1.5; 0 keeps the saved speed. Never slow a voice to "
+                                                "fill time: write more words or cut the video shorter.")
     pronunciations: dict[str, str] = Field(default_factory=dict,
                                            description='How to say words, e.g. {"Qwen": "Kwen"}.')
 
@@ -84,6 +85,42 @@ def voice_consent(tool: str, purpose: str) -> tuple[str, str]:
         service.download_model()
     except Exception as error:  # A network or fingerprint problem: said in words, nothing kept.
         return f"Row-Bot's voice couldn't be downloaded: {error}", ""
+    return "", line
+
+
+_WHISPER_SIZES = {"tiny": "about 39 MB", "base": "about 74 MB", "small": "about 244 MB", "medium": "about 769 MB"}
+
+
+def speech_model_consent(tool: str) -> tuple[str, str]:
+    """(refusal, approval line): the Whisper speech model, downloaded the first time a transcript needs it after
+    the person agrees (by the approval level), as Row-Bot's voice is. Nothing to ask when it's there."""
+    from row_bot.tools.approval_gate import approval_check
+    from row_bot.voice import get_voice_service
+
+    voice = get_voice_service()
+    if voice.whisper_model_available():
+        return "", ""
+    model = f"Whisper {voice.whisper_size}"
+    size = _WHISPER_SIZES.get(voice.whisper_size, "a few hundred MB")
+    refusal, line = approval_check(
+        {"tool": tool, "label": "Download the speech model",
+         "question": f"Transcribing needs the speech model ({model}, {size}) from Hugging Face. Download it now?",
+         "description": (f"Row-Bot will download the {model} speech model ({size}) from Hugging Face and keep it "
+                         "in Row-Bot's data folder. It runs on this computer, so the sound never leaves it. "
+                         "This happens once."),
+         "risk_class": "medium",
+         "args": {"download": f"{model} ({size})", "from": "huggingface.co"}},
+        risks=(f"downloads a speech model ({size}) from Hugging Face and keeps it in Row-Bot's data folder",),
+        blocked_message=("BLOCKED: transcribing needs the speech model, and downloading it needs approval, but this "
+                         "chat is on Block. Install it in Settings › Voice, or change the approval level."),
+        cancelled_message="The person didn't allow downloading the speech model; nothing was downloaded.",
+    )
+    if refusal:
+        return refusal, ""
+    try:
+        voice.install_whisper_model()
+    except Exception as error:  # A network problem: said in words, nothing half-kept is used.
+        return f"The speech model couldn't be downloaded: {error}", ""
     return "", line
 
 
@@ -159,11 +196,25 @@ def _source(value: str, conversation: str = "") -> tuple[str, Path | None, bytes
 def _transcribe(source: str, name: str = "") -> str:
     from row_bot import sound
     from row_bot.media_sources import SourceError
+    from row_bot.tools.approval_gate import with_approval
 
     try:
         label, path, data, suffix = _source(source)
-        segments, language = sound.transcribe(path) if path is not None else sound.transcribe_bytes(data or b"", suffix)
     except (SourceError, ValueError) as error:
+        return f"Not transcribed: {error}"
+    refusal, line = speech_model_consent("transcribe")
+    if refusal:
+        return refusal
+    text = _transcript(label, path, data, suffix, name)
+    return with_approval(line, text) if line else text
+
+
+def _transcript(label: str, path: Path | None, data: bytes | None, suffix: str, name: str) -> str:
+    from row_bot import sound
+
+    try:
+        segments, language = sound.transcribe(path) if path is not None else sound.transcribe_bytes(data or b"", suffix)
+    except ValueError as error:
         return f"Not transcribed: {error}"
     if not segments:
         return f"No speech was heard in {label}."

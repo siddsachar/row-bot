@@ -121,3 +121,16 @@ def test_a_thinking_block_is_counted_by_its_text_not_its_signature() -> None:
 
     assert counted == agent._count_prepared_tokens([HumanMessage(content="Q"), as_text], ())
     assert counted < len(signature) // 4
+
+
+def test_reasoning_kept_beside_a_reply_is_counted() -> None:
+    """30 Oct demo run: a local thinking model's steps carried ~27k tokens of reasoning the estimate missed, so the
+    request filled the window (63k of 65k) and the reply was cut off before it began."""
+    thought = "Planning the scenes: title card, the search, the results. " * 200
+    step = AIMessage(content="Let me make the music first.", additional_kwargs={"reasoning_content": thought})
+    plain = AIMessage(content="Let me make the music first.")
+
+    with_reasoning = agent._count_prepared_tokens([HumanMessage(content="Q"), step], ())
+    without = agent._count_prepared_tokens([HumanMessage(content="Q"), plain], ())
+
+    assert with_reasoning - without >= len(thought) // 5

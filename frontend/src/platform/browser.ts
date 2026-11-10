@@ -10,6 +10,7 @@ import type {
   MediaTransport,
   Selection,
 } from './types';
+import { canCopyText, copyText } from './clipboard';
 import { saveBrowserDownload } from './download';
 
 export function createBrowserPlatform(
@@ -96,9 +97,7 @@ export function createBrowserPlatform(
     ...(typeof navigator.clipboard?.readText === 'function'
       ? ['clipboard_read']
       : []),
-    ...(typeof navigator.clipboard?.writeText === 'function'
-      ? ['clipboard_write']
-      : []),
+    ...(canCopyText() ? ['clipboard_write'] : []),
   ];
   return {
     discover: async () => ({
@@ -129,12 +128,9 @@ export function createBrowserPlatform(
         ? Promise.resolve(unavailable('user_gesture_required'))
         : text.length > 65536
           ? Promise.resolve(unavailable('payload_too_large'))
-          : typeof navigator.clipboard?.writeText === 'function'
-            ? protect(async () => {
-                await navigator.clipboard.writeText(text);
-                return null;
-              })
-            : Promise.resolve(unavailable()),
+          : copyText(text).then((copied) =>
+              copied ? { status: 'ok' as const, value: null } : unavailable(),
+            ),
     openExternal: async (value) => {
       const url = safeExternalUrl(value);
       if (!url) return unavailable('invalid_url');

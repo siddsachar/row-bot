@@ -259,6 +259,37 @@ def test_review_lists_what_goes_out_and_the_scheduled_posts_and_cancel_stops_one
     assert after["items"] == [] and fake.posts == []
 
 
+def test_edit_changes_a_waiting_posts_text_and_says_why_it_cant(service, tmp_path, monkeypatch):  # noqa: F811
+    from datetime import datetime, timedelta
+
+    from row_bot import x_accounts
+    from row_bot.api.v1.routes import create_client_platform_app
+    from row_bot.tools import x_posting
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    install(monkeypatch, FakeXApi(), ROWBOT)
+    account = x_accounts.resolve("@rowbot_ai", required=True)
+    when = (datetime.now() + timedelta(hours=3)).replace(second=0, microsecond=0)
+    kept = x_posting.schedule(account, "post", "Morning post", "", [], when)
+    app = create_client_platform_app(service, choices=lambda: {"models": [], "capabilities": []},
+                                     session_authenticator=person_window)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
+        _, headers = bootstrap(client)
+        edited = client.post(f"/api/v1/monitor/scheduled-posts/{kept['id']}/edit", headers=headers,
+                             json={"text": "Morning post, edited", "media": []})
+        empty = client.post(f"/api/v1/monitor/scheduled-posts/{kept['id']}/edit", headers=headers,
+                            json={"text": " ", "media": []})
+        missing = client.post("/api/v1/monitor/scheduled-posts/xs-000000000000/edit", headers=headers,
+                              json={"text": "Nothing waits here", "media": []})
+        [listed] = client.get("/api/v1/monitor/scheduled-posts", headers=headers).json()["items"]
+
+    assert edited.json() == {"edited": True}
+    assert (empty.status_code, empty.json()["code"]) == (422, "scheduled_post_invalid")
+    assert (missing.status_code, missing.json()["code"]) == (404, "scheduled_post_unavailable")
+    assert (listed["text"], listed["post_at"], listed["username"]) == (
+        "Morning post, edited", when.isoformat(timespec="minutes"), "rowbot_ai")
+
+
 def test_a_post_that_didnt_go_out_is_listed_with_why_and_try_again_sends_it(service, tmp_path, monkeypatch):  # noqa: F811
     from datetime import datetime, timedelta
 
@@ -289,3 +320,83 @@ def test_a_post_that_didnt_go_out_is_listed_with_why_and_try_again_sends_it(serv
     assert retried.json() == {"retried": True} and sent, "Try again sends it at once"
     assert (again.status_code, again.json()["code"]) == (404, "scheduled_post_unavailable")
     assert (waiting["status"], waiting["reason"]) == ("scheduled", "")
+
+
+def test_a_reply_x_wont_take_is_listed_with_its_draft_and_link_and_cant_be_tried_again(service, tmp_path,  # noqa: F811
+                                                                                        monkeypatch):
+    from datetime import datetime
+
+    from row_bot import x_accounts
+    from row_bot.api.v1.routes import create_client_platform_app
+    from row_bot.tools import x_posting
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    fake = FakeXApi()
+    install(monkeypatch, fake, ROWBOT)
+    account = x_accounts.resolve("@rowbot_ai", required=True)
+    question = fake.post("999", "Which local AI assistant should I try?")
+    when = datetime.now().replace(second=0, microsecond=0)
+    kept = x_posting.schedule(account, "reply", "Try Row-Bot.", question["id"], [], when)
+    x_posting.send_due(when)  # Approved before Row-Bot checked X's reply rule: it never reaches X.
+    app = create_client_platform_app(service, choices=lambda: {"models": [], "capabilities": []},
+                                     session_authenticator=person_window)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
+        _, headers = bootstrap(client)
+        [listed] = client.get("/api/v1/monitor/scheduled-posts", headers=headers).json()["items"]
+        retried = client.post(f"/api/v1/monitor/scheduled-posts/{kept['id']}/retry", headers=headers, json={})
+
+    assert (listed["status"], listed["action"], listed["text"]) == ("by_hand", "reply", "Try Row-Bot.")
+    assert listed["target_url"] == f"https://x.com/i/status/{question['id']}"
+    assert listed["reason"].startswith("Nothing was sent to X: X allows this reply only from its own app or website.")
+    assert (retried.status_code, retried.json()["code"]) == (404, "scheduled_post_unavailable")
+    assert fake.posts == [question]
+
+
+@pytest.mark.parametrize("sound", [False, "silence"])
+def test_a_video_with_nothing_to_hear_says_no_sound_on_its_card_and_in_review(service, tmp_path, monkeypatch,  # noqa: F811
+                                                                             sound):
+    """Twice a demo with no sound went out to X (3 Nov): nothing on its card said so. A video with nothing to
+    hear (no sound track, or only silence) now says "no sound" on the card the person approves and in Review's
+    scheduled posts; a narrated one says nothing."""
+    pytest.importorskip("av")
+    from datetime import datetime, timedelta
+
+    from row_bot import x_accounts
+    from row_bot.api.v1.routes import create_client_platform_app
+    from row_bot.api.v1.schemas import XPostApproval
+    from row_bot.tools import x_posting
+    from tests.helpers.media_files import video
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    install(monkeypatch, FakeXApi(), ROWBOT)
+    account = x_accounts.resolve("@rowbot_ai", required=True)
+    silent = x_posting.media_facts([str(video(tmp_path / "demo.mp4", sound=sound, codec="mpeg4"))])
+    narrated = x_posting.media_facts([str(video(tmp_path / "narrated.mp4", sound=True, codec="mpeg4"))])
+
+    payload = x_posting.approval_payload(account, "post", "Watch the demo", "", silent)
+    assert XPostApproval(**payload["x_post"]).media[0].silent
+    assert "demo.mp4 (" in payload["description"] and ", no sound)" in payload["description"]
+    plain = x_posting.approval_payload(account, "post", "Watch the demo", "", narrated)
+    assert not plain["x_post"]["media"][0]["silent"] and "no sound" not in plain["description"]
+
+    assert payload["x_post"]["media"][0]["ref"] == "", "a file on this computer: its path never reaches the card"
+    # A file from Library › Media carries its reference and type, so the card and Review open it to check.
+    from row_bot import threads
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Demo video", seed_default_skills=False)
+    saved = register_attachment(chat, "demo.mp4", (tmp_path / "demo.mp4").read_bytes())
+    library = x_posting.media_facts([saved["attachment_ref"]])
+    shown = x_posting.approval_payload(account, "post", "Watch the demo", "", library)["x_post"]["media"][0]
+    assert (shown["ref"], shown["mime"], shown["silent"]) == (saved["attachment_ref"], "video/mp4", True)
+
+    when = (datetime.now() + timedelta(hours=2)).replace(second=0, microsecond=0)
+    x_posting.schedule(account, "post", "Watch the demo", "", library, when)
+    app = create_client_platform_app(service, choices=lambda: {"models": [], "capabilities": []},
+                                     session_authenticator=person_window)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
+        _, headers = bootstrap(client)
+        listed = client.get("/api/v1/monitor/scheduled-posts", headers=headers).json()
+    [post] = listed["items"]
+    assert [(item["name"], item["silent"], item["ref"], item["mime"]) for item in post["media"]] == [
+        ("demo.mp4", True, saved["attachment_ref"], "video/mp4")]

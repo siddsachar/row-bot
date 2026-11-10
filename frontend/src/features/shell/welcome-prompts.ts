@@ -1,3 +1,6 @@
+/** A hosted Row-Bot's first chat suggests one message to tap (U3). */
+export const FIRST_MESSAGE = 'What can you do for me?';
+
 /** First-run suggestions for a new conversation. */
 export const EXAMPLE_PROMPTS = [
   'Summarize my latest documents and suggest next actions',

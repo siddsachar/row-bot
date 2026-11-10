@@ -22,7 +22,6 @@ import type {
   ResourceView,
   SlashCommandSpec,
   TranscriptRow,
-  TranscriptTraceGroup,
   WriteTarget,
 } from '../../api/types';
 import { clientError, rejectedBeforeRunning } from '../../api/errors';
@@ -31,7 +30,13 @@ import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
 import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Menu, Skeleton, type MenuAction } from '../../ui/primitives';
+import {
+  Button,
+  Hint,
+  Menu,
+  Skeleton,
+  type MenuAction,
+} from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
 import { MediaPreview } from './MediaPreview';
 export { MediaPreview as Media } from './MediaPreview';
@@ -45,6 +50,7 @@ import {
   Bot,
   Code2,
   ImageOff,
+  LifeBuoy,
   ListPlus,
   MoreHorizontal,
   Palette,
@@ -72,6 +78,7 @@ import DelegatedActivity, {
   recentReads,
 } from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
+import type { ConversationOutput } from './ContextOutputs';
 import { ContextSlot, useContextHost } from './context-host';
 import {
   commandReceipts,
@@ -117,6 +124,9 @@ import {
   usePendingApprovals,
 } from './pending-approvals';
 import ChatEmpty from './ChatEmpty';
+import PhoneCard from './PhoneCard';
+import { clearFirstChat, firstChatPending } from './first-chat';
+import { FIRST_MESSAGE } from './welcome-prompts';
 import { DelegatedRunsContext, type DelegatedRuns } from './AgentStubs';
 import { ProcessIoContext, type ProcessIo } from './background-processes';
 import { RecordingIoContext, type RecordingIo } from './recordings';
@@ -146,10 +156,14 @@ import {
   answerStreaming,
   browserOffers,
   buildTranscript,
+  foldLiveVideos,
   finishedLiveSteps,
+  keepUnchanged,
   liveMedia,
+  liveTurn,
   settleFinishedSteps,
   turnStarts,
+  type TranscriptItem,
 } from './transcript-model';
 import {
   CardActionsContext,
@@ -164,7 +178,11 @@ import {
   readQuestion,
   waitingApproval,
 } from './answer-question';
-import { modelRefName, splitModelLabel } from './model-choices';
+import {
+  modelRefName,
+  providerSheetPath,
+  splitModelLabel,
+} from './model-choices';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
@@ -307,6 +325,8 @@ export default function Conversation({
   const state = useClientState();
   const { controller, platform, conversationActionsOwner, goalProfileOwner } =
     useRuntime();
+  // Reconnect opens the chat's provider in Settings › Models.
+  const chatProvider = state.workspace?.controls?.model_selection?.provider_id;
   const overlay = useOverlay();
   const navigate = useNavigate();
   const id = state.selectedConversationId;
@@ -819,78 +839,35 @@ export default function Conversation({
   // card in place, before the reply that follows it (N4).
   const finishedSteps = finishedLiveSteps(state.activity);
   const finishedKey = [...finishedSteps.keys()].join();
-  const items = useMemo(
-    () => buildTranscript(settleFinishedSteps(transcriptRows, finishedSteps)),
+  // The turn in flight reads in the order it happened: each step's words,
+  // its tool steps and what they made, then the next step (5.3.3).
+  const live = useMemo(
+    () =>
+      liveTurn(
+        settleFinishedSteps(transcriptRows, finishedSteps),
+        state.activity,
+      ),
     // finishedKey stands for finishedSteps: they change together.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [transcriptRows, finishedKey],
+    [transcriptRows, finishedKey, state.activity],
   );
+  const shownItems = useRef<TranscriptItem[]>([]);
+  const items = useMemo(() => {
+    shownItems.current = keepUnchanged(
+      shownItems.current,
+      buildTranscript(live.rows),
+    );
+    return shownItems.current;
+  }, [live.rows]);
   const earlierIds = useMemo(
     () => new Set(earlierRows.map((row) => row.id)),
     [earlierRows],
   );
   const hasLiveTranscript =
     items.length > 0 || Boolean(pending) || Boolean(running);
-  const settledTraceCalls = new Set(
-    rows.flatMap((row) =>
-      (row.traces ?? []).flatMap((group) =>
-        group.items.map((item) => item.call_id),
-      ),
-    ),
-  );
-  const liveTraceEvents = new Map(
-    state.activity.flatMap((record) =>
-      record.event.type === 'tool.activity'
-        ? [
-            [
-              record.event.payload.tool_call_id ?? record.event.event_id,
-              record,
-            ] as const,
-          ]
-        : [],
-    ),
-  );
-  const liveTraceGroups: TranscriptTraceGroup[] = [
-    ...liveTraceEvents.values(),
-  ].flatMap((record, index) => {
-    if (
-      record.event.type !== 'tool.activity' ||
-      settledTraceCalls.has(record.event.payload.tool_call_id ?? '')
-    )
-      return [];
-    const value = record.event.payload;
-    return [
-      {
-        group_id: value.group_id || value.tool_call_id || record.event.event_id,
-        name: value.group_name || value.tool_name || 'tool',
-        kind: value.group_kind ?? 'generic',
-        group_order: index,
-        status: value.status ?? 'pending',
-        counts: { [value.status ?? 'pending']: 1 },
-        items: [
-          {
-            item_id:
-              value.item_id || value.tool_call_id || record.event.event_id,
-            group_id:
-              value.group_id || value.tool_call_id || record.event.event_id,
-            call_id: value.tool_call_id || record.event.event_id,
-            result_message_id: value.message_id ?? '',
-            call_order: 0,
-            group_order: index,
-            canonical_name: value.tool_name || 'tool',
-            group_name: value.group_name || value.tool_name || 'tool',
-            group_kind: value.group_kind ?? 'generic',
-            status: value.status ?? 'pending',
-            safe_input: value.safe_input ?? '',
-            safe_summary: value.safe_summary ?? '',
-            summary_truncated: value.summary_truncated ?? false,
-            content_ref: value.content_ref ?? '',
-            ...(value.app ? { app: value.app } : {}),
-          },
-        ],
-      },
-    ];
-  });
+  // Steps still running (or with no model step to sit under) show on the
+  // turn's live line at its end; finished ones sit under their step.
+  const liveTraceGroups = live.running;
   const approvalEvent = [...state.activity]
     .reverse()
     .find(
@@ -908,7 +885,7 @@ export default function Conversation({
       generation &&
       (!generation.quiesced || generation.status === 'waiting_approval'),
     ) &&
-    (liveTraceGroups.some((group) => group.kind === 'browser') ||
+    (live.all.some((group) => group.kind === 'browser') ||
       rows
         .slice(turnStart + 1)
         .some((row) => row.traces?.some((group) => group.kind === 'browser')) ||
@@ -918,6 +895,23 @@ export default function Conversation({
           record.event.payload.group_kind === 'browser' &&
           record.event.payload.pass_id === generation?.pass_id,
       ));
+  // Row-Bot starting to use the browser in the chat on screen opens the Browser
+  // pane beside it, once a turn: the person sees what it does (and where to
+  // sign in) without looking for it. Closed again, it stays closed that turn.
+  // On a narrow window the pane would cover the chat, so the step's Open stays.
+  const browserOpenedFor = useRef('');
+  const openBrowserForTurn = useEffectEvent(() => manageBrowser());
+  // A turn is the person's message it answers: an approval resumes it under a
+  // new generation, and a pane the person closed stays closed for all of it.
+  const browserTurn = browserLive
+    ? `${id ?? ''}:${rows[turnStart]?.id ?? generation?.generation_id ?? ''}`
+    : '';
+  useEffect(() => {
+    if (!browserTurn || compactPlacement) return;
+    if (browserOpenedFor.current === browserTurn) return;
+    browserOpenedFor.current = browserTurn;
+    openBrowserForTurn();
+  }, [browserTurn, compactPlacement]);
   // Computer use shows as a card while this conversation's turn holds the
   // computer; only this computer's owner sees it (other devices keep the
   // trace). The turn using the computer, or asking to, is what to follow.
@@ -927,7 +921,7 @@ export default function Conversation({
   const computer = useComputerUse({
     conversationId: id && computerLocal && !state.history ? id : '',
     watch:
-      liveTraceGroups.some((group) => group.kind === 'computer') ||
+      live.all.some((group) => group.kind === 'computer') ||
       (approvalEvent?.event.type === 'approval.required' &&
         approvalEvent.event.payload.action_label === 'Computer activity'),
     generationId: generation?.generation_id ?? '',
@@ -1498,6 +1492,11 @@ export default function Conversation({
           value: capturedDraft,
         };
         setPending({ conversation: target, id: claim.steeringId!, text });
+        // Sending is reading the latest: the chat follows the message and its
+        // reply, never leaving them behind a "new" pill (U34).
+        followingLatest.current = true;
+        setShowLatest(false);
+        scrollToLatest();
       }
       setUnknown({ key: scope, claim });
       const sent = claim;
@@ -2128,6 +2127,7 @@ export default function Conversation({
         ...previous,
         attachments: [...previous.attachments, uploaded],
       });
+      setError('');
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
@@ -2407,6 +2407,7 @@ export default function Conversation({
           id: media.media_ref,
           reference: media.media_ref,
           mime: media.mime_type,
+          prompt: media.prompt,
         })),
       ),
     ),
@@ -2423,20 +2424,28 @@ export default function Conversation({
         item.event.type === 'media.available'
           ? item.event.payload.mime_type
           : '',
+      prompt:
+        item.event.type === 'media.available'
+          ? item.event.payload.prompt
+          : undefined,
     }));
-  const outputs = [
-    ...new Map(
-      [
-        ...(state.workspace?.generated_outputs ?? []).map((output) => ({
-          id: output.media_ref,
-          reference: output.media_ref,
-          mime: output.mime_type,
-        })),
-        ...durableOutputs,
-        ...liveOutputs,
-      ].map((output) => [output.reference, output]),
-    ).values(),
-  ];
+  // One output per result; its prompt (5.3.3) comes from whichever source has it.
+  const outputsByReference = new Map<string, ConversationOutput>();
+  for (const output of [
+    ...(state.workspace?.generated_outputs ?? []).map((output) => ({
+      id: output.media_ref,
+      reference: output.media_ref,
+      mime: output.mime_type,
+      prompt: output.prompt,
+    })),
+    ...durableOutputs,
+    ...liveOutputs,
+  ])
+    outputsByReference.set(output.reference, {
+      ...output,
+      prompt: output.prompt || outputsByReference.get(output.reference)?.prompt,
+    });
+  const outputs = [...outputsByReference.values()];
   const contextReady = state.status === 'ready' && historyReady;
   const contextRail = id ? (
     <ConversationContextRail
@@ -2500,18 +2509,25 @@ export default function Conversation({
     generation: string;
     // Whose sign-in can't be used any more ("ChatGPT"); "" for any other failure.
     signIn: string;
+    // Why the turn failed: the provider's own words (a plan's limit, no credits); "" if unknown.
+    reason: string;
   } | null>(null);
-  const captureFailure = useEffectEvent((event: string) =>
+  const captureFailure = useEffectEvent((event: string) => {
+    const payload =
+      lastErrorEvent?.type === 'generation.error'
+        ? lastErrorEvent.payload
+        : null;
     setFailure({
       event,
       generation: generation?.generation_id ?? '',
       signIn:
-        lastErrorEvent?.type === 'generation.error' &&
-        lastErrorEvent.payload.code === 'sign_in_required'
-          ? lastErrorEvent.payload.provider || 'your account'
+        payload?.code === 'sign_in_required'
+          ? payload.provider || 'your account'
           : '',
-    }),
-  );
+      reason:
+        payload?.code === 'sign_in_required' ? '' : (payload?.message ?? ''),
+    });
+  });
   useEffect(() => {
     if (lastError) captureFailure(lastError);
   }, [lastError]);
@@ -2522,6 +2538,14 @@ export default function Conversation({
   // A sign-in that can't be used fails every resume the same way: say so,
   // with the one fix, instead of "interrupted · Resume" (B351).
   const signInNeeded = thisFailure?.signIn ?? '';
+  // Claude signs in through Claude Code itself: Claude signed the person out (U11).
+  const claudeSignedOut = signInNeeded === 'Claude';
+  // A reload has no error event; the interrupted turn's state keeps its reason (I4).
+  const failureReason =
+    thisFailure?.reason ||
+    (!isRunning && generation?.status === 'interrupted'
+      ? (generation.failure_reason ?? '')
+      : '');
   const interrupted =
     !isRunning && generation?.status === 'interrupted' && !signInNeeded;
   const failed = !interrupted && !signInNeeded && Boolean(thisFailure);
@@ -2534,10 +2558,24 @@ export default function Conversation({
   );
   const pendingMedia = liveMedia(state.activity, settledMedia);
   const settledCards = useMemo(
-    () => new Set(items.flatMap((item) => item.cards.map(cardKey))),
+    () =>
+      new Set(
+        items.flatMap((item) =>
+          [...item.cards, ...(item.earlier ?? [])].map(cardKey),
+        ),
+      ),
     [items],
   );
-  const pendingCards = liveCards(state.activity, settledCards);
+  const liveCardList = liveCards(state.activity, settledCards);
+  const liveCardKey = liveCardList.map(cardKey).join();
+  // A newer video from the turn in flight folds the ones it already shows.
+  const shown = useMemo(
+    () => foldLiveVideos(items, liveCardList),
+    // liveCardKey stands for liveCardList: they change together.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, liveCardKey],
+  );
+  const pendingCards = shown.pending;
   const cardActions: CardActions = {
     resource: (bindingId) =>
       resources.find((item) => item.binding.binding_id === bindingId),
@@ -2673,10 +2711,10 @@ export default function Conversation({
   const recoverTurn = useCallback(
     (next: RecoveryAction) => {
       if (next === 'model') setModelPickerOpen(true);
-      else if (next === 'providers') navigate('/settings/providers');
+      else if (next === 'providers') navigate(providerSheetPath(chatProvider));
       else if (next === 'new') newChatRef.current();
     },
-    [navigate],
+    [navigate, chatProvider],
   );
   // Waiting messages come from the server's list, re-read when a queue event
   // arrives, a run starts or ends, or the server changes (B107, B108).
@@ -2825,12 +2863,6 @@ export default function Conversation({
   const deliveries = useMemo<DeliveryIo>(
     () => ({
       load: (delivery, signal) => controller.delivery(delivery, signal),
-      download: (delivery, index, signal) =>
-        controller.downloadDelivery(delivery, index, signal),
-      saveToExports: (delivery, index) =>
-        controller.saveDelivery(delivery, index),
-      reveal: async (fileName) =>
-        (await controller.revealExport(fileName)).status === 'opened',
       sendToDevices: (delivery) => controller.sendDeliveryToDevices(delivery),
     }),
     [controller],
@@ -2892,6 +2924,16 @@ export default function Conversation({
     };
   });
   const retryLast = useCallback(() => retryAction.current(), []);
+  // A known host runs this Row-Bot (U3, U10): its very first chat suggests one
+  // message, and after an answer the phone card shows until dismissed.
+  const onHostedServer = Boolean(
+    state.handshake?.application_capabilities?.includes('hosted'),
+  );
+  const firstChat = onHostedServer && Boolean(id) && firstChatPending();
+  // Any message in it, typed or tapped, ends the first chat's suggestion.
+  useEffect(() => {
+    if (firstChat && items.length) clearFirstChat();
+  }, [firstChat, items.length]);
   async function rename(next: string) {
     if (!id || !state.conversation) return;
     try {
@@ -3140,17 +3182,27 @@ export default function Conversation({
   // One way forward when the model can't answer (decision 10): reconnect its
   // provider, or choose a model (Setup when nothing can be chosen yet).
   const modelStatus = state.workspace?.model_status;
+  // The backup model answers while this chat's model can't (#140).
+  const answeringBackup =
+    modelStatus?.state === 'unavailable' ? modelStatus.backup_name || '' : '';
   const reconnect =
     modelStatus?.state === 'unavailable' && modelStatus.fix === 'reconnect';
   const anyModel = (state.handshake?.models ?? []).some(
     (model) => model.available,
   );
-  const setupModelButton = (
+  // Why the model can't answer, on its fix too: a one-line composer has no
+  // model pill to hover, and this button is what the eye lands on.
+  const unavailableHint =
+    modelStatus?.state === 'unavailable'
+      ? `Unavailable — ${modelStatus.reason || "it isn't ready right now"}`
+      : '';
+  const setupButton = (
     <Button
       className="composer-setup-model"
+      aria-description={unavailableHint || undefined}
       onClick={() =>
         reconnect
-          ? navigate('/settings/providers')
+          ? navigate(providerSheetPath(chatProvider))
           : anyModel
             ? setModelPickerOpen(true)
             : navigate('/setup')
@@ -3164,6 +3216,11 @@ export default function Conversation({
             ? 'Choose a model'
             : 'Set up a model'}
     </Button>
+  );
+  const setupModelButton = unavailableHint ? (
+    <Hint label={unavailableHint}>{setupButton}</Hint>
+  ) : (
+    setupButton
   );
   const composerControls = (
     <ComposerControls
@@ -3197,9 +3254,11 @@ export default function Conversation({
         stopped: 'Stopped.',
         waiting_approval: 'Waiting for your approval.',
         completed: 'Response complete.',
-        interrupted: signInNeeded
-          ? `Sign in to ${signInNeeded} again.`
-          : 'The response was interrupted.',
+        interrupted: claudeSignedOut
+          ? 'Claude signed you out.'
+          : signInNeeded
+            ? `Sign in to ${signInNeeded} again.`
+            : `The response was interrupted.${failureReason ? ` ${failureReason}` : ''}`,
       }[generation.status] ?? '')
     : '';
   return (
@@ -3351,7 +3410,7 @@ export default function Conversation({
                   {earlierIds.size > 0 && (
                     // Loaded history is not announced as new conversation.
                     <div className="transcript-earlier" aria-live="off">
-                      {items.map((item, index) =>
+                      {shown.items.map((item, index) =>
                         earlierIds.has(item.row.id) ? (
                           <TranscriptMessage
                             key={`${id}:${item.row.id}`}
@@ -3361,6 +3420,7 @@ export default function Conversation({
                             embeds={item.embeds}
                             media={item.media}
                             cards={item.cards}
+                            earlierCards={item.earlier}
                             agents={item.agents}
                             turnStart={turns.starts[index]}
                             offerBrowser={turns.browser[index]}
@@ -3375,7 +3435,7 @@ export default function Conversation({
                       )}
                     </div>
                   )}
-                  {items.map((item, index) =>
+                  {shown.items.map((item, index) =>
                     earlierIds.has(item.row.id) ? null : (
                       <TranscriptMessage
                         key={`${id}:${item.row.id}`}
@@ -3385,6 +3445,7 @@ export default function Conversation({
                         embeds={item.embeds}
                         media={item.media}
                         cards={item.cards}
+                        earlierCards={item.earlier}
                         agents={item.agents}
                         turnStart={turns.starts[index]}
                         latest={index === lastAssistant && !turnInFlight}
@@ -3424,6 +3485,18 @@ export default function Conversation({
                   disabled={busy}
                   // A prompt fills the composer to edit first (U17).
                   onChoose={editMessage}
+                  // A hosted Row-Bot's first chat: one message to tap (U3).
+                  first={
+                    firstChat
+                      ? {
+                          prompt: FIRST_MESSAGE,
+                          onSend: (text) => {
+                            clearFirstChat();
+                            send(text);
+                          },
+                        }
+                      : undefined
+                  }
                   recent={state.conversations}
                   onOpen={(target) => navigate(`/conversations/${target}`)}
                   design={resources.some(
@@ -3544,7 +3617,14 @@ export default function Conversation({
                             />
                           )}
                       </TranscriptTrace>
-                      <TranscriptCards cards={pendingCards} live />
+                      {/* Cards from the turn in flight (a video, a page, a linked
+                          conversation) open beside this chat, so they need it. */}
+                      <TranscriptCards
+                        cards={pendingCards}
+                        earlier={shown.earlier}
+                        conversation={id}
+                        live
+                      />
                       {pendingMedia.length > 0 && (
                         <div
                           className="message-media-grid"
@@ -3592,15 +3672,22 @@ export default function Conversation({
                 <div className="turn-notice" data-tone="warning">
                   <TriangleAlert className="turn-notice-icon" aria-hidden />
                   <div className="turn-notice-text">
-                    <strong>Sign in to {signInNeeded} again</strong>
+                    <strong>
+                      {claudeSignedOut
+                        ? 'Claude signed you out'
+                        : `Sign in to ${signInNeeded} again`}
+                    </strong>
                     <span>
-                      Your {signInNeeded} sign-in can't be used any more.
-                      Reconnect it, then send your message again.
+                      {claudeSignedOut
+                        ? 'Sign in again to keep using your plan.'
+                        : `Your ${signInNeeded} sign-in can't be used any more. Reconnect it, then send your message again.`}
                     </span>
                   </div>
                   <div className="turn-notice-actions">
-                    <Button onClick={() => navigate('/settings/providers')}>
-                      Reconnect
+                    <Button
+                      onClick={() => navigate(providerSheetPath(chatProvider))}
+                    >
+                      {claudeSignedOut ? 'Sign in again' : 'Reconnect'}
                     </Button>
                   </div>
                 </div>
@@ -3618,9 +3705,10 @@ export default function Conversation({
                         : 'The response could not finish'}
                     </strong>
                     <span>
-                      {interrupted
-                        ? 'Resume to continue where it stopped, or switch to another model.'
-                        : 'Try again, or switch to another model.'}
+                      {failureReason ||
+                        (interrupted
+                          ? 'Resume to continue where it stopped, or switch to another model.'
+                          : 'Try again, or switch to another model.')}
                       {generation?.external_outcome === 'uncertain'
                         ? ' Some steps may already have run, so check what changed before you try again.'
                         : ''}
@@ -3659,6 +3747,13 @@ export default function Conversation({
                   </div>
                 </div>
               )}
+              {onHostedServer &&
+                id &&
+                !state.history &&
+                lastAssistant >= 0 &&
+                !turnInFlight &&
+                !interrupted &&
+                !failed && <PhoneCard conversationId={id} />}
               {state.history?.next_cursor && (
                 <div className="transcript-sentinel">
                   <Button
@@ -3797,6 +3892,7 @@ export default function Conversation({
                 !!draft.attachments.length ||
                 !!pendingUploads.length ||
                 (singleLine && needsModel) ||
+                !!answeringBackup ||
                 Boolean(
                   composerSnapshot &&
                   (composerSnapshot.active_skills.length ||
@@ -3844,6 +3940,15 @@ export default function Conversation({
                         </button>
                       </p>
                     )}
+                  {answeringBackup && (
+                    <p className="composer-vision-note" role="status">
+                      <LifeBuoy aria-hidden />
+                      <span>
+                        {modelName || 'The main model'} isn't available, so{' '}
+                        {answeringBackup} will answer.
+                      </span>
+                    </p>
+                  )}
                   {composerSnapshot && (
                     <ComposerSkillChips
                       composer={composerSnapshot}

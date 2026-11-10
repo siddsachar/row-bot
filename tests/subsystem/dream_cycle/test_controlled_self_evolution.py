@@ -238,6 +238,31 @@ def test_system_maintenance_insight_does_not_become_skill_proposal(evolution_env
     assert {proposal["proposal_type"] for proposal in linked} == {"send_feedback", "investigate"}
 
 
+def test_a_user_workflow_is_not_taken_for_system_maintenance_by_a_word_inside_another(evolution_env):
+    """#632: the blocked terms matched inside words, so "log" stopped a blog workflow and "model" a data model one.
+    Whole words and phrases still block: the term list is unchanged."""
+    ev = evolution_env.evolution
+
+    def insight(title: str, body: str) -> dict:
+        return {
+            "category": "skill_proposal", "severity": "info", "title": title,
+            "body": f"The user repeatedly asks for this workflow. {body}",
+            "suggestion": "Save the steps as a skill.",
+            "skill_draft": {"name": "weekly_blog_digest", "display_name": title, "description": body,
+                            "instructions": "Gather the week's notes, draft the post in the person's voice, list "
+                                            "three headline options and a short summary for sharing."},
+        }
+
+    blog = insight("Weekly blog digest", "Drafts the weekly blog post and its dialogue-style summary.")
+    data = insight("Customer data modelling notes", "Turns workshop notes into a technology brief.")
+    for kept in (blog, data):
+        assert ev.is_skill_evolution_candidate(kept), kept["title"]
+        assert "create_skill" in ev.proposal_types_for_insight(kept)
+    for word in ("log", "model", "tools", "scheduled tasks"):
+        blocked = insight("Weekly blog digest", f"Check the {word} before drafting.")
+        assert not ev.is_skill_evolution_candidate(blocked), word
+
+
 def test_create_skill_proposal_requires_apply_before_mutation(evolution_env):
     ev = evolution_env.evolution
     skills = evolution_env.skills

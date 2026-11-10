@@ -781,6 +781,17 @@
   .settings-danger-zone > .disclosure {
     border-color: CanvasText;
   }
+  /* A theme's preview is a picture of its colours, like a swatch: it keeps
+     them whole (forced, its text kept its colour on a black ground), and its
+     frame and the chosen one's ring use the system's. */
+  .appearance-mini {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+  }
+  .appearance-choice[aria-pressed='true'] .appearance-mini {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
 }
 
 /* Inline rows: text on the left, one action on the right. -------------- */
@@ -1113,8 +1124,9 @@
   font-size: var(--type-size-metadata);
 }
 .appearance-preview-pair {
+  container: appearance-choices / inline-size;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 /* Each preview is a button that chooses its look. */
@@ -1306,6 +1318,19 @@
   border-radius: 50%;
   background: var(--accent-on-solid);
 }
+/* Three cards in a narrow pane (Settings beside a chat, or zoomed in): each
+   preview is its chat alone, and System's second line goes (its name keeps
+   it), so the words stay readable and the cards one row high. */
+@container appearance-choices (max-width: 600px) {
+  .appearance-mini {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .appearance-mini-sidebar,
+  .appearance-mini-context,
+  .appearance-choice-label small {
+    display: none;
+  }
+}
 @media (max-width: 700px) {
   .appearance-preview-pair {
     grid-template-columns: minmax(0, 1fr);
@@ -1481,6 +1506,201 @@
   border-style: solid;
   color: var(--text-primary);
   background: var(--surface-hover);
+}
+/* Models › Connected: a tile per connected provider, which opens its sheet. */
+.settings-provider-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-provider-tile,
+.settings-provider-option {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.settings-provider-tile:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-hover);
+}
+.settings-provider-tile:focus-visible,
+.settings-provider-option:focus-visible,
+.settings-provider-add:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.settings-provider-tile .settings-provider-mark,
+.settings-provider-option .settings-provider-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+}
+.settings-provider-tile .settings-provider-copy,
+.settings-provider-option .settings-provider-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.settings-provider-tile .settings-provider-copy strong,
+.settings-provider-option .settings-provider-copy strong {
+  overflow: hidden;
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-provider-tile .settings-provider-copy small,
+.settings-provider-option .settings-provider-copy small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-provider-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  justify-self: start;
+  min-width: 208px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: transparent;
+  color: var(--accent-solid);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.settings-provider-add:hover {
+  border-style: solid;
+  background: var(--surface-hover);
+}
+.settings-provider-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+@media (max-width: 560px) {
+  .settings-provider-tiles {
+    grid-template-columns: 1fr;
+  }
+  .settings-provider-add {
+    justify-self: stretch;
+  }
+}
+
+/* A provider's sheet: status, the one way to connect, then its models. */
+.drawer-panel.settings-provider-sheet {
+  width: min(460px, calc(100vw - 24px));
+}
+@media (max-width: 767px) {
+  .drawer-panel.settings-provider-sheet {
+    width: 100%;
+    max-height: 92dvh;
+  }
+}
+.settings-provider-sheet-body {
+  gap: 14px;
+}
+.settings-provider-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-provider-sheet .settings-provider-notice {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.settings-provider-sheet .settings-model-catalog {
+  margin-inline: -16px;
+  border-top: 1px solid var(--border-hairline);
+}
+.settings-provider-sheet .settings-model-row-list {
+  display: block;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-provider-sheet .settings-model-row-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 12px;
+  min-height: 48px;
+  padding: 6px 12px 6px 16px;
+  border-top: 1px solid var(--border-hairline);
+}
+.settings-provider-sheet .settings-model-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.settings-provider-sheet .settings-model-favourite[aria-pressed='true'] {
+  color: var(--accent-solid);
+  background: transparent;
+}
+@media (max-width: 560px) {
+  .settings-provider-sheet .settings-catalog-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .settings-provider-sheet .settings-model-row-list > li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .settings-provider-sheet
+    .settings-model-row-list
+    > li
+    > .settings-catalog-caps {
+    display: none;
+  }
+}
+.drawer-actions [data-spinning] {
+  animation: settings-spin 900ms linear infinite;
+}
+
+/* Add a provider: the providers not connected yet, by how they're paid. */
+.settings-provider-options {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 0 0;
+  list-style: none;
+}
+.settings-provider-option {
+  grid-template-columns: 30px minmax(0, 1fr) auto auto;
+}
+.settings-provider-option:hover {
+  background: var(--surface-hover);
+}
+.settings-provider-option > svg {
+  color: var(--text-muted);
 }
 @media (max-width: 700px) {
   .settings-page-content .settings-provider-list > li.settings-provider-row {
@@ -2788,6 +3008,17 @@
 }
 
 /* Phase 10: the key dialog's get-a-key link and format hint (U6). */
+/* The side panel's key sheet: a title sized for the panel, its state one muted line (I1). */
+.settings-key-title {
+  margin: 0;
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.settings-key-state {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
 .settings-key-link {
   margin: 0;
 }
@@ -2820,6 +3051,11 @@
   padding-inline-start: 20px;
   color: var(--text-secondary);
 }
+/* A hosted first run's one line in place of the steps (U3). */
+.subscription-flow-guide {
+  margin: 0;
+  color: var(--text-secondary);
+}
 .subscription-flow-open.button {
   justify-self: start;
 }
@@ -2845,34 +3081,84 @@
 .subscription-device-code small {
   color: var(--text-muted);
 }
-/* Claude (your Claude plan): Claude Code's state and the command to run (N1). */
+/* Claude (your Claude plan): its state, the install from Anthropic and
+   Claude's own sign-in in a small terminal (N1, U11, U12). */
 .claude-plan-state {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 4px 8px;
   margin: 0;
   color: var(--text-secondary);
   font-weight: var(--weight-medium);
 }
-.claude-plan-command {
+.claude-plan-state .status-indicator-label {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+/* The plan and Claude Code's version, quietly under "Claude plan connected". */
+.claude-plan-version {
+  flex-basis: 100%;
+  padding-left: 14px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  font-weight: var(--weight-regular);
+}
+/* The connected state with "Use another Claude account" at its end. */
+.claude-plan-account {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
+}
+.claude-plan-progress {
+  display: grid;
+  gap: 4px;
+}
+.claude-plan-progress progress {
+  width: 100%;
+}
+.claude-plan-progress small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.claude-sign-in {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  max-width: 100%;
-  padding: 4px 4px 4px 12px;
+  overflow: hidden;
   border: 1px solid var(--border-hairline);
   border-radius: 8px;
+  background: var(--code-background);
+}
+.claude-sign-in-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 6px 8px 12px;
+  border-bottom: 1px solid var(--border-hairline);
   background: var(--surface);
 }
-.claude-plan-command code {
+.claude-sign-in-guide {
   flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
+  margin: 0;
   color: var(--text-primary);
-  font: var(--weight-medium) var(--text-14) / 1.4 var(--font-mono);
-  user-select: all;
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.claude-sign-in-header .icon-action {
+  flex: none;
+  color: var(--text-muted);
+}
+.claude-sign-in-screen {
+  height: 260px;
+}
+@media (max-width: 640px) {
+  .claude-sign-in-screen {
+    height: 220px;
+  }
 }
 .claude-plan-setup .settings-help.claude-plan-note {
   margin: 0;
@@ -3022,6 +3308,81 @@
 .data-backup-signins {
   margin: 0;
   padding-left: 18px;
+}
+/* Settings › Data on a hosted Row-Bot: what a backup made for moving
+   leaves out, in its own words (U9). */
+.data-backup-moved {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.data-backup-moved .data-backup-signins {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+/* The host's own backups of the server (F3): one quiet line, apart from
+   Last backup. */
+.data-backup-host {
+  margin-top: 6px;
+}
+/* Voice's sheet on a small server: where it gets more memory (A2, A4). */
+.voice-sheet-grow {
+  margin: 0 0 12px;
+}
+.voice-sheet-grow a svg {
+  margin-left: 3px;
+  vertical-align: -1px;
+}
+
+/* Settings › System on a hosted Row-Bot (U5): who runs it, the memory in
+   use of the server's limit, and the host's own pages. */
+.hosted-by-memory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-variant-numeric: tabular-nums;
+}
+.hosted-by-memory > span {
+  white-space: nowrap;
+}
+.hosted-by-memory progress {
+  width: 120px;
+  height: 6px;
+}
+.hosted-by-links {
+  display: inline-flex;
+  gap: 2px;
+}
+/* On a phone the host's pages go under the words, in line with them. */
+@container settings-page (max-width: 560px) {
+  .hosted-by .settings-row[data-icon='true'] > .settings-row-control {
+    grid-column: 2 / -1;
+  }
+}
+.settings-row-extra > p.hosted-by-note {
+  color: var(--text-muted);
+}
+/* U7 (A3): the host's one step after the first answer, with a ✓ that hides
+   it for good. */
+.settings-row-extra > p.hosted-by-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-13);
+}
+.hosted-by-step > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.hosted-by-step a svg {
+  margin-left: 3px;
+  vertical-align: -1px;
 }
 
 /* Settings › Devices & remote access (Phase 14). ------------------------ */
@@ -4655,6 +5016,9 @@
     > .settings-catalog-caps {
     display: none;
   }
+  .settings-page-content .settings-model-row-list > li > .model-billing {
+    display: none;
+  }
   .settings-page-content .document-dropzone {
     flex-wrap: wrap;
   }
@@ -4838,6 +5202,25 @@ button.settings-mcp-server-name:hover {
 .settings-account-confirm > p {
   margin: 0;
 }
+/* A custom endpoint's private address on a hosted server: the owner's OK (H16). */
+.settings-endpoint-ask {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  font-size: var(--text-13);
+}
+.settings-endpoint-ask > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-endpoint-ask > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 /* X's connected accounts (N7), indented under the row like its switches. */
 .settings-x-accounts {
   display: grid;
@@ -5006,4 +5389,23 @@ button.settings-mcp-server-name:hover {
     grid-column: 1 / -1;
     flex-wrap: wrap;
   }
+}
+
+/* Tool settings file can't be read: every tool is off until it is reset. */
+.settings-tool-notice {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: var(--status-warning-background);
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-card);
+  color: var(--status-warning-text);
+}
+.settings-tool-notice > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.settings-tool-notice p {
+  margin: 6px 0 12px;
+  color: var(--text-primary);
 }

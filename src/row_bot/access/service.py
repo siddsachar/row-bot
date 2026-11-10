@@ -7,6 +7,7 @@ import hashlib
 from datetime import datetime, timedelta
 import threading
 import time
+from typing import Mapping
 from urllib.parse import quote, urlsplit
 import uuid
 
@@ -43,6 +44,9 @@ REMOTE_CLIENT_PATH = "/app-v2/"
 SESSION_TOUCH_SECONDS = 30.0
 # The access route of a sign-in the launcher makes for its own window or browser (A0).
 THIS_COMPUTER_ROUTE = "this_computer"
+# A browser signed in with a setup code (H1); Settings › Devices lets the owner rename it.
+SETUP_CODE_ROUTE = "setup_code"
+SETUP_CODE_DEVICE_NAME = "Connected browser"
 
 
 @dataclass(frozen=True)
@@ -81,6 +85,16 @@ class InvitationClaim:
     @property
     def intended_origin(self) -> str:
         return self.invitation.intended_origin
+
+
+@dataclass(frozen=True)
+class SetupCodeClaim:
+    """A browser signed in with a setup code; ``session_token`` is returned only once."""
+
+    device: AccessDevice
+    session: AccessSession
+    session_token: str
+    recovered: bool
 
 
 @dataclass(frozen=True)
@@ -265,35 +279,13 @@ class AccessService:
             SessionLifetime(session_lifetime) if session_lifetime is not None else None
         )
 
-        device_id = uuid.uuid4().hex
-        session_id = uuid.uuid4().hex
-        issued_session = issue_session_token(session_id)
-        session_ttl = session_ttl_for(invitation.session_lifetime)
-        device = AccessDevice(
-            id=device_id,
-            display_name=(str(display_name or "").strip() or "Connected device")[:80],
-            created_at=current,
-            last_seen_at=current,
-            revoked_at=None,
-            user_agent=(str(user_agent)[:256] if user_agent else None),
-            paired_from=(str(effective_client)[:128] if effective_client else None),
-            access_route=(
-                str(access_route)[:80] if access_route else invitation.access_route
-            ),
-            legacy_source_id=None,
-        )
-        session = AccessSession(
-            id=session_id,
-            device_id=device_id,
-            token_hash=issued_session.secret_hash,
-            token_salt=issued_session.secret_salt,
-            token_format=TokenFormat.SESSION_V1,
-            created_at=current,
-            last_seen_at=current,
-            expires_at=current + session_ttl,
-            revoked_at=None,
+        device, session, session_token = _new_device_session(
+            display_name=display_name,
+            user_agent=user_agent,
+            effective_client=effective_client,
+            access_route=access_route or invitation.access_route,
             lifetime=invitation.session_lifetime,
-            replaced_by_session_id=None,
+            now=current,
         )
         device, session, claimed_invitation = self.store.claim_invitation_atomic(
             invitation_id=invitation_id,
@@ -310,8 +302,53 @@ class AccessService:
             invitation=claimed_invitation,
             device=device,
             session=session,
-            session_token=issued_session.token,
+            session_token=session_token,
         )
+
+    def claim_setup_code(
+        self,
+        *,
+        used_verifier: Mapping[str, str],
+        allow_recovery: bool,
+        user_agent: str | None = None,
+        effective_client: str | None = None,
+        now: datetime | None = None,
+    ) -> SetupCodeClaim | None:
+        """Sign in the browser that brought a valid setup code (H1), as a trusted session.
+
+        ``None`` when someone owns this Row-Bot and the code is not a recovery code.
+        """
+        current = normalize_datetime(now)
+        device, session, session_token = _new_device_session(
+            display_name=SETUP_CODE_DEVICE_NAME,
+            user_agent=user_agent,
+            effective_client=effective_client,
+            access_route=SETUP_CODE_ROUTE,
+            lifetime=SessionLifetime.TRUSTED,
+            now=current,
+        )
+        result = self.store.claim_setup_code_atomic(
+            device=device,
+            session=session,
+            used_verifier=used_verifier,
+            allow_recovery=allow_recovery,
+            effective_client=effective_client,
+            user_agent=user_agent,
+            now=current,
+        )
+        if result is None:
+            return None
+        device, session, recovered = result
+        return SetupCodeClaim(
+            device=device,
+            session=session,
+            session_token=session_token,
+            recovered=recovered,
+        )
+
+    def owned(self) -> bool:
+        """Whether any device is signed in to this Row-Bot, or could sign in again."""
+        return bool(self.store.list_devices(include_revoked=False))
 
     def validate_session(
         self,
@@ -538,6 +575,46 @@ class AccessService:
         return invitation, secret
 
 
+def _new_device_session(
+    *,
+    display_name: str,
+    user_agent: str | None,
+    effective_client: str | None,
+    access_route: str | None,
+    lifetime: SessionLifetime,
+    now: datetime,
+) -> tuple[AccessDevice, AccessSession, str]:
+    """A new device and its first session; the session token is returned only here."""
+    device_id = uuid.uuid4().hex
+    session_id = uuid.uuid4().hex
+    issued_session = issue_session_token(session_id)
+    device = AccessDevice(
+        id=device_id,
+        display_name=(str(display_name or "").strip() or "Connected device")[:80],
+        created_at=now,
+        last_seen_at=now,
+        revoked_at=None,
+        user_agent=(str(user_agent)[:256] if user_agent else None),
+        paired_from=(str(effective_client)[:128] if effective_client else None),
+        access_route=(str(access_route)[:80] if access_route else None),
+        legacy_source_id=None,
+    )
+    session = AccessSession(
+        id=session_id,
+        device_id=device_id,
+        token_hash=issued_session.secret_hash,
+        token_salt=issued_session.secret_salt,
+        token_format=TokenFormat.SESSION_V1,
+        created_at=now,
+        last_seen_at=now,
+        expires_at=now + session_ttl_for(lifetime),
+        revoked_at=None,
+        lifetime=lifetime,
+        replaced_by_session_id=None,
+    )
+    return device, session, issued_session.token
+
+
 def normalize_device_name(value: object) -> str | None:
     """A device name of 1–80 printable characters, trimmed; else ``None``."""
     if not isinstance(value, str):
@@ -597,6 +674,7 @@ __all__ = [
     "SESSION_REFRESH_POLL_INTERVAL",
     "SessionRefreshRecord",
     "SessionRefreshResult",
+    "SetupCodeClaim",
     "TEMPORARY_SESSION_TTL",
     "TRUSTED_SESSION_RENEWAL_WINDOW",
     "TRUSTED_SESSION_TTL",

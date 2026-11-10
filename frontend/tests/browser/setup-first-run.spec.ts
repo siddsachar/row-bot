@@ -98,7 +98,7 @@ test('no runtime yet: Setup opens, Ollama appears by itself, the pick becomes th
     const pill = page.getByRole('button', { name: 'Model', exact: true });
     await expect(pill).toContainText('fixture-local:27b');
     await expect(
-      pill.getByRole('img', { name: 'Runs on this device' }),
+      pill.getByRole('img', { name: 'Runs on this computer' }),
     ).toBeVisible();
   }
 });
@@ -224,7 +224,8 @@ test('custom endpoint and Set up later: nothing traps the person', async ({
   ).toBeVisible();
   await screenshot(page, testInfo, 'custom-endpoint');
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers/);
+  // The old Providers link lands on Models, which holds the providers.
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models/);
   // A deep link is never redirected; the plain address still opens Setup.
   await page.goto('/app-v2/settings/models');
   await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);

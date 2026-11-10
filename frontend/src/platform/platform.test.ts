@@ -226,6 +226,39 @@ describe('browser capabilities', () => {
     });
   });
 
+  it('copies through the older copy command on a plain-HTTP page, where there is no clipboard API (#633)', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    });
+    const copied: string[] = [];
+    const command = vi.fn((name: string) => {
+      const box = document.activeElement as HTMLTextAreaElement;
+      copied.push(`${name}:${box.value}`);
+      return true;
+    });
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: command,
+    });
+    const adapter = createBrowserPlatform(media());
+    expect(await adapter.discover()).toMatchObject({
+      value: { capabilities: expect.arrayContaining(['clipboard_write']) },
+    });
+    expect(await adapter.writeClipboard('fixture answer')).toEqual({
+      status: 'ok',
+      value: null,
+    });
+    expect(copied).toEqual(['copy:fixture answer']);
+    expect(document.querySelector('textarea')).toBeNull();
+
+    command.mockReturnValue(false);
+    expect(await adapter.writeClipboard('fixture answer')).toMatchObject({
+      status: 'unavailable',
+    });
+    Reflect.deleteProperty(document, 'execCommand');
+  });
+
   it('does not request picker, clipboard or link interaction without user activation', async () => {
     Object.defineProperty(navigator, 'userActivation', {
       configurable: true,
@@ -1390,6 +1423,33 @@ describe('desktop windows never run the browser versions silently (B231, B238)',
     });
     expect(transport.saveToExports).not.toHaveBeenCalled();
     expect(transport.download).not.toHaveBeenCalled();
+  });
+
+  it('names a native save as the person named it, and never takes a path', async () => {
+    const host = desktopWindow();
+    const dispatch = vi.fn().mockResolvedValue(info);
+    host.__ROW_BOT_NATIVE_CLIENT__ = { dispatch };
+    const chosen = await selectClientPlatform(
+      media(),
+      nativeAdapter,
+      asWindow(host),
+    );
+    const saved = 'b'.repeat(32);
+    dispatch.mockResolvedValueOnce({
+      status: 'ok',
+      value: { saved, name: 'Trip notes 2.md' },
+    });
+    const result = await chosen.save('conversation-1:export-1', 'export.md');
+    expect(result).toMatchObject({
+      status: 'ok',
+      value: { kind: 'file', fileName: 'Trip notes 2.md' },
+    });
+    for (const name of ['C:\\Users\\me\\export.md', '/home/me/export.md', '']) {
+      dispatch.mockResolvedValueOnce({ status: 'ok', value: { saved, name } });
+      expect(
+        (await chosen.save('conversation-1:export-1', 'export.md')).status,
+      ).toBe('unavailable');
+    }
   });
 });
 

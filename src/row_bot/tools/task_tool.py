@@ -175,7 +175,8 @@ def _task_create(
         # Default to notify_only for a timer or a one-off time with no prompts
         if (delay_minutes or at) and not prompts:
             notify_only = True
-        effective_approval_mode = legacy_safety_mode_to_approval_mode(approval_mode or safety_mode or "block")
+        effective_approval_mode = (legacy_safety_mode_to_approval_mode(approval_mode or safety_mode)
+                                   if approval_mode or safety_mode else "")
         if effective_approval_mode == "full":
             return _FULL_AUTONOMY_REFUSAL
 
@@ -486,8 +487,10 @@ class TaskTool(BaseTool):
                 name="task_create",
                 # The one home for scheduling guidance; the system prompt only points here.
                 description=(
-                    "Create a reminder, timer, scheduled task or monitor. "
-                    "Reminders: 'in N minutes' uses delay_minutes; a stated time uses run_at in local time "
+                    "Create a reminder, timer, scheduled task or monitor. To come back to THIS conversation "
+                    "later ('check back in 10 minutes and tell me…', 'look again at 3pm'), use wait_for instead: "
+                    "a task runs in its own conversation. "
+                    "Reminders: 'remind me in N minutes' uses delay_minutes; a stated time uses run_at in local time "
                     "('remind me at 9am on 8 October' -> run_at='2026-10-08T09:00'), never minutes worked out "
                     "from now; add notify_only=true for a plain notification. To move a reminder, use "
                     "task_update with run_at instead of deleting and re-creating it. "

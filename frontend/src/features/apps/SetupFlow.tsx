@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import type {
   InstallPlan,
   PlanContinueRequest,
@@ -275,6 +276,7 @@ export function InputsForm({
   secondary?: ReactNode;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
+  const place = usePlace();
   const inputs = step.inputs ?? [];
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -357,10 +359,10 @@ export function InputsForm({
       })}
       <p className="settings-help">
         {secret && plain
-          ? 'Keys are saved only in your system keychain; other settings stay with this app.'
+          ? `Keys are saved only ${keptSecret(place)}; other settings stay with this app.`
           : secret
-            ? 'Saved only in your system keychain.'
-            : 'Saved with this app on this computer.'}
+            ? `Saved only ${keptSecret(place)}.`
+            : `Saved with this app ${place.on}.`}
       </p>
       <div className="app-dialog-actions">
         {secondary}
@@ -597,12 +599,25 @@ export function PlanProgress({
   );
 }
 
-const SAFE = [
-  'Nothing runs or connects until you agree.',
-  'Keys are kept in your system keychain, never in settings files.',
-  'Deleting, sending, paying and unknown actions always ask first.',
-  'You can turn it off or remove it at any time; your data stays unless you choose to delete it.',
-];
+/**
+ * Where a key is kept: the keychain of the computer the browser is on, or
+ * encrypted on the server (a server keeps keys encrypted on its data volume,
+ * or in the keychain of the computer Row-Bot runs on; U7).
+ */
+function keptSecret(place: PlaceWords) {
+  return place.kind === 'this_computer'
+    ? 'in your system keychain'
+    : `encrypted ${place.on}`;
+}
+
+function safe(place: PlaceWords) {
+  return [
+    'Nothing runs or connects until you agree.',
+    `Keys are kept ${keptSecret(place)}, never in settings files.`,
+    'Deleting, sending, paying and unknown actions always ask first.',
+    'You can turn it off or remove it at any time; your data stays unless you choose to delete it.',
+  ];
+}
 
 export function hostOf(place: string) {
   try {
@@ -626,7 +641,7 @@ function asksAccess(plan: InstallPlan) {
   );
 }
 
-function facts(plan: InstallPlan, name: string) {
+function facts(plan: InstallPlan, name: string, place: PlaceWords) {
   const types = new Map(plan.steps.map((step) => [step.id, step.state]));
   const consent = plan.consent;
   const lines: string[] = [];
@@ -639,10 +654,10 @@ function facts(plan: InstallPlan, name: string) {
       `Downloads the newest version from ${consent.downloads[0] ?? 'its source'} and checks it first.`,
     );
   if (['connect', 'add', 'fix', 'turn_on'].includes(plan.intent)) {
-    for (const place of consent.destinations)
-      lines.push(`What you ask goes to ${hostOf(place)}.`);
+    for (const destination of consent.destinations)
+      lines.push(`What you ask goes to ${hostOf(destination)}.`);
     if (consent.runs_locally && plan.kind !== 'skill')
-      lines.push('Runs on this computer.');
+      lines.push(`Runs ${place.on}.`);
     if (consent.downloads.length && plan.intent !== 'turn_on')
       lines.push(`Downloads ${consent.downloads.join(', ')}.`);
     if (types.get('sign_in') === 'pending')
@@ -679,6 +694,7 @@ export function ConsentSheet({
   cleanupOffered: boolean;
 }) {
   const { consent, busy } = control;
+  const place = usePlace();
   const verb = consent
     ? (VERBS[consent.intent] ?? (control.label || 'Continue'))
     : '';
@@ -697,7 +713,7 @@ export function ConsentSheet({
       title={title}
       description={
         remove
-          ? 'Row-Bot stops using it and removes it from this computer.'
+          ? `Row-Bot stops using it and removes it from ${place.noun}.`
           : "Here's what happens next."
       }
     >
@@ -707,7 +723,7 @@ export function ConsentSheet({
             <p role="alert">{consent.unsupported_reason}</p>
           ) : (
             <ul className="app-facts">
-              {facts(consent, name).map((line) => (
+              {facts(consent, name, place).map((line) => (
                 <li key={line}>{line}</li>
               ))}
             </ul>
@@ -764,7 +780,7 @@ export function ConsentSheet({
           {!remove && consent.supported && (
             <Disclosure summary="How Row-Bot keeps this safe">
               <ul className="app-facts">
-                {SAFE.map((line) => (
+                {safe(place).map((line) => (
                   <li key={line}>
                     <ShieldCheck size={14} aria-hidden /> {line}
                   </li>

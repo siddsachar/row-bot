@@ -306,24 +306,6 @@ export class HttpTransport implements ClientTransport {
   delivery(deliveryId: string, signal?: AbortSignal) {
     return wire.getDelivery(this.base, this.session(), deliveryId, signal);
   }
-  downloadDelivery(deliveryId: string, index: number, signal?: AbortSignal) {
-    return wire.readDeliveryFile(
-      this.base,
-      this.session(),
-      deliveryId,
-      index,
-      signal,
-    );
-  }
-  saveDelivery(deliveryId: string, index: number, signal?: AbortSignal) {
-    return wire.saveDeliveryFile(
-      this.base,
-      this.session(),
-      deliveryId,
-      index,
-      signal,
-    );
-  }
   sendDeliveryToDevices(deliveryId: string, signal?: AbortSignal) {
     return wire.sendDeliveryToDevices(
       this.base,
@@ -381,28 +363,6 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  downloadPage(pageId: string, theme: wire.PageTheme, signal?: AbortSignal) {
-    return wire.downloadPage(
-      this.base,
-      this.session(),
-      pageId,
-      { theme },
-      signal,
-    );
-  }
-  savePageToExports(
-    pageId: string,
-    theme: wire.PageTheme,
-    signal?: AbortSignal,
-  ) {
-    return wire.savePageToExports(
-      this.base,
-      this.session(),
-      pageId,
-      { theme },
-      signal,
-    );
-  }
   browserLocalAddresses(conversation: string, signal?: AbortSignal) {
     return wire.getBrowserLocalAddresses(
       this.base,
@@ -426,6 +386,9 @@ export class HttpTransport implements ClientTransport {
   }
   attention(signal?: AbortSignal) {
     return wire.getAttention(this.base, this.session(), signal);
+  }
+  dismissMemoryNotice() {
+    return wire.dismissMemoryNotice(this.base, this.session());
   }
   media(filter: { query?: string; kind?: string }, signal?: AbortSignal) {
     return wire.getMedia(this.base, this.session(), filter, signal);
@@ -503,6 +466,9 @@ export class HttpTransport implements ClientTransport {
   }
   cancelScheduledPost(id: string) {
     return wire.cancelScheduledPost(this.base, this.session(), id);
+  }
+  editScheduledPost(id: string, edit: wire.XPostEdit) {
+    return wire.editScheduledPost(this.base, this.session(), id, edit);
   }
   retryScheduledPost(id: string, withoutMedia: boolean) {
     return wire.retryScheduledPost(this.base, this.session(), id, {
@@ -1452,6 +1418,9 @@ export class HttpTransport implements ClientTransport {
       scope?: 'installed' | 'catalog';
       cursor?: string;
       all?: 'true';
+      labels?: string;
+      runs?: 'anywhere' | 'hosted' | 'local';
+      no_sign_in?: 'true';
     },
     signal?: AbortSignal,
   ) {
@@ -2024,6 +1993,65 @@ export class HttpTransport implements ClientTransport {
       provider,
       signal,
     );
+  }
+  claudeCodeInstall(signal?: AbortSignal) {
+    return wire.getClaudeCodeInstall(this.base, this.session(), signal);
+  }
+  installClaudeCode(update: boolean, signal?: AbortSignal) {
+    return wire.installClaudeCode(
+      this.base,
+      this.session(),
+      { update },
+      signal,
+    );
+  }
+  openClaudeSignIn(
+    cols: number,
+    rows: number,
+    switchAccount: boolean,
+    signal?: AbortSignal,
+  ) {
+    return wire.openClaudeSignIn(
+      this.base,
+      this.session(),
+      { cols, rows, switch_account: switchAccount },
+      signal,
+    );
+  }
+  readClaudeSignIn(signIn: string, cursor: number, signal?: AbortSignal) {
+    return wire.readClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      cursor,
+      signal,
+    );
+  }
+  writeClaudeSignIn(signIn: string, data: string, signal?: AbortSignal) {
+    return wire.writeClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      { data },
+      signal,
+    );
+  }
+  resizeClaudeSignIn(
+    signIn: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ) {
+    return wire.resizeClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      { cols, rows },
+      signal,
+    );
+  }
+  closeClaudeSignIn(signIn: string, signal?: AbortSignal) {
+    return wire.closeClaudeSignIn(this.base, this.session(), signIn, signal);
   }
   savedEntities(
     query = '',
@@ -2687,54 +2715,6 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  saveArtifactExport(
-    conversation: string,
-    binding: string,
-    exportId: string,
-    signal?: AbortSignal,
-  ) {
-    return wire.saveArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      exportId,
-      signal,
-    );
-  }
-  revealArtifactExport(
-    conversation: string,
-    binding: string,
-    exportId: string,
-    body: wire.ArtifactExportReveal,
-    signal?: AbortSignal,
-  ) {
-    return wire.revealArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      exportId,
-      body,
-      signal,
-    );
-  }
-  artifactDownload(
-    conversation: string,
-    binding: string,
-    descriptor: wire.ArtifactExport,
-    signal?: AbortSignal,
-  ) {
-    return wire.downloadArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      descriptor,
-      sha256Hex,
-      signal,
-    );
-  }
   cachedModels(
     providerId?: string,
     query = '',
@@ -3346,6 +3326,9 @@ export class HttpTransport implements ClientTransport {
       reference,
       signal,
     );
+  }
+  createSaveOffer(body: wire.SaveOfferRequest, signal?: AbortSignal) {
+    return wire.createSaveOffer(this.base, this.session(), body, signal);
   }
   saveAttachmentExport(reference: string, signal?: AbortSignal) {
     return wire.saveAttachmentExport(

@@ -3,6 +3,7 @@ import { Table } from 'lucide-react';
 import { CopyGlyph, Hint, IconButton } from '../../ui/primitives';
 import { CodeBlock } from './CodeBlock';
 import MathTex from './MathTex';
+import { copyUnavailableMessage } from '../../platform/clipboard';
 
 // Underscore emphasis never starts or ends inside a word, so snake_case
 // names such as workspace_file_delete stay literal (as in CommonMark).
@@ -214,7 +215,7 @@ function MarkdownTable({
       const ok = await (copyText ?? (async () => false))(
         tableCsv(headers, rows),
       );
-      setStatus(ok ? 'Table copied as CSV.' : 'Copy is unavailable.');
+      setStatus(ok ? 'Table copied as CSV.' : copyUnavailableMessage());
     } catch {
       setStatus('The table could not be copied.');
     }

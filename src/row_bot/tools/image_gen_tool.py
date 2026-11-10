@@ -1,4 +1,4 @@
-"""Image generation tool — generate and edit images via OpenAI / Google.
+"""Image generation tool — generate and edit images with any provider in providers/media.py.
 
 The agent calls ``generate_image`` to create images from text prompts, or
 ``edit_image`` to modify an existing image (pasted, last generated, or from
@@ -6,21 +6,23 @@ a file path).  Generated images are rendered inline in the chat via the
 ``captured_images`` pipeline (same as vision / browser screenshots).
 
 The user picks a provider+model combination in Settings → Models (e.g.
-``openai/gpt-image-1.5`` or ``google/gemini-3.1-flash-image-preview``).
-Only providers whose API key is configured appear in the dropdown.
+``google/gemini-3.1-flash-image-preview``). The choices are the image models
+each connected provider's own model list offers, so new models appear without
+a Row-Bot change.
 
 Google providers:
   - **Nano Banana** models use the ``generate_content`` API (same endpoint as
     chat) with ``response_modalities=['IMAGE']``.  They support both
     generation and editing.
-  - **Imagen 4** models use the dedicated ``generate_images`` API.  They
-    support generation only (no editing).
+  - **Imagen** models (any ``imagen-*``) use the dedicated ``generate_images``
+    API.  They support generation only (no editing).
 """
 
 from __future__ import annotations
 
 import base64
 import logging
+import time
 from collections.abc import Mapping, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -35,54 +37,6 @@ from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 
 logger = logging.getLogger(__name__)
-
-# ── Available image generation models ────────────────────────────────────
-# Per-provider model registries.
-_OPENAI_MODELS = [
-    {"id": "gpt-image-1.5", "label": "GPT Image 1.5"},
-    {"id": "gpt-image-1", "label": "GPT Image 1"},
-    {"id": "gpt-image-1-mini", "label": "GPT Image 1 Mini"},
-]
-
-_GOOGLE_NANO_BANANA_MODELS = [
-    {"id": "gemini-3.1-flash-image-preview", "label": "Nano Banana 2"},
-    {"id": "gemini-3-pro-image-preview", "label": "Nano Banana Pro"},
-    {"id": "gemini-2.5-flash-image", "label": "Nano Banana"},
-]
-
-_GOOGLE_IMAGEN_MODELS = [
-    {"id": "imagen-4.0-generate-001", "label": "Imagen 4"},
-    {"id": "imagen-4.0-fast-generate-001", "label": "Imagen 4 Fast"},
-    {"id": "imagen-4.0-ultra-generate-001", "label": "Imagen 4 Ultra"},
-]
-
-_GOOGLE_MODELS = _GOOGLE_NANO_BANANA_MODELS + _GOOGLE_IMAGEN_MODELS
-
-_XAI_MODELS = [
-    {"id": "grok-imagine-image", "label": "Grok Imagine"},
-    {"id": "grok-imagine-image-quality", "label": "Grok Imagine Quality"},
-]
-
-# Flat list for backward compat (used by existing tests).
-IMAGE_GEN_MODELS = _OPENAI_MODELS + _GOOGLE_MODELS + _XAI_MODELS
-
-# Sets for quick type detection
-_IMAGEN_MODEL_IDS = {m["id"] for m in _GOOGLE_IMAGEN_MODELS}
-_NANO_BANANA_MODEL_IDS = {m["id"] for m in _GOOGLE_NANO_BANANA_MODELS}
-
-# Per-provider model lists (keyed same as _PROVIDERS)
-_PROVIDER_MODELS = {
-    "openai": _OPENAI_MODELS,
-    "google": _GOOGLE_MODELS,
-    "xai": _XAI_MODELS,
-}
-
-# Provider definitions — only providers with an images API
-_PROVIDERS = {
-    "openai": {"key": "OPENAI_API_KEY", "label": "OpenAI", "emoji": "⬡"},
-    "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
-    "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
-}
 
 # No preset: image generation stays off and unset until the person chooses a
 # model in Settings › Models (decision 9).
@@ -114,7 +68,20 @@ _QUALITY_TO_RESOLUTION: dict[str, str | None] = {
     "auto": None,   # let model default
 }
 
-# Imagen 4 aspect ratios (subset supported by the API)
+# A provider with its own image API answers (or, Atlas Cloud, finishes its job) within
+# this many seconds, or the request fails.
+_DIRECT_TIMEOUT = 180
+_JOB_POLL_INTERVAL = 2
+
+# The routes whose image models make new images only here: Together's and Z.AI's APIs
+# take no source image, MiniMax's takes a character reference rather than an image to
+# edit, and Atlas Cloud's image field differs per model.
+_NEW_IMAGES_ONLY = {"together", "minimax", "zai", "atlascloud"}
+
+# The sizes Z.AI's GLM-Image takes that are nearest each size the tool offers.
+_ZAI_SIZES = {"1024x1024": "1280x1280", "1536x1024": "1568x1056", "1024x1536": "1056x1568"}
+
+# Imagen aspect ratios (subset supported by the API)
 _IMAGEN_ASPECT_RATIOS = {"1:1", "3:4", "4:3", "9:16", "16:9"}
 
 
@@ -175,7 +142,7 @@ def _execution_image_cache() -> dict[str, bytes]:
     return tool_cache("images", _image_cache)
 
 
-def _set_pending_image(value: str) -> None:
+def _set_pending_image(value: str, name: str = "") -> None:
     from row_bot.application.attachment_context import current_caches
     global _last_generated_image
     if _strict_output.get() is not None:
@@ -186,7 +153,7 @@ def _set_pending_image(value: str) -> None:
     if caches is None:
         _last_generated_image = value
     else:
-        caches.pending_image = value
+        caches.pending_image, caches.pending_image_name = value, name
 
 
 def get_and_clear_last_image() -> str | None:
@@ -196,7 +163,7 @@ def get_and_clear_last_image() -> str | None:
     caches = current_caches()
     if caches is not None:
         img = caches.pending_image
-        caches.pending_image = None
+        caches.pending_image, caches.pending_image_name = None, ""
         return img
     img = _last_generated_image
     _last_generated_image = None
@@ -264,67 +231,225 @@ def get_available_image_models() -> dict[str, str]:
 
     Used by the Settings UI to populate the model dropdown.
     """
-    try:
-        from row_bot.models import _cloud_model_cache, _sync_custom_model_cache
-        from row_bot.providers.media import media_model_options
-        _sync_custom_model_cache()
-        return media_model_options("image", _cloud_model_cache)
-    except Exception:
-        from row_bot.api_keys import get_key
-
-        opts: dict[str, str] = {}
-        for prov_id, prov in _PROVIDERS.items():
-            if not get_key(prov["key"]):
-                continue
-            for m in _PROVIDER_MODELS.get(prov_id, []):
-                config_val = f"{prov_id}/{m['id']}"
-                opts[config_val] = f"{prov['emoji']}  {m['label']}  ({prov['label']})"
-        return opts
+    from row_bot.models import _cloud_model_cache, _sync_custom_model_cache
+    from row_bot.providers.media import media_model_options
+    _sync_custom_model_cache()
+    return media_model_options("image", _cloud_model_cache)
 
 
 def _get_client() -> tuple:
     """Return (client, provider_label, provider_id) based on the user's model selection.
 
-    For OpenAI: returns an ``openai.OpenAI`` client.
-    For Google: returns a ``google.genai.Client``.
+    Google gets a ``google.genai.Client``; a provider on the OpenAI images route
+    gets an ``openai.OpenAI`` client at its base URL. xAI and the providers with
+    their own image APIs are called directly, so their client is ``None``.
     """
-    from row_bot.api_keys import get_key
+    from row_bot.providers.media import IMAGE_PROVIDER_META, media_api_key
 
     provider, _ = _parse_model_config(_get_configured_selection())
     from row_bot.providers.media_auth import current_media_auth, google_client, openai_client
     captured = current_media_auth(provider)
     if captured is not None and provider in {"openai", "google"}:
-        return (google_client() if provider == "google" else openai_client()), _PROVIDERS[provider]["label"], provider
+        return (google_client() if provider == "google" else openai_client()), IMAGE_PROVIDER_META[provider]["label"], provider
     if provider in {"xai", "xai_oauth"}:
         from row_bot.providers.xai_media import xai_media_auth_context
 
         ctx = xai_media_auth_context(provider)
         return None, ctx.label, provider
 
-    prov_info = _PROVIDERS.get(provider)
-    if not prov_info:
+    meta = IMAGE_PROVIDER_META.get(provider)
+    if not meta:
         raise RuntimeError(
             f"Unknown image generation provider '{provider}'. "
             "Please select a valid model in Settings → Models."
         )
 
-    api_key = get_key(prov_info["key"])
+    api_key = media_api_key(provider)
     if not api_key:
         raise RuntimeError(
-            f"No API key for {prov_info['label']}. "
-            f"Please add your {prov_info['label']} API key in Settings → Providers."
+            f"No API key for {meta['label']}. "
+            f"Please add your {meta['label']} API key in Settings → Models."
         )
 
     if provider == "google":
         from google import genai
-        return genai.Client(api_key=api_key), prov_info["label"], provider
-
-    if provider == "xai":
-        import openai
-        return openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1"), prov_info["label"], provider
+        return genai.Client(api_key=api_key), meta["label"], provider
+    if meta["route"] != "openai":
+        return None, meta["label"], provider
 
     import openai
-    return openai.OpenAI(api_key=api_key), prov_info["label"], provider
+    if provider == "openai":
+        return openai.OpenAI(api_key=api_key), meta["label"], provider
+    return openai.OpenAI(api_key=api_key, base_url=meta["base_url"]), meta["label"], provider
+
+
+def _route(provider_id: str) -> str:
+    from row_bot.providers.media import IMAGE_PROVIDER_META
+
+    return IMAGE_PROVIDER_META[provider_id]["route"]
+
+
+def _request_json(provider_id: str, method: str, path: str, body: dict | None = None) -> dict:
+    """Call an image provider's own API with its key, raising its error message."""
+    import httpx
+
+    from row_bot.providers.media import IMAGE_PROVIDER_META, media_api_key, media_error_text
+
+    meta = IMAGE_PROVIDER_META[provider_id]
+    _validate_generation()
+    response = httpx.request(
+        method, f"{meta['base_url']}{path}", json=body, timeout=_DIRECT_TIMEOUT,
+        headers={"Authorization": f"Bearer {media_api_key(provider_id)}"},
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}: {media_error_text(response)}")
+    return response.json()
+
+
+def _image_b64(item: dict) -> str:
+    """The image in one response item: its base64, or the bytes behind its URL."""
+    if item.get("b64_json"):
+        return str(item["b64_json"])
+    if item.get("url"):
+        import httpx
+
+        _validate_generation()
+        response = httpx.get(str(item["url"]), timeout=_DIRECT_TIMEOUT, follow_redirects=True)
+        response.raise_for_status()
+        return base64.b64encode(response.content).decode("ascii")
+    return ""
+
+
+def _finish_image(b64_str: str, *, prefix: str, done: str) -> str:
+    """Show and keep a generated or edited image, and say where it was saved."""
+    _set_pending_image(b64_str)
+    _execution_image_cache()["__last_generated__"] = base64.b64decode(b64_str)
+    saved = _save_image_to_disk(b64_str, prefix)
+    return done + (f"\nSaved to: {saved}" if saved else "")
+
+
+def _first_item_b64(data: dict) -> str:
+    items = data.get("data") if isinstance(data.get("data"), list) else []
+    return _image_b64(items[0]) if items and isinstance(items[0], dict) else ""
+
+
+def _openrouter_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    from row_bot.providers.media import generation_options, nearest_aspect_ratio, nearest_resolution
+
+    aspect = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1") if size != "auto" else None
+    wanted = quality if quality != "auto" else None
+    settings: dict = {"aspect_ratio": aspect, "quality": wanted}
+    options = generation_options(provider_id, model)
+    if options is not None:
+        # Each setting is the nearest the model lists; one it lists nothing for is left to the model.
+        settings = {"aspect_ratio": nearest_aspect_ratio(aspect, options.get("aspect_ratio", [])) if aspect else None,
+                    "quality": wanted if wanted in options.get("quality", []) else None}
+        if wanted and not settings["quality"] and _QUALITY_TO_RESOLUTION.get(wanted):
+            # Models listed by resolution tier take quality as their resolution.
+            settings["resolution"] = nearest_resolution(_QUALITY_TO_RESOLUTION[wanted], options.get("resolution", []))
+    body: dict = {"model": model, "prompt": prompt, "n": 1,
+                  **{key: value for key, value in settings.items() if value is not None}}
+    if source:
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": source}}]
+    return _first_item_b64(_request_json(provider_id, "POST", "/images", body))
+
+
+def _together_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    body: dict = {"model": model, "prompt": prompt, "n": 1, "response_format": "base64"}
+    if size != "auto":
+        width, _, height = size.partition("x")
+        body["width"], body["height"] = int(width), int(height)
+    return _first_item_b64(_request_json(provider_id, "POST", "/images/generations", body))
+
+
+def _minimax_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    body: dict = {"model": model, "prompt": prompt, "n": 1, "response_format": "base64"}
+    if size != "auto":
+        body["aspect_ratio"] = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1")
+    data = _request_json(provider_id, "POST", "/image_generation", body)
+    # MiniMax answers 200 with its error in base_resp.
+    status = data.get("base_resp") if isinstance(data.get("base_resp"), dict) else {}
+    if status.get("status_code"):
+        raise RuntimeError(f"MiniMax error {status['status_code']}: {status.get('status_msg') or 'no details'}")
+    images = (data.get("data") or {}).get("image_base64") if isinstance(data.get("data"), dict) else None
+    return str(images[0]) if isinstance(images, list) and images else ""
+
+
+def _zai_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    body: dict = {"model": model, "prompt": prompt}
+    if size != "auto":
+        body["size"] = _ZAI_SIZES.get(size, "1280x1280")
+    if quality == "high":
+        body["quality"] = "hd"
+    return _first_item_b64(_request_json(provider_id, "POST", "/images/generations", body))
+
+
+def _dashscope_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    content: list[dict] = [{"image": source}] if source else []
+    content.append({"text": prompt})
+    body: dict = {"model": model, "input": {"messages": [{"role": "user", "content": content}]},
+                  "parameters": {"n": 1}}
+    if size != "auto":
+        body["parameters"]["size"] = size.replace("x", "*")
+    data = _request_json(provider_id, "POST", "/services/aigc/multimodal-generation/generation", body)
+    choices = (data.get("output") or {}).get("choices") or []
+    parts = ((choices[0].get("message") or {}).get("content") or []) if choices else []
+    url = next((str(part["image"]) for part in parts if isinstance(part, dict) and part.get("image")), "")
+    return _image_b64({"url": url}) if url else ""
+
+
+def _atlascloud_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    # Each Atlas Cloud model names its own size fields, so the model's defaults are used.
+    job = _request_json(provider_id, "POST", "/model/generateImage", {"model": model, "prompt": prompt})
+    job_id = str((job.get("data") or {}).get("id") or "")
+    if not job_id:
+        raise RuntimeError("Atlas Cloud started no image job")
+    elapsed = 0
+    while elapsed < _DIRECT_TIMEOUT:
+        time.sleep(_JOB_POLL_INTERVAL)
+        elapsed += _JOB_POLL_INTERVAL
+        result = _request_json(provider_id, "GET", f"/model/prediction/{job_id}").get("data") or {}
+        status = str(result.get("status") or "")
+        if status == "completed":
+            outputs = result.get("outputs") or []
+            return _image_b64({"url": outputs[0]}) if outputs and isinstance(outputs[0], str) else ""
+        if status in {"failed", "canceled", "cancelled", "error", "timeout"}:
+            raise RuntimeError(f"Atlas Cloud's job ended ({status}): {result.get('error') or 'no details'}")
+    raise RuntimeError(f"Atlas Cloud's image job {job_id} did not finish within {_DIRECT_TIMEOUT}s")
+
+
+# The image routes with their own APIs (OpenAI, Google and xAI have theirs above).
+_DIRECT_IMAGE: dict[str, Callable[[str, str, str, str, str, str], str]] = {
+    "openrouter": _openrouter_image,
+    "together": _together_image,
+    "minimax": _minimax_image,
+    "zai": _zai_image,
+    "dashscope": _dashscope_image,
+    "atlascloud": _atlascloud_image,
+}
+
+
+def _direct_image(provider_id: str, label: str, model: str, prompt: str, size: str,
+                  quality: str, image_bytes: bytes | None = None) -> str:
+    """Generate (or, with image_bytes, edit) on a provider with its own image API."""
+    verb, prefix = ("edit", "edit") if image_bytes is not None else ("generation", "gen")
+    route = _route(provider_id)
+    if image_bytes is not None and route in _NEW_IMAGES_ONLY:
+        return (f"{label} image models can only make new images here. "
+                "Choose another image model in Settings › Models to edit one.")
+    source = ""
+    if image_bytes is not None:
+        source = f"data:{_detect_mime(image_bytes)};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    try:
+        b64_str = _DIRECT_IMAGE[route](provider_id, model, prompt, size, quality, source)
+    except Exception as e:
+        logger.error("Image %s failed: %s", verb, e, exc_info=True)
+        return f"Image {verb} failed: {e}{_unlisted_note()}"
+    if not b64_str:
+        return f"Image {verb} returned no image data."
+    past = "edited" if image_bytes is not None else "generated"
+    return _finish_image(b64_str, prefix=prefix,
+                         done=f"Image {past} successfully. Model: {model} | Provider: {label}")
 
 
 def _get_configured_selection() -> str:
@@ -343,8 +468,22 @@ def _get_configured_selection() -> str:
     return ""
 
 
+def _is_imagen(model: str) -> bool:
+    """Imagen models take the generate_images API; Gemini image models take generate_content."""
+    return model.startswith("imagen-")
+
+
+def _unlisted_note() -> str:
+    """Why a request may have failed: the chosen model's provider no longer lists it."""
+    from row_bot.models import _cloud_model_cache
+    from row_bot.providers.media import unlisted_media_note
+
+    note = unlisted_media_note("image", _get_configured_selection(), _cloud_model_cache)
+    return f" {note}" if note else ""
+
+
 def _get_configured_model() -> str:
-    """Return just the model ID (e.g. 'gpt-image-1.5') from the stored config."""
+    """Return just the model ID (e.g. 'gpt-image-2') from the stored config."""
     _, model_id = _parse_model_config(_get_configured_selection())
     return model_id
 
@@ -529,7 +668,7 @@ def _generate_image(
         if _strict_output.get() is not None:
             raise
         logger.error("Image generation failed: %s", e, exc_info=True)
-        return f"Image generation failed: {e}"
+        return f"Image generation failed: {e}{_unlisted_note()}"
     model = _get_configured_model()
     _validate_generation()
 
@@ -543,8 +682,8 @@ def _generate_image(
         aspect_ratio, resolution = _map_google_params(size, quality)
 
         try:
-            if model in _IMAGEN_MODEL_IDS:
-                # Imagen 4 — dedicated generate_images endpoint
+            if _is_imagen(model):
+                # Imagen — dedicated generate_images endpoint
                 cfg = types.GenerateImagesConfig(
                     number_of_images=1,
                     aspect_ratio=aspect_ratio if aspect_ratio in _IMAGEN_ASPECT_RATIOS else "1:1",
@@ -581,7 +720,7 @@ def _generate_image(
             if _strict_output.get() is not None:
                 raise
             logger.error("Image generation failed: %s", e, exc_info=True)
-            return f"Image generation failed: {e}"
+            return f"Image generation failed: {e}{_unlisted_note()}"
 
         b64_str = base64.b64encode(img_bytes).decode("ascii")
         _set_pending_image(b64_str)
@@ -634,7 +773,7 @@ def _generate_image(
             if _strict_output.get() is not None:
                 raise
             logger.error("Image generation failed: %s", e, exc_info=True)
-            return f"Image generation failed: {e}"
+            return f"Image generation failed: {e}{_unlisted_note()}"
 
         items = data.get("data") if isinstance(data.get("data"), list) else []
         if not items:
@@ -674,13 +813,13 @@ def _generate_image(
             result += f"\n{plan.note}"
         return result
 
-    # ── OpenAI provider ──────────────────────────────────────────────────
-    kwargs: dict = {
-        "model": model,
-        "prompt": prompt,
-        "n": 1,
-        "size": size if size != "auto" else "1024x1024",
-    }
+    if _route(provider_id) in _DIRECT_IMAGE:
+        return _direct_image(provider_id, provider_label, model, prompt, size, quality)
+
+    # ── OpenAI images route (OpenAI, Vercel AI Gateway, Requesty) ──────────
+    kwargs: dict = {"model": model, "prompt": prompt, "n": 1}
+    if size != "auto" or provider_id == "openai":
+        kwargs["size"] = size if size != "auto" else "1024x1024"
     if quality != "auto":
         kwargs["quality"] = quality
 
@@ -691,7 +830,7 @@ def _generate_image(
         if _strict_output.get() is not None:
             raise
         logger.error("Image generation failed: %s", e, exc_info=True)
-        return f"Image generation failed: {e}"
+        return f"Image generation failed: {e}{_unlisted_note()}"
 
     # Extract image data
     image_data = response.data[0]
@@ -716,7 +855,7 @@ def _generate_image(
 
     saved = _save_image_to_disk(b64_str, "gen")
     revised_prompt = getattr(image_data, "revised_prompt", None)
-    result = f"Image generated successfully. Model: {model} | Size: {kwargs['size']} | Provider: {provider_label}"
+    result = f"Image generated successfully. Model: {model} | Size: {kwargs.get('size', 'auto')} | Provider: {provider_label}"
     if saved:
         result += f"\nSaved to: {saved}"
     if revised_prompt:
@@ -739,11 +878,11 @@ def _edit_image(
         client, provider_label, provider_id = _get_client()
     except Exception as e:
         logger.error("Image edit failed: %s", e, exc_info=True)
-        return f"Image edit failed: {e}"
+        return f"Image edit failed: {e}{_unlisted_note()}"
     model = _get_configured_model()
 
     # Imagen 4 does not support editing
-    if model in _IMAGEN_MODEL_IDS:
+    if _is_imagen(model):
         return (
             f"Image editing is not supported by {model}. "
             "Imagen 4 models can only generate new images. "
@@ -782,7 +921,7 @@ def _edit_image(
                 return "Image edit returned no image data."
         except Exception as e:
             logger.error("Image edit failed: %s", e, exc_info=True)
-            return f"Image edit failed: {e}"
+            return f"Image edit failed: {e}{_unlisted_note()}"
 
         b64_str = base64.b64encode(img_out).decode("ascii")
         _set_pending_image(b64_str)
@@ -835,7 +974,7 @@ def _edit_image(
             )
         except Exception as e:
             logger.error("Image edit failed: %s", e, exc_info=True)
-            return f"Image edit failed: {e}"
+            return f"Image edit failed: {e}{_unlisted_note()}"
 
         items = data.get("data", [])
         if not items:
@@ -870,23 +1009,22 @@ def _edit_image(
             result += f"\n{plan.note}"
         return result
 
-    # ── OpenAI provider ──────────────────────────────────────────────────
+    if _route(provider_id) in _DIRECT_IMAGE:
+        return _direct_image(provider_id, provider_label, model, prompt, size, quality, image_bytes)
+
+    # ── OpenAI images route (OpenAI, Vercel AI Gateway, Requesty) ──────────
     mime = _detect_mime(image_bytes)
     image_file = ("image.png", image_bytes, mime)
 
-    kwargs: dict = {
-        "model": model,
-        "prompt": prompt,
-        "image": [image_file],
-        "n": 1,
-        "size": size if size != "auto" else "1024x1024",
-    }
+    kwargs: dict = {"model": model, "prompt": prompt, "image": [image_file], "n": 1}
+    if size != "auto" or provider_id == "openai":
+        kwargs["size"] = size if size != "auto" else "1024x1024"
 
     try:
         response = client.images.edit(**kwargs)
     except Exception as e:
         logger.error("Image edit failed: %s", e, exc_info=True)
-        return f"Image edit failed: {e}"
+        return f"Image edit failed: {e}{_unlisted_note()}"
 
     # Extract image data
     image_data = response.data[0]
@@ -905,7 +1043,7 @@ def _edit_image(
 
     saved = _save_image_to_disk(b64_str, "edit")
     revised_prompt = getattr(image_data, "revised_prompt", None)
-    result = f"Image edited successfully. Model: {model} | Size: {kwargs['size']} | Provider: {provider_label}"
+    result = f"Image edited successfully. Model: {model} | Size: {kwargs.get('size', 'auto')} | Provider: {provider_label}"
     if saved:
         result += f"\nSaved to: {saved}"
     if revised_prompt:

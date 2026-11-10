@@ -14,6 +14,7 @@ import time
 
 import pytest
 
+from row_bot import server_memory
 from row_bot.browser import service as service_module
 from row_bot.browser.runtime import BrowserRuntimeReadiness
 from row_bot.cancellation import CancellationScope, use_cancellation_scope
@@ -34,6 +35,8 @@ class FakeSession:
 
     async def send(self, method, params=None):
         self.sent.append((method, params or {}))
+        if method == "Emulation.setTouchEmulationEnabled" and not 1 <= (params or {}).get("maxTouchPoints", 1) <= 16:
+            raise RuntimeError("Touch points must be between 1 and 16")  # As Chromium answers.
         if method == "Browser.getVersion":
             return {"userAgent": HEADLESS_UA, "product": "HeadlessChrome/155.0"}
         return {}
@@ -142,6 +145,7 @@ def chromium(monkeypatch, tmp_path):
         return engines[-1]
 
     fake.engine = engine
+    fake.playwright = playwright
     yield fake
     for item in engines:
         item.close()
@@ -397,8 +401,175 @@ def test_a_size_the_agent_chose_wins_over_the_pane_until_it_goes_back_to_desktop
     sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
     assert sizes[-1]["width"] == 390  # The pane doesn't undo the agent's phone size.
 
-    words = engine.set_viewport("desktop", None, "chat-a")
+    words = engine.set_viewport("pane", None, "chat-a")
     sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
     assert sizes[-1] == {"width": 500, "height": 700, "deviceScaleFactor": 1.0, "mobile": False}
     assert words.startswith("The page now shows at the Browser pane's size: 500×700 at 1× scale.")
+
+    # Asked for desktop, a narrow pane still gets a desktop window (demo run 4 got 420×902 and filmed a phone).
+    words = engine.set_viewport("desktop", None, "chat-a")
+    sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
+    assert sizes[-1] == {"width": 1280, "height": 800, "deviceScaleFactor": 1.0, "mobile": False}
+    assert words.startswith("The page now shows at desktop size: 1280×800 at 1× scale.")
+
+    words = engine.set_viewport("desktop", 2, "chat-a")
+    sizes = [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"]
+    assert sizes[-1] == {"width": 1280, "height": 800, "deviceScaleFactor": 2.0, "mobile": False}
+    assert words.startswith("The page now shows at desktop size: 1280×800 at 2× scale.")
     pane.close()
+
+
+def test_while_recording_the_page_keeps_the_recordings_size_whatever_the_pane_does(chromium, tmp_path, monkeypatch):
+    """A recording is one fixed 16:9 picture at full size: the pane opening, closing or resizing never changes it."""
+
+    monkeypatch.setattr(service_module, "PANE_GONE_GRACE_SECONDS", 0.0)
+    engine = chromium.engine()
+    engine.ensure_started()
+    context = chromium.contexts[-1]
+
+    async def open_tab(tab):
+        tab.page.url = "https://shop.example/orders"
+        return tab.id
+
+    engine.act("chat-a", "Open", open_tab, settle=False)
+    tab = engine._chats["chat-a"].active
+
+    def page_size():
+        return [params for method, params in tab.session.sent if method == "Emulation.setDeviceMetricsOverride"][-1]
+
+    def picture():
+        sent = [params for session in context.sessions for method, params in session.sent
+                if method == "Page.startScreencast"]
+        return sent[-1]["maxWidth"], sent[-1]["maxHeight"], sent[-1]["quality"]
+
+    def settle():
+        engine._run(lambda: engine._follow_live("chat-a"))
+
+    narrow = engine.watch("chat-a", kind="pane", width=420, height=1226, scale=1.5)
+    settle()
+    engine.set_viewport("desktop", 1, "chat-a")  # A desktop size chosen before gives way to the recording's.
+    ended: list[str] = []
+    recorder = engine.start_recording(tmp_path / "rec.mp4", max_seconds=60, size_limit=10_000_000,
+                                      on_end=lambda reason, _video: ended.append(reason), thread_id="chat-a")
+    recording = {"width": 1440, "height": 810, "deviceScaleFactor": 4 / 3, "mobile": False}
+    assert recorder.size == (1920, 1080)
+    assert page_size() == recording
+    assert "the recording's size" in engine.set_viewport("desktop", None, "chat-a"), "desktop while it records"
+    assert page_size() == recording
+    assert picture() == (1920, 1080, 90), "the recording's own pixels; the pane shows them scaled"
+
+    wide = engine.watch("chat-a", kind="pane", width=900, height=640, scale=1.0)
+    narrow.close()
+    settle()
+    wide.close()
+    settle()
+    assert page_size() == recording, "the pane resizing or closing never changes a recording's page"
+
+    pane = engine.watch("chat-a", kind="pane", width=500, height=700, scale=1.0)
+    engine.stop_recording("chat-a", "agent")
+    assert recorder.join(10) and ended == ["agent"]
+    settle()
+    assert page_size() == {"width": 500, "height": 700, "deviceScaleFactor": 1.0, "mobile": False}, \
+        "afterwards the page follows the pane again"
+    pane.close()
+
+
+def test_a_recording_of_a_phone_size_keeps_the_phone_shape(chromium, tmp_path):
+    engine = chromium.engine()
+    engine.ensure_started()
+
+    async def open_tab(tab):
+        tab.page.url = "https://shop.example/"
+        return tab.id
+
+    engine.act("chat-a", "Open", open_tab, settle=False)
+    engine.set_viewport("phone", None, "chat-a")
+    recorder = engine.start_recording(tmp_path / "rec.mp4", max_seconds=60, size_limit=10_000_000,
+                                      on_end=lambda *_: None, thread_id="chat-a")
+    assert recorder.size == (886, 1920), "390×844 at 3×, at most 1920 tall"
+    engine.stop_recording("chat-a", "agent")
+    assert recorder.join(10)
+
+
+# ── H4: on a server with a memory limit, Chromium closes when unused ─────────────────────────
+
+
+@pytest.fixture
+def server(chromium, tmp_path, monkeypatch):
+    """Row-Bot's browser on a server with a 2 GB memory limit (a fake cgroup folder)."""
+    root = tmp_path / "cgroup"
+    root.mkdir()
+    (root / "memory.max").write_text(str(2 * 2**30), encoding="ascii")
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", root)
+    manager = service_module.BrowserSessionManager()
+    yield manager
+    manager.kill_all()
+
+
+async def _open_tab(tab):
+    tab.page.url = "https://shop.example/"
+    return tab.id
+
+
+def test_on_a_server_the_browser_closes_when_unused_gives_its_memory_back_and_starts_again_when_used(
+        server, chromium):
+    engine = server.get_session()
+    engine.act("chat-a", "Open", _open_tab, settle=False)
+    used = time.monotonic()
+    contexts = len(chromium.contexts)
+
+    assert server.close_when_idle(now=used + service_module.IDLE_CLOSE_SECONDS - 1) is False
+    assert engine.running
+
+    assert server.close_when_idle(now=used + service_module.IDLE_CLOSE_SECONDS + 1) is True
+    # Nothing of Chromium is left running: its browser and Playwright's driver are closed.
+    assert all(context.closed for context in chromium.contexts) and chromium.playwright.stopped
+    assert (engine.running, engine.status) == (False, "stopped")
+    assert engine.pane_state("chat-a")["tabs"] == []
+
+    # Nothing was turned off: the next use starts it again, with the same profile.
+    result = engine.act("chat-a", "Open", _open_tab, settle=False)
+    assert engine.running and result.url == "https://shop.example/"
+    assert len(chromium.contexts) == contexts + 1
+    assert chromium.launches[-1]["user_data_dir"] == str(service_module.PROFILE_DIR)
+
+
+def test_on_a_server_the_browser_never_closes_while_an_action_runs_or_a_pane_shows_it(server):
+    engine = server.get_session()
+    started, release = threading.Event(), threading.Event()
+
+    async def reading(tab):
+        import asyncio
+
+        started.set()
+        await asyncio.to_thread(release.wait, 10)
+        return "Read the page"
+
+    results: list = []
+    worker = threading.Thread(target=lambda: results.append(engine.act("chat-a", "Reading", reading, settle=False)))
+    worker.start()
+    assert started.wait(10)
+    long_after = time.monotonic() + 24 * 3600
+    assert server.close_when_idle(now=long_after) is False
+    assert engine.running
+    release.set()
+    worker.join(10)
+    assert results and "Read the page" in results[0].text
+
+    pane = engine.watch("chat-a", kind="pane", width=800)
+    assert server.close_when_idle(now=long_after) is False
+    assert engine.running and engine.pane_state("chat-a")["tabs"]
+    pane.close()
+    assert server.close_when_idle(now=long_after) is True
+
+
+def test_the_desktop_browser_never_closes_by_itself(server, chromium, monkeypatch):
+    """The desktop has no memory limit: its browser stays open as it always did (and Learning's study sees
+    the same browser it always saw)."""
+    monkeypatch.setattr(server_memory, "CGROUP_ROOT", None)
+    engine = server.get_session()
+    engine.act("chat-a", "Open", _open_tab, settle=False)
+
+    assert server.close_when_idle(now=time.monotonic() + 24 * 3600) is False
+    assert engine.running and not chromium.contexts[-1].closed
+    assert engine.pane_state("chat-a")["tabs"]

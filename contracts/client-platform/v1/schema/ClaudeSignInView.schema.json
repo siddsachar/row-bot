@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "browser_opens": {
+      "title": "Browser Opens",
+      "type": "boolean"
+    },
+    "sign_in_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Sign In Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "sign_in_id",
+    "browser_opens"
+  ],
+  "title": "ClaudeSignInView",
+  "type": "object"
+}

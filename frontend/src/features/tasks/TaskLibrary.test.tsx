@@ -10,6 +10,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { TaskSummary, TaskSummaryPage } from '../../api/types';
+import { clientError } from '../../api/errors';
 import { OverlayProvider } from '../../ui/overlays';
 import { absoluteTime, relativeTime } from '../../ui/format';
 import { clockTime } from '../home/home-format';
@@ -190,8 +191,9 @@ it('shows recorded task facts and opens its existing conversation', async () => 
   show(load);
   await screen.findByText('Saved task');
   const saved = row('Saved task');
+  // "No runs yet" is said once, by the run chart (U36).
   expect(saved.querySelector('.workflow-metadata')).toHaveTextContent(
-    'Reminder·Never run·Run manually',
+    'Reminder·Run manually',
   );
   expect(within(saved).getByText('Saved description')).toHaveAttribute(
     'title',
@@ -301,7 +303,7 @@ it.each([
   ['interval_minutes:30', null, 'Every 30 minutes'],
   ['cron:0 9 * * mon', null, `Every Monday at ${clockTime(9, 0)}`],
   // The scheduler numbers weekdays from Monday = 0, so 1 is Tuesday.
-  ['cron:0 9 * * 1', null, `Every Tuesday at ${clockTime(9, 0)}`],
+  ['cron:0 9 * * 1', null, `Every Monday at ${clockTime(9, 0)}`],
   ['cron:30 7 * * mon-fri', null, `Weekdays at ${clockTime(7, 30)}`],
   ['cron:*/5 * * * *', null, 'Custom schedule'],
   ['nonsense', null, 'Custom schedule'],
@@ -876,6 +878,57 @@ it('selects bounded visible workflows and confirms bulk deletion', async () => {
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
 
+it('selecting puts a checkbox in each row, marks chosen rows and selects all', async () => {
+  const user = userEvent.setup();
+  show(
+    vi.fn(async () => pageOf([task('First'), task('Second'), task('Third')])),
+    {
+      onBulkDelete: vi.fn(),
+    },
+  );
+  await screen.findByText('First');
+  await user.click(
+    screen.getByRole('button', { name: 'More workflow actions' }),
+  );
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Select workflows' }),
+  );
+  // Each checkbox sits in the row it selects, before the workflow's name.
+  for (const name of ['First', 'Second', 'Third']) {
+    const box = screen.getByRole('checkbox', {
+      name: `Select workflow: ${name}`,
+    });
+    const row = box.closest('li')!;
+    expect(within(row).getByText(name)).toBeVisible();
+    expect(
+      box.compareDocumentPosition(within(row).getByText(name)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(row).not.toHaveAttribute('data-selected');
+  }
+  const second = screen.getByRole('checkbox', {
+    name: 'Select workflow: Second',
+  });
+  await user.click(second);
+  expect(second.closest('li')).toHaveAttribute('data-selected', 'true');
+  expect(screen.getByText('1 workflow selected')).toBeVisible();
+
+  const actions = screen.getByRole('group', {
+    name: 'Selected workflow actions',
+  });
+  await user.click(within(actions).getByRole('button', { name: 'Select all' }));
+  expect(within(actions).getByText('3 workflows selected')).toBeVisible();
+  expect(
+    within(actions).getByRole('button', { name: 'Select all' }),
+  ).toBeDisabled();
+  for (const box of screen.getAllByRole('checkbox', {
+    name: /^Select workflow: /,
+  })) {
+    expect(box).toBeChecked();
+    expect(box.closest('li')).toHaveAttribute('data-selected', 'true');
+  }
+});
+
 it('leaves selection mode from the menu or the Done button', async () => {
   const user = userEvent.setup();
   const load = vi.fn(async () => pageOf([task('First'), task('Second')]));
@@ -1262,6 +1315,43 @@ it('starts a run in one click: it reviews, runs the reviewed request and shows S
   expect(runs).not.toHaveBeenCalled();
 });
 
+it('clears a failed action when the list is refreshed, and a run then starts', async () => {
+  const user = userEvent.setup();
+  const reviewed = {
+    task_id: 'Digest',
+    task_revision: 'a'.repeat(64),
+    policy_revision: 'b'.repeat(64),
+    agent_profile_id: 'builtin:row_bot_default',
+    approval_mode: 'block',
+    notify_only: false,
+    steps_total: 1,
+    conversation_id: null,
+  };
+  const onRun = vi
+    .fn()
+    .mockRejectedValueOnce(clientError({ code: 'task_revision_conflict' }))
+    .mockResolvedValue(undefined);
+  const load = vi.fn(async () =>
+    pageOf([task('Digest', { enabled: true, notify_only: false })]),
+  );
+  show(load, { onReview: vi.fn(async () => reviewed), onRun, onStop: vi.fn() });
+  await user.click(
+    await screen.findByRole('button', { name: 'Run workflow: Digest' }),
+  );
+  expect(await screen.findByText('Workflow action failed')).toBeVisible();
+  expect(screen.getByText(/This workflow changed/)).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Refresh workflows' }));
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText('Workflow action failed')).not.toBeInTheDocument();
+
+  await user.click(
+    await screen.findByRole('button', { name: 'Run workflow: Digest' }),
+  );
+  expect(await screen.findByText('Run started.')).toBeInTheDocument();
+  expect(screen.queryByText('Workflow action failed')).not.toBeInTheDocument();
+});
+
 it('names the profile and approvals a run uses on the row, with Auto approvals standing out (B254)', async () => {
   show(
     vi.fn(async () =>
@@ -1278,7 +1368,8 @@ it('names the profile and approvals a run uses on the row, with Auto approvals s
   );
   await screen.findByText('Careful');
   const careful = within(row('Careful'));
-  expect(careful.getByText('Default')).toBeVisible();
+  // The default agent goes untagged (U36); what a run may do never does.
+  expect(careful.queryByText('Default')).toBeNull();
   expect(careful.getByText('Asks before actions')).not.toHaveAttribute(
     'data-attention',
   );

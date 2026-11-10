@@ -26,6 +26,7 @@ import { ComputerThumbnail } from './ComputerStep';
 import { requestBrowserPane } from '../browser/open-pane';
 import QuestionCard from './QuestionCard';
 import XPostDetails, { XPostEditor } from './XPostDetails';
+import { resolveApproval } from './resolve-approval';
 import { AppIcon } from '../apps/parts';
 import { WaitingSince } from './waiting-since';
 import { readPendingApprovalsNow } from './pending-approvals';
@@ -302,13 +303,11 @@ export default function ApprovalCard({
     setBusy(true);
     try {
       if (allow) await onAllowInChat?.();
-      await controller.intent(
+      await resolveApproval(
+        controller,
         id,
-        'approval.resolve',
-        scope === 'chat'
-          ? { decision, nonce: view.nonce, scope }
-          : { decision, nonce: view.nonce },
-        view.revision,
+        view,
+        scope === 'chat' ? { decision, scope } : { decision },
       );
       setResolution(
         decision === 'approve' ? 'Approval submitted.' : 'Denial submitted.',
@@ -325,12 +324,7 @@ export default function ApprovalCard({
     if (!view || busy || resolution) return;
     setBusy(true);
     try {
-      await controller.intent(
-        id,
-        'approval.resolve',
-        { decision: 'edit', nonce: view.nonce, edit },
-        view.revision,
-      );
+      await resolveApproval(controller, id, view, { decision: 'edit', edit });
       setEditing(false);
       setResolution('Edited. Row-Bot asks again with your version.');
       readPendingApprovalsNow(controller.pendingApprovals);
@@ -345,13 +339,11 @@ export default function ApprovalCard({
     if (!view || busy || resolution) return;
     setBusy(true);
     try {
-      await controller.intent(
+      await resolveApproval(
+        controller,
         id,
-        'approval.resolve',
-        answers
-          ? { decision: 'approve', nonce: view.nonce, answers }
-          : { decision: 'reject', nonce: view.nonce },
-        view.revision,
+        view,
+        answers ? { decision: 'approve', answers } : { decision: 'reject' },
       );
       setResolution(
         answers

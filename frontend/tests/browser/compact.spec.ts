@@ -186,7 +186,7 @@ test('compact themes, accents and accessibility preferences retain one mounted w
       .getByRole('link', { name: 'Settings', exact: true })
       .click();
   }
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   await page
     .getByRole('combobox', { name: 'Settings section', exact: true })
     .selectOption('appearance');
@@ -194,10 +194,6 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await expect(
     page.getByRole('heading', { name: 'Appearance', exact: true }),
   ).toBeVisible();
-  const appearance = page.getByRole('combobox', {
-    name: 'Appearance',
-    exact: true,
-  });
   const accent = page.getByRole('combobox', {
     name: 'Colour theme',
     exact: true,
@@ -207,7 +203,16 @@ test('compact themes, accents and accessibility preferences retain one mounted w
     ['dark', 'violet'],
     ['system', 'amber'],
   ] as const) {
-    await appearance.selectOption(theme);
+    await page
+      .getByRole('button', {
+        name: {
+          light: 'Light',
+          dark: 'Dark',
+          system: /^System, follows your device/,
+        }[theme],
+        exact: theme !== 'system',
+      })
+      .click();
     await accent.selectOption(colour);
     await expect(page.locator('html')).toHaveAttribute(
       'data-theme',
@@ -259,7 +264,7 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await assertCompactSurface(page, testInfo, 'compact-preferences');
   await captureSurface(page, testInfo, 'compact-theme-preferences');
   await page.goBack();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/p1-browser-a$/);
   await expect(workspace).toHaveAttribute('data-phase5-retained', 'true');

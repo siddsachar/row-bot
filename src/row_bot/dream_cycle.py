@@ -1312,7 +1312,7 @@ def _collect_system_snapshot() -> str:
     # 6. Provider connections and Quick Choices
     try:
         from row_bot.providers.status import provider_status_cards
-        from row_bot.providers.selection import list_quick_choices
+        from row_bot.providers.model_visibility import read_model_visibility
 
         cards = provider_status_cards()
         configured = [card for card in cards if card.get("configured")]
@@ -1327,7 +1327,7 @@ def _collect_system_snapshot() -> str:
             f"runtime_enabled={card.get('runtime_enabled')}, {_models_snapshot(card)}"
             for card in configured[:12]
         ]
-        quick_count = len([choice for choice in list_quick_choices("status_tool") if choice.get("kind") == "model"])
+        quick_count = len(read_model_visibility().favourites)
         if lines:
             sections.append(
                 f"PROVIDERS: {len(configured)} configured, {quick_count} status-tool Quick Choice(s)\n"

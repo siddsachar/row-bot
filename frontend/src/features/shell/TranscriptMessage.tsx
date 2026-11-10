@@ -36,6 +36,7 @@ import type { TracedAgent } from './transcript-model';
 import { TurnMarker } from './TurnMarker';
 import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
 import { useTeach } from '../learning/chat-learning';
+import { copyUnavailableMessage } from '../../platform/clipboard';
 
 const NO_BLOCKS: TranscriptRow['blocks'] = [];
 const NO_MEDIA: GeneratedMedia[] = [];
@@ -78,6 +79,50 @@ function visibleText(blocks: TranscriptRow['blocks']) {
   return blocks.map(publicBlockText).filter(Boolean).join('\n');
 }
 
+/** Why a workflow run didn't finish, without repeating the heading. */
+function runFailureDetail(notice: string) {
+  return notice.replace(/^The run didn't finish[.:]?\s*/, '');
+}
+
+/**
+ * A message from another conversation: who sent it, linked, and what it
+ * said. Never the person's bubble: it isn't theirs.
+ */
+function LinkedNote({
+  from,
+  kind,
+  text,
+  messageId,
+  rowId,
+}: {
+  from: { id: string; title: string };
+  kind: 'message' | 'reply';
+  text: string;
+  messageId?: string;
+  rowId?: string;
+}) {
+  return (
+    <div
+      className="transcript-note"
+      role="note"
+      data-note="linked"
+      data-message-id={messageId}
+      data-row-id={rowId}
+    >
+      <MessageSquareShare aria-hidden />
+      <span>
+        <strong>
+          {kind === 'reply' ? 'Reply from ' : 'From '}
+          <Link to={`/conversations/${encodeURIComponent(from.id)}`}>
+            {from.title}
+          </Link>
+        </strong>
+        <span className="transcript-note-body">{text}</span>
+      </span>
+    </div>
+  );
+}
+
 /**
  * One transcript row. User turns are right-aligned bubbles; assistant turns
  * are unlabeled prose with their tool activity, embeds and generated media.
@@ -90,6 +135,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   embeds = NO_BLOCKS,
   media = NO_MEDIA,
   cards = NO_CARDS,
+  earlierCards = NO_CARDS,
   agents = NO_AGENTS,
   turnStart = false,
   latest = false,
@@ -113,6 +159,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   media?: GeneratedMedia[];
   /** A design or code folder the turn created, a connection it needs. */
   cards?: TranscriptCard[];
+  /** Earlier versions of the reply's newest video, folded under it. */
+  earlierCards?: TranscriptCard[];
   /** Agents the turn started, shown as live stubs (B241). */
   agents?: TracedAgent[];
   /** This row begins a speaker's turn: it carries their marker (B271). */
@@ -172,7 +220,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
       const result = await platform.writeClipboard(copyText || text);
       if (result.status !== 'ok') {
         setCopied(false);
-        setError('Copy is unavailable in this browser.');
+        setError(copyUnavailableMessage());
         return;
       }
       setCopied(true);
@@ -226,26 +274,63 @@ export const TranscriptMessage = memo(function TranscriptMessage({
       setBusy(false);
     }
   }
-  const hasText = Boolean(expanded) || shown.length > 0;
+  // A step that only used a tool saves empty words: nothing to show for them.
+  const hasText =
+    Boolean(expanded) ||
+    shown.some(
+      (block) =>
+        (block.type !== 'text' && block.type !== 'markdown') ||
+        Boolean(publicBlockText(block).trim()),
+    );
   const hasActivity = Boolean(traces?.length) && Boolean(conversationId);
   const actionable = toolbar && (hasText || Boolean(copyText)) && !streaming;
   if (row.note === 'continuation')
-    // A server-started step: a goal's next turn, or work continuing in a
-    // design or code folder the assistant just created.
+    // A server-started step: a goal's next turn, work continuing in a design
+    // or code folder the assistant just created, or a workflow run's line,
+    // with what other conversations left for that run and, when the run
+    // didn't finish, why.
     return (
-      <div
-        className="transcript-note"
-        role="note"
-        data-message-id={row.message_id ?? row.id}
-        data-row-id={row.id}
-      >
-        <Repeat2 aria-hidden />
-        <span>{visibleText(shown)}</span>
-      </div>
+      <>
+        <div
+          className="transcript-note"
+          role="note"
+          data-message-id={row.message_id ?? row.id}
+          data-row-id={row.id}
+        >
+          <Repeat2 aria-hidden />
+          <span>{visibleText(shown)}</span>
+        </div>
+        {row.held?.map((item, index) => (
+          <LinkedNote
+            key={`${item.id}:${index}`}
+            from={item}
+            kind="message"
+            text={item.text}
+          />
+        ))}
+        {row.run_failure ? (
+          <div
+            className="transcript-note transcript-note-failure"
+            role="note"
+            data-note="run_failure"
+          >
+            <TriangleAlert aria-hidden />
+            <span>
+              <strong>The run didn't finish</strong>
+              {runFailureDetail(row.run_failure) ? (
+                <span className="transcript-note-body">
+                  {runFailureDetail(row.run_failure)}
+                </span>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
+      </>
     );
-  if (row.note === 'personal_model_fallback')
+  if (row.note === 'personal_model_fallback' || row.note === 'backup_model')
     // Learning (preview): the person's personal model got stuck on this turn
-    // and their main model finished it (a quiet line, like a continuation).
+    // and their main model finished it; or the backup model took over a turn
+    // the main model couldn't answer (#140). A quiet line, like a continuation.
     return (
       <div
         className="transcript-note"
@@ -262,26 +347,13 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     // A message from another conversation (5.3.1 C): who sent it, linked,
     // and what it said. Never the person's bubble: it isn't theirs.
     return (
-      <div
-        className="transcript-note"
-        role="note"
-        data-note={row.note}
-        data-message-id={row.message_id ?? row.id}
-        data-row-id={row.id}
-      >
-        <MessageSquareShare aria-hidden />
-        <span>
-          <strong>
-            {row.linked_from.kind === 'reply' ? 'Reply from ' : 'From '}
-            <Link
-              to={`/conversations/${encodeURIComponent(row.linked_from.id)}`}
-            >
-              {row.linked_from.title}
-            </Link>
-          </strong>
-          <span className="transcript-note-body">{visibleText(shown)}</span>
-        </span>
-      </div>
+      <LinkedNote
+        from={row.linked_from}
+        kind={row.linked_from.kind ?? 'message'}
+        text={visibleText(shown)}
+        messageId={row.message_id ?? row.id}
+        rowId={row.id}
+      />
     );
   if (row.note === 'agent_task' || row.note === 'agent_guidance')
     // A delegated agent's thread: what the parent asked it to do, never its
@@ -384,7 +456,11 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             <TranscriptBlocks blocks={embeds} copyText={copyCode} />
           </div>
         )}
-        <TranscriptCards cards={cards} conversation={conversationId} />
+        <TranscriptCards
+          cards={cards}
+          earlier={earlierCards}
+          conversation={conversationId}
+        />
         {!!media.length && (
           <div className="message-media-grid" data-count={media.length}>
             {media.map((item) => (

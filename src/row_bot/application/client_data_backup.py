@@ -114,7 +114,7 @@ def _job_view() -> dict | None:
         if not _JOB:
             return None
         return {key: _JOB.get(key) for key in ("kind", "status", "started_at", "finished_at", "code", "name",
-                                               "skipped")}
+                                               "skipped", "left_out", "sign_in_again")}
 
 
 def read_state() -> dict:
@@ -165,7 +165,10 @@ def _start(kind: str, work: Callable[[], dict]) -> None:
             with _LOCK:
                 _JOB.update(status="completed", finished_at=datetime.now().isoformat(timespec="seconds"),
                             name=outcome.get("name"),
-                            skipped=list(outcome.get("skipped") or [])[:profile_backup.SKIPPED_SHOWN])
+                            skipped=list(outcome.get("skipped") or [])[:profile_backup.SKIPPED_SHOWN],
+                            # The archive's own manifest says what moves with it (U9).
+                            left_out=[str(item)[:200] for item in outcome.get("left_out") or []][:10],
+                            sign_in_again=_sign_ins(outcome.get("sign_in_again")))
         except profile_backup.BackupError as exc:
             with _LOCK:
                 _JOB.update(status="failed", code=exc.code, finished_at=datetime.now().isoformat(timespec="seconds"))

@@ -23,6 +23,9 @@ APP_SUPPORT_URL = f"{APP_WEBSITE_URL}/contact.html"
 APP_SECURITY_URL = f"{APP_REPOSITORY_URL}/security"
 
 APP_USER_AGENT = f"{APP_DISPLAY_NAME}/{__version__}"
+# What a web page Row-Bot reads for the agent sees: the program, its version and where to find its maker,
+# as sites such as Wikipedia ask of automated readers. Nothing about the person or their computer.
+WEB_READER_USER_AGENT = f"{APP_USER_AGENT} (+{APP_WEBSITE_URL})"
 UPDATER_USER_AGENT = f"{APP_DISPLAY_NAME}-Updater/{__version__}"
 DESIGNER_USER_AGENT = f"{APP_DISPLAY_NAME}-Designer/1.0"
 GITHUB_USER_AGENT = f"{APP_DISPLAY_NAME}-GitHub/1.0"

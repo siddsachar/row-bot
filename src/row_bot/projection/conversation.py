@@ -55,6 +55,32 @@ def _row_text(row: dict) -> str | None:
     return "".join(str(block.get("text") or "") for block in blocks) or None
 
 
+def without_saved_steps(rows: list[dict]) -> list[dict]:
+    """A running turn's live rows stream its steps' text, and a read mid-turn also brings in the steps saved
+    so far: the live rows keep only the text after them, so a chat opened mid-run shows each step once (U12).
+    A live row holds one model step's words, or every step's in turn: the saved steps are matched in order
+    across the live rows, so a step saved with its own live row still streaming shows once (5.3.3)."""
+    last_person = max((index for index, row in enumerate(rows) if row.get("role") == "user"), default=-1)
+    steps = [text.strip() for row in rows[last_person + 1:]
+             if row.get("role") == "assistant" and not str(row["id"]).startswith("assistant:live:")
+             and (text := _row_text(row))]
+    if not steps:
+        return rows
+    shown = []
+    matched = 0
+    for row in rows:
+        text = _row_text(row) if str(row["id"]).startswith("assistant:live:") else None
+        rest = text or ""
+        while matched < len(steps) and rest.lstrip().startswith(steps[matched]):
+            rest = rest.lstrip()[len(steps[matched]):]
+            matched += 1
+        if text is None or rest == text:
+            shown.append(row)
+        elif rest.strip():
+            shown.append({**row, "blocks": [{"type": "text", "text": rest.lstrip()}]})
+    return shown
+
+
 @dataclass
 class _Conversation:
     revision: int = 0
@@ -235,11 +261,12 @@ class ConversationProjection:
         self.install_rows(conversation_id, checkpoint_revision, rows)
 
     def install_rows(self, conversation_id: str, checkpoint_revision: str, rows: list[dict], *,
-                     settle: tuple[str, bool] | None = None) -> None:
+                     settle: tuple[str, bool] | None = None, replace: bool = False) -> None:
         """Install a bounded result from the durable checkpoint reader.
 
         With *settle* (a live row, and whether its saved message adopted it), that live row is retired in
         the same step: no read ever sees a saved answer and its live row together (a reply shown twice).
+        *replace* installs the rows though the checkpoint is the one already installed.
         """
         size = 0
         bounded = []
@@ -255,7 +282,7 @@ class ConversationProjection:
         events: list[dict] = []
         with self._lock:
             state = self._states.setdefault(conversation_id, _Conversation())
-            if state.checkpoint_revision != checkpoint_revision:
+            if replace or state.checkpoint_revision != checkpoint_revision:
                 active_size = sum(s.content_bytes for key, s in self._states.items()
                                   if key != conversation_id and (s.live_rows or (s.generation and not s.generation.get("quiesced"))))
                 budget = min(self.MAX_CONTENT_BYTES, max(2, self.MAX_GLOBAL_CONTENT_BYTES - active_size))

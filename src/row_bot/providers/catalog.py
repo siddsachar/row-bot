@@ -5,6 +5,7 @@ from typing import Any
 
 from row_bot.providers.capabilities import endpoint_values
 from row_bot.providers.models import AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderDefinition, TransportMode
+from row_bot.providers.presets import PRESETS, preset_definition
 
 PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
     "ollama": ProviderDefinition(
@@ -138,6 +139,7 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         base_url="https://api.minimax.io/anthropic",
         icon="M",
     ),
+    **{preset.id: preset_definition(preset) for preset in PRESETS.values()},
 }
 
 _OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
@@ -230,6 +232,7 @@ PROVIDER_BILLING: dict[str, str] = {
     "atlascloud": "pay_per_use",
     "ollama_cloud": "pay_per_use",
     "opencode_zen": "pay_per_use",
+    **{preset.id: preset.billing for preset in PRESETS.values()},
 }
 
 
@@ -617,14 +620,21 @@ def classify_model_capabilities(
         input_modalities.add(ModelModality.IMAGE.value)
         capabilities.add("vision")
 
+    # A list that says what a model outputs is believed (OpenRouter puts it under architecture).
+    architecture = metadata.get("architecture") if isinstance(metadata.get("architecture"), Mapping) else {}
+    declared_output = metadata.get("output_modalities") or architecture.get("output_modalities")
+    declared = {str(item).lower() for item in declared_output} if isinstance(declared_output, (list, tuple)) else set()
+    declares_video = "video" in declared
     if any(part in lower for part in ("embed", "embedding")):
         tasks = {ModelTask.EMBEDDING.value}
         capabilities = {"text", "embedding"}
         tool_calling = False
     elif any(part in lower for part in ("dall-e", "gpt-image", "imagen", "image-generation")) or (
         provider_id == "google" and bare.startswith("gemini") and "image" in lower
-    ) or (provider_id in {"xai", "xai_oauth"} and "grok-imagine" in lower and "image" in lower) or isinstance(
-        metadata.get("generation_parameters"), Mapping
+    ) or (provider_id in {"xai", "xai_oauth"} and "grok-imagine" in lower and "image" in lower) or (
+        # xAI prices image and video models by resolution alike; a video model stays a video model.
+        provider_id in {"xai", "xai_oauth"} and isinstance(metadata.get("generation_parameters"), Mapping)
+        and not declares_video and "video" not in lower
     ):
         tasks = {ModelTask.IMAGE_GENERATION.value}
         if provider_id == "google" and bare.startswith("gemini"):
@@ -636,7 +646,7 @@ def classify_model_capabilities(
             capabilities.add("image_edit")
         tool_calling = False
         streaming = False
-    elif any(part in lower for part in ("veo", "video")):
+    elif declares_video or any(part in lower for part in ("veo", "video")):
         tasks = {ModelTask.VIDEO_GENERATION.value}
         output_modalities = {ModelModality.VIDEO.value}
         capabilities = {"video_generation"}
@@ -670,6 +680,23 @@ def classify_model_capabilities(
         output_modalities.add(ModelModality.AUDIO.value)
         capabilities = {"audio", "realtime"}
         tool_calling = False
+
+    if declared and not declared & {"text", "image", "video"}:
+        # Speech, embeddings and the like: not a chat model, whatever its name says.
+        tasks.discard(ModelTask.CHAT.value)
+        tasks.discard(ModelTask.RESPONSES.value)
+    elif "image" in declared and not declares_video:
+        if "text" in declared:
+            # A chat model that also draws stays a chat model.
+            tasks.add(ModelTask.IMAGE_GENERATION.value)
+            output_modalities.add(ModelModality.IMAGE.value)
+            capabilities.add("image_generation")
+        elif ModelTask.IMAGE_GENERATION.value not in tasks:
+            tasks = {ModelTask.IMAGE_GENERATION.value}
+            output_modalities = {ModelModality.IMAGE.value}
+            capabilities = {"image_generation"}
+            tool_calling = False
+            streaming = False
 
     if provider_id == "openai" and any(part in lower for part in ("davinci", "babbage", "curie", "text-ada", "instruct")):
         tasks = set()

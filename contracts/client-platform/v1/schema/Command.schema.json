@@ -426,7 +426,7 @@
           "type": "string"
         },
         "size_bytes": {
-          "maximum": 26214400,
+          "maximum": 209715200,
           "minimum": 1,
           "title": "Size Bytes",
           "type": "integer"
@@ -611,7 +611,7 @@
           "type": "string"
         },
         "size_bytes": {
-          "maximum": 26214400,
+          "maximum": 209715200,
           "minimum": 1,
           "title": "Size Bytes",
           "type": "integer"
@@ -6193,9 +6193,6 @@
             },
             {
               "$ref": "#/$defs/ProviderEndpointIdentity"
-            },
-            {
-              "$ref": "#/$defs/ProviderModelPin"
             }
           ],
           "title": "Fields"
@@ -6618,6 +6615,11 @@
     "ProviderEndpointFields": {
       "additionalProperties": false,
       "properties": {
+        "allow_private_address": {
+          "default": false,
+          "title": "Allow Private Address",
+          "type": "boolean"
+        },
         "auth_required": {
           "default": false,
           "title": "Auth Required",
@@ -6868,111 +6870,6 @@
         "payload"
       ],
       "title": "ProviderEndpointSaveCommand",
-      "type": "object"
-    },
-    "ProviderModelPin": {
-      "additionalProperties": false,
-      "properties": {
-        "model_id": {
-          "maxLength": 512,
-          "minLength": 1,
-          "title": "Model Id",
-          "type": "string"
-        },
-        "provider_id": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9:_-]+$",
-          "title": "Provider Id",
-          "type": "string"
-        },
-        "surface": {
-          "maxLength": 80,
-          "minLength": 1,
-          "title": "Surface",
-          "type": "string"
-        }
-      },
-      "required": [
-        "provider_id",
-        "model_id",
-        "surface"
-      ],
-      "title": "ProviderModelPin",
-      "type": "object"
-    },
-    "ProviderModelPinCommand": {
-      "additionalProperties": false,
-      "properties": {
-        "client_session_id": {
-          "format": "uuid",
-          "title": "Client Session Id",
-          "type": "string"
-        },
-        "command_id": {
-          "format": "uuid",
-          "title": "Command Id",
-          "type": "string"
-        },
-        "expected_revision": {
-          "pattern": "^(0|[1-9][0-9]{0,19})$",
-          "title": "Expected Revision",
-          "type": "string"
-        },
-        "payload": {
-          "$ref": "#/$defs/ProviderConfigurationPayload"
-        },
-        "type": {
-          "const": "provider.model.pin",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "command_id",
-        "client_session_id",
-        "expected_revision",
-        "type",
-        "payload"
-      ],
-      "title": "ProviderModelPinCommand",
-      "type": "object"
-    },
-    "ProviderModelUnpinCommand": {
-      "additionalProperties": false,
-      "properties": {
-        "client_session_id": {
-          "format": "uuid",
-          "title": "Client Session Id",
-          "type": "string"
-        },
-        "command_id": {
-          "format": "uuid",
-          "title": "Command Id",
-          "type": "string"
-        },
-        "expected_revision": {
-          "pattern": "^(0|[1-9][0-9]{0,19})$",
-          "title": "Expected Revision",
-          "type": "string"
-        },
-        "payload": {
-          "$ref": "#/$defs/ProviderConfigurationPayload"
-        },
-        "type": {
-          "const": "provider.model.unpin",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "command_id",
-        "client_session_id",
-        "expected_revision",
-        "type",
-        "payload"
-      ],
-      "title": "ProviderModelUnpinCommand",
       "type": "object"
     },
     "ProviderSubscriptionCancelCommand": {
@@ -10936,8 +10833,6 @@
       "provider.endpoint.probe": "#/$defs/ProviderEndpointProbeCommand",
       "provider.endpoint.refresh": "#/$defs/ProviderEndpointRefreshCommand",
       "provider.endpoint.save": "#/$defs/ProviderEndpointSaveCommand",
-      "provider.model.pin": "#/$defs/ProviderModelPinCommand",
-      "provider.model.unpin": "#/$defs/ProviderModelUnpinCommand",
       "provider.subscription.cancel": "#/$defs/ProviderSubscriptionCancelCommand",
       "provider.subscription.check": "#/$defs/ProviderSubscriptionCheckCommand",
       "provider.subscription.client_id.reset": "#/$defs/ProviderSubscriptionClientIdResetCommand",
@@ -11385,12 +11280,6 @@
     },
     {
       "$ref": "#/$defs/ProviderEndpointRefreshCommand"
-    },
-    {
-      "$ref": "#/$defs/ProviderModelPinCommand"
-    },
-    {
-      "$ref": "#/$defs/ProviderModelUnpinCommand"
     },
     {
       "$ref": "#/$defs/ArtifactDesignControlCommand"

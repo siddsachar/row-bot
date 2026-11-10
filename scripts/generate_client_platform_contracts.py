@@ -19,7 +19,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "WorkflowTemplateApp", "WorkflowTemplate", "WorkflowTemplateList", "WorkflowTemplateCreated",
     "SourceLink", "SourceOptIn", "SourceOptInChange", "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView",
     "AppRef", "AppView", "AppList", "AppViewRenderRequest", "AppViewTool", "AppViewRender", "AppViewToolCall",
-    "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
+    "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationLabelCounts", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanDeviceCode", "PlanSignIn", "PlanRuntime", "PlanReviewItem",
     "PlanReview", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
@@ -43,7 +43,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
-    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
+    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState", "ClaudeSignInOpenRequest", "ClaudeSignInView", "ClaudeSignInOutput", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "TrackerEntryPage", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
     "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
@@ -55,8 +55,9 @@ MODELS = {name: getattr(schemas, name) for name in (
     "McpRuntimeReviewRequest", "McpRuntimeReview", "McpRuntimeOutcome",
     "McpPolicyPage", "McpPolicyRequest", "McpPolicyReview",
     "McpChatState", "McpChatReviewRequest", "McpChatReview", "McpChatOutcome",
-    "AttentionProblem", "AttentionUpdate", "AttentionSnapshot", "PendingApproval", "PendingApprovalPage",
+    "ProblemLink", "AttentionProblem", "AttentionUpdate", "AttentionSnapshot", "MemoryNoticeDismissed", "PendingApproval", "PendingApprovalPage",
     "ScheduledPost", "ScheduledPostPage", "ScheduledPostCancelled", "ScheduledPostRetry", "ScheduledPostRetried",
+    "ScheduledPostEdited", "XPostEdit",
     "RuntimeInstallationSnapshot", "RuntimeInstallationReviewRequest", "RuntimeInstallationReview", "RuntimeInstallationReceipt",
     "DocumentQueuePage", "DocumentControlReviewRequest", "DocumentControlReview", "DocumentControlReceipt",
     "DocumentUploadReviewRequest", "DocumentUploadReview", "DocumentUploadReceipt",
@@ -75,7 +76,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "PageDownload", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -95,8 +96,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactShareChannels", "ArtifactPublication",
     "TaskRunReview", "TaskRunAction", "TaskRunSummary", "TaskRunPage", "TaskRunResult", "TaskStopResult",
     "ArtifactExport",
-    "ArtifactSavedExport", "ArtifactExportReveal", "ArtifactExportRevealResult",
-    "ExportSaved", "ExportRevealRequest",
+    "ArtifactExportRevealResult",
+    "ExportSaved", "ExportRevealRequest", "SaveOfferRequest", "SaveOffer",
     "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
@@ -197,6 +198,13 @@ OPERATIONS = (
     ("post", "/settings/providers/live/{provider_id}/refresh", None, "ProviderCatalogRefresh"),
     ("get", "/settings/providers/live/refresh", None, "ProviderCatalogRefresh"),
     ("post", "/settings/providers/live/{provider_id}/runtime-test", None, "ProviderRuntimeProbe"),
+    ("get", "/settings/providers/claude-plan/install", None, "ClaudeCodeInstallState"),
+    ("post", "/settings/providers/claude-plan/install", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState"),
+    ("post", "/settings/providers/claude-plan/sign-in", "ClaudeSignInOpenRequest", "ClaudeSignInView"),
+    ("get", "/settings/providers/claude-plan/sign-in/{sign_in_id}", None, "ClaudeSignInOutput"),
+    ("post", "/settings/providers/claude-plan/sign-in/{sign_in_id}/input", "NativeTerminalInput", "NativeTerminalChanged"),
+    ("post", "/settings/providers/claude-plan/sign-in/{sign_in_id}/resize", "NativeTerminalResize", "NativeTerminalChanged"),
+    ("delete", "/settings/providers/claude-plan/sign-in/{sign_in_id}", None, "NativeTerminalClosed"),
     ("post", "/settings/providers/commands", "Command", "CommandReceipt"),
     ("post", "/settings/mcp/commands", "Command", "CommandReceipt"),
     ("get", "/settings/mcp/configuration", None, "McpConfigurationPage"),
@@ -237,8 +245,6 @@ OPERATIONS = (
     ("put", "/video-brand", "VideoBrand", "VideoBrand"),
     ("get", "/deliveries", None, "DeliveryPage"),
     ("get", "/deliveries/{delivery_id}", None, "DeliveryView"),
-    ("get", "/deliveries/{delivery_id}/files/{index}", None, "bytes"),
-    ("post", "/deliveries/{delivery_id}/files/{index}/save", None, "ExportSaved"),
     ("post", "/deliveries/{delivery_id}/to-devices", None, "DeliveryView"),
     ("get", "/pages", None, "PagePage"),
     ("get", "/media", None, "MediaPage"),
@@ -247,13 +253,13 @@ OPERATIONS = (
     ("post", "/pages/{page_id}/frame", "PageFrameRequest", "PageFrame"),
     ("put", "/pages/{page_id}/state", "PageStateWrite", "PageView"),
     ("post", "/pages/{page_id}/decisions", "PageDecisionWrite", "PageView"),
-    ("post", "/pages/{page_id}/download", "PageFrameRequest", "PageDownload"),
-    ("post", "/pages/{page_id}/save", "PageFrameRequest", "ExportSaved"),
     ("get", "/monitor/attention", None, "AttentionSnapshot"),
+    ("delete", "/monitor/memory-notice", None, "MemoryNoticeDismissed"),
     ("get", "/monitor/approvals", None, "PendingApprovalPage"),
     ("get", "/monitor/scheduled-posts", None, "ScheduledPostPage"),
     ("delete", "/monitor/scheduled-posts/{post_id}", None, "ScheduledPostCancelled"),
     ("post", "/monitor/scheduled-posts/{post_id}/retry", "ScheduledPostRetry", "ScheduledPostRetried"),
+    ("post", "/monitor/scheduled-posts/{post_id}/edit", "XPostEdit", "ScheduledPostEdited"),
     ("get", "/monitor/logs", None, "MonitorLogs"),
     ("post", "/monitor/diagnosis", None, "SystemDiagnosis"),
     ("get", "/monitor/diagnosis", None, "SystemDiagnosis"),
@@ -451,10 +457,7 @@ OPERATIONS = (
     ("get", "/tasks/{task_id}/runs", None, "TaskRunPage"),
     ("get", "/tasks/{task_id}/runs/{run_id}", None, "TaskRunSummary"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}", None, "ArtifactExport"),
-    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save", None, "ArtifactSavedExport"),
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion", "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion"),
-    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal", "ArtifactExportReveal", "ArtifactExportRevealResult"),
-    ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download", None, "bytes"),
     ("post", "/tasks/commands", "Command", "CommandReceipt"),
     ("get", "/knowledge/entities", None, "EntitySummaryPage"),
     ("get", "/knowledge/entities/{entity_id}", None, "KnowledgeEntityDetail"),
@@ -490,6 +493,7 @@ OPERATIONS = (
     ("get", "/attachments/{reference}/thumbnail", None, "bytes"),
     ("get", "/attachments/{reference}", None, "bytes"),
     ("post", "/attachments/{reference}/save", None, "ExportSaved"),
+    ("post", "/saves", "SaveOfferRequest", "SaveOffer"),
     ("post", "/exports/reveal", "ExportRevealRequest", "ArtifactExportRevealResult"),
     ("get", "/native/bootstrap", None, "NativeBootstrapView"),
     ("post", "/native/attest", "NativeAttestationRequest", "NativeAttestationView"),
@@ -640,11 +644,12 @@ function proofHeaders(proof?: SessionProof): Record<string, string> {
 const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number; waiting:number}>>();
 async function pace(proof: SessionProof | undefined, path: string, method: string, signal?: AbortSignal, body?: unknown): Promise<void> {
   if (!proof) return;
-  // An approval card reads what it asks about, and a sent-files card what was
-  // sent: the person is looking at them, so they never wait behind background reads.
+  // An approval card reads what it asks about, a sent-files card what was
+  // sent and a video edit card its edit (every second while it runs): the
+  // person is looking at them, so they never wait behind background reads.
   const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated))?(?:\?|$)/.test(path)
     || /^\/approvals\/[^/?]+(?:\?|$)/.test(path)
-    || method === 'GET' && /^\/deliveries\/[^/?]+(?:\?|$)/.test(path);
+    || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?)(?:\?|$)/.test(path);
   // Following a computer-use session (about once a second) is observation.
   const observation = path.startsWith('/events') || path.startsWith('/live') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
     || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);
@@ -765,6 +770,20 @@ export const getLiveProviderRefresh = (base: string, proof: SessionProof, signal
   jsonRequest(base, '/settings/providers/live/refresh', 'ProviderCatalogRefresh', proof, 'GET', undefined, undefined, signal);
 export const testLiveProviderRuntime = (base: string, proof: SessionProof, provider: string, signal?: AbortSignal): Promise<ProviderRuntimeProbe> =>
   jsonRequest(base, `/settings/providers/live/${id(provider)}/runtime-test`, 'ProviderRuntimeProbe', proof, 'POST', undefined, undefined, signal);
+export const getClaudeCodeInstall = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ClaudeCodeInstallState> =>
+  jsonRequest(base, '/settings/providers/claude-plan/install', 'ClaudeCodeInstallState', proof, 'GET', undefined, undefined, signal);
+export const installClaudeCode = (base: string, proof: SessionProof, body: ClaudeCodeInstallRequest, signal?: AbortSignal): Promise<ClaudeCodeInstallState> =>
+  jsonRequest(base, '/settings/providers/claude-plan/install', 'ClaudeCodeInstallState', proof, 'POST', body, undefined, signal);
+export const openClaudeSignIn = (base: string, proof: SessionProof, body: ClaudeSignInOpenRequest, signal?: AbortSignal): Promise<ClaudeSignInView> =>
+  jsonRequest(base, '/settings/providers/claude-plan/sign-in', 'ClaudeSignInView', proof, 'POST', body, undefined, signal);
+export const readClaudeSignIn = (base: string, proof: SessionProof, signIn: string, cursor = 0, signal?: AbortSignal): Promise<ClaudeSignInOutput> =>
+  jsonRequest(base, `/settings/providers/claude-plan/sign-in/${id(signIn)}` + query({cursor}), 'ClaudeSignInOutput', proof, 'GET', undefined, undefined, signal);
+export const writeClaudeSignIn = (base: string, proof: SessionProof, signIn: string, body: NativeTerminalInput, signal?: AbortSignal): Promise<NativeTerminalChanged> =>
+  jsonRequest(base, `/settings/providers/claude-plan/sign-in/${id(signIn)}/input`, 'NativeTerminalChanged', proof, 'POST', body, undefined, signal);
+export const resizeClaudeSignIn = (base: string, proof: SessionProof, signIn: string, body: NativeTerminalResize, signal?: AbortSignal): Promise<NativeTerminalChanged> =>
+  jsonRequest(base, `/settings/providers/claude-plan/sign-in/${id(signIn)}/resize`, 'NativeTerminalChanged', proof, 'POST', body, undefined, signal);
+export const closeClaudeSignIn = (base: string, proof: SessionProof, signIn: string, signal?: AbortSignal): Promise<NativeTerminalClosed> =>
+  jsonRequest(base, `/settings/providers/claude-plan/sign-in/${id(signIn)}`, 'NativeTerminalClosed', proof, 'DELETE', undefined, undefined, signal);
 export const getSavedEntities = (base: string, proof: SessionProof, search = '', entity_type?: string, status?: string, source?: string, tier?: string, limit = 25, cursor?: string, signal?: AbortSignal): Promise<EntitySummaryPage> =>
   jsonRequest(base, '/knowledge/entities' + query({query:search, entity_type, status, source, tier, limit, cursor}), 'EntitySummaryPage', proof, 'GET', undefined, undefined, signal);
 export const getKnowledgeGraph = (base: string, proof: SessionProof, limit = 250, signal?: AbortSignal): Promise<KnowledgeGraphSnapshot> =>
@@ -860,20 +879,6 @@ export const getDeliveries = (base: string, proof: SessionProof, conversation_id
   jsonRequest(base, '/deliveries' + query({conversation_id}), 'DeliveryPage', proof, 'GET', undefined, undefined, signal);
 export const getDelivery = (base: string, proof: SessionProof, delivery: string, signal?: AbortSignal): Promise<DeliveryView> =>
   jsonRequest(base, `/deliveries/${id(delivery)}`, 'DeliveryView', proof, 'GET', undefined, undefined, signal);
-/** One file sent to the devices, with the person's session; refused once it expired. */
-export async function readDeliveryFile(base: string, proof: SessionProof, delivery: string, index: number, signal?: AbortSignal): Promise<Blob> {
-  if (!Number.isInteger(index) || index < 0 || index > 9) throw new Error('invalid_request');
-  const response = await fetch(`${base}/api/v1/deliveries/${id(delivery)}/files/${index}`, {
-    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
-  });
-  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  const data = await response.blob();
-  if (data.size > 104857600) throw new Error('protocol_incompatible');
-  return data;
-}
-/** Desktop window: the file is saved into Exports on this computer (it can't download). */
-export const saveDeliveryFile = (base: string, proof: SessionProof, delivery: string, index: number, signal?: AbortSignal): Promise<ExportSaved> =>
-  jsonRequest(base, `/deliveries/${id(delivery)}/files/${index}/save`, 'ExportSaved', proof, 'POST', {}, undefined, signal);
 /** The person's "Send to your devices instead" for files that didn't go to a chat app. No approval. */
 export const sendDeliveryToDevices = (base: string, proof: SessionProof, delivery: string, signal?: AbortSignal): Promise<DeliveryView> =>
   jsonRequest(base, `/deliveries/${id(delivery)}/to-devices`, 'DeliveryView', proof, 'POST', {}, undefined, signal);
@@ -896,20 +901,19 @@ export const savePageState = (base: string, proof: SessionProof, page: string, b
 /** One decision from a page's bridge; it only gathers until the person sends them. */
 export const savePageDecision = (base: string, proof: SessionProof, page: string, body: PageDecisionWrite, signal?: AbortSignal): Promise<PageView> =>
   jsonRequest(base, `/pages/${id(page)}/decisions`, 'PageView', proof, 'POST', validateWire('PageDecisionWrite', body), undefined, signal);
-/** Download as HTML: one file that works on its own. */
-export const downloadPage = (base: string, proof: SessionProof, page: string, body: PageFrameRequest, signal?: AbortSignal): Promise<PageDownload> =>
-  jsonRequest(base, `/pages/${id(page)}/download`, 'PageDownload', proof, 'POST', validateWire('PageFrameRequest', body), undefined, signal);
-/** Desktop window: the page is saved into Exports on this computer (it can't download). */
-export const savePageToExports = (base: string, proof: SessionProof, page: string, body: PageFrameRequest, signal?: AbortSignal): Promise<ExportSaved> =>
-  jsonRequest(base, `/pages/${id(page)}/save`, 'ExportSaved', proof, 'POST', validateWire('PageFrameRequest', body), undefined, signal);
 export const getAttention = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AttentionSnapshot> =>
   jsonRequest(base, '/monitor/attention', 'AttentionSnapshot', proof, 'GET', undefined, undefined, signal);
+/** The person read the out-of-memory notice (U8): it stays away until the next such restart. */
+export const dismissMemoryNotice = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MemoryNoticeDismissed> =>
+  jsonRequest(base, '/monitor/memory-notice', 'MemoryNoticeDismissed', proof, 'DELETE', undefined, undefined, signal);
 export const getPendingApprovals = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<PendingApprovalPage> =>
   jsonRequest(base, '/monitor/approvals', 'PendingApprovalPage', proof, 'GET', undefined, undefined, signal);
 export const getScheduledPosts = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ScheduledPostPage> =>
   jsonRequest(base, '/monitor/scheduled-posts', 'ScheduledPostPage', proof, 'GET', undefined, undefined, signal);
 export const cancelScheduledPost = (base: string, proof: SessionProof, post: string, signal?: AbortSignal): Promise<ScheduledPostCancelled> =>
   jsonRequest(base, `/monitor/scheduled-posts/${id(post)}`, 'ScheduledPostCancelled', proof, 'DELETE', undefined, undefined, signal);
+export const editScheduledPost = (base: string, proof: SessionProof, post: string, body: XPostEdit, signal?: AbortSignal): Promise<ScheduledPostEdited> =>
+  jsonRequest(base, `/monitor/scheduled-posts/${id(post)}/edit`, 'ScheduledPostEdited', proof, 'POST', validateWire<XPostEdit>('XPostEdit', body), undefined, signal);
 export const retryScheduledPost = (base: string, proof: SessionProof, post: string, body: ScheduledPostRetry, signal?: AbortSignal): Promise<ScheduledPostRetried> =>
   jsonRequest(base, `/monitor/scheduled-posts/${id(post)}/retry`, 'ScheduledPostRetried', proof, 'POST', validateWire<ScheduledPostRetry>('ScheduledPostRetry', body), undefined, signal);
 export const getMonitorLogs = (base: string, proof: SessionProof, limit = 200, signal?: AbortSignal): Promise<MonitorLogs> =>
@@ -1475,7 +1479,7 @@ export const setAppViewSettings = (base: string, proof: SessionProof, body: AppV
   jsonRequest(base, '/integrations/views', 'AppViewSettings', proof, 'PUT', validateWire('AppViewSettings', body), undefined, signal);
 export const setAppViewAppSetting = (base: string, proof: SessionProof, body: AppViewAppSetting, signal?: AbortSignal): Promise<AppViewSettings> =>
   jsonRequest(base, '/integrations/views/apps', 'AppViewSettings', proof, 'PUT', validateWire('AppViewAppSetting', body), undefined, signal);
-export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string;all?:'true'}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
+export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string;all?:'true';labels?:string;runs?:'anywhere'|'hosted'|'local';no_sign_in?:'true'}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items' + query(options), 'IntegrationEntryPage', proof, 'GET', undefined, undefined, signal);
 export const searchIntegrationItems = (base: string, proof: SessionProof, body: IntegrationSearchRequest, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items/search', 'IntegrationEntryPage', proof, 'POST', validateWire('IntegrationSearchRequest', body), undefined, signal);
@@ -1671,7 +1675,7 @@ export async function readAttachment(base: string, proof: SessionProof, referenc
   });
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
   const data = await response.blob();
-  if (data.size > 26214400) throw new Error('protocol_incompatible');
+  if (data.size > 209715200) throw new Error('protocol_incompatible');
   return data;
 }
 export async function readAttachmentThumbnail(base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<Blob> {
@@ -1687,6 +1691,9 @@ export const getAttachmentMetadata = (base: string, proof: SessionProof, referen
   jsonRequest(base, `/attachments/${id(reference)}/metadata`, 'AttachmentView', proof, 'GET', undefined, undefined, signal);
 export const saveAttachmentExport = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<ExportSaved> =>
   jsonRequest(base, `/attachments/${id(reference)}/save`, 'ExportSaved', proof, 'POST', {}, undefined, signal);
+/** One file to save (5.3.3): its reference goes to the Save dialog, a download, or Exports while reconnecting. */
+export const createSaveOffer = (base: string, proof: SessionProof, body: SaveOfferRequest, signal?: AbortSignal): Promise<SaveOffer> =>
+  jsonRequest(base, '/saves', 'SaveOffer', proof, 'POST', validateWire('SaveOfferRequest', body), undefined, signal);
 export const revealExport = (base: string, proof: SessionProof, body: ExportRevealRequest, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
   jsonRequest(base, `/exports/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
 export const readNativeTerminal = (base: string, proof: SessionProof, terminal: string, cursor = 0, maxBytes = 65536, signal?: AbortSignal): Promise<NativeTerminalOutput> =>
@@ -1701,47 +1708,6 @@ export const getArtifactExport = (base: string, proof: SessionProof, conversatio
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}`, 'ArtifactExport', proof, 'GET', undefined, undefined, signal);
 export const suggestArtifactBrand = (base: string, proof: SessionProof, conversation: string, binding: string, body: ArtifactBrandSuggestionRequest, signal?: AbortSignal): Promise<ArtifactBrandSuggestion> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/brand-suggestion`, 'ArtifactBrandSuggestion', proof, 'POST', body, undefined, signal);
-export const saveArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactSavedExport> =>
-  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/save`, 'ArtifactSavedExport', proof, 'POST', {}, undefined, signal);
-export const revealArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, body: ArtifactExportReveal, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
-  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
-export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, sha256Hex: (data: ArrayBuffer) => Promise<string>, signal?: AbortSignal): Promise<Blob> {
-  validateWire<ArtifactExport>('ArtifactExport', descriptor);
-  const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(descriptor.export_id)}/download`, {
-    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
-  });
-  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  const encoding = response.headers.get('Content-Encoding')?.trim().toLowerCase();
-  const length = response.headers.get('Content-Length');
-  // Fetch exposes decoded bytes while Content-Length describes the encoded
-  // transfer. The immutable descriptor bounds and authenticates decoded data.
-  if (!response.body || (encoding && !['identity', 'gzip', 'br', 'deflate'].includes(encoding)) ||
-      ((!encoding || encoding === 'identity') && length !== null && Number(length) !== descriptor.size_bytes)) {
-    try { await response.body?.cancel(); } catch { /* Closed response. */ }
-    throw new Error('protocol_incompatible');
-  }
-  const reader = response.body.getReader();
-  const parts: Uint8Array<ArrayBuffer>[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const part = await reader.read();
-      if (part.done) break;
-      size += part.value.byteLength;
-      if (size > descriptor.size_bytes || size > 67108864) throw new Error('protocol_incompatible');
-      parts.push(part.value);
-    }
-  } finally {
-    try { await reader.cancel(); } catch { /* Closed response. */ }
-    reader.releaseLock();
-  }
-  if (size !== descriptor.size_bytes) throw new Error('protocol_incompatible');
-  const blob = new Blob(parts, {type: descriptor.media_type});
-  // The caller hashes: pages opened over plain HTTP have no crypto.subtle.
-  if (await sha256Hex(await blob.arrayBuffer()) !== descriptor.sha256)
-    throw new Error('protocol_incompatible');
-  return blob;
-}
 export async function* observeEvents(base: string, proof: SessionProof, subscription_id: string,
   cursor: string, signal?: AbortSignal, notices?: NoticePosition): AsyncGenerator<EventRecord | StreamReset | {notice: NoticeFrame}> {
   signal?.throwIfAborted();
@@ -2075,7 +2041,7 @@ def outputs() -> dict[Path, str]:
             parameters.append({"name": "Idempotency-Key", "in": "header", "required": True,
                                "schema": {"type": "string", "format": "uuid"}})
         response_schema = ({"type": "string", "format": "binary", "maxLength":
-                            67108864 if suffix.endswith("/exports/{export_id}/download") else
+                            209715200 if suffix.endswith("/attachments/{reference}") else
                             65536 if suffix.endswith("/webhook-configuration") else
                             8388608 if suffix.endswith(SPEECH_OUTPUTS) else
                             1048576 if suffix.endswith("/voice/realtime/{lease_id}/exchange") else 26214400} if response == "bytes"

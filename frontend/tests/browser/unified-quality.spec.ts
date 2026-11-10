@@ -57,8 +57,11 @@ test('real tools and media keep one composer through every colour theme and syst
       for (const accent of ['blue', 'teal', 'violet', 'amber']) {
         await page.goto('/app-v2/settings/appearance');
         await page
-          .getByRole('combobox', { name: 'Appearance', exact: true })
-          .selectOption(appearance);
+          .getByRole('button', {
+            name: appearance === 'light' ? 'Light' : 'Dark',
+            exact: true,
+          })
+          .click();
         await page
           .getByRole('combobox', { name: 'Colour theme', exact: true })
           .selectOption(accent);
@@ -99,8 +102,8 @@ test('real tools and media keep one composer through every colour theme and syst
     }
     await page.goto('/app-v2/settings/appearance');
     await page
-      .getByRole('combobox', { name: 'Appearance', exact: true })
-      .selectOption('system');
+      .getByRole('button', { name: /^System, follows your device/ })
+      .click();
     await page.goto(`/app-v2/conversations/${conversation}`);
     for (const scheme of ['dark', 'light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme });
@@ -324,14 +327,28 @@ test('reduced motion and forced colours preserve a usable single conversation', 
       upTo: true,
       owner: 'unified-quality offline step',
       fixture:
-        'The browser context goes offline: a read in flight then fails and the client reconnects once it is back online',
+        'The browser context goes offline for a moment: a read the page makes then fails, as any request would',
     }),
   });
+  // A Wi-Fi drop makes the browser report offline, but Row-Bot on this
+  // computer is still there: the page stays connected, with its draft (#568).
+  const wentOffline = page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        addEventListener('offline', () => setTimeout(resolve, 250), {
+          once: true,
+        }),
+      ),
+  );
   await context.setOffline(true);
-  await expect(
-    page.getByRole('status').filter({ hasText: /^Connected$/ }),
-  ).toHaveCount(0);
-  await context.setOffline(false);
+  try {
+    await wentOffline;
+    await expect(
+      page.getByRole('status').filter({ hasText: /^Connected$/ }),
+    ).toBeVisible();
+  } finally {
+    await context.setOffline(false);
+  }
   await expect(
     page.getByRole('status').filter({ hasText: /^Connected$/ }),
   ).toBeVisible();
@@ -343,7 +360,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   await settings.click();
-  await expect(page).toHaveURL(/\/settings\/providers$/);
+  await expect(page).toHaveURL(/\/settings\/models$/);
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
   await expect(composer(page)).toHaveValue('Accessible unsent draft');
@@ -496,7 +513,7 @@ test('actual state messages and recovery controls remain readable in light and d
         await expect(
           page
             .getByRole('alert')
-            .filter({ hasText: 'Choose a model before sending' }),
+            .filter({ hasText: "This model isn't ready, so nothing was sent" }),
         ).toBeVisible();
         await expect(composer(page)).toHaveValue(
           'Synthetic unavailable-model draft',

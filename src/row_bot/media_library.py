@@ -4,7 +4,7 @@ Recordings, video edits, voice lines, music, pictures Row-Bot made and files the
 kept with their chat (``application.attachments``). This reads them across chats: newest first,
 found by name, tag, kind or chat title. Tags are kept in their own table beside the chats. An incognito chat's
 files are never listed. ``bring`` copies an item into another chat's files, which is how one chat
-or workflow hands media to another.
+or workflow hands media to another; ``locate`` gives a tool that sends an item on (``x_post``) its file.
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ KINDS: dict[str, Kind] = {"image/png": "image", "image/jpeg": "image", "image/gi
                           "audio/mpeg": "audio", "audio/ogg": "audio", "audio/wav": "audio",
                           "audio/flac": "audio", "audio/aac": "audio"}
 MAX_TAGS = 12
+REF = re.compile(r"[\w-]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _TAG = re.compile(r"[^\W_][\w .&+-]{0,39}", re.UNICODE)
 _LOCK = threading.Lock()
 
@@ -149,14 +150,29 @@ def set_tags(ref: str, tags: list[str]) -> list[str]:
     return kept
 
 
+def locate(ref: str) -> tuple[dict[str, Any], Path]:
+    """An item's facts (name, MIME type, size) and its stored file, read in place."""
+    from row_bot import threads
+    from row_bot.application.attachments import inspect_attachment
+
+    _known(ref)
+    conversation_id, value = ref.rsplit(":", 1)
+    return inspect_attachment(ref), Path(threads._MEDIA_DIR) / conversation_id / f"attachment_{UUID(value)}.bin"
+
+
 def bring(ref: str, conversation_id: str) -> dict[str, Any]:
     """Copy an item into a chat's files (its own copy, so the chat keeps it if the first one goes)."""
-    from row_bot.application.attachments import AttachmentError, read_attachment, register_attachment
+    from row_bot.application.attachments import (
+        AttachmentError, list_conversation_files, read_attachment, register_attachment,
+    )
 
     _known(ref)
     if ref.startswith(conversation_id + ":"):
         meta, _ = read_attachment(ref)
-        return meta
+        # The name the chat knows it by, which tells it from an older file kept under the same name.
+        named = {entry["attachment_ref"]: entry["name"] for entry in list_conversation_files(conversation_id,
+                                                                                           limit=100_000)}
+        return {**meta, "name": named.get(ref, meta["name"])}
     try:
         meta, data = read_attachment(ref)
         return register_attachment(conversation_id, meta["name"], data, meta["mime_type"])

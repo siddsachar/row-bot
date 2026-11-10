@@ -318,7 +318,7 @@ it('pins, unpins, and dismisses an insight only when asked', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
   expect(
     await screen.findByText(
-      'No active insights. New ones appear after analysis.',
+      'No insights yet. They point out skills that overlap or could do better; Analyze skill library looks now.',
     ),
   ).toBeVisible();
   expect(executeInsight.mock.calls[2][0]).toMatchObject({
@@ -546,7 +546,7 @@ it('offers Undo after Dismiss and brings the insight back (decision 19)', async 
   await screen.findByRole('heading', { name: 'Synthetic finding' });
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
   await screen.findByText(
-    'No active insights. New ones appear after analysis.',
+    'No insights yet. They point out skills that overlap or could do better; Analyze skill library looks now.',
   );
   await act(async () =>
     fireEvent.click(await screen.findByRole('button', { name: 'Undo' })),

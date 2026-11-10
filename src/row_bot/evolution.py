@@ -113,6 +113,11 @@ _SKILL_BLOCKED_SURFACE_TERMS = {
     "tools",
     "xai",
 }
+# Whole words and phrases only (#632): "log" is never "blog", "model" never "data modelling".
+_SKILL_BLOCKED_SURFACE = re.compile(
+    r"\b(?:" + "|".join(re.escape(term) for term in sorted(_SKILL_BLOCKED_SURFACE_TERMS, key=len, reverse=True))
+    + r")\b"
+)
 _SKILL_POSITIVE_WORKFLOW_TERMS = {
     "user repeatedly",
     "user often",
@@ -970,7 +975,7 @@ def _looks_like_system_maintenance(insight: dict[str, Any]) -> bool:
     text = _insight_text(insight)
     if category in {"error_pattern", "tool_config", "system_health"}:
         return True
-    return any(term in text for term in _SKILL_BLOCKED_SURFACE_TERMS)
+    return _SKILL_BLOCKED_SURFACE.search(text) is not None
 
 
 def is_skill_evolution_candidate(insight: dict[str, Any]) -> bool:

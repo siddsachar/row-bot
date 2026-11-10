@@ -7,12 +7,23 @@
 
 ``--version`` prints ``version``; ``auth status`` prints ``auth`` as JSON and exits with ``auth_exit``. Print
 mode starts the MCP servers named in ``--mcp-config`` the way Claude Code does (``initialize``, then
-``tools/list``, and ``tools/call`` on the first tool with ``call_tool``), answers ``initialize`` control
-requests with ``models``, acknowledges each ``shouldQuery: false`` user frame with a zero-turn result, and
-after the last frame writes ``reply``: stream-json events, ``{"sleep": seconds}``, ``{"hang": true}`` (wait to
-be stopped) or ``{"exit": code}``. Every run records its arguments, environment, system prompt, the tools
-its MCP server listed and every frame it was sent, as it goes, so a stopped run's record is complete.
+``tools/list``), answers ``initialize`` control requests with ``models`` and ``account_plan`` (the plan
+its session names, which ``auth status`` may not), acknowledges each
+``shouldQuery: false`` user frame with a zero-turn result, and after the last frame writes ``reply``:
+stream-json events, ``{"sleep": seconds}``, ``{"hang": true}`` (wait to be stopped) or ``{"exit": code}``.
+With ``replies`` it goes on as Claude Code does in one process: after a reply that calls tools it calls each
+on its MCP server (``tools/call``, waiting for the answer) when ``--allowedTools`` allows that server, or
+refuses it as ``dontAsk`` does (always, with ``refuse_tools``), writes the results as a ``user`` event and
+writes the next reply. Every run records its arguments, environment, system prompt, the tools its MCP server
+listed, every tool call with
+its answer and every frame it was sent, as it goes, so a stopped run's record is complete.
 ``install_fake_claude(..., installed=False)`` leaves PATH and the usual install folders empty.
+
+``auth login`` is Claude's sign-in as the panel shows it: it prints ``login_marker`` (a stand-in for what must
+never reach Row-Bot's logs or stores) with a link and Claude's paste prompt, reads one line, and when it is
+``login_code`` writes ``~/.claude/.credentials.json`` (as Claude Code does on Linux and Windows) and is signed
+in from then on; any other code prints Claude's own refusal and asks again. ``auth logout`` deletes that file and
+is signed out from then on (until the next sign-in), or fails with ``logout_exit``.
 """
 
 from __future__ import annotations
@@ -44,9 +55,55 @@ record(start=True, argv=args, env=env, cwd=os.getcwd(), pid=os.getpid())
 if args == ["--version"]:
     print(config["version"])
     sys.exit(0)
+signed_in = os.path.join(os.path.dirname(config["log"]), "signed-in")
+signed_out = os.path.join(os.path.dirname(config["log"]), "signed-out")
+credentials_file = os.path.join(os.path.expanduser("~"), ".claude", ".credentials.json")
 if args[:2] == ["auth", "status"]:
+    if os.path.exists(signed_in):
+        print(json.dumps({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
+                          "subscriptionType": "max"}, indent=2))
+        sys.exit(0)
+    if os.path.exists(signed_out):
+        print(json.dumps({"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"}, indent=2))
+        sys.exit(1)
     print(json.dumps(config["auth"], indent=2))
     sys.exit(config["auth_exit"])
+if args == ["auth", "logout"]:
+    if config["logout_exit"]:
+        sys.stderr.write("Failed to logout.\n")
+        sys.exit(config["logout_exit"])
+    for name in (signed_in, credentials_file):
+        if os.path.exists(name):
+            os.remove(name)
+    open(signed_out, "w").close()
+    print("Successfully logged out from your Anthropic account.")
+    sys.exit(0)
+if args == ["auth", "login"]:
+    marker = config.get("login_marker", "")
+    sys.stdout.write("Welcome to Claude Code " + marker + "\r\n")
+    sys.stdout.write("Browser didn't open? Use the url below to sign in:\r\n")
+    sys.stdout.write("https://claude.ai/oauth/authorize?code=true&state=" + marker + "\r\n")
+    while True:
+        sys.stdout.write("Paste code here if prompted > ")
+        sys.stdout.flush()
+        line = sys.stdin.readline()
+        if not line:
+            sys.exit(1)
+        code = line.strip()
+        record(login_code_matched=code == config.get("login_code"))
+        if code == config.get("login_code"):
+            break
+        sys.stdout.write("\r\nOAuth error: Invalid code\r\n\r\n")
+        sys.stdout.flush()
+    os.makedirs(os.path.dirname(credentials_file), exist_ok=True)
+    with open(credentials_file, "w", encoding="utf-8") as credentials:
+        credentials.write(json.dumps({"claudeAiOauth": {"accessToken": marker}}))
+    if os.path.exists(signed_out):
+        os.remove(signed_out)
+    open(signed_in, "w").close()
+    sys.stdout.write("\r\nLogin successful.\r\n")
+    sys.stdout.flush()
+    sys.exit(0)
 if "-p" not in args:
     sys.exit(2)
 def flag(name):
@@ -54,26 +111,40 @@ def flag(name):
 system_file = flag("--system-prompt-file")
 if system_file:
     record(system=open(system_file, encoding="utf-8").read())
-servers = []
+servers = {}
 tools = []
+sent = []
+def rpc(child, method, params):
+    sent.append(method)
+    child.stdin.write(json.dumps({"jsonrpc": "2.0", "id": len(sent), "method": method, "params": params}) + "\n")
+    child.stdin.flush()
+    return json.loads(child.stdout.readline())
 mcp = flag("--mcp-config")
 if mcp:
     for name, server in json.load(open(mcp, encoding="utf-8")).get("mcpServers", {}).items():
         child = subprocess.Popen([server["command"], *server["args"]], stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, text=True, encoding="utf-8")
-        servers.append(child)
-        def rpc(method, params, ident):
-            child.stdin.write(json.dumps({"jsonrpc": "2.0", "id": ident, "method": method, "params": params}) + "\n")
-            child.stdin.flush()
-            return json.loads(child.stdout.readline())
-        rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "fake"}}, 1)
+        servers[name] = child
+        rpc(child, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "fake"}})
         child.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
         child.stdin.flush()
-        listed = rpc("tools/list", {}, 2)["result"]["tools"]
+        listed = rpc(child, "tools/list", {})["result"]["tools"]
         tools += ["mcp__" + name + "__" + tool["name"] for tool in listed]
         record(server=name, server_pid=child.pid, listed=listed)
-        if config.get("call_tool") and listed:
-            record(tool_call=rpc("tools/call", {"name": listed[0]["name"], "arguments": {}}, 3)["result"])
+allowed = [] if config.get("refuse_tools") else (flag("--allowedTools") or "").split(",")
+def call_tools(calls):
+    results = []
+    for call in calls:
+        _, server, tool = call["name"].split("__", 2)
+        if "mcp__" + server in allowed and server in servers:
+            answer = rpc(servers[server], "tools/call", {"name": tool, "arguments": call["input"]})["result"]
+        else:
+            answer = {"isError": True, "content": "Permission to use " + call["name"] + " has been denied because "
+                      "Claude Code is running in don't ask mode."}
+        record(tool_call={"name": tool, "arguments": call["input"], "answer": answer})
+        results.append({"type": "tool_result", "tool_use_id": call["id"], "content": answer["content"],
+                        "is_error": bool(answer.get("isError"))})
+    out({"type": "user", "message": {"role": "user", "content": results}})
 init = {"type": "system", "subtype": "init", "tools": tools, "model": flag("--model"),
         "permissionMode": flag("--permission-mode"), "apiKeySource": "none",
         "mcp_servers": [{"name": name, "status": "connected"} for name in json.load(open(mcp, encoding="utf-8")).get("mcpServers", {})] if mcp else []}
@@ -83,7 +154,8 @@ for raw in sys.stdin:
     record(frame=frame)
     if frame.get("type") == "control_request":
         out({"type": "control_response", "response": {"subtype": "success", "request_id": frame["request_id"],
-             "response": {"models": config["models"], "account": {"subscriptionType": "Claude Max"}}}})
+             "response": {"models": config["models"],
+                          "account": {"subscriptionType": config["account_plan"]}}}})
         continue
     if frame.get("type") != "user":
         continue
@@ -93,18 +165,25 @@ for raw in sys.stdin:
     if frame.get("shouldQuery") is False:
         out({"type": "result", "subtype": "success", "is_error": False, "num_turns": 0, "result": ""})
         continue
-    for event in config["reply"]:
-        if "sleep" in event:
-            time.sleep(event["sleep"])
-        elif "hang" in event:
-            while True:
-                time.sleep(0.1)
-        elif "exit" in event:
-            sys.exit(event["exit"])
-        else:
-            out(event)
+    for reply in config["replies"] or [config["reply"]]:
+        calls = []
+        for event in reply:
+            if "sleep" in event:
+                time.sleep(event["sleep"])
+            elif "hang" in event:
+                while True:
+                    time.sleep(0.1)
+            elif "exit" in event:
+                sys.exit(event["exit"])
+            else:
+                out(event)
+                if event.get("type") == "assistant":
+                    calls += [block for block in event["message"]["content"] if block.get("type") == "tool_use"]
+        if not calls:
+            break
+        call_tools(calls)
     break
-for child in servers:
+for child in servers.values():
     child.terminate()
 '''
 
@@ -120,19 +199,54 @@ class FakeClaude:
         return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
 
     def runs(self) -> list[dict[str, Any]]:
-        """One merged record per process: argv, env, system, listed tools, tool_call and frames."""
+        """One merged record per process: argv, env, system, listed tools, tool calls and frames."""
         runs: list[dict[str, Any]] = []
         for row in self.records():
             if row.get("start"):
-                runs.append({**row, "frames": []})
+                runs.append({**row, "frames": [], "tool_calls": []})
             elif "frame" in row:
                 runs[-1]["frames"].append(row["frame"])
+            elif "tool_call" in row:
+                runs[-1]["tool_calls"].append(row["tool_call"])
             else:
                 runs[-1].update(row)
         return runs
 
     def model_runs(self) -> list[dict[str, Any]]:
         return [run for run in self.runs() if "-p" in run["argv"] and "--include-partial-messages" in run["argv"]]
+
+
+def write_fake_claude_program(
+    folder: Path,
+    *,
+    version: str = "2.1.282 (Claude Code)",
+    auth: dict[str, Any] | None = None,
+    auth_exit: int = 0,
+    reply: list[dict[str, Any]] | None = None,
+    replies: list[list[dict[str, Any]]] | None = None,
+    refuse_tools: bool = False,
+    models: list[dict[str, Any]] | None = None,
+    login_code: str = "",
+    login_marker: str = "",
+    logout_exit: int = 0,
+    account_plan: str = "Claude Max",
+) -> tuple[Path, Path]:
+    """The fake's script and its config in ``folder`` (its runs log beside them); returns both paths."""
+    folder.mkdir(parents=True, exist_ok=True)
+    config = folder / "config.json"
+    config.write_text(json.dumps({
+        "log": str(folder / "runs.jsonl"), "version": version, "auth_exit": auth_exit, "replies": replies or [],
+        "refuse_tools": refuse_tools,
+        "auth": auth if auth is not None else {"loggedIn": True, "authMethod": "claude.ai",
+                                               "apiProvider": "firstParty", "subscriptionType": "max"},
+        "reply": reply if reply is not None else text_reply("Hello from Claude."),
+        "models": models if models is not None else MODELS,
+        "login_code": login_code, "login_marker": login_marker, "logout_exit": logout_exit,
+        "account_plan": account_plan,
+    }), encoding="utf-8")
+    script = folder / "fake_claude.py"
+    script.write_text(_SCRIPT, encoding="utf-8")
+    return script, config
 
 
 def install_fake_claude(
@@ -144,8 +258,13 @@ def install_fake_claude(
     auth: dict[str, Any] | None = None,
     auth_exit: int = 0,
     reply: list[dict[str, Any]] | None = None,
+    replies: list[list[dict[str, Any]]] | None = None,
+    refuse_tools: bool = False,
     models: list[dict[str, Any]] | None = None,
-    call_tool: bool = False,
+    login_code: str = "",
+    login_marker: str = "",
+    logout_exit: int = 0,
+    account_plan: str = "Claude Max",
 ) -> FakeClaude:
     bin_dir = tmp_path / "fake-claude-bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -161,16 +280,10 @@ def install_fake_claude(
     claude_subscription.forget_claude_plan_status()
     if not installed:
         return FakeClaude(bin_dir, log)
-    config = bin_dir / "config.json"
-    config.write_text(json.dumps({
-        "log": str(log), "version": version, "auth_exit": auth_exit, "call_tool": call_tool,
-        "auth": auth if auth is not None else {"loggedIn": True, "authMethod": "claude.ai",
-                                               "apiProvider": "firstParty", "subscriptionType": "max"},
-        "reply": reply if reply is not None else text_reply("Hello from Claude."),
-        "models": models if models is not None else MODELS,
-    }), encoding="utf-8")
-    script = bin_dir / "fake_claude.py"
-    script.write_text(_SCRIPT, encoding="utf-8")
+    script, config = write_fake_claude_program(
+        bin_dir, version=version, auth=auth, auth_exit=auth_exit, reply=reply, replies=replies,
+        refuse_tools=refuse_tools, models=models, login_code=login_code, login_marker=login_marker,
+        logout_exit=logout_exit, account_plan=account_plan)
     if os.name == "nt":
         (bin_dir / "claude.cmd").write_text(f'@"{sys.executable}" "{script}" "{config}" %*\r\n', encoding="utf-8")
     else:
@@ -249,7 +362,7 @@ def text_reply(text: str, *, thinking: str = "", model: str = "claude-sonnet-5",
 
 def tool_reply(name: str, arguments: dict[str, Any], *, model: str = "claude-sonnet-5",
                call_id: str = "toolu_synthetic01") -> list[dict[str, Any]]:
-    """A reply calling ``name`` (as Claude Code names an MCP tool), then the refusal Claude Code writes."""
+    """A reply calling ``name`` (as Claude Code names an MCP tool); the fake then calls it on the tool server."""
     wire = "mcp__rowbot__" + name
     body = json.dumps(arguments)
     events = [_start(model, 1160),
@@ -262,14 +375,8 @@ def tool_reply(name: str, arguments: dict[str, Any], *, model: str = "claude-son
                                "delta": {"type": "input_json_delta", "partial_json": body[start:start + 6]}}))
     events += [{"type": "assistant", "message": {"model": model, "role": "assistant", "content": [
                    {"type": "tool_use", "id": call_id, "name": wire, "input": arguments}]}},
-               _stream({"type": "content_block_stop", "index": 0}),
-               {"type": "user", "message": {"role": "user", "content": [{
-                   "type": "tool_result", "tool_use_id": call_id, "is_error": True,
-                   "content": f"Permission to use {wire} has been denied because Claude Code is running in "
-                              "don't ask mode."}]}}]
+               _stream({"type": "content_block_stop", "index": 0})]
     events += _finish("tool_use", input_tokens=1160, output_tokens=133)
-    # What Claude Code would do next if it were not stopped: another model turn.
-    events += [_start(model, 1300), {"hang": True}]
     return events
 
 

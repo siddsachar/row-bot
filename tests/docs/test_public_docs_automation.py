@@ -42,7 +42,7 @@ def test_public_docs_inventory_has_core_sections() -> None:
     assert inventory["version"]["version"] != "unknown"
     assert any(tool["id"] == "browser" for tool in inventory["tools"])
     assert any(provider["id"] == "ollama" for provider in inventory["providers"])
-    assert any(tab["title"] == "Providers" for tab in inventory["settings"])
+    assert any(tab["title"] == "Models" for tab in inventory["settings"])
     assert any(tab["title"] == "Workflows" for tab in inventory["home_tabs"])
     assert any(channel["id"] == "telegram" for channel in inventory["channels"])
     assert any(skill["id"] == "task_automation" for skill in inventory["skills"])
@@ -928,7 +928,7 @@ def test_react_settings_pages_and_home_tabs_have_docs_routes() -> None:
     pages = collect_settings()
     tabs = collect_home_tabs()
 
-    assert {"providers", "tools", "access", "data"} <= {page["id"] for page in pages}
+    assert {"models", "tools", "access", "data"} <= {page["id"] for page in pages}
     assert {"overview", "workflows", "knowledge", "monitor"} <= {tab["id"] for tab in tabs}
     assert all(page["description"] and page["docs_route"].startswith("/docs/") for page in pages)
     assert all(tab["title"] and tab["docs_route"].startswith("/docs/") for tab in tabs)

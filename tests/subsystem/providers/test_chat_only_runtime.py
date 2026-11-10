@@ -382,8 +382,8 @@ def test_stream_agent_unknown_auto_blocks_before_graph_creation(tmp_path, monkey
         lambda *args, **kwargs: SimpleNamespace(
             selected_mode="blocked",
             selection_reason=message,
-            agent=SimpleNamespace(context_window=None),
-            chat=SimpleNamespace(context_window=None),
+            agent=SimpleNamespace(context_window=None, provider_id="openai"),
+            chat=SimpleNamespace(context_window=None, provider_id="openai"),
         ),
     )
     monkeypatch.setattr(

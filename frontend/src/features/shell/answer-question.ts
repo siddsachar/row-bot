@@ -6,6 +6,7 @@ import type {
   ClientState,
 } from '../../api/types';
 import { readPendingApprovalsNow } from './pending-approvals';
+import { resolveApproval } from './resolve-approval';
 
 /** The approval Row-Bot's turn in this conversation waits on, if it waits on one. */
 export function waitingApproval(
@@ -47,11 +48,9 @@ export async function answerQuestion(
   asked: WaitingQuestion,
   answer: ApprovalAnswer,
 ): Promise<void> {
-  await controller.intent(
-    asked.approvalId,
-    'approval.resolve',
-    { decision: 'approve', nonce: asked.view.nonce, answers: [answer] },
-    asked.view.revision,
-  );
+  await resolveApproval(controller, asked.approvalId, asked.view, {
+    decision: 'approve',
+    answers: [answer],
+  });
   readPendingApprovalsNow(controller.pendingApprovals);
 }

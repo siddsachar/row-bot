@@ -8,7 +8,9 @@ import {
   Select,
 } from '../../ui/primitives';
 
-import type { ArtifactExport, ArtifactSavedExport } from '../../api/types';
+import type { ArtifactExport } from '../../api/types';
+import type { CapabilityResult, SavedFile } from '../../platform/types';
+import { saveProblem } from '../shell/save-file';
 import { AppLink } from '../../ui/app-link';
 
 export type ArtifactExportResult = ArtifactExport;
@@ -29,14 +31,11 @@ export type ArtifactExportsProps = {
     options: ArtifactExportOptions,
     expectedRevision: string,
   ) => Promise<ArtifactExportResult>;
-  download: (exportId: string) => Promise<void>;
   /**
-   * Save a copy into the workspace's Exports folder, then offer Open and Show
-   * in folder: given in the desktop app on the computer Row-Bot runs on.
-   * Without it the export downloads.
+   * Save the export the one way every download saves (5.3.3): the desktop
+   * app's Save dialog asks where (then Show in folder), a browser downloads it.
    */
-  save?: (exportId: string) => Promise<ArtifactSavedExport>;
-  reveal?: (exportId: string, action: 'open' | 'show') => Promise<boolean>;
+  download: (exportId: string) => Promise<CapabilityResult<SavedFile>>;
 };
 
 /** The formats are the presets (parity row 27): one click exports. */
@@ -49,6 +48,14 @@ const FORMATS: {
   { format: 'pptx', label: 'PowerPoint' },
   { format: 'html', label: 'HTML' },
 ];
+
+// Why a save didn't happen, as opposed to the export being gone or denied.
+const SAVE_REASONS = new Set([
+  'user_gesture_required',
+  'save_failed',
+  'operation_failed',
+  '',
+]);
 
 function codeOf(reason: unknown) {
   return typeof reason === 'object' && reason !== null && 'code' in reason
@@ -89,7 +96,8 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
     'screenshot',
   );
   const [result, setResult] = useState<ArtifactExportResult | null>(null);
-  const [saved, setSaved] = useState<ArtifactSavedExport | null>(null);
+  // The export saved last: the panel keeps only its line (F17).
+  const [saved, setSaved] = useState('');
   const [working, setWorking] = useState<ArtifactExportOptions['format']>();
   const [error, setError] = useState('');
   const [needsBrowser, setNeedsBrowser] = useState(false);
@@ -102,7 +110,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
   }, [props]);
   useEffect(() => {
     setResult(null);
-    setSaved(null);
+    setSaved('');
     setError('');
     setNotice('');
   }, [props.resourceId]);
@@ -126,7 +134,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
       setNeedsBrowser(issue.needsBrowser);
       if (issue.denied) {
         setResult(null);
-        setSaved(null);
+        setSaved('');
       }
     } finally {
       if (operation.current === identity) {
@@ -152,7 +160,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
       };
       setWorking(format);
       setResult(null);
-      setSaved(null);
+      setSaved('');
       const next = await props.create(options, revision);
       if (scope.current.resourceId !== resourceId) return;
       if (
@@ -162,34 +170,39 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
       )
         throw { code: 'export_incomplete' };
       setResult(next);
-      if (!props.save) return;
-      const copy = await props.save(next.export_id);
-      if (scope.current.resourceId === resourceId) setSaved(copy);
+      // One click exports, then asks where to save it. A browser that needs a
+      // fresh click by then offers Download instead.
+      await save(next.export_id, resourceId, true);
     });
+  }
+
+  async function save(exportId: string, resourceId: string, quiet = false) {
+    const outcome = await props.download(exportId);
+    if (scope.current.resourceId !== resourceId) return;
+    if (outcome.status === 'ok') setSaved(exportId);
+    else if (
+      outcome.status === 'unavailable' &&
+      !SAVE_REASONS.has(outcome.reason ?? '')
+    )
+      // The export itself is gone or no longer allowed: as an export failure.
+      throw { code: outcome.reason };
+    else if (!(
+      quiet &&
+      outcome.status === 'unavailable' &&
+      outcome.reason === 'user_gesture_required'
+    ))
+      setNotice(saveProblem(outcome, 'the export'));
   }
 
   function download() {
     void exclusive(async (resourceId) => {
       if (!current || current.resource_id !== resourceId) return;
-      await props.download(current.export_id);
-      if (scope.current.resourceId === resourceId)
-        setNotice('Download requested.');
-    });
-  }
-
-  function reveal(action: 'open' | 'show') {
-    void exclusive(async (resourceId) => {
-      if (!current || !props.reveal) return;
-      const done = await props.reveal(current.export_id, action);
-      if (scope.current.resourceId === resourceId && !done)
-        setNotice(
-          "That file isn't in the Exports folder any more. Export it again.",
-        );
+      await save(current.export_id, resourceId);
     });
   }
 
   if (!props.visible) return null;
-  const copy = current && saved?.export_id === current.export_id ? saved : null;
+  const copy = current && saved === current.export_id ? current : null;
   const label = (format: string) =>
     FORMATS.find((item) => item.format === format)?.label ??
     format.toUpperCase();
@@ -287,7 +300,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
         <div className="export-result" role="status">
           {copy ? (
             <p>
-              <strong>Saved</strong> · {copy.filename} in {copy.folder}
+              <strong>Saved</strong> · {copy.filename}
             </p>
           ) : (
             <p>
@@ -305,25 +318,15 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
             </p>
           )}
           <div className="action-cluster">
-            {copy && props.reveal ? (
+            {copy ? (
               <>
-                <Button
-                  variant="primary"
-                  disabled={busy}
-                  onClick={() => reveal('open')}
-                >
-                  Open
-                </Button>
-                <Button disabled={busy} onClick={() => reveal('show')}>
-                  Show in folder
-                </Button>
                 {/* Once the file is saved the panel keeps only this line (F17). */}
                 <Button
                   variant="ghost"
                   disabled={busy}
                   onClick={() => {
                     setResult(null);
-                    setSaved(null);
+                    setSaved('');
                     setNotice('');
                   }}
                 >

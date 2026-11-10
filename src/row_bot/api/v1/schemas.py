@@ -16,6 +16,7 @@ from pydantic import (
     model_validator,
 )
 
+from row_bot.application.attachments import MAX_ATTACHMENT_BYTES
 from row_bot.application.live_updates import Topic as LiveTopic
 
 OpaqueId = Annotated[
@@ -343,7 +344,7 @@ class ConversationActionConversation(WireModel):
 
 class ConversationActionExport(WireModel):
     attachment_ref: Reference
-    file_name: Literal["conversation-export.md", "conversation-export.pdf"]
+    file_name: str = Field(max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._-]*\.(md|pdf)$")
     size_bytes: int = Field(ge=0, le=8 * 1024 * 1024)
     checkpoint_revision: str = Field(max_length=128)
 
@@ -393,8 +394,9 @@ class BrowserFrame(WireModel):
 
 
 class BrowserInputEvent(WireModel):
-    """The person's mouse, wheel or key in the pane, in the page's CSS pixels; ``copy`` reads the selection."""
-    type: Literal["mouse", "key", "text", "copy"]
+    """The person's mouse, wheel or key in the pane, in the page's CSS pixels; ``copy`` reads the selection and
+    ``paste`` pastes text as the page's own paste."""
+    type: Literal["mouse", "key", "text", "paste", "copy"]
     action: Literal["move", "down", "up", "wheel", ""] = ""
     x: float = Field(default=0, ge=-10_000, le=100_000)
     y: float = Field(default=0, ge=-10_000, le=100_000)
@@ -403,7 +405,7 @@ class BrowserInputEvent(WireModel):
     button: Literal["left", "right", "middle"] = "left"
     clicks: int = Field(default=1, ge=1, le=3)
     key: str = Field(default="", max_length=32)
-    text: str = Field(default="", max_length=4096)
+    text: str = Field(default="", max_length=65_536)
 
     @model_validator(mode="after")
     def complete(self) -> BrowserInputEvent:
@@ -411,8 +413,8 @@ class BrowserInputEvent(WireModel):
             raise ValueError("A mouse event moves, presses, releases or turns the wheel.")
         if self.type == "key" and (self.action not in {"down", "up"} or not self.key):
             raise ValueError("A key event presses or releases one named key.")
-        if self.type == "text" and not self.text:
-            raise ValueError("A text event has text.")
+        if self.type in {"text", "paste"} and not self.text:
+            raise ValueError("A text or paste event has text.")
         if any(ord(character) < 32 and character not in "\t\n" for character in self.key + self.text):
             raise ValueError("Control characters aren't keys or text.")
         return self
@@ -778,6 +780,13 @@ class SettingsWorkspaceSnapshot(WireModel):
     exists: bool
 
 
+class ToolSettingsResetWorkspace(WireModel):
+    # Whether Start from defaults keeps the workspace folder the agent works in, and that folder after it
+    # (its name, or "Documents › Row-Bot" for the default; never a full path).
+    kept: bool
+    folder: str = Field(max_length=512)
+
+
 class SettingsToggleSnapshot(WireModel):
     available: bool
     enabled: bool | None
@@ -844,6 +853,47 @@ class SettingsLoggingSnapshot(WireModel):
     directory_available: bool
 
 
+class HostTrial(WireModel):
+    """A host's trial server, by its memory (A4): what works there, and the host's page to upgrade."""
+
+    note: str = Field(min_length=1, max_length=512)
+    upgrade_url: str = Field(min_length=1, max_length=512)
+
+
+class SettingsHostSnapshot(WireModel):
+    """The company that runs this Row-Bot (H13): a reviewed entry; a link nobody confirmed is null."""
+
+    id: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=64)
+    home_url: str = Field(max_length=512)
+    support_url: str | None = Field(max_length=512)
+    status_url: str | None = Field(max_length=512)
+    manage_url: str | None = Field(max_length=512)
+    # The host's own words (R1): what runs Row-Bot there ("pod", "service") and what the host runs.
+    unit: str = Field(min_length=1, max_length=32)
+    runs: str = Field(min_length=1, max_length=128)
+    # Whether the host installs each new version by itself, and the Updates page's line about it.
+    applies_updates: bool
+    updates_help: str = Field(min_length=1, max_length=512)
+    # The service's own pages at the host (A2), when the host told it its IDs: its settings (memory,
+    # updates) and the workspace's usage. Null otherwise.
+    settings_url: str | None = Field(default=None, max_length=512)
+    usage_url: str | None = Field(default=None, max_length=512)
+    # Data's line about the host's own backups of the server (F3), in the host's words.
+    backups_note: str | None = Field(default=None, max_length=256)
+    # The host card's one step after the first answer (A3), linking usage_url.
+    spending_limit_step: str | None = Field(default=None, max_length=128)
+    # Only while the server has a trial's memory (A4).
+    trial: HostTrial | None = None
+
+
+class SettingsServerMemorySnapshot(WireModel):
+    """A server's memory limit and the working set now (H12), for the host card (U5)."""
+
+    limit_bytes: int = Field(ge=1)
+    used_bytes: int = Field(ge=0)
+
+
 class SystemSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     workspace: SettingsWorkspaceSnapshot
@@ -855,6 +905,9 @@ class SystemSettingsSnapshot(WireModel):
     remote_access: SettingsRemoteAccessSnapshot
     mobile_access: SettingsMobileAccessSnapshot
     logging: SettingsLoggingSnapshot
+    hosted_by: SettingsHostSnapshot | None = None
+    # Null without a memory limit (the desktop), or when the use can't be read.
+    memory: SettingsServerMemorySnapshot | None = None
 
 
 class TrackerSettingsItem(WireModel):
@@ -1291,6 +1344,10 @@ class SettingsSnapshot(WireModel):
     plugins: SettingsPluginSummary
     preferences: PreferenceSettingsSnapshot
     learning: LearningSettingsSnapshot
+    # tools_config.json exists but can't be read: every tool stays off until it is reset or restored.
+    tool_settings_unreadable: bool = False
+    # While it is unreadable: the workspace folder after Start from defaults.
+    tool_settings_reset_workspace: ToolSettingsResetWorkspace | None = None
     # Per page, what each saved field reads on a fresh profile; clients show
     # a "modified" mark and a reset for fields that differ.
     defaults: dict[SettingsMutationPage, dict[str, SettingsMutationValue]] = Field(
@@ -1431,6 +1488,13 @@ class ProviderEndpointFields(WireModel):
     supports_reasoning_content: bool = False
     supports_reasoning_replay: bool = False
     extra_body_json: str = Field(default="{}", max_length=16384)
+    # On a hosted server: the owner allowed this endpoint's address to be private (H16).
+    allow_private_address: bool = False
+
+
+class ProviderEndpointProfile(WireModel):
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
 
 
 class ProviderProbeComponent(WireModel):
@@ -1456,9 +1520,7 @@ class ProviderConfigurationPage(WireModel):
     items: list[ProviderEndpointSnapshot] = Field(max_length=20)
     total: int = Field(ge=0)
     next_cursor: str | None = Field(max_length=1024)
-    profiles: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
-        max_length=32
-    )
+    profiles: list[ProviderEndpointProfile] = Field(max_length=32)
 
 
 ProviderConfigurationOperation = Literal[
@@ -1467,8 +1529,6 @@ ProviderConfigurationOperation = Literal[
     "provider.endpoint.delete",
     "provider.endpoint.probe",
     "provider.endpoint.refresh",
-    "provider.model.pin",
-    "provider.model.unpin",
 ]
 
 
@@ -1476,16 +1536,10 @@ class ProviderEndpointIdentity(WireModel):
     endpoint_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
-class ProviderModelPin(WireModel):
-    provider_id: OpaqueId
-    model_id: str = Field(min_length=1, max_length=512)
-    surface: str = Field(min_length=1, max_length=80)
-
-
 class ProviderConfigurationReviewRequest(WireModel):
     operation: ProviderConfigurationOperation
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    fields: ProviderEndpointFields | ProviderEndpointIdentity | ProviderModelPin
+    fields: ProviderEndpointFields | ProviderEndpointIdentity
 
 
 class ProviderConfigurationReview(WireModel):
@@ -1497,7 +1551,7 @@ class ProviderConfigurationReview(WireModel):
 
 class ProviderConfigurationPayload(WireModel):
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    fields: ProviderEndpointFields | ProviderEndpointIdentity | ProviderModelPin
+    fields: ProviderEndpointFields | ProviderEndpointIdentity
     nonce: str = Field(min_length=1, max_length=128)
 
 
@@ -1862,6 +1916,9 @@ class IntegrationSourceStatus(WireModel):
     truncated: bool = False
 
 
+IntegrationLabel = Literal["official", "reviewed", "built_in", "community"]
+
+
 class IntegrationSearchRequest(WireModel):
     query: str = Field(default="", max_length=256)
     # Source ids come from GET /integrations/sources; the server validates them.
@@ -1872,6 +1929,11 @@ class IntegrationSearchRequest(WireModel):
     include_incompatible: bool = False
     cursor: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=96)
+    # Filters, applied on the server so counts stay true: who stands behind a result (None: any),
+    # where it runs, and only ways that need no account or key.
+    labels: list[IntegrationLabel] | None = Field(default=None, max_length=4)
+    runs: Literal["anywhere", "hosted", "local"] = "anywhere"
+    no_sign_in: bool = False
 
 
 class McpRequirementSummary(WireModel):
@@ -2425,7 +2487,7 @@ class OnboardingSnapshot(WireModel):
     default_model: str | None = Field(default=None, max_length=1024)
     # Areas whose real state says they are done (a chosen model, Developer tools on).
     live_done: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
-        default_factory=list, max_length=11
+        default_factory=list, max_length=13
     )
     import_sources: list[OnboardingImportSource] = Field(default_factory=list, max_length=2)
     starter_workflows_missing: int = Field(ge=0, le=32)
@@ -2433,13 +2495,24 @@ class OnboardingSnapshot(WireModel):
         max_length=7
     )
     completed_steps: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
-        max_length=11
+        max_length=13
     )
     skipped_steps: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
-        max_length=11
+        max_length=13
     )
     dismissed_home_card: bool
-    steps: list[OnboardingStep] = Field(max_length=11)
+    # The "Add Row-Bot to your phone" card (U10), once dismissed, never comes back.
+    dismissed_phone_card: bool = False
+    # The host card's spending-limit step (A3), once hidden, never comes back.
+    dismissed_spending_limit: bool = False
+    # The one chat the phone card shows in: the first with an answer.
+    phone_card_conversation: str | None = Field(default=None, max_length=128)
+    # The company hosting this Row-Bot (H13), when one is known: the hosted first run (U3)
+    # and Setup Center (U4) name it and add "Add your phone" and "Back up".
+    host_name: str | None = Field(default=None, max_length=64)
+    # While the host's server has a trial's memory, the hosted first run says what works (A4).
+    host_trial: HostTrial | None = None
+    steps: list[OnboardingStep] = Field(max_length=13)
     intents: list[OnboardingIntent] = Field(max_length=7)
 
 
@@ -2448,13 +2521,18 @@ class OnboardingCommand(WireModel):
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     action: Literal[
         "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters",
-        "choose_model",
+        "choose_model", "choose_suggested", "dismiss_phone_card", "show_phone_card",
+        "dismiss_spending_limit",
     ]
     profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
         default_factory=list, max_length=7
     )
     step: str = Field(default="", max_length=32)
     model_ref: str = Field(default="", max_length=1024)
+    # "choose_suggested": the provider just signed in to, whose own first model becomes the default.
+    provider_id: str = Field(default="", max_length=160)
+    # "show_phone_card": the chat whose first answer the phone card follows (U10).
+    conversation_id: str = Field(default="", max_length=128)
 
 
 class OnboardingReceipt(WireModel):
@@ -2468,10 +2546,8 @@ class LocalRuntimeModel(WireModel):
     model_ref: str = Field(min_length=1, max_length=1024)
     name: str = Field(max_length=512)
     agent_ready: bool | None = None
-    # F10: a favourite's place in the list (from 1), a hidden model, and
-    # Row-Bot's suggested first picks. Absent when not set.
-    favourite_rank: int | None = Field(default=None, ge=1, le=64)
-    hidden: bool = False
+    # A star's place in the list (from 1) and Row-Bot's suggested first picks. Absent when not set.
+    favourite_rank: int | None = Field(default=None, ge=1, le=256)
     recommended: bool = False
 
 
@@ -2481,6 +2557,8 @@ class LocalRuntimeSnapshot(WireModel):
     platform: Literal["windows", "macos", "linux"]
     download_url: str = Field(max_length=256)
     models: list[LocalRuntimeModel] = Field(max_length=256)
+    # False on another device (a phone): a download link would land there.
+    on_this_computer: bool
 
 
 class ModelTestResult(WireModel):
@@ -3829,6 +3907,9 @@ class DataBackupJob(WireModel):
     code: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=260)
     skipped: list[Annotated[str, Field(max_length=260)]] | None = Field(default=None, max_length=20)
+    # A finished backup's own manifest: what it leaves out and what to sign in to again (U9).
+    left_out: list[Annotated[str, StringConstraints(max_length=200)]] | None = Field(default=None, max_length=10)
+    sign_in_again: list[DataBackupSignIn] | None = Field(default=None, max_length=100)
 
 
 class DataRestorePending(WireModel):
@@ -5095,13 +5176,28 @@ class RuntimeInstallationReceipt(WireModel):
     installation: RuntimeInstallationOutcome
 
 
+class ProblemLink(WireModel):
+    """A page outside Row-Bot that helps with a problem (U8): how to resize, the host's own page."""
+
+    label: str = Field(min_length=1, max_length=128)
+    url: str = Field(max_length=512, pattern=r"^https://")
+
+
 class AttentionProblem(WireModel):
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(max_length=160)
     detail: str = Field(max_length=512)
-    # "health": a Monitor check whose last result is an error (B252).
-    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health"]
+    # "health": a Monitor check whose last result is an error (B252); "data": a sandbox without a model (W12);
+    # "memory": Row-Bot restarted because the server ran out of memory (U8).
+    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health", "data", "memory"]
     fix: ProblemFix | None = None
+    links: list[ProblemLink] = Field(default_factory=list, max_length=2)
+
+
+class MemoryNoticeDismissed(WireModel):
+    """The out-of-memory notice is gone until the next such restart (U8); false when there was none."""
+
+    dismissed: bool
 
 
 class AttentionUpdate(WireModel):
@@ -5268,8 +5364,9 @@ VideoSceneId = Annotated[str, StringConstraints(pattern=r"^s[0-9a-f]{6}$")]
 class VideoScene(WireModel):
     """One scene of a video project (5.3.1 B3): a piece of a video, its speed, zoom, card and line."""
     scene_id: VideoSceneId
-    # Its video: a recording (rec-…), an edit (edit-…), a file in the chat or a workspace path.
-    source: str = Field(min_length=1, max_length=512)
+    # Its video: a recording (rec-…), an edit (edit-…), a file in the chat or a workspace path; empty for a title
+    # card (its card on the brand's colour, end seconds long).
+    source: str = Field(max_length=512)
     start: float = Field(ge=0)
     end: float | None = Field(ge=0)
     speed: float = Field(ge=0.25, le=4)
@@ -5290,7 +5387,7 @@ class VideoScene(WireModel):
 class VideoSceneWrite(WireModel):
     """A scene as the Video panel writes it (an empty id is a new scene)."""
     scene_id: str = Field(default="", max_length=16, pattern=r"^(s[0-9a-f]{6})?$")
-    source: str = Field(min_length=1, max_length=512)
+    source: str = Field(default="", max_length=512)
     start: float = Field(default=0, ge=0)
     end: float | None = Field(default=None, ge=0)
     speed: float = Field(default=1, ge=0.25, le=4)
@@ -5327,6 +5424,12 @@ class VideoBrand(WireModel):
     intro: str = Field(max_length=120)
     outro: str = Field(max_length=120)
     music_mood: Literal["calm", "upbeat", "focused", "warm"]
+    # Footage on the backdrop or edge to edge; a camera that follows what was done or stays still.
+    framing: Literal["framed", "full"] = "framed"
+    camera: Literal["follow", "still"] = "follow"
+    # The voice that says every video's lines ("" the one chosen in Settings) and its speed.
+    voice: str = Field(default="", max_length=64)
+    voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)
 
 
 class VideoProjectView(WireModel):
@@ -5343,6 +5446,8 @@ class VideoProjectView(WireModel):
     changed: list[VideoSceneId] = Field(max_length=60)
     music: str = Field(max_length=200)
     music_volume: float = Field(ge=0, le=1)
+    # One voice file said over the whole video ("" none): its scenes' lines then aren't said one by one.
+    narration: str = Field(default="", max_length=200)
     captions: bool
     voice_lines: bool
     # draft (not made yet), voicing, rendering, made, failed or stopped.
@@ -5358,6 +5463,11 @@ class VideoProjectView(WireModel):
     exports: list[VideoExportView] = Field(max_length=4)
     # Made with the brand kit.
     brand: bool
+    # Its own voice and speed for its lines ("" and 0: the brand kit's).
+    voice: str = Field(default="", max_length=64)
+    voice_speed: float = Field(default=0.0, ge=0, le=1.25)
+    # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
+    review_sheet: str = Field(default="", max_length=200)
 
 
 class VideoProjectChange(WireModel):
@@ -5368,6 +5478,7 @@ class VideoProjectChange(WireModel):
     music_volume: float | None = Field(default=None, ge=0, le=1)
     captions: bool | None = None
     brand: bool | None = None
+    voice: str | None = Field(default=None, max_length=64)
     note: str = Field(default="", max_length=200)
 
 
@@ -5677,12 +5788,6 @@ class PageDecisionWrite(WireModel):
     label: str = Field(default="", max_length=200)
 
 
-class PageDownload(WireModel):
-    """The page as one HTML file that works on its own (it saves nothing)."""
-    file_name: str = Field(min_length=1, max_length=96)
-    html: str = Field(min_length=1, max_length=8 * 1024 * 1024)
-
-
 class LocalAddressGrantView(WireModel):
     """An address on this computer one conversation's browser may open (F4): one origin, for an hour."""
     grant_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
@@ -5947,6 +6052,26 @@ class ClaudePlanStatus(WireModel):
     detail: str = Field(max_length=256)
     # The old Claude sign-in had this profile set up: Settings says to set it up again.
     set_up_again: bool
+    # Signed out after Claude had worked here: Claude signed the person out (U11).
+    signed_in_before: bool = False
+
+
+class ClaudeCodeInstallRequest(WireModel):
+    """Install Claude Code from Anthropic (H14); ``update`` reinstalls the newest over one already there."""
+
+    update: bool = False
+
+
+class ClaudeCodeInstallState(WireModel):
+    """Installing Claude Code: progress and a plain reason, never a path, a URL or the installer's output."""
+
+    state: Literal["idle", "running", "done", "failed"]
+    step: Literal["", "download", "check", "install"]
+    received: int = Field(ge=0)
+    total: int = Field(ge=0)
+    version: str = Field(max_length=40)
+    reason: Literal["", "no_internet", "download_failed", "checksum_mismatch", "disk_full",
+                    "unsupported_platform", "install_failed"]
 
 
 class ProviderLiveCard(WireModel):
@@ -6029,17 +6154,14 @@ class CachedModelRow(WireModel):
     reasoning: CachedReasoning | None = None
     context_window: int | None = Field(default=None, ge=1)
     installed: bool | None = None
-    pinned_surfaces: list[Annotated[str, StringConstraints(max_length=80)]] = Field(
-        max_length=32
-    )
     configured: bool
     runtime_ready: bool
     status_reason: str = Field(max_length=256)
     runtime_mode: str = Field(max_length=32)
     source: str = Field(max_length=80)
     runtime_state: Literal["unknown", "ready", "unavailable"] = "unknown"
-    favourite_rank: int | None = Field(default=None, ge=1, le=64)
-    hidden: bool = False
+    offered: bool = False
+    favourite_rank: int | None = Field(default=None, ge=1, le=256)
 
 
 class CachedModelPage(WireModel):
@@ -6062,8 +6184,9 @@ class ModelPickerOption(WireModel):
     context_window: int | None = Field(default=None, ge=1)
     reason: str = Field(default="", max_length=256)
     billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None
-    favourite_rank: int | None = Field(default=None, ge=1, le=64)
-    hidden: bool = False
+    favourite_rank: int | None = Field(default=None, ge=1, le=256)
+    # It can't use tools, so it chats only (Chat only mode).
+    chat_only: bool = False
 
 
 class ModelPickerSurface(WireModel):
@@ -6084,6 +6207,8 @@ class ModelContextState(WireModel):
 class ModelsSettingsState(WireModel):
     schema_version: Literal[1] = 1
     brain: ModelPickerSurface
+    # Answers when the main model can't (#140): off by default, ready agent models only.
+    backup: ModelPickerSurface
     vision: ModelPickerSurface
     image: ModelPickerSurface
     video: ModelPickerSurface
@@ -6095,7 +6220,7 @@ class ModelsSettingsState(WireModel):
 
 
 class ModelSurfaceMutation(WireModel):
-    surface: Literal["vision", "image", "video"]
+    surface: Literal["vision", "image", "video", "backup"]
     action: Literal["default", "enabled", "camera"]
     selection_ref: str | None = Field(default=None, max_length=647)
     enabled: bool | None = None
@@ -6108,24 +6233,17 @@ class ModelContextMutation(WireModel):
 
 
 class ModelVisibilityMutation(WireModel):
-    """Favourite or hide one model (by its provider-qualified reference), or show every hidden one."""
+    """Star or unstar one model (by its provider-qualified reference)."""
 
-    action: Literal["favourite", "unfavourite", "hide", "show", "show_all"]
-    model_ref: str | None = Field(default=None, min_length=1, max_length=647)
-
-    @model_validator(mode="after")
-    def one_model(self) -> ModelVisibilityMutation:
-        if (self.action == "show_all") != (self.model_ref is None):
-            raise ValueError("Every action but show_all names one model.")
-        return self
+    action: Literal["favourite", "unfavourite"]
+    model_ref: str = Field(min_length=1, max_length=647)
 
 
 class ModelVisibilityState(WireModel):
-    """Favourites in their order, and the hidden models (F10)."""
+    """Your models: the stars, in the order they were added."""
 
-    schema_version: Literal[1] = 1
-    favourites: list[str] = Field(max_length=64)
-    hidden: list[str] = Field(max_length=512)
+    schema_version: Literal[2] = 2
+    favourites: list[str] = Field(max_length=256)
 
 
 class AgentRuntimeSettingsState(WireModel):
@@ -6641,7 +6759,7 @@ class ArtifactAssetUploadPayload(WireModel):
     upload_id: UUID
     filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
 
 
 class ArtifactDocumentImportPayload(WireModel):
@@ -6649,7 +6767,7 @@ class ArtifactDocumentImportPayload(WireModel):
     upload_id: UUID
     filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
     replace: bool
 
 
@@ -6658,7 +6776,7 @@ class ArtifactDocumentImportPreviewRequest(WireModel):
     upload_id: UUID
     filename: str = Field(min_length=1, max_length=240, pattern=r"^[^/\\:\x00\r\n]+\.(?:[Pp][Pp][Tt][Xx]|[Dd][Oo][Cc][Xx])$")
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
 
 
 class ArtifactDocumentImportPage(WireModel):
@@ -6747,17 +6865,6 @@ class ArtifactBrandSuggestion(WireModel):
     body_font: str | None = Field(default=None, max_length=128)
 
 
-class ArtifactSavedExport(WireModel):
-    """A ready export copied into the workspace's Exports folder (local owner)."""
-    export_id: UUID
-    filename: str = Field(min_length=1, max_length=256)
-    folder: str = Field(min_length=1, max_length=512)
-
-
-class ArtifactExportReveal(WireModel):
-    action: Literal["open", "show"]
-
-
 class ArtifactExportRevealResult(WireModel):
     status: Literal["opened", "not_found", "unavailable"]
 
@@ -6766,6 +6873,53 @@ class ExportSaved(WireModel):
     """A conversation export written into the workspace's Exports folder (local owner)."""
     file_name: str = Field(min_length=1, max_length=256)
     folder: str = Field(min_length=1, max_length=512)
+
+
+class SavePageSource(WireModel):
+    kind: Literal["page"]
+    page_id: str = Field(pattern=r"^page-[0-9a-f]{8}$")
+    theme: PageTheme
+
+
+class SaveDeliverySource(WireModel):
+    kind: Literal["delivery"]
+    delivery_id: str = Field(pattern=r"^send-[0-9a-f]{8}$")
+    index: int = Field(ge=0, le=99)
+
+
+class SaveDesignExportSource(WireModel):
+    kind: Literal["design_export"]
+    conversation_id: str = Field(min_length=1, max_length=128)
+    binding_id: str = Field(min_length=1, max_length=128)
+    export_id: str = Field(min_length=36, max_length=36)
+
+
+class SaveWorkflowWebhookSource(WireModel):
+    kind: Literal["workflow_webhook"]
+    task_id: str = Field(min_length=1, max_length=128)
+    revision: str = Field(min_length=1, max_length=128)
+
+
+class SaveContentSource(WireModel):
+    """Something the chat shows that only the page holds: a code block's text or a chart's picture."""
+    kind: Literal["content"]
+    name: str = Field(min_length=1, max_length=120)
+    content_base64: str = Field(min_length=1, max_length=12 * 1024 * 1024)
+
+
+class SaveOfferRequest(WireModel):
+    """Ask for one file to save, the one way every Download and Export button saves (5.3.3)."""
+    source: Annotated[
+        Union[SavePageSource, SaveDeliverySource, SaveDesignExportSource, SaveWorkflowWebhookSource,
+              SaveContentSource],
+        Field(discriminator="kind"),
+    ]
+
+
+class SaveOffer(WireModel):
+    """A short-lived reference to save once: the Save dialog, a download, or Exports while reconnecting."""
+    reference: str = Field(pattern=r"^save:[0-9a-f]{32}$")
+    file_name: str = Field(min_length=1, max_length=120)
 
 
 class ExportRevealRequest(WireModel):
@@ -7548,8 +7702,6 @@ class Command(WireModel):
         "provider.endpoint.delete",
         "provider.endpoint.probe",
         "provider.endpoint.refresh",
-        "provider.model.pin",
-        "provider.model.unpin",
         "artifact.design.control",
         "artifact.asset.upload",
         "artifact.document.import",
@@ -7731,8 +7883,6 @@ COMMAND_PAYLOADS = {
     "provider.endpoint.delete": ProviderConfigurationPayload,
     "provider.endpoint.probe": ProviderConfigurationPayload,
     "provider.endpoint.refresh": ProviderConfigurationPayload,
-    "provider.model.pin": ProviderConfigurationPayload,
-    "provider.model.unpin": ProviderConfigurationPayload,
     "artifact.design.control": ArtifactDesignControlPayload,
     "artifact.asset.upload": ArtifactAssetUploadPayload,
     "artifact.document.import": ArtifactDocumentImportPayload,
@@ -7796,6 +7946,8 @@ class GenerationState(WireModel):
     external_outcome: Literal["known_not_sent", "sent", "uncertain", "not_applicable"]
     approval_id: OpaqueId | None
     can_stop: bool
+    # An interrupted turn's reason, when it is known (the provider's words, secrets taken out).
+    failure_reason: str = Field(default="", max_length=400)
 
 
 class TranscriptDelta(WireModel):
@@ -7906,9 +8058,12 @@ class ApprovalRequired(WireModel):
 
 
 class GenerationError(WireModel):
-    code: Literal["generation_failed", "sign_in_required"]
+    code: Literal["generation_failed", "sign_in_required", "provider_unavailable"]
     # sign_in_required: whose sign-in to renew ("ChatGPT").
     provider: str = Field(default="", max_length=64)
+    # provider_unavailable: the provider's own words on why and what to do ("Claude is limiting requests…");
+    # generation_failed: why the turn failed, when it is known ("Out of credits — add credits…").
+    message: str = Field(default="", max_length=400)
 
 
 class TranscriptCheckpoint(WireModel):
@@ -8015,6 +8170,8 @@ class MediaAvailable(WireModel):
         "application/pdf",
         "application/octet-stream",
     ]
+    # The prompt a media tool made it from, on one line (5.3.3): it names the output in the chat's Outputs.
+    prompt: str = Field(default="", max_length=1000)
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
 
@@ -8265,7 +8422,7 @@ class AttachmentView(WireModel):
         "application/pdf",
         "application/octet-stream",
     ]
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
     revision: Revision
 
 
@@ -8342,7 +8499,7 @@ class AttachmentBlock(WireModel):
     attachment_ref: Reference
     name: Annotated[str, StringConstraints(min_length=1, max_length=240)]
     mime_type: str = Field(min_length=1, max_length=128)
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
     revision: Revision
 
 
@@ -8369,6 +8526,8 @@ class TraceAgentReference(WireModel):
 class TraceMediaReference(WireModel):
     media_ref: Reference
     mime_type: str = Field(max_length=128)
+    # The prompt a media tool made it from, on one line (5.3.3); empty for older chats and other tools.
+    prompt: str = Field(default="", max_length=1000)
 
 
 class TraceAppRef(WireModel):
@@ -8538,6 +8697,14 @@ class LinkedFrom(WireModel):
     kind: Literal["message", "reply"] = "message"
 
 
+class HeldMessage(WireModel):
+    """A message another conversation left for a workflow's next run, shown under that run's line."""
+
+    id: OpaqueId
+    title: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=4_000)
+
+
 class ConversationLinkView(WireModel):
     """A conversation another one started or proposed, as its card shows it (5.3.1 C)."""
 
@@ -8572,10 +8739,15 @@ class TranscriptRow(WireModel):
     # messages to it: the row's text is a short public note.
     # Learning (preview): "personal_model_fallback" is the quiet line where the main
     # model finished a turn the personal model got stuck on.
+    # "backup_model" is the quiet line where the backup model took over a turn (#140).
     note: Literal["continuation", "agent_task", "agent_guidance", "page", "personal_model_fallback",
-                  "linked"] | None = None
+                  "linked", "backup_model"] | None = None
     # A message from another conversation (5.3.1 C, note "linked"): where it came from.
     linked_from: LinkedFrom | None = None
+    # A workflow run's line (note "continuation"): the messages other conversations left for that run.
+    held: list[HeldMessage] = Field(default_factory=list, max_length=10)
+    # A workflow run's last line, when the run didn't finish: why, in plain words.
+    run_failure: str | None = Field(default=None, max_length=512)
     # A delegated agent's approval announced in its parent conversation: the
     # row is answered in place with the approval card.
     approval_id: str | None = Field(default=None, max_length=128)
@@ -8706,11 +8878,12 @@ class ModelChoice(WireModel):
     available: bool
     unavailable_reason: Literal["configuration_required", "metadata_missing", "unavailable"] | None = None
     billing: ProviderBilling | None = None
-    # F10: listed first (a favourite's place, from 1) or under "More models".
-    favourite_rank: int | None = Field(default=None, ge=1, le=64)
-    hidden: bool = False
+    # A star's place (from 1): starred models are your models.
+    favourite_rank: int | None = Field(default=None, ge=1, le=256)
     # Learning (preview, D11): one of the person's personal-model versions ("Personal model v1").
     personal: bool = False
+    # It can't use tools, so it chats only (Chat only mode).
+    chat_only: bool = False
 
 
 class CapabilityChoice(WireModel):
@@ -8724,6 +8897,14 @@ class Choices(WireModel):
     models: list[ModelChoice] = Field(max_length=4096)
     capabilities: list[CapabilityChoice] = Field(max_length=4096)
     catalog_stale: bool = True
+
+
+class Place(WireModel):
+    """Where Row-Bot runs, from this browser's side (U7): its own computer, a known host, or a server."""
+
+    kind: Literal["this_computer", "hosted", "server"]
+    # The known host's name (H13), for "on your Row-Bot server at PikaPods"; only when hosted.
+    host_name: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class NativeAdapter(WireModel):
@@ -8813,6 +8994,36 @@ class NativeTerminalClosed(WireModel):
     disconnected: Literal[True] = True
 
 
+class ClaudeSignInOpenRequest(WireModel):
+    """Open Claude's own sign-in (H15). It names no program: the server runs only ``claude auth login``.
+
+    ``switch_account`` runs Claude Code's own ``claude auth logout`` first, to sign in to another account.
+    """
+
+    cols: int = Field(ge=20, le=500)
+    rows: int = Field(ge=5, le=200)
+    switch_account: bool = False
+
+
+class ClaudeSignInView(WireModel):
+    sign_in_id: OpaqueId
+    # The person is at the computer Claude runs on (the desktop app), so the browser Claude opens is theirs.
+    browser_opens: bool
+
+
+class ClaudeSignInOutput(WireModel):
+    """What Claude's sign-in printed since ``cursor``, carried as it is; then how it ended."""
+
+    cursor: int = Field(ge=0)
+    latest: int = Field(ge=0)
+    truncated: bool
+    frames: list[NativeTerminalFrame] = Field(max_length=16)
+    status: Literal["running", "ended"]
+    ended: Literal["exited", "closed", "idle", "replaced"] | None = None
+    # After Claude Code exits: what ``claude auth status`` says now.
+    plan: ClaudePlanStatus | None = None
+
+
 class NativeTerminalChanged(WireModel):
     ok: Literal[True] = True
 
@@ -8863,6 +9074,11 @@ class HandshakeView(Choices):
     server_timezone: str | None = Field(default=None, max_length=64)
     # A sandbox (5.3.1 B4): a second Row-Bot on made-up data; the client shows its mark.
     sandbox: bool = False
+    # Where Row-Bot runs, from this browser's side (U7): the client says "this computer" only when it is.
+    place: Place
+    # The server's memory limit when it has one (a container's, H12), so Voice and Documents say what
+    # fits (U8); null on the desktop.
+    memory_limit_bytes: int | None = Field(default=None, ge=1)
     native_adapter: NativeAdapter
     limits: Limits
 
@@ -8875,6 +9091,10 @@ class XPostMedia(WireModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{12}$")
     kind: Literal["image", "gif", "video"]
     thumbnail: str = Field(default="", max_length=32768, pattern=r"^(data:image/jpeg;base64,[A-Za-z0-9+/=]+)?$")
+    silent: bool = False  # A video with nothing to hear.
+    # Its Library › Media reference, to open it before it goes; "" for a file on this computer.
+    ref: str = Field(default="", max_length=256, pattern=r"^([A-Za-z0-9_-]+:[0-9a-f-]{36})?$")
+    mime: str = Field(default="", max_length=100, pattern=r"^([a-z]+/[a-z0-9.+-]+)?$")
 
 
 class XPostApproval(WireModel):
@@ -8903,12 +9123,16 @@ class ScheduledPost(WireModel):
     id: str = Field(pattern=r"^xs-[0-9a-f]{12}$")
     account_id: str = Field(pattern=r"^[0-9]{1,20}$")
     username: str = Field(default="", pattern=r"^[A-Za-z0-9_]{0,50}$")
+    name: str = Field(default="", max_length=80)
+    # How long a post the account may send, for Edit's count; 0 when X hasn't said.
+    limit: int = Field(default=0, ge=0, le=25000)
     action: Literal["post", "reply", "quote"]
     text: str = Field(default="", max_length=25000)
     target_url: str = Field(default="", max_length=256, pattern=r"^(https://x\.com/[A-Za-z0-9_]+/status/[0-9]+)?$")
     post_at: str = Field(pattern=r"^\d{4}-\d\d-\d\dT\d\d:\d\d$")
     media: list[XPostMedia] = Field(default_factory=list, max_length=4)
-    status: Literal["scheduled", "failed", "missed", "unknown"] = "scheduled"
+    # by_hand: X's reply rule stops this reply or quote; it is never tried again, the person posts it on X by hand.
+    status: Literal["scheduled", "failed", "missed", "unknown", "by_hand"] = "scheduled"
     # Why it didn't go out, in Row-Bot's words (X's reason included); "" while it waits.
     reason: str = Field(default="", max_length=2000)
 
@@ -8921,6 +9145,10 @@ class ScheduledPostRetry(WireModel):
 
 class ScheduledPostRetried(WireModel):
     retried: Literal[True]
+
+
+class ScheduledPostEdited(WireModel):
+    edited: Literal[True]
 
 
 class ScheduledPostPage(WireModel):
@@ -9102,6 +9330,9 @@ class ConversationModelStatus(WireModel):
     local: bool = False
     # Whether images attached here can be seen; None when it cannot be known.
     sees_images: bool | None = None
+    # While the model is unavailable: the backup model that answers this chat's turns instead
+    # (#140), so a message can still be sent; "" when none would.
+    backup_name: str = Field(default="", max_length=256)
 
 
 class ConversationWorkspace(WireModel):
@@ -9466,15 +9697,15 @@ class Unsubscribed(WireModel):
 class UploadRequest(WireModel):
     conversation_id: OpaqueId
     name: str = Field(min_length=1, max_length=240)
-    size_bytes: int = Field(ge=1, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     batch_id: UUID
 
 
 class UploadView(WireModel):
     upload_id: UUID
-    size_bytes: int = Field(ge=1, le=26214400)
-    received_bytes: int = Field(ge=0, le=26214400)
+    size_bytes: int = Field(ge=1, le=MAX_ATTACHMENT_BYTES)
+    received_bytes: int = Field(ge=0, le=MAX_ATTACHMENT_BYTES)
     chunk_bytes: Literal[1048576] = 1048576
     expires_in_seconds: int = Field(ge=0, le=1800)
 
@@ -9812,6 +10043,15 @@ class IntegrationSignals(WireModel):
     downloads: int | None = Field(default=None, ge=0)
     stars: int | None = Field(default=None, ge=0)
     official: bool = False
+    # When its repository was last pushed to (or, without one, its listing updated), in seconds.
+    last_activity_at: int | None = Field(default=None, ge=0)
+
+
+class IntegrationLabelCounts(WireModel):
+    official: int = Field(default=0, ge=0)
+    reviewed: int = Field(default=0, ge=0)
+    built_in: int = Field(default=0, ge=0)
+    community: int = Field(default=0, ge=0)
 
 
 class IntegrationBlocker(WireModel):
@@ -9839,6 +10079,12 @@ class IntegrationEntry(WireModel):
     source: str = Field(max_length=80)
     # How it connects, for the card: signs in, takes a key, hosted, or runs on this computer ("" for skills).
     method: Literal["hosted_sign_in", "api_key", "hosted", "local", "built_in", ""] = ""
+    # Who stands behind it, by rule: its vendor, Row-Bot's review, Row-Bot itself, or anyone else.
+    label: IntegrationLabel = "community"
+    # Where a search matched it: its name exactly, every word in a name, or only elsewhere (None: not searched).
+    match: Literal["exact", "name", "description"] | None = None
+    # Forks of it folded into this result (a fork with more stars than its parent stays apart).
+    forks: int = Field(default=0, ge=0)
     publisher: str = Field(max_length=160)
     version: str = Field(max_length=128)
     installed: bool
@@ -9865,6 +10111,9 @@ class IntegrationEntryPage(WireModel):
     sources: list[IntegrationSourceStatus] = Field(max_length=64)
     # Placeholder, test and duplicate records left out; "Show all results" brings them back.
     hidden: int = Field(default=0, ge=0)
+    # The first result, when it is good enough to lead as the best match; and results by label.
+    best_match_id: str | None = Field(default=None, max_length=512)
+    label_counts: IntegrationLabelCounts = Field(default_factory=IntegrationLabelCounts)
 
 
 class PlanInput(WireModel):
@@ -10020,6 +10269,7 @@ class IntegrationWay(WireModel):
     name: str = Field(max_length=256)
     method: Literal["hosted_sign_in", "api_key", "hosted", "local", "", "built_in"]
     verified: bool
+    label: IntegrationLabel = "community"
     publisher: str = Field(max_length=160)
     supported: bool
     recommended: bool = False

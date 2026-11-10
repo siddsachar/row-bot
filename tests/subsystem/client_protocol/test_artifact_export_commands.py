@@ -1,4 +1,4 @@
-"""Real HTML export, scoped download and interrupted receipt reconciliation."""
+"""Real HTML export, scoped save offers and interrupted receipt reconciliation."""
 # ruff: noqa: F811 -- reused pytest fixtures.
 from uuid import uuid4
 
@@ -31,6 +31,13 @@ def url(created, identity):
     return f"/api/v1/conversations/{created['conversation_id']}/artifacts/{created['binding_id']}/exports/{identity}"
 
 
+def offer(client, headers, created, identity):
+    """Ask to save one export, the one way every download saves (5.3.3)."""
+    return client.post("/api/v1/saves", headers=headers, json={"source": {
+        "kind": "design_export", "conversation_id": created["conversation_id"],
+        "binding_id": created["binding_id"], "export_id": identity}})
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("mode", ["deck", "document", "landing", "app_mockup", "storyboard"])
 def test_all_modes_explicit_export_and_scoped_download(artifact_service, mode, monkeypatch):
@@ -48,11 +55,14 @@ def test_all_modes_explicit_export_and_scoped_download(artifact_service, mode, m
         assert metadata.status_code == 200, metadata.text
         value = metadata.json()
         assert value["resource_id"] == created["resource_id"] and value["format"] == "html"
-        download = client.get(url(created, identity) + "/download", headers=headers)
+        offered = offer(client, headers, created, identity)
+        assert offered.status_code == 200, offered.text
+        download = client.get(f"/api/v1/attachments/{offered.json()['reference']}", headers=headers)
         assert download.status_code == 200, download.text
         assert len(download.content) == value["size_bytes"]
         assert download.headers["Content-Disposition"].startswith("attachment;")
-        assert download.headers["Content-Security-Policy"].startswith("sandbox;")
+        # An HTML export is a file to save, never a page served from the app.
+        assert download.headers["Content-Type"] == "application/octet-stream"
         assert download.headers["Cache-Control"] == "no-store"
         assert b"<html" in download.content.lower()
         revoked = client.get(url({**created, "binding_id": "other-binding"}, identity), headers=headers)
@@ -110,19 +120,16 @@ def test_detached_binding_cannot_download_old_export(artifact_service):
         from row_bot.conversation_resources import list_bindings
         current = list_bindings(created["conversation_id"])
         unbind(created["conversation_id"], created["binding_id"], expected_revision=current.bindings_revision)
-        assert client.get(url(created, identity) + "/download", headers=headers).status_code in {403, 404}
+        assert offer(client, headers, created, identity).status_code in {403, 404}
 
 
-def test_local_owner_saves_an_export_into_the_exports_folder_and_opens_it(artifact_service, monkeypatch, tmp_path):
+def test_an_export_saves_once_and_into_exports_while_the_desktop_window_reconnects(artifact_service, monkeypatch, tmp_path):
     from row_bot.application import conversation_creation
-    from row_bot.designer import client_exports
 
     root = (tmp_path / "Row-Bot")
     root.mkdir()
     monkeypatch.setattr(conversation_creation, "configured_workspace_root", lambda: root.resolve())
     monkeypatch.setattr(export, "_launch_playwright_browser", lambda *a: pytest.fail("HTML export launched a browser"))
-    opened = []
-    monkeypatch.setattr(client_exports, "_open_path", lambda action, path: opened.append((action, path.name)) or True)
     with _client(artifact_service) as client:
         _, headers = bootstrap(client)
         created, payload = prepare(client, headers, "deck")
@@ -130,46 +137,13 @@ def test_local_owner_saves_an_export_into_the_exports_folder_and_opens_it(artifa
         made = _command(client, headers, "artifact.export", payload, target=created["conversation_id"],
                         revision=created["revision"], command_id=identity, key=str(uuid4()))
         assert made.status_code == 200, made.text
-        saved = client.post(url(created, identity) + "/save", headers=headers, json={})
+        offered = offer(client, headers, created, identity)
+        assert offered.status_code == 200, offered.text
+        reference = offered.json()["reference"]
+        saved = client.post(f"/api/v1/attachments/{reference}/save", headers=headers, json={})
         assert saved.status_code == 200, saved.text
         assert saved.json()["folder"] == "Row-Bot › Exports"
-        assert (root / "Exports" / saved.json()["filename"]).is_file()
+        assert (root / "Exports" / saved.json()["file_name"]).is_file()
         assert str(root) not in saved.text
-        for action in ("open", "show"):
-            response = client.post(url(created, identity) + "/reveal", headers=headers, json={"action": action})
-            assert response.status_code == 200 and response.json() == {"status": "opened"}
-        assert opened == [("open", saved.json()["filename"]), ("show", saved.json()["filename"])]
-        refused = client.post(url(created, identity) + "/reveal", headers=headers, json={"action": "delete"})
-        assert refused.status_code == 422
-
-
-def test_another_device_saves_an_export_but_open_and_show_stay_with_the_desktop_app(
-        artifact_service, monkeypatch, tmp_path):
-    """Any signed-in device may save a copy into Exports; Open and Show in folder
-    open an app or the file manager on the computer Row-Bot runs on."""
-    from row_bot.application import conversation_creation
-    from row_bot.designer import client_exports
-
-    root = (tmp_path / "Row-Bot")
-    root.mkdir()
-    monkeypatch.setattr(conversation_creation, "configured_workspace_root", lambda: root.resolve())
-    monkeypatch.setattr(export, "_launch_playwright_browser", lambda *a: pytest.fail("HTML export launched a browser"))
-    opened = []
-    monkeypatch.setattr(client_exports, "_open_path", lambda action, path: opened.append(action) or True)
-    remote, active = _remote_client(artifact_service)
-    with remote as client:
-        _, headers = bootstrap(client)
-        created, payload = prepare(client, headers, "deck")
-        identity = str(uuid4())
-        made = _command(client, headers, "artifact.export", payload, target=created["conversation_id"],
-                        revision=created["revision"], command_id=identity, key=str(uuid4()))
-        assert made.status_code == 200, made.text
-        saved = client.post(url(created, identity) + "/save", headers=headers, json={})
-        assert saved.status_code == 200, saved.text
-        assert (root / "Exports" / saved.json()["filename"]).is_file()
-        for action in ("open", "show"):
-            response = client.post(url(created, identity) + "/reveal", headers=headers, json={"action": action})
-            assert response.status_code == 409 and response.json()["code"] == "desktop_only"
-        active["value"] = False
-        assert client.post(url(created, identity) + "/save", headers=headers, json={}).status_code == 401
-    assert opened == []
+        # An offer is read once.
+        assert client.get(f"/api/v1/attachments/{reference}", headers=headers).status_code == 404

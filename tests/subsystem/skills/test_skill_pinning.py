@@ -232,3 +232,39 @@ def test_row_bot_status_tool_can_pin_and_unpin_skills(tmp_path, monkeypatch, rel
     assert "Off and no longer pinned" in off_result
     assert skills.is_enabled("meeting_notes") is False
     assert skills.is_pinned("meeting_notes") is False
+
+
+def test_a_skill_dropped_into_the_user_folder_is_used_without_a_restart(tmp_path, reload_for_data_dir):
+    """#630: a skill an admin tool or a sync writes into the user skills folder, or changes there, reaches the
+    next turn's skills without restarting Row-Bot; a folder that didn't change is never reloaded."""
+    skills, _activation, _threads, _tasks = _reload_skill_pinning_modules(tmp_path, reload_for_data_dir)
+    from row_bot.skill_discovery import collect_enabled_skill_records
+
+    skills.load_skills()
+
+    def offered() -> dict[str, str]:
+        return {record.canonical_id: record.instructions for record in collect_enabled_skill_records()}
+
+    assert "fleet_inventory" not in offered()
+    folder = skills.USER_SKILLS_DIR / "fleet_inventory"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: fleet_inventory\ndisplay_name: Fleet Inventory\ndescription: List the managed devices.\n"
+        "enabled_by_default: true\n---\nList each managed device with its owner and last check-in.\n",
+        encoding="utf-8")
+    assert "List each managed device" in offered()["fleet_inventory"]
+
+    (folder / "SKILL.md").write_text(
+        "---\nname: fleet_inventory\ndisplay_name: Fleet Inventory\ndescription: List the managed devices.\n"
+        "enabled_by_default: true\n---\nList each managed device, newest check-in first, with its owner.\n",
+        encoding="utf-8")
+    assert "newest check-in first" in offered()["fleet_inventory"]
+
+    loads = []
+    real = skills.load_skills
+    skills.load_skills = lambda: loads.append(1) or real()
+    try:
+        offered()
+    finally:
+        skills.load_skills = real
+    assert loads == [], "an unchanged folder is not read again"

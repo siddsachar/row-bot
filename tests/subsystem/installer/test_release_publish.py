@@ -144,3 +144,83 @@ def test_the_command_line_writes_the_listing_with_the_signed_installer(tmp_path)
     listing = json.loads(Path(tmp_path / "listing.json").read_text(encoding="utf-8"))
     assert [item["name"] for item in listing] == [DMG, INSTALLER]
     assert listing[1]["sha256"] == publish.sha256_file(installer)
+
+
+CONTAINER = f"row-bot-container-{VERSION}.json"
+OLD, NEW = "a" * 64, "b" * 64
+
+
+def _published(block, *, draft=False):
+    lines = "\n".join(f"  {name}: sha256={digest}" for name, digest in block.items())
+    body = f"Notes.\n\n<!-- row-bot-update-manifest -->\n```manifest\nschema: 1\nfiles:\n{lines}\n```\n"
+    return {"draft": draft, "body": body}
+
+
+def _resign(release, assets, **kwargs):
+    return publish.resign_listing(release, assets, installer=INSTALLER, installer_sha256=NEW, installer_size=99,
+                                  **kwargs)
+
+
+def test_resign_replaces_only_the_installer_line_of_a_published_release() -> None:
+    block = {DMG: "1" * 64, INSTALLER: OLD, CONTAINER: "5" * 64}
+    release = _published(block)
+    assets = [_asset(DMG, "1" * 64), _asset(INSTALLER, OLD), _asset(CONTAINER, "5" * 64)]
+
+    listing, problems = _resign(release, assets)
+
+    assert problems == []
+    # The container line container.yml added after publishing is kept.
+    assert {item["name"]: item["sha256"] for item in listing} == {**block, INSTALLER: NEW}
+    # Not finished until the release holds and lists the new installer.
+    assert _resign(release, assets, done=True)[1] == [
+        f"the release does not list and hold the {INSTALLER} signed here"]
+    # A run that stopped after the upload carries on.
+    uploaded = [_asset(DMG, "1" * 64), _asset(INSTALLER, NEW), _asset(CONTAINER, "5" * 64)]
+    assert _resign(release, uploaded)[1] == []
+    assert _resign(_published({**block, INSTALLER: NEW}), uploaded, done=True)[1] == []
+
+
+@pytest.mark.parametrize(
+    ("release", "assets", "problem"),
+    [
+        (_published({DMG: "1" * 64, INSTALLER: OLD}, draft=True), [_asset(DMG, "1" * 64), _asset(INSTALLER, OLD)],
+         "the release is a draft"),
+        ({"draft": False, "body": "Notes."}, [_asset(INSTALLER, OLD)], "the release has no SHA-256 block"),
+        (_published({DMG: "1" * 64, INSTALLER: OLD}), [_asset(DMG, "8" * 64), _asset(INSTALLER, OLD)],
+         f"{DMG} changed since the release was published"),
+        (_published({DMG: "1" * 64, INSTALLER: OLD}), [_asset(INSTALLER, OLD)],
+         f"{DMG} is in the block but gone from the release"),
+        (_published({INSTALLER: OLD}), [_asset(INSTALLER, OLD), _asset("extra.txt", "0" * 64)],
+         "extra.txt is on the release but not in its block"),
+        (_published({INSTALLER: OLD}), [_asset(INSTALLER, "c" * 64)], "neither the published one nor"),
+        (_published({DMG: "1" * 64}), [_asset(DMG, "1" * 64)], f"the block does not list {INSTALLER}"),
+    ],
+)
+def test_resign_refuses_a_release_that_changed_or_is_not_published(release, assets, problem) -> None:
+    _, problems = _resign(release, assets)
+
+    assert any(problem in item for item in problems), problems
+
+
+def _certutil(leaf_status: str) -> str:
+    # The shape of `certutil -verify -urlfetch` for a code signing leaf and its issuer (trimmed).
+    return (
+        "CertContext[0][0]: dwInfoStatus=102 dwErrorStatus=0\n"
+        '  Verified "Base CRL (1d096e)" Time: 0 48132dc1\n'
+        "    [0.0] http://ccsca2021.crl.certum.pl/ccsca2021.crl\n"
+        "  ----------------  Certificate OCSP  ----------------\n"
+        f'  {leaf_status} "OCSP" Time: 0 fd494ea9\n'
+        "    [0.0] http://ccsca2021.ocsp-certum.com\n"
+        "CertContext[0][1]: dwInfoStatus=102 dwErrorStatus=0\n"
+        "  ----------------  Certificate OCSP  ----------------\n"
+        '  Verified "OCSP" Time: 0 4a212569\n'
+    )
+
+
+def test_a_revoked_certificate_never_signs_even_while_the_cached_crl_says_valid() -> None:
+    assert publish.revocation_problems(_certutil("Verified")) == []
+    assert "is revoked" in publish.revocation_problems(_certutil("Revoked"))[0]
+    # No fresh OCSP answer for the leaf (the issuer's does not count): refused, not assumed fine.
+    assert "did not confirm" in publish.revocation_problems(_certutil("Failed"))[0]
+    assert publish.revocation_problems("CertUtil: -verify command FAILED") == [
+        "certutil printed no chain for the certificate"]

@@ -269,6 +269,21 @@ def record_check(name: str, status: str) -> None:
             _CHECKS.pop(name, None)
 
 
+def saved_sign_ins() -> list[str]:
+    """The apps signed in on this computer, by name (Gmail, Google Calendar, X, Outlook), read from the
+    keychain as they are: nothing is copied, refreshed or checked. A backup lists them to sign in again,
+    as their sign-ins stay here."""
+    from row_bot import x_accounts
+
+    with _LOCK:
+        google = _parse(_stored("google")) or {}
+        x = any(_parse(_stored(name)) for name in ("x", *(f"x:{account.id}" for account in x_accounts.listed())))
+        outlook = _parse(_stored("microsoft")) is not None
+    names = [name for name, scope in (("Gmail", GOOGLE_SCOPES[0]), ("Google Calendar", GOOGLE_SCOPES[1]))
+             if google and _covers(google, (scope,))]
+    return names + (["X"] if x else []) + (["Outlook"] if outlook else [])
+
+
 def google_covers(scopes: Iterable[str]) -> bool:
     """Whether Google's saved sign-in serves an app needing these scopes (Gmail's or Calendar's)."""
     info = read("google")
