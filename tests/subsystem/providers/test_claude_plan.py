@@ -556,7 +556,7 @@ def test_the_models_are_claude_codes_own_list_and_listing_them_asks_no_model(sto
 
     assert [(info.model_id, info.display_name, info.context_window) for info in infos] == [
         ("claude-opus-5-5[1m]", "Claude Opus 5.5 with 1M context", 1_000_000),
-        ("claude-sonnet-5", "Claude Sonnet 5", 200_000),
+        ("claude-sonnet-5", "Claude Sonnet 5", 1_000_000),  # each model's own size; Haiku 4.5 reads 200K
         ("claude-haiku-4-5-20251001", "Claude Haiku 4.5", 200_000),
     ]
     assert infos[0].reasoning["supported_efforts"] == ["low", "medium", "high", "xhigh", "max"]
@@ -568,9 +568,11 @@ def test_the_models_are_claude_codes_own_list_and_listing_them_asks_no_model(sto
         info.model_id for info in infos]
 
 
-def test_a_model_claude_code_offers_at_1m_keeps_its_1m_choice(store, tmp_path, monkeypatch):
-    """Claude Code 2.1.322 (a Max plan, 10 Nov) asks for Fable's 1M context in the row's value, not in its
-    resolved model; the list read it as a 200K model and chats asked Claude Code for that one."""
+def test_claude_5_models_read_1m_with_or_without_the_1m_marker(store, tmp_path, monkeypatch):
+    """Claude Code 2.1.322 (Max and Ultra, 10 Nov) asks for Fable's 1M context in the row's value, and runs
+    every Claude 5 model at 1M anyway (its result reported contextWindow=1000000 for plain claude-opus-5-5,
+    claude-sonnet-5-5, claude-haiku-5-5 and claude-fable-5-1). Read by name alone they were 200K, and a long
+    Opus chat was refused before reaching Claude."""
     efforts = {"supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
                "supportsAdaptiveThinking": True}
     install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)", models=[
@@ -587,10 +589,33 @@ def test_a_model_claude_code_offers_at_1m_keeps_its_1m_choice(store, tmp_path, m
     infos = claude.list_claude_subscription_model_infos(force_refresh=True)
 
     assert [(info.model_id, info.context_window) for info in infos] == [
-        ("claude-opus-5-5", 200_000), ("claude-fable-5-1[1m]", 1_000_000), ("claude-haiku-5-5", 200_000)]
+        ("claude-opus-5-5", 1_000_000), ("claude-fable-5-1[1m]", 1_000_000), ("claude-haiku-5-5", 1_000_000)]
+    # A chat saved on a plain name the list no longer gives keeps its model's size too.
+    assert claude.claude_plan_model_info("claude-sonnet-5-5").context_window == 1_000_000
     fake = install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)")
     _model(model_name="claude-fable-5-1[1m]").invoke([HumanMessage(content="Hi")])
     assert fake.model_runs()[0]["argv"][8] == "claude-fable-5-1[1m]"
+
+
+def test_a_reply_teaches_row_bot_the_context_claude_code_runs_a_model_with(store, tmp_path, monkeypatch):
+    """I33: Claude Code reports the context window in every reply's result; Row-Bot never read it and sized
+    Claude plan models by name. A model no table knows is unknown until its first reply, then its own size."""
+    from row_bot.providers import model_catalog_cache
+
+    refreshed = []
+    monkeypatch.setattr(model_catalog_cache, "start_model_catalog_refresh_background",
+                        lambda **kwargs: refreshed.append(kwargs) or True)
+    install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)",
+                        reply=text_reply("ok", model="claude-nova-6", context_window=2_000_000))
+    assert claude.claude_plan_model_info("claude-nova-6[1m]").context_window == 1_000_000
+    assert claude.claude_plan_model_info("claude-nova-6").context_window == 0  # unknown, never a guessed 200K
+
+    _model(model_name="claude-nova-6").invoke([HumanMessage(content="Hi")])
+
+    assert claude.claude_plan_model_info("claude-nova-6").context_window == 2_000_000
+    assert [call["provider_id"] for call in refreshed] == ["claude_subscription"]
+    _model(model_name="claude-nova-6").invoke([HumanMessage(content="Again")])
+    assert len(refreshed) == 1  # the same size again changes nothing
 
 
 def test_a_chat_saved_on_an_older_claude_model_keeps_its_choice(store, tmp_path, monkeypatch):

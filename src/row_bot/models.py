@@ -62,7 +62,7 @@ _EXACT_CONTEXT_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
     ("claude-3-5",       200_000),  # Claude 3.5 family       — 200K
     ("claude-3",         200_000),  # Claude 3 family         — 200K
     ("claude-2",         100_000),  # Claude 2.x (legacy)     — 100K
-    ("claude",           200_000),  # Catch-all Claude        — 200K
+    # No catch-alls: a new family must not inherit an old one's size (a 200K "claude" blocked 1M chats, I33).
     ),
     "google": (
     ("gemini-3",       1_048_576),  # Gemini 3.x              — 1M
@@ -71,13 +71,11 @@ _EXACT_CONTEXT_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
     ("gemini-1.5-pro", 2_097_152),  # Gemini 1.5 Pro          — 2M
     ("gemini-1.5",     1_048_576),  # Gemini 1.5 Flash        — 1M
     ("gemini-1.0",        32_768),  # Legacy Gemini 1.0       — 32K
-    ("gemini",         1_048_576),  # Catch-all Gemini        — 1M
     ),
     "xai": (
     ("grok-4",         2_000_000),  # Grok 4 / 4.20           — 2M
     ("grok-3",           131_072),  # Grok 3 & 3-mini         — 131K
     ("grok-2",           131_072),  # Grok 2 family           — 131K
-    ("grok",             131_072),  # Catch-all Grok          — 131K
     ),
     "minimax": (
     ("minimax-m3",     1_000_000),  # MiniMax M3 Anthropic-compatible model
@@ -1735,6 +1733,16 @@ def get_cloud_model_context(model_name: str) -> int:
     provider_id = parsed[0] if parsed else None
     runtime_model = _runtime_model_name(model_name)
     _sync_custom_model_cache()
+    if provider_id == "claude_subscription":
+        # What Claude Code reported running the model with comes first; a size saved before it, last (I33).
+        try:
+            from row_bot.providers.claude_subscription import claude_plan_model_info
+
+            model_info = claude_plan_model_info(runtime_model)
+            if model_info is not None and model_info.context_window:
+                return int(model_info.context_window)
+        except Exception:
+            pass
     info = _cloud_cache_entry_for(model_name, provider_id)
     if info and (not provider_id or info.get("provider") == provider_id):
         cached_ctx = int(info.get("ctx") or 0)
@@ -1747,15 +1755,6 @@ def get_cloud_model_context(model_name: str) -> int:
             for model_info in list_codex_model_infos_for_status():
                 if model_info.model_id == runtime_model and model_info.context_window:
                     return int(model_info.context_window)
-        except Exception:
-            pass
-    if provider_id == "claude_subscription":
-        try:
-            from row_bot.providers.claude_subscription import claude_plan_model_info
-
-            model_info = claude_plan_model_info(runtime_model)
-            if model_info is not None and model_info.context_window:
-                return int(model_info.context_window)
         except Exception:
             pass
     if provider_id == "xai_oauth":
@@ -2097,9 +2096,13 @@ def _catalog_or_heuristic(provider_id: str, model_id: str) -> int:
                 return cat_val
     from row_bot.providers.capability_catalog import lookup
 
-    known = lookup(provider, runtime_model)
-    if known and known.context_window:
-        return known.context_window
+    # models.dev names a model as its provider lists it, without Claude Code's "[1m]" or a router's
+    # "vendor/" prefix (Requesty's "anthropic/claude-opus-5-5" is "claude-opus-5-5" there, I33).
+    bare = runtime_model.removesuffix("[1m]")
+    for name in dict.fromkeys((runtime_model, bare, bare.rsplit("/", 1)[-1])):
+        known = lookup(provider, name)
+        if known and known.context_window:
+            return known.context_window
     return _maintained_context_limit(provider, runtime_model)
 
 
@@ -2285,7 +2288,7 @@ def _fetch_cloud_models(provider: str) -> int:
                 continue
             mid = str(m.get("id") or "").strip()
             name = str(m.get("name") or mid)
-            ctx = int(m.get("context_length") or 128_000)
+            ctx = int(m.get("context_length") or 0)  # unknown, not 128K: resolved later (I33)
             # Only include models with a '/' (provider/model format)
             if "/" not in mid:
                 continue

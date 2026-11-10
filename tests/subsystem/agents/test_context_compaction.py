@@ -12,14 +12,14 @@ import row_bot.agent as agent
 pytestmark = pytest.mark.subsystem
 
 
-def _inputs(raw, *, mode: str = "agent") -> agent.PreparationInputs:
+def _inputs(raw, *, mode: str = "agent", capacity_source: str = "test") -> agent.PreparationInputs:
     policy = SimpleNamespace(
         native_limit_tokens=5_334,
         requested_limit_tokens=None,
         effective_limit_tokens=5_334,
         usable_input_tokens=4_533,
         compact_at_tokens=4_000,
-        capacity_source="test",
+        capacity_source=capacity_source,
         capacity_state="ready",
         limit_kind="combined",
     )
@@ -445,6 +445,32 @@ def test_current_group_too_large_fails_after_one_fallback_without_persisting(mon
     assert saved == []
     assert [kind for kind, _payload in emitted].count("compaction_failed") == 1
     assert (thread_id, "agent") in agent._COMPACTION_FAILURES
+
+
+def test_a_request_over_a_guessed_size_goes_to_the_provider_instead_of_being_refused(monkeypatch):
+    """I33: no source knew the model's size, Row-Bot assumed 128K (or 200K for Claude) and refused a long
+    chat with a 1M model itself. It still compacts at its guess, but the provider decides."""
+    raw = [HumanMessage(content="user-0"), AIMessage(content="answer-0"), HumanMessage(content="OVERSIZED-CURRENT")]
+    inputs = _inputs(raw, capacity_source="app_fallback")
+    emitted = []
+    agent._COMPACTION_FAILURES.clear()
+    monkeypatch.setattr(agent, "count_tokens_approximately", _adaptive_group_count)
+    monkeypatch.setattr(agent, "_validated_summary_for_inputs", lambda _inputs: None)
+    monkeypatch.setattr(agent, "_invoke_compaction_model", lambda *args, **kwargs: _structured_summary())
+    monkeypatch.setattr(agent, "_emit_context_event", lambda kind, payload: emitted.append(kind))
+    monkeypatch.setattr(agent, "_persist_context_usage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(agent, "_record_compaction_event", lambda *args, **kwargs: {"id": 12, "payload": {}})
+    monkeypatch.setattr("row_bot.threads.context_boundary_digest", lambda *args, **kwargs: "d" * 64)
+    monkeypatch.setattr("row_bot.threads.save_summary_state_cas", lambda *args, **kwargs: True)
+    token = agent._current_thread_id_var.set("thread-guessed-size")
+    try:
+        prepared = agent._prepare_with_compaction(inputs)
+    finally:
+        agent._current_thread_id_var.reset(token)
+
+    assert prepared.usage.estimated_input_tokens > inputs.policy.usable_input_tokens
+    assert prepared.messages[-1].content == "OVERSIZED-CURRENT"
+    assert "compaction_failed" in emitted
 
 
 def test_compaction_failure_logging_includes_only_known_bounded_reason(monkeypatch, caplog):

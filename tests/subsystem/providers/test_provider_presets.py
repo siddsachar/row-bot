@@ -85,7 +85,8 @@ def test_a_bare_model_list_lists_chat_models_with_tools_and_the_preset_context(m
     assert seen["url"] == "https://api.deepseek.com/models"
     assert seen["headers"]["Authorization"] == "Bearer deepseek-key"
     assert _snapshot("deepseek", "deepseek-chat")["tool_calling"] is True
-    assert models.get_cloud_model_context("model:deepseek:deepseek-chat") == 128_000
+    # An alias models.dev doesn't name: unknown, never a guessed 128K that could cap it (I33).
+    assert models.get_cloud_model_context("model:deepseek:deepseek-chat") == 0
 
 
 def test_a_list_that_names_capabilities_is_believed_including_what_it_leaves_out(monkeypatch, cloud_cache):

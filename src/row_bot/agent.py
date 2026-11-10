@@ -3878,6 +3878,15 @@ def _compaction_failure_boundary_digest(inputs: PreparationInputs) -> str:
     })
 
 
+def _size_is_a_guess(prepared: PreparedModelInput) -> bool:
+    """No source knows the model's context: its limit is Row-Bot's own cautious guess (I33).
+
+    Row-Bot still compacts at the guess, but never refuses on it: the provider takes the request or
+    says why not. A refusal on a guessed 128K or 200K blocked chats with 1M models.
+    """
+    return prepared.usage.capacity_source == "app_fallback"
+
+
 def _terminal_compaction_failure(
     inputs: PreparationInputs,
     prepared: PreparedModelInput,
@@ -4042,7 +4051,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
         _emit_context_event("context_usage", _usage_event_payload(unavailable.usage))
         return unavailable
     fixed_envelope = _fixed_prompt_tool_envelope_tokens(inputs)
-    if fixed_envelope > usable:
+    if fixed_envelope > usable and not _size_is_a_guess(prepared):
         raise _terminal_compaction_failure(
             inputs,
             _with_status(prepared, "failed"),
@@ -4057,7 +4066,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
     attempt = _compaction_attempt(inputs, summary_state)
     if not force and _compaction_blocked(thread_id, inputs, attempt):
         # It failed for this input already in this turn: no summarizer call on every iteration.
-        if prepared.usage.estimated_input_tokens <= usable:
+        if prepared.usage.estimated_input_tokens <= usable or _size_is_a_guess(prepared):
             warned = _with_status(prepared, "failed")
             _emit_context_event("compaction_failed", {
                 **_usage_event_payload(warned.usage),
@@ -4220,7 +4229,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
             log_reason = reason if isinstance(exc, ContextCompactionError) else type(exc).__name__
             logger.warning("Context compaction failed: %s", log_reason)
             failed = _with_status(prepared, "failed")
-            if prepared.usage.estimated_input_tokens <= usable:
+            if prepared.usage.estimated_input_tokens <= usable or _size_is_a_guess(prepared):
                 failure_event = _record_compaction_event(
                     inputs,
                     event_type="context_compaction_failed",

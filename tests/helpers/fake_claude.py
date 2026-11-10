@@ -334,7 +334,7 @@ def _finish(stop_reason: str, *, input_tokens: int, output_tokens: int, cache_re
 
 
 def text_reply(text: str, *, thinking: str = "", model: str = "claude-sonnet-5", cache_read: int = 0,
-               stop_reason: str = "end_turn") -> list[dict[str, Any]]:
+               stop_reason: str = "end_turn", context_window: int = 0) -> list[dict[str, Any]]:
     events = [_start(model, 1056)]
     index = 0
     if thinking:
@@ -355,8 +355,12 @@ def text_reply(text: str, *, thinking: str = "", model: str = "claude-sonnet-5",
                                                  "content": [{"type": "text", "text": text}]}},
                _stream({"type": "content_block_stop", "index": index})]
     events += _finish(stop_reason, input_tokens=1056, output_tokens=15, cache_read=cache_read)
-    events.append({"type": "result", "subtype": "success", "is_error": False, "num_turns": 1,
-                   "stop_reason": stop_reason, "result": text})
+    result = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1,
+              "stop_reason": stop_reason, "result": text}
+    if context_window:
+        # As Claude Code 2.1.322 reports it, under the model it ran.
+        result["modelUsage"] = {model: {"contextWindow": context_window, "maxOutputTokens": 128000}}
+    events.append(result)
     return events
 
 

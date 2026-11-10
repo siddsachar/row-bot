@@ -39,8 +39,6 @@ class ProviderPreset:
     key_env: str
     billing: Literal["pay_per_use", "credits"]
     icon: str
-    # Assumed when a model's row gives no context length; most rows give one.
-    context_window: int = 32_768
     # Model types that take chat requests, when the list types its models more
     # finely than chat or not (Together's "language" models are base models).
     chat_types: frozenset[str] | None = None
@@ -53,15 +51,14 @@ class ProviderPreset:
 PRESETS: dict[str, ProviderPreset] = {
     preset.id: preset
     for preset in (
-        # DeepSeek's and Z.AI's lists name their models only; both offer 128K.
         ProviderPreset("deepseek", "DeepSeek", "https://api.deepseek.com", "DEEPSEEK_API_KEY",
-                       "pay_per_use", "DS", context_window=128_000),
+                       "pay_per_use", "DS"),
         ProviderPreset("mistral", "Mistral", "https://api.mistral.ai/v1", "MISTRAL_API_KEY", "pay_per_use", "MI"),
         ProviderPreset("groq", "Groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY", "pay_per_use", "GQ"),
         ProviderPreset("moonshot", "Kimi (Moonshot)", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY",
                        "pay_per_use", "KI"),
         ProviderPreset("zai", "Z.AI (GLM)", "https://api.z.ai/api/paas/v4", "ZAI_API_KEY",
-                       "pay_per_use", "Z", context_window=128_000),
+                       "pay_per_use", "Z"),
         ProviderPreset("dashscope", "Qwen (Alibaba Cloud)", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
                        "DASHSCOPE_API_KEY", "pay_per_use", "QW"),
         ProviderPreset("together", "Together AI", "https://api.together.xyz/v1", "TOGETHER_API_KEY",
@@ -181,7 +178,12 @@ def row_metadata(preset: ProviderPreset, row: dict[str, Any]) -> dict[str, Any]:
     ) if _positive(row.get(key))), 0)
     if not context and routes:
         context = max((_positive(item.get("context_length")) for item in routes), default=0)
-    metadata["context_window"] = context or (known.context_window if known else 0) or preset.context_window
+    # The row's own size, else models.dev's; else unknown, never a guess that would cap a 1M model (I33).
+    if not context:
+        from row_bot.models import _catalog_or_heuristic
+
+        context = _catalog_or_heuristic(preset.id, str(row.get("id") or ""))
+    metadata["context_window"] = context
     return metadata
 
 
