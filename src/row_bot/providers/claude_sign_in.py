@@ -14,6 +14,10 @@ Only the signed-in owner opens one (the routes' access check), and only from the
 opened it can it be read, typed into or closed. At most one runs at a time: a newer one replaces it. It
 closes when Claude Code exits, when the panel closes, and after ten minutes with nothing passing either way.
 It is never a shell, and is separate from the desktop terminal.
+
+Use another Claude account opens it after Claude Code's own ``claude auth logout``
+(``claude_subscription.sign_out_claude_code``): Claude Code keeps one sign-in on this computer, so the person
+signs in again there, to whichever account they choose.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from row_bot.providers.claude_subscription import (
     claude_code_workdir,
     claude_plan_status,
     find_claude_code,
+    sign_out_claude_code,
 )
 
 logger = logging.getLogger(__name__)
@@ -144,9 +149,14 @@ class ClaudeSignIns:
 
     # ── Opening and closing ────────────────────────────────────────────
 
-    def open(self, owner: str, *, cols: int = 100, rows: int = 30, busy: Callable[[], bool] | None = None
-             ) -> ClaudeSignIn:
-        """Start ``claude auth login`` for ``owner`` (an access session), replacing any sign-in still open."""
+    def open(self, owner: str, *, cols: int = 100, rows: int = 30, busy: Callable[[], bool] | None = None,
+             switch_account: bool = False) -> ClaudeSignIn:
+        """Start ``claude auth login`` for ``owner`` (an access session), replacing any sign-in still open.
+
+        ``switch_account`` first signs Claude Code out with its own ``claude auth logout``, so the sign-in
+        that follows can be to another Claude account; it is refused (``sign_out_failed``) when Claude Code
+        doesn't sign out.
+        """
         if not isinstance(owner, str) or not owner:
             raise SignInRefused("authentication_required")
         cols, rows = _size(cols, rows)
@@ -157,6 +167,8 @@ class ClaudeSignIns:
             if self._current is not None and self._current.ended is None:
                 self._end(self._current, "replaced")
             self._current = None
+            if switch_account and not sign_out_claude_code():
+                raise SignInRefused("sign_out_failed")
             pty = self._factory(command, env=claude_code_environment(), cwd=str(claude_code_workdir()),
                                 cols=cols, rows=rows)
             sign_in = ClaudeSignIn(id=secrets.token_urlsafe(24), owner=owner, pty=pty, active_at=self._clock())
@@ -323,6 +335,10 @@ class ClaudeSignIns:
         """Claude Code ended: ask it whether it is signed in now (never its files)."""
         try:
             plan = self._status()
+            if plan.ready:
+                # Perhaps another account: its models and plan first, so the sheet names that plan at once.
+                _list_models_first()
+                plan = self._status()
         except Exception:
             logger.info("Claude Code didn't say whether it is signed in after its sign-in", exc_info=True)
             plan = ClaudePlanStatus("error", detail="Claude Code didn't say whether it is signed in.")
@@ -346,6 +362,20 @@ class ClaudeSignIns:
         sign_in.ended = why
         sign_in.ended_at = self._clock()
         logger.info("Claude's sign-in closed (%s)", why)
+
+
+def _list_models_first() -> None:
+    """Signed in, perhaps to another Claude account: ask Claude Code for this sign-in's models and plan now (no
+    message to any model), then bring every picker's list up to date in the background."""
+    from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+    from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+
+    list_claude_subscription_model_infos(force_refresh=True)
+    try:
+        start_model_catalog_refresh_background(reason="claude_signed_in", provider_id="claude_subscription",
+                                               force=True, follow_up=True)
+    except Exception:
+        logger.debug("Could not refresh the model lists after Claude's sign-in", exc_info=True)
 
 
 _sign_ins: ClaudeSignIns | None = None

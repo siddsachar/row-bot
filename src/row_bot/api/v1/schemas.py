@@ -8995,10 +8995,14 @@ class NativeTerminalClosed(WireModel):
 
 
 class ClaudeSignInOpenRequest(WireModel):
-    """Open Claude's own sign-in (H15). It names no program: the server runs only ``claude auth login``."""
+    """Open Claude's own sign-in (H15). It names no program: the server runs only ``claude auth login``.
+
+    ``switch_account`` runs Claude Code's own ``claude auth logout`` first, to sign in to another account.
+    """
 
     cols: int = Field(ge=20, le=500)
     rows: int = Field(ge=5, le=200)
+    switch_account: bool = False
 
 
 class ClaudeSignInView(WireModel):

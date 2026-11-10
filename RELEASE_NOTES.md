@@ -70,6 +70,17 @@ through background updates.
   5.5) appear without pressing Update Claude Code. A failed update keeps the
   version you have and tries again the next day; Claude Code's own updater
   stays off. Settings › System › Privacy and the privacy page list the check.
+- **Use another Claude account** - when your Claude plan is connected, the
+  two-arrows button in its sheet switches Row-Bot to another Claude account. It
+  asks first, because Claude Code keeps one sign-in on your computer: this signs
+  it out everywhere there, `claude` in a terminal included. Claude Code signs
+  itself out with its own command, Claude's own sign-in opens for the other
+  account, and the model picker then shows that account's models. Row-Bot never
+  sees either sign-in.
+- **The right plan name** - the Claude sheet names the plan Claude Code's own
+  session runs on. Before, it could show an older plan of the same Claude
+  account (Claude Max after a switch to Ultra), because `claude auth status`
+  still named it. After a sign-in the plan is right at once.
 
 ### Images And Video
 

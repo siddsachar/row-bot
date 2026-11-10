@@ -678,6 +678,10 @@ const CATALOG: Record<string, Entry> = {
     'Claude’s sign-in couldn’t start. Try again.',
     'retry',
   ],
+  claude_sign_out_failed: [
+    'Claude Code didn’t sign out, so it’s still on the same Claude account. Try again.',
+    'retry',
+  ],
   plugin_environment_ready: [
     'This plugin is already prepared. Refresh the list.',
     'review',

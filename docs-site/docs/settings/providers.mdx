@@ -55,6 +55,17 @@ Claude Code signed in with an API key or another cloud counts as not signed in, 
 
 Row-Bot also keeps Claude Code up to date by itself while your Claude plan is set up: about once a day it asks Anthropic for the newest version and, when it's newer, installs it the same way, checked against Anthropic's checksum, while Claude isn't answering. A chat that starts meanwhile waits the few seconds the install takes. Claude's models are then listed again, so new ones appear. An update that fails keeps the version you have and tries again the next day. A Claude Code you installed with npm or Homebrew is left to them.
 
+### Use Another Claude Account
+
+Claude Code keeps one sign-in on your computer, shared by Row-Bot and `claude` in a terminal. To switch Row-Bot to another Claude account (say from a Max account to another plan you pay for):
+
+1. Open **Settings › Models › Claude (your Claude plan)**. Beside **Claude plan connected**, choose **Use another Claude account** (the two-arrows button).
+2. Row-Bot asks first, because this signs Claude Code out on this computer, including `claude` in a terminal. Choose **Sign out and switch**, or **Cancel** to change nothing.
+3. Row-Bot runs Claude Code's own sign-out (`claude auth logout`), then Claude's own sign-in opens as in the steps above. Claude's page approves for whichever claude.ai account your browser is signed in to, so make sure claude.ai shows the account you want before you approve.
+4. When Claude Code says it's signed in, Row-Bot asks Claude Code again for its model list, so the model picker shows that account's models, and the sheet shows the plan Claude Code's session runs on. (Where one Claude account has more than one plan, `claude auth status` can still name the older one; the sheet goes by Claude Code's session.)
+
+Row-Bot never reads, stores or relays either account's sign-in: Claude Code signs itself out and in. If Claude Code doesn't sign out, the sheet says **Claude Code didn't sign out, so it's still on the same Claude account. Try again.** and nothing else changes. If you close Claude's sign-in after the sign-out, Claude Code stays signed out until you **Sign in again**; `claude` in a terminal shares that sign-in, so it signs in again with you.
+
 Row-Bot starts Claude Code with its non-essential traffic turned off: no telemetry, error reports or automatic updates come from these runs, its installs included. Claude Code's own tools are off; when Claude asks for one of Row-Bot's tools, Row-Bot runs it after its usual approval check. The models are the ones Claude Code lists for your plan. Claude Code keeps its own files (its sign-in, settings and installs) in your home folder; Row-Bot's backups never include them.
 
 Earlier versions signed in to Claude inside Row-Bot. That sign-in is gone and its saved tokens were deleted when you updated; Claude says **Set up again** until Claude Code is ready.

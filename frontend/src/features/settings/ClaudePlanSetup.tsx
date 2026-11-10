@@ -1,10 +1,11 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Download, LogIn, RefreshCw } from 'lucide-react';
+import { ArrowLeftRight, Download, LogIn, RefreshCw } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type { ClaudeCodeInstallState, ClaudePlanStatus } from '../../api/types';
 import { RuntimeContext } from '../../runtime';
 import {
   Button,
+  IconButton,
   Progress,
   Skeleton,
   StatusDot,
@@ -21,6 +22,7 @@ export const SIGNED_OUT_BY_CLAUDE =
   'Claude signed you out. Sign in again to keep using your plan.';
 export const SIGN_IN_CLOSED_EARLY =
   'Claude’s sign-in was closed before it finished.';
+export const USE_ANOTHER_ACCOUNT = 'Use another Claude account';
 
 type State = ClaudePlanStatus['state'];
 
@@ -94,7 +96,9 @@ type Step =
       progress: ClaudeCodeInstallState | null;
     }
   | { kind: 'install_failed'; update: boolean; reason: string }
-  | { kind: 'signing_in'; installed: string }
+  | { kind: 'signing_in'; installed: string; switching?: boolean }
+  | { kind: 'confirm_switch' }
+  | { kind: 'switch_failed'; detail: string }
   | { kind: 'closed_early'; detail: string }
   | { kind: 'connected' };
 
@@ -228,11 +232,19 @@ export default function ClaudePlanSetup({
     }
   }
 
-  function signedIn(end: SignInEnd) {
+  function signedIn(end: SignInEnd, switching: boolean) {
     if (end.plan?.state === 'ready') {
       setStep({ kind: 'connected' });
       onCheck();
       return;
+    }
+    if (switching) {
+      // Claude Code may be signed out now (or never was, when it refused): read it again.
+      onCheck();
+      if (end.ended === 'failed') {
+        setStep({ kind: 'switch_failed', detail: end.error });
+        return;
+      }
     }
     setStep({
       kind: 'closed_early',
@@ -304,7 +316,38 @@ export default function ClaudePlanSetup({
             />
           </p>
         )}
-        <ClaudeSignInPanel onEnd={signedIn} />
+        <ClaudeSignInPanel
+          switchAccount={step.switching}
+          onEnd={(end) => signedIn(end, !!step.switching)}
+        />
+      </>
+    );
+  } else if (step.kind === 'confirm_switch') {
+    body = (
+      <>
+        <p className="claude-plan-state">
+          <strong>{USE_ANOTHER_ACCOUNT}?</strong>
+        </p>
+        {/* Claude Code keeps one sign-in on this computer, shared with `claude` in a terminal. */}
+        <p role="status">
+          This signs Claude Code out on this computer, including{' '}
+          <code>claude</code> in a terminal, because Claude Code keeps one
+          sign-in here. Then Claude’s own sign-in opens in your browser: make
+          sure claude.ai shows the account you want before you approve.
+        </p>
+        <div className="actions">
+          <Button
+            variant="primary"
+            onClick={() =>
+              setStep({ kind: 'signing_in', installed: '', switching: true })
+            }
+          >
+            <ArrowLeftRight size={16} aria-hidden /> Sign out and switch
+          </Button>
+          <Button variant="ghost" onClick={() => setStep({ kind: 'idle' })}>
+            Cancel
+          </Button>
+        </div>
       </>
     );
   } else if (step.kind === 'closed_early' && !ready) {
@@ -320,16 +363,26 @@ export default function ClaudePlanSetup({
   } else if (ready) {
     body = (
       <>
-        <p className="claude-plan-state" role="status">
-          <StatusDot tone="success" label="Claude plan connected" showLabel />
-          {(plan.plan || plan.version) && (
-            <span className="claude-plan-version">
-              {[plan.plan, plan.version ? `Claude Code ${plan.version}` : '']
-                .filter(Boolean)
-                .join(' · ')}
-            </span>
-          )}
-        </p>
+        {step.kind === 'switch_failed' && <p role="alert">{step.detail}</p>}
+        <div className="claude-plan-account">
+          <p className="claude-plan-state" role="status">
+            <StatusDot tone="success" label="Claude plan connected" showLabel />
+            {(plan.plan || plan.version) && (
+              <span className="claude-plan-version">
+                {[plan.plan, plan.version ? `Claude Code ${plan.version}` : '']
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            )}
+          </p>
+          <IconButton
+            size="sm"
+            label={USE_ANOTHER_ACCOUNT}
+            onClick={() => setStep({ kind: 'confirm_switch' })}
+          >
+            <ArrowLeftRight size={16} aria-hidden />
+          </IconButton>
+        </div>
         <p>Claude models are in the model picker.</p>
         <div className="actions">
           {onDone && (
