@@ -26,6 +26,7 @@ tasks run exactly as the held-out requests do; for the retrieval arm it finds th
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import tempfile
 import threading
@@ -89,6 +90,23 @@ class Run:
     case: Any  # evaluation.CaseResult
     thread: str
     approvals: list[dict[str, Any]] = field(default_factory=list)
+    #: The tool calls refused or failed that the turn never recovered, as (tool name, problem class) pairs.
+    unrecovered: list[tuple[str, str]] = field(default_factory=list)
+
+
+#: What an unrecovered call keeps: a tool name and a problem code that are plain identifiers. Anything else (a tool
+#: error's free text, say) is kept as ``other`` / ``refused``, so no argument, output or task text is kept.
+_TOOL_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+_PROBLEM_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,39}$")
+
+
+def unrecovered_calls(record: Any) -> list[tuple[str, str]]:
+    """The refused or failed tool calls a turn never got right afterwards (``eval_worker.TurnRecord.unrecovered``,
+    the record ``bad_call`` is decided from), as (tool name, problem class) pairs only."""
+
+    return [(name if _TOOL_NAME.match(name or "") else "other",
+             problem if _PROBLEM_CODE.match(problem or "") else "refused")
+            for name, problem in record.unrecovered()]
 
 
 class StudyRunner:
@@ -250,7 +268,7 @@ class StudyRunner:
         text = " ".join([*outcome["errors"], *self._gate.errors]).lower()
         if case.status == "error" and any(marker in text for marker in LIMIT_MARKERS):
             raise ProviderLimit(case.detail)
-        return Run(case, thread, outcome["approvals"])
+        return Run(case, thread, outcome["approvals"], unrecovered_calls(outcome["record"]))
 
     def _tools(self, wanted: Sequence[str]) -> list[str]:
         from row_bot.learning import eval_worker
@@ -423,4 +441,4 @@ def decisions(thread: str) -> list[Any]:
 
 
 __all__ = ["LIMIT_MARKERS", "PACK_TOOLS", "Person", "ProviderLimit", "RETRIEVAL_MARK", "Run", "Spec", "StudyRunner",
-           "decisions", "yield_card"]
+           "decisions", "unrecovered_calls", "yield_card"]
