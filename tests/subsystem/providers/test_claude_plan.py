@@ -421,6 +421,52 @@ def test_row_bot_never_opens_a_claude_credential_file(store, tmp_path, monkeypat
     assert touched == []
 
 
+def test_signing_out_is_claude_codes_own_logout_and_row_bot_never_opens_its_files(
+        store, tmp_path, monkeypatch, opened_files):
+    home = tmp_path / "fake-claude-home"
+    fake = install_fake_claude(tmp_path, monkeypatch)
+    credentials = home / ".claude" / ".credentials.json"
+    credentials.parent.mkdir(parents=True)
+    credentials.write_text('{"claudeAiOauth": {"accessToken": "never-read"}}', encoding="utf-8")
+    assert claude.claude_plan_status().ready
+    opened_files.clear()
+
+    assert claude.sign_out_claude_code() is True
+
+    assert [run["argv"] for run in fake.runs()][-1] == ["auth", "logout"]
+    # The answer Row-Bot had is forgotten: the next look asks Claude Code again.
+    assert claude.claude_plan_status().state == "signed_out"
+    assert not credentials.exists()  # Claude Code's own doing
+    assert [path for path in opened_files if os.sep + ".claude" + os.sep in path] == []
+
+
+def test_a_sign_out_claude_code_refuses_says_so(store, tmp_path, monkeypatch):
+    install_fake_claude(tmp_path, monkeypatch, logout_exit=1)
+    assert claude.sign_out_claude_code() is False
+    assert claude.claude_plan_status().ready
+    install_fake_claude(tmp_path, monkeypatch, installed=False)
+    (tmp_path / "fake-claude-bin" / "claude.cmd").unlink(missing_ok=True)
+    (tmp_path / "fake-claude-bin" / "claude").unlink(missing_ok=True)
+    assert claude.sign_out_claude_code() is False
+
+
+def test_the_plan_is_the_one_claude_codes_live_session_names(store, tmp_path, monkeypatch):
+    """``claude auth status`` can name an older plan of the same account (max after a switch to Ultra); the
+    plan shown is the one Claude Code's ``initialize`` names, from the last model listing of this sign-in."""
+    fake = install_fake_claude(tmp_path, monkeypatch, account_plan="Claude Ultra")
+    assert _card()["claude_plan"]["plan"] == "Claude Max"  # before any listing: auth status's
+
+    claude.list_claude_subscription_model_infos(force_refresh=True)
+
+    assert _card()["claude_plan"]["plan"] == "Claude Ultra"
+    # Another sign-in (auth status answers differently): its own plan until its models are listed.
+    config_file = fake.bin_dir / "config.json"
+    config_file.write_text(config_file.read_text(encoding="utf-8").replace(
+        '"subscriptionType": "max"', '"subscriptionType": "pro"'), encoding="utf-8")
+    claude.forget_claude_plan_status()
+    assert _card()["claude_plan"]["plan"] == "Claude Pro"
+
+
 def test_inherited_keys_endpoints_and_other_clouds_never_reach_claude_code(store, tmp_path, monkeypatch):
     fake = install_fake_claude(tmp_path, monkeypatch, reply=text_reply("ok"))
     for name, value in {
@@ -520,6 +566,31 @@ def test_the_models_are_claude_codes_own_list_and_listing_them_asks_no_model(sto
     assert [frame["type"] for frame in listing["frames"]] == ["control_request"]  # no message to any model
     assert [info.model_id for info in claude.list_claude_subscription_model_infos_for_status()] == [
         info.model_id for info in infos]
+
+
+def test_a_model_claude_code_offers_at_1m_keeps_its_1m_choice(store, tmp_path, monkeypatch):
+    """Claude Code 2.1.322 (a Max plan, 10 Nov) asks for Fable's 1M context in the row's value, not in its
+    resolved model; the list read it as a 200K model and chats asked Claude Code for that one."""
+    efforts = {"supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+               "supportsAdaptiveThinking": True}
+    install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)", models=[
+        {"value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)",
+         "description": "Opus 5.5 · Best for everyday, complex tasks", **efforts},
+        {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus",
+         "description": "Opus 5.5 · Best for everyday, complex tasks", **efforts},
+        {"value": "claude-fable-5-1[1m]", "resolvedModel": "claude-fable-5-1", "displayName": "Fable",
+         "description": "Fable 5.1 · Most capable for your hardest and longest-running tasks", **efforts},
+        {"value": "haiku", "resolvedModel": "claude-haiku-5-5", "displayName": "Haiku",
+         "description": "Haiku 5.5 · Fastest for quick answers", **efforts},
+    ])
+
+    infos = claude.list_claude_subscription_model_infos(force_refresh=True)
+
+    assert [(info.model_id, info.context_window) for info in infos] == [
+        ("claude-opus-5-5", 200_000), ("claude-fable-5-1[1m]", 1_000_000), ("claude-haiku-5-5", 200_000)]
+    fake = install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)")
+    _model(model_name="claude-fable-5-1[1m]").invoke([HumanMessage(content="Hi")])
+    assert fake.model_runs()[0]["argv"][8] == "claude-fable-5-1[1m]"
 
 
 def test_a_chat_saved_on_an_older_claude_model_keeps_its_choice(store, tmp_path, monkeypatch):

@@ -2410,12 +2410,12 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.installClaudeCode(update, signal);
     });
-  /** Claude's own sign-in (H15). */
-  openClaudeSignIn = (cols: number, rows: number) =>
+  /** Claude's own sign-in (H15); `switchAccount` signs Claude Code out first. */
+  openClaudeSignIn = (cols: number, rows: number, switchAccount = false) =>
     this.authenticatedResult((signal) => {
       if (!this.transport.openClaudeSignIn)
         throw clientError({ code: 'capability_unavailable' });
-      return this.transport.openClaudeSignIn(cols, rows, signal);
+      return this.transport.openClaudeSignIn(cols, rows, switchAccount, signal);
     });
   readClaudeSignIn = (signIn: string, cursor: number, signal?: AbortSignal) =>
     this.authenticatedResult((current) => {

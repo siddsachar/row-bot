@@ -13,6 +13,7 @@ variable that would send it to an API key, another endpoint or another cloud ins
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -22,6 +23,8 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +41,9 @@ MINIMUM_CLAUDE_CODE_VERSION = "2.1.263"
 CLAUDE_CODE_INSTALL_URL = "https://code.claude.com/docs/en/setup"
 #: Settings say this once, for a profile the old Claude sign-in had set up, until Claude is ready.
 SET_UP_AGAIN = "set_up_again"
+# The plan Claude Code's live session names (``initialize``'s account), kept beside the model list for the
+# sign-in it came from (a digest of ``claude auth status``'s answer, never a credential).
+ACCOUNT_PLAN = "account_plan"
 #: ``claude auth status`` names a Claude plan sign-in this way; anything else is not the person's plan.
 PLAN_SIGN_IN_METHOD = "claude.ai"
 
@@ -46,10 +52,12 @@ PLAN_SIGN_IN_METHOD = "claude.ai"
 # Everything named ANTHROPIC_* or CLAUDE* is left out except these two.
 _KEPT_CLAUDE_VARIABLES = frozenset({"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_GIT_BASH_PATH"})
 _LEFT_OUT_VARIABLES = frozenset({"MAX_THINKING_TOKENS"})
-# Set for every run: no telemetry, error reports or auto-updates (AGENTS.md), no compaction of the
-# conversation Row-Bot sends, and Row-Bot's tools listed to the model rather than behind Claude Code's search.
+# Set for every run: no telemetry, error reports or auto-updates (AGENTS.md; Row-Bot updates Claude Code itself,
+# ``claude_update.py``), no compaction of the conversation Row-Bot sends, and Row-Bot's tools listed to the model
+# rather than behind Claude Code's search.
 CLAUDE_CODE_RUN_VARIABLES: Mapping[str, str] = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1",
     "DISABLE_AUTO_COMPACT": "1",
     "DISABLE_COMPACT": "1",
     "ENABLE_TOOL_SEARCH": "false",
@@ -65,13 +73,15 @@ State = Literal["not_installed", "signed_out", "too_old", "ready", "error"]
 
 @dataclass(frozen=True)
 class ClaudePlanStatus:
-    """What Settings shows for Claude, and whether a call can run. ``program`` stays on the server."""
+    """What Settings shows for Claude, and whether a call can run. ``program`` and ``account`` (a digest naming
+    the sign-in, ``_account_key``) stay on the server."""
 
     state: State
     version: str = ""
     plan: str = ""
     detail: str = ""
     program: str = ""
+    account: str = ""
 
     @property
     def ready(self) -> bool:
@@ -159,13 +169,67 @@ def claude_code_workdir() -> Path:
     return folder
 
 
+class ClaudeCodeRuns:
+    """Claude Code's runs and its replacement by an update exclude each other.
+
+    Every Claude Code process Row-Bot starts (a call, or a status command) counts as a run until it ends. An
+    update replaces the program only once no run is live, and a run that would start meanwhile waits until the
+    replacement is over.
+    """
+
+    def __init__(self) -> None:
+        self._changed = threading.Condition()
+        self._live = 0
+        self._replacing = False
+
+    def started(self) -> None:
+        with self._changed:
+            self._changed.wait_for(lambda: not self._replacing)
+            self._live += 1
+
+    def ended(self) -> None:
+        with self._changed:
+            self._live = max(0, self._live - 1)
+            self._changed.notify_all()
+
+    def busy(self) -> bool:
+        with self._changed:
+            return self._live > 0 or self._replacing
+
+    @contextmanager
+    def replacing(self, wait: float) -> Iterator[bool]:
+        """True, with no run able to start, once no run is live within ``wait`` seconds; else False."""
+        with self._changed:
+            free = self._changed.wait_for(lambda: self._live == 0 and not self._replacing, timeout=wait)
+            if free:
+                self._replacing = True
+        try:
+            yield free
+        finally:
+            if free:
+                with self._changed:
+                    self._replacing = False
+                    self._changed.notify_all()
+
+
+_runs = ClaudeCodeRuns()
+
+
+def claude_code_runs() -> ClaudeCodeRuns:
+    return _runs
+
+
 def _run(program: str, *args: str) -> subprocess.CompletedProcess[str]:
     options: dict[str, Any] = {}
     if sys.platform == "win32":
         options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return subprocess.run([program, *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          timeout=_COMMAND_SECONDS, check=False, stdin=subprocess.DEVNULL,
-                          cwd=str(claude_code_workdir()), env=claude_code_environment(), **options)
+    _runs.started()
+    try:
+        return subprocess.run([program, *args], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=_COMMAND_SECONDS, check=False, stdin=subprocess.DEVNULL,
+                              cwd=str(claude_code_workdir()), env=claude_code_environment(), **options)
+    finally:
+        _runs.ended()
 
 
 def parse_version(text: str) -> tuple[int, int, int] | None:
@@ -219,7 +283,26 @@ def check_claude_code() -> ClaudePlanStatus:
             detail="Claude Code is signed in without a Claude plan, so it would bill another way.",
         )
     return ClaudePlanStatus("ready", version=shown, plan=_plan_name(report.get("subscriptionType")),
-                            program=program)
+                            program=program, account=_account_key(report))
+
+
+def _account_key(report: Mapping[str, Any]) -> str:
+    """Which sign-in ``claude auth status`` describes, as a digest of its answer (no account text is kept)."""
+    return hashlib.sha256(json.dumps(report, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:32]
+
+
+def _with_live_plan(status: ClaudePlanStatus) -> ClaudePlanStatus:
+    """The plan the live session named at the last model listing, while the sign-in is the same one.
+
+    ``claude auth status`` can name an older plan of the same Claude account (Max after a switch to Ultra);
+    Claude Code's ``initialize`` names the plan its session runs on. Before any listing, auth status's stays.
+    """
+    if not status.ready or not status.account:
+        return status
+    saved = _saved_entry().get(ACCOUNT_PLAN)
+    if isinstance(saved, dict) and saved.get("account") == status.account and str(saved.get("plan") or ""):
+        return replace(status, plan=str(saved["plan"]))
+    return status
 
 
 _status_lock = threading.Lock()
@@ -233,7 +316,7 @@ def claude_plan_status(*, fresh: bool = False) -> ClaudePlanStatus:
         now = time.monotonic()
         if not fresh and _status_cache is not None and now - _status_cache[0] < _STATUS_SECONDS:
             return _status_cache[1]
-        status = check_claude_code()
+        status = _with_live_plan(check_claude_code())
         _status_cache = (time.monotonic(), status)
         return status
 
@@ -242,6 +325,30 @@ def forget_claude_plan_status() -> None:
     global _status_cache
     with _status_lock:
         _status_cache = None
+
+
+def sign_out_claude_code() -> bool:
+    """Claude Code's own ``auth logout``, so the person can sign in to another Claude account.
+
+    Claude Code keeps one sign-in for the person's account on this computer, so this signs out ``claude`` in
+    a terminal too. Row-Bot runs the command and reads only its exit code; it never opens Claude Code's files
+    or keychain entries. True when Claude Code says it signed out.
+    """
+    program = find_claude_code()
+    if not program:
+        return False
+    try:
+        answer = _run(program, "auth", "logout")
+    except (OSError, subprocess.SubprocessError):
+        logger.info("Claude Code didn't start to sign out", exc_info=True)
+        return False
+    finally:
+        forget_claude_plan_status()
+    if answer.returncode != 0:
+        logger.info("Claude Code didn't sign out (exit code %s)", answer.returncode)
+        return False
+    logger.info("Claude Code signed out to switch accounts")
+    return True
 
 
 #: Where the person fixes anything about Claude: the words of Settings › Models.
@@ -415,7 +522,9 @@ def model_infos_from_initialize(models: Any) -> list[ModelInfo]:
     """Claude models from the model list in Claude Code's ``initialize`` answer.
 
     A row names its exact model in ``resolvedModel``; a row without one, or an alias of a model already
-    listed (``default``), is skipped so every saved choice names one exact model.
+    listed (``default``), is skipped so every saved choice names one exact model. A row whose ``value``
+    asks for the model's 1M context (Claude Code 2.1.322 lists Fable as ``claude-fable-5-1[1m]`` resolved to
+    ``claude-fable-5-1``) keeps that ``[1m]``: it is what Claude Code runs, and how its context is known.
     """
     infos: list[ModelInfo] = []
     seen: set[str] = set()
@@ -423,6 +532,8 @@ def model_infos_from_initialize(models: Any) -> list[ModelInfo]:
         if not isinstance(row, dict):
             continue
         model_id = str(row.get("resolvedModel") or "").strip()
+        if model_id and str(row.get("value") or "").strip().endswith("[1m]") and not model_id.endswith("[1m]"):
+            model_id = f"{model_id}[1m]"
         if not model_id or not re.fullmatch(r"[A-Za-z0-9._\-\[\]]{1,128}", model_id) or model_id in seen:
             continue
         seen.add(model_id)
@@ -439,14 +550,37 @@ def model_infos_from_initialize(models: Any) -> list[ModelInfo]:
 
 
 def discover_claude_plan_models() -> list[ModelInfo]:
-    """Claude Code's model list, from its ``initialize`` answer; no message is sent to any model."""
+    """Claude Code's model list, from its ``initialize`` answer; no message is sent to any model.
+
+    The same answer names the plan this sign-in's session runs on, kept for the label (``_with_live_plan``).
+    """
     from row_bot.providers.transports.claude_plan_cli import initialize_claude_code
 
     status = claude_plan_status()
     if not status.ready:
         return []
     answer = initialize_claude_code(status.program)
+    account = answer.get("account")
+    plan = _plan_name(account.get("subscriptionType")) if isinstance(account, dict) else ""
+    if plan and status.account:
+        _save_account_plan(status.account, plan)
     return model_infos_from_initialize(answer.get("models"))
+
+
+def _save_account_plan(account: str, plan: str) -> None:
+    from row_bot.providers.config import update_provider_config
+
+    def _update(cfg: dict[str, Any]) -> None:
+        entry = cfg.setdefault("providers", {}).setdefault(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {})
+        entry["provider_id"] = CLAUDE_SUBSCRIPTION_PROVIDER_ID
+        entry[ACCOUNT_PLAN] = {"account": account, "plan": plan}
+
+    try:
+        update_provider_config(_update)
+    except Exception:
+        logger.debug("Could not keep the plan Claude Code named", exc_info=True)
+        return
+    forget_claude_plan_status()
 
 
 def _cache_row(info: ModelInfo) -> dict[str, Any]:

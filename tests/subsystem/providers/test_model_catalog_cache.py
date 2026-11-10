@@ -371,3 +371,44 @@ def test_connecting_one_provider_does_not_stop_the_full_refresh_of_the_others(tm
     cache.refresh_model_catalog_cache(reason="scheduled", force=False)
 
     assert refreshed == ["all", "cerebras", "all"]
+
+def test_the_scheduled_refresh_reads_an_old_catalog_only_while_a_cloud_provider_is_connected(tmp_path, monkeypatch):
+    """I23: the start-up and 6-hourly refresh. A local-only install contacts nobody; with a provider
+    connected a catalog older than six hours is read again and a fresh one is left alone. Providers are faked."""
+    import row_bot.providers.model_catalog_cache as cache
+    import row_bot.providers.runtime as runtime
+
+    path = tmp_path / "model_catalog_cache.json"
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", path)
+    monkeypatch.setattr(cache, "_refresh_ollama_rows", lambda: [])
+    monkeypatch.setattr(cache, "_publish_live", lambda topic: None)
+    old = time.time() - cache.CATALOG_CACHE_TTL_SECONDS - 60
+    cache.write_model_catalog_cache(CatalogCacheSnapshot(
+        version=cache.CACHE_VERSION, generated_at=old, cloud_cache={"model:requesty:m": {"provider": "requesty"}},
+        ollama_rows=[], provider_status={}, warnings=(), reason="startup"))
+    refreshed: list[str] = []
+
+    def cloud(provider_id=None):
+        refreshed.append(provider_id or "all")
+        return {"model:requesty:m": {"provider": "requesty"}}, {"requesty": {"status": "live", "count": 1}}
+
+    monkeypatch.setattr(cache, "_refresh_cloud_cache", cloud)
+
+    def scheduled(reason: str) -> bool:
+        started = cache.refresh_stale_catalog_if_connected(reason)
+        for thread in threading.enumerate():
+            if thread.name == "model-catalog-refresh":
+                thread.join(timeout=5)
+        return started
+
+    monkeypatch.setattr(runtime, "list_configured_provider_ids", lambda: [])
+    assert scheduled("startup") is False
+    assert refreshed == []
+    assert cache.read_model_catalog_cache().generated_at == old
+
+    monkeypatch.setattr(runtime, "list_configured_provider_ids", lambda: ["requesty"])
+    assert scheduled("startup") is True
+    assert refreshed == ["all"]
+    assert cache.read_model_catalog_cache().generated_at > old
+    scheduled("scheduled")
+    assert refreshed == ["all"]

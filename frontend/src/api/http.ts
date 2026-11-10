@@ -2005,11 +2005,16 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  openClaudeSignIn(cols: number, rows: number, signal?: AbortSignal) {
+  openClaudeSignIn(
+    cols: number,
+    rows: number,
+    switchAccount: boolean,
+    signal?: AbortSignal,
+  ) {
     return wire.openClaudeSignIn(
       this.base,
       this.session(),
-      { cols, rows },
+      { cols, rows, switch_account: switchAccount },
       signal,
     );
   }

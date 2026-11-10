@@ -141,7 +141,19 @@ it('lists what else Row-Bot contacts, one line each, even while dormant', async 
   const items = within(privacy).getAllByRole('listitem');
   expect(
     items.map((item) => item.querySelector('strong')?.textContent),
-  ).toEqual(['Update checks', 'Connection checks', 'Catalogs']);
+  ).toEqual([
+    'Update checks',
+    'Claude Code',
+    'Connection checks',
+    'Model lists',
+    'Catalogs',
+  ]);
+  expect(privacy).toHaveTextContent(
+    'Anthropic, about once a day while your Claude plan is set up',
+  );
+  expect(privacy).toHaveTextContent(
+    'every six hours while a cloud provider is connected',
+  );
   expect(privacy).toHaveTextContent('OpenRouter’s public list');
   expect(privacy).toHaveTextContent('models.dev’s, at most hourly');
   expect(

@@ -79,32 +79,38 @@ class Clock:
 def panel(tmp_path, monkeypatch):
     """A fake Claude Code on PATH (never run here), the in-process login and a fake ``claude auth status``."""
     claude = install_fake_claude(tmp_path, monkeypatch)
-    account = {"signed_in": False}
+    account = {"signed_in": False, "plan": "Claude Max"}
+    listings: list[dict] = []
     started: list[FakeLogin] = []
 
     def factory(argv, **options):
         started.append(FakeLogin(argv, account=account, **options))
         return started[-1]
 
+    program = str(claude.bin_dir / ("claude.cmd" if os.name == "nt" else "claude"))
+
     def status() -> ClaudePlanStatus:
+        """What ``claude auth status`` says; a model listing asks the fake Claude Code itself."""
         if account["signed_in"]:
-            return ClaudePlanStatus("ready", version="2.1.300", plan="Claude Max", program="claude")
-        return ClaudePlanStatus("signed_out", version="2.1.300", program="claude")
+            return ClaudePlanStatus("ready", version="2.1.300", plan=account["plan"], program=program,
+                                    account="synthetic-sign-in")
+        return ClaudePlanStatus("signed_out", version="2.1.300", program=program)
 
     from row_bot.providers import claude_subscription, live_settings, model_catalog_cache
 
     # Settings asks the same fake account (its Claude row only: no other provider is asked), and a model
     # listing it would start is only recorded.
     monkeypatch.setattr(claude_subscription, "check_claude_code", status)
-    monkeypatch.setattr(model_catalog_cache, "start_model_catalog_refresh_background", lambda **_: True)
+    monkeypatch.setattr(model_catalog_cache, "start_model_catalog_refresh_background",
+                        lambda **kwargs: listings.append(kwargs) or True)
     monkeypatch.setattr(live_settings, "provider_status_cards", lambda **_: [{
         **claude_subscription.claude_plan_provider_status(), "display_name": "Claude (your Claude plan)",
         "group": "Subscription Accounts", "icon": "C", "risk_label": "subscription", "model_count": None}])
     clock = Clock()
-    manager = sign_in.ClaudeSignIns(pty_factory=factory, status=status, clock=clock, sweep_every=None)
+    manager = sign_in.ClaudeSignIns(pty_factory=factory, clock=clock, sweep_every=None)
     monkeypatch.setattr(sign_in, "_sign_ins", manager)
     return type("Panel", (), {"manager": manager, "started": started, "account": account, "clock": clock,
-                              "claude": claude})
+                              "claude": claude, "listings": listings})
 
 
 def _open(client, headers, **body):
@@ -195,6 +201,64 @@ def test_wrong_code_keeps_claudes_prompt_and_the_right_one_connects_then_it_clos
         assert panel.started[0].closed
         ended = _type(client, headers, identifier, "more\r")
         assert ended.status_code == 409 and ended.json()["code"] == "claude_sign_in_ended"
+
+
+def test_use_another_account_signs_claude_code_out_with_its_own_command_then_opens_its_sign_in(
+        panel, tmp_path, monkeypatch) -> None:
+    """Claude Code keeps one sign-in, so switching accounts is its own ``claude auth logout`` (run like
+    ``auth status``: Claude Code's environment, its own folder), then its own sign-in, to the other account."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-row-bot-secret")
+    panel.account.update(signed_in=True)
+    client, _, _ = client_app(remote=True)
+    with client:
+        _, headers = bootstrap(client)
+        opened = _open(client, headers, switch_account=True)
+        assert opened.status_code == 200, opened.text
+        identifier = opened.json()["sign_in_id"]
+
+        [logout] = [run for run in panel.claude.runs() if run["argv"][:1] == ["auth"]]
+        assert logout["argv"] == ["auth", "logout"]
+        assert logout["cwd"] == str(claude_code_workdir())
+        assert "OPENAI_API_KEY" not in logout["env"]
+        assert logout["env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+        [login] = panel.started
+        assert login.argv[1:] == ["auth", "login"]
+
+        # The person signs in to their Ultra plan. Claude Code's auth status still names Max (the same account's
+        # older plan); its live session names Ultra, and that is the plan the sheet shows at once.
+        install_fake_claude(tmp_path, monkeypatch, account_plan="Claude Ultra")
+        panel.account.update(signed_in=False, plan="Claude Max")
+        _type(client, headers, identifier, CODE + "\r")
+        _, value = _screen(client, headers, identifier)
+        assert value["plan"]["state"] == "ready" and value["plan"]["plan"] == "Claude Ultra"
+        card = client.get("/api/v1/settings/providers/live", headers=headers).json()
+        [claude] = [row for row in card["providers"] if row["provider_id"] == "claude_subscription"]
+        assert claude["claude_plan"]["plan"] == "Claude Ultra"
+    # That account's models are asked of Claude Code, even if a listing of the old one is running.
+    assert {"reason": "claude_signed_in", "provider_id": "claude_subscription", "force": True,
+            "follow_up": True} in panel.listings
+
+
+def test_when_claude_code_does_not_sign_out_no_sign_in_opens(panel, tmp_path, monkeypatch) -> None:
+    install_fake_claude(tmp_path, monkeypatch, logout_exit=1)
+    client, _, _ = client_app(remote=True)
+    with client:
+        _, headers = bootstrap(client)
+        refused = _open(client, headers, switch_account=True)
+        assert refused.status_code == 409 and refused.json()["code"] == "claude_sign_out_failed"
+    assert panel.started == [] and not panel.manager.running()
+
+
+def test_a_sign_in_that_does_not_finish_lists_no_models(panel) -> None:
+    client, _, _ = client_app(remote=True)
+    with client:
+        _, headers = bootstrap(client)
+        identifier = _open(client, headers).json()["sign_in_id"]
+        assert client.delete(f"/api/v1/settings/providers/claude-plan/sign-in/{identifier}",
+                             headers=headers).status_code == 200
+    assert panel.listings == []
+    # A plain sign-in never signs Claude Code out.
+    assert not [run for run in panel.claude.runs() if run["argv"][:2] == ["auth", "logout"]]
 
 
 def _files(*roots: Path) -> dict[Path, tuple[int, int]]:
@@ -380,6 +444,11 @@ def test_the_real_pseudo_terminal_carries_claudes_sign_in(tmp_path, monkeypatch)
     its own credential file (in its own process) and Row-Bot learns the result from ``claude auth status``."""
     install_fake_claude(tmp_path, monkeypatch, auth={"loggedIn": False}, auth_exit=1, login_code=CODE,
                         login_marker=SECRET)
+    from row_bot.providers import model_catalog_cache
+
+    listings: list[dict] = []
+    monkeypatch.setattr(model_catalog_cache, "start_model_catalog_refresh_background",
+                        lambda **kwargs: listings.append(kwargs) or True)
     manager = sign_in.ClaudeSignIns(sweep_every=None)
     home = Path(os.environ["HOME"])
     with watch_opens(home / ".claude") as opened:
@@ -400,4 +469,10 @@ def test_the_real_pseudo_terminal_carries_claudes_sign_in(tmp_path, monkeypatch)
     assert value["ended"] == "exited" and value["plan"]["state"] == "ready"
     assert (home / ".claude" / ".credentials.json").exists()  # written by Claude Code's process
     assert opened == []  # never opened by Row-Bot's
+    assert len(listings) == 1  # the signed-in account's models are asked for
+    # Use another Claude account: Claude Code's own logout removes its sign-in, then its sign-in opens again.
+    with watch_opens(home / ".claude") as opened:
+        manager.open("device-session", cols=100, rows=30, switch_account=True)
+    assert not (home / ".claude" / ".credentials.json").exists()
+    assert opened == []
     manager.close_all()

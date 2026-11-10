@@ -63,13 +63,34 @@ through background updates.
   models.dev's open catalogue. It's fetched at most hourly when model lists
   refresh, with only the request sent; when that fails, the copy shipped with
   the release is used. Settings › System › Privacy lists it.
+- **Claude Code stays up to date** - while your Claude plan is set up, Row-Bot
+  checks Anthropic about once a day for a newer Claude Code and installs it,
+  checked against Anthropic's checksum, while Claude isn't answering. Claude's
+  model list is then read again, so new models (such as Sonnet 5.5 and Haiku
+  5.5) appear without pressing Update Claude Code. A failed update keeps the
+  version you have and tries again the next day; Claude Code's own updater
+  stays off. Settings › System › Privacy and the privacy page list the check.
+- **Use another Claude account** - when your Claude plan is connected, the
+  two-arrows button in its sheet switches Row-Bot to another Claude account. It
+  asks first, because Claude Code keeps one sign-in on your computer: this signs
+  it out everywhere there, `claude` in a terminal included. Claude Code signs
+  itself out with its own command, Claude's own sign-in opens for the other
+  account, and the model picker then shows that account's models. Row-Bot never
+  sees either sign-in.
+- **The right plan name** - the Claude sheet names the plan Claude Code's own
+  session runs on. Before, it could show an older plan of the same Claude
+  account (Claude Max after a switch to Ultra), because `claude auth status`
+  still named it. After a sign-in the plan is right at once.
 
 ### Images And Video
 
 - **From more providers** - image and video tools also work with OpenRouter
   (images, edits and video), Vercel AI Gateway (images), Together AI (images and
-  video), Requesty (images), Qwen (Alibaba Cloud) and Atlas Cloud. MiniMax and
-  Z.AI don't list their image and video models yet, so they can't be chosen.
+  video), Requesty (images), Qwen (Alibaba Cloud), Atlas Cloud, MiniMax and Z.AI.
+  MiniMax's and Z.AI's model lists leave out their image and video models, so
+  Row-Bot adds the ones their docs name. Together AI video asks each model for a
+  resolution and aspect ratio, so models that take only their own frame sizes,
+  such as Seedance 1.0 Lite, work.
 - **Models from each provider's own list** - a retired model no longer lingers.
   OpenAI retired gpt-image-1 on 23 Oct and retires gpt-image-1-mini and
   gpt-image-1.5 on 1 Dec. A saved model the provider no longer lists says so in
@@ -134,6 +155,11 @@ through background updates.
   stays with the turn: Row-Bot still runs every tool through its own approval
   check and hands Claude Code the result, and the conversation is read from
   the cache.
+- **1M context where your plan offers it** - newer Claude Code marks a model it
+  runs with 1M context (Fable 5.1 on Max, for one) differently, and Row-Bot
+  listed it as a 200K model and asked for that. It now reads 1M and asks for
+  it. The models are always the ones your plan's Claude Code lists, and Row-Bot
+  now keeps Claude Code up to date, so newer ones appear.
 - **Videos in order** - while Row-Bot makes videos, each step's words, its
   activity and the video it made show in the order they happened, with the
   newest step at the bottom, live and after a reload.
@@ -155,9 +181,14 @@ through background updates.
 - **Gemini answers again** on Google's own API and through gateways such as
   Vercel: a few tools offered an empty choice, which Gemini refuses.
 - **Images and video work with keys saved in the new provider panel** (Qwen,
-  Together, Vercel and the others). Model lists update when you connect a
-  provider or press Refresh under Settings › Models › Catalog; a refresh brings
-  in the image and video models of OpenRouter, Requesty and Atlas Cloud.
+  Together, Vercel and the others).
+- **Model lists keep themselves current again** - as before 5.0, about a minute
+  after start-up and then every six hours, a list older than six hours is read
+  again from your connected providers (their model lists only: no prompt, no
+  tokens). With no cloud provider connected nothing is contacted. Connecting a
+  provider or Refresh under Settings › Models › Catalog still updates at once.
+- **OpenRouter's image and video lists** offer only the models its image and
+  video services take, so Auto Router and its kin stay in the chat list.
 - **Thinking controls for more models** - a model that reasons gets a thinking
   control on Groq, Cerebras, Fireworks, Together, Hugging Face, Vercel, NVIDIA,
   Z.AI, DeepSeek, Kimi and Qwen, and on newer OpenAI, Anthropic and Google

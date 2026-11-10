@@ -713,8 +713,10 @@ def _submit_openrouter(provider_id: str, model: str, prompt: str, duration: int,
 
 def _submit_together(provider_id: str, model: str, prompt: str, duration: int, aspect_ratio: str,
                      resolution: str, image: str) -> tuple[str, str]:
-    width, height = _frame_size(resolution, aspect_ratio)
-    body: dict = {"model": model, "prompt": prompt, "seconds": str(duration), "width": width, "height": height}
+    # Resolution and ratio, not pixels: each model makes its own frame of them (Seedance 1.0 Lite's
+    # 720p is 1248×704 and it refuses 1280×720), and Together's list gives no model's sizes (I25).
+    body: dict = {"model": model, "prompt": prompt, "seconds": str(duration), "resolution": resolution,
+                  "ratio": aspect_ratio}
     if image:
         body["media"] = {"frame_images": [{"input_image": image, "frame": "first"}]}
     job = _job_request(provider_id, "POST", "/videos", json=body).json()

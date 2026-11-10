@@ -247,6 +247,40 @@ function withLiveMedia(
   return changed ? next : rows;
 }
 
+/** The rows without the saved, still pending items of these calls; the same rows when none is there. */
+function withoutSteps(
+  rows: readonly TranscriptRow[],
+  calls: ReadonlySet<string>,
+): readonly TranscriptRow[] {
+  if (!calls.size) return rows;
+  let changed = false;
+  const next = rows.map((row) => {
+    if (
+      !row.traces?.some((group) =>
+        group.items.some(
+          (item) => item.status === 'pending' && calls.has(item.call_id),
+        ),
+      )
+    )
+      return row;
+    changed = true;
+    return {
+      ...row,
+      traces: (row.traces ?? [])
+        .map((group) =>
+          withItems(
+            group,
+            group.items.filter(
+              (item) => !(item.status === 'pending' && calls.has(item.call_id)),
+            ),
+          ),
+        )
+        .filter((group) => group.items.length),
+    };
+  });
+  return changed ? next : rows;
+}
+
 /** A live tool step as one trace group, as the saved row will show it. */
 function liveGroup(
   record: EventRecord,
@@ -332,7 +366,19 @@ export function liveTurn(
         ]);
     }
   }
-  const rows = withLiveMedia(saved, made);
+  // A step the chat re-read mid-step is saved before it finishes: while it
+  // still runs it stays on the live line. Under its words it read as done, and
+  // the live line, left with nothing, said "Thinking…" (I31).
+  const inFlight = new Set(
+    [...steps]
+      .filter(
+        ([, { record }]) =>
+          record.event.type === 'tool.activity' &&
+          (record.event.payload.status ?? 'pending') === 'pending',
+      )
+      .map(([key]) => key),
+  );
+  const rows = withoutSteps(withLiveMedia(saved, made), inFlight);
   const settled = new Set(
     rows.flatMap((row) =>
       (row.traces ?? []).flatMap((group) =>
@@ -424,6 +470,19 @@ const GROUP_ORDER = [
   'pending',
 ] as const;
 
+/** A trace group with these items, its counts and status worked out again. */
+function withItems(
+  group: TranscriptTraceGroup,
+  items: TranscriptTraceGroup['items'],
+): TranscriptTraceGroup {
+  const counts: TranscriptTraceGroup['counts'] = {};
+  for (const item of items)
+    counts[item.status] = (counts[item.status] ?? 0) + 1;
+  const status: TranscriptTraceItem['status'] =
+    GROUP_ORDER.find((value) => counts[value]) ?? 'succeeded';
+  return { ...group, items, counts, status };
+}
+
 /**
  * Saved rows read as the live turn left them: a step still pending in its
  * saved row but finished live reads as finished in its own place, with its
@@ -450,17 +509,14 @@ export function settleFinishedSteps(
     return {
       ...row,
       traces: traces.map((group) => {
-        const items = group.items.map((item) =>
-          item.status === 'pending' && finished.has(item.call_id)
-            ? { ...item, ...finished.get(item.call_id)! }
-            : item,
+        return withItems(
+          group,
+          group.items.map((item) =>
+            item.status === 'pending' && finished.has(item.call_id)
+              ? { ...item, ...finished.get(item.call_id)! }
+              : item,
+          ),
         );
-        const counts: TranscriptTraceGroup['counts'] = {};
-        for (const item of items)
-          counts[item.status] = (counts[item.status] ?? 0) + 1;
-        const status: TranscriptTraceItem['status'] =
-          GROUP_ORDER.find((value) => counts[value]) ?? 'succeeded';
-        return { ...group, items, counts, status };
       }),
     };
   });
