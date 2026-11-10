@@ -42,7 +42,7 @@ from tests.e2e.learning.stale_skills import world
 
 HERE = Path(__file__).resolve()
 CHECKOUT = HERE.parents[4]
-EXIT_TOKEN_CAP, EXIT_LIMIT = 75, 76
+EXIT_TOKEN_CAP, EXIT_LIMIT, EXIT_UNREACHABLE = 75, 76, 77
 LIMIT_WAITS = (30 * 60, 60 * 60, 120 * 60, 180 * 60)
 CRASH_PAUSE = 30 * 60
 #: A local run keeps the card for simulated days up to this long a booking (lane A's blocks are 40-90 min); lane C
@@ -52,7 +52,9 @@ BLOCK_MINUTES = 40
 MODELS: dict[str, dict[str, str]] = {
     "main": {"lane": "main", "label": "Main model (ChatGPT lane, eval profile)"},
     "q9b": {"lane": "local", "local": "qwen3.5:9b", "cutoff": "00:25", "label": "Qwen3.5 9B"},
-    "q4b": {"lane": "local", "local": "prec-qwen3.5-4b", "cutoff": "00:25", "label": "Qwen3.5 4B"},
+    # DA1: the precedence study's GGUF under a name in the qwen3.5 family, so the build reads its tool support as it
+    # reads the 9B's (as "prec-qwen3.5-4b" every Agent turn was refused as not tool-capable).
+    "q4b": {"lane": "local", "local": "qwen3.5:4b-prec", "cutoff": "00:25", "label": "Qwen3.5 4B"},
     "q27b": {"lane": "local", "local": "qwen3.8:27b", "cutoff": "23:50", "label": "qwen3.8:27b"},
 }
 #: Per-cell ChatGPT-lane caps: well above need (a main cell is expected at about 20-25M), so a cap is a stop to look.
@@ -334,6 +336,10 @@ def run_cell(cell: Cell, args: argparse.Namespace, status: Status) -> str:
             entry["state"] = "capped"
             status.event(f"{cell.name}: token cap reached ({now['tokens']:,}); left for a decision")
             return "capped"
+        if code == EXIT_UNREACHABLE:
+            entry["state"] = "failed"
+            status.event(f"{cell.name}: every request of day 1 failed before reaching the model; left for a look")
+            return "failed"
         if code == EXIT_LIMIT:
             wait = LIMIT_WAITS[min(waits, len(LIMIT_WAITS) - 1)]
             waits += 1

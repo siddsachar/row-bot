@@ -69,6 +69,8 @@ from tests.e2e.learning.stale_skills import scorer, world
 logger = logging.getLogger("row_bot.seeded.stale_skills")
 
 EXIT_LIMIT = 76
+#: DA1: every request of the first simulated day failed with an error and no tool call (the model unreachable).
+EXIT_UNREACHABLE = 77
 #: The latest request slot of a day (S1's clock: 08:30 plus 95 minutes a slot, so 22:45).
 MAX_ORDER = 9
 STAGES = ("profile", "past", "days")
@@ -538,11 +540,25 @@ class StaleRun(PersonRun):
                 self._check_limits()
                 self._card(f"simulated day {day}", time.monotonic() - clock_started)
                 self.save()
+                self._check_reachable(day)
                 if not self._keep_card(block_started):
                     self.gpu.release()
                 started_day = None
                 self.check_cap()
         self.gpu.release()
+
+    def _check_reachable(self, day: int) -> None:
+        """DA1's guard: after the first simulated day, stop if every request failed with an error and no tool call
+        (the 4B's first grid lost all 120 days that way), so a cell that can't reach its model is looked at, not run."""
+
+        if day != 1:
+            return
+        runs = [record for record in self.state.data.get("runs") or () if record.get("day") == 1]
+        if runs and all(unreached(record) for record in runs):
+            self.state.data["notes"].append({"day": 1, "note": "every request of day 1 failed with an error and no "
+                                                               "tool call: stopped for a look (DA1)"})
+            self.save()
+            raise SystemExit(EXIT_UNREACHABLE)
 
     def _morning(self, day: int) -> None:
         for path, text in self.timeline.files_on(day).items():
@@ -1018,7 +1034,7 @@ def main(argv: list[str] | None = None) -> int:
             getattr(run, f"stage_{stage}")()
             run.state.finish(stage)
     except SystemExit as stop:
-        if stop.code not in (EXIT_TOKEN_CAP, EXIT_LIMIT):
+        if stop.code not in (EXIT_TOKEN_CAP, EXIT_LIMIT, EXIT_UNREACHABLE):
             raise
         code = int(stop.code)
     finally:
@@ -1027,6 +1043,14 @@ def main(argv: list[str] | None = None) -> int:
         (run.run_dir / "stale.json").write_text(json.dumps(run.stale_result(), indent=1, sort_keys=True, default=str),
                                                 encoding="utf-8")
     return code
+
+
+def unreached(record: dict[str, Any]) -> bool:
+    """A run whose first attempt ended in an error before any tool call or answer (DA1)."""
+
+    attempt = (record.get("attempts") or [{}])[0]
+    return bool(attempt.get("error")) and not attempt.get("tool_calls") and not attempt.get("calls") and not str(
+        attempt.get("answer") or "").strip()
 
 
 if __name__ == "__main__":

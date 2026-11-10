@@ -640,3 +640,38 @@ def test_a_local_run_keeps_the_card_for_a_block_and_yields_to_a_priority_lane(tm
     gate.training, gate.quiet = (lambda: False), (lambda: "quiet hours")
     assert not run.StaleRun._keep_card(me, now)
     assert not run.StaleRun._keep_card(SimpleNamespace(lane="main", gpu=gate, args=me.args), now)
+
+
+def test_a_cell_whose_first_day_never_reached_the_model_stops_for_a_look(tmp_path):
+    """DA1: the 4B's first grid lost all 120 days to a refused model; now the first day's night stops such a cell."""
+    from types import SimpleNamespace
+
+    from tests.e2e.learning.seeded import live
+
+    refused = {"attempts": [{"error": "error", "error_text": ["not Agent-ready"], "tool_calls": 0, "calls": [],
+                             "answer": ""}], "day": 1}
+    acted = {"attempts": [{"error": "", "tool_calls": 2, "calls": ["send_email"], "answer": "Sent."}], "day": 1}
+    answered_after_an_error = {"attempts": [{"error": "error", "tool_calls": 0, "calls": [], "answer": "Done."}],
+                               "day": 1}
+    assert run.unreached(refused) and not run.unreached(acted) and not run.unreached(answered_after_an_error)
+
+    state = live.State(tmp_path / "state.json")
+    state.data.update(runs=[refused, refused], notes=[])
+    me = SimpleNamespace(state=state, save=state.save)
+    with pytest.raises(SystemExit) as stop:
+        run.StaleRun._check_reachable(me, 1)
+    assert stop.value.code == run.EXIT_UNREACHABLE
+    assert "DA1" in json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))["notes"][-1]["note"]
+
+    state.data["runs"] = [refused, acted]  # one request reached the model: the cell runs on
+    run.StaleRun._check_reachable(me, 1)
+    run.StaleRun._check_reachable(SimpleNamespace(state=SimpleNamespace(data={"runs": [refused]})), 2)  # day 1 only
+
+
+def test_the_4b_is_registered_under_a_name_the_build_reads_as_tool_capable():
+    """DA1: the same GGUF, named in the qwen3.5 family, so the build treats its tools as it treats the 9B's."""
+    from row_bot.providers.ollama import is_ollama_tool_capable, normalize_ollama_family
+    from tests.e2e.learning.stale_skills import grid
+
+    four_b, nine_b = grid.MODELS["q4b"]["local"], grid.MODELS["q9b"]["local"]
+    assert is_ollama_tool_capable(four_b) and normalize_ollama_family(four_b) == normalize_ollama_family(nine_b)
