@@ -1042,3 +1042,32 @@ def test_start_up_removes_only_row_bots_own_temp_and_splash_leftovers(tmp_path) 
     for name in kept:
         assert (data / name).exists(), name
     assert (data / "tmpabcdefgh").is_dir() and fresh.exists()
+
+def test_old_checkpoints_are_pruned_hourly_while_other_chats_run(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    """I32: workflows kept the app busy all day, the idle maintenance waited, and threads.db grew 16 GB in
+    four hours. The hourly prune runs busy or not, leaves every chat in use alone, and steps aside while
+    the idle maintenance runs."""
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
+    threads, cleanup, tasks = stack["threads"], stack["cleanup"], stack["tasks"]
+    old = "2000-01-01T00:00:00"
+    with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS checkpoints (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)")
+        conn.execute("CREATE TABLE IF NOT EXISTS writes (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)")
+        for thread in ("quiet", "running"):
+            conn.execute("INSERT INTO thread_meta (thread_id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                         (thread, thread, old, old))
+            for index in range(15):
+                conn.execute("INSERT INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id) VALUES (?, '', ?)",
+                             (thread, f"cp-{index:02d}"))
+    monkeypatch.setattr(tasks, "get_running_tasks", lambda: {"running": object()})
+
+    def kept(thread: str) -> int:
+        with closing(sqlite3.connect(threads.DB_PATH)) as conn:
+            return conn.execute("SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", (thread,)).fetchone()[0]
+
+    with cleanup._maintenance_lock:
+        assert cleanup.prune_checkpoints_while_busy() is None
+    assert kept("quiet") == 15
+
+    assert cleanup.prune_checkpoints_while_busy()["checkpoints"] == 5
+    assert (kept("quiet"), kept("running")) == (10, 15)

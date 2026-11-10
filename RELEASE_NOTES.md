@@ -214,7 +214,9 @@ through background updates.
   With a large chat history it also rewrote the whole chats database, which
   stalled every chat for a minute or more. Now it never rewrites a large one
   while Row-Bot runs (the space is reused anyway), tidies in small steps, and
-  reading your chats never waits on it.
+  reading your chats never waits on it. Old chat history is now trimmed every
+  hour even while workflows keep Row-Bot busy, so a long workflow chat no
+  longer grows the chats database by gigabytes between tidy-ups.
 - **Smaller fixes** - a bold link in an answer stays a link; reading a short
   page no longer sends the model to the browser; Show in folder finds a file
   whose path has a space; exports skip empty steps and say where an image was
