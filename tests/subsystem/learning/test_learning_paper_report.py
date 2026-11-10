@@ -193,7 +193,8 @@ def test_health_prints_its_hash_first_then_counts_only_from_a_checked_copy(profi
     assert written["signals"]["kind"] == {"teach": 2}
     assert written["hidden_problems"]["uncorrected"] >= 1 and written["hidden_problems"]["pack_tasks"] == 32
     assert written["versions"]["pilots"] == 1 and written["versions"]["list"][1]["kept_pass"] == 2
-    assert (written["versions"]["list"][1]["examples"], written["versions"]["list"][1]["historical"]) == (92, 60)
+    assert [(row["examples"], row["historical"], row["targets"]) for row in written["versions"]["list"]] == [
+        (91, 60, None), (92, 60, None)]  # no kept rows in these versions
     month = next(iter(written["learning_tokens"].values()))
     assert (month["cloud"], month["local"]) == (1_500, 800)
     assert written["lessons"] == {"total": 1, "in_use": 0}
@@ -340,7 +341,7 @@ def test_freeze_runs_the_newest_non_pilot_version_from_the_copy_and_reports_aggr
     assert _hashes(profile) == before and list(scratch.iterdir()) == []
     assert written["versions"] == {"total": 2, "pilots": 1, "candidates": 1, "evaluated": 2,
                                    "trained_on": written["versions"]["trained_on"], "kept_pass": 2, "passes": 3,
-                                   "examples": 92, "historical": 60}
+                                   "examples": 92, "historical": 60, "targets": None}
     assert written["problems"]["packs"] == 24 and written["design"]["container"] is False  # no coding without one
     h1 = written["hypotheses"]["H1"]
     assert (h1["state"], h1["reason"]) == ("not_tested", "too_few_problems")  # fewer than 30 hidden problems
@@ -900,6 +901,21 @@ def _kept(profile: Path, chats: Any) -> tuple[int, int]:
     dataset_module.write(compiled, data)
     assert kept_rows.keep(data, folder, compiled.manifest())
     return compiled.examples, len(compiled.validation)
+
+
+def test_health_counts_a_versions_training_targets_from_its_kept_rows(profile, folders, chats):
+    scratch, out = folders
+    _version(profile, 2)
+    rows, _validation = _kept(profile, chats)
+    targets = 0
+    for line in (profile / "learning_models" / "versions" / "v2" / "rows" / "examples.jsonl").read_text(
+            encoding="utf-8").splitlines():
+        targets += sum(1 for message in json.loads(line)["messages"]
+                       if message["role"] == "assistant" and message.get("weight"))
+
+    assert _run(["--health", "--profile", str(profile), "--scratch", str(scratch), "--out", str(out), "--yes"]) == 0
+    found = _written(out)["versions"]["list"][-1]
+    assert found["version"] == 2 and found["targets"] == targets >= rows > 0
 
 
 class _Gone:

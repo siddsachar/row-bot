@@ -104,8 +104,10 @@ POLL_SECONDS = 60.0
 CODE_DIRS = ("src/row_bot/learning",)
 CODE_FILES = ("scripts/learning_shape_ablation.py",)
 #: What ``--health`` reads, so it copies only these (paths relative to the profile, POSIX style).
+# A version's kept rows come too: the health check counts their training targets (and nothing else from them).
 HEALTH_FILES = re.compile(r"^(learning\.db(-wal|-shm)?|usage\.db(-wal|-shm)?|learning_config\.json|providers\.json"
-                          r"|learning/.*|learning_models/.*\.json)$")
+                          r"|learning/.*|learning_models/.*\.json"
+                          r"|learning_models/versions/v\d+/rows/(examples|validation)\.jsonl)$")
 INSTALL_DIR = ("Programs", "Row-Bot")
 #: A checkout's own ignored scratch folders (where test runs keep their temporary folders).
 IGNORED_IN_CHECKOUT = (".tmp", ".testtmp")
@@ -497,8 +499,8 @@ RUN = Obj({
     "copy": Obj({"files": COUNT, "bytes": COUNT, "links_skipped": COUNT}), "minutes": HOURS,
 })
 VERSION_ROW = Obj({"version": COUNT, "trained_on": Maybe(Text(pattern=DAY)), "state": VERSION_STATES,
-                   "pilot": BOOL, "examples": COUNT, "historical": COUNT, "kept_pass": Maybe(COUNT),
-                   "passes": Maybe(COUNT), "training_hours": Maybe(HOURS)})
+                   "pilot": BOOL, "examples": COUNT, "historical": COUNT, "targets": Maybe(COUNT),
+                   "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT), "training_hours": Maybe(HOURS)})
 HEALTH = Obj({
     "format": enum(FORMAT), "schema_version": Num(integer=True, low=SCHEMA_VERSION, high=SCHEMA_VERSION),
     "mode": enum("health"), "run": RUN,
@@ -620,12 +622,12 @@ FREEZE = Obj({
                    # A12 5: the larger local reference arm's model, and the arms run model by model with it.
                    "local_reference": enum(*LOCAL_REFERENCE_MODELS, "other"), "order": enum("interleaved", "model")},
                   optional=frozenset({"since", "local_reference", "order"})),
-    # The evaluated version's training examples and how many came from imported past chats, whose only target is
-    # the final answer (added before v2's freeze; optional, so the v1 report still reads for --combine-with).
+    # The evaluated version's training examples, how many came from imported past chats, and its training targets
+    # (added before v2's freeze; optional, so the v1 report still reads for --combine-with).
     "versions": Obj({"total": COUNT, "pilots": COUNT, "candidates": COUNT, "evaluated": Maybe(COUNT),
                      "trained_on": Maybe(Text(pattern=DAY)), "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT),
-                     "examples": Maybe(COUNT), "historical": Maybe(COUNT)},
-                    optional=frozenset({"examples", "historical"})),
+                     "examples": Maybe(COUNT), "historical": Maybe(COUNT), "targets": Maybe(COUNT)},
+                    optional=frozenset({"examples", "historical", "targets"})),
     "problems": Obj({"real_uncorrected": COUNT, "real_corrected": COUNT, "packs": COUNT, "after_as_of": COUNT,
                      "main_models": COUNT, "untrusted": COUNT, "with_picture": COUNT, "before_since": COUNT},
                     optional=frozenset({"before_since"})),
@@ -725,8 +727,9 @@ def _versions(copy: Path) -> list[dict[str, Any]]:
             "version": int(state.version), "trained_on": _day(state.trained_at), "state": phase,
             # §8.4: versions trained before the rows took the serving shape are pilots.
             "pilot": not rendering.startswith("serving-"), "examples": int(state.examples or 0),
-            # Rows from imported past chats: their only target is the final answer, never a tool call.
-            "historical": int((dataset or {}).get("historical") or 0),
+            # Examples from the imported past chats (partial fidelity), and the assistant messages the version
+            # trained on (weight 1), counted from its kept rows: None for a version from before they were kept.
+            "historical": int((dataset or {}).get("historical") or 0), "targets": _targets(entry, dataset),
             "kept_pass": int(kept["pass"]) if isinstance(kept.get("pass"), int) else None,
             "passes": int(kept["of"]) if isinstance(kept.get("of"), int) else None, "training_hours": hours,
             # Kept apart (never written): what the freeze serves.
@@ -737,6 +740,19 @@ def _versions(copy: Path) -> list[dict[str, Any]]:
                           .get("name") or "")),
         })
     return rows
+
+
+def _targets(entry: Path, dataset: Mapping[str, Any] | None) -> int | None:
+    """The training targets of a version's kept rows (the controlled study's unit); None when none are kept or they
+    no longer match the version's record. Counts only: no row leaves this function."""
+
+    from row_bot.learning.training import kept_rows
+
+    state, train, _validation = kept_rows.read(entry, dataset or None)
+    if state != "kept":
+        return None
+    return sum(1 for row in train if isinstance(row, Mapping) for message in row.get("messages") or ()
+               if isinstance(message, Mapping) and message.get("role") == "assistant" and message.get("weight"))
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -1755,7 +1771,8 @@ def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: 
                      "kept_pass": newest["kept_pass"] if newest and contrast else None,
                      "passes": newest["passes"] if newest and contrast else None,
                      "examples": newest["examples"] if newest and contrast else None,
-                     "historical": newest["historical"] if newest and contrast else None},
+                     "historical": newest["historical"] if newest and contrast else None,
+                     "targets": newest["targets"] if newest and contrast else None},
         "problems": {"real_uncorrected": int(problems.get("real_uncorrected") or 0), "real_corrected": corrected,
                      "packs": int(problems.get("packs") or 0), "after_as_of": int(problems.get("after_as_of") or 0),
                      "main_models": int(result.get("main_models") or 0),
