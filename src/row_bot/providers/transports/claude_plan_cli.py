@@ -314,9 +314,18 @@ class ClaudeCodeRun:
                                         | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         else:
             options["start_new_session"] = True
+        from row_bot.providers.claude_subscription import claude_code_runs
+
         self.argv = argv
-        self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE, cwd=str(cwd), env=env, shell=False, **options)
+        # Never while an update replaces Claude Code: wait for it (``claude_update.py``).
+        self._runs = claude_code_runs()
+        self._runs.started()
+        try:
+            self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, cwd=str(cwd), env=env, shell=False, **options)
+        except BaseException:
+            self._runs.ended()
+            raise
         self._events: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self._stderr: deque[str] = deque(maxlen=40)
         self._stop_lock = threading.Lock()
@@ -395,7 +404,10 @@ class ClaudeCodeRun:
         with self._stop_lock:
             if not self._stopped:
                 self._stopped = True
-                self._stop()
+                try:
+                    self._stop()
+                finally:
+                    self._runs.ended()
 
     def _stop(self) -> None:
         self.close_input()

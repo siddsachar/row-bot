@@ -1117,6 +1117,13 @@ async def _run_startup_sequence():
             waits.schedule(_get_scheduler())
     except Exception as exc:
         logger.warning("Could not schedule waits: %s", exc)
+    try:
+        from row_bot.providers import claude_update
+        from row_bot.tasks import _get_scheduler
+        with _startup_phase("claude_code_update_scheduler"):
+            claude_update.schedule(_get_scheduler())
+    except Exception as exc:
+        logger.warning("Could not schedule Claude Code's daily update: %s", exc)
 
     _set("✅ Ready")
     startup_state.ready = True

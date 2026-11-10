@@ -2,6 +2,20 @@
 
 ---
 
+## v5.3.4
+
+### Claude Plan
+
+- **Claude Code stays up to date** - while your Claude plan is set up, Row-Bot
+  checks Anthropic about once a day for a newer Claude Code and installs it,
+  checked against Anthropic's checksum, while Claude isn't answering. Claude's
+  model list is then read again, so new models (such as Sonnet 5.5 and Haiku
+  5.5) appear without pressing Update Claude Code. A failed update keeps the
+  version you have and tries again the next day; Claude Code's own updater
+  stays off. Settings › System › Privacy and the privacy page list the check.
+
+---
+
 ## v5.3.3 - Row-Bot In Your Browser, Every Model In One Place
 
 Row-Bot 5.3.3 runs in your browser, in your own Railway account, with nothing to

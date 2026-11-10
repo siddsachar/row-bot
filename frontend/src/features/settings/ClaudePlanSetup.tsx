@@ -406,8 +406,9 @@ export default function ClaudePlanSetup({
       {body}
       <p className="settings-help claude-plan-note">
         Row-Bot never sees your Claude sign-in. It starts Claude Code with its
-        non-essential traffic off: no telemetry, error reports or automatic
-        updates from these runs.
+        non-essential traffic off: no telemetry or error reports from these
+        runs. Once a day Row-Bot checks Anthropic for a newer Claude Code and
+        installs it while Claude isn’t answering.
       </p>
     </div>
   );

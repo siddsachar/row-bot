@@ -12,7 +12,8 @@ and puts a fake Claude Code (``tests/helpers/fake_claude.py``) where the native 
 ``~/.local/bin/claude`` (``claude.exe`` on Windows). On Windows it is setuptools' console launcher with the script
 beside the download, so Windows runs a real executable.
 
-``checksum`` lists a wrong checksum, ``platforms`` lists other platforms only, ``install_exit`` makes the install
+Each ``installed_version`` is its own fake program, so a Claude Code installed earlier keeps its version until an
+install replaces it; ``signed_in`` signs this one in with a Claude plan. ``checksum`` lists a wrong checksum, ``platforms`` lists other platforms only, ``install_exit`` makes the install
 step fail, ``latest_status``/``binary_status`` answer an error. HOME/USERPROFILE point at a scratch home and PATH at
 an empty folder, so no real Claude Code is ever found or run, and nothing reaches Anthropic.
 """
@@ -77,7 +78,8 @@ class FakeClaudeRelease:
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, version: str = "2.1.300",
                  installed_version: str = "2.1.300 (Claude Code)", checksum: str | None = None,
                  platforms: list[str] | None = None, install_exit: int = 0, latest_status: int = 200,
-                 binary_status: int = 200, login_code: str = "", login_marker: str = "") -> None:
+                 binary_status: int = 200, login_code: str = "", login_marker: str = "",
+                 signed_in: bool = False) -> None:
         from row_bot.providers import claude_install, claude_subscription
 
         self.root = tmp_path / "fake-claude-release"
@@ -95,10 +97,12 @@ class FakeClaudeRelease:
         self.platform = claude_install.claude_code_platform() or "linux-x64"
         self.windows = self.platform.startswith("win32-")
         self.install_log = self.root / "installs.jsonl"
-        program = self.root / "claude-code"
+        program = self.root / f"claude-code-{installed_version.split()[0]}"
         script, config = write_fake_claude_program(program, version=installed_version, login_code=login_code,
                                                    login_marker=login_marker,
                                                    auth={"loggedIn": False}, auth_exit=1)
+        if signed_in:
+            (program / "signed-in").touch()
         self.claude_log = program / "runs.jsonl"
         installer = self.root / "installer.py"
         installer.write_text(_INSTALLER, encoding="utf-8")

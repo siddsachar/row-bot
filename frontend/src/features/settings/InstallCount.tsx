@@ -222,6 +222,12 @@ export function Privacy({ io }: { io: PrivacyIo }) {
               <Link to="/settings/updates">Settings › Updates</Link>
             </li>
             <li>
+              <strong>Claude Code</strong> Anthropic, about once a day while
+              your Claude plan is set up, for a newer version, installed while
+              Claude isn’t answering ·{' '}
+              <Link to="/settings/models">Settings › Models</Link>
+            </li>
+            <li>
               <strong>Connection checks</strong> every hour: the internet
               (1.1.1.1), Ollama and your accounts ·{' '}
               <Link to="/?tab=monitor">Monitor</Link>
