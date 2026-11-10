@@ -7,7 +7,8 @@
 
 ``--version`` prints ``version``; ``auth status`` prints ``auth`` as JSON and exits with ``auth_exit``. Print
 mode starts the MCP servers named in ``--mcp-config`` the way Claude Code does (``initialize``, then
-``tools/list``), answers ``initialize`` control requests with ``models``, acknowledges each
+``tools/list``), answers ``initialize`` control requests with ``models`` and ``account_plan`` (the plan
+its session names, which ``auth status`` may not), acknowledges each
 ``shouldQuery: false`` user frame with a zero-turn result, and after the last frame writes ``reply``:
 stream-json events, ``{"sleep": seconds}``, ``{"hang": true}`` (wait to be stopped) or ``{"exit": code}``.
 With ``replies`` it goes on as Claude Code does in one process: after a reply that calls tools it calls each
@@ -153,7 +154,8 @@ for raw in sys.stdin:
     record(frame=frame)
     if frame.get("type") == "control_request":
         out({"type": "control_response", "response": {"subtype": "success", "request_id": frame["request_id"],
-             "response": {"models": config["models"], "account": {"subscriptionType": "Claude Max"}}}})
+             "response": {"models": config["models"],
+                          "account": {"subscriptionType": config["account_plan"]}}}})
         continue
     if frame.get("type") != "user":
         continue
@@ -227,6 +229,7 @@ def write_fake_claude_program(
     login_code: str = "",
     login_marker: str = "",
     logout_exit: int = 0,
+    account_plan: str = "Claude Max",
 ) -> tuple[Path, Path]:
     """The fake's script and its config in ``folder`` (its runs log beside them); returns both paths."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -239,6 +242,7 @@ def write_fake_claude_program(
         "reply": reply if reply is not None else text_reply("Hello from Claude."),
         "models": models if models is not None else MODELS,
         "login_code": login_code, "login_marker": login_marker, "logout_exit": logout_exit,
+        "account_plan": account_plan,
     }), encoding="utf-8")
     script = folder / "fake_claude.py"
     script.write_text(_SCRIPT, encoding="utf-8")
@@ -260,6 +264,7 @@ def install_fake_claude(
     login_code: str = "",
     login_marker: str = "",
     logout_exit: int = 0,
+    account_plan: str = "Claude Max",
 ) -> FakeClaude:
     bin_dir = tmp_path / "fake-claude-bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -278,7 +283,7 @@ def install_fake_claude(
     script, config = write_fake_claude_program(
         bin_dir, version=version, auth=auth, auth_exit=auth_exit, reply=reply, replies=replies,
         refuse_tools=refuse_tools, models=models, login_code=login_code, login_marker=login_marker,
-        logout_exit=logout_exit)
+        logout_exit=logout_exit, account_plan=account_plan)
     if os.name == "nt":
         (bin_dir / "claude.cmd").write_text(f'@"{sys.executable}" "{script}" "{config}" %*\r\n', encoding="utf-8")
     else:

@@ -13,6 +13,10 @@
   itself out with its own command, Claude's own sign-in opens for the other
   account, and the model picker then shows that account's models. Row-Bot never
   sees either sign-in.
+- **The right plan name** - the Claude sheet names the plan Claude Code's own
+  session runs on. Before, it could show an older plan of the same Claude
+  account (Claude Max after a switch to Ultra), because `claude auth status`
+  still named it. After a sign-in the plan is right at once.
 
 ---
 

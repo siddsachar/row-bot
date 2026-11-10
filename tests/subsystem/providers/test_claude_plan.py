@@ -450,6 +450,23 @@ def test_a_sign_out_claude_code_refuses_says_so(store, tmp_path, monkeypatch):
     assert claude.sign_out_claude_code() is False
 
 
+def test_the_plan_is_the_one_claude_codes_live_session_names(store, tmp_path, monkeypatch):
+    """``claude auth status`` can name an older plan of the same account (max after a switch to Ultra); the
+    plan shown is the one Claude Code's ``initialize`` names, from the last model listing of this sign-in."""
+    fake = install_fake_claude(tmp_path, monkeypatch, account_plan="Claude Ultra")
+    assert _card()["claude_plan"]["plan"] == "Claude Max"  # before any listing: auth status's
+
+    claude.list_claude_subscription_model_infos(force_refresh=True)
+
+    assert _card()["claude_plan"]["plan"] == "Claude Ultra"
+    # Another sign-in (auth status answers differently): its own plan until its models are listed.
+    config_file = fake.bin_dir / "config.json"
+    config_file.write_text(config_file.read_text(encoding="utf-8").replace(
+        '"subscriptionType": "max"', '"subscriptionType": "pro"'), encoding="utf-8")
+    claude.forget_claude_plan_status()
+    assert _card()["claude_plan"]["plan"] == "Claude Pro"
+
+
 def test_inherited_keys_endpoints_and_other_clouds_never_reach_claude_code(store, tmp_path, monkeypatch):
     fake = install_fake_claude(tmp_path, monkeypatch, reply=text_reply("ok"))
     for name, value in {

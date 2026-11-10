@@ -60,7 +60,7 @@ Claude Code keeps one sign-in on your computer, shared by Row-Bot and `claude` i
 1. Open **Settings › Models › Claude (your Claude plan)**. Beside **Claude plan connected**, choose **Use another Claude account** (the two-arrows button).
 2. Row-Bot asks first, because this signs Claude Code out on this computer, including `claude` in a terminal. Choose **Sign out and switch**, or **Cancel** to change nothing.
 3. Row-Bot runs Claude Code's own sign-out (`claude auth logout`), then Claude's own sign-in opens as in the steps above. Sign in to the other account.
-4. When Claude Code says it's signed in, the sheet shows the new plan, and Row-Bot asks Claude Code again for its model list, so the model picker shows that account's models.
+4. When Claude Code says it's signed in, Row-Bot asks Claude Code again for its model list, so the model picker shows that account's models, and the sheet shows the plan Claude Code's session runs on. (Where one Claude account has more than one plan, `claude auth status` can still name the older one; the sheet goes by Claude Code's session.)
 
 Row-Bot never reads, stores or relays either account's sign-in: Claude Code signs itself out and in. If Claude Code doesn't sign out, the sheet says **Claude Code didn't sign out, so it's still on the same Claude account. Try again.** and nothing else changes. If you close Claude's sign-in after the sign-out, Claude Code stays signed out until you **Sign in again**; `claude` in a terminal shares that sign-in, so it signs in again with you.
 

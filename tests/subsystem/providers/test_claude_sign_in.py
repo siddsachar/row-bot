@@ -87,10 +87,14 @@ def panel(tmp_path, monkeypatch):
         started.append(FakeLogin(argv, account=account, **options))
         return started[-1]
 
+    program = str(claude.bin_dir / ("claude.cmd" if os.name == "nt" else "claude"))
+
     def status() -> ClaudePlanStatus:
+        """What ``claude auth status`` says; a model listing asks the fake Claude Code itself."""
         if account["signed_in"]:
-            return ClaudePlanStatus("ready", version="2.1.300", plan=account["plan"], program="claude")
-        return ClaudePlanStatus("signed_out", version="2.1.300", program="claude")
+            return ClaudePlanStatus("ready", version="2.1.300", plan=account["plan"], program=program,
+                                    account="synthetic-sign-in")
+        return ClaudePlanStatus("signed_out", version="2.1.300", program=program)
 
     from row_bot.providers import claude_subscription, live_settings, model_catalog_cache
 
@@ -103,7 +107,7 @@ def panel(tmp_path, monkeypatch):
         **claude_subscription.claude_plan_provider_status(), "display_name": "Claude (your Claude plan)",
         "group": "Subscription Accounts", "icon": "C", "risk_label": "subscription", "model_count": None}])
     clock = Clock()
-    manager = sign_in.ClaudeSignIns(pty_factory=factory, status=status, clock=clock, sweep_every=None)
+    manager = sign_in.ClaudeSignIns(pty_factory=factory, clock=clock, sweep_every=None)
     monkeypatch.setattr(sign_in, "_sign_ins", manager)
     return type("Panel", (), {"manager": manager, "started": started, "account": account, "clock": clock,
                               "claude": claude, "listings": listings})
@@ -200,7 +204,7 @@ def test_wrong_code_keeps_claudes_prompt_and_the_right_one_connects_then_it_clos
 
 
 def test_use_another_account_signs_claude_code_out_with_its_own_command_then_opens_its_sign_in(
-        panel, monkeypatch) -> None:
+        panel, tmp_path, monkeypatch) -> None:
     """Claude Code keeps one sign-in, so switching accounts is its own ``claude auth logout`` (run like
     ``auth status``: Claude Code's environment, its own folder), then its own sign-in, to the other account."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-row-bot-secret")
@@ -220,13 +224,19 @@ def test_use_another_account_signs_claude_code_out_with_its_own_command_then_ope
         [login] = panel.started
         assert login.argv[1:] == ["auth", "login"]
 
-        panel.account.update(signed_in=False, plan="Claude Ultra")  # the person signs in to the other account
+        # The person signs in to their Ultra plan. Claude Code's auth status still names Max (the same account's
+        # older plan); its live session names Ultra, and that is the plan the sheet shows at once.
+        install_fake_claude(tmp_path, monkeypatch, account_plan="Claude Ultra")
+        panel.account.update(signed_in=False, plan="Claude Max")
         _type(client, headers, identifier, CODE + "\r")
         _, value = _screen(client, headers, identifier)
         assert value["plan"]["state"] == "ready" and value["plan"]["plan"] == "Claude Ultra"
+        card = client.get("/api/v1/settings/providers/live", headers=headers).json()
+        [claude] = [row for row in card["providers"] if row["provider_id"] == "claude_subscription"]
+        assert claude["claude_plan"]["plan"] == "Claude Ultra"
     # That account's models are asked of Claude Code, even if a listing of the old one is running.
-    assert panel.listings == [{"reason": "claude_signed_in", "provider_id": "claude_subscription", "force": True,
-                               "follow_up": True}]
+    assert {"reason": "claude_signed_in", "provider_id": "claude_subscription", "force": True,
+            "follow_up": True} in panel.listings
 
 
 def test_when_claude_code_does_not_sign_out_no_sign_in_opens(panel, tmp_path, monkeypatch) -> None:

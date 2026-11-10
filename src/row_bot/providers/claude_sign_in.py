@@ -335,6 +335,10 @@ class ClaudeSignIns:
         """Claude Code ended: ask it whether it is signed in now (never its files)."""
         try:
             plan = self._status()
+            if plan.ready:
+                # Perhaps another account: its models and plan first, so the sheet names that plan at once.
+                _list_models_first()
+                plan = self._status()
         except Exception:
             logger.info("Claude Code didn't say whether it is signed in after its sign-in", exc_info=True)
             plan = ClaudePlanStatus("error", detail="Claude Code didn't say whether it is signed in.")
@@ -344,8 +348,6 @@ class ClaudeSignIns:
                 sign_in.ended = "exited"
                 sign_in.ended_at = self._clock()
         logger.info("Claude's sign-in ended (signed in: %s)", plan.ready)
-        if plan.ready:
-            _list_models_again()
 
     def _end(self, sign_in: ClaudeSignIn, why: Ended) -> None:
         """Stop Claude Code and drop every frame. Caller holds the lock."""
@@ -362,16 +364,18 @@ class ClaudeSignIns:
         logger.info("Claude's sign-in closed (%s)", why)
 
 
-def _list_models_again() -> None:
-    """Signed in, perhaps to another Claude account: ask Claude Code for that account's models (no message to
-    any model), in the background."""
-    try:
-        from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
+def _list_models_first() -> None:
+    """Signed in, perhaps to another Claude account: ask Claude Code for this sign-in's models and plan now (no
+    message to any model), then bring every picker's list up to date in the background."""
+    from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+    from row_bot.providers.model_catalog_cache import start_model_catalog_refresh_background
 
+    list_claude_subscription_model_infos(force_refresh=True)
+    try:
         start_model_catalog_refresh_background(reason="claude_signed_in", provider_id="claude_subscription",
                                                force=True, follow_up=True)
     except Exception:
-        logger.debug("Could not ask Claude Code for its models after its sign-in", exc_info=True)
+        logger.debug("Could not refresh the model lists after Claude's sign-in", exc_info=True)
 
 
 _sign_ins: ClaudeSignIns | None = None
