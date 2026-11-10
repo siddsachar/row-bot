@@ -52,8 +52,9 @@ VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
 }
 
 # The image and video models of providers whose model lists leave them out: MiniMax
-# lists its text models only and Z.AI's list names no media models. Every other
-# provider's media models come from its own list.
+# lists its text models only and Z.AI's list names no media models. Their refresh adds
+# these to the catalog beside the listed ones. Every other provider's media models come
+# from its own list.
 UNLISTED_MEDIA_MODELS: dict[str, dict[str, dict[str, str]]] = {
     "image": {
         "minimax": {"image-01": "Image-01"},
@@ -116,9 +117,6 @@ def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) ->
         if not snapshot_supports_surface(snapshot, surface):
             continue
         entries[f"{provider_id}/{model_id}"] = dict(info)
-    for provider_id, models in UNLISTED_MEDIA_MODELS.get(surface, {}).items():
-        for model_id, label in models.items():
-            entries.setdefault(f"{provider_id}/{model_id}", {"provider": provider_id, "label": label})
 
     options: dict[str, str] = {}
     for config_value, info in sorted(entries.items(), key=lambda item: item[0]):

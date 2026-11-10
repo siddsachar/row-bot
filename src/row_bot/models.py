@@ -2256,7 +2256,7 @@ def _fetch_cloud_models(provider: str) -> int:
     except Exception as exc:
         logger.warning("Failed to fetch %s models: %s", provider, exc)
         return 0
-    media_parameters = _openrouter_media_parameters(headers) if provider == "openrouter" else {}
+    media_parameters, media_named = _openrouter_media_parameters(headers) if provider == "openrouter" else ({}, {})
 
     entries: dict[str, dict] = {}
     if provider == "openai":
@@ -2291,6 +2291,18 @@ def _fetch_cloud_models(provider: str) -> int:
                 continue
             if mid in media_parameters:
                 m = {**m, "generation_parameters": media_parameters[mid]}
+            # Its images and videos are made through /images and /videos, which take only the models their
+            # own lists name; the chat list says its routers (Auto Router) draw too (I26). A list that
+            # couldn't be read leaves the chat list's word.
+            architecture = m.get("architecture") if isinstance(m.get("architecture"), dict) else {}
+            outputs = m.get("output_modalities") or architecture.get("output_modalities")
+            if isinstance(outputs, list):
+                kept = [kind for kind in outputs if not (
+                    (kind == "image" and media_named.get("images") is not None and mid not in media_named["images"])
+                    or (kind == "video" and media_named.get("videos") is not None and mid not in media_named["videos"]))]
+                if not kept:
+                    continue
+                m = {**m, "output_modalities": kept, "architecture": {**architecture, "output_modalities": kept}}
             model_info = model_info_from_metadata(
                 "openrouter", mid, m,
                 display_name=name,
@@ -2304,8 +2316,9 @@ def _fetch_cloud_models(provider: str) -> int:
     return count
 
 
-def _openrouter_media_parameters(headers: dict[str, str]) -> dict[str, dict]:
-    """The sizes, lengths and ratios OpenRouter lists for its image and video models; none where a list fails."""
+def _openrouter_media_parameters(headers: dict[str, str]) -> tuple[dict[str, dict], dict[str, set[str] | None]]:
+    """The sizes, lengths and ratios OpenRouter lists for its image and video models, and the models each
+    list names (``images``, ``videos``); none, and None, where a list fails."""
     import httpx
     from row_bot.providers.openrouter_catalog import openrouter_media_parameters
 
@@ -2317,7 +2330,9 @@ def _openrouter_media_parameters(headers: dict[str, str]) -> dict[str, dict]:
             rows[kind] = resp.json().get("data") or []
         except Exception as exc:
             logger.warning("Failed to fetch OpenRouter's %s model settings: %s", kind[:-1], exc)
-    return openrouter_media_parameters(rows.get("videos"), rows.get("images"))
+    named = {kind: {str(row.get("id") or "").strip() for row in rows[kind] if isinstance(row, dict)}
+             if isinstance(rows.get(kind), list) else None for kind in ("images", "videos")}
+    return openrouter_media_parameters(rows.get("videos"), rows.get("images")), named
 
 
 def fetch_cloud_models(provider: str) -> int:
@@ -2852,6 +2867,20 @@ def _dashscope_media_model_infos(api_key: str, verified_at: str, seen: set[str])
     return infos
 
 
+def _documented_media_model_infos(provider_id: str, seen: set[str]) -> list:
+    """The image and video models a provider's docs name but its model list leaves out (MiniMax, Z.AI; I24)."""
+    from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.media import UNLISTED_MEDIA_MODELS
+
+    return [
+        model_info_from_metadata(provider_id, model_id, {"output_modalities": [kind]}, display_name=label,
+                                 context_window=0, source="provider_docs")
+        for kind in ("image", "video")
+        for model_id, label in UNLISTED_MEDIA_MODELS[kind].get(provider_id, {}).items()
+        if model_id not in seen
+    ]
+
+
 def _fetch_preset_models(provider_id: str, api_key: str) -> int:
     """Fetch one table provider's models from its OpenAI-compatible ``/models``."""
     import httpx
@@ -2871,6 +2900,8 @@ def _fetch_preset_models(provider_id: str, api_key: str) -> int:
     if model_infos and provider_id == "dashscope":
         # Its compatible list has the chat models; its own list says which models draw or film.
         model_infos.extend(_dashscope_media_model_infos(api_key, verified_at, {info.model_id for info in model_infos}))
+    if model_infos:
+        model_infos.extend(_documented_media_model_infos(provider_id, {info.model_id for info in model_infos}))
     if not model_infos:
         logger.warning("%s listed no chat models; keeping the saved list", preset.name)
         return 0
@@ -3062,6 +3093,7 @@ def _fetch_minimax_models(api_key: str) -> int:
     if not model_infos:
         logger.warning("MiniMax model fetch contained no usable model ids; preserving previous cache")
         return 0
+    model_infos.extend(_documented_media_model_infos("minimax", seen))
 
     entries = {
         model_info.model_id: model_info_to_cache_entry(model_info)

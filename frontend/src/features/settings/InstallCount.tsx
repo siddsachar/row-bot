@@ -227,9 +227,15 @@ export function Privacy({ io }: { io: PrivacyIo }) {
               <Link to="/?tab=monitor">Monitor</Link>
             </li>
             <li>
-              <strong>Catalogs</strong> model lists (with OpenRouter’s public
-              list and models.dev’s, at most hourly) and Apps & Skills, when you
-              connect, refresh or update ·{' '}
+              <strong>Model lists</strong> your connected providers’ (with
+              OpenRouter’s public list and models.dev’s, at most hourly), every
+              six hours while a cloud provider is connected, and when you
+              connect or refresh ·{' '}
+              <Link to="/settings/models">Settings › Models</Link>
+            </li>
+            <li>
+              <strong>Catalogs</strong> Apps & Skills, when you update or on the
+              schedule you turn on ·{' '}
               <Link to="/settings/apps?view=advanced#catalogs">
                 Apps › Advanced
               </Link>

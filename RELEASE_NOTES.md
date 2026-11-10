@@ -68,8 +68,11 @@ through background updates.
 
 - **From more providers** - image and video tools also work with OpenRouter
   (images, edits and video), Vercel AI Gateway (images), Together AI (images and
-  video), Requesty (images), Qwen (Alibaba Cloud) and Atlas Cloud. MiniMax and
-  Z.AI don't list their image and video models yet, so they can't be chosen.
+  video), Requesty (images), Qwen (Alibaba Cloud), Atlas Cloud, MiniMax and Z.AI.
+  MiniMax's and Z.AI's model lists leave out their image and video models, so
+  Row-Bot adds the ones their docs name. Together AI video asks each model for a
+  resolution and aspect ratio, so models that take only their own frame sizes,
+  such as Seedance 1.0 Lite, work.
 - **Models from each provider's own list** - a retired model no longer lingers.
   OpenAI retired gpt-image-1 on 23 Oct and retires gpt-image-1-mini and
   gpt-image-1.5 on 1 Dec. A saved model the provider no longer lists says so in
@@ -155,9 +158,14 @@ through background updates.
 - **Gemini answers again** on Google's own API and through gateways such as
   Vercel: a few tools offered an empty choice, which Gemini refuses.
 - **Images and video work with keys saved in the new provider panel** (Qwen,
-  Together, Vercel and the others). Model lists update when you connect a
-  provider or press Refresh under Settings › Models › Catalog; a refresh brings
-  in the image and video models of OpenRouter, Requesty and Atlas Cloud.
+  Together, Vercel and the others).
+- **Model lists keep themselves current again** - as before 5.0, about a minute
+  after start-up and then every six hours, a list older than six hours is read
+  again from your connected providers (their model lists only: no prompt, no
+  tokens). With no cloud provider connected nothing is contacted. Connecting a
+  provider or Refresh under Settings › Models › Catalog still updates at once.
+- **OpenRouter's image and video lists** offer only the models its image and
+  video services take, so Auto Router and its kin stay in the chat list.
 - **Thinking controls for more models** - a model that reasons gets a thinking
   control on Groq, Cerebras, Fireworks, Together, Hugging Face, Vercel, NVIDIA,
   Z.AI, DeepSeek, Kimi and Qwen, and on newer OpenAI, Anthropic and Google

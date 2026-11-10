@@ -177,8 +177,9 @@ def test_a_failed_openrouter_video_job_says_why(media):
     assert media.videos == []
 
 
-def test_together_makes_a_video_and_fetches_its_link_without_the_key(media):
-    media.video = "together/minimax/hailuo-02"
+def test_together_makes_a_video_at_a_resolution_and_ratio_and_fetches_its_link_without_the_key(media):
+    """Each model makes its own frame of them: Seedance 1.0 Lite refused 1280×720 for 720p (I25)."""
+    media.video = "together/ByteDance/Seedance-1.0-lite"
     media.answers[("POST", "/videos")] = [_Response({"id": "vid-1", "status": "queued"})]
     media.answers[("GET", "/videos/vid-1")] = [_Response({"status": "completed",
                                                           "outputs": {"video_url": "https://api.together.ai/shrt/abc"}})]
@@ -188,8 +189,8 @@ def test_together_makes_a_video_and_fetches_its_link_without_the_key(media):
 
     assert result.endswith("Mode: text-to-video | Provider: Together AI")
     assert media.calls[0].url == "https://api.together.xyz/v2/videos"
-    assert media.calls[0].json == {"model": "minimax/hailuo-02", "prompt": "waves", "seconds": "6",
-                                   "width": 720, "height": 1280}
+    assert media.calls[0].json == {"model": "ByteDance/Seedance-1.0-lite", "prompt": "waves", "seconds": "6",
+                                   "resolution": "720p", "ratio": "9:16"}
     assert "Authorization" not in media.calls[-1].headers
     assert media.videos == [b"mp4-bytes"]
 
@@ -416,23 +417,45 @@ def test_atlas_cloud_makes_videos_from_text_with_the_models_own_settings(media):
         "Choose another video model in Settings › Models to animate an image.")
 
 
-def test_minimax_and_zai_media_models_are_offered_once_their_key_is_set(monkeypatch):
+def test_minimax_and_zai_media_models_join_their_lists_for_the_pickers_and_the_tools(monkeypatch):
+    """I24: neither provider's model list names its image or video models, so the Settings pickers, which list
+    only the catalog, never offered them. Their refresh now adds the ones their docs name. Fake HTTP only."""
+    import httpx
+
     import row_bot.api_keys as api_keys
     import row_bot.models as models
+    from row_bot.providers.model_catalog import build_saved_model_catalog_rows
+    from row_bot.providers.presets import PRESETS, models_url
     from row_bot.tools.image_gen_tool import get_available_image_models
     from row_bot.tools.video_gen_tool import get_available_video_models
 
+    lists = {f"{models.MINIMAX_ANTHROPIC_BASE_URL}/v1/models": {"data": [{"id": "MiniMax-M3"}], "has_more": False},
+             models_url(PRESETS["zai"]): {"data": [{"id": "glm-5.2"}]}}
+    monkeypatch.setattr(httpx, "get", lambda url, **kwargs: _Response(lists[url]))
     monkeypatch.setattr(models, "_cloud_model_cache", {})
-    monkeypatch.setattr(api_keys, "get_key", lambda env: "synthetic" if env == "MINIMAX_API_KEY" else "")
+    keys = {"MINIMAX_API_KEY", "ZAI_API_KEY"}
+    monkeypatch.setattr(api_keys, "get_key", lambda env: "synthetic" if env in keys else "")
+    # Before a refresh nothing is offered: the catalog is the one list.
+    assert get_available_image_models() == {} and get_available_video_models() == {}
 
-    assert set(get_available_image_models()) == {"minimax/image-01"}
-    assert set(get_available_video_models()) == {"minimax/MiniMax-H3", "minimax/MiniMax-H3-Highspeed",
-                                                 "minimax/MiniMax-H3-Lite", "minimax/MiniMax-H3-Max"}
+    models._fetch_minimax_models("synthetic")
+    models._fetch_preset_models("zai", "synthetic")
 
-    monkeypatch.setattr(api_keys, "get_key", lambda env: "synthetic" if env == "ZAI_API_KEY" else "")
+    rows = build_saved_model_catalog_rows(cloud_cache=dict(models._cloud_model_cache), ollama_rows=[],
+                                          provider_config={})
+    by_surface = {surface: {row.selection_ref for row in rows if surface in row.categories}
+                  for surface in ("chat", "image", "video")}
+    assert by_surface["image"] == {"model:minimax:image-01", "model:zai:glm-image"}
+    assert by_surface["video"] == {"model:minimax:MiniMax-H3", "model:minimax:MiniMax-H3-Highspeed",
+                                   "model:minimax:MiniMax-H3-Lite", "model:minimax:MiniMax-H3-Max",
+                                   "model:zai:cogvideox-3"}
+    assert by_surface["chat"] >= {"model:minimax:MiniMax-M3", "model:zai:glm-5.2"}
+    assert not by_surface["chat"] & (by_surface["image"] | by_surface["video"])
+    assert set(get_available_image_models()) == {"minimax/image-01", "zai/glm-image"}
+    assert "zai/cogvideox-3" in get_available_video_models()
 
-    assert set(get_available_image_models()) == {"zai/glm-image"}
-    assert set(get_available_video_models()) == {"zai/cogvideox-3"}
+    keys.clear()
+    assert get_available_image_models() == {} and get_available_video_models() == {}
 
 
 def test_qwen_and_atlas_cloud_media_models_come_from_their_own_lists(monkeypatch):
@@ -576,6 +599,29 @@ def test_openrouter_images_send_only_the_settings_their_model_lists(media, openr
                                            include_static_fallback=False)
     assert {surface for surface in ("chat", "image", "video") if snapshot_supports_surface(snapshot, surface)} == {
         "chat", "image"}
+
+
+def test_openrouter_image_and_video_models_are_the_ones_its_media_lists_name(media, openrouter_listed):
+    """I26: the chat list says Auto Router draws, but /images takes only the models /images/models names."""
+    import row_bot.models as models
+    from row_bot.providers.capabilities import snapshot_supports_surface
+    from row_bot.tools.image_gen_tool import get_available_image_models
+    from row_bot.tools.video_gen_tool import get_available_video_models
+
+    listed = OPENROUTER_LISTS["/models?output_modalities=all"]["data"]
+    openrouter_listed({**OPENROUTER_LISTS, "/models?output_modalities=all": {"data": [
+        *listed,
+        {"id": "openrouter/auto", "name": "Auto Router", "architecture": {"output_modalities": ["image", "text"]}},
+        {"id": "acme/unlisted-video", "name": "Unlisted", "architecture": {"output_modalities": ["video"]}},
+    ]}})
+
+    assert set(get_available_image_models()) == {"openrouter/bytedance-seed/seedream-4.5",
+                                                 "openrouter/google/gemini-3.1-flash-image-preview"}
+    assert set(get_available_video_models()) == {"openrouter/google/veo-3.1", "openrouter/kwaivgi/kling-v3"}
+    auto = models._cloud_model_cache["openrouter/auto"]["capabilities_snapshot"]
+    assert {surface for surface in ("chat", "image") if snapshot_supports_surface(auto, surface)} == {"chat"}
+    # A video model neither list names can't be made here at all.
+    assert "acme/unlisted-video" not in models._cloud_model_cache
 
 
 def test_openrouter_media_models_keep_the_settings_asked_for_when_its_settings_lists_fail(media, openrouter_listed):

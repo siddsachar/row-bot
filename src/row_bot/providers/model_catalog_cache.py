@@ -291,6 +291,18 @@ def is_model_catalog_refresh_running() -> bool:
     return bool(model_catalog_refresh_state().get("running"))
 
 
+def refresh_stale_catalog_if_connected(reason: str) -> bool:
+    """The start-up and 6-hourly refresh: a catalog older than six hours is read again, but only
+    while a cloud provider is connected, so a local-only install contacts nobody on its own (I23).
+    Returns whether a refresh started."""
+    from row_bot.providers.runtime import list_configured_provider_ids
+
+    if not list_configured_provider_ids():
+        logger.info("model catalog %s refresh skipped; no cloud provider connected", reason)
+        return False
+    return start_model_catalog_refresh_background(reason=reason, force=False)
+
+
 def schedule_model_catalog_refresh_jobs() -> None:
     """Schedule delayed startup and periodic model catalog refresh jobs."""
     try:
@@ -298,7 +310,7 @@ def schedule_model_catalog_refresh_jobs() -> None:
 
         scheduler = _get_scheduler()
         scheduler.add_job(
-            lambda: start_model_catalog_refresh_background(reason="startup", force=False),
+            lambda: refresh_stale_catalog_if_connected("startup"),
             trigger="date",
             run_date=datetime.now() + timedelta(seconds=45),
             id="model_catalog_startup_refresh",
@@ -307,7 +319,7 @@ def schedule_model_catalog_refresh_jobs() -> None:
             max_instances=1,
         )
         scheduler.add_job(
-            lambda: start_model_catalog_refresh_background(reason="scheduled", force=False),
+            lambda: refresh_stale_catalog_if_connected("scheduled"),
             trigger="interval",
             hours=6,
             id="model_catalog_periodic_refresh",
