@@ -474,7 +474,7 @@ it('use another Claude account: says it signs Claude Code out here, then opens C
     screen.getByRole('button', { name: 'Use another Claude account' }),
   );
   expect(screen.getByRole('status')).toHaveTextContent(
-    'This signs Claude Code out on this computer, including claude in a terminal, because Claude Code keeps one sign-in here.',
+    'This signs Claude Code out on this computer, including claude in a terminal, because Claude Code keeps one sign-in here. Then Claude’s own sign-in opens in your browser: make sure claude.ai shows the account you want before you approve.',
   );
   // Nothing happens until the person says so; Cancel goes back.
   expect(controller.openClaudeSignIn).not.toHaveBeenCalled();

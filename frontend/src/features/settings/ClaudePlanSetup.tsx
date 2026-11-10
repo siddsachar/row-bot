@@ -332,8 +332,8 @@ export default function ClaudePlanSetup({
         <p role="status">
           This signs Claude Code out on this computer, including{' '}
           <code>claude</code> in a terminal, because Claude Code keeps one
-          sign-in here. Then Claude’s own sign-in opens for the account you
-          choose.
+          sign-in here. Then Claude’s own sign-in opens in your browser: make
+          sure claude.ai shows the account you want before you approve.
         </p>
         <div className="actions">
           <Button
