@@ -27,7 +27,7 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -53,10 +53,35 @@ LABEL = "scaling explore (64K, exploratory)"
 SERVER_RUN_FOLDER = "run"
 SERVER_MARKER = "installed.json"
 #: llama-server (one model at a time) refuses to load a model while the one it unloads is still stopping ("model
-#: limit reached"), and the product's load then waits out its 10 minutes: after an unload the card's memory must come
-#: back (a 9B Q8_0 model holds over 9 GB) before the next model loads, for at most this long.
-FREED_MIB = 4096
-SETTLE_SECONDS = 60.0
+#: limit reached"), and the product's load then waits out its 10 minutes. The card's memory comes back before the
+#: instance has exited, so the next model loads only once the unloaded one's instance process is gone (at most this
+#: long).
+STOP_SECONDS = 60.0
+
+
+def _server_processes() -> list[tuple[str, list[str]]]:
+    import psutil
+
+    found = []
+    for process in psutil.process_iter(["exe", "cmdline"]):
+        try:
+            found.append((str(process.info.get("exe") or ""), [str(item) for item in process.info.get("cmdline") or ()]))
+        except Exception:  # noqa: BLE001 - a process that ended or that we may not read
+            continue
+    return found
+
+
+def instance_running(name: str, folder: Path,
+                     processes: Callable[[], Iterable[tuple[str, Sequence[str]]]] = _server_processes) -> bool:
+    """Whether a llama-server instance started from ``folder`` (this profile's server files) still serves ``name``
+    (its ``--alias``). Another Row-Bot's server, the person's own included, never counts."""
+
+    root = str(folder.resolve()).lower()
+    for exe, cmdline in processes():
+        if exe.lower().startswith(root) and any(flag == "--alias" and value == name
+                                                for flag, value in zip(cmdline, cmdline[1:])):
+            return True
+    return False
 
 
 def new_work_quiet(now: datetime | None = None) -> str | None:
@@ -190,39 +215,29 @@ class LiveKit:
                                        f"{outcome.model_ref if outcome.state == 'ready' else ''}, not {ref})")
                 found[arm] = {"model_ref": outcome.model_ref, "name": name, "gguf": str(gguf), "context": int(context),
                               "vram_mib": verifier.memory, "baseline_mib": baseline, "probe": dict(outcome.probe),
-                              "seconds": round(float(outcome.seconds), 1),
-                              "freed_mib": self._wait_freed(verifier.memory)}
+                              "seconds": round(float(outcome.seconds), 1)}
+                self._wait_stopped(name)
+                found[arm]["after_unload_mib"] = card_memory_mib()
         finally:
             gpu.release()
         return found
 
-    @staticmethod
-    def _wait_freed(loaded_mib: int | None) -> int | None:
-        """Wait until the card holds at least :data:`FREED_MIB` less than it did with the model loaded (its
-        server instance has stopped); returns the card's memory then."""
-
-        deadline = time.monotonic() + SETTLE_SECONDS
-        now = card_memory_mib()
-        while loaded_mib is not None and now is not None and now > loaded_mib - FREED_MIB \
-                and time.monotonic() < deadline:
-            time.sleep(1.0)
-            now = card_memory_mib()
-        return now
+    def _wait_stopped(self, name: str) -> None:
+        deadline = time.monotonic() + STOP_SECONDS
+        while instance_running(name, self.data / "runtimes" / "learning" / "server"):
+            if time.monotonic() > deadline:
+                raise ScratchError(f"{name}'s llama-server instance didn't stop within {STOP_SECONDS:.0f} s")
+            time.sleep(0.5)
 
     def unload(self, name: str) -> None:
-        """Between arms: the last arm's model unloaded, and its memory back before the next one loads."""
+        """Between arms: the last arm's model unloaded, and its instance gone before the next one loads."""
 
         from row_bot.learning.training import llama_server
 
         server = llama_server.get(self.data)
-        try:
-            if server.model_status(name) != "loaded":
-                return
-            loaded = card_memory_mib()
+        if server.model_status(name) == "loaded":
             server.unload(name)
-            self._wait_freed(loaded)
-        except Exception:  # noqa: BLE001 - it unloads itself when idle anyway
-            logger.warning("couldn't unload %s", name, exc_info=True)
+        self._wait_stopped(name)
 
     def finish(self) -> None:
         from row_bot.learning.training import llama_server
@@ -414,8 +429,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     return ExploreEvaluation(args, kit).run()
 
 
-__all__ = ["DryKit", "ExploreEvaluation", "LiveKit", "keep_small_profile", "link_server", "main", "new_work_quiet",
-           "run_record", "study_arms"]
+__all__ = ["DryKit", "ExploreEvaluation", "LiveKit", "instance_running", "keep_small_profile", "link_server", "main",
+           "new_work_quiet", "run_record", "study_arms"]
 
 
 if __name__ == "__main__":

@@ -254,14 +254,17 @@ def test_the_servers_files_are_linked_but_never_its_run_folder(tmp_path):
     assert not (target / "run").exists()
 
 
-def test_the_next_model_waits_until_the_last_ones_memory_is_back(monkeypatch):
-    readings = iter([24_000, 23_500, 14_500, 14_400])
-    slept: list[float] = []
-    monkeypatch.setattr(explore_worker, "card_memory_mib", lambda: next(readings))
-    monkeypatch.setattr(explore_worker.time, "sleep", slept.append)
+def test_only_this_profiles_server_instance_of_the_model_counts_as_still_running(tmp_path):
+    ours = tmp_path / "data" / "runtimes" / "learning" / "server"
+    exe = str(ours / "b1" / "bin" / "llama-server.exe")
+    theirs = str(tmp_path / "home" / ".row-bot" / "runtimes" / "learning" / "server" / "b1" / "bin" / "llama-server.exe")
+    router = (exe, [exe, "--models-preset", "models.ini", "--models-max", "1"])
+    stopping = (exe, [exe, "--alias", "row-bot-personal-v3", "--ctx-size", "65536"])
+    persons = (theirs, [theirs, "--alias", "row-bot-personal-v3", "--ctx-size", "32768"])
 
-    assert explore_worker.LiveKit._wait_freed(24_200) == 14_500  # llama-server's instance has stopped
-    assert slept == [1.0, 1.0]
+    assert explore_worker.instance_running("row-bot-personal-v3", ours, lambda: [router, stopping, persons])
+    assert not explore_worker.instance_running("row-bot-personal-v3", ours, lambda: [router, persons])
+    assert not explore_worker.instance_running("row-bot-personal-v7", ours, lambda: [router, stopping])
 
 
 @pytest.mark.parametrize(("moment", "waits"), [((0, 24), False), ((0, 25), True), ((4, 59), True), ((5, 0), True),

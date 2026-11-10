@@ -497,9 +497,10 @@ def markdown(report: Mapping[str, Any]) -> str:
     if serving:
         lines += [f"## Serving at {contexts['explored']:,} tokens", ""]
         lines += _table(["Arm", "Model", "Context", "Card memory with it loaded (MiB)", "Before loading (MiB)",
-                         "Agent ready"],
+                         "After unloading (MiB)", "Agent ready"],
                         [(arm, item.get("name"), _number(item.get("context")), _number(item.get("vram_mib")),
-                          _number(item.get("baseline_mib")), (item.get("probe") or {}).get("agent_ready"))
+                          _number(item.get("baseline_mib")), _number(item.get("after_unload_mib")),
+                          (item.get("probe") or {}).get("agent_ready"))
                          for arm, item in ((arm, serving[arm]) for arm in arms if arm in serving)])
     return "\n".join(lines).rstrip() + "\n"
 
