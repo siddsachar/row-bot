@@ -518,10 +518,17 @@ it('a model folds with its maker’s own route, behind hosts and other spellings
         route('moonshot', 'kimi-k3.1-pro'),
         route('openrouter', 'moonshotai/kimi-k3.1-pro'),
         route('requesty', 'moonshot/kimi-k3.1-pro'),
+        route('groq', 'openai/gpt-oss-120b'),
+        route('requesty', 'groq/openai/gpt-oss-120b'),
       ],
     },
   );
   const list = await screen.findByRole('listbox', { name: 'Models' });
+  type('oss');
+  expect(names(list)).toHaveLength(1);
+  expect(within(list).getByRole('option')).toHaveAccessibleDescription(
+    '+1 route',
+  );
   type('argon');
   expect(names(list)).toHaveLength(1);
   expect(within(list).getByRole('option')).toHaveAccessibleDescription(
@@ -532,6 +539,39 @@ it('a model folds with its maker’s own route, behind hosts and other spellings
   expect(within(list).getByRole('option')).toHaveAccessibleDescription(
     '+2 routes',
   );
+});
+
+it('a provider’s other hosts and regions of a model stay rows of their own', async () => {
+  const route = (provider_id: string, id: string): ModelChoice => ({
+    provider_id,
+    model_ref: `model:${provider_id}:${id}`,
+    label: `${id} - ${provider_id}`,
+    available: true,
+    billing: 'pay_per_use',
+  });
+  show(
+    undefined,
+    { state: 'ready' },
+    {
+      open: true,
+      models: [
+        route('openai', 'gpt-5.6-sol'),
+        route('requesty', 'openai/gpt-5.6-sol'),
+        route('requesty', 'azure/gpt-5.6-sol@eastus'),
+        route('requesty', 'azure/gpt-5.6-sol@swedencentral'),
+      ],
+    },
+  );
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  type('sol');
+  // OpenAI with one Requesty route, then Requesty's two Azure regions apart.
+  expect(names(list)).toHaveLength(3);
+  expect(
+    screen.getAllByRole('button', { name: /routes?$/, hidden: true }),
+  ).toHaveLength(1);
+  expect(
+    screen.getByRole('button', { name: '+1 route', hidden: true }),
+  ).toBeInTheDocument();
 });
 
 it('a model that can’t use tools says Chat only before it is chosen (I15)', async () => {
