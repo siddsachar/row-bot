@@ -409,4 +409,6 @@ def test_claude_code_runs_without_row_bots_keys_or_anything_that_leaves_the_plan
         assert name not in env, name
     # Its own telemetry, error reports and auto-updates are off for these runs (AGENTS.md ground rule).
     assert env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    # Row-Bot updates Claude Code itself, once a day (claude_update.py): Claude Code's own updater stays off.
+    assert env["DISABLE_AUTOUPDATER"] == "1"
 

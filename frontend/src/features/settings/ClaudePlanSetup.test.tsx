@@ -234,7 +234,7 @@ it('says Row-Bot never sees the sign-in in every state, and never offers a token
     await show(plan({ state }));
     expect(
       screen.getByText(
-        'Row-Bot never sees your Claude sign-in. It starts Claude Code with its non-essential traffic off: no telemetry, error reports or automatic updates from these runs.',
+        'Row-Bot never sees your Claude sign-in. It starts Claude Code with its non-essential traffic off: no telemetry or error reports from these runs. Once a day Row-Bot checks Anthropic for a newer Claude Code and installs it while Claude isn’t answering.',
       ),
     ).toBeVisible();
     expect(screen.queryByRole('textbox')).toBeNull();

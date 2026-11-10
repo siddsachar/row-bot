@@ -53,6 +53,8 @@ If the code is wrong, Claude says so in the panel and asks again. What its sheet
 
 Claude Code signed in with an API key or another cloud counts as not signed in, so a reply never bills anything but your plan. **Update Claude Code** is also there when Claude is connected.
 
+Row-Bot also keeps Claude Code up to date by itself while your Claude plan is set up: about once a day it asks Anthropic for the newest version and, when it's newer, installs it the same way, checked against Anthropic's checksum, while Claude isn't answering. A chat that starts meanwhile waits the few seconds the install takes. Claude's models are then listed again, so new ones appear. An update that fails keeps the version you have and tries again the next day. A Claude Code you installed with npm or Homebrew is left to them.
+
 ### Use Another Claude Account
 
 Claude Code keeps one sign-in on your computer, shared by Row-Bot and `claude` in a terminal. To switch Row-Bot to another Claude account (say from a Max account to another plan you pay for):

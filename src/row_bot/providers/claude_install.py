@@ -12,7 +12,9 @@ native installer (``https://claude.ai/install.sh`` and ``install.ps1``) takes, a
    finds it; then delete the download.
 
 The binary is never changed and never goes into Row-Bot's own environment or image. Nothing here runs at
-start-up: the only network use is that download, from Anthropic, after the click. The install runs with
+start-up: the only network use is that download, from Anthropic, after the click, or once a day while a Claude
+plan is set up (``claude_update.py``, which takes the same steps when Anthropic has a newer version and replaces
+the program only while no Claude Code run is live). The install runs with
 Claude Code's own environment (``claude_code_environment``: no Row-Bot secrets, telemetry and automatic
 updates off). What the installer prints is not kept or logged.
 """
@@ -31,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -61,6 +64,7 @@ _SPARE_BYTES = 64 * 1024 * 1024
 _INSTALL_SECONDS = 600.0
 _TIMEOUT = httpx.Timeout(30.0, connect=15.0)
 
+Outcome = Literal["done", "current", "deferred", "failed"]
 Reason = Literal["no_internet", "download_failed", "checksum_mismatch", "disk_full", "unsupported_platform",
                  "install_failed"]
 Step = Literal["", "download", "check", "install"]
@@ -72,6 +76,14 @@ class InstallFailed(Exception):
     def __init__(self, reason: Reason) -> None:
         super().__init__(reason)
         self.reason: Reason = reason
+
+
+class _Deferred(Exception):
+    """A Claude Code run stayed live, so the update didn't replace the program."""
+
+
+#: Given by the daily update: a context that says (True) when the program may be replaced now.
+Replace = Callable[[], AbstractContextManager[bool]]
 
 
 @dataclass(frozen=True)
@@ -184,23 +196,43 @@ class ClaudeCodeInstaller:
         with self._lock:
             self._state = InstallState(**{**asdict(self._state), **change})
 
-    def _work(self) -> None:
+    def update_if_newer(self, installed: str, *, replace: Replace) -> Outcome | None:
+        """The daily update, in the calling thread: install the newest Claude Code when it is newer than
+        ``installed``, replacing the program only when ``replace`` allows. None while an install is running."""
+        with self._lock:
+            if self._state.state == "running":
+                return None
+            self._state = InstallState("running", "download")
+        return self._work(newer_than=installed, replace=replace)
+
+    def _work(self, *, newer_than: str = "", replace: Replace | None = None) -> Outcome:
         try:
-            version = self.install()
+            version = self.install(newer_than=newer_than, replace=replace)
+        except _Deferred:
+            self._set(**asdict(InstallState()))
+            return "deferred"
         except InstallFailed as failed:
             logger.info("Claude Code couldn't be installed (%s)", failed.reason)
             self._set(state="failed", reason=failed.reason)
+            return "failed"
         except Exception:
             logger.warning("Claude Code's install stopped unexpectedly", exc_info=True)
             self._set(state="failed", reason="install_failed")
-        else:
-            logger.info("Claude Code %s installed", version)
-            self._set(state="done", step="", version=version, reason="")
+            return "failed"
+        if not version:
+            self._set(**asdict(InstallState()))
+            return "current"
+        logger.info("Claude Code %s installed", version)
+        self._set(state="done", step="", version=version, reason="")
+        return "done"
 
     # ── The steps ──────────────────────────────────────────────────────
 
-    def install(self) -> str:
-        """Install the newest Claude Code; its version, or ``InstallFailed`` with a plain reason."""
+    def install(self, *, newer_than: str = "", replace: Replace | None = None) -> str:
+        """Install the newest Claude Code; its version, or ``InstallFailed`` with a plain reason.
+
+        With ``newer_than``, "" when that version is already the newest, and nothing is downloaded.
+        """
         target = claude_code_platform()
         if target is None:
             raise InstallFailed("unsupported_platform")
@@ -209,6 +241,9 @@ class ClaudeCodeInstaller:
         try:
             with self._client() as client:
                 version = self._latest(client, releases)
+                current = parse_version(newer_than)
+                if current is not None and parse_version(version) <= current:  # type: ignore[operator]
+                    return ""
                 checksum, size = self._manifest(client, releases, version, target)
                 downloads = Path.home() / ".claude" / "downloads"
                 self._check_room(downloads, size)
@@ -217,7 +252,10 @@ class ClaudeCodeInstaller:
                     self._download(client, f"{releases}/{version}/{target}/claude{'.exe' if windows else ''}",
                                    binary, checksum, size)
                     self._set(step="install")
-                    self._run_install(binary)
+                    with (replace or (lambda: nullcontext(True)))() as free:
+                        if not free:
+                            raise _Deferred()
+                        self._run_install(binary)
                 finally:
                     _remove(binary)
         except httpx.TransportError as exc:
