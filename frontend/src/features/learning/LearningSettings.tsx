@@ -563,7 +563,7 @@ export default function LearningSettings({
           }}
           confirm={(value) =>
             value === null
-              ? "With no limit, Learning can use as many of your default model's tokens as it needs. What it uses still shows here each month."
+              ? "With no limit, nothing caps what Learning spends each month, comparing methods included: it can use as many of your default model's tokens as it needs. What it spends still shows here each month."
               : ''
           }
           savedMessage={(value) =>

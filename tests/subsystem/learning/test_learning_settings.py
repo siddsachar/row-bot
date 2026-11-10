@@ -186,7 +186,10 @@ def test_no_monthly_limit_is_reviewed_in_plain_words_and_a_limit_brings_it_back(
     client, headers, data, _ = api
     review, snapshot = _save(client, headers, "monthly_token_limit", None)
 
-    assert review["value_summary"] == "No monthly limit for Learning: its spending still shows each month"
+    assert review["value_summary"] == (
+        "No monthly limit for Learning: nothing caps its spending, comparing methods included; "
+        "what it spends still shows each month"
+    )
     assert snapshot["learning"]["monthly_token_limit"] is None
     assert learning.read_settings().monthly_token_limit is None
     _, snapshot = _save(client, headers, "monthly_token_limit", 5_000_000)

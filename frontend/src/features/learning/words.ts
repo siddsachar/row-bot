@@ -109,7 +109,7 @@ export function spendingWords(
 /** "About 20 tests of a change" (a change's test takes about 100K tokens). */
 export function limitMeaning(limit: number | null): string {
   if (limit === null)
-    return "No monthly limit: Learning uses as many tokens as it needs, and what it uses still shows each month. Local models don't count.";
+    return "No monthly cap: nothing limits Learning's spending, comparing methods included. What it spends still shows each month. Local models don't count.";
   if (limit <= 0)
     return 'Learning makes no model calls. Local models still work.';
   const tests = Math.max(1, Math.round(limit / 100_000));

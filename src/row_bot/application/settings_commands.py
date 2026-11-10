@@ -477,7 +477,10 @@ def review_settings_update(
             else "Resume Learning"
         )
     elif (page, field) == ("learning", "monthly_token_limit") and intent["value"] is None:
-        summary = "No monthly limit for Learning: its spending still shows each month"
+        summary = (
+            "No monthly limit for Learning: nothing caps its spending, comparing methods "
+            "included; what it spends still shows each month"
+        )
     elif (page, field) == ("voice", "tts.install"):
         summary = "Download and install Kokoro speech output locally"
     elif (page, field) == ("voice", "sensevoice.install"):

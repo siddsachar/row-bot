@@ -283,7 +283,7 @@ it('the setup sheet turns Learning on with no monthly limit and says what that m
   );
   expect(
     within(sheet).getByText(
-      "No monthly limit: Learning uses as many tokens as it needs, and what it uses still shows each month. Local models don't count.",
+      "No monthly cap: nothing limits Learning's spending, comparing methods included. What it spends still shows each month. Local models don't count.",
     ),
   ).toBeVisible();
   fireEvent.click(
@@ -426,7 +426,7 @@ it('the monthly limit takes a custom amount at once and asks before No limit', a
   fireEvent.change(limit, { target: { value: 'none' } });
   const ask = screen.getByRole('group', { name: 'Confirm Monthly limit' });
   expect(ask).toHaveTextContent(
-    "With no limit, Learning can use as many of your default model's tokens as it needs. What it uses still shows here each month.",
+    "With no limit, nothing caps what Learning spends each month, comparing methods included: it can use as many of your default model's tokens as it needs. What it spends still shows here each month.",
   );
   expect(learningMutation.review).toHaveBeenCalledTimes(1);
   fireEvent.click(within(ask).getByRole('button', { name: 'Change it' }));
@@ -477,7 +477,7 @@ it('with no monthly limit, what this month used still shows', () => {
   const limit = screen.getByRole('combobox', { name: 'Monthly limit' });
   expect(limit).toHaveDisplayValue('No limit');
   expect(limit).toHaveAccessibleDescription(
-    /No monthly limit: Learning uses as many tokens as it needs, and what it uses still shows each month\./,
+    /No monthly cap: nothing limits Learning's spending, comparing methods included\. What it spends still shows each month\./,
   );
 });
 
