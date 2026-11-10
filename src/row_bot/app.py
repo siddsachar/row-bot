@@ -833,6 +833,15 @@ async def _run_startup_sequence():
     except Exception as exc:
         logger.warning("Agent Run startup recovery skipped (non-fatal): %s", exc)
 
+    # Model lists: read again 45 s after start-up and every 6 h when older than 6 h, only
+    # while a cloud provider is connected (I23); the jobs themselves make no call here.
+    try:
+        from row_bot.providers.model_catalog_cache import schedule_model_catalog_refresh_jobs
+        with _startup_phase("model_catalog_refresh_scheduler"):
+            await asyncio.to_thread(schedule_model_catalog_refresh_jobs)
+    except Exception as exc:
+        logger.warning("Model catalog refresh scheduler failed to start (non-fatal): %s", exc)
+
     # ── Load Plugins ────────────────────────────────────────────────────────
     _set("🔌 Loading plugins…")
     try:
