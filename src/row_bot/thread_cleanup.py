@@ -1231,6 +1231,24 @@ def sweep_orphaned_thread_artifacts(
     return stats
 
 
+def prune_checkpoints_while_busy() -> dict[str, int] | None:
+    """Hourly, busy or not: the old checkpoints of chats quiet for half an hour (I32).
+
+    A long workflow chat saves its whole history at each step (34 MB a step for the owner's
+    883-message chat), and the idle maintenance waits while workflows keep the app busy, so
+    threads.db grew 16 GB in four hours. Pruning deletes in small batches, so it never holds
+    the write lock long, and skips every chat in use. None while the idle maintenance runs.
+    """
+    if not _maintenance_lock.acquire(blocking=False):
+        return None
+    try:
+        from row_bot import threads
+
+        return threads.cleanup_old_checkpoints()
+    finally:
+        _maintenance_lock.release()
+
+
 def run_idle_maintenance() -> dict[str, Any]:
     """Run checkpoint pruning, safe orphan repair, and thresholded compaction."""
 

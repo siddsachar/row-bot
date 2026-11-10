@@ -1055,7 +1055,21 @@ async def _run_startup_sequence():
                 max_instances=1,
                 next_run_time=datetime.now() + timedelta(minutes=10),
             )
-        _safe_console_print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h)")
+            # Old checkpoints also go hourly while the app is busy: workflows that run all day
+            # would otherwise keep the idle pass waiting while threads.db grows (I32).
+            from row_bot.thread_cleanup import prune_checkpoints_while_busy
+
+            _sched.add_job(
+                prune_checkpoints_while_busy,
+                trigger="interval",
+                hours=1,
+                id="checkpoint_prune",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                next_run_time=datetime.now() + timedelta(minutes=20),
+            )
+        _safe_console_print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h; pruning hourly)")
     except Exception as exc:
         logger.warning("Could not schedule checkpoint cleanup: %s", exc)
 
