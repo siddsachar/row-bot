@@ -312,6 +312,37 @@ describe('a turn of several steps', () => {
     expect(liveMedia(run.activity, shown)).toEqual([]);
   });
 
+  it('keeps a step saved before it finished on the live line while it runs (I31)', () => {
+    // The chat re-read the turn while its newest step ran: that step is saved, still pending.
+    const run = threeSteps();
+    const running = savedTrace('c4', 'generate_video', undefined);
+    running.status = 'pending';
+    running.counts = { pending: 1 };
+    running.items[0].status = 'pending';
+    run.rows = [
+      ...run.rows.filter((row) => !row.id.endsWith(':s4')),
+      {
+        id: 'assistant:checkpoint:a4',
+        message_id: 'a4',
+        role: 'assistant',
+        blocks: [
+          {
+            id: 'a4-text',
+            type: 'markdown',
+            text: 'Next, a shorter cut with captions.',
+          },
+        ],
+        traces: [running],
+      },
+    ];
+    const live = liveTurn(run.rows, run.activity);
+    // Under its words it would read as done, and the live line, left empty, said "Thinking…".
+    expect(reading(buildTranscript(live.rows)).at(-1)).toBe(
+      'text: Next, a shorter cut with captions.',
+    );
+    expect(live.running.map((group) => group.items[0].call_id)).toEqual(['c4']);
+  });
+
   it('keeps quiet tool steps at the end on the live line, with the step in progress', () => {
     const run = new LiveRun();
     run.say('s1', 'Filling in the claim.');
