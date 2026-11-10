@@ -68,7 +68,8 @@ through background updates.
 
 - **From more providers** - image and video tools also work with OpenRouter
   (images, edits and video), Vercel AI Gateway (images), Together AI (images and
-  video), Requesty (images), MiniMax, Z.AI, Qwen (Alibaba Cloud) and Atlas Cloud.
+  video), Requesty (images), Qwen (Alibaba Cloud) and Atlas Cloud. MiniMax and
+  Z.AI don't list their image and video models yet, so they can't be chosen.
 - **Models from each provider's own list** - a retired model no longer lingers.
   OpenAI retired gpt-image-1 on 23 Oct and retires gpt-image-1-mini and
   gpt-image-1.5 on 1 Dec. A saved model the provider no longer lists says so in
@@ -154,9 +155,9 @@ through background updates.
 - **Gemini answers again** on Google's own API and through gateways such as
   Vercel: a few tools offered an empty choice, which Gemini refuses.
 - **Images and video work with keys saved in the new provider panel** (Qwen,
-  Together, Vercel, Z.AI and the others), and the model list refreshes every
-  provider again after you connect a new one, so Requesty, MiniMax and Atlas
-  Cloud list their image and video models.
+  Together, Vercel and the others). Model lists update when you connect a
+  provider or press Refresh under Settings › Models › Catalog; a refresh brings
+  in the image and video models of OpenRouter, Requesty and Atlas Cloud.
 - **Thinking controls for more models** - a model that reasons gets a thinking
   control on Groq, Cerebras, Fireworks, Together, Hugging Face, Vercel, NVIDIA,
   Z.AI, DeepSeek, Kimi and Qwen, and on newer OpenAI, Anthropic and Google
@@ -165,9 +166,9 @@ through background updates.
   text in the answer. **Cerebras** answers: it gets Row-Bot's instructions as
   one message, as its models need.
 - **Cleaner model lists** - one model from several providers shows once with
-  its other routes, Mistral no longer repeats a model per alias, Qwen's image
-  makers stay out of the chat list, Fireworks models read by name, and a model
-  that can't use tools says Chat only.
+  its other routes (one per provider), Mistral no longer repeats a model per
+  alias, Qwen's image makers stay out of the chat list, Fireworks models read by
+  name, and a model the catalogue lists without tools says Chat only.
 - **Smaller fixes** - a bold link in an answer stays a link; reading a short
   page no longer sends the model to the browser; Show in folder finds a file
   whose path has a space; exports skip empty steps and say where an image was

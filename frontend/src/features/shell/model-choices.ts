@@ -100,9 +100,12 @@ const HOSTS = new Set([
   'bedrock',
   'deepinfra',
   'fireworks',
+  'groq',
   'nebius',
   'novita',
   'parasail',
+  'runware',
+  'tensorx',
   'together',
   'vertex',
 ]);
@@ -133,11 +136,17 @@ function routeName(ref: string): { maker: string; name: string } | null {
     .replace(/@.*$/, '')
     .replace(/[^a-z0-9]/g, '');
   if (!name) return null;
-  const prefix = slash > 0 ? id.slice(0, slash).replace(/[^a-z0-9]/g, '') : '';
-  return {
-    maker: HOSTS.has(prefix) ? '' : (MAKERS[prefix] ?? prefix),
-    name,
-  };
+  const clean = (part: string) => part.replace(/[^a-z0-9]/g, '');
+  const prefix = slash > 0 ? id.slice(0, slash) : '';
+  // "groq/openai/gpt-oss-120b": the maker is the last part that isn't a host.
+  const maker = HOSTS.has(clean(prefix))
+    ? ''
+    : (prefix
+        .split('/')
+        .map(clean)
+        .filter((part) => part && !HOSTS.has(part))
+        .at(-1) ?? '');
+  return { maker: MAKERS[maker] ?? maker, name };
 }
 
 /** Your plan, this computer, the maker's own API, then a router; unavailable last. */
@@ -198,7 +207,17 @@ export function foldRoutes<T extends ModelChoice>(
   };
   const folded = new Map<T, ModelRoutes<T>>();
   for (const routes of sets) {
-    const [first, ...others] = [...routes].sort(byRank).map((r) => r.model);
+    // One route per provider: Requesty's other hosts and regions of the
+    // same model stay rows of their own rather than look-alike routes.
+    const seen = new Set<string>();
+    const [first, ...others] = [...routes]
+      .sort(byRank)
+      .map((r) => r.model)
+      .filter((model) => {
+        if (!seen.has(model.provider_id)) return seen.add(model.provider_id);
+        alone.push(model);
+        return false;
+      });
     folded.set(routes[0].model, { first, others });
   }
   for (const model of alone) folded.set(model, { first: model, others: [] });
