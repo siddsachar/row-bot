@@ -22,6 +22,8 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,10 +48,12 @@ PLAN_SIGN_IN_METHOD = "claude.ai"
 # Everything named ANTHROPIC_* or CLAUDE* is left out except these two.
 _KEPT_CLAUDE_VARIABLES = frozenset({"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_GIT_BASH_PATH"})
 _LEFT_OUT_VARIABLES = frozenset({"MAX_THINKING_TOKENS"})
-# Set for every run: no telemetry, error reports or auto-updates (AGENTS.md), no compaction of the
-# conversation Row-Bot sends, and Row-Bot's tools listed to the model rather than behind Claude Code's search.
+# Set for every run: no telemetry, error reports or auto-updates (AGENTS.md; Row-Bot updates Claude Code itself,
+# ``claude_update.py``), no compaction of the conversation Row-Bot sends, and Row-Bot's tools listed to the model
+# rather than behind Claude Code's search.
 CLAUDE_CODE_RUN_VARIABLES: Mapping[str, str] = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1",
     "DISABLE_AUTO_COMPACT": "1",
     "DISABLE_COMPACT": "1",
     "ENABLE_TOOL_SEARCH": "false",
@@ -159,13 +163,67 @@ def claude_code_workdir() -> Path:
     return folder
 
 
+class ClaudeCodeRuns:
+    """Claude Code's runs and its replacement by an update exclude each other.
+
+    Every Claude Code process Row-Bot starts (a call, or a status command) counts as a run until it ends. An
+    update replaces the program only once no run is live, and a run that would start meanwhile waits until the
+    replacement is over.
+    """
+
+    def __init__(self) -> None:
+        self._changed = threading.Condition()
+        self._live = 0
+        self._replacing = False
+
+    def started(self) -> None:
+        with self._changed:
+            self._changed.wait_for(lambda: not self._replacing)
+            self._live += 1
+
+    def ended(self) -> None:
+        with self._changed:
+            self._live = max(0, self._live - 1)
+            self._changed.notify_all()
+
+    def busy(self) -> bool:
+        with self._changed:
+            return self._live > 0 or self._replacing
+
+    @contextmanager
+    def replacing(self, wait: float) -> Iterator[bool]:
+        """True, with no run able to start, once no run is live within ``wait`` seconds; else False."""
+        with self._changed:
+            free = self._changed.wait_for(lambda: self._live == 0 and not self._replacing, timeout=wait)
+            if free:
+                self._replacing = True
+        try:
+            yield free
+        finally:
+            if free:
+                with self._changed:
+                    self._replacing = False
+                    self._changed.notify_all()
+
+
+_runs = ClaudeCodeRuns()
+
+
+def claude_code_runs() -> ClaudeCodeRuns:
+    return _runs
+
+
 def _run(program: str, *args: str) -> subprocess.CompletedProcess[str]:
     options: dict[str, Any] = {}
     if sys.platform == "win32":
         options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return subprocess.run([program, *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          timeout=_COMMAND_SECONDS, check=False, stdin=subprocess.DEVNULL,
-                          cwd=str(claude_code_workdir()), env=claude_code_environment(), **options)
+    _runs.started()
+    try:
+        return subprocess.run([program, *args], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=_COMMAND_SECONDS, check=False, stdin=subprocess.DEVNULL,
+                              cwd=str(claude_code_workdir()), env=claude_code_environment(), **options)
+    finally:
+        _runs.ended()
 
 
 def parse_version(text: str) -> tuple[int, int, int] | None:

@@ -63,6 +63,13 @@ through background updates.
   models.dev's open catalogue. It's fetched at most hourly when model lists
   refresh, with only the request sent; when that fails, the copy shipped with
   the release is used. Settings › System › Privacy lists it.
+- **Claude Code stays up to date** - while your Claude plan is set up, Row-Bot
+  checks Anthropic about once a day for a newer Claude Code and installs it,
+  checked against Anthropic's checksum, while Claude isn't answering. Claude's
+  model list is then read again, so new models (such as Sonnet 5.5 and Haiku
+  5.5) appear without pressing Update Claude Code. A failed update keeps the
+  version you have and tries again the next day; Claude Code's own updater
+  stays off. Settings › System › Privacy and the privacy page list the check.
 
 ### Images And Video
 
@@ -140,8 +147,8 @@ through background updates.
 - **1M context where your plan offers it** - newer Claude Code marks a model it
   runs with 1M context (Fable 5.1 on Max, for one) differently, and Row-Bot
   listed it as a 200K model and asked for that. It now reads 1M and asks for
-  it. The models are always the ones your plan's Claude Code lists: update
-  Claude Code in Settings › Models to see newer ones.
+  it. The models are always the ones your plan's Claude Code lists, and Row-Bot
+  now keeps Claude Code up to date, so newer ones appear.
 - **Videos in order** - while Row-Bot makes videos, each step's words, its
   activity and the video it made show in the order they happened, with the
   newest step at the bottom, live and after a reload.
