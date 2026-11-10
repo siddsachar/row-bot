@@ -223,8 +223,7 @@ export function Privacy({ io }: { io: PrivacyIo }) {
             </li>
             <li>
               <strong>Claude Code</strong> Anthropic, about once a day while
-              your Claude plan is set up, for a newer version, installed while
-              Claude isn’t answering ·{' '}
+              your Claude plan is set up, for a newer version ·{' '}
               <Link to="/settings/models">Settings › Models</Link>
             </li>
             <li>
