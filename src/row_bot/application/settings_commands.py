@@ -361,7 +361,8 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
         if type(value) is not int or not 0 <= value <= 23:
             raise SettingsCommandError("invalid_settings_command")
     elif key == ("learning", "monthly_token_limit"):
-        if type(value) is not int or not 0 <= value <= learning.MAX_MONTHLY_TOKEN_LIMIT:
+        # None: no limit (Learning's spending still shows); 0: no Learning model calls.
+        if value is not None and (type(value) is not int or not 0 <= value <= learning.MAX_MONTHLY_TOKEN_LIMIT):
             raise SettingsCommandError("invalid_settings_command")
     elif page == "tools" and field.endswith(".enabled"):
         tool_id = field.removesuffix(".enabled")
@@ -475,6 +476,8 @@ def review_settings_update(
             if intent["value"]
             else "Resume Learning"
         )
+    elif (page, field) == ("learning", "monthly_token_limit") and intent["value"] is None:
+        summary = "No monthly limit for Learning: its spending still shows each month"
     elif (page, field) == ("voice", "tts.install"):
         summary = "Download and install Kokoro speech output locally"
     elif (page, field) == ("voice", "sensevoice.install"):

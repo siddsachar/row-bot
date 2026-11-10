@@ -68,8 +68,8 @@ import {
   plural,
   quietHoursWords,
   sizeWords,
+  spendingWords,
   timesWords,
-  tokenWords,
 } from './words';
 import './learning.css';
 
@@ -98,7 +98,7 @@ function headerLine(snapshot: LearningSnapshot) {
   const when = hours.next_look_at
     ? nextLookWords(hours.next_look_at)
     : `Quiet hours ${quietHoursWords(hours.window_start, hours.window_end)}`;
-  return `${when} · ${tokenWords(spending.used_tokens)} of ${tokenWords(spending.limit_tokens)} tokens this month`;
+  return `${when} · ${spendingWords(spending)}`;
 }
 
 /** Paused, limit reached and reading past chats: one line each, with the way out. */

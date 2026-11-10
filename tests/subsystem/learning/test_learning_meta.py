@@ -185,6 +185,10 @@ def test_every_arm_gets_the_same_budget_within_the_trials_share(world, store, cl
     save_learning_settings(store.root, enabled=True, monthly_token_limit=1_000_000_000)
     found = meta.plan(store)
     assert found.state == "ready" and found.arms == 2 and found.arm_tokens == meta.ARM_TOKENS_MAX
+    # With no limit only each arm's equal budget bounds the trial (it runs so below).
+    save_learning_settings(store.root, enabled=True, monthly_token_limit=None)
+    unlimited = meta.plan(store)
+    assert (unlimited.state, unlimited.arms, unlimited.arm_tokens) == ("ready", 2, meta.ARM_TOKENS_MAX)
     client = ScriptedClient(model)
 
     report = trial(store, client, clock)

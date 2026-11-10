@@ -4,7 +4,8 @@ Learning's own model calls (testing a change, judging, diagnosis, teacher and st
 trials) are tagged ``learning_*`` in the usage ledger (``usage.db``) and run on the
 default chat model at the lowest effort (``providers.background``, the cost plan's D1
 rule). What they used this calendar month, in local time, counts against the person's
-``monthly_token_limit`` (2M by default; 0 means no Learning model calls, O5).
+``monthly_token_limit`` (2M by default; 0 means no Learning model calls, O5; ``None`` means no limit, the
+person's choice: nothing is refused, and what is used still counts and shows).
 
 - **Tokens** are what the ledger counts per call: input (cache reads and writes
   included) plus output.
@@ -28,12 +29,17 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
 LEARNING_PURPOSES: tuple[str, ...] = ("learning_diagnosis", "learning_test", "learning_teacher", "learning_meta")
 LOCAL_PROVIDERS = frozenset({"ollama"})
+#: What no limit leaves a run: more tokens than a month of Learning's work uses, so the meter keeps whole numbers.
+UNLIMITED_TOKENS = 10**12
+# ``allowance``'s default: the person's saved limit (``None`` is a limit of its own, no limit).
+_SAVED: Any = object()
 
 
 def month_start(now: float | None = None) -> float:
@@ -102,30 +108,34 @@ def used_this_month(
 
 @dataclass(frozen=True)
 class Allowance:
-    """This month's Learning tokens: the limit and what is used."""
+    """This month's Learning tokens: the limit (``None``: no limit) and what is used."""
 
-    limit: int
+    limit: int | None
     used: int
     month_start: float
 
     @property
     def remaining(self) -> int:
+        if self.limit is None:
+            return UNLIMITED_TOKENS
         return max(0, self.limit - self.used)
 
 
-def allowance(*, now: float | None = None, limit: int | None = None) -> Allowance:
-    """The person's monthly limit (from Learning's settings) and what this month used."""
+def allowance(*, now: float | None = None, limit: int | None = _SAVED) -> Allowance:
+    """The monthly limit (the person's saved one unless ``limit`` is given) and what this month used."""
 
-    if limit is None:
+    if limit is _SAVED:
         from row_bot import learning
 
         limit = learning.read_settings().monthly_token_limit
-    return Allowance(max(0, int(limit)), used_this_month(now=now), month_start(now))
+    return Allowance(None if limit is None else max(0, int(limit)), used_this_month(now=now), month_start(now))
 
 
-def limit_note(limit: int) -> str:
+def limit_note(limit: int | None) -> str:
     """What a run says when the limit stopped it."""
 
+    if limit is None:
+        return "Stopped: this run used the tokens it was given."
     if limit <= 0:
         return "Stopped: Learning's monthly token limit is 0, so it makes no model calls."
     return f"Stopped: Learning reached this month's token limit ({limit:,} tokens)."
@@ -138,17 +148,18 @@ class TokenMeter:
     at most 20% of the month, E13). Local calls are recorded but never refused.
     """
 
-    def __init__(self, limit: int, used: int = 0, *, share: float = 1.0) -> None:
-        self.limit = max(0, int(limit))
+    def __init__(self, limit: int | None, used: int = 0, *, share: float = 1.0) -> None:
+        self.limit = None if limit is None else max(0, int(limit))
         self.used_before = max(0, int(used))
         share = min(1.0, max(0.0, float(share)))
-        self.cap = int(max(0, self.limit - self.used_before) * share)
+        left = UNLIMITED_TOKENS if self.limit is None else max(0, self.limit - self.used_before)
+        self.cap = int(left * share)
         self.spent = 0
         self.local_tokens = 0
         self.refused = 0
 
     @classmethod
-    def for_month(cls, *, share: float = 1.0, now: float | None = None, limit: int | None = None) -> TokenMeter:
+    def for_month(cls, *, share: float = 1.0, now: float | None = None, limit: int | None = _SAVED) -> TokenMeter:
         current = allowance(now=now, limit=limit)
         return cls(current.limit, current.used, share=share)
 
@@ -185,6 +196,7 @@ __all__ = [
     "LEARNING_PURPOSES",
     "LOCAL_PROVIDERS",
     "TokenMeter",
+    "UNLIMITED_TOKENS",
     "allowance",
     "is_local_provider",
     "limit_note",

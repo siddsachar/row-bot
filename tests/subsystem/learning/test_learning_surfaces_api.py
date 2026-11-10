@@ -178,6 +178,38 @@ def test_turning_on_saves_every_setup_choice_creates_the_store_and_is_admitted_o
     assert receipt_read.status_code == 200 and receipt_read.json()["summary"] == "Learning is on."
 
 
+def test_with_no_limit_this_months_spending_still_shows_and_the_limit_is_never_reached(api, no_channels):
+    from row_bot.learning import spending
+    from row_bot.prompt_cache import ModelUsage
+    from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
+
+    client, headers, data, _ = api
+    _turn_on(client, headers)
+    assert record_model_usage(UsageRecord(purpose="learning_test", provider="openai", model="m",
+                                          created_at=spending.month_start() + 1,
+                                          usage=ModelUsage(input_tokens=2_900_000, output_tokens=100_000)))
+    limited = _snapshot(client, headers)["spending"]
+    assert (limited["used_tokens"], limited["limit_tokens"], limited["limit_reached"]) == (3_000_000, 2_000_000, True)
+
+    save_learning_settings(data, monthly_token_limit=None)
+
+    unlimited = _snapshot(client, headers)["spending"]
+    assert (unlimited["used_tokens"], unlimited["limit_tokens"], unlimited["limit_reached"]) == (3_000_000, None, False)
+
+
+def test_turning_on_with_no_limit_saves_it_and_a_setup_without_a_limit_is_refused(api, no_channels):
+    client, headers, data, _ = api
+    without = {key: value for key, value in SETUP.items() if key != "monthly_token_limit"}
+    refused = _command(client, headers, "turn_on", setup=without)
+    assert refused.status_code >= 400 and learning_files(data) == []
+
+    receipt = _turn_on(client, headers, monthly_token_limit=None)
+
+    assert receipt["snapshot"]["spending"]["limit_tokens"] is None
+    saved = json.loads((data / learning.SETTINGS_FILE).read_text(encoding="utf-8"))
+    assert "monthly_token_limit" in saved and saved["monthly_token_limit"] is None
+
+
 def test_a_command_with_a_stale_revision_is_refused_and_changes_nothing(api, no_channels):
     client, headers, data, _ = api
     stale = _snapshot(client, headers)["revision"]

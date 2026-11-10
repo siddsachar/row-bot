@@ -26,6 +26,11 @@ Settings live in ``learning_config.json`` in the data folder::
      "starting_model": "qwen3.5-9b", "model_download": "not_asked",
      "hugging_face": {"model": "", "monthly_cap_usd": 0, "runs_confirmed": false}}
 
+**The monthly token limit** (``spending.py``) is a whole number of tokens up to
+:data:`MAX_MONTHLY_TOKEN_LIMIT` (0: no Learning model calls), or ``null`` for no limit, which only
+the person's own choice saves. A limit that is missing or can't be read is the default; a build
+before no limit existed reads ``null`` as the default too.
+
 **Training on Hugging Face** (C1, O130-O134): ``hugging_face.model`` is the model it trains there (empty: the
 strongest certified one this computer can run, ``training/catalog.py``); ``monthly_cap_usd`` the spend cap the
 person chose with the first run's quote (0: not chosen yet, so nothing runs on its own); ``runs_confirmed``
@@ -96,7 +101,8 @@ class LearningSettings:
     workflows_and_goals: bool = True
     past_chats: bool = True
     apply_mode: str = "ask_first"
-    monthly_token_limit: int = DEFAULT_MONTHLY_TOKEN_LIMIT
+    # Tokens a month for Learning's own model calls; None: no limit (its spending still counts and shows).
+    monthly_token_limit: int | None = DEFAULT_MONTHLY_TOKEN_LIMIT
     train_in_quiet_hours: bool = True
     train_where: str = "this_computer"
     paused: bool = False
@@ -176,8 +182,8 @@ def _normalise(document: Any) -> LearningSettings:
     starting_model = document.get("starting_model")
     model_download = document.get("model_download")
     serve_runtime = document.get("serve_runtime")
-    limit = document.get("monthly_token_limit")
-    if type(limit) is not int or not 0 <= limit <= MAX_MONTHLY_TOKEN_LIMIT:
+    limit = document.get("monthly_token_limit", DEFAULT_MONTHLY_TOKEN_LIMIT)
+    if limit is not None and (type(limit) is not int or not 0 <= limit <= MAX_MONTHLY_TOKEN_LIMIT):
         limit = DEFAULT_MONTHLY_TOKEN_LIMIT
     paused = document.get("paused", False)
     hugging = document.get("hugging_face")

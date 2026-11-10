@@ -2704,10 +2704,17 @@
           "type": "boolean"
         },
         "limit_tokens": {
-          "maximum": 1000000000,
-          "minimum": 0,
-          "title": "Limit Tokens",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 1000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Limit Tokens"
         },
         "model_name": {
           "maxLength": 256,

@@ -191,11 +191,12 @@ def _spending(settings: learning.LearningSettings) -> dict[str, Any]:
         logger.debug("Learning could not read this month's tokens", exc_info=True)
     limit = settings.monthly_token_limit
     return {
+        # Shown whatever the limit is, no limit included.
         "used_tokens": max(0, int(used)),
         "limit_tokens": limit,
         "resets_on": _next_month(date.today()).isoformat(),
         "model_name": _default_model_name(),
-        "limit_reached": settings.enabled and (limit == 0 or used >= limit),
+        "limit_reached": settings.enabled and limit is not None and (limit == 0 or used >= limit),
     }
 
 
@@ -1546,12 +1547,14 @@ def _setup_values(setup: Any) -> dict[str, Any]:
         if type(value) is not bool:
             raise ClientPlatformError("invalid_learning_command")
         values[f"sources.{key}"] = value
-    limit = setup.get("monthly_token_limit")
+    # None: no limit, which only an explicit null chooses (a missing limit is refused).
+    limit = setup.get("monthly_token_limit", -1)
     if (setup.get("apply_mode") not in learning.APPLY_MODES
             or setup.get("train_where") not in learning.TRAIN_PLACES
             or setup.get("starting_model", learning.STARTING_MODELS[0]) not in _trainable_models()
             or type(setup.get("train_in_quiet_hours")) is not bool
-            or type(limit) is not int or not 0 <= limit <= learning.MAX_MONTHLY_TOKEN_LIMIT):
+            or (limit is not None
+                and (type(limit) is not int or not 0 <= limit <= learning.MAX_MONTHLY_TOKEN_LIMIT))):
         raise ClientPlatformError("invalid_learning_command")
     values.update({
         "apply_mode": setup["apply_mode"],

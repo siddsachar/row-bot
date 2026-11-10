@@ -2,7 +2,8 @@
 
 **When**: whenever at least :data:`~row_bot.learning.evaluation.MIN_FRESH` fresh hidden problems have built up
 since the last trial (O82), in quiet hours after the night's look and tests, and only when the trials' share of
-the month allows it: all trials together use at most :data:`TRIAL_SHARE` of the monthly Learning limit.
+the month allows it: all trials together use at most :data:`TRIAL_SHARE` of the monthly Learning limit. With no
+limit (the person's choice) only each arm's equal budget bounds a trial.
 
 **Arms**: the method in use (the incumbent), :data:`CHALLENGERS` new method(s) grown from a stepping stone of the
 archive, and the **frozen control** (the method in use two trials back; the first method for the first two trials).
@@ -137,11 +138,14 @@ class _TimedClient:
 
 def trial_room(store: Any, *, now: float | None = None) -> int:
     """Tokens the trials may still use this month: their share of the monthly limit less what trials used, and
-    never more than the month has left."""
+    never more than the month has left. With no limit the share has no size: only the arms' budgets bound it."""
 
     from row_bot.learning import spending
 
-    limit = int(gate.read_settings(store.root).monthly_token_limit)
+    saved = gate.read_settings(store.root).monthly_token_limit
+    if saved is None:
+        return spending.UNLIMITED_TOKENS
+    limit = int(saved)
     used = spending.used_this_month(now=now, purposes=(PURPOSE,))
     left = spending.allowance(now=now, limit=limit).remaining
     return max(0, min(int(limit * TRIAL_SHARE) - used, left))

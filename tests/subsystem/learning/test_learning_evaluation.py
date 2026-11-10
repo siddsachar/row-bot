@@ -161,6 +161,23 @@ def test_a_limit_of_zero_makes_no_model_calls_and_local_models_never_count(learn
     assert ran.note.startswith("Testing used 0 tokens (and 9K on this computer)")
 
 
+def test_with_no_limit_nothing_is_refused_and_every_token_still_counts(learning_on):
+    from tests.fixtures.learning import save_learning_settings
+
+    save_learning_settings(learning_on, monthly_token_limit=None)
+    meter = TokenMeter.for_month()
+    assert meter.limit is None
+    # Far more than any fixed limit was used this month already: nothing is refused.
+    meter = TokenMeter(limit=None, used=5_000_000_000)
+    tasks = _docs(6)
+    client = ScriptedClient(oracle(tasks), tokens=(3_000, 200))
+    result = compare([Arm("a"), Arm("b")], tasks=tasks, client=client, meter=meter)
+
+    assert result.stopped == "" and len(client.calls) == 12
+    assert meter.spent == 12 * 3_200 and not meter.exhausted
+    assert result.tokens == 12 * 3_200
+
+
 def test_the_meter_counts_this_months_learning_calls_from_the_ledger(learning_on, monkeypatch):
     from row_bot.learning import spending
     from row_bot.prompt_cache import ModelUsage

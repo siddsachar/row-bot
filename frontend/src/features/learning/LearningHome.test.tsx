@@ -105,6 +105,28 @@ it('Overview at the monthly limit says when testing resumes and offers Raise lim
   expect(onOpenSettings).toHaveBeenCalledWith('monthly_token_limit');
 });
 
+it('Overview with no monthly limit still shows what was used and never says the limit was reached', () => {
+  show(
+    fakeIO(
+      on({
+        spending: {
+          used_tokens: 63_400_000,
+          limit_tokens: null,
+          resets_on: '2026-11-01',
+          model_name: 'GPT-5.6 Sol',
+          limit_reached: false,
+        },
+      }),
+    ),
+  );
+
+  expect(
+    screen.getByText(/ · 63\.4M tokens this month \(no limit\)$/),
+  ).toBeVisible();
+  expect(screen.queryByText(/Monthly limit reached/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Raise limit' })).toBeNull();
+});
+
 it('Overview while reading past chats counts them with a real denominator', () => {
   show(fakeIO(on({ past_chats: { state: 'reading', total: 214, done: 61 } })));
 
