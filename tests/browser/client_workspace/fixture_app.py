@@ -113,6 +113,8 @@ def s9_claude_plan(state: str, set_up_again: bool = False, x_fixture_token: str 
 
     def _update(cfg: dict) -> None:
         entry = cfg.setdefault("providers", {}).setdefault("claude_subscription", {"provider_id": "claude_subscription"})
+        # A model list an earlier spec's sign-in saved would make "signed out" read "Claude signed you out".
+        entry.pop("catalog_cache", None)
         if set_up_again:
             entry["set_up_again"] = True
         else:
@@ -146,7 +148,7 @@ _CLAUDE_LOGIN_SCREEN = (
 
 
 class _FixtureInstaller(_claude_install.ClaudeCodeInstaller):
-    def install(self) -> str:
+    def install(self, **_options: object) -> str:  # the daily update's options: ignored here
         self._set(step="download", received=45 * 1024 * 1024, total=100 * 1024 * 1024)
         while _claude_install_fixture["outcome"] == "hold":
             _threading.Event().wait(0.1)
