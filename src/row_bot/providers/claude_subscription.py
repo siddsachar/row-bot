@@ -487,8 +487,14 @@ def _model_info(
     adaptive: bool = True,
     source: str = "claude_code_models",
 ) -> ModelInfo:
+    from row_bot.models import _maintained_context_limit
     from row_bot.providers.reasoning import ReasoningCapabilities, reasoning_metadata_for_catalog
 
+    # Claude Code 2.1.322 runs every Claude 5 model at 1M, "[1m]" or not (asked of it on a Max and an
+    # Ultra plan, 10 Nov): the name alone read as 200K and blocked a long Opus chat. The size is the
+    # model's own, as Row-Bot keeps it for Claude; an older Claude Code's "[1m]" still means 1M.
+    context = 1_000_000 if model_id.endswith("[1m]") else _maintained_context_limit(
+        CLAUDE_SUBSCRIPTION_PROVIDER_ID, model_id) or 200_000
     if efforts is None:
         reasoning = reasoning_metadata_for_catalog(CLAUDE_SUBSCRIPTION_PROVIDER_ID, model_id, {})
     elif efforts:
@@ -502,7 +508,7 @@ def _model_info(
         provider_id=CLAUDE_SUBSCRIPTION_PROVIDER_ID,
         model_id=model_id,
         display_name=display_name or model_id,
-        context_window=1_000_000 if model_id.endswith("[1m]") else 200_000,
+        context_window=context,
         transport=TransportMode.ANTHROPIC_MESSAGES,
         capabilities=frozenset({"text", "chat", "streaming", "tool_calling", "vision"}),
         input_modalities=frozenset({ModelModality.TEXT.value, ModelModality.IMAGE.value}),
