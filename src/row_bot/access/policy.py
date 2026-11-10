@@ -35,6 +35,11 @@ class AuthorizationDecision:
     reason: str
 
 
+# The app's name and icons, so a phone can install it: browsers fetch the manifest
+# without the session cookie. The service worker and the app itself stay behind it.
+APP_INSTALL_PATHS: frozenset[str] = frozenset(
+    {"/app-v2/app.webmanifest", "/app-v2/icon-192.png", "/app-v2/icon-512.png"}
+)
 PUBLIC_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/connect"),
@@ -53,6 +58,7 @@ PUBLIC_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/mobile/offline"),
         ("GET", "/mobile/service-worker.js"),
         ("GET", "/static/row_bot_glyph_256.png"),
+        *(("GET", path) for path in APP_INSTALL_PATHS),
     }
 )
 # Callers with no Row-Bot session that prove themselves to the route instead:
