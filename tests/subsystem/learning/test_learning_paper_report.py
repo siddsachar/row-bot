@@ -60,7 +60,7 @@ def _version(root: Path, number: int, *, rendering: str = "serving-v1@32768", ph
         "runtime": "ollama", "model_ref": f"model:ollama:row-bot-personal-v{number}:{CANARY}", "gguf": gguf,
         "trained_at": 1_792_000_000.0 + number, "examples": 90 + number, "verified_at": 1_792_000_100.0,
         "kept_pass": {"pass": 2, "of": 3, "failed": [3], "losses": [0.4, 0.3, 0.2]}})
-    _write_json(folder / "dataset.json", {"rendering": {"name": rendering, "serve_context": 32768},
+    _write_json(folder / "dataset.json", {"rendering": {"name": rendering, "serve_context": 32768}, "historical": 60,
                                           "example_ids": [f"ex_{CANARY}"], "conversations": [f"thread-{CANARY}"]})
     _write_json(folder / "release.json", {"identity": {"base": {"name": "Qwen/Qwen3.5-2B"}},
                                           "source_thread_ids": [f"thread-{CANARY}"], "label": CANARY})
@@ -193,6 +193,7 @@ def test_health_prints_its_hash_first_then_counts_only_from_a_checked_copy(profi
     assert written["signals"]["kind"] == {"teach": 2}
     assert written["hidden_problems"]["uncorrected"] >= 1 and written["hidden_problems"]["pack_tasks"] == 32
     assert written["versions"]["pilots"] == 1 and written["versions"]["list"][1]["kept_pass"] == 2
+    assert (written["versions"]["list"][1]["examples"], written["versions"]["list"][1]["historical"]) == (92, 60)
     month = next(iter(written["learning_tokens"].values()))
     assert (month["cloud"], month["local"]) == (1_500, 800)
     assert written["lessons"] == {"total": 1, "in_use": 0}
@@ -338,7 +339,8 @@ def test_freeze_runs_the_newest_non_pilot_version_from_the_copy_and_reports_aggr
     assert Path(served["gguf"]).is_relative_to(served["copy"])  # the copy's files, never the profile's
     assert _hashes(profile) == before and list(scratch.iterdir()) == []
     assert written["versions"] == {"total": 2, "pilots": 1, "candidates": 1, "evaluated": 2,
-                                   "trained_on": written["versions"]["trained_on"], "kept_pass": 2, "passes": 3}
+                                   "trained_on": written["versions"]["trained_on"], "kept_pass": 2, "passes": 3,
+                                   "examples": 92, "historical": 60}
     assert written["problems"]["packs"] == 24 and written["design"]["container"] is False  # no coding without one
     h1 = written["hypotheses"]["H1"]
     assert (h1["state"], h1["reason"]) == ("not_tested", "too_few_problems")  # fewer than 30 hidden problems

@@ -497,8 +497,8 @@ RUN = Obj({
     "copy": Obj({"files": COUNT, "bytes": COUNT, "links_skipped": COUNT}), "minutes": HOURS,
 })
 VERSION_ROW = Obj({"version": COUNT, "trained_on": Maybe(Text(pattern=DAY)), "state": VERSION_STATES,
-                   "pilot": BOOL, "examples": COUNT, "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT),
-                   "training_hours": Maybe(HOURS)})
+                   "pilot": BOOL, "examples": COUNT, "historical": COUNT, "kept_pass": Maybe(COUNT),
+                   "passes": Maybe(COUNT), "training_hours": Maybe(HOURS)})
 HEALTH = Obj({
     "format": enum(FORMAT), "schema_version": Num(integer=True, low=SCHEMA_VERSION, high=SCHEMA_VERSION),
     "mode": enum("health"), "run": RUN,
@@ -620,8 +620,12 @@ FREEZE = Obj({
                    # A12 5: the larger local reference arm's model, and the arms run model by model with it.
                    "local_reference": enum(*LOCAL_REFERENCE_MODELS, "other"), "order": enum("interleaved", "model")},
                   optional=frozenset({"since", "local_reference", "order"})),
+    # The evaluated version's training examples and how many came from imported past chats, whose only target is
+    # the final answer (added before v2's freeze; optional, so the v1 report still reads for --combine-with).
     "versions": Obj({"total": COUNT, "pilots": COUNT, "candidates": COUNT, "evaluated": Maybe(COUNT),
-                     "trained_on": Maybe(Text(pattern=DAY)), "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT)}),
+                     "trained_on": Maybe(Text(pattern=DAY)), "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT),
+                     "examples": Maybe(COUNT), "historical": Maybe(COUNT)},
+                    optional=frozenset({"examples", "historical"})),
     "problems": Obj({"real_uncorrected": COUNT, "real_corrected": COUNT, "packs": COUNT, "after_as_of": COUNT,
                      "main_models": COUNT, "untrusted": COUNT, "with_picture": COUNT, "before_since": COUNT},
                     optional=frozenset({"before_since"})),
@@ -721,6 +725,8 @@ def _versions(copy: Path) -> list[dict[str, Any]]:
             "version": int(state.version), "trained_on": _day(state.trained_at), "state": phase,
             # §8.4: versions trained before the rows took the serving shape are pilots.
             "pilot": not rendering.startswith("serving-"), "examples": int(state.examples or 0),
+            # Rows from imported past chats: their only target is the final answer, never a tool call.
+            "historical": int((dataset or {}).get("historical") or 0),
             "kept_pass": int(kept["pass"]) if isinstance(kept.get("pass"), int) else None,
             "passes": int(kept["of"]) if isinstance(kept.get("of"), int) else None, "training_hours": hours,
             # Kept apart (never written): what the freeze serves.
@@ -1747,7 +1753,9 @@ def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: 
                      "candidates": len(candidates), "evaluated": int(newest["version"]) if newest and contrast else None,
                      "trained_on": newest["trained_on"] if newest and contrast else None,
                      "kept_pass": newest["kept_pass"] if newest and contrast else None,
-                     "passes": newest["passes"] if newest and contrast else None},
+                     "passes": newest["passes"] if newest and contrast else None,
+                     "examples": newest["examples"] if newest and contrast else None,
+                     "historical": newest["historical"] if newest and contrast else None},
         "problems": {"real_uncorrected": int(problems.get("real_uncorrected") or 0), "real_corrected": corrected,
                      "packs": int(problems.get("packs") or 0), "after_as_of": int(problems.get("after_as_of") or 0),
                      "main_models": int(result.get("main_models") or 0),
