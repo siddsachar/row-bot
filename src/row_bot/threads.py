@@ -153,6 +153,11 @@ def _use_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.05)
 
 
+# The databases whose schema this process has set up (I29): every chat read ran the set-up, with its
+# migration UPDATE, so reading needed the write lock and failed while maintenance held it.
+_initialised_dbs: set[str] = set()
+
+
 def _init_thread_db(*, raise_on_error: bool = False):
     """Create and migrate the thread metadata table."""
     try:
@@ -191,6 +196,7 @@ def _init_thread_db(*, raise_on_error: bool = False):
                 "ON thread_events(thread_id, id)"
             )
             conn.commit()
+        _initialised_dbs.add(str(DB_PATH))
         logger.debug("Thread database initialised at %s", DB_PATH)
     except Exception:
         logger.error("Failed to initialise thread database at %s", DB_PATH, exc_info=True)
@@ -199,6 +205,9 @@ def _init_thread_db(*, raise_on_error: bool = False):
 
 
 def _ensure_thread_db() -> None:
+    """Set up the schema once per database a process opens; again only if the file is gone."""
+    if str(DB_PATH) in _initialised_dbs and pathlib.Path(DB_PATH).exists():
+        return
     _init_thread_db(raise_on_error=True)
 
 def _list_threads(*, include_details: bool = False):
@@ -222,6 +231,9 @@ def _list_threads(*, include_details: bool = False):
         ).fetchall()
     conn.close()
     return rows
+
+
+_PRUNE_BATCH = 50
 
 
 def cleanup_old_checkpoints(
@@ -263,20 +275,21 @@ def cleanup_old_checkpoints(
             delete_rows.append(int(rowid))
             delete_keys.append((str(thread_id), str(checkpoint_ns or ""), str(checkpoint_id)))
             touched_threads.add(str(thread_id))
-        if delete_rows:
+        # In small batches, each its own transaction, so a chat's own write waits a moment at most (I29).
+        for start in range(0, len(delete_rows), _PRUNE_BATCH):
             cleanup_conn.executemany(
                 "DELETE FROM checkpoints WHERE rowid = ?",
-                [(rowid,) for rowid in delete_rows],
+                [(rowid,) for rowid in delete_rows[start:start + _PRUNE_BATCH]],
             )
-            stats["checkpoints"] = len(delete_rows)
-        if delete_keys and "writes" in tables:
-            before = cleanup_conn.total_changes
-            cleanup_conn.executemany(
-                "DELETE FROM writes WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
-                delete_keys,
-            )
-            stats["writes"] = max(0, cleanup_conn.total_changes - before)
-        cleanup_conn.commit()
+            if "writes" in tables:
+                before = cleanup_conn.total_changes
+                cleanup_conn.executemany(
+                    "DELETE FROM writes WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+                    delete_keys[start:start + _PRUNE_BATCH],
+                )
+                stats["writes"] += max(0, cleanup_conn.total_changes - before)
+            cleanup_conn.commit()
+        stats["checkpoints"] = len(delete_rows)
         stats["threads"] = len(touched_threads)
         try:
             cleanup_conn.execute("PRAGMA wal_checkpoint(PASSIVE)")

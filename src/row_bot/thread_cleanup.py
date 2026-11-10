@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 SQLITE_COMPACT_MIN_FREE_BYTES = 32 * 1024 * 1024
 SQLITE_COMPACT_MIN_FREE_RATIO = 0.20
+# VACUUM rewrites the whole file and holds the write lock throughout: 3.5 GB took ~85 s and stalled
+# every chat (I29). A live database larger than this is left as it is; SQLite reuses its free pages.
+SQLITE_COMPACT_MAX_BYTES = 128 * 1024 * 1024
 STALE_TEMP_FILE_AGE = timedelta(days=1)
 AGENT_CHILD_ORPHAN_GRACE = timedelta(days=1)
 
@@ -656,12 +659,16 @@ def compact_sqlite_database(
     *,
     min_free_bytes: int = SQLITE_COMPACT_MIN_FREE_BYTES,
     min_free_ratio: float = SQLITE_COMPACT_MIN_FREE_RATIO,
+    max_bytes: int = SQLITE_COMPACT_MAX_BYTES,
 ) -> dict[str, Any]:
     """Threshold and compact one SQLite database at most once."""
 
     path = pathlib.Path(db_path).expanduser().resolve(strict=False)
     result: dict[str, Any] = {"path": str(path), "compacted": False, "reason": "missing"}
     if not path.exists() or not path.is_file():
+        return result
+    if path.stat().st_size > max_bytes:
+        result["reason"] = "too_large_to_compact_while_running"
         return result
     stats = _sqlite_space_stats(path)
     result.update(stats)
@@ -687,6 +694,26 @@ def compact_sqlite_database(
         result["error"] = str(exc)
         logger.info("SQLite compaction deferred for %s: %s", path, exc)
     return result
+
+
+def trim_sqlite_wal(db_path: str | pathlib.Path) -> bool:
+    """Copy a database's write-ahead log back into it and cut the log file to nothing (I29: it had grown
+    to 3.5 GB). The passive checkpoint copies without holding writers back, so the truncating one has
+    little left and gives up within a second while another connection is busy. True when the log was cut."""
+    from contextlib import closing
+
+    path = pathlib.Path(db_path)
+    if not path.is_file():
+        return False
+    try:
+        with closing(sqlite3.connect(str(path), timeout=1.0, isolation_level=None)) as connection:
+            connection.execute("PRAGMA busy_timeout=1000")
+            connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            busy = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+    except sqlite3.Error as exc:
+        logger.info("Write-ahead log of %s not trimmed: %s", path, exc)
+        return False
+    return not busy
 
 
 # A delete with Undo (B343) takes effect at once: the conversation leaves every
@@ -1219,9 +1246,11 @@ def run_idle_maintenance() -> dict[str, Any]:
         checkpointer_lock = getattr(threads.checkpointer, "lock", None)
         if checkpointer_lock is None:
             compaction.append(compact_sqlite_database(threads.DB_PATH))
+            trim_sqlite_wal(threads.DB_PATH)
         else:
             with checkpointer_lock:
                 compaction.append(compact_sqlite_database(threads.DB_PATH))
+                trim_sqlite_wal(threads.DB_PATH)
         compaction.append(compact_sqlite_database(tasks._DB_PATH))  # noqa: SLF001
         usage_pruned = 0
         try:
