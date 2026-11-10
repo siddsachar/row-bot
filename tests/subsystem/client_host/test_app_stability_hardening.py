@@ -72,7 +72,7 @@ def test_checkpoint_cleanup_keeps_latest_and_prunes_old(data_dir, monkeypatch, r
             "INSERT INTO thread_meta (thread_id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
             ("old-thread", "Old", "2000-01-01T00:00:00", "2000-01-01T00:00:00"),
         )
-        for idx in range(5):
+        for idx in range(125):  # several of the pruning's batches
             cid = f"cp-{idx}"
             conn.execute("INSERT INTO checkpoints VALUES (?, ?, ?)", ("old-thread", "", cid))
             conn.execute("INSERT INTO writes VALUES (?, ?, ?, ?)", ("old-thread", "", cid, "x"))
@@ -94,7 +94,7 @@ def test_checkpoint_cleanup_keeps_latest_and_prunes_old(data_dir, monkeypatch, r
             ).fetchall()
         ]
 
-    assert stats["checkpoints"] == 3
-    assert stats["writes"] == 3
-    assert checkpoint_ids == ["cp-3", "cp-4"]
-    assert write_ids == ["cp-3", "cp-4"]
+    assert stats["checkpoints"] == 123
+    assert stats["writes"] == 123
+    assert checkpoint_ids == ["cp-123", "cp-124"]
+    assert write_ids == ["cp-123", "cp-124"]

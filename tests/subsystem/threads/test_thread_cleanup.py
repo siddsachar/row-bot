@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta
 import importlib
 import json
@@ -942,6 +943,59 @@ def test_sqlite_compaction_is_thresholded_and_reclaims_file_space(tmp_path, monk
     )
     assert compacted["compacted"] is True
     assert db_path.stat().st_size < before
+
+
+def test_a_large_database_is_not_compacted_while_row_bot_runs(tmp_path, reload_for_data_dir) -> None:
+    """I29: compacting the owner's 3.5 GB threads.db held its write lock for ~85 s and stalled every chat."""
+    cleanup = _fresh_stack(tmp_path, reload_for_data_dir)["cleanup"]
+    db_path = tmp_path / "large.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute("CREATE TABLE payloads (value BLOB)")
+        conn.executemany("INSERT INTO payloads VALUES (?)", [(b"x" * 8192,) for _ in range(64)])
+        conn.commit()
+        conn.execute("DELETE FROM payloads")
+        conn.commit()
+    before = db_path.stat().st_size
+
+    result = cleanup.compact_sqlite_database(db_path, min_free_bytes=1, min_free_ratio=0.01, max_bytes=before - 1)
+
+    assert (result["compacted"], result["reason"]) == (False, "too_large_to_compact_while_running")
+    assert db_path.stat().st_size == before
+
+
+def test_chats_can_be_read_while_another_connection_holds_the_write_lock(tmp_path, reload_for_data_dir) -> None:
+    """I29: every chat read ran the schema set-up and its migration write, so while maintenance held the
+    write lock, listing chats failed "database is locked". Reading writes nothing now."""
+    threads = _fresh_stack(tmp_path, reload_for_data_dir)["threads"]
+    threads._save_thread_meta("kyoto", "Kyoto trip")
+    holder = sqlite3.connect(threads.DB_PATH, isolation_level=None)
+    try:
+        holder.execute("BEGIN IMMEDIATE")
+
+        assert [row[0] for row in threads._list_threads()] == ["kyoto"]
+        assert threads._thread_exists("kyoto") is True
+    finally:
+        holder.rollback()
+        holder.close()
+
+
+def test_trimming_the_write_ahead_log_cuts_it_to_nothing(tmp_path, reload_for_data_dir) -> None:
+    """I29: the owner's threads.db-wal had grown to 3.5 GB; maintenance now cuts it once its pages are copied."""
+    cleanup = _fresh_stack(tmp_path, reload_for_data_dir)["cleanup"]
+    db_path = tmp_path / "logged.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA wal_autocheckpoint=0")
+        conn.execute("CREATE TABLE payloads (value BLOB)")
+        conn.executemany("INSERT INTO payloads VALUES (?)", [(b"x" * 8192,) for _ in range(128)])
+        conn.commit()
+        wal = db_path.with_name(db_path.name + "-wal")
+        assert wal.stat().st_size > 1_000_000
+
+        assert cleanup.trim_sqlite_wal(db_path) is True
+
+        assert wal.stat().st_size == 0
+        assert conn.execute("SELECT COUNT(*) FROM payloads").fetchone()[0] == 128
 
 
 def test_start_up_removes_only_row_bots_own_temp_and_splash_leftovers(tmp_path) -> None:
