@@ -16,7 +16,7 @@ import sys
 from fastapi import FastAPI, Request
 from starlette.responses import RedirectResponse, Response
 
-from row_bot.access.policy import require_authenticated_owner
+from row_bot.access.policy import APP_INSTALL_PATHS, require_authenticated_owner
 
 _HASHED_ASSET = re.compile(r"assets/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|png|jpg|jpeg|webp|ico|woff2?)$")
 _PUBLIC_SHELL_ASSETS = frozenset(
@@ -276,7 +276,8 @@ def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> No
 
     async def serve(request: Request, path: str = "") -> Response:
         try:
-            require_authenticated_owner(request.scope)
+            if f"/app-v2/{path}" not in APP_INSTALL_PATHS:
+                require_authenticated_owner(request.scope)
         except PermissionError:
             return Response("Authentication required", 401, headers={"Cache-Control": "no-store"})
         headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}

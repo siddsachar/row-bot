@@ -100,6 +100,21 @@ def test_assets_require_same_host_auth_and_pairing_remains_public(build: Path) -
     assert client(build, middleware=False).get("/app-v2/").status_code == 401
 
 
+def test_a_phone_can_install_the_app_before_signing_in_and_nothing_else_opens(build: Path) -> None:
+    """Browsers fetch the app manifest without the session cookie, so a sign-in on it made Edge and
+    Chrome say the hosted Row-Bot "can't be installed" (10 Nov, Railway)."""
+    host = client(build, mode="server")
+    manifest = host.get("/app-v2/app.webmanifest")
+    assert manifest.status_code == 200 and manifest.json() == {"name": "Row-Bot fixture"}
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    assert host.get("/app-v2/icon-192.png").content == b"fixture-192"
+    assert host.get("/app-v2/icon-512.png").content == b"fixture-512"
+    # The service worker, the app and its code still need a sign-in.
+    for path in ("/app-v2/service-worker.js", "/app-v2/assets/index-abcdef12.js", "/app-v2/index.html"):
+        assert host.get(path).status_code == 401
+    assert host.get("/app-v2/", headers={"Accept": "text/html"}).headers["location"].startswith("/connect?")
+
+
 def test_missing_build_does_not_break_existing_root(tmp_path: Path) -> None:
     host = client(tmp_path / "absent")
     assert host.get("/").status_code == 200
