@@ -137,6 +137,11 @@ through background updates.
   stays with the turn: Row-Bot still runs every tool through its own approval
   check and hands Claude Code the result, and the conversation is read from
   the cache.
+- **1M context where your plan offers it** - newer Claude Code marks a model it
+  runs with 1M context (Fable 5.1 on Max, for one) differently, and Row-Bot
+  listed it as a 200K model and asked for that. It now reads 1M and asks for
+  it. The models are always the ones your plan's Claude Code lists: update
+  Claude Code in Settings › Models to see newer ones.
 - **Videos in order** - while Row-Bot makes videos, each step's words, its
   activity and the video it made show in the order they happened, with the
   newest step at the bottom, live and after a reload.

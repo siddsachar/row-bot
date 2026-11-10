@@ -522,6 +522,31 @@ def test_the_models_are_claude_codes_own_list_and_listing_them_asks_no_model(sto
         info.model_id for info in infos]
 
 
+def test_a_model_claude_code_offers_at_1m_keeps_its_1m_choice(store, tmp_path, monkeypatch):
+    """Claude Code 2.1.322 (a Max plan, 10 Nov) asks for Fable's 1M context in the row's value, not in its
+    resolved model; the list read it as a 200K model and chats asked Claude Code for that one."""
+    efforts = {"supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+               "supportsAdaptiveThinking": True}
+    install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)", models=[
+        {"value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)",
+         "description": "Opus 5.5 · Best for everyday, complex tasks", **efforts},
+        {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus",
+         "description": "Opus 5.5 · Best for everyday, complex tasks", **efforts},
+        {"value": "claude-fable-5-1[1m]", "resolvedModel": "claude-fable-5-1", "displayName": "Fable",
+         "description": "Fable 5.1 · Most capable for your hardest and longest-running tasks", **efforts},
+        {"value": "haiku", "resolvedModel": "claude-haiku-5-5", "displayName": "Haiku",
+         "description": "Haiku 5.5 · Fastest for quick answers", **efforts},
+    ])
+
+    infos = claude.list_claude_subscription_model_infos(force_refresh=True)
+
+    assert [(info.model_id, info.context_window) for info in infos] == [
+        ("claude-opus-5-5", 200_000), ("claude-fable-5-1[1m]", 1_000_000), ("claude-haiku-5-5", 200_000)]
+    fake = install_fake_claude(tmp_path, monkeypatch, version="2.1.322 (Claude Code)")
+    _model(model_name="claude-fable-5-1[1m]").invoke([HumanMessage(content="Hi")])
+    assert fake.model_runs()[0]["argv"][8] == "claude-fable-5-1[1m]"
+
+
 def test_a_chat_saved_on_an_older_claude_model_keeps_its_choice(store, tmp_path, monkeypatch):
     fake = install_fake_claude(tmp_path, monkeypatch)
 

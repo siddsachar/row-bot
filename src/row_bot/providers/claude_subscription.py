@@ -415,7 +415,9 @@ def model_infos_from_initialize(models: Any) -> list[ModelInfo]:
     """Claude models from the model list in Claude Code's ``initialize`` answer.
 
     A row names its exact model in ``resolvedModel``; a row without one, or an alias of a model already
-    listed (``default``), is skipped so every saved choice names one exact model.
+    listed (``default``), is skipped so every saved choice names one exact model. A row whose ``value``
+    asks for the model's 1M context (Claude Code 2.1.322 lists Fable as ``claude-fable-5-1[1m]`` resolved to
+    ``claude-fable-5-1``) keeps that ``[1m]``: it is what Claude Code runs, and how its context is known.
     """
     infos: list[ModelInfo] = []
     seen: set[str] = set()
@@ -423,6 +425,8 @@ def model_infos_from_initialize(models: Any) -> list[ModelInfo]:
         if not isinstance(row, dict):
             continue
         model_id = str(row.get("resolvedModel") or "").strip()
+        if model_id and str(row.get("value") or "").strip().endswith("[1m]") and not model_id.endswith("[1m]"):
+            model_id = f"{model_id}[1m]"
         if not model_id or not re.fullmatch(r"[A-Za-z0-9._\-\[\]]{1,128}", model_id) or model_id in seen:
             continue
         seen.add(model_id)
