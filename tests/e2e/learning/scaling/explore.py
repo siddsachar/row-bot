@@ -450,7 +450,7 @@ def markdown(report: Mapping[str, Any]) -> str:
              + f". {report['rule']}; a model-call error is rerun once, as in the study. The {contexts['study'] // 1024}K "
              "columns are the study's own runs on the same tasks, recounted under SA2 by the same code.", ""]
     published = report.get("study_as_published")
-    if published:
+    if published and published.get("recomputed_match") is not None:
         lines += [f"The 32K rates match `analyse-sa2/report.json`: {published['recomputed_match']}.", ""]
     lines += ["## Success on the held-out tasks", ""]
     lines += _table(["Arm", f"{k} mean s(i, a)", f"{k} runs passed", "32K mean s(i, a)", "32K runs passed"],

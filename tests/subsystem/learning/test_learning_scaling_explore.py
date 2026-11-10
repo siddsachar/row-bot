@@ -254,6 +254,16 @@ def test_the_servers_files_are_linked_but_never_its_run_folder(tmp_path):
     assert not (target / "run").exists()
 
 
+def test_the_next_model_waits_until_the_last_ones_memory_is_back(monkeypatch):
+    readings = iter([24_000, 23_500, 14_500, 14_400])
+    slept: list[float] = []
+    monkeypatch.setattr(explore_worker, "card_memory_mib", lambda: next(readings))
+    monkeypatch.setattr(explore_worker.time, "sleep", slept.append)
+
+    assert explore_worker.LiveKit._wait_freed(24_200) == 14_500  # llama-server's instance has stopped
+    assert slept == [1.0, 1.0]
+
+
 @pytest.mark.parametrize(("moment", "waits"), [((0, 24), False), ((0, 25), True), ((4, 59), True), ((5, 0), True),
                                                ((7, 59), True), ((8, 0), False), ((14, 0), False)])
 def test_new_gpu_work_waits_from_0025_until_0800(moment, waits):

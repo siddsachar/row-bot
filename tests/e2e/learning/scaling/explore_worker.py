@@ -52,6 +52,11 @@ LABEL = "scaling explore (64K, exploratory)"
 #: The server's own folder for its list, presets, log and home (``llama_server.RUN_FOLDER``): never linked.
 SERVER_RUN_FOLDER = "run"
 SERVER_MARKER = "installed.json"
+#: llama-server (one model at a time) refuses to load a model while the one it unloads is still stopping ("model
+#: limit reached"), and the product's load then waits out its 10 minutes: after an unload the card's memory must come
+#: back (a 9B Q8_0 model holds over 9 GB) before the next model loads, for at most this long.
+FREED_MIB = 4096
+SETTLE_SECONDS = 60.0
 
 
 def new_work_quiet(now: datetime | None = None) -> str | None:
@@ -185,16 +190,37 @@ class LiveKit:
                                        f"{outcome.model_ref if outcome.state == 'ready' else ''}, not {ref})")
                 found[arm] = {"model_ref": outcome.model_ref, "name": name, "gguf": str(gguf), "context": int(context),
                               "vram_mib": verifier.memory, "baseline_mib": baseline, "probe": dict(outcome.probe),
-                              "seconds": round(float(outcome.seconds), 1)}
+                              "seconds": round(float(outcome.seconds), 1),
+                              "freed_mib": self._wait_freed(verifier.memory)}
         finally:
             gpu.release()
         return found
 
+    @staticmethod
+    def _wait_freed(loaded_mib: int | None) -> int | None:
+        """Wait until the card holds at least :data:`FREED_MIB` less than it did with the model loaded (its
+        server instance has stopped); returns the card's memory then."""
+
+        deadline = time.monotonic() + SETTLE_SECONDS
+        now = card_memory_mib()
+        while loaded_mib is not None and now is not None and now > loaded_mib - FREED_MIB \
+                and time.monotonic() < deadline:
+            time.sleep(1.0)
+            now = card_memory_mib()
+        return now
+
     def unload(self, name: str) -> None:
+        """Between arms: the last arm's model unloaded, and its memory back before the next one loads."""
+
         from row_bot.learning.training import llama_server
 
+        server = llama_server.get(self.data)
         try:
-            llama_server.get(self.data).unload(name)
+            if server.model_status(name) != "loaded":
+                return
+            loaded = card_memory_mib()
+            server.unload(name)
+            self._wait_freed(loaded)
         except Exception:  # noqa: BLE001 - it unloads itself when idle anyway
             logger.warning("couldn't unload %s", name, exc_info=True)
 
