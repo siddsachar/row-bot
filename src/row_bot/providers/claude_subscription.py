@@ -166,7 +166,7 @@ def claude_code_workdir() -> Path:
 class ClaudeCodeRuns:
     """Claude Code's runs and its replacement by an update exclude each other.
 
-    Every Claude Code process Row-Bot starts for a call counts as a run from its start until it is stopped. An
+    Every Claude Code process Row-Bot starts (a call, or a status command) counts as a run until it ends. An
     update replaces the program only once no run is live, and a run that would start meanwhile waits until the
     replacement is over.
     """
@@ -217,9 +217,13 @@ def _run(program: str, *args: str) -> subprocess.CompletedProcess[str]:
     options: dict[str, Any] = {}
     if sys.platform == "win32":
         options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return subprocess.run([program, *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          timeout=_COMMAND_SECONDS, check=False, stdin=subprocess.DEVNULL,
-                          cwd=str(claude_code_workdir()), env=claude_code_environment(), **options)
+    _runs.started()
+    try:
+        return subprocess.run([program, *args], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=_COMMAND_SECONDS, check=False, stdin=subprocess.DEVNULL,
+                              cwd=str(claude_code_workdir()), env=claude_code_environment(), **options)
+    finally:
+        _runs.ended()
 
 
 def parse_version(text: str) -> tuple[int, int, int] | None:
