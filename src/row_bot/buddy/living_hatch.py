@@ -172,6 +172,24 @@ REPAINT_PROMPT = (
 )
 
 
+def edit_source(data: bytes) -> bytes:
+    """A still as an opaque 1024 square on the key colour: image models treat transparency as "edit here"."""
+
+    from PIL import ImageOps
+
+    with Image.open(io.BytesIO(data)) as source:
+        image = source.convert("RGBA")
+    if image.getchannel("A").getextrema()[0] < 250:
+        side = max(image.size)
+        canvas = Image.new("RGBA", (side, side), (*KEY_COLOUR, 255))
+        canvas.alpha_composite(image, ((side - image.width) // 2, (side - image.height) // 2))
+        image = canvas
+    image = ImageOps.fit(image.convert("RGB"), (1024, 1024), Image.Resampling.LANCZOS)
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
 def personality_for(description: str) -> dict[str, float]:
     """Motion personality from the description, clamped to tested limits."""
 

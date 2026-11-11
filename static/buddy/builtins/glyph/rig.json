@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "family": "winged",
+  "base": 0.93,
+  "bones": [
+    {
+      "id": "body",
+      "pivot": [
+        0.5,
+        0.68
+      ]
+    },
+    {
+      "id": "head",
+      "pivot": [
+        0.5,
+        0.58
+      ],
+      "parent": "body",
+      "center": [
+        0.5,
+        0.4
+      ],
+      "radius": [
+        0.255,
+        0.22
+      ]
+    },
+    {
+      "id": "top",
+      "pivot": [
+        0.4,
+        0.18
+      ],
+      "parent": "head",
+      "tip": [
+        0.4,
+        0.08
+      ]
+    },
+    {
+      "id": "wing_l",
+      "pivot": [
+        0.36,
+        0.63
+      ],
+      "parent": "body",
+      "tip": [
+        0.14,
+        0.72
+      ]
+    },
+    {
+      "id": "wing_r",
+      "pivot": [
+        0.64,
+        0.63
+      ],
+      "parent": "body",
+      "tip": [
+        0.86,
+        0.7
+      ]
+    },
+    {
+      "id": "tail",
+      "pivot": [
+        0.5,
+        0.8
+      ],
+      "parent": "body",
+      "tip": [
+        0.52,
+        0.93
+      ]
+    }
+  ],
+  "eyes": [
+    {
+      "center": [
+        0.455,
+        0.435
+      ],
+      "radius": [
+        0.058,
+        0.062
+      ]
+    },
+    {
+      "center": [
+        0.645,
+        0.418
+      ],
+      "radius": [
+        0.052,
+        0.058
+      ]
+    }
+  ],
+  "mouth": null,
+  "personality": {
+    "bounce": 0.55,
+    "tempo": 0.5,
+    "curiosity": 0.7
+  },
+  "patches": {}
+}

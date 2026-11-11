@@ -1,0 +1,128 @@
+{
+  "schema": 1,
+  "family": "biped",
+  "base": 0.93,
+  "bones": [
+    {
+      "id": "body",
+      "pivot": [
+        0.5,
+        0.78
+      ]
+    },
+    {
+      "id": "head",
+      "pivot": [
+        0.5,
+        0.8
+      ],
+      "parent": "body",
+      "center": [
+        0.53,
+        0.43
+      ],
+      "radius": [
+        0.25,
+        0.21
+      ]
+    },
+    {
+      "id": "top",
+      "pivot": [
+        0.5,
+        0.14
+      ],
+      "parent": "head",
+      "tip": [
+        0.5,
+        0.07
+      ]
+    },
+    {
+      "id": "arm_l",
+      "pivot": [
+        0.21,
+        0.6
+      ],
+      "parent": "body",
+      "tip": [
+        0.12,
+        0.72
+      ]
+    },
+    {
+      "id": "arm_r",
+      "pivot": [
+        0.83,
+        0.62
+      ],
+      "parent": "body",
+      "tip": [
+        0.9,
+        0.73
+      ]
+    },
+    {
+      "id": "leg_l",
+      "pivot": [
+        0.42,
+        0.82
+      ],
+      "parent": "body",
+      "tip": [
+        0.42,
+        0.91
+      ]
+    },
+    {
+      "id": "leg_r",
+      "pivot": [
+        0.66,
+        0.82
+      ],
+      "parent": "body",
+      "tip": [
+        0.66,
+        0.9
+      ]
+    }
+  ],
+  "eyes": [
+    {
+      "center": [
+        0.465,
+        0.41
+      ],
+      "radius": [
+        0.045,
+        0.062
+      ]
+    },
+    {
+      "center": [
+        0.66,
+        0.41
+      ],
+      "radius": [
+        0.042,
+        0.062
+      ]
+    }
+  ],
+  "mouth": {
+    "center": [
+      0.58,
+      0.47
+    ],
+    "radius": [
+      0.03,
+      0.015
+    ]
+  },
+  "personality": {
+    "bounce": 0.6,
+    "tempo": 0.7,
+    "curiosity": 0.5
+  },
+  "patches": {}
+}

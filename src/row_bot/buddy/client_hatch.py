@@ -231,22 +231,6 @@ def _png(data: bytes) -> bytes:
     return value
 
 
-def _edit_source(data: bytes) -> bytes:
-    """The still as an opaque square on the key colour: providers treat transparency as "edit here"."""
-    from PIL import Image, ImageOps
-    with Image.open(io.BytesIO(data)) as source:
-        image = source.convert("RGBA")
-    if image.getchannel("A").getextrema()[0] < 250:
-        side = max(image.size)
-        canvas = Image.new("RGBA", (side, side), (*living_hatch.KEY_COLOUR, 255))
-        canvas.alpha_composite(image, ((side - image.width) // 2, (side - image.height) // 2))
-        image = canvas
-    image = ImageOps.fit(image.convert("RGB"), (1024, 1024), Image.Resampling.LANCZOS)
-    output = io.BytesIO()
-    image.save(output, format="PNG")
-    return output.getvalue()
-
-
 def _total(mode: str) -> int:
     return {"full": living_hatch.FULL_STEPS, "motion": len(living_hatch.EXPRESSIONS)}.get(mode, 0)
 
@@ -514,7 +498,7 @@ def _run(*, command_id, job_id, pack_id, prompt, mode, source, expected_config_r
                     saved["retained_copy"] = True
                     record("source_retained")
                 if mode != "still":
-                    current_caches().images["buddy-base.png"] = _edit_source(preview)
+                    current_caches().images["buddy-base.png"] = living_hatch.edit_source(preview)
                     for kind in living_hatch.EXPRESSIONS:
                         def edit_sink(data, kind=kind):
                             nonlocal painted

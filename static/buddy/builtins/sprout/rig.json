@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "family": "biped",
+  "base": 0.93,
+  "bones": [
+    {
+      "id": "body",
+      "pivot": [
+        0.5,
+        0.7
+      ]
+    },
+    {
+      "id": "head",
+      "pivot": [
+        0.5,
+        0.53
+      ],
+      "parent": "body",
+      "center": [
+        0.5,
+        0.37
+      ],
+      "radius": [
+        0.22,
+        0.18
+      ]
+    },
+    {
+      "id": "top",
+      "pivot": [
+        0.53,
+        0.19
+      ],
+      "parent": "head",
+      "tip": [
+        0.53,
+        0.08
+      ]
+    },
+    {
+      "id": "arm_l",
+      "pivot": [
+        0.3,
+        0.57
+      ],
+      "parent": "body",
+      "tip": [
+        0.22,
+        0.7
+      ]
+    },
+    {
+      "id": "arm_r",
+      "pivot": [
+        0.7,
+        0.57
+      ],
+      "parent": "body",
+      "tip": [
+        0.77,
+        0.66
+      ]
+    }
+  ],
+  "eyes": [
+    {
+      "center": [
+        0.478,
+        0.425
+      ],
+      "radius": [
+        0.04,
+        0.046
+      ]
+    },
+    {
+      "center": [
+        0.63,
+        0.415
+      ],
+      "radius": [
+        0.036,
+        0.043
+      ]
+    }
+  ],
+  "mouth": {
+    "center": [
+      0.56,
+      0.455
+    ],
+    "radius": [
+      0.022,
+      0.012
+    ]
+  },
+  "personality": {
+    "bounce": 0.45,
+    "tempo": 0.45,
+    "curiosity": 0.55
+  },
+  "patches": {}
+}
