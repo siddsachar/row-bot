@@ -855,7 +855,9 @@ describe('a schedule in its own timezone (N9)', () => {
 
   it("starts a new schedule in this device's zone, not the Row-Bot server's", () => {
     // A hosted server runs on UTC; the person is where this browser is.
-    setServerTimezone(ZONE === 'Pacific/Chatham' ? 'Asia/Tokyo' : 'Pacific/Chatham');
+    setServerTimezone(
+      ZONE === 'Pacific/Chatham' ? 'Asia/Tokyo' : 'Pacific/Chatham',
+    );
     const onChange = vi.fn();
     render(
       <ScheduleBuilder
