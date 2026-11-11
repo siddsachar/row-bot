@@ -793,9 +793,13 @@ export default function Conversation({
                   ? 'Reconnect to send. Your draft remains on this device.'
                   : !sendActionReady
                     ? state.workspace?.model_status?.state === 'unavailable'
-                      ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. Reconnect or choose another model; your message stays here.`
+                      ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. ${state.workspace.model_status.fix === 'reconnect' ? 'Reconnect or choose another model; your' : 'Your'} message stays here.`
                       : 'Choose a model to send. Your message stays here.'
                     : '';
+  // Enter pressed while the model can't answer: say why, once, where the
+  // message is (I15). It goes when the reason does.
+  const [refused, setRefused] = useState('');
+  const refusal = refused && refused === composerStateReason ? refused : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   // A helper this chat started waits on an approval: its card shows here
   // even when no notice reached the transcript, so no helper waits on an
@@ -1629,6 +1633,16 @@ export default function Conversation({
       void answerOrSend(waiting, outgoing.text.trim(), keepTargets, retry);
       return;
     }
+    if (
+      id &&
+      outgoing.text.trim() &&
+      state.status === 'ready' &&
+      !sendActionReady &&
+      !pendingSteering &&
+      !pendingSubmit &&
+      !pendingResume
+    )
+      setRefused(composerStateReason);
     if (
       !id ||
       !outgoing.text.trim() ||
@@ -4297,12 +4311,14 @@ export default function Conversation({
             <div
               className="composer-status-row"
               data-visible={
+                refusal ||
                 state.draftStatus === 'conflict' ||
                 state.draftStatus === 'failed'
                   ? 'true'
                   : undefined
               }
             >
+              {refusal && <small className="composer-refusal">{refusal}</small>}
               {/* Saving is silent; only a failure or conflict is shown. */}
               <small
                 role="status"
