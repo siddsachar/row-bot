@@ -256,12 +256,13 @@ class _Mac:
     def scale(self, window: Any) -> float:
         return 1.0  # AppKit frames are already points, as pywebview's moves are
 
-    def _number(self, dictionary, key: str, kind: int = 9) -> float | None:  # 9: kCFNumberDoubleType
+    def _number(self, dictionary, key: str) -> float | None:
         value = self.cf.CFDictionaryGetValue(dictionary, self.keys[key])
         if not value:
             return None
         out = self.ctypes.c_double()
-        return out.value if self.cf.CFNumberGetValue(value, kind, self.ctypes.byref(out)) else None
+        # 13: kCFNumberDoubleType, matching the buffer; CoreFoundation converts the integer keys exactly.
+        return out.value if self.cf.CFNumberGetValue(value, 13, self.ctypes.byref(out)) else None
 
     def windows(self) -> list[OtherWindow]:
         found: list[OtherWindow] = []
