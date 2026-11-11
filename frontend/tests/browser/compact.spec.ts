@@ -364,3 +364,33 @@ test('a phone opens menus as bottom sheets that close with a swipe down', async 
   });
   await expect(menu).toBeHidden();
 });
+
+test('a phone composer gives the text its own full-width row and swaps voice for Send as you type', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Tablets keep the wide composer.',
+  );
+  await openSeedConversation(page);
+  const composer = page.locator('.composer').first();
+  await expect(composer).toHaveAttribute('data-single-line', 'true');
+  const message = page.getByRole('textbox', { name: 'Message', exact: true });
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  // Voice, where the host offers it, shares Send's place: never both.
+  const voice = composer.locator('.composer-voice');
+
+  await message.fill('Check the venue booking before Friday');
+  await expect(send).toBeVisible();
+  await expect(voice).toBeHidden();
+  const [text, field] = await Promise.all([
+    message.boundingBox(),
+    composer.locator('.composer-field').boundingBox(),
+  ]);
+  expect(text!.width / field!.width).toBeGreaterThan(0.85);
+
+  // An empty draft has nothing to send: no Send until there is text.
+  await message.fill('');
+  await expect(send).toBeHidden();
+});

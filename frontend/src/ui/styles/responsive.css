@@ -8,8 +8,9 @@
  * - Panels below 1024px open as full-height sheets with their own header.
  * - Context opens as a full-height sheet on phones and a side sheet on
  *   tablets. The conversation drawer slides in from the left.
- * - A narrow composer is one line: + · field · mic · send (container width,
- *   so a squeezed desktop chat folds the same way).
+ * - A narrow composer is two rows: the text full width, then + · chips ·
+ *   voice or send (container width, so a squeezed desktop chat folds the
+ *   same way).
  */
 
 @keyframes sheet-up {
@@ -23,14 +24,14 @@
   }
 }
 
-/* ------------------------------------------------------- one-line composer */
+/* ------------------------------------------------------- two-row composer */
 
 .composer[data-single-line] .composer-field {
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    'chips chips chips'
-    'plus text actions';
-  align-items: end;
+    'text text text'
+    'plus chips actions';
+  align-items: center;
   column-gap: 4px;
   row-gap: 6px;
   padding: 5px;
@@ -39,8 +40,9 @@
 .composer[data-single-line] .composer-chips {
   grid-area: chips;
   flex-wrap: nowrap;
+  min-width: 0;
   overflow-x: auto;
-  padding: 2px 4px 0;
+  padding: 0 2px;
   scrollbar-width: none;
 }
 .composer[data-single-line] .composer-chips > *,
@@ -55,8 +57,9 @@
 }
 .composer[data-single-line] .message-composer {
   grid-area: text;
-  align-self: center;
-  padding: 6px 4px;
+  align-self: stretch;
+  max-height: 152px;
+  padding: 6px 8px 2px;
 }
 .composer[data-single-line] .composer-toolbar {
   display: contents;
@@ -85,17 +88,15 @@
   padding: 0 10px;
   background: var(--accent-subtle);
 }
-/* Too narrow for one line (a phone at 200% zoom leaves ~180px): the text
-   takes its own row under the chips and the controls sit below it, so the
-   draft never wraps per character and the composer never grows past the
-   screen (B156). */
-@container composer (max-width: 300px) {
-  .composer[data-single-line] .composer-field {
-    grid-template-areas:
-      'chips chips chips'
-      'text text text'
-      'plus . actions';
-  }
+/* Voice while the draft is empty, Send once there is text, Stop while it
+   answers: one place for the thumb. Voice in use stays until it stops. */
+.composer[data-single-line][data-draft='empty']
+  .composer-primary-slot:has(> [data-state='send']) {
+  display: none;
+}
+.composer[data-single-line][data-draft='text']
+  .composer-voice:not(:has([aria-busy='true'])) {
+  display: none;
 }
 /* Model, approvals and context usage live in the + menu. */
 .composer-plus-context {
