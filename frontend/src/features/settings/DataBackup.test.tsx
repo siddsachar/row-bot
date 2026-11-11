@@ -51,7 +51,11 @@ function owner(first: DataBackupState = idle) {
     read: vi.fn(async () => first),
     send: vi.fn(async () => receipt(first)),
     pick: vi.fn(async () => 'grant-1' as string | null | 'unavailable'),
-    download: vi.fn(async (_name: string) => null as string | null),
+    // As the page does: a backup still being made is saved once it is.
+    download: vi.fn(async (name: string | (() => Promise<string>)) => {
+      if (typeof name !== 'string') await name();
+      return null as string | null;
+    }),
     upload: vi.fn(
       async (
         _file: File,
@@ -489,13 +493,19 @@ it('a hosted Row-Bot moves to a computer: a fresh backup downloads, with what it
   ).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Download backup' }));
   expect(fake.send).toHaveBeenCalledWith('backup', undefined);
+  // One click: the save starts with it and waits for the backup being made.
+  expect(fake.download).toHaveBeenCalledOnce();
+  const [made] = fake.download.mock.calls[0];
+  expect(typeof made).toBe('function');
   await screen.findAllByRole('button', { name: 'Backing up…' });
   fake.read.mockResolvedValue(done);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(1000);
   });
-  expect(fake.download).toHaveBeenCalledWith(MOVED);
+  await expect((made as () => Promise<string>)()).resolves.toBe(MOVED);
   const moved = await screen.findByText(`Downloaded “${MOVED}”.`);
+  expect(fake.download).toHaveBeenCalledOnce();
+  expect(fake.send).toHaveBeenCalledOnce();
   const status = moved.closest('[role="status"]') as HTMLElement;
   expect(status).toHaveTextContent(
     'Not in the backup: API keys, sign-in tokens and passwords · Caches, logs and downloaded runtimes',
@@ -508,7 +518,7 @@ it('a hosted Row-Bot moves to a computer: a fresh backup downloads, with what it
   ).toBeVisible();
 });
 
-it('a backup made for moving waits for a click when the browser won’t save it by itself', async () => {
+it('a backup made for moving waits for a second click only when the browser won’t save from the first', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   setPlace({ kind: 'hosted', host_name: 'PikaPods' });
   const { fake, done } = moving();
