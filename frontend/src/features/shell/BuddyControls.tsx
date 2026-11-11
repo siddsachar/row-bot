@@ -131,11 +131,6 @@ const TEXT_KEYS = new Set<keyof BuddyPreferences>([
   'personality_description',
 ]);
 
-function videoCount(pack: BuddyPack) {
-  return pack.assets.filter((asset) => asset.content_type.startsWith('video/'))
-    .length;
-}
-
 function displayPackName(name: string) {
   return name.replace(/^Buddy\s+/i, '').trim() || name;
 }
@@ -394,7 +389,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
             tone={draft.visible ? 'success' : 'neutral'}
             more={[
               selectedPack ? displayPackName(selectedPack.name) : draft.pack_id,
-              selectedPack?.available ? 'motion ready' : 'motion unavailable',
+              selectedPack?.available ? 'alive' : 'look unavailable',
             ]}
           >
             {draft.visible ? 'Shown' : 'Hidden'}
@@ -453,7 +448,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
                   <Button
                     key={pack.id}
                     className="buddy-look"
-                    aria-label={`${displayPackName(pack.name)} — ${videoCount(pack)} clips · ${pack.available ? 'Ready' : 'Unavailable'}`}
+                    aria-label={`${displayPackName(pack.name)} · ${pack.available ? 'Ready' : 'Unavailable'}`}
                     aria-pressed={chosen}
                     disabled={busy || !pack.available}
                     onClick={() => edit('pack_id', pack.id)}

@@ -3,8 +3,55 @@ import {
   useProviderSettingsValue,
 } from '../settings/provider-settings-sessions';
 import { useEffect, useRef } from 'react';
-import { Button, ErrorState, Field } from '../../ui/primitives';
+import { Bird, Ghost, PersonStanding, Sparkles } from 'lucide-react';
+import { Button, ErrorState, Field, Segmented } from '../../ui/primitives';
 import type { BuddyPack } from './BuddyControls';
+
+export type BuddyFamily = 'auto' | 'floater' | 'biped' | 'winged';
+const families = [
+  {
+    value: 'auto',
+    label: 'Pick for me',
+    icon: <Sparkles size={15} aria-hidden />,
+  },
+  { value: 'floater', label: 'Floater', icon: <Ghost size={15} aria-hidden /> },
+  {
+    value: 'biped',
+    label: 'Little biped',
+    icon: <PersonStanding size={15} aria-hidden />,
+  },
+  { value: 'winged', label: 'Winged', icon: <Bird size={15} aria-hidden /> },
+] satisfies { value: BuddyFamily; label: string; icon: React.ReactNode }[];
+
+/** Where a Hatch is, in plain words; counts are painted images (the character, then six expressions). */
+export function hatchProgress(result: HatchResult): string {
+  const expressions = 6;
+  const painted =
+    result.total_clips > expressions
+      ? Math.max(0, result.completed_clips - 1)
+      : result.completed_clips;
+  switch (result.stage) {
+    case 'starting':
+      return 'Getting ready…';
+    case 'image_provider_started':
+      return 'Painting your Buddy…';
+    case 'image_retained':
+    case 'source_retained':
+      return result.total_clips
+        ? 'Painted. Expressions next…'
+        : 'Bringing it to life…';
+    case 'expression_provider_started':
+    case 'expression_retained':
+      return `Painting expressions · ${Math.min(painted + 1, expressions)} of ${expressions}`;
+    case 'rig_prepared':
+      return 'Fitting its rig…';
+    case 'pack_publication_prepared':
+    case 'pack_published':
+      return 'Bringing it to life…';
+    default:
+      return '';
+  }
+}
 
 export type HatchResult = {
   schema_version: 1;
@@ -27,6 +74,7 @@ export type HatchRequest = {
   source_pack_id?: string;
   source_pack_revision?: string;
   source_command_id?: string;
+  family?: Exclude<BuddyFamily, 'auto'>;
 };
 export type HatchReview = {
   nonce?: string;
@@ -118,6 +166,11 @@ export default function BuddyHatch(props: BuddyHatchProps) {
     props.result,
   );
   const [busy, setBusy] = useProviderSettingsValue(editor, 'busy', false);
+  const [family, setFamily] = useProviderSettingsValue<BuddyFamily>(
+    editor,
+    'family',
+    'auto',
+  );
   const [stopping, setStopping] = useProviderSettingsValue(
     editor,
     'stopping',
@@ -240,6 +293,7 @@ export default function BuddyHatch(props: BuddyHatchProps) {
                 )
               : prompt.trim() || 'Retained Buddy look',
           config_revision: revision,
+          ...(action === 'full' && family !== 'auto' ? { family } : {}),
         };
         if (
           (action === 'still' || action === 'retained-motion') &&
@@ -307,29 +361,45 @@ export default function BuddyHatch(props: BuddyHatchProps) {
           }}
         />
       </Field>
+      <Field label="Body">
+        <Segmented
+          label="Body"
+          size="sm"
+          value={family}
+          onChange={(value) => {
+            setFamily(value);
+            setReview(null);
+          }}
+          options={families}
+        />
+      </Field>
       <div className="button-row buddy-hatch-actions">
         <Button
           disabled={busy || running || !prompt.trim()}
           onClick={() => void run('full')}
         >
-          Generate full Buddy
+          Hatch Buddy
         </Button>
+        {/* An older look without painted expressions can gain blinks and faces. */}
         {props.selectedPack?.available &&
-          props.selectedPack.assets.some((asset) => asset.id === 'preview') && (
+          props.selectedPack.generated &&
+          !props.selectedPack.assets.some(
+            (asset) => asset.id === 'patches',
+          ) && (
             <Button
               disabled={busy || running}
               onClick={() => void run('motion')}
             >
-              Generate motion
+              Bring to life
             </Button>
           )}
         {result?.has_still && !running && (
           <>
             <Button disabled={busy} onClick={() => void run('still')}>
-              Use retained still
+              Use the painting as it is
             </Button>
             <Button disabled={busy} onClick={() => void run('retained-motion')}>
-              Generate motion from still
+              Paint its expressions
             </Button>
           </>
         )}
@@ -381,10 +451,9 @@ export default function BuddyHatch(props: BuddyHatchProps) {
                   ? 'Some results are retained; selection is incomplete.'
                   : `Hatch ${result.status}.`}
           </p>
-          <p>
-            {result.completed_clips} of {result.total_clips} motion clips
-            retained.
-          </p>
+          {active(result) && hatchProgress(result) && (
+            <p>{hatchProgress(result)}</p>
+          )}
           {result.selected && <p>The new look was selected.</p>}
           {result.retained_copy && (
             <p>Generated files are retained for recovery.</p>

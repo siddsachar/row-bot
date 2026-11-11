@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { BuddyPack, BuddySnapshot } from '../../shell/BuddyControls';
-import { useReducedMotion, type BuddyMediaLoader } from '../BuddyAvatar';
+import { useReducedMotion, type BuddyMediaLoader } from '../media';
 import { MotionController, type Intensity } from './controller';
 import type { GestureName } from './gestures';
 import { pagePointer } from './pointer';
@@ -38,7 +38,7 @@ function load(
   const known = loaded.get(key);
   if (known) return known;
   const has = (id: string) => pack.assets.some((asset) => asset.id === id);
-  const fetch = (id: string) =>
+  const read = (id: string) =>
     loadMedia(
       conversation,
       pack.id,
@@ -48,9 +48,9 @@ function load(
     );
   const pending = (async () => {
     const [artBlob, rigBlob, patchBlob] = await Promise.all([
-      fetch('art'),
-      fetch('rig'),
-      has('patches') ? fetch('patches') : Promise.resolve(null),
+      read('art'),
+      read('rig'),
+      has('patches') ? read('patches') : Promise.resolve(null),
     ]);
     const bitmap = (blob: Blob) =>
       createImageBitmap(blob, { premultiplyAlpha: 'premultiply' });

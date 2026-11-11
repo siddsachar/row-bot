@@ -119,12 +119,6 @@ html[data-platform='macos'] .buddy-overlay {
 .buddy-overlay-avatar .buddy-avatar-frame {
   width: 32px;
   height: 32px;
-  box-shadow: none;
-  border-color: var(--border-subtle);
-}
-.buddy-overlay-avatar .buddy-avatar-frame::after {
-  inset: 2px;
-  box-shadow: none;
 }
 .buddy-overlay-avatar::before {
   position: absolute;

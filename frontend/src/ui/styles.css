@@ -4314,10 +4314,6 @@ details[open] > summary > .settings-disclosure-chevron {
 .buddy-hatch-heading p {
   max-width: 72ch;
 }
-.settings-buddy-preferences .buddy-look .buddy-avatar {
-  width: 80px;
-  height: 80px;
-}
 @media (max-width: 600px) {
   .settings-buddy-visibility-grid,
   .settings-buddy-behavior-grid,
@@ -4330,10 +4326,6 @@ details[open] > summary > .settings-disclosure-chevron {
   }
   .settings-buddy-preferences .buddy-look-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .settings-buddy-preferences .buddy-look .buddy-avatar {
-    width: 88px;
-    height: 88px;
   }
   .settings-voice-page > .settings-snapshot-section,
   .settings-system-page > .settings-snapshot-section {
@@ -5100,24 +5092,11 @@ details[open] > summary > .settings-disclosure-chevron {
 
 /* Activity rows retain their established full target while menus stay compact. */
 
-.buddy-avatar {
-  width: 80px;
-  height: 80px;
-  object-fit: contain;
-  border-radius: var(--radius-control);
-}
-
 .buddy-look {
   flex-direction: column;
   min-width: 112px;
 }
 
-.navigation .buddy-avatar {
-  width: 132px;
-  height: 132px;
-  border: 0;
-  border-radius: 50%;
-}
 .navigation .buddy-companion {
   display: grid;
   justify-items: center;

@@ -8,6 +8,7 @@ import BuddyControls, {
   type BuddySnapshot,
 } from '../shell/BuddyControls';
 import BuddyHatch, {
+  hatchProgress,
   type HatchRequest,
   type HatchReview,
   type HatchResult,
@@ -607,7 +608,7 @@ export default function BuddyPanel(props: BuddyPanelProps) {
         }
         newLookStatus={
           state.result && ['queued', 'running'].includes(state.result.status)
-            ? `Making it · ${state.result.completed_clips} of ${state.result.total_clips} clips`
+            ? hatchProgress(state.result) || 'Painting…'
             : undefined
         }
       />
@@ -651,7 +652,7 @@ export default function BuddyPanel(props: BuddyPanelProps) {
           open={hatchOpen}
           onOpenChange={setHatchOpen}
           title="New look"
-          description="Create a look and six motion clips with your image and video models. Generation may cost provider credits; your current look stays until the new one is ready."
+          description="Your image model paints the Buddy you describe, then six small expression edits; Row-Bot brings it to life on this device. It may cost provider credits, and your current look stays until the new one is ready."
         >
           {hatch}
         </ModalTask>

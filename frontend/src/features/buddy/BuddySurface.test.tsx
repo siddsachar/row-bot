@@ -84,14 +84,15 @@ const pack: BuddyPack = {
   id: 'luminous',
   name: 'Luminous',
   revision: 'pack-revision',
-  runtime: 'video',
+  runtime: 'living',
   generated: true,
   available: true,
   assets: [
+    { id: 'art', content_type: 'image/png' },
     { id: 'preview', content_type: 'image/png' },
-    { id: 'idle-loop', content_type: 'video/mp4' },
+    { id: 'rig', content_type: 'application/json' },
   ],
-  animation_map: { idle: 'idle-loop' },
+  animation_map: {},
 };
 
 afterEach(() => {
@@ -231,10 +232,10 @@ it('offers native Undock through the placement bridge', async () => {
 });
 
 describe('Buddy avatar lifecycle', () => {
-  it('uses canonical status hooks and revokes scoped media on conversation change', async () => {
+  it('shows Buddy’s state and loads its still for the conversation, revoking it on change', async () => {
     let nextUrl = 0;
     const create = vi.fn(() => `blob:buddy-${++nextUrl}`);
-    // A URL is revoked only once no committed image or video still uses it.
+    // A URL is revoked only once no committed image still uses it.
     const stillReferenced: string[] = [];
     const revoke = vi.fn((url: string) => {
       if (document.body.innerHTML.includes(url)) stillReferenced.push(url);
@@ -256,21 +257,20 @@ describe('Buddy avatar lifecycle', () => {
     const frame = view.container.querySelector('.buddy-avatar-frame');
     expect(frame).toHaveAttribute('data-state', 'idle');
     expect(frame).toHaveAttribute('data-buddy-mood', 'curious');
-    expect(frame).toHaveAttribute('data-energy', '64');
+    expect(frame).toHaveAttribute('data-media', 'living');
     await waitFor(() =>
-      expect(view.container.querySelector('video')).toHaveAttribute(
+      expect(view.container.querySelector('img.buddy-avatar')).toHaveAttribute(
         'src',
-        expect.stringMatching(/^blob:buddy-/),
+        'blob:buddy-1',
       ),
     );
     expect(loadMedia).toHaveBeenCalledWith(
       'conversation-one',
       'luminous',
-      'idle-loop',
+      'art',
       'pack-revision',
       expect.any(AbortSignal),
     );
-    const video = view.container.querySelector('video')!;
 
     view.rerender(
       <BuddyAvatar
@@ -281,23 +281,17 @@ describe('Buddy avatar lifecycle', () => {
       />,
     );
     expect(signals[0].aborted).toBe(true);
-    // The dropped video stops loading before its source can be revoked.
-    expect(video).not.toHaveAttribute('src');
-    expect(video).not.toHaveAttribute('poster');
-    expect(HTMLMediaElement.prototype.load).toHaveBeenCalled();
     expect(revoke).not.toHaveBeenCalled();
-    await waitFor(() => expect(revoke).toHaveBeenCalledTimes(2), {
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:buddy-1'), {
       timeout: 3000,
     });
     expect(stillReferenced).toEqual([]);
-    await waitFor(() =>
-      expect(loadMedia).toHaveBeenCalledWith(
-        'conversation-two',
-        'luminous',
-        'preview',
-        'pack-revision',
-        expect.any(AbortSignal),
-      ),
+    expect(loadMedia).toHaveBeenCalledWith(
+      'conversation-two',
+      'luminous',
+      'art',
+      'pack-revision',
+      expect.any(AbortSignal),
     );
   });
 
@@ -313,69 +307,73 @@ describe('Buddy avatar lifecycle', () => {
         pack={pack}
         snapshot={snapshot}
         loadMedia={loadMedia}
+        preview
       />,
     );
-    await waitFor(() => expect(loadMedia).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(loadMedia).toHaveBeenCalledTimes(1));
 
     view.rerender(
       <BuddyAvatar
         conversation="conversation"
-        pack={{
-          ...pack,
-          assets: pack.assets.map((asset) => ({ ...asset })),
-          animation_map: { ...pack.animation_map },
-        }}
+        pack={{ ...pack, assets: pack.assets.map((asset) => ({ ...asset })) }}
         snapshot={{ ...snapshot, status: { ...snapshot.status } }}
         loadMedia={loadMedia}
+        preview
       />,
     );
 
-    expect(loadMedia).toHaveBeenCalledTimes(2);
+    expect(loadMedia).toHaveBeenCalledTimes(1);
   });
 
-  it('reacts to reduced motion and falls back from video to the selected still', async () => {
-    let reduced = false;
-    let changed: (() => void) | undefined;
-    vi.stubGlobal('matchMedia', () => ({
-      get matches() {
-        return reduced;
-      },
-      media: '(prefers-reduced-motion: reduce)',
-      addEventListener: (_name: string, listener: () => void) => {
-        changed = listener;
-      },
-      removeEventListener: vi.fn(),
-    }));
-    let nextUrl = 0;
-    const revoke = vi.fn();
+  it('keeps showing the still where a living Buddy cannot draw', async () => {
     vi.stubGlobal('URL', {
-      createObjectURL: () => `blob:motion-${++nextUrl}`,
-      revokeObjectURL: revoke,
+      createObjectURL: () => 'blob:still',
+      revokeObjectURL: vi.fn(),
     });
+    // jsdom has no WebGL2: the living renderer must leave the still in place.
     const loadMedia = vi.fn<BuddyMediaLoader>(async () => new Blob(['media']));
     const view = render(
       <BuddyAvatar
-        conversation="conversation"
+        conversation={null}
         pack={pack}
         snapshot={snapshot}
         loadMedia={loadMedia}
       />,
     );
     await waitFor(() =>
-      expect(view.container.querySelector('video')).toBeInTheDocument(),
+      expect(view.container.querySelector('.living-buddy')).toHaveAttribute(
+        'data-runtime',
+        'still',
+      ),
     );
-    reduced = true;
-    act(() => changed?.());
-    await waitFor(() => {
-      expect(view.container.querySelector('video')).not.toBeInTheDocument();
+    expect(view.container.querySelector('img.buddy-avatar')).toHaveAttribute(
+      'src',
+      'blob:still',
+    );
+  });
+
+  it('shows pack previews as stills, never a living renderer', async () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:preview',
+      revokeObjectURL: vi.fn(),
+    });
+    const loadMedia = vi.fn<BuddyMediaLoader>(async () => new Blob(['media']));
+    const view = render(
+      <BuddyAvatar
+        conversation={null}
+        pack={pack}
+        snapshot={snapshot}
+        loadMedia={loadMedia}
+        preview
+      />,
+    );
+    await waitFor(() =>
       expect(
         view.container.querySelector('.buddy-avatar-frame'),
-      ).toHaveAttribute('data-reduced-motion', 'true');
-    });
-    await waitFor(() => expect(revoke).toHaveBeenCalled(), { timeout: 3000 });
-    expect(
-      loadMedia.mock.calls.filter((call) => call[2] === 'idle-loop'),
-    ).toHaveLength(1);
+      ).toHaveAttribute('data-media', 'still'),
+    );
+    expect(view.container.querySelector('canvas')).not.toBeInTheDocument();
+    expect(loadMedia).toHaveBeenCalledTimes(1);
   });
 
   it('shows an explicit glyph fallback for an unavailable selected pack', () => {
@@ -384,174 +382,16 @@ describe('Buddy avatar lifecycle', () => {
       <BuddyAvatar
         conversation="conversation"
         pack={{ ...pack, available: false }}
-        snapshot={{
-          ...snapshot,
-          preferences: { ...snapshot.preferences, collapsed: true },
-        }}
+        snapshot={snapshot}
         loadMedia={loadMedia}
       />,
     );
+    expect(loadMedia).not.toHaveBeenCalled();
     expect(view.container.querySelector('.buddy-avatar-frame')).toHaveAttribute(
       'data-media',
       'unavailable',
     );
-    expect(view.container.querySelector('.buddy-avatar-frame')).toHaveAttribute(
-      'data-collapsed',
-      'true',
-    );
     expect(view.getByText('Pack unavailable')).toBeInTheDocument();
-    expect(loadMedia).not.toHaveBeenCalled();
-  });
-
-  it('keeps the still when a motion element fails', async () => {
-    let nextUrl = 0;
-    vi.stubGlobal('URL', {
-      createObjectURL: () => `blob:fallback-${++nextUrl}`,
-      revokeObjectURL: vi.fn(),
-    });
-    const view = render(
-      <BuddyAvatar
-        conversation="conversation"
-        pack={pack}
-        snapshot={snapshot}
-        loadMedia={async () => new Blob(['media'])}
-      />,
-    );
-    const video = await waitFor(() => {
-      const element = view.container.querySelector('video');
-      expect(element).toBeInTheDocument();
-      return element!;
-    });
-    fireEvent.error(video);
-    expect(view.container.querySelector('video')).not.toBeInTheDocument();
-    expect(view.container.querySelector('img')).toHaveAttribute(
-      'src',
-      expect.stringMatching(/^blob:fallback-/),
-    );
-    expect(view.container.querySelector('.buddy-avatar-frame')).toHaveAttribute(
-      'data-media',
-      'still',
-    );
-  });
-
-  it('settles bundled idle media after two passes and restarts for activity', async () => {
-    let nextUrl = 0;
-    vi.stubGlobal('URL', {
-      createObjectURL: () => `blob:bundled-${++nextUrl}`,
-      revokeObjectURL: vi.fn(),
-    });
-    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
-    const loadMedia = async () => new Blob(['bundled media']);
-    const view = render(
-      <BuddyAvatar
-        conversation="conversation"
-        pack={pack}
-        snapshot={snapshot}
-        loadMedia={loadMedia}
-      />,
-    );
-    const video = await waitFor(() => {
-      const element = view.container.querySelector('video');
-      expect(element).toBeInTheDocument();
-      return element!;
-    });
-    expect(video.muted).toBe(true);
-    expect(video).not.toHaveAttribute('loop');
-    fireEvent.ended(video);
-    expect(view.container.querySelector('video')).toBeInTheDocument();
-    fireEvent.ended(video);
-    expect(view.container.querySelector('video')).not.toBeInTheDocument();
-    expect(view.container.querySelector('img')).toHaveAttribute(
-      'src',
-      expect.stringMatching(/^blob:bundled-/),
-    );
-    view.rerender(
-      <BuddyAvatar
-        conversation="conversation"
-        pack={pack}
-        snapshot={{
-          ...snapshot,
-          status: { ...snapshot.status, label: 'Still ready' },
-        }}
-        loadMedia={loadMedia}
-      />,
-    );
-    expect(view.container.querySelector('video')).not.toBeInTheDocument();
-    view.rerender(
-      <BuddyAvatar
-        conversation="conversation"
-        pack={{
-          ...pack,
-          animation_map: { ...pack.animation_map, thinking: 'idle-loop' },
-        }}
-        snapshot={{
-          ...snapshot,
-          activity: 'thinking',
-          status: { ...snapshot.status, event_id: 14 },
-        }}
-        loadMedia={loadMedia}
-      />,
-    );
-    await waitFor(() =>
-      expect(view.container.querySelector('video')).toBeInTheDocument(),
-    );
-  });
-
-  it('settles a finished run after two passes but loops while work is live (B29)', async () => {
-    let nextUrl = 0;
-    vi.stubGlobal('URL', {
-      createObjectURL: () => `blob:finished-${++nextUrl}`,
-      revokeObjectURL: vi.fn(),
-    });
-    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
-    const loadMedia = async () => new Blob(['clip']);
-    const celebrating = {
-      ...pack,
-      animation_map: { ...pack.animation_map, celebrate: 'idle-loop' },
-    };
-    const view = render(
-      <BuddyAvatar
-        conversation="conversation"
-        pack={celebrating}
-        snapshot={{
-          ...snapshot,
-          activity: 'completed',
-          status: { ...snapshot.status, event_id: 21 },
-        }}
-        loadMedia={loadMedia}
-      />,
-    );
-    const video = await waitFor(() => {
-      const element = view.container.querySelector('video');
-      expect(element).toBeInTheDocument();
-      return element!;
-    });
-    fireEvent.ended(video);
-    expect(view.container.querySelector('video')).toBeInTheDocument();
-    fireEvent.ended(video);
-    expect(view.container.querySelector('video')).not.toBeInTheDocument();
-    view.rerender(
-      <BuddyAvatar
-        conversation="conversation"
-        pack={{
-          ...celebrating,
-          animation_map: { ...celebrating.animation_map, working: 'idle-loop' },
-        }}
-        snapshot={{
-          ...snapshot,
-          activity: 'tool',
-          status: { ...snapshot.status, event_id: 22 },
-        }}
-        loadMedia={loadMedia}
-      />,
-    );
-    const live = await waitFor(() => {
-      const element = view.container.querySelector('video');
-      expect(element).toBeInTheDocument();
-      return element!;
-    });
-    for (let pass = 0; pass < 4; pass += 1) fireEvent.ended(live);
-    expect(view.container.querySelector('video')).toBeInTheDocument();
   });
 });
 

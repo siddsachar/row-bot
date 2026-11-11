@@ -578,6 +578,7 @@ export default function BuddyOverlay({
               pack={pack}
               snapshot={avatarSnapshot}
               loadMedia={loadMedia}
+              framing="head"
             />
           ) : (
             <span

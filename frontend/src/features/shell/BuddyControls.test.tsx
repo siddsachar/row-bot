@@ -154,10 +154,10 @@ describe('Buddy shared companion and preferences', () => {
     expect(advanced).not.toHaveAttribute('open');
     // The page status line names the look; each tile says whether it's ready.
     expect(screen.getByText('Shown')).toBeVisible();
-    expect(screen.getByText('motion ready')).toBeVisible();
+    expect(screen.getByText('alive')).toBeVisible();
     const looks = screen.getByRole('group', { name: 'Buddy looks' });
     const glyph = within(looks).getByRole('button', {
-      name: 'Glyph — 2 clips · Ready',
+      name: 'Glyph · Ready',
     });
     expect(glyph).toHaveAttribute('aria-pressed', 'true');
     expect(glyph).toHaveTextContent('GlyphReady');
@@ -354,7 +354,7 @@ describe('Buddy shared companion and preferences', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More Buddy looks' }));
     expect(
       await screen.findByRole('button', {
-        name: 'Missing — 2 clips · Unavailable',
+        name: 'Missing · Unavailable',
       }),
     ).toBeDisabled();
     expect(input.loadPacks).toHaveBeenCalledWith('next');
