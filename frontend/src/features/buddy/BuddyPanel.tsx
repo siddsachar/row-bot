@@ -495,6 +495,7 @@ export type BuddyPanelProps = Pick<
   | 'previewUrl'
   | 'companionVisible'
   | 'onUndock'
+  | 'desktopPet'
 > & {
   session: BuddyPanelSession;
   settingsOpen: boolean;

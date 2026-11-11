@@ -37,10 +37,13 @@ import {
   phaseLabel,
   progressLabel,
 } from './overlay-model';
+import { BuddyPet } from './BuddyPet';
 import { useBuddyTarget } from './use-buddy-target';
 
 /** The host reveals the window only after this, or after its own 2s timeout. */
 const AVATAR_WAIT_MS = 700;
+/** A finished reply's bubble tucks away after this, unless someone is in it. */
+const REPLY_SEEN_MS = 9000;
 
 type Props = {
   controller: ClientController;
@@ -124,6 +127,8 @@ export default function BuddyOverlay({
     info?.capabilities.includes('buddy_placement'),
   );
   const mainReady = Boolean(info?.capabilities.includes('main_window'));
+  // The desktop pet (D5–D9): the native window shows Buddy alone, the card as its bubble.
+  const petMode = native && Boolean(info?.capabilities.includes('buddy_pet'));
 
   // Follow the target: open it through this window's own session.
   const ready = Boolean(state.handshake);
@@ -219,6 +224,25 @@ export default function BuddyOverlay({
       .catch(() => {});
     return () => abort.abort();
   }, [controller, approvalId]);
+
+  // The pet's bubble opens for what needs you and for a finished reply (D6).
+  const [bubbleOpen, setBubbleOpen] = useState(false);
+  const attention =
+    phase === 'approval' || phase === 'failed' || phase === 'interrupted';
+  useEffect(() => {
+    if (attention) setBubbleOpen(true);
+  }, [attention, approvalId]);
+  const replySeen = useEffectEvent(() => {
+    const inBubble = document.activeElement?.closest('.buddy-bubble');
+    const typing = id ? controller.getDraft(id).text.trim() : '';
+    if (!inBubble && !typing) setBubbleOpen(false);
+  });
+  useEffect(() => {
+    if (!petMode || phase !== 'completed') return;
+    setBubbleOpen(true);
+    const timer = window.setTimeout(replySeen, REPLY_SEEN_MS);
+    return () => window.clearTimeout(timer);
+  }, [petMode, phase, generationId]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -552,13 +576,8 @@ export default function BuddyOverlay({
     ? memory.text
     : argument || approval?.reason || hint?.reason;
 
-  return (
-    <main
-      className="buddy-overlay"
-      aria-label="Buddy"
-      data-phase={phase}
-      data-native={native ? 'true' : 'false'}
-    >
+  const card = (
+    <>
       <header
         className="buddy-overlay-header"
         data-draggable={native ? 'true' : 'false'}
@@ -568,26 +587,28 @@ export default function BuddyOverlay({
         onPointerCancel={dragEnd}
         onLostPointerCapture={dragEnd}
       >
-        <span
-          className="buddy-overlay-avatar"
-          data-activity={avatarSnapshot?.activity ?? 'idle'}
-        >
-          {avatarSnapshot ? (
-            <BuddyAvatar
-              conversation={null}
-              pack={pack}
-              snapshot={avatarSnapshot}
-              loadMedia={loadMedia}
-              framing="head"
-            />
-          ) : (
-            <span
-              className="buddy-avatar-frame"
-              data-media="loading"
-              aria-hidden="true"
-            />
-          )}
-        </span>
+        {!petMode && (
+          <span
+            className="buddy-overlay-avatar"
+            data-activity={avatarSnapshot?.activity ?? 'idle'}
+          >
+            {avatarSnapshot ? (
+              <BuddyAvatar
+                conversation={null}
+                pack={pack}
+                snapshot={avatarSnapshot}
+                loadMedia={loadMedia}
+                framing="head"
+              />
+            ) : (
+              <span
+                className="buddy-avatar-frame"
+                data-media="loading"
+                aria-hidden="true"
+              />
+            )}
+          </span>
+        )}
         <div className="buddy-overlay-heading">
           <h1 title={title}>{title}</h1>
           <p>
@@ -825,6 +846,38 @@ export default function BuddyOverlay({
       <p className="visually-hidden" role="status" aria-live="polite">
         {announcement}
       </p>
+    </>
+  );
+  if (petMode)
+    return (
+      <BuddyPet
+        platform={platform}
+        pack={pack}
+        snapshot={avatarSnapshot}
+        loadMedia={loadMedia}
+        open={bubbleOpen}
+        onOpenChange={setBubbleOpen}
+        onOpenMain={() => void openFullThread()}
+        onDock={() => void placement('dock')}
+        onHide={() => void placement('hide')}
+      >
+        <div
+          className="buddy-overlay-card"
+          data-phase={phase}
+          data-native="true"
+        >
+          {card}
+        </div>
+      </BuddyPet>
+    );
+  return (
+    <main
+      className="buddy-overlay"
+      aria-label="Buddy"
+      data-phase={phase}
+      data-native={native ? 'true' : 'false'}
+    >
+      {card}
     </main>
   );
 }

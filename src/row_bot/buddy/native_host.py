@@ -1,11 +1,13 @@
 """Native host for the desktop Buddy window.
 
 The launcher's pywebview window process owns one ``BuddyWindowHost``. It opens
-the React overlay (``/app-v2/buddy-overlay``) in a frameless, always-on-top
-380×230 window, attaches the attested client bridge to it, reveals it only
-after the page reports ready, and relays which conversation the main window
-shows. Nothing here imports pywebview: the window process passes in
-``webview.create_window`` and the windows, so the lifecycle is testable.
+the React overlay (``/app-v2/buddy-overlay``) as the desktop pet: a frameless,
+always-on-top, transparent window just big enough for Buddy, growing for its
+speech bubble. It attaches the attested client bridge, reveals the window only
+after the page reports ready, hands the live loop to ``PetController`` and
+relays which conversation the main window shows. Nothing here imports
+pywebview: the window process passes in ``webview.create_window``, the windows
+and the OS helpers, so the lifecycle is testable.
 """
 
 from __future__ import annotations
@@ -18,8 +20,6 @@ import time
 from typing import Any, Callable, Iterable, Mapping
 
 from .overlay import (
-    OVERLAY_HEIGHT,
-    OVERLAY_WIDTH,
     BuddyPlacement,
     BuddyPlacementState,
     ScreenArea,
@@ -27,9 +27,12 @@ from .overlay import (
     finite_coordinate,
     native_overlay_transparency,
     placement_state_from_config,
-    position_for_drop,
+    clamp_overlay_position,
     should_defer_native_show,
 )
+from .pet import PET_HEIGHT, PET_WIDTH, parse_hit_mask
+from .pet_host import PetController
+from .pet_native import PetNative
 
 OVERLAY_ROUTE = "/app-v2/buddy-overlay"
 READY_TIMEOUT_SECONDS = 2.0
@@ -50,17 +53,19 @@ def buddy_overlay_url(port: int) -> str:
 def overlay_window_options(
     url: str,
     *,
-    width: int = OVERLAY_WIDTH,
-    height: int = OVERLAY_HEIGHT,
+    width: int = PET_WIDTH,
+    height: int = PET_HEIGHT,
     x: int | None = None,
     y: int | None = None,
     platform: str | None = None,
+    transparent: bool | None = None,
 ) -> list[dict[str, Any]]:
     """``create_window`` keyword sets, richest first.
 
     None of them carries a ``js_api``: the overlay reaches the host only
-    through the attested bridge, never the legacy shared API. Windows keeps
-    an opaque host so the overlay stays hit-testable; macOS is transparent.
+    through the attested bridge, never the legacy shared API. The pet is
+    transparent wherever the OS helpers can keep it clickable (D11); without
+    them Windows stays opaque so the window is still hit-testable.
     """
 
     rich: dict[str, Any] = {
@@ -78,7 +83,7 @@ def overlay_window_options(
         "easy_drag": False,
         "hidden": True,
         "background_color": "#0B1119",
-        "transparent": native_overlay_transparency(platform or sys.platform),
+        "transparent": native_overlay_transparency(platform or sys.platform) if transparent is None else transparent,
     }
     fallback = {key: value for key, value in rich.items() if key != "background_color"}
     minimal = {
@@ -135,6 +140,8 @@ class BuddyWindowHost:
         ready_timeout: float = READY_TIMEOUT_SECONDS,
         scale: Callable[[], float] = lambda: 1.0,
         on_ui_thread: Callable[..., Any] | None = None,
+        pet_native: PetNative | None = None,
+        pet_threaded: bool = True,
     ) -> None:
         self._create_window = create_window
         self._load_config = load_config
@@ -154,6 +161,8 @@ class BuddyWindowHost:
         self.ready = False
         self._target: str | None = None
         self._target_revision = 0
+        self._pet_native = pet_native
+        self.pet = PetController(self, pet_native, threaded=pet_threaded)
 
     # Placement -----------------------------------------------------------
     def placement(self) -> BuddyPlacementState:
@@ -201,7 +210,8 @@ class BuddyWindowHost:
         try:
             drop_x = finite_coordinate(screen_x)
             drop_y = finite_coordinate(screen_y)
-            x, y = position_for_drop(drop_x, drop_y, self.screen_areas())
+            x, y = clamp_overlay_position(drop_x - PET_WIDTH / 2, drop_y - PET_HEIGHT * 0.55, self.screen_areas(),
+                                          width=PET_WIDTH, height=PET_HEIGHT)
         except Exception:
             return False
         state = self.placement().tear_off()
@@ -217,8 +227,8 @@ class BuddyWindowHost:
         *,
         x: int | None = None,
         y: int | None = None,
-        width: int = OVERLAY_WIDTH,
-        height: int = OVERLAY_HEIGHT,
+        width: int = PET_WIDTH,
+        height: int = PET_HEIGHT,
     ) -> bool:
         config = self._load_config()
         state = placement_state_from_config(config)
@@ -229,9 +239,9 @@ class BuddyWindowHost:
         requested_y = stored.get("y") if y is None else y
         if requested_x is not None and requested_y is not None:
             # Re-clamp a remembered position: its monitor may be gone.
-            x, y = position_for_drop(
-                finite_coordinate(requested_x) + width / 2,
-                finite_coordinate(requested_y) + min(height / 3, 76),
+            x, y = clamp_overlay_position(
+                finite_coordinate(requested_x),
+                finite_coordinate(requested_y),
                 self.screen_areas(),
                 width=width,
                 height=height,
@@ -258,8 +268,9 @@ class BuddyWindowHost:
                         self.window = None
         window = None
         url = buddy_overlay_url(self._port)
+        transparent = self._pet_native is not None or self._platform != "win32"
         for options in overlay_window_options(
-            url, width=width, height=height, x=x, y=y, platform=self._platform
+            url, width=width, height=height, x=x, y=y, platform=self._platform, transparent=transparent
         ):
             try:
                 window = self._create_window(**options)
@@ -291,6 +302,19 @@ class BuddyWindowHost:
             if self.window is window:
                 self.window = None
                 self.ready = False
+        self.pet.detach()
+
+    def _start_pet(self, window: Any, *, drop: bool) -> None:
+        """Give a shown pet window its live loop, from the remembered (or just dropped) spot."""
+        overlay = dict(self._load_config().get("overlay") or {})
+        self.pet.attach(window, finite_coordinate(overlay.get("x")), finite_coordinate(overlay.get("y")), drop=drop)
+
+    def pet_rest(self, x: float, y: float) -> None:
+        """Buddy came to rest (it landed, or a drag ended): remember where."""
+        try:
+            self._save(self.placement(), x=round(x), y=round(y))
+        except Exception:
+            pass
 
     def _ready_timeout_show(self, window: Any) -> None:
         with self._lock:
@@ -300,7 +324,9 @@ class BuddyWindowHost:
         if state.placement is not BuddyPlacement.DESKTOP or not state.visible:
             return
         try:
+            self._prepare(window)
             window.show()
+            self._start_pet(window, drop=True)
             self._log("page-ready handshake timed out; forced native show")
         except Exception as exc:
             self._log(f"page-ready timeout show failed: {exc}")
@@ -319,12 +345,23 @@ class BuddyWindowHost:
                 self._on_ui(window.restore)
             except Exception:
                 pass
+            self._prepare(window)
             window.show()
+            self._start_pet(window, drop=True)
             self._log("page ready; native window shown")
             return True
         except Exception as exc:
             self._log(f"page ready show failed: {exc}")
             return False
+
+    def _prepare(self, window: Any) -> None:
+        """Real transparency that still takes clicks, set before the first show (D11)."""
+        if self._pet_native is not None and not getattr(window, "_buddy_prepared", False):
+            if self._pet_native.prepare(window):
+                try:
+                    window._buddy_prepared = True
+                except Exception:
+                    pass
 
     def show(self, manual: bool = True) -> bool:
         state = self.placement()
@@ -343,7 +380,9 @@ class BuddyWindowHost:
                 self._on_ui(window.restore)
             except Exception:
                 pass
+            self._prepare(window)
             window.show()
+            self._start_pet(window, drop=False)
             if manual and not ready:
                 self._log("manual recovery forced native show before page-ready handshake")
             return True
@@ -361,6 +400,7 @@ class BuddyWindowHost:
             window = self.window
         if window is None:
             return False
+        self.pet.detach()
         try:
             window.hide()
             return True
@@ -385,10 +425,10 @@ class BuddyWindowHost:
         return self.close()
 
     def moved(self, x: Any, y: Any) -> None:
-        """pywebview reports a moved window in physical pixels."""
+        """pywebview reports a moved window in physical pixels; the pet saves when Buddy comes to rest."""
         try:
             factor = self._factor()
-            self._save(self.placement(), x=round(float(x) / factor), y=round(float(y) / factor))
+            self.pet.moved(float(x) / factor, float(y) / factor)
         except Exception:
             pass
 
@@ -462,6 +502,29 @@ def _run_script(window: Any, script: str) -> None:
         runner(script)
     except Exception:
         pass
+
+
+def pet_callback(host: BuddyWindowHost) -> Callable[[dict[str, Any]], dict[str, Any] | None]:
+    """The bridge's ``buddy_pet`` for the desktop Buddy's own window: layout, hit mask, drags, state."""
+
+    def act(payload: dict[str, Any]) -> dict[str, Any] | None:
+        action = payload.get("action")
+        try:
+            if action == "layout" and set(payload) == {"action", "expanded"} and isinstance(payload["expanded"], bool):
+                return host.pet.layout(payload["expanded"])
+            if action == "hit":
+                host.pet.hit(parse_hit_mask(payload))
+                return {"accepted": True}
+            if action == "drag" and set(payload) == {"action", "phase"} and payload["phase"] in {"start", "end"}:
+                host.pet.drag(payload["phase"])
+                return {"accepted": True}
+            if action == "state" and set(payload) == {"action"}:
+                return host.pet.state()
+        except ValueError:
+            return None
+        return None
+
+    return act
 
 
 def placement_callback(

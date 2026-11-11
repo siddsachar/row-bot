@@ -32,6 +32,7 @@ export type BuddyPreferences = {
   bubble_verbosity: 'quiet' | 'normal' | 'chatty';
   animation_intensity: 'quiet' | 'normal' | 'expressive';
   pack_id: string;
+  follow_windows?: boolean;
 };
 export type BuddySnapshot = {
   schema_version: 1;
@@ -96,6 +97,8 @@ export type BuddyControlsProps = {
   onNewLook?(): void;
   /** The New look tile's second line (a generation in progress). */
   newLookStatus?: string;
+  /** Buddy can go on the desktop here (the native app): its desktop choices show. */
+  desktopPet?: boolean;
   save(
     changes: Partial<BuddyPreferences>,
     revision: string,
@@ -123,6 +126,7 @@ const preferenceNames: Record<keyof BuddyPreferences, string> = {
   bubble_verbosity: 'Bubbles',
   animation_intensity: 'Motion',
   pack_id: 'Look',
+  follow_windows: 'Sit on the window I’m using',
 };
 
 // Text saves when the field is left (or on Enter); everything else at once.
@@ -539,6 +543,21 @@ export default function BuddyControls(props: BuddyControlsProps) {
                 />
               }
             />
+            {props.desktopPet && (
+              <SettingsItem
+                label="Sit on the window I’m using"
+                help="On the desktop, Buddy hops over to the window you switch to after a moment."
+                layout="inline"
+                control={
+                  <Toggle
+                    label="Sit on the window I’m using"
+                    checked={draft.follow_windows !== false}
+                    disabled={busy}
+                    onChange={(e) => edit('follow_windows', e.target.checked)}
+                  />
+                }
+              />
+            )}
             <SettingsItem
               label="Motion"
               help="Stays still when your system reduces motion."

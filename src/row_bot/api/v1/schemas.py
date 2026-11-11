@@ -7401,6 +7401,7 @@ class TaskStopPayload(WireModel):
 class BuddyPreferences(WireModel):
     visible: bool
     collapsed: bool
+    follow_windows: bool = True
     display_name: str = Field(min_length=1, max_length=128)
     personality: Literal[
         "warm_mystical",

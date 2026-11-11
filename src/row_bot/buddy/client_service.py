@@ -19,7 +19,7 @@ PERSONALITIES = ("warm_mystical", "calm_focus", "playful_helper", "quiet_guardia
 BUBBLES = ("quiet", "normal", "chatty")
 INTENSITIES = ("quiet", "normal", "expressive")
 _FIELDS = {"visible", "collapsed", "display_name", "personality", "personality_description",
-           "bubble_verbosity", "animation_intensity", "pack_id"}
+           "bubble_verbosity", "animation_intensity", "pack_id", "follow_windows"}
 
 
 class BuddyClientError(ValueError):
@@ -38,6 +38,8 @@ class BuddyPreferences:
     bubble_verbosity: str
     animation_intensity: str
     pack_id: str
+    #: The desktop pet sits on the window in use and follows you to another (D9).
+    follow_windows: bool = True
 
 
 @dataclass(frozen=True)
@@ -101,7 +103,7 @@ def _preferences(saved: dict) -> BuddyPreferences:
         raise BuddyClientError("buddy_config_unavailable")
     return BuddyPreferences(bool(saved.get("visible", True)), bool(saved.get("collapsed", False)), name,
         option("personality", PERSONALITIES), description, option("bubble_verbosity", BUBBLES),
-        option("animation_intensity", INTENSITIES), pack)
+        option("animation_intensity", INTENSITIES), pack, saved.get("follow_windows", True) is not False)
 
 
 def read_buddy(*, validate: Callable[[], None]) -> BuddySnapshot:
@@ -130,7 +132,7 @@ def update_buddy(changes: dict[str, Any], *, expected_revision: str, command_id:
     if not isinstance(changes, dict) or not changes or not changes.keys() <= _FIELDS:
         raise BuddyClientError("invalid_buddy_preferences")
     for key, value in changes.items():
-        if key in {"visible", "collapsed"}:
+        if key in {"visible", "collapsed", "follow_windows"}:
             valid = type(value) is bool
         elif key == "display_name":
             valid = isinstance(value, str) and 1 <= len(value.strip()) <= 128 and "\0" not in value

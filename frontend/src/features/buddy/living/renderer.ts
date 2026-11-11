@@ -519,6 +519,48 @@ export class BuddyRenderer {
     gl.bindVertexArray(null);
   }
 
+  /**
+   * Which cells of the canvas the frame just drawn covers (24×24, row-major,
+   * one bit each, grown by a cell): the desktop pet's click mask. Call right
+   * after draw, while the drawing buffer still holds the frame.
+   */
+  readMask(cells = 24): Uint8Array {
+    const gl = this.gl;
+    const { width, height } = this.canvas;
+    const bits = new Uint8Array((cells * cells) / 8);
+    if (gl.isContextLost() || !width || !height) return bits;
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    const covered = new Uint8Array(cells * cells);
+    const step = Math.max(1, Math.floor(Math.min(width, height) / (cells * 4)));
+    for (let y = 0; y < height; y += step)
+      for (let x = 0; x < width; x += step)
+        if (pixels[(y * width + x) * 4 + 3] > 40) {
+          // readPixels rows start at the bottom.
+          const row =
+            cells - 1 - Math.min(cells - 1, Math.floor((y * cells) / height));
+          covered[
+            row * cells + Math.min(cells - 1, Math.floor((x * cells) / width))
+          ] = 1;
+        }
+    for (let row = 0; row < cells; row++)
+      for (let column = 0; column < cells; column++) {
+        let near = 0;
+        for (let dy = -1; dy <= 1 && !near; dy++)
+          for (let dx = -1; dx <= 1 && !near; dx++) {
+            const r = row + dy;
+            const c = column + dx;
+            if (r >= 0 && c >= 0 && r < cells && c < cells)
+              near = covered[r * cells + c];
+          }
+        if (near) {
+          const index = row * cells + column;
+          bits[index >> 3] |= 0x80 >> (index & 7);
+        }
+      }
+    return bits;
+  }
+
   dispose() {
     const gl = this.gl;
     for (const buffer of this.buffers) gl.deleteBuffer(buffer);

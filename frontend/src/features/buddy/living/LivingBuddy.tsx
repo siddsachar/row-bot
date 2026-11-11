@@ -82,7 +82,13 @@ function seedOf(text: string) {
   return hash >>> 0;
 }
 
-export type LivingBuddyHandle = { trigger(name: GestureName): void };
+export type LivingBuddyHandle = {
+  trigger(name: GestureName): void;
+  /** The click mask of the next frame drawn (see BuddyRenderer.readMask). */
+  requestMask(): void;
+  /** The latest mask, base64, or null before one is read. */
+  mask(): string | null;
+};
 
 export function LivingBuddy({
   conversation,
@@ -102,7 +108,7 @@ export function LivingBuddy({
   loadMedia: BuddyMediaLoader;
   framing?: Framing;
   workSide?: 1 | -1;
-  /** The cursor relative to Buddy (pet window), in head-heights; else the page's pointer. */
+  /** The cursor relative to this Buddy's box, in CSS pixels (the desktop pet); else the page's pointer. */
   cursor?: { x: number; y: number; age: number } | null;
   shadow?: number;
   /** Shown until the living Buddy draws, and instead of it when it can't. */
@@ -137,8 +143,16 @@ export function LivingBuddy({
         renderer = new BuddyRenderer(canvas, rig, art, patches);
         const controller = new MotionController(rig.spec, seedOf(pack.id));
         controllerRef.current = controller;
+        let maskWanted = false;
+        let latestMask: string | null = null;
         if (handle)
-          handle.current = { trigger: (name) => controller.trigger(name) };
+          handle.current = {
+            trigger: (name) => controller.trigger(name),
+            requestMask: () => {
+              maskWanted = true;
+            },
+            mask: () => latestMask,
+          };
         let last = -1;
         let shown = false;
         let wanted = 60;
@@ -153,32 +167,23 @@ export function LivingBuddy({
             const status = current.snapshot.status;
             let pointer: { x: number; y: number } | null = null;
             let pointerAge = Infinity;
-            if (current.cursor) {
-              pointer = { x: current.cursor.x, y: current.cursor.y };
-              pointerAge = current.cursor.age;
-            } else {
-              const page = pagePointer();
-              if (page && page.age < 3) {
-                const box = canvas.getBoundingClientRect();
-                const view = viewFor(
-                  rig,
-                  current.framing,
-                  box.width,
-                  box.height,
-                );
-                const scale = box.height / (view[3] - view[1]);
-                const headX = box.left + (rig.head.center[0] - view[0]) * scale;
-                const headY = box.top + (rig.head.center[1] - view[1]) * scale;
-                const reach = Math.max(
-                  24,
-                  rig.head.radius[1] * 2 * scale * 2.5,
-                );
-                pointer = {
-                  x: (page.x - headX) / reach,
-                  y: (page.y - headY) / reach,
-                };
-                pointerAge = page.age;
-              }
+            const page = current.cursor ? null : pagePointer();
+            const seen = current.cursor ?? (page && page.age < 3 ? page : null);
+            if (seen) {
+              // Gaze in head-heights from Buddy's head, wherever the cursor was measured from.
+              const box = canvas.getBoundingClientRect();
+              const view = viewFor(rig, current.framing, box.width, box.height);
+              const scale = box.height / (view[3] - view[1]);
+              const originX = current.cursor ? 0 : box.left;
+              const originY = current.cursor ? 0 : box.top;
+              const headX = originX + (rig.head.center[0] - view[0]) * scale;
+              const headY = originY + (rig.head.center[1] - view[1]) * scale;
+              const reach = Math.max(24, rig.head.radius[1] * 2 * scale * 2.5);
+              pointer = {
+                x: (seen.x - headX) / reach,
+                y: (seen.y - headY) / reach,
+              };
+              pointerAge = seen.age;
             }
             const frame = controller.update(dt, {
               activity: current.snapshot.activity ?? 'idle',
@@ -203,6 +208,10 @@ export function LivingBuddy({
               sparkles: frame.sparkles,
               time: frame.time,
             });
+            if (maskWanted) {
+              maskWanted = false;
+              latestMask = btoa(String.fromCharCode(...renderer.readMask()));
+            }
             if (!shown) {
               shown = true;
               setState('live');

@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 import { revokeLater, type BuddyMediaLoader } from './media';
 import glyph from '../../assets/row_bot_glyph_256.png';
-import { isLivingPack, LivingBuddy } from './living/LivingBuddy';
+import {
+  isLivingPack,
+  LivingBuddy,
+  type LivingBuddyHandle,
+} from './living/LivingBuddy';
 import type { Framing } from './living/renderer';
 import './BuddyAvatar.css';
 
@@ -32,6 +36,8 @@ export function BuddyAvatar({
   loadMedia,
   preview = false,
   framing = 'portrait',
+  cursor,
+  handle,
 }: {
   conversation: string | null;
   pack: BuddyPack | null;
@@ -39,6 +45,9 @@ export function BuddyAvatar({
   loadMedia: BuddyMediaLoader;
   preview?: boolean;
   framing?: Framing;
+  /** The desktop pet: the cursor relative to Buddy's box. */
+  cursor?: { x: number; y: number; age: number } | null;
+  handle?: React.RefObject<LivingBuddyHandle | null>;
 }) {
   const [still, setStill] = useState('');
   const asset = stillAsset(pack);
@@ -107,6 +116,8 @@ export function BuddyAvatar({
           loadMedia={loadMedia}
           framing={framing}
           shadow={framing === 'head' ? 0 : 0.22}
+          cursor={cursor}
+          handle={handle}
           still={image}
         />
       ) : (

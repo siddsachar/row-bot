@@ -119,6 +119,7 @@ class Harness:
             platform=platform,
             start_timer=lambda delay, callback: self.timers.append((delay, callback)),
             on_ui_thread=on_ui_thread,
+            pet_threaded=False,
         )
 
 
@@ -131,7 +132,9 @@ def test_overlay_url_and_window_options_never_expose_a_js_api() -> None:
     assert windows[0]["hidden"] and windows[0]["on_top"] and windows[0]["frameless"]
     assert "background_color" not in windows[1]
     assert not {"transparent", "shadow", "on_top", "hidden"} & set(windows[2])
-    assert windows[3] == {"title": "Buddy", "url": "u", "width": 380, "height": 230}
+    assert windows[3] == {"title": "Buddy", "url": "u", "width": 168, "height": 176}
+    # With the OS helpers the Windows pet is transparent too (D11).
+    assert overlay_window_options("u", platform="win32", transparent=True)[0]["transparent"] is True
 
 
 def test_tear_off_opens_hidden_attaches_the_bridge_and_reveals_on_ready() -> None:
@@ -140,12 +143,14 @@ def test_tear_off_opens_hidden_attaches_the_bridge_and_reveals_on_ready() -> Non
     assert host.tear_off(1280, 700) is True
     window = harness.windows[0]
     assert window.options["url"] == "http://127.0.0.1:8123/app-v2/buddy-overlay"
-    assert (window.options["x"], window.options["y"]) == (1090, 624)
+    # Buddy's box is centred on the drop point, a little above it.
+    assert (window.options["x"], window.options["y"]) == (1196, 603)
+    assert (window.options["width"], window.options["height"]) == (168, 176)
     assert harness.attached == [window]
-    assert harness.config["placement"] == "desktop" and harness.config["overlay"] == {"x": 1090, "y": 624}
+    assert harness.config["placement"] == "desktop" and harness.config["overlay"] == {"x": 1196, "y": 603}
     assert ("show",) not in window.calls
     assert host.mark_ready() is True
-    assert window.calls[-2:] == [("restore",), ("show",)]
+    assert window.calls.index(("restore",)) < window.calls.index(("show",))
     # The ready timeout finds the page ready and does nothing more.
     delay, callback = harness.timers[0]
     assert delay == 2.0
@@ -195,7 +200,7 @@ def test_reopen_reclamps_a_remembered_position_from_a_missing_monitor() -> None:
     )
     assert harness.host.open() is True
     window = harness.windows[0]
-    assert (window.options["x"], window.options["y"]) == (1532, 802)
+    assert (window.options["x"], window.options["y"]) == (1744, 856)
     # A docked Buddy never opens a window.
     docked = Harness(config={"placement": "docked"})
     assert docked.host.open() is False and not docked.windows
@@ -211,7 +216,8 @@ def test_show_hide_dock_move_and_main_close_follow_placement() -> None:
     assert host.show(manual=False) is True and ("show",) not in window.calls
     assert host.show(manual=True) is True and ("show",) in window.calls
     assert host.hide() is True and harness.config["visible"] is False
-    window._events.fire("moved", 42, 43)
+    # Where Buddy comes to rest (it landed, or a drag ended) is remembered.
+    host.pet_rest(42, 43)
     assert harness.config["overlay"] == {"x": 42, "y": 43}
     assert host.main_closing() is False and ("hide",) in harness.main.calls
     assert host.dock() is True
@@ -294,15 +300,18 @@ def test_drop_and_moves_use_dips_on_a_scaled_display() -> None:
     # A drop in the middle of the second monitor stays centred on it.
     assert harness.host.tear_off(3840, 700) is True
     window = harness.windows[0]
-    assert (window.options["x"], window.options["y"]) == (3650, 624)
+    assert (window.options["x"], window.options["y"]) == (3756, 603)
     # A drop at the bottom keeps the whole window inside the DIP work area.
     low = Harness(screens=screens)
     low.host._scale = lambda: 1.5
     low.host.tear_off(1000, 1380)
-    assert low.windows[0].options["y"] == 1392 - 230 - 8
-    # Moves arrive in physical pixels and are remembered in DIPs, so the
-    # next open lands where the person left Buddy.
+    assert low.windows[0].options["y"] == 1392 - 176 - 8
+    # Moves (a drag) arrive in physical pixels; Buddy's box follows in DIPs and
+    # is remembered when it comes to rest, so the next open lands there.
+    harness.host.pet.attach(window, 3756, 603, drop=False)
     window._events.fire("moved", 5772, 946)
+    x, y = harness.host.pet.position()
+    harness.host.pet_rest(x, y)
     assert harness.config["overlay"] == {"x": 3848, "y": 631}
     harness.host.close()
     assert harness.host.open() is True
