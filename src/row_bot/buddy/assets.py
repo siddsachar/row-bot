@@ -68,12 +68,6 @@ def _load_manifest(path: pathlib.Path, *, strict_root: pathlib.Path | None = Non
         return {}
 
 
-def buddy_static_dir() -> pathlib.Path:
-    """Return the user's Buddy data directory (hatched packs live in ``packs``)."""
-
-    return _BUDDY_STATIC_DIR
-
-
 def _pack_dir_for(pack_id: str) -> pathlib.Path:
     user_pack = _USER_PACKS_DIR / pack_id
     if (user_pack / "manifest.json").exists():

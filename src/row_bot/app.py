@@ -1562,12 +1562,6 @@ if __name__ in {"__main__", "__mp_main__"}:
     if _static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
-    from row_bot.buddy.assets import buddy_static_dir
-
-    _buddy_static_dir = buddy_static_dir()
-    _buddy_static_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/_buddy", StaticFiles(directory=_buddy_static_dir), name="buddy")
-
     from row_bot.designer.publish import ensure_published_dir
 
     app.mount("/published", StaticFiles(directory=ensure_published_dir()), name="published")
