@@ -76,6 +76,8 @@ def overlay_window_options(
         "x": int(x) if x is not None else None,
         "y": int(y) if y is not None else None,
         "resizable": False,
+        # pywebview's default minimum (200×100) would widen the compact pet.
+        "min_size": (100, 100),
         "frameless": True,
         "shadow": False,
         "focus": True,

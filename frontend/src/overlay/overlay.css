@@ -615,3 +615,7 @@ html:has(.buddy-pet-window) body {
     animation: none;
   }
 }
+/* In the bubble the header has no avatar (Buddy is beside it). */
+.buddy-bubble .buddy-overlay-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
