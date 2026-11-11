@@ -707,7 +707,7 @@ class BuddySettingsPack(WireModel):
     pack_id: str = Field(min_length=1, max_length=128)
     name: str = Field(max_length=256)
     version: str = Field(max_length=64)
-    runtime: Literal["rive", "generated_still", "generated_motion_pack"]
+    runtime: Literal["living", "generated_still", "generated_motion_pack"]
     status: str = Field(max_length=64)
     message: str = Field(max_length=512)
     motion_clip_count: int = Field(ge=0, le=128)
@@ -7477,7 +7477,7 @@ class BuddySnapshot(WireModel):
 
 class BuddyAsset(WireModel):
     id: str = Field(min_length=1, max_length=128)
-    content_type: Literal["image/png", "video/mp4", "application/octet-stream"]
+    content_type: Literal["image/png", "application/json"]
 
 
 class BuddyPack(WireModel):
@@ -7505,6 +7505,8 @@ class BuddyHatchRequest(WireModel):
     source_pack_id: str | None = Field(default=None, min_length=1, max_length=128)
     source_pack_revision: str | None = Field(default=None, min_length=1, max_length=128)
     source_command_id: UUID | None = None
+    # The body family for a full Hatch; None (auto) picks it from the description.
+    family: Literal["floater", "biped", "winged"] | None = None
 
 
 class BuddyHatchReview(WireModel):
@@ -7525,8 +7527,8 @@ class BuddyHatchResult(WireModel):
     stage: str = Field(max_length=80)
     pack_id: str | None = Field(max_length=128)
     selected: bool
-    completed_clips: int = Field(ge=0, le=6)
-    total_clips: int = Field(ge=0, le=6)
+    completed_clips: int = Field(ge=0, le=7)
+    total_clips: int = Field(ge=0, le=7)
     code: str = Field(max_length=80)
     retained_copy: bool
     has_still: bool

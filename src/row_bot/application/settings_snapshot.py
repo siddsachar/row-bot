@@ -101,14 +101,6 @@ _BUDDY_BUBBLE_OPTIONS = {
     "normal": "Normal",
     "chatty": "Chatty",
 }
-_BUDDY_REQUIRED_CLIPS = {
-    "idle",
-    "thinking",
-    "working",
-    "approval",
-    "success",
-    "error",
-}
 _LOCAL_EMBEDDING_OPTIONS = {
     "qwen3-0.6b": "Qwen3 0.6B",
     "nomic-v1.5": "Nomic Embed Text v1.5",
@@ -312,17 +304,20 @@ def _buddy_pack_rows(root: Path, selected_id: str) -> list[dict[str, Any]]:
     for pack_id, directory in sorted(pack_dirs.items()):
         manifest = _mapping(_read_json(directory / "manifest.json", default={}))
         runtime = _text(manifest.get("runtime"), 64)
-        if runtime not in {"rive", "generated_still", "generated_motion_pack"}:
+        if runtime not in {"living", "generated_still", "generated_motion_pack"}:
             runtime = (
-                "generated_motion_pack"
+                "living"
+                if manifest.get("rig") or (directory / "rig.json").is_file()
+                else "generated_motion_pack"
                 if isinstance(manifest.get("clips"), Mapping)
                 else "generated_still"
-                if pack_id.startswith("hatch-")
-                else "rive"
             )
         clips = _mapping(manifest.get("clips"))
         preview_name = _text(
-            manifest.get("preview") or manifest.get("preview_path") or "preview.png",
+            manifest.get("preview")
+            or manifest.get("preview_path")
+            or (manifest.get("art") if runtime == "living" else None)
+            or ("art.png" if runtime == "living" else "preview.png"),
             512,
         )
         preview_leaf = Path(preview_name)
@@ -336,15 +331,13 @@ def _buddy_pack_rows(root: Path, selected_id: str) -> list[dict[str, Any]]:
         preview_available = bool(preview and _local_path_is_file(str(preview)))
         status = "available"
         message = "Ready"
-        if (
-            runtime in {"generated_still", "generated_motion_pack"}
-            and not preview_available
+        if not preview_available:
+            status, message = "unavailable", "still image is missing or empty"
+        elif runtime == "living" and not all(
+            _local_path_is_file(str(directory / _text(manifest.get(key) or default, 512)))
+            for key, default in (("art", "art.png"), ("rig", "rig.json"))
         ):
-            status, message = "unavailable", "preview image is missing or empty"
-        if runtime == "generated_motion_pack" and not _BUDDY_REQUIRED_CLIPS.issubset(
-            clips
-        ):
-            status, message = "unavailable", "motion clips need attention"
+            status, message = "unavailable", "art or rig is missing"
         name = _text(manifest.get("name") or "Buddy", 256).strip()
         if name.casefold().startswith("buddy "):
             name = name[6:].strip()

@@ -43,11 +43,13 @@ def _uuid(value: Any) -> str:
 
 
 def _request(value: dict) -> dict:
-    allowed = {"action", "prompt", "config_revision", "source_pack_id", "source_pack_revision", "source_command_id"}
+    allowed = {"action", "prompt", "config_revision", "source_pack_id", "source_pack_revision", "source_command_id",
+               "family"}
     if (not isinstance(value, dict) or not value.keys() <= allowed
             or value.get("action") not in {"full", "motion", "still", "remove"}
             or not isinstance(value.get("prompt"), str) or not 1 <= len(value["prompt"].strip()) <= 4000
-            or not isinstance(value.get("config_revision"), str) or not 1 <= len(value["config_revision"]) <= 128):
+            or not isinstance(value.get("config_revision"), str) or not 1 <= len(value["config_revision"]) <= 128
+            or value.get("family", "auto") not in {"auto", "floater", "biped", "winged"}):
         raise ClientPlatformError("invalid_hatch_request")
     for key in ("source_pack_id", "source_pack_revision", "source_command_id"):
         if key in value and (not isinstance(value[key], str) or not 1 <= len(value[key]) <= 128):
@@ -83,7 +85,7 @@ def _policy(action: str, capture: Callable[[str], dict]) -> dict:
     policy = deepcopy(capture(action))
     if not isinstance(policy, dict) or len(json.dumps(policy).encode()) > 16384:
         raise ClientPlatformError("buddy_policy_unavailable")
-    for name, required in (("image_model", action == "full"), ("video_model", action in {"full", "motion"})):
+    for name, required in (("image_model", action in {"full", "motion"}), ("video_model", False)):
         value = policy.get(name)
         if required and (not isinstance(value, str) or not 1 <= len(value) <= 256 or "/" not in value):
             raise ClientPlatformError("invalid_media_selection")
@@ -128,7 +130,7 @@ def review_buddy_action(*, owner_id: str, authority_id: str, request: dict,
     validate()
     return {"review_id": digest, "action": request["action"], "config_revision": request["config_revision"],
             "image_model": policy["image_model"], "video_model": policy["video_model"],
-            "provider_calls": 7 if request["action"] == "full" else 6 if request["action"] == "motion" else 0}
+            "provider_calls": {"full": 7, "motion": 6}.get(request["action"], 0)}
 
 
 def _progress(owner: str, key: str, changes: dict, *, private: dict | None = None, complete=False) -> dict:
@@ -199,7 +201,7 @@ def execute_buddy_command(command: dict, *, owner_id: str, authority_id: str, ke
         validate_action: Callable[[str], None], validate_provider: Callable[[str, str, dict], None]) -> dict:
     """Callbacks enforce current authenticated authority and canonical approvals.
 
-    ``capture_provider_policy(action)`` returns image_model/video_model plus the
+    ``capture_provider_policy(action)`` returns image_model (video_model is always None) plus the
     current private provider/account/approval identity. ``validate_provider``
     must revalidate that captured selection and canonical tool approval before
     each provider call. ``validate_action`` covers ordinary edits/removal too.
@@ -245,7 +247,7 @@ def execute_buddy_command(command: dict, *, owner_id: str, authority_id: str, ke
 
     def provider_authority(media: str, selection: str) -> CapturedMediaAuth:
         authority()
-        name = {"image": "image_model", "motion": "video_model"}.get(media)
+        name = {"image": "image_model"}.get(media)
         if not name or policy is None or policy[name] != selection or not selection:
             raise ClientPlatformError("buddy_policy_changed")
         return validate_provider(media, selection, deepcopy(policy))
@@ -296,7 +298,7 @@ def execute_buddy_command(command: dict, *, owner_id: str, authority_id: str, ke
         else:
             client_hatch.start_hatch(command_id=command_id, prompt=request["prompt"], mode=action,
                 expected_config_revision=request["config_revision"], image_selection=policy["image_model"] or "",
-                video_selection=policy["video_model"] or "", validate=authority,
+                family=request.get("family", "auto"), validate=authority,
                 validate_provider=provider_authority,
                 checkpoint=checkpoint, checkpoint_config=lambda value: proof("config", value),
                 checkpoint_draft=lambda stage, value: _progress(owner_id, key, {}, private={"draft_stage": stage, "draft": asdict(value)}),

@@ -11,6 +11,7 @@ import pytest
 
 from row_bot.application.attachment_context import prepared_attachments
 from row_bot.tools import image_gen_tool as image, video_gen_tool as video
+from tests.helpers import buddy_art
 
 
 @pytest.mark.parametrize("module", [image, video], ids=["image", "video"])
@@ -131,13 +132,13 @@ def test_image_decoding_budget_rejects_before_sink():
 
 @pytest.fixture
 def hatch_owner(tmp_path, monkeypatch):
-    from PIL import Image
-    from row_bot.buddy import assets, config, hatch, client_hatch
+    from row_bot.buddy import assets, config, hatch, client_hatch, living_hatch
     monkeypatch.setattr(config, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
     monkeypatch.setattr(hatch, "_DATA_DIR", tmp_path / "buddy_hatches")
     monkeypatch.setattr(assets, "_USER_PACKS_DIR", tmp_path / "buddy" / "packs")
     monkeypatch.setattr(assets, "_BUILTIN_PACKS_DIR", tmp_path / "builtins")
+    monkeypatch.setattr(living_hatch, "ART_SIZE", 192)
     with hatch._JOB_LOCK:
         hatch._CURRENT_JOB.clear()
     class ImmediateThread:
@@ -146,41 +147,52 @@ def hatch_owner(tmp_path, monkeypatch):
         def start(self):
             self.target(*self.args)
     monkeypatch.setattr(hatch.threading, "Thread", ImmediateThread)
-    png = io.BytesIO()
-    Image.new("RGBA", (24, 24), (10, 20, 30, 255)).save(png, format="PNG")
+    still = buddy_art.painting()
     calls, progress, proofs, draft_proofs = [], [], [], []
-    def generate(*args, **kwargs):
-        calls.append(("image", image._get_configured_selection()))
-        image._save_image_to_disk(base64.b64encode(png.getvalue()).decode())
+    def edit(prompt, image_source="last", size="auto", quality="auto"):
+        calls.append(("image", image._get_configured_selection(), image_source))
+        assert image._resolve_image_source(image_source).startswith(b"\x89PNG")
+        image._save_image_to_disk(buddy_art.b64(buddy_art.answer(prompt)))
         return "synthetic success"
-    def animate(*args, **kwargs):
-        calls.append(("motion", video._get_configured_selection()))
-        assert kwargs["image_source"] == "buddy-reference.png"
-        assert image._resolve_image_source("buddy-reference.png").startswith(b"\x89PNG")
-        video._save_video_to_disk(b"\x00\x00\x00\x18ftypmp42synthetic")
-        return "synthetic success"
-    monkeypatch.setattr(image, "_generate_image", generate)
-    monkeypatch.setattr(video, "_animate_image", animate)
+    monkeypatch.setattr(image, "_edit_image", edit)
+    monkeypatch.setattr(image, "_generate_image", lambda *args, **kwargs: pytest.fail("a Hatch paints by editing its guide"))
+    monkeypatch.setattr(video, "_animate_image", lambda *args, **kwargs: pytest.fail("a Hatch makes no video"))
     def start(**kwargs):
         arguments = dict(command_id=str(uuid4()), prompt="A synthetic Buddy", mode="full",
             expected_config_revision=config.read_buddy_config_revision()[1], image_selection="openai/reviewed-image",
-            video_selection="xai/reviewed-video", validate=lambda: None, validate_provider=lambda kind, selection: None,
+            validate=lambda: None, validate_provider=lambda kind, selection: None,
             checkpoint=progress.append, checkpoint_config=proofs.append,
             checkpoint_draft=lambda stage, proof: draft_proofs.append((stage, proof)))
         arguments.update(kwargs)
         client_hatch.start_hatch(**arguments)
         return client_hatch.read_result(arguments["command_id"], validate=lambda: None)
     yield SimpleNamespace(start=start, calls=calls, progress=progress, proofs=proofs, config=config,
-        assets=assets, hatch=hatch, client=client_hatch, root=tmp_path, draft_proofs=draft_proofs, png=png.getvalue())
+        assets=assets, hatch=hatch, client=client_hatch, root=tmp_path, draft_proofs=draft_proofs, png=still)
     with hatch._JOB_LOCK:
         hatch._CURRENT_JOB.clear()
 
 
-def test_full_hatch_stages_six_clips_then_selects_new_pack_once(hatch_owner):
+def _fail_expressions(monkeypatch, error=TimeoutError):
+    """The painting arrives; the first expression edit fails at the provider."""
+    original = image._edit_image
+    def edit(prompt, image_source="last", **kwargs):
+        if image_source == "buddy-base.png":
+            raise error("private provider body")
+        return original(prompt, image_source=image_source, **kwargs)
+    monkeypatch.setattr(image, "_edit_image", edit)
+
+
+def test_full_hatch_paints_guide_and_expressions_then_selects_new_living_pack_once(hatch_owner):
     r = hatch_owner
     result = r.start()
-    assert result.status == "completed" and result.selected and result.completed_clips == 6
+    assert result.status == "completed" and result.selected and result.completed_clips == result.total_clips == 7
     assert len(r.calls) == 7 and result.retained_copy
+    assert [source for _, _, source in r.calls] == ["buddy-guide.png"] + ["buddy-base.png"] * 6
+    assert {selection for _, selection, _ in r.calls} == {"openai/reviewed-image"}
+    pack = r.assets.load_buddy_pack(result.pack_id, strict=True)
+    assert pack.runtime == "living" and pack.patches_path is not None
+    rig = json.loads(pack.rig_path.read_bytes())
+    assert {"blink", "talk"} <= set(rig["patches"]) and len(rig["eyes"]) == 2
     assert r.config.get_buddy_config()["pack_id"] == result.pack_id
     assert r.assets.load_buddy_pack(result.pack_id, strict=True).status == "available"
     assert [event.stage for event in r.progress].index("pack_publication_prepared") < [event.stage for event in r.progress].index("pack_published")
@@ -190,21 +202,33 @@ def test_full_hatch_stages_six_clips_then_selects_new_pack_once(hatch_owner):
     assert repeated == result and r.calls == before
 
 
-def test_motion_failure_keeps_old_config_and_retained_still_without_provider_retry(hatch_owner, monkeypatch):
+def test_expression_failure_keeps_old_config_and_retained_still_without_provider_retry(hatch_owner, monkeypatch):
     r = hatch_owner
     r.config.save_buddy_config({"pack_id": "glyph", "private": "retained"})
     before = r.config._BUDDY_CONFIG_PATH.read_bytes()
-    attempts = []
-    def fail(*args, **kwargs):
-        attempts.append(1)
-        raise TimeoutError("private provider body")
-    monkeypatch.setattr(video, "_animate_image", fail)
+    _fail_expressions(monkeypatch)
     result = r.start()
     assert result.status == "uncertain" and result.code == "hatch_generation_uncertain"
-    assert result.retained_copy and not result.selected and len(attempts) == 1
+    assert result.retained_copy and not result.selected and result.completed_clips == 1
     assert r.config._BUDDY_CONFIG_PATH.read_bytes() == before
     assert "private provider body" not in json.dumps(result.__dict__)
     assert (r.hatch._DATA_DIR / result.command_id / "candidate" / "preview.png").exists()
+
+
+def test_declined_expression_still_hatches_without_it_and_spends_no_more_calls(hatch_owner, monkeypatch):
+    r = hatch_owner
+    original = image._edit_image
+    def edit(prompt, image_source="last", **kwargs):
+        if "open it as if saying" in prompt:
+            r.calls.append(("image", "declined", image_source))
+            return "Image edit failed: synthetic refusal"
+        return original(prompt, image_source=image_source, **kwargs)
+    monkeypatch.setattr(image, "_edit_image", edit)
+    result = r.start()
+    assert result.status == "completed" and result.selected and result.completed_clips == 2
+    assert len(r.calls) == 3  # the painting, the blink, the declined mouth; nothing after
+    rig = json.loads(r.assets.load_buddy_pack(result.pack_id, strict=True).rig_path.read_bytes())
+    assert set(rig["patches"]) == {"blink"}
 
 
 def test_changed_config_after_generation_preserves_new_pack_without_overwriting_selection(hatch_owner):
@@ -235,7 +259,7 @@ def test_draft_status_after_process_loss_is_uncertain_never_auto_restarted(hatch
     result = r.start()
     path = r.hatch._DATA_DIR / result.command_id / "manifest.json"
     saved = json.loads(path.read_text())
-    saved.update(status="running", stage="motion_provider_started")
+    saved.update(status="running", stage="expression_provider_started")
     path.write_text(json.dumps(saved))
     with r.hatch._JOB_LOCK:
         r.hatch._CURRENT_JOB.clear()
@@ -247,15 +271,15 @@ def test_draft_status_after_process_loss_is_uncertain_never_auto_restarted(hatch
 
 def test_explicit_still_recovery_uses_retained_image_without_repeating_provider(hatch_owner, monkeypatch):
     r = hatch_owner
-    monkeypatch.setattr(video, "_animate_image", lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError()))
+    _fail_expressions(monkeypatch)
     first = r.start()
     assert first.has_still and first.status == "uncertain"
     count = len(r.calls)
     recovered = r.start(mode="still", source_command_id=first.command_id)
     assert recovered.status == "completed" and recovered.selected and recovered.has_still
     assert recovered.command_id != first.command_id and len(r.calls) == count
-    assert (r.hatch._DATA_DIR / first.command_id / "candidate" / "preview.png").read_bytes() == r.png
-    assert r.assets.load_buddy_pack(recovered.pack_id, strict=True).runtime == "generated_still"
+    assert (r.hatch._DATA_DIR / first.command_id / "candidate" / "preview.png").read_bytes() == r.client._png(r.png)
+    assert r.assets.load_buddy_pack(recovered.pack_id, strict=True).runtime == "living"
 
 
 @pytest.mark.slow
@@ -267,7 +291,7 @@ def test_motion_retry_creates_distinct_pack_preserving_original_active_bytes(hat
     descriptor = r.client.client_service._pack(first.pack_id)[0]
     second = r.start(mode="motion", source_pack_id=first.pack_id, source_pack_revision=descriptor.revision)
     assert second.status == "completed" and second.pack_id != first.pack_id
-    assert [kind for kind, _ in r.calls].count("image") == 1 and len(r.calls) == 13
+    assert len(r.calls) == 13 and [source for _, _, source in r.calls[7:]] == ["buddy-base.png"] * 6
     assert {path.name: path.read_bytes() for path in original.iterdir()} == before
 
 
@@ -279,7 +303,7 @@ def test_draft_checkpoint_failure_prevents_provider_and_retains_exact_private_ca
         proofs.append(proof)
         raise OSError("synthetic admission failure")
     r.client.start_hatch(command_id=command, prompt="synthetic", mode="full",
-        expected_config_revision="missing", image_selection="openai/image", video_selection="xai/video",
+        expected_config_revision="missing", image_selection="openai/image",
         validate=lambda: None, validate_provider=lambda *args: None, checkpoint=lambda event: None,
         checkpoint_config=lambda proof: None, checkpoint_draft=fail)
     assert not r.calls and proofs
@@ -294,7 +318,7 @@ def test_cancel_during_provider_keeps_late_bytes_out_of_candidate_and_config(hat
     def cancelled_provider(*args, **kwargs):
         r.hatch.cancel_client_hatch(r.hatch.get_hatch_generation_status()["id"], validate=lambda: None)
         image._save_image_to_disk(base64.b64encode(r.png).decode())
-    monkeypatch.setattr(image, "_generate_image", cancelled_provider)
+    monkeypatch.setattr(image, "_edit_image", cancelled_provider)
     result = r.start()
     assert result.status == "cancelled" and not result.has_still and not result.selected
     assert not r.config._BUDDY_CONFIG_PATH.exists()
@@ -304,7 +328,7 @@ def test_unknown_candidate_bytes_block_publication_and_are_preserved(hatch_owner
     r = hatch_owner
     unknown = []
     def checkpoint(event):
-        if event.stage == "motion_retained" and event.completed_clips == 6:
+        if event.stage == "expression_retained" and event.completed_clips == 7:
             path = r.hatch._DATA_DIR / event.command_id / "candidate" / "user-note.txt"
             path.write_text("preserve me")
             unknown.append(path)
@@ -319,7 +343,7 @@ def test_extreme_image_dimension_is_rejected_before_large_canvas_allocation():
     output = io.BytesIO()
     Image.new("RGB", (4097, 1)).save(output, format="PNG")
     with pytest.raises(ValueError, match="generated_media_too_large"):
-        _png(output.getvalue(), motion=True)
+        _png(output.getvalue())
 
 
 def test_retirement_preserves_unknown_bytes_and_exact_private_recovery(hatch_owner):
@@ -387,12 +411,12 @@ def test_pack_change_at_removal_checkpoint_is_retained_and_not_retired(hatch_own
     path = r.assets._USER_PACKS_DIR / result.pack_id
     descriptor = r.client.client_service._pack(result.pack_id)[0]
     def change(proof):
-        (path / "preview.png").write_bytes(r.png + b"changed")
+        (path / "art.png").write_bytes(r.png + b"changed")
     with pytest.raises(ValueError, match="hatch_storage_changed"):
         r.client.retire_pack(result.pack_id, command_id=str(uuid4()), expected_pack_revision=descriptor.revision,
             expected_config_revision=r.config.read_buddy_config_revision()[1], validate=lambda: None,
             checkpoint=r.progress.append, checkpoint_config=r.proofs.append, checkpoint_retirement=change)
-    assert (path / "preview.png").read_bytes().endswith(b"changed")
+    assert (path / "art.png").read_bytes().endswith(b"changed")
 
 
 def test_duplicate_admitted_command_before_worker_start_reads_identity_without_starting_again(hatch_owner, monkeypatch):

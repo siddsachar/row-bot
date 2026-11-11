@@ -165,19 +165,42 @@ def update_buddy(changes: dict[str, Any], *, expected_revision: str, command_id:
                                             validate=validate, checkpoint=checkpoint)
 
 
+# Bump when the cut-out or the derived rig changes, so clients fetch them again.
+_DERIVATION = b"living-derivation-1"
+_DERIVED: dict[tuple[str, str], tuple[bytes, bytes]] = {}
+PNG_SIGNATURE = bytes.fromhex("89504e470d0a1a0a")
+_CONTENT_TYPES = {"art": "image/png", "patches": "image/png", "preview": "image/png", "rig": "application/json"}
+
+
 def _pack(pack_id: str):
     pack = assets.load_buddy_pack(pack_id, strict=True)
     root = assets._pack_dir_for(pack_id)
-    paths = {"preview": pack.preview_path, **pack.motion_clips} if pack.runtime.startswith("generated_") else {"rive": pack.riv_path}
+    paths = assets.pack_files(pack)
     identities = {key: assets._buddy_asset_identity(path, root=root) for key, path in paths.items()}
     manifest = assets.read_buddy_asset(root / "manifest.json", root=root, limit=65536)
-    if pack.runtime == "generated_motion_pack" and pack.motion_pack_path != (root / "manifest.json").resolve():
-        manifest += assets.read_buddy_asset(pack.motion_pack_path, root=root, limit=65536)
-    revision = hashlib.sha256(manifest + json.dumps(identities, sort_keys=True).encode()).hexdigest()
-    descriptors = tuple(BuddyAsset(key, "image/png" if key == "preview" else "application/octet-stream"
-                                  if key == "rive" else "video/mp4") for key in sorted(paths))
-    return BuddyPack(pack.id, pack.name, revision, pack.runtime, pack.status == "available",
-        pack.id.startswith("hatch-"), descriptors, pack.animation_map), paths, root
+    revision = hashlib.sha256(manifest + json.dumps(identities, sort_keys=True).encode()
+                              + (_DERIVATION if pack.derived else b"")).hexdigest()
+    ids = sorted({*paths, "art", "rig"})
+    descriptors = tuple(BuddyAsset(key, _CONTENT_TYPES[key]) for key in ids)
+    # Every pack is shown as a living Buddy; a legacy pack's art and rig are derived from its still.
+    return BuddyPack(pack.id, pack.name, revision, assets.LIVING_RUNTIME, pack.status == "available",
+        pack.id.startswith("hatch-"), descriptors, {}), paths, root
+
+
+def _derived(pack_id: str, revision: str, still: bytes) -> tuple[bytes, bytes]:
+    """A legacy pack's cut-out and rig, made once per revision (its files are never written)."""
+    key = (pack_id, revision)
+    if key not in _DERIVED:
+        from .living_art import CutOutError, derive_living
+
+        try:
+            art, rig = derive_living(still)
+        except CutOutError:
+            raise BuddyClientError("buddy_asset_unavailable") from None
+        _DERIVED[key] = (art, json.dumps(rig, separators=(",", ":")).encode())
+        while len(_DERIVED) > 8:
+            _DERIVED.pop(next(iter(_DERIVED)))
+    return _DERIVED[key]
 
 
 def list_buddy_packs(*, cursor: str | None = None, validate: Callable[[], None]) -> BuddyPackPage:
@@ -233,14 +256,25 @@ def read_buddy_media(pack_id: str, asset_id: str, *, expected_revision: str,
                      validate: Callable[[], None]) -> tuple[bytes, str]:
     validate()
     descriptor, paths, root = _pack(pack_id)
-    if descriptor.revision != expected_revision or asset_id not in paths:
+    if descriptor.revision != expected_revision or asset_id not in {asset.id for asset in descriptor.assets}:
         raise BuddyClientError("buddy_revision_conflict")
-    data = assets.read_buddy_asset(paths[asset_id], root=root)
+    if asset_id in paths:
+        data = assets.read_buddy_asset(paths[asset_id], root=root,
+                                       limit=65536 if asset_id == "rig" else 64 * 1024 * 1024)
+    else:
+        art, rig = _derived(pack_id, descriptor.revision,
+                            assets.read_buddy_asset(paths["preview"], root=root, limit=16 * 1024 * 1024))
+        data = art if asset_id == "art" else rig
     if _pack(pack_id)[0].revision != expected_revision:
         raise BuddyClientError("buddy_revision_conflict")
-    content_type = next(asset.content_type for asset in descriptor.assets if asset.id == asset_id)
-    if ((content_type == "image/png" and not data.startswith(b"\x89PNG\r\n\x1a\n"))
-            or (content_type == "video/mp4" and data[4:8] != b"ftyp")):
+    content_type = _CONTENT_TYPES[asset_id]
+    if content_type == "image/png" and not data.startswith(PNG_SIGNATURE):
         raise BuddyClientError("buddy_asset_unavailable")
+    if content_type == "application/json":
+        try:
+            if not isinstance(json.loads(data), dict):
+                raise ValueError
+        except ValueError:
+            raise BuddyClientError("buddy_asset_unavailable") from None
     validate()
     return data, content_type

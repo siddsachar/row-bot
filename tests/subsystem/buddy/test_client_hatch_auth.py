@@ -1,11 +1,11 @@
 """Bound credentials reach actual Hatch media scopes without wire persistence."""
 
 # ruff: noqa: F811 -- reuse the canonical isolated Hatch owner fixture.
-import base64
 import json
 
 from row_bot.providers.media_auth import CapturedMediaAuth, current_media_auth
-from row_bot.tools import image_gen_tool as image, video_gen_tool as video
+from row_bot.tools import image_gen_tool as image
+from tests.helpers import buddy_art
 from tests.subsystem.buddy.test_client_hatch import hatch_owner  # noqa: F401
 
 
@@ -27,25 +27,16 @@ def test_hatch_passes_exact_auth_to_each_media_scope_and_never_saves_credentials
             else "https://api.x.ai/v1",
         )
 
-    def generate(*args, **kwargs):
+    def edit(prompt, image_source="last", **kwargs):
         bound = current_media_auth("openai")
         seen.append(("image", bound.credential))
-        image._save_image_to_disk(base64.b64encode(r.png).decode())
+        image._save_image_to_disk(buddy_art.b64(buddy_art.answer(prompt)))
 
-    def animate(*args, **kwargs):
-        bound = current_media_auth("xai")
-        seen.append(("motion", bound.credential))
-        video._save_video_to_disk(b"\x00\x00\x00\x18ftypmp42synthetic")
-
-    monkeypatch.setattr(image, "_generate_image", generate)
-    monkeypatch.setattr(video, "_animate_image", animate)
+    monkeypatch.setattr(image, "_edit_image", edit)
     result = r.start(validate_provider=captured)
-    assert result.status == "completed" and result.completed_clips == 6
-    assert (
-        seen
-        == [("image", "synthetic-secret-image")]
-        + [("motion", "synthetic-secret-motion")] * 6
-    )
+    assert result.status == "completed" and result.completed_clips == 7
+    # One image model paints the character and every expression; no video scope.
+    assert seen == [("image", "synthetic-secret-image")] * 7
     assert current_media_auth() is None
     for path in r.root.rglob("*.json"):
         assert "synthetic-secret" not in path.read_text()

@@ -21,7 +21,7 @@ def env(tmp_path, monkeypatch):
 
 
 def policy(action):
-    return {"image_model": "fixture/image", "video_model": "fixture/video", "approval_revision": "synthetic-policy"}
+    return {"image_model": "fixture/image", "video_model": None, "approval_revision": "synthetic-policy"}
 
 
 def command(kind="buddy.update", payload=None):
@@ -135,7 +135,7 @@ def test_captured_policy_revalidated_before_each_media_effect(env, monkeypatch):
     def start(**kwargs):
         kwargs["validate_provider"]("image", "fixture/image")
         current[0] = {**current[0], "approval_revision": "revoked"}
-        kwargs["validate_provider"]("motion", "fixture/video")
+        kwargs["validate_provider"]("image", "fixture/image")
     monkeypatch.setattr(client_hatch, "start_hatch", start)
     with pytest.raises(adapter.ClientPlatformError, match="buddy_policy_changed"):
         execute(env, value, capture_provider_policy=capture, validate_provider=lambda *args: called.append(args))
@@ -246,7 +246,7 @@ def test_actual_start_checks_same_captured_source_buffer_before_job_admission(en
     monkeypatch.setattr(hatch, "start_hatch_generation_job", lambda *a, **k: pytest.fail("must not admit worker"))
     with pytest.raises(ValueError, match="hatch_source_changed"):
         client_hatch.start_hatch(command_id=str(uuid4()), prompt="Synthetic", mode="still", expected_config_revision="missing",
-            image_selection="", video_selection="", validate=lambda: None, validate_provider=lambda *args: None,
+            image_selection="", validate=lambda: None, validate_provider=lambda *args: None,
             checkpoint=lambda value: None, checkpoint_config=lambda value: None, checkpoint_draft=lambda *args: None,
             source_pack_id="hatch-synthetic", source_pack_revision="synthetic",
             expected_source_digest=hashlib.sha256(b"reviewed bytes").hexdigest())

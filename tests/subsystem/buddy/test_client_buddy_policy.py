@@ -50,6 +50,8 @@ def env(tmp_path, monkeypatch):
         ("openai", "gpt-image-2.5-flare"),
         ("google", "veo-3.1-generate-preview"),
         ("xai_oauth", "grok-imagine-video"),
+        ("xai_oauth", "grok-imagine-image"),
+        ("google", "imagen-4.0-generate-001"),
     ]
     cloud_cache = {
         f"model:{provider}:{model}": model_info_to_cache_entry(model_info_from_metadata(provider, model))
@@ -96,10 +98,8 @@ def test_passive_capture_is_stable_content_free_and_never_confirms_or_constructs
     )
     first = env.policy.capture_provider_policy("full")
     assert first == env.policy.capture_provider_policy("full")
-    assert (
-        first["image_model"] == env.values["image_gen"]
-        and first["video_model"] == env.values["video_gen"]
-    )
+    # A Hatch paints with the image model alone.
+    assert first["image_model"] == env.values["image_gen"] and first["video_model"] is None
     assert not env.calls
     assert all(secret not in json.dumps(first) for secret in env.keys.values())
     assert not env.path.exists()
@@ -116,10 +116,11 @@ def test_block_rejects_effects_and_cancel_preserves_stop_authority(env, action):
 
 def test_ask_requires_original_confirmation_at_every_provider_boundary(env):
     captured = env.policy.capture_provider_policy("full")
-    for _ in range(2):
+    for _ in range(3):
         env.policy.validate_provider("image", captured["image_model"], captured)
-    env.policy.validate_provider("motion", captured["video_model"], captured)
     assert [row[0] for row in env.calls] == ["full", "full", "full"]
+    with pytest.raises(ValueError, match="buddy_policy_changed"):
+        env.policy.validate_provider("motion", "google/veo-3.1-generate-preview", captured)
     env.policy.validate_action("update")
     assert len(env.calls) == 3
 
@@ -129,7 +130,7 @@ def test_auto_and_full_autonomy_never_create_another_confirmation(env, mode):
     """The person asks Buddy for it in the app themselves: nothing more to approve under Auto or Full."""
     env.context["approval_mode"] = mode
     captured = env.policy.capture_provider_policy("motion")
-    env.policy.validate_provider("motion", captured["video_model"], captured)
+    env.policy.validate_provider("image", captured["image_model"], captured)
     assert not env.calls
 
 
@@ -181,7 +182,7 @@ def test_profile_dispatch_uses_the_runtime_allowlist_and_readonly_restriction(en
         "tool_policy_json": {"capability": "write_capable"},
     }
     assert env.policy.capture_provider_policy("full")["image_model"]
-    env.context["tool_allowlist"] = ["generate_image"]  # The turn's own list leaves out animating.
+    env.context["tool_allowlist"] = ["web_search"]  # The turn's own list leaves out image generation.
     with pytest.raises(ValueError, match="buddy_tool_policy_denied"):
         env.policy.capture_provider_policy("full")
     env.context.pop("tool_allowlist")
@@ -241,7 +242,7 @@ def test_oauth_capture_uses_same_nonrefreshing_bundle_and_detects_account_change
 ):
     from row_bot.providers import auth_store, xai_oauth
 
-    env.values["video_gen"] = "xai_oauth/grok-imagine-video"
+    env.values["image_gen"] = "xai_oauth/grok-imagine-image"
     env.providers["providers"]["xai_oauth"] = {
         "auth_method": "oauth_pkce",
         "token_health": "valid",
@@ -273,10 +274,10 @@ def test_oauth_capture_uses_same_nonrefreshing_bundle_and_detects_account_change
     )
     captured = env.policy.capture_provider_policy("motion")
     assert credentials.access_token not in json.dumps(captured)
-    env.policy.validate_provider("motion", captured["video_model"], captured)
+    env.policy.validate_provider("image", captured["image_model"], captured)
     credentials.account_id = "replacement-account"
     with pytest.raises(ValueError, match="buddy_policy_changed"):
-        env.policy.validate_provider("motion", captured["video_model"], captured)
+        env.policy.validate_provider("image", captured["image_model"], captured)
 
 
 def test_no_provider_or_registry_import_for_settings_and_cancel(env, monkeypatch):
@@ -357,3 +358,12 @@ def test_oversized_or_corrupt_saved_registry_is_not_fallback_authority(env):
         with pytest.raises(ValueError, match="buddy_policy_unavailable"):
             env.policy.capture_provider_policy("full")
         assert env.path.read_bytes() == data
+
+
+def test_an_image_model_that_cannot_edit_is_refused_before_any_effect(env):
+    env.values["image_gen"] = "google/imagen-4.0-generate-001"
+    for action in ("full", "motion"):
+        with pytest.raises(ValueError, match="buddy_image_model_cannot_edit"):
+            env.policy.capture_provider_policy(action)
+    assert env.policy.capture_provider_policy("still")["image_model"] is None
+    assert not env.calls

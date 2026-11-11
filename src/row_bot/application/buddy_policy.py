@@ -286,14 +286,12 @@ def create_buddy_policy(
             "media": {},
         }
         try:
-            for surface in (
-                ("image", "video")
-                if action == "full"
-                else ("video",)
-                if action == "motion"
-                else ()
-            ):
+            # A Hatch paints with the image model only: the character, then its expressions.
+            for surface in ("image",) if action in {"full", "motion"} else ():
                 selection, identity = _media_state(surface, current)
+                if selection.split("/", 1)[-1].lower().startswith("imagen-"):
+                    # Imagen only makes new images; expressions are edits of the painting.
+                    raise ClientPlatformError("buddy_image_model_cannot_edit")
                 identity["account"] = _account_auth(selection).identity
                 result[surface + "_model"] = selection
                 result["media"][surface] = identity
@@ -311,7 +309,7 @@ def create_buddy_policy(
         validate()
 
     def provider(media: str, selection: str, captured: dict) -> CapturedMediaAuth:
-        surface = {"image": "image", "motion": "video"}.get(media)
+        surface = {"image": "image"}.get(media)
         if (
             surface is None
             or not isinstance(captured, dict)

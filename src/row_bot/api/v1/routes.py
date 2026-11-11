@@ -847,6 +847,7 @@ _STATUS.update(
             "buddy_tool_unavailable",
             "buddy_tool_policy_denied",
             "buddy_media_capability_unavailable",
+            "buddy_image_model_cannot_edit",
             "buddy_data_policy_denied",
             "hatch_source_changed",
             "hatch_job_unavailable",

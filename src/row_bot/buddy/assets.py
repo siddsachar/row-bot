@@ -1,4 +1,11 @@
-"""Buddy animation pack discovery and validation."""
+"""Buddy pack discovery and validation.
+
+A living pack (``runtime: living``) holds the cut-out art, its rig hints, an
+optional atlas of expression patches and a still. Packs hatched before 5.3.4
+(``generated_still`` / ``generated_motion_pack``) keep their files untouched:
+their still becomes a living Buddy through a derived cut-out and rig
+(``client_service``); their motion clips are no longer read.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +13,9 @@ import json
 import logging
 import os
 import pathlib
-import shutil
 import stat
+from dataclasses import dataclass, replace
 from itertools import islice
-from dataclasses import dataclass, field
 from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -22,75 +28,30 @@ _BUILTIN_PACKS_DIR = _STATIC_DIR / "buddy" / "builtins"
 _DATA_DIR = get_row_bot_data_dir()
 _BUDDY_STATIC_DIR = _DATA_DIR / "buddy"
 _USER_PACKS_DIR = _BUDDY_STATIC_DIR / "packs"
-REQUIRED_STATE_MACHINE = "RowBotBuddy"
-REQUIRED_INPUTS = {
-    "mood",
-    "energy",
-    "focus",
-    "alert",
-    "surface",
-    "trigger",
-}
-REQUIRED_MOTION_CLIPS = {
-    "idle",
-    "thinking",
-    "working",
-    "approval",
-    "success",
-    "error",
-}
+
+LIVING_RUNTIME = "living"
+LEGACY_RUNTIMES = frozenset({"generated_still", "generated_motion_pack"})
+RUNTIMES = frozenset({LIVING_RUNTIME, *LEGACY_RUNTIMES})
+_ID_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 
 
 @dataclass(frozen=True)
 class BuddyPack:
     id: str
     name: str
-    riv_path: pathlib.Path
-    state_machine: str
-    inputs: dict[str, str]
+    preview_path: pathlib.Path
     version: str = "1.0.0"
     status: str = "available"
     message: str = ""
-    runtime: str = "rive"
-    preview_path: pathlib.Path = field(default_factory=pathlib.Path)
-    motion_pack_path: pathlib.Path = field(default_factory=pathlib.Path)
-    default_clip: str = "idle"
-    animation_map: dict[str, str] = field(default_factory=dict)
-    motion_clips: dict[str, pathlib.Path] = field(default_factory=dict)
+    #: What is on disk: ``living``, or a legacy still/motion pack shown through a derived cut-out.
+    runtime: str = LIVING_RUNTIME
+    art_path: pathlib.Path | None = None
+    rig_path: pathlib.Path | None = None
+    patches_path: pathlib.Path | None = None
 
-    def to_manifest(self) -> dict[str, Any]:
-        manifest = {
-            "id": self.id,
-            "name": self.name,
-            "version": self.version,
-            "runtime": self.runtime,
-            "status": self.status,
-            "message": self.message,
-        }
-        if self.runtime in {"generated_motion_pack", "generated_still"}:
-            manifest.update(
-                {
-                    "preview": str(self.preview_path).replace("\\", "/"),
-                }
-            )
-            if self.runtime == "generated_motion_pack":
-                manifest.update(
-                    {
-                        "motion_pack": str(self.motion_pack_path).replace("\\", "/"),
-                        "default_clip": self.default_clip,
-                        "animation_map": dict(self.animation_map),
-                        "clips": {clip_id: str(path).replace("\\", "/") for clip_id, path in self.motion_clips.items()},
-                    }
-                )
-        else:
-            manifest.update(
-                {
-                    "riv": str(self.riv_path).replace("\\", "/"),
-                    "state_machine": self.state_machine,
-                    "inputs": dict(self.inputs),
-                }
-            )
-        return manifest
+    @property
+    def derived(self) -> bool:
+        return self.runtime != LIVING_RUNTIME
 
 
 def _load_manifest(path: pathlib.Path, *, strict_root: pathlib.Path | None = None) -> dict[str, Any]:
@@ -108,7 +69,7 @@ def _load_manifest(path: pathlib.Path, *, strict_root: pathlib.Path | None = Non
 
 
 def buddy_static_dir() -> pathlib.Path:
-    """Return the user Buddy static directory served by the app."""
+    """Return the user's Buddy data directory (hatched packs live in ``packs``)."""
 
     return _BUDDY_STATIC_DIR
 
@@ -120,122 +81,83 @@ def _pack_dir_for(pack_id: str) -> pathlib.Path:
     return _BUILTIN_PACKS_DIR / pack_id
 
 
-def _resolve_pack_asset_path(value: str, *, base_dir: pathlib.Path, pack_dir: pathlib.Path, pack_id: str,
-                             strict: bool = False) -> pathlib.Path:
-    candidate = pathlib.Path(value or "").expanduser()
-    if strict:
-        # Keep the named path intact so subsequent no-follow ownership checks
-        # see any symbolic link; never resolve away that evidence.
-        return candidate if candidate.is_absolute() else base_dir / candidate
-    if not candidate.is_absolute():
-        return (base_dir / candidate).resolve()
+def _leaf(value: Any, default: str, *, pack_dir: pathlib.Path, strict: bool) -> pathlib.Path:
+    """A pack file named by its manifest; strict loading keeps the name as given (no resolving)."""
 
+    candidate = pathlib.Path(str(value or default)).expanduser()
+    if strict:
+        # Keep the named path intact so the no-follow ownership checks see any
+        # symbolic link; never resolve away that evidence.
+        return candidate if candidate.is_absolute() else pack_dir / candidate
+    if not candidate.is_absolute():
+        return (pack_dir / candidate).resolve()
     resolved = candidate.resolve(strict=False)
     if resolved.exists():
         return resolved
+    # A legacy absolute preview from another data folder: map it into this pack.
+    mapped = (pack_dir / resolved.name).resolve()
+    return mapped if mapped.exists() else resolved
 
-    parts = list(resolved.parts)
-    lowered = [part.lower() for part in parts]
-    safe_pack_id = str(pack_id or "")
-    for index, part in enumerate(lowered[:-1]):
-        if part != "packs":
-            continue
-        if index + 1 >= len(parts) or parts[index + 1] != safe_pack_id:
-            continue
-        mapped = pack_dir.joinpath(*parts[index + 2 :]).resolve()
-        if mapped.exists():
-            return mapped
 
-    if "buddy" in lowered:
-        buddy_index = lowered.index("buddy")
-        mapped = _BUDDY_STATIC_DIR.joinpath(*parts[buddy_index + 1 :]).resolve()
-        if mapped.exists():
-            return mapped
-
-    return resolved
+def _runtime_of(manifest: dict[str, Any], pack_dir: pathlib.Path) -> str:
+    runtime = str(manifest.get("runtime") or "")
+    if runtime in RUNTIMES:
+        return runtime
+    if manifest.get("rig") or (pack_dir / "rig.json").exists():
+        return LIVING_RUNTIME
+    if isinstance(manifest.get("clips"), dict) or (pack_dir / "motions" / "manifest.json").exists():
+        return "generated_motion_pack"
+    return "generated_still"
 
 
 def load_buddy_pack(pack_id: str = "glyph", *, strict: bool = False) -> BuddyPack:
     if strict and (not isinstance(pack_id, str) or not 1 <= len(pack_id) <= 128
-                   or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for ch in pack_id)):
+                   or any(ch not in _ID_CHARACTERS for ch in pack_id)):
         raise ValueError("buddy_pack_unavailable")
     pack_dir = _pack_dir_for(pack_id)
-    manifest_path = pack_dir / "manifest.json"
-    manifest = _load_manifest(manifest_path, strict_root=pack_dir if strict else None)
-    runtime = str(manifest.get("runtime") or "")
-    if not runtime:
-        has_motion_manifest = bool(manifest.get("motion_pack_path")) or (pack_dir / "motions" / "manifest.json").exists()
-        if isinstance(manifest.get("clips"), dict) or str(manifest.get("status") or "") == "motion_pack_generated" or has_motion_manifest:
-            runtime = "generated_motion_pack"
-        elif pack_id.startswith("hatch-") and (manifest.get("preview_path") or (pack_dir / "preview.png").exists()):
-            runtime = "generated_still"
-        else:
-            runtime = "rive"
-    riv_name = str(manifest.get("riv") or manifest.get("rive_file") or "buddy.riv")
-    riv_path = pack_dir / riv_name
-    inputs = manifest.get("inputs") if isinstance(manifest.get("inputs"), dict) else {}
-    if not inputs:
-        inputs = {name: name for name in REQUIRED_INPUTS}
-    motion_manifest_value = str(manifest.get("motion_pack") or manifest.get("motion_pack_path") or ("motions/manifest.json" if runtime == "generated_motion_pack" and (pack_dir / "motions" / "manifest.json").exists() else "manifest.json"))
-    motion_manifest_path = _resolve_pack_asset_path(
-        motion_manifest_value,
-        base_dir=pack_dir,
-        pack_dir=pack_dir,
-        pack_id=pack_id,
-        strict=strict,
-    )
-    motion_manifest = (_load_manifest(motion_manifest_path, strict_root=pack_dir if strict else None)
-                       if motion_manifest_path != manifest_path.resolve() else manifest)
-    clips = motion_manifest.get("clips") if isinstance(motion_manifest.get("clips"), dict) else {}
-    motion_clips: dict[str, pathlib.Path] = {}
-    for clip_id, entry in clips.items():
-        if not isinstance(entry, dict):
-            continue
-        clip_path = _resolve_pack_asset_path(
-            str(entry.get("path") or f"{clip_id}.mp4"),
-            base_dir=motion_manifest_path.parent,
-            pack_dir=pack_dir,
-            pack_id=pack_id,
-            strict=strict,
+    manifest = _load_manifest(pack_dir / "manifest.json", strict_root=pack_dir if strict else None)
+    if strict and manifest.get("runtime") not in (None, *RUNTIMES):
+        raise ValueError("buddy_pack_unavailable")
+    runtime = _runtime_of(manifest, pack_dir)
+    leaf = lambda key, default: _leaf(manifest.get(key), default, pack_dir=pack_dir, strict=strict)  # noqa: E731
+    if runtime == LIVING_RUNTIME:
+        art = leaf("art", "art.png")
+        pack = BuddyPack(
+            id=str(manifest.get("id") or pack_id),
+            name=str(manifest.get("name") or "Buddy"),
+            version=str(manifest.get("version") or "1.0.0"),
+            runtime=runtime,
+            art_path=art,
+            rig_path=leaf("rig", "rig.json"),
+            patches_path=leaf("patches", "patches.png") if manifest.get("patches") else None,
+            preview_path=leaf("preview", str(manifest.get("art") or "art.png")),
         )
-        motion_clips[str(clip_id)] = clip_path
-    preview_value = str(manifest.get("preview") or manifest.get("preview_path") or "preview.png")
-    preview_path = _resolve_pack_asset_path(
-        preview_value,
-        base_dir=pack_dir,
-        pack_dir=pack_dir,
-        pack_id=pack_id,
-        strict=strict,
-    )
-    animation_map = motion_manifest.get("animation_map") if isinstance(motion_manifest.get("animation_map"), dict) else {}
-    pack = BuddyPack(
-        id=str(manifest.get("id") or pack_id),
-        name=str(manifest.get("name") or "Buddy"),
-        version=str(manifest.get("version") or "1.0.0"),
-        riv_path=riv_path,
-        state_machine=str(manifest.get("state_machine") or REQUIRED_STATE_MACHINE),
-        inputs={str(k): str(v) for k, v in inputs.items()},
-        runtime=runtime,
-        preview_path=preview_path,
-        motion_pack_path=motion_manifest_path,
-        default_clip=str(motion_manifest.get("default_clip") or manifest.get("default_clip") or "idle"),
-        animation_map={str(k): str(v) for k, v in animation_map.items()},
-        motion_clips=motion_clips,
-    )
+    else:
+        pack = BuddyPack(
+            id=str(manifest.get("id") or pack_id),
+            name=str(manifest.get("name") or "Buddy"),
+            version=str(manifest.get("version") or "1.0.0"),
+            runtime=runtime,
+            preview_path=_leaf(manifest.get("preview") or manifest.get("preview_path"), "preview.png",
+                               pack_dir=pack_dir, strict=strict),
+        )
     if strict:
-        if (pack.id != pack_id or len(pack.name) > 256 or len(pack.version) > 128
-                or len(pack.animation_map) > 64 or len(pack.motion_clips) > 16
-                or len(pack.inputs) > 16
-                or pack.runtime not in {"rive", "generated_still", "generated_motion_pack"}):
+        if pack.id != pack_id or len(pack.name) > 256 or len(pack.version) > 128:
             raise ValueError("buddy_pack_unavailable")
-        for path in (pack.preview_path, *pack.motion_clips.values()) if pack.runtime.startswith("generated_") else (pack.riv_path,):
+        for path in pack_files(pack).values():
             _buddy_asset_identity(path, root=pack_dir)
-        if any(len(key) > 128 or len(value) > 128 for key, value in pack.animation_map.items()):
-            raise ValueError("buddy_pack_unavailable")
-        if any(not key or len(key) > 128 or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for ch in key)
-               for key in pack.motion_clips):
-            raise ValueError("buddy_pack_unavailable")
     return validate_buddy_pack(pack)
+
+
+def pack_files(pack: BuddyPack) -> dict[str, pathlib.Path]:
+    """The pack's own files by asset id (a legacy pack has only its still)."""
+
+    if pack.derived:
+        return {"preview": pack.preview_path}
+    files = {"art": pack.art_path, "rig": pack.rig_path, "preview": pack.preview_path}
+    if pack.patches_path is not None:
+        files["patches"] = pack.patches_path
+    return {key: path for key, path in files.items() if path is not None}
 
 
 def list_buddy_packs(*, strict: bool = False) -> list[BuddyPack]:
@@ -246,10 +168,7 @@ def list_buddy_packs(*, strict: bool = False) -> list[BuddyPack]:
             if strict and len(entries) > 4096:
                 raise ValueError("buddy_pack_limit")
             pack_ids.update(path.name for path in entries if path.is_dir())
-    packs: list[BuddyPack] = []
-    for pack_id in sorted(pack_ids):
-        packs.append(load_buddy_pack(pack_id, strict=strict))
-    return packs
+    return [load_buddy_pack(pack_id, strict=strict) for pack_id in sorted(pack_ids)]
 
 
 def _buddy_asset_identity(path: pathlib.Path, *, root: pathlib.Path) -> tuple[int, int, int, int]:
@@ -293,123 +212,21 @@ def read_buddy_asset(path: pathlib.Path, *, root: pathlib.Path, limit: int = 64 
         raise ValueError("buddy_asset_unavailable") from None
 
 
-def install_buddy_rive_asset(source_path: str | pathlib.Path, pack_id: str = "glyph") -> BuddyPack:
-    """Install a local Rive export as the active asset for a Buddy pack."""
-
-    source = pathlib.Path(source_path).expanduser().resolve()
-    if source.suffix.lower() != ".riv":
-        raise ValueError("Buddy animation assets must be .riv files exported from Rive")
-    if not source.exists() or not source.is_file() or source.stat().st_size == 0:
-        raise ValueError("Buddy Rive asset is missing or empty")
-
-    safe_pack_id = "".join(ch for ch in pack_id if ch.isalnum() or ch in {"-", "_"}).strip("-_") or "glyph"
-    pack_dir = _USER_PACKS_DIR / safe_pack_id
-    pack_dir.mkdir(parents=True, exist_ok=True)
-    target = pack_dir / "buddy.riv"
-    if source != target.resolve():
-        shutil.copy2(source, target)
-
-    builtin = load_buddy_pack(safe_pack_id) if (_BUILTIN_PACKS_DIR / safe_pack_id / "manifest.json").exists() else None
-    manifest = {
-        "id": safe_pack_id,
-        "name": builtin.name if builtin else "Buddy",
-        "version": builtin.version if builtin else "1.0.0",
-        "riv": "buddy.riv",
-        "state_machine": REQUIRED_STATE_MACHINE,
-        "inputs": dict(builtin.inputs if builtin else {name: name for name in REQUIRED_INPUTS}),
-    }
-    (pack_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-    return load_buddy_pack(safe_pack_id)
-
-
-def install_buddy_rive_bytes(data: bytes, filename: str, pack_id: str = "glyph") -> BuddyPack:
-    if pathlib.Path(filename or "").suffix.lower() != ".riv":
-        raise ValueError("Buddy animation assets must be .riv files exported from Rive")
-    if not data:
-        raise ValueError("Buddy Rive asset is empty")
-
-    safe_pack_id = "".join(ch for ch in pack_id if ch.isalnum() or ch in {"-", "_"}).strip("-_") or "glyph"
-    pack_dir = _USER_PACKS_DIR / safe_pack_id
-    pack_dir.mkdir(parents=True, exist_ok=True)
-    target = pack_dir / "buddy.riv"
-    target.write_bytes(data)
-    return install_buddy_rive_asset(target, pack_id=safe_pack_id)
+def _usable(path: pathlib.Path | None) -> bool:
+    return bool(path) and path.exists() and path.is_file() and path.stat().st_size > 0
 
 
 def validate_buddy_pack(pack: BuddyPack) -> BuddyPack:
     problems: list[str] = []
-    if pack.runtime in {"generated_motion_pack", "generated_still"}:
-        if not pack.preview_path.exists() or not pack.preview_path.is_file() or pack.preview_path.stat().st_size == 0:
-            problems.append("preview image is missing or empty")
-    if pack.runtime == "generated_motion_pack":
-        if not pack.motion_pack_path.exists() or not pack.motion_pack_path.is_file():
-            problems.append("motion pack manifest is missing")
-        missing_clips = sorted(REQUIRED_MOTION_CLIPS.difference(pack.motion_clips))
-        if missing_clips:
-            problems.append("missing clips: " + ", ".join(missing_clips))
-        empty_clips = sorted(
-            clip_id
-            for clip_id, clip_path in pack.motion_clips.items()
-            if not clip_path.exists() or not clip_path.is_file() or clip_path.stat().st_size == 0
-        )
-        if empty_clips:
-            problems.append("empty or missing clip files: " + ", ".join(empty_clips))
-    else:
-        if pack.state_machine != REQUIRED_STATE_MACHINE:
-            problems.append(f"state machine must be {REQUIRED_STATE_MACHINE}")
-        missing = sorted(REQUIRED_INPUTS.difference(pack.inputs))
-        if missing:
-            problems.append("missing inputs: " + ", ".join(missing))
+    if not _usable(pack.preview_path):
+        problems.append("still image is missing or empty")
+    if not pack.derived:
+        if not _usable(pack.art_path):
+            problems.append("art is missing or empty")
+        if not _usable(pack.rig_path):
+            problems.append("rig is missing or empty")
+        if pack.patches_path is not None and not _usable(pack.patches_path):
+            problems.append("expression patches are missing or empty")
     if problems:
-        return BuddyPack(
-            id=pack.id,
-            name=pack.name,
-            version=pack.version,
-            riv_path=pack.riv_path,
-            state_machine=pack.state_machine,
-            inputs=pack.inputs,
-            status="unavailable",
-            message="; ".join(problems),
-            runtime=pack.runtime,
-            preview_path=pack.preview_path,
-            motion_pack_path=pack.motion_pack_path,
-            default_clip=pack.default_clip,
-            animation_map=pack.animation_map,
-            motion_clips=pack.motion_clips,
-        )
-    return BuddyPack(
-        id=pack.id,
-        name=pack.name,
-        version=pack.version,
-        riv_path=pack.riv_path,
-        state_machine=pack.state_machine,
-        inputs=pack.inputs,
-        status="available",
-        message="Ready",
-        runtime=pack.runtime,
-        preview_path=pack.preview_path,
-        motion_pack_path=pack.motion_pack_path,
-        default_clip=pack.default_clip,
-        animation_map=pack.animation_map,
-        motion_clips=pack.motion_clips,
-    )
-
-
-def pack_static_url(pack: BuddyPack) -> str:
-    return static_url_for_path(pack.riv_path, fallback=pathlib.Path("buddy") / "builtins" / pack.id / pack.riv_path.name)
-
-
-def static_url_for_path(path: str | pathlib.Path, *, fallback: pathlib.Path | None = None) -> str:
-    asset_path = pathlib.Path(path).expanduser().resolve()
-    try:
-        rel = asset_path.relative_to(_STATIC_DIR)
-        return "/static/" + str(rel).replace("\\", "/")
-    except ValueError:
-        pass
-    try:
-        rel = asset_path.relative_to(_BUDDY_STATIC_DIR.resolve())
-        return "/_buddy/" + str(rel).replace("\\", "/")
-    except ValueError:
-        if fallback is None:
-            return ""
-        return "/static/" + str(fallback).replace("\\", "/")
+        return replace(pack, status="unavailable", message="; ".join(problems))
+    return replace(pack, status="available", message="Ready")

@@ -81,7 +81,32 @@ def _background_model(rgb: np.ndarray) -> tuple[np.ndarray, float]:
     full = np.stack([np.ones_like(gu), gu, gv, gu * gu, gv * gv, gu * gv], axis=-1)
     model = full @ coefficients
     noise = float(np.mean(np.linalg.norm(design[keep] @ coefficients - samples[keep], axis=1)))
+    if noise > 5.0:
+        # Image models often paint "transparent" as a checkerboard: two flat colours.
+        two = _two_colours(samples)
+        if two is not None:
+            first, second, spread = two
+            nearer = (np.linalg.norm(rgb - first, axis=-1) <= np.linalg.norm(rgb - second, axis=-1))[..., None]
+            return np.where(nearer, first, second), spread
     return model, noise
+
+
+def _two_colours(samples: np.ndarray) -> tuple[np.ndarray, np.ndarray, float] | None:
+    """Two tight, distinct colours covering the border ring (a checkerboard), if that is what it is."""
+
+    luma = samples @ np.array([0.2126, 0.7152, 0.0722])
+    centres = np.stack([samples[np.argmin(luma)], samples[np.argmax(luma)]])
+    for _ in range(10):
+        nearest = np.argmin(np.linalg.norm(samples[:, None, :] - centres[None], axis=-1), axis=1)
+        if (nearest == 0).all() or (nearest == 1).all():
+            return None
+        centres = np.stack([samples[nearest == k].mean(axis=0) for k in (0, 1)])
+    residual = np.linalg.norm(samples - centres[nearest], axis=1)
+    shares = np.bincount(nearest, minlength=2) / len(samples)
+    tight = residual <= 12.0
+    if (shares.min() < 0.2 or tight.mean() < 0.9 or float(np.linalg.norm(centres[0] - centres[1])) < 6.0):
+        return None
+    return centres[0], centres[1], float(residual[tight].mean())
 
 
 def _flood_from_border(near: np.ndarray) -> np.ndarray:
@@ -199,3 +224,55 @@ def cut_out(data: bytes, *, size: int = 768, margin: float = 0.07) -> CutOut:
         background_noise=noise,
         had_alpha=had_alpha,
     )
+
+
+def free_rig(bounds: tuple[float, float, float, float], base: float) -> dict:
+    """Rig hints for a character with no known anatomy: a body and a head only."""
+
+    x0, y0, x1, _ = bounds
+    width = max(0.05, x1 - x0)
+    height = max(0.05, base - y0)
+    centre = round((x0 + x1) / 2, 4)
+    return {
+        "schema": 1,
+        "family": "free",
+        "base": round(base, 4),
+        "bones": [
+            {"id": "body", "pivot": [centre, round(y0 + 0.72 * height, 4)]},
+            {"id": "head", "parent": "body", "pivot": [centre, round(y0 + 0.56 * height, 4)],
+             "center": [centre, round(y0 + 0.33 * height, 4)],
+             "radius": [round(min(0.45 * width, 0.3), 4), round(min(0.3 * height, 0.28), 4)]},
+        ],
+        "eyes": [],
+        "mouth": None,
+        "patches": {},
+        "personality": {"bounce": 0.5, "tempo": 0.5, "curiosity": 0.5},
+    }
+
+
+def medallion(data: bytes, *, size: int = 512) -> bytes:
+    """A still that can't be cut out, shown as a soft-edged round portrait."""
+
+    image = _load(data)
+    side = min(image.size)
+    left = (image.width - side) // 2
+    top = (image.height - side) // 2
+    square = image.crop((left, top, left + side, top + side)).resize((size, size), Image.Resampling.LANCZOS)
+    gy, gx = np.mgrid[0:size, 0:size]
+    distance = np.hypot(gx + 0.5 - size / 2, gy + 0.5 - size / 2) / size
+    mask = 1.0 - _smoothstep(0.43, 0.46, distance)
+    rgba = np.asarray(square).astype(np.float64)
+    rgba[..., 3] = rgba[..., 3] * mask
+    buffer = io.BytesIO()
+    Image.fromarray(rgba.clip(0, 255).astype(np.uint8), "RGBA").save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+def derive_living(data: bytes) -> tuple[bytes, dict]:
+    """A legacy still as living art and rig hints: cut out if possible, else a round portrait."""
+
+    try:
+        cut = cut_out(data, size=512)
+        return cut.png, free_rig(cut.bounds, cut.base)
+    except CutOutError:
+        return medallion(data), free_rig((0.04, 0.04, 0.96, 0.96), 0.96)

@@ -212,7 +212,7 @@
         },
         "runtime": {
           "enum": [
-            "rive",
+            "living",
             "generated_still",
             "generated_motion_pack"
           ],
