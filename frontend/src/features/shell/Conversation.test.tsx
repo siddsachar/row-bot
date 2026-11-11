@@ -3249,7 +3249,7 @@ it('says why the model cannot answer on Choose another model, too', async () => 
   );
 });
 
-it('says once, where the message is, why Enter sent nothing (I15)', async () => {
+it('says why Enter sent nothing, in the refused-send banner with its fix (I15)', async () => {
   idleConversation();
   mock.state.workspace!.actions = [{ action: 'send', ready: false }];
   mock.state.workspace!.model_status = {
@@ -3263,17 +3263,18 @@ it('says once, where the message is, why Enter sent nothing (I15)', async () => 
     attachments: [],
   });
   await act(async () => conversation());
-  const line =
-    "The model is unavailable: It can't use tools; switch to Chat only or choose another model. Your message stays here.";
-  // Before Enter the reason is only for screen readers.
-  expect(document.querySelector('.composer-refusal')).toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
   const box = screen.getByRole('textbox', { name: 'Message' });
   await act(async () => fireEvent.keyDown(box, { key: 'Enter' }));
   await act(async () => fireEvent.keyDown(box, { key: 'Enter' }));
-  const shown = document.querySelectorAll('.composer-refusal');
+  const shown = screen.getAllByRole('alert');
   expect(shown).toHaveLength(1);
-  expect(shown[0]).toHaveTextContent(line);
-  expect(shown[0]).toBeVisible();
+  expect(shown[0]).toHaveTextContent(
+    "It can't use tools; switch to Chat only or choose another model. Nothing was sent; your message is kept.",
+  );
+  expect(
+    within(shown[0]).getByRole('button', { name: 'Choose a model' }),
+  ).toBeVisible();
   expect(mock.intent).not.toHaveBeenCalled();
   expect(box).toHaveValue('Read example.com');
 });

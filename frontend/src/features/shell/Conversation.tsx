@@ -796,10 +796,6 @@ export default function Conversation({
                       ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. ${state.workspace.model_status.fix === 'reconnect' ? 'Reconnect or choose another model; your' : 'Your'} message stays here.`
                       : 'Choose a model to send. Your message stays here.'
                     : '';
-  // Enter pressed while the model can't answer: say why, once, where the
-  // message is (I15). It goes when the reason does.
-  const [refused, setRefused] = useState('');
-  const refusal = refused && refused === composerStateReason ? refused : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   // A helper this chat started waits on an approval: its card shows here
   // even when no notice reached the transcript, so no helper waits on an
@@ -1633,16 +1629,27 @@ export default function Conversation({
       void answerOrSend(waiting, outgoing.text.trim(), keepTargets, retry);
       return;
     }
+    const modelStatus = state.workspace?.model_status;
     if (
       id &&
       outgoing.text.trim() &&
       state.status === 'ready' &&
       !sendActionReady &&
+      modelStatus?.state === 'unavailable' &&
       !pendingSteering &&
       !pendingSubmit &&
       !pendingResume
-    )
-      setRefused(composerStateReason);
+    ) {
+      // Enter on a model that can't answer says why, in the same banner a
+      // refused send shows, with its fix (I15); not a silent no-op.
+      const refused = clientError({ code: 'model_configuration_required' });
+      setError({
+        ...refused,
+        message: `${modelStatus.reason || "This model isn't ready"}. Nothing was sent; your message is kept.`,
+        action: modelStatus.fix === 'reconnect' ? undefined : refused.action,
+      });
+      return;
+    }
     if (
       !id ||
       !outgoing.text.trim() ||
@@ -4311,14 +4318,12 @@ export default function Conversation({
             <div
               className="composer-status-row"
               data-visible={
-                refusal ||
                 state.draftStatus === 'conflict' ||
                 state.draftStatus === 'failed'
                   ? 'true'
                   : undefined
               }
             >
-              {refusal && <small className="composer-refusal">{refusal}</small>}
               {/* Saving is silent; only a failure or conflict is shown. */}
               <small
                 role="status"
