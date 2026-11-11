@@ -1148,8 +1148,15 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     return f"⚠️ API error: {exc_str}"
 
 
+# A rate limit, never an overflow: Cerebras' 429 says "too many tokens processed" per minute (I21).
+_RATE_LIMIT_MARKERS = ("http 429", "status code: 429", "error code: 429", "rate limit", "rate_limit",
+                       "per minute", "too many requests")
+
+
 def _is_context_overflow_error(exc: object) -> bool:
     text = str(exc or "").lower()
+    if any(marker in text for marker in _RATE_LIMIT_MARKERS):
+        return False
     return any(marker in text for marker in (
         "context_length_exceeded",
         "context length",
