@@ -263,3 +263,9 @@ def test_context_overflow_classifier_is_terminal_and_specific():
     assert agent._is_context_overflow_error("context_length_exceeded")
     assert agent._is_context_overflow_error("prompt is too long for maximum context")
     assert not agent._is_context_overflow_error("temporary gateway timeout")
+    # I21: Cerebras' per-minute limit is a rate limit, though it says "too many tokens".
+    cerebras_429 = ("Cerebras request failed with HTTP 429. Details: Tokens per minute limit exceeded - "
+                    "too many tokens processed.")
+    assert not agent._is_context_overflow_error(cerebras_429)
+    assert "Rate limit reached" in agent._friendly_api_error(cerebras_429)
+    assert agent._is_context_overflow_error("maximum context length is 131072 tokens; you requested 142900 tokens")
