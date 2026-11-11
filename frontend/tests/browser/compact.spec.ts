@@ -269,3 +269,51 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await expect(page).toHaveURL(/\/app-v2\/conversations\/p1-browser-a$/);
   await expect(workspace).toHaveAttribute('data-phase5-retained', 'true');
 });
+
+test('touch screens say what Home’s quick starts make and show no keyboard hints', async ({
+  page,
+}) => {
+  await openHome(page);
+  const quickStarts = page.getByRole('group', {
+    name: 'Quick starts',
+    exact: true,
+  });
+  const design = quickStarts.getByRole('button', {
+    name: 'New design',
+    exact: true,
+  });
+  await expect(design).toBeVisible();
+  // No tooltip on touch, so the button carries its own word.
+  expect(
+    await design.evaluate((button) =>
+      getComputedStyle(button, '::after').content.replaceAll('"', ''),
+    ),
+  ).toBe('Design');
+
+  await page
+    .getByRole('button', { name: 'Workspace commands', exact: true })
+    .first()
+    .click();
+  const search = page.getByPlaceholder(
+    'Search conversations, commands, settings…',
+  );
+  await expect(search).toBeVisible();
+  const visibleKeycaps = await page
+    .locator('.kbd, .command-palette-footer')
+    .evaluateAll(
+      (nodes) =>
+        nodes.filter((node) => (node as HTMLElement).offsetParent !== null)
+          .length,
+    );
+  expect(visibleKeycaps).toBe(0);
+  const viewport = page.viewportSize();
+  if (viewport && viewport.width < 768) {
+    // A phone's search sheet has room for every result: none hide behind a
+    // short scroll box.
+    const clipped = await page
+      .locator('.command-palette-results')
+      .evaluate((list) => list.scrollHeight - list.clientHeight);
+    expect(clipped).toBeLessThanOrEqual(1);
+  }
+  await page.keyboard.press('Escape');
+});

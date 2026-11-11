@@ -411,7 +411,11 @@ export default function Workspace() {
   useBackgroundNotices(conversationId, (id) =>
     navigate(`/conversations/${encodeURIComponent(id)}`),
   );
-  useApprovalNotices(conversationId);
+  const homeTab = new URLSearchParams(location.search).get('tab') ?? '';
+  useApprovalNotices(
+    conversationId,
+    location.pathname === '/' && (homeTab === '' || homeTab === 'overview'),
+  );
   const connectionAction =
     state.error?.recovery === 'update' ? (
       <Button onClick={() => window.location.reload()}>Reload</Button>

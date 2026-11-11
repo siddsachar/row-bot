@@ -1,4 +1,12 @@
-import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { ArrowLeftRight, Download, LogIn, RefreshCw } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type { ClaudeCodeInstallState, ClaudePlanStatus } from '../../api/types';
@@ -11,7 +19,10 @@ import {
   StatusDot,
   type Tone,
 } from '../../ui/primitives';
-import ClaudeSignInPanel, { type SignInEnd } from './ClaudeSignInPanel';
+import type { SignInEnd } from './ClaudeSignInPanel';
+
+// The sign-in shows Claude Code's own terminal; its xterm code loads only then.
+const ClaudeSignInPanel = lazy(() => import('./ClaudeSignInPanel'));
 
 /** The provider's name, and the one line that says what it does (U11). */
 export const CLAUDE_PLAN_TITLE = 'Claude (your Claude plan)';
@@ -316,10 +327,12 @@ export default function ClaudePlanSetup({
             />
           </p>
         )}
-        <ClaudeSignInPanel
-          switchAccount={step.switching}
-          onEnd={(end) => signedIn(end, !!step.switching)}
-        />
+        <Suspense fallback={<Skeleton label="Opening the sign-in" />}>
+          <ClaudeSignInPanel
+            switchAccount={step.switching}
+            onEnd={(end) => signedIn(end, !!step.switching)}
+          />
+        </Suspense>
       </>
     );
   } else if (step.kind === 'confirm_switch') {
