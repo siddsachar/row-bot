@@ -911,11 +911,13 @@ def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
     ):
         assert phrase in combined
     assert "/docs/settings/buddy" in chat
-    assert "buddy desktop overlay" in readme
+    assert "buddy desktop" in readme
     for obsolete in (
         "enable switches decide whether buddy appears",
         "open and close overlay buttons",
         "toggle buddy visibility or reopen the overlay",
+        "compact always-on-top desktop overlay",
+        "motion clips",
     ):
         assert obsolete not in combined
 
