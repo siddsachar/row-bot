@@ -3258,7 +3258,10 @@ it('says once, where the message is, why Enter sent nothing (I15)', async () => 
     fix: 'choose',
     local: false,
   };
-  mock.drafts.set('conversation-a', { text: 'Read example.com', attachments: [] });
+  mock.drafts.set('conversation-a', {
+    text: 'Read example.com',
+    attachments: [],
+  });
   await act(async () => conversation());
   const line =
     "The model is unavailable: It can't use tools; switch to Chat only or choose another model. Your message stays here.";
