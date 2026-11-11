@@ -77,13 +77,13 @@ def _seed_app_config(data_dir: Path, *, first_run: bool) -> None:
 
 
 def _seed_model_catalog() -> None:
-    """The picker's local models and Quick Choices, read from the demo runtime."""
+    """The picker's local models and starred models, read from the demo runtime."""
     from row_bot.providers.model_catalog_cache import refresh_model_catalog_cache
-    from row_bot.providers.selection import add_quick_choice_for_model
+    from row_bot.providers.model_visibility import star_model
 
     refresh_model_catalog_cache(reason="docs_demo", force=True, provider_id="ollama")
     for model_id in ("llama3.1:8b", "qwen3:8b"):
-        add_quick_choice_for_model(model_id, provider_id="ollama")
+        star_model(f"model:ollama:{model_id}")
 
 
 # Conversations ---------------------------------------------------------------

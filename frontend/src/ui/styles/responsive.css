@@ -491,3 +491,58 @@
     min-height: 44px;
   }
 }
+
+/* Touch screens have no keyboard to press: no keycaps or "↑↓ Navigate"
+   footers (the shortcuts still work with a keyboard attached). */
+@media (hover: none) and (pointer: coarse) {
+  .kbd,
+  .menu-item-kbd,
+  .tooltip-kbd,
+  .command-palette-kbd,
+  .command-palette-footer,
+  .slash-palette-footer,
+  .settings-search-kbd,
+  .nav-new-chat-kbd,
+  .approval-card-kbd {
+    display: none;
+  }
+}
+@media (pointer: coarse) {
+  .activity-summary {
+    min-height: 44px;
+  }
+  .resource-target.button {
+    min-height: 44px;
+    height: 44px;
+  }
+}
+/* A phone's search sheet uses its whole height for results. */
+@media (max-width: 767px) {
+  .command-palette-results {
+    max-height: none;
+  }
+}
+/* Monitor's status cards: one column on a phone. */
+@container home (max-width: 420px) {
+  .health-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Home's quick starts have no tooltip on touch, so they say what they make. */
+@media (hover: none) and (pointer: coarse) {
+  .overview-quick {
+    gap: 8px;
+  }
+  .overview-quick .overview-quick-start.icon-button {
+    width: auto;
+    min-width: 44px;
+    gap: 6px;
+    padding-inline: 10px 12px;
+  }
+  .overview-quick .overview-quick-start::after {
+    content: attr(data-short);
+    color: var(--text-secondary);
+    font-size: var(--text-13);
+    font-weight: 500;
+  }
+}

@@ -298,7 +298,7 @@ function AskBox({
         className="overview-ask-input"
         type="text"
         aria-label="Ask Row-Bot"
-        placeholder="Ask Row-Bot anything, or describe what to make…"
+        placeholder="Ask Row-Bot anything…"
         enterKeyHint="send"
         autoComplete="off"
         value={text}
@@ -953,6 +953,7 @@ export default function OverviewHome({
         label="New design"
         className="overview-quick-start"
         data-tone="5"
+        data-short="Design"
         onClick={() => onNewResource('artifact')}
       >
         <Palette size={17} aria-hidden />
@@ -964,6 +965,7 @@ export default function OverviewHome({
         label="New code folder"
         className="overview-quick-start"
         data-tone="2"
+        data-short="Code"
         onClick={() => onNewResource('workspace')}
       >
         <Code2 size={17} aria-hidden />
@@ -975,6 +977,7 @@ export default function OverviewHome({
         label="New workflow"
         className="overview-quick-start"
         data-tone="4"
+        data-short="Workflow"
         onClick={onNewWorkflow}
       >
         <Workflow size={17} aria-hidden />
