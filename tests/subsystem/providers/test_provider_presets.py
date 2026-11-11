@@ -289,3 +289,25 @@ def test_fireworks_models_read_by_their_name_not_their_path(monkeypatch, cloud_c
 
     assert cloud_cache["model:fireworks:accounts/fireworks/models/kimi-k3"]["label"] == "kimi-k3"
     assert cloud_cache["model:fireworks:accounts/fireworks/routers/kimi-k3-fast"]["label"] == "kimi-k3-fast (router)"
+
+
+def test_nvidia_lists_only_the_chat_models_its_catalogue_still_has(monkeypatch, cloud_cache):
+    """I12: NVIDIA's list types nothing and keeps retired models; models.dev's catalogue of it decides."""
+    from row_bot.providers import capability_catalog
+
+    catalogue = {"nvidia": {
+        "nvidia/nemotron-3.5-lightning-30b-a3b": {"context": 262144, "output": ["text"], "tool_call": True},
+        "google/gemma-4-31b-it": {"context": 256000, "output": ["text"], "tool_call": True, "vision": True},
+        "nvidia/nemotron-3.5-content-safety": {"context": 128000, "output": ["text"], "tool_call": False},
+        "nvidia/cosmos-transfer2_5-2b": {"context": 0, "output": ["video"], "tool_call": False},
+    }}
+    monkeypatch.setattr(capability_catalog, "_catalogue", lambda: catalogue)
+    _serve(monkeypatch, "nvidia", {"data": [{"id": model_id, "object": "model"} for model_id in (
+        "nvidia/nemotron-3.5-lightning-30b-a3b", "google/gemma-4-31b-it", "nvidia/nemotron-3.5-content-safety",
+        "nvidia/cosmos-transfer2_5-2b", "adept/fuyu-8b", "google/deplot", "meta/llama2-70b",
+    )]})
+
+    models.fetch_cloud_models("nvidia")
+
+    assert sorted(cloud_cache) == ["model:nvidia:google/gemma-4-31b-it",
+                                   "model:nvidia:nvidia/nemotron-3.5-lightning-30b-a3b"]
