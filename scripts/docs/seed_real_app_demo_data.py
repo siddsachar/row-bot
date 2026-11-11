@@ -432,7 +432,6 @@ def _seed_workflows(state: dict) -> None:
             {"id": "review", "type": "approval", "message": "Approve writing the demo summary?", "next": "publish"},
             {"id": "publish", "type": "prompt", "prompt": "Write the approved summary to the demo workspace."},
         ],
-        advanced_mode=True,
         safety_mode="approve",
         channels=[],
     )
