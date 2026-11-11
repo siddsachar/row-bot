@@ -177,7 +177,9 @@ it('shows the newest six and folds the rest under Show all', () => {
 
 it('draws a picture and a video from their small thumbnails, without downloading either', async () => {
   const { container } = renderOutputs([output(1), output(2, 'video/mp4')]);
-  await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
+  await waitFor(() =>
+    expect(container.querySelectorAll('img')).toHaveLength(2),
+  );
   expect(
     runtime.attachmentThumbnail.mock.calls.map(([reference]) => reference),
   ).toEqual(['conversation-a:media-2', 'conversation-a:media-1']);
