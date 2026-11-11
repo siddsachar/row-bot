@@ -53,8 +53,14 @@ def resolve_capability_metadata(
         if not include_static_fallback:
             return ResolvedCapabilitySnapshot({}, "")
         try:
+            from row_bot.providers.model_catalog import ollama_reported_snapshot
             from row_bot.providers.ollama import ollama_model_info
 
+            # A model made since the last catalog refresh (I30): Ollama says what it does; the family
+            # list is only for an Ollama that doesn't answer.
+            reported = ollama_reported_snapshot(model)
+            if reported:
+                return ResolvedCapabilitySnapshot(reported, "ollama_show")
             return ResolvedCapabilitySnapshot(
                 ollama_model_info(model).capability_snapshot(),
                 "ollama_static_fallback",

@@ -771,3 +771,32 @@ def test_custom_endpoint_chat_probe_without_tools_is_chat_only(tmp_path, monkeyp
     assert result.agent.ready is False
     assert result.chat.ready is True
     assert result.selected_mode == "chat_only"
+
+
+def test_an_ollama_model_newer_than_the_catalog_is_judged_by_what_ollama_reports(monkeypatch):
+    """I30: a custom-named model made after the last catalog refresh takes tools when Ollama says so."""
+    import row_bot.models as models
+    import row_bot.providers.capability_resolution as capability_resolution
+    import row_bot.providers.model_catalog as model_catalog
+    import row_bot.providers.readiness as readiness
+
+    custom = "prec-qwen3.5-4b:latest"  # in no family list
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref=f"model:ollama:{custom}", provider_id="ollama", runtime_model=custom, native_max=65_536,
+        user_cap=65_536, effective_context=65_536, policy_kind="local", cap_source="provider_metadata",
+        request_application="ollama_num_ctx",
+    ))
+    monkeypatch.setattr(capability_resolution, "cached_ollama_capability_snapshot", lambda model, **_: {})
+    ollama_answers: dict[str, dict] = {custom: {"capabilities": ["completion", "tools", "thinking"]}}
+    monkeypatch.setattr(model_catalog, "_probe_ollama_show_metadata",
+                        lambda model_ids: {model: ollama_answers[model] for model in model_ids if model in ollama_answers})
+
+    ready = evaluate_agent_readiness(f"model:ollama:{custom}")
+    assert ready.ready is True
+    assert ready.tool_calling is True
+
+    ollama_answers.clear()  # Ollama not running: the family list is all there is
+    refused = evaluate_agent_readiness(f"model:ollama:{custom}")
+    assert refused.ready is False
+    assert refused.tool_calling is False
