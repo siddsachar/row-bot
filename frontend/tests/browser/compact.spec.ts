@@ -317,3 +317,50 @@ test('touch screens say what Home’s quick starts make and show no keyboard hin
   }
   await page.keyboard.press('Escape');
 });
+
+test('a phone opens menus as bottom sheets that close with a swipe down', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Menus stay popovers from tablet width up.',
+  );
+  await openSeedConversation(page);
+  await page
+    .getByRole('button', { name: 'Add files and more', exact: true })
+    .first()
+    .click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  const box = await menu.boundingBox();
+  expect(box).not.toBeNull();
+  // Full width, resting on the bottom edge, over a scrim.
+  expect(box!.x).toBeLessThanOrEqual(1);
+  expect(box!.width).toBeGreaterThanOrEqual(viewport!.width - 2);
+  expect(box!.y + box!.height).toBeGreaterThanOrEqual(viewport!.height - 2);
+  expect(
+    await menu.evaluate(
+      (node) => getComputedStyle(node.parentElement!).backgroundColor,
+    ),
+  ).not.toBe('rgba(0, 0, 0, 0)');
+
+  const touch = await page.context().newCDPSession(page);
+  const x = box!.x + box!.width / 2;
+  const y = box!.y + 12;
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y }],
+  });
+  for (let step = 1; step <= 6; step += 1) {
+    await touch.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x, y: y + step * 40 }],
+    });
+  }
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect(menu).toBeHidden();
+});

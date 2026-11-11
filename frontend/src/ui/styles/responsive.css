@@ -546,3 +546,75 @@
     font-weight: 500;
   }
 }
+
+/* -------------------------------------------- menus as sheets on phones */
+
+/* On a touch phone a menu or popover rises from the bottom edge as a sheet
+   over a scrim, full width, with a grab handle; a tap on the scrim, Escape
+   or a swipe down (sheet-swipe.ts) closes it. Radix still owns focus and
+   dismissal; only the placement it computes is set aside here. */
+@media (max-width: 767px) and (pointer: coarse) {
+  [data-radix-popper-content-wrapper]:has(
+    > :is(.menu, .popover, .model-picker, .combobox-popover):not(.buddy-peek)
+  ) {
+    position: fixed !important;
+    inset: 0 !important;
+    min-width: 0 !important;
+    transform: none !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding-top: calc(48px + env(safe-area-inset-top));
+    background: var(--overlay-scrim);
+    animation: appear var(--motion-overlay) var(--ease-out);
+  }
+  [data-radix-popper-content-wrapper]
+    > :is(.menu, .popover, .model-picker, .combobox-popover):not(.buddy-peek) {
+    position: relative;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: min(85dvh, 100%);
+    margin: 0 env(safe-area-inset-right) var(--virtual-keyboard-inset, 0px)
+      env(safe-area-inset-left);
+    border: 0;
+    border-radius: 14px 14px 0 0;
+    padding-top: 20px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    box-shadow: var(--shadow-modal);
+    animation: sheet-up var(--motion-panel) var(--ease-out);
+    touch-action: pan-y;
+  }
+  /* The handle: a visual cue for the swipe; the scrim and Escape close too. */
+  [data-radix-popper-content-wrapper]
+    > :is(.menu, .popover, .model-picker, .combobox-popover):not(
+      .buddy-peek
+    )::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-control);
+    transform: translateX(-50%);
+  }
+  .dialog.sheet::before {
+    content: '';
+    position: absolute;
+    z-index: 1;
+    top: 6px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-control);
+    transform: translateX(-50%);
+  }
+  /* Pickers keep their own scrolling list under a fixed search field. */
+  [data-radix-popper-content-wrapper] > :is(.model-picker, .combobox-popover) {
+    overflow: hidden;
+  }
+}
