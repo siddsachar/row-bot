@@ -74,11 +74,16 @@ export function isZone(zone: string | null | undefined): zone is string {
   }
 }
 
-/** The zone a new schedule starts with: the Row-Bot computer's, else this device's. */
+/**
+ * The zone a new schedule starts with: this device's, where the person is, else
+ * the Row-Bot computer's. A hosted Row-Bot's server runs on Etc/UTC, so "Once at
+ * 9" made from a phone must not mean 9 UTC.
+ */
 export function defaultZone(): string {
+  const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (isZone(device)) return device;
   const server = serverTimezone();
-  if (isZone(server)) return server;
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  return isZone(server) ? server : 'UTC';
 }
 
 /** Every zone this browser knows, with *current* first kept even if it isn't listed. */
