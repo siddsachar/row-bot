@@ -63,16 +63,14 @@ test('a hosted Row-Bot names its host, moves with a backup and connects devices 
   ).toBeVisible();
   const saved = page.waitForEvent('download');
   const move = page.getByRole('button', { name: 'Download backup' });
+  // One click: the save starts with it and waits for the backup being made.
   await move.click();
-  const ready = page.getByText(
-    /is ready\. Choose Download backup to save it\./,
-  );
   const done = page.getByText(/^Downloaded “Row-Bot backup .+\.zip”\.$/);
-  await expect(ready.or(done)).toBeVisible({ timeout: 60_000 });
-  // A long backup outlives the click: the browser saves it on the next one.
-  if (await ready.isVisible()) await move.click();
+  await expect(done).toBeVisible({ timeout: 60_000 });
   expect((await saved).suggestedFilename()).toMatch(/^Row-Bot backup .+\.zip$/);
-  await expect(done).toBeVisible();
+  await expect(
+    page.getByText(/is ready\. Choose Download backup to save it\./),
+  ).toHaveCount(0);
   await expect(
     page.getByText(
       /^Not in the backup: API keys, sign-in tokens and passwords/,
