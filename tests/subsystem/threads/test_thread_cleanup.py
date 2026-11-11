@@ -1069,5 +1069,5 @@ def test_old_checkpoints_are_pruned_hourly_while_other_chats_run(tmp_path, monke
         assert cleanup.prune_checkpoints_while_busy() is None
     assert kept("quiet") == 15
 
-    assert cleanup.prune_checkpoints_while_busy()["checkpoints"] == 5
-    assert (kept("quiet"), kept("running")) == (10, 15)
+    assert cleanup.prune_checkpoints_while_busy()["checkpoints"] == 15 - threads.CHECKPOINTS_KEPT
+    assert (kept("quiet"), kept("running")) == (threads.CHECKPOINTS_KEPT, 15)
