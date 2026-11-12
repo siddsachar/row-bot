@@ -206,6 +206,53 @@ def test_ordinary_steps_run_without_asking(browser):
     assert browser.asked == [] and len(browser.acts) == 3
 
 
+def _run_steps(browser, monkeypatch, locator) -> None:
+    """Run each page step against one fake control, as the real engine would."""
+    import asyncio
+
+    async def locate(_tab, _ref):
+        return locator
+
+    monkeypatch.setattr(browser.engine, "locate", locate)
+    monkeypatch.setattr(browser.engine, "act",
+                        lambda chat, label, step, **_kw: ActionResult(asyncio.run(step(object()))))
+
+
+class _Covered:
+    """A control something lies over: a click waits for it and times out; its key still works."""
+
+    def __init__(self) -> None:
+        self.pressed: list[str] = []
+
+    async def click(self, **_kw):
+        raise TimeoutError("Timeout 8000ms exceeded. <div class=scrim> intercepts pointer events")
+
+    async def press(self, key, **_kw):
+        self.pressed.append(key)
+
+
+@pytest.mark.parametrize(("role", "key"), [("button", "Enter"), ("switch", "Space")])
+def test_a_click_something_lies_over_presses_the_control_instead(browser, monkeypatch, role, key):
+    """R6 (12 Nov): 12 clicks on Row-Bot's own Models page "didn't respond"; pressing Enter on the same button worked."""
+    browser.targets["e5"] = {**NEXT, "role": role, "name": "Add a provider"}
+    covered = _Covered()
+    _run_steps(browser, monkeypatch, covered)
+
+    result = _tool("browser_click", ref="e5")
+
+    assert result == f'Clicked {role} "Add a provider" (pressed {key}: something was over it).'
+    assert covered.pressed == [key]
+
+
+def test_a_covered_control_without_a_key_still_says_it_did_not_respond(browser, monkeypatch):
+    browser.targets["e6"] = {**NEXT, "role": "generic", "name": "Can I use Row-Bot from another device?"}
+    covered = _Covered()
+    _run_steps(browser, monkeypatch, covered)
+
+    assert "didn't respond" in _tool("browser_click", ref="e6")
+    assert covered.pressed == []
+
+
 def test_pressing_enter_in_a_message_box_asks_like_its_send_button(browser):
     browser.targets["e4"] = {**NEXT, "role": "textbox", "name": "Message", "submit": "Send",
                              "url": "https://mail.example.com/compose"}

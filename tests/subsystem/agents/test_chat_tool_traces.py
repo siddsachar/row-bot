@@ -198,17 +198,17 @@ def test_streamed_tool_result_preserves_underlying_display_and_raw_bridge_identi
     assert tool_done["raw_name"] == "tool_invoke"
 
 
-def _browser_steps(count: int):
+def _browser_steps(count: int, name: str = "browser_click"):
     from langchain_core.messages import AIMessage, ToolMessage
 
     class FakeGraph:
         def stream(self, *_args, **_kwargs):
             for number in range(count):
                 yield "updates", {"agent": {"messages": [AIMessage(content="", tool_calls=[{
-                    "id": f"call-{number}", "name": "browser_click", "args": {"ref": f"e{number}"},
+                    "id": f"call-{number}", "name": name, "args": {"ref": f"e{number}"},
                     "type": "tool_call"}])]}}
                 yield "updates", {"tools": {"messages": [ToolMessage(
-                    content="Clicked.", name="browser_click", tool_call_id=f"call-{number}")]}}
+                    content="Done.", name=name, tool_call_id=f"call-{number}")]}}
 
         def get_state(self, _config):
             return SimpleNamespace(next=(), values={"messages": []}, tasks=())
@@ -223,7 +223,7 @@ def test_a_turn_that_films_its_browser_may_take_many_more_page_actions(monkeypat
     from row_bot import recordings
 
     def stopped(events) -> bool:
-        return any("too many browser actions" in str(payload) for _event, payload in events)
+        return any("long run of browser steps" in str(payload) for _event, payload in events)
 
     config = {"configurable": {"thread_id": "conversation-a"}}
     monkeypatch.setattr(recordings, "active_for", lambda thread, kind: None)
@@ -233,3 +233,17 @@ def test_a_turn_that_films_its_browser_may_take_many_more_page_actions(monkeypat
                         lambda thread, kind: object() if (thread, kind) == ("conversation-a", "browser") else None)
     assert not stopped(list(agent._stream_graph(_browser_steps(agent.BROWSER_TOOL_LIMIT + 5), {}, config)))
     assert stopped(list(agent._stream_graph(_browser_steps(agent.RECORDING_BROWSER_TOOL_LIMIT + 5), {}, config)))
+
+
+def test_waiting_for_a_long_job_in_the_browser_is_not_being_stuck(monkeypatch):
+    """R6 (12 Nov): eight 30-second waits in a row read as "only looking" and stopped a video production."""
+    import row_bot.agent as agent
+    from row_bot import recordings
+
+    def stopped(events) -> bool:
+        return any("long run of browser steps" in str(payload) for _event, payload in events)
+
+    config = {"configurable": {"thread_id": "conversation-a"}}
+    monkeypatch.setattr(recordings, "active_for", lambda thread, kind: None)
+    assert not stopped(list(agent._stream_graph(_browser_steps(12, "browser_wait_for"), {}, config)))
+    assert stopped(list(agent._stream_graph(_browser_steps(12, "browser_snapshot"), {}, config)))

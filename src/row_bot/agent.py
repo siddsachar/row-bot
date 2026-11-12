@@ -9211,9 +9211,10 @@ def _stream_graph(agent, input_data, config: dict,
                                 _browser_tool_count += 1
                                 _recent_browser_actions.append(_browser_action_name(runtime_tool_name))
                                 _recent_browser_actions = _recent_browser_actions[-8:]
-                                # Only looking, never acting, many times in a row: stuck.
+                                # Only looking, never acting, many times in a row: stuck. Waiting isn't
+                                # looking: a long job is waited for (R6).
                                 _snapshot_heavy = len(_recent_browser_actions) >= 8 and all(
-                                    action in {"snapshot", "take_screenshot", "screenshot", "wait_for"}
+                                    action in {"snapshot", "take_screenshot", "screenshot"}
                                     for action in _recent_browser_actions[-8:]
                                 )
                                 if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
@@ -9510,9 +9511,8 @@ def _stream_graph(agent, input_data, config: dict,
         except Exception:
             pass
         _browser_msg = (
-            "⚠️ I used too many browser actions without reaching a stable result, "
-            "so I stopped before getting stuck in a longer loop. Try narrowing the request, "
-            "or use a site/search page that is less likely to block automation."
+            "⚠️ I took a long run of browser steps in this turn without settling, so I stopped to check "
+            "with you before going round again. Say carry on and I'll pick up from here, or tell me what to change."
         )
         _notify_api_error(_browser_msg)
         if full_answer:
