@@ -1359,6 +1359,34 @@
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+/* A phone: Deny and Approve share the card's width, a thumb's reach each;
+   More choices and Details sit quietly beneath (D4). The details sheet
+   ends with the same pair, so reading it never means going back. */
+.approval-card-actions[data-layout='phone'] {
+  display: grid;
+  justify-content: stretch;
+  gap: 2px;
+}
+.approval-card-decide {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.approval-card-decide .button {
+  justify-content: center;
+  min-height: 44px;
+}
+.approval-detail .approval-card-decide {
+  margin-top: 8px;
+}
+.approval-card-more {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+.approval-card-more .button {
+  color: var(--text-secondary);
+}
 .approval-card-status {
   grid-column: 2 / -1;
   margin: 0;

@@ -18,7 +18,15 @@ import type {
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Hint, IconButton, Kbd, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  Hint,
+  IconButton,
+  Kbd,
+  Menu,
+  Skeleton,
+  type MenuAction,
+} from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
 import FolderSetupCard from './FolderSetupCard';
 import { BrowserThumbnail } from '../browser/BrowserThumbnail';
@@ -42,21 +50,22 @@ import {
 // The Ctrl ↵ hint only where a hardware keyboard is likely: a fine pointer on a wide layout, never a phone
 // or a touch screen (B389). The shortcut itself works wherever a keyboard is.
 const KEYBOARD_LAYOUT = '(pointer: fine) and (min-width: 641px)';
-function useKeyboardLayout() {
+// A phone shows Deny and Approve as two full-width buttons and keeps the
+// rest of the choices under More choices (D4).
+const PHONE_LAYOUT = '(max-width: 767px)';
+function useMedia(query: string) {
   const read = () =>
-    typeof matchMedia === 'function'
-      ? matchMedia(KEYBOARD_LAYOUT).matches
-      : false;
-  const [keyboard, setKeyboard] = useState(read);
+    typeof matchMedia === 'function' ? matchMedia(query).matches : false;
+  const [matches, setMatches] = useState(read);
   useEffect(() => {
     if (typeof matchMedia !== 'function') return;
-    const media = matchMedia(KEYBOARD_LAYOUT);
-    const changed = () => setKeyboard(media.matches);
+    const media = matchMedia(query);
+    const changed = () => setMatches(media.matches);
     media.addEventListener('change', changed);
     changed();
     return () => media.removeEventListener('change', changed);
-  }, []);
-  return keyboard;
+  }, [query]);
+  return matches;
 }
 
 type Hint_ = {
@@ -138,7 +147,21 @@ function fieldsWritten(view: ApprovalView): boolean {
   return Boolean(view.app?.tool && !/^mcp_/.test(view.reason || ''));
 }
 
-function ApprovalDetails({ view }: { view: ApprovalView }) {
+const ALLOW_IN_CHAT =
+  'Approves this, and actions like it later in this chat, without asking. Sending, posting, deleting and paying still ask.';
+const AUTO_IN_CHAT =
+  'Approves this and switches this chat to Auto: a reviewer approves what matches your request, and anything else still asks you.';
+
+function ApprovalDetails({
+  view,
+  approveLabel = 'Approve',
+  decide,
+}: {
+  view: ApprovalView;
+  approveLabel?: string;
+  /** On a phone the details answer too, so reading them never means going back. */
+  decide?: (decision: 'approve' | 'reject') => void;
+}) {
   const risk = RISK[view.risk_class ?? ''];
   const reason = reasonWords(view);
   const action = approvalAction(view.action_label || '', view.app);
@@ -206,6 +229,14 @@ function ApprovalDetails({ view }: { view: ApprovalView }) {
           </>
         )}
       </dl>
+      {decide && (
+        <div className="approval-card-decide">
+          <Button onClick={() => decide('reject')}>Deny</Button>
+          <Button variant="primary" onClick={() => decide('approve')}>
+            {approveLabel}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -391,7 +422,8 @@ export default function ApprovalCard({
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   });
-  const keyboard = useKeyboardLayout();
+  const keyboard = useMedia(KEYBOARD_LAYOUT);
+  const phone = useMedia(PHONE_LAYOUT);
   const action = view?.action_label || hint?.action_label || '';
   // The app asking, shown as the catalog knows it.
   const app = view?.app ?? null;
@@ -408,6 +440,99 @@ export default function ApprovalCard({
     post || (view && fieldsWritten(view))
       ? ''
       : keyArgument(view?.safe_argument_summary);
+  const settled = busy || Boolean(resolution);
+  const approveLabel = post?.post_at ? 'Approve for then' : 'Approve';
+  const canEditPost = Boolean(post && post.action !== 'delete' && !notice);
+  const deny = (
+    <Button disabled={settled} onClick={() => void resolve('reject')}>
+      Deny
+    </Button>
+  );
+  const approve = (
+    <Button
+      variant="primary"
+      aria-label={approveLabel}
+      aria-keyshortcuts={
+        notice || !shortcut ? undefined : 'Control+Enter Meta+Enter'
+      }
+      disabled={settled}
+      onClick={() => void resolve('approve')}
+    >
+      {approveLabel}
+      {!notice && shortcut && keyboard && (
+        <span aria-hidden className="approval-card-kbd">
+          <Kbd keys="Mod+Enter" />
+        </span>
+      )}
+    </Button>
+  );
+  const details = view && (
+    <Button
+      variant="ghost"
+      disabled={settled}
+      onClick={() =>
+        overlay.open({
+          title: question,
+          description: 'What Row-Bot wants to do, and what it affects.',
+          content: (
+            <ApprovalDetails
+              view={view}
+              approveLabel={approveLabel}
+              decide={
+                phone
+                  ? (decision) => {
+                      overlay.close();
+                      void resolve(decision);
+                    }
+                  : undefined
+              }
+            />
+          ),
+        })
+      }
+    >
+      Details
+    </Button>
+  );
+  // On a phone the choices beyond Deny and Approve, each saying what it does.
+  const moreChoices: MenuAction[] = [
+    ...(onLater
+      ? [
+          {
+            label: 'Not now',
+            description: 'It keeps waiting under Needs you',
+            onSelect: onLater,
+          },
+        ]
+      : []),
+    ...(canEditPost
+      ? [
+          {
+            label: 'Edit the post',
+            icon: <Pencil size={16} />,
+            onSelect: () => setEditing(true),
+          },
+        ]
+      : []),
+    ...(view?.repeatable
+      ? [
+          {
+            label: 'Allow in this chat',
+            description: ALLOW_IN_CHAT,
+            onSelect: () => void resolve('approve', false, 'chat'),
+          },
+        ]
+      : []),
+    ...(onAllowInChat
+      ? [
+          {
+            label: 'Use Auto in this chat',
+            description: AUTO_IN_CHAT,
+            onSelect: () => void resolve('approve', true),
+          },
+        ]
+      : []),
+  ];
   if (answered)
     return (
       <p className="approval-card-answered">
@@ -605,84 +730,72 @@ export default function ApprovalCard({
               </small>
             )}
           </div>
-          <div className="approval-card-actions" hidden={editing}>
-            {onLater && (
-              <Button
-                variant="ghost"
-                disabled={busy || Boolean(resolution)}
-                onClick={onLater}
-              >
-                Not now
-              </Button>
-            )}
-            {post && post.action !== 'delete' && !notice && (
-              <IconButton
-                label="Edit the post"
-                disabled={busy || Boolean(resolution)}
-                onClick={() => setEditing(true)}
-              >
-                <Pencil size={16} aria-hidden />
-              </IconButton>
-            )}
-            <Button
-              variant="ghost"
-              disabled={busy || Boolean(resolution)}
-              onClick={() =>
-                overlay.open({
-                  title: question,
-                  description: 'What Row-Bot wants to do, and what it affects.',
-                  content: <ApprovalDetails view={view} />,
-                })
-              }
+          {phone ? (
+            <div
+              className="approval-card-actions"
+              data-layout="phone"
+              hidden={editing}
             >
-              Details
-            </Button>
-            <Button
-              disabled={busy || Boolean(resolution)}
-              onClick={() => void resolve('reject')}
-            >
-              Deny
-            </Button>
-            <Button
-              variant="primary"
-              aria-label={post?.post_at ? 'Approve for then' : 'Approve'}
-              aria-keyshortcuts={
-                notice || !shortcut ? undefined : 'Control+Enter Meta+Enter'
-              }
-              disabled={busy || Boolean(resolution)}
-              onClick={() => void resolve('approve')}
-            >
-              {post?.post_at ? 'Approve for then' : 'Approve'}
-              {!notice && shortcut && keyboard && (
-                <span aria-hidden className="approval-card-kbd">
-                  <Kbd keys="Mod+Enter" />
-                </span>
+              <div className="approval-card-decide">
+                {deny}
+                {approve}
+              </div>
+              <div className="approval-card-more">
+                {moreChoices.length > 0 && (
+                  <Menu
+                    label="More choices"
+                    variant="ghost"
+                    disabled={settled}
+                    actions={moreChoices}
+                  />
+                )}
+                {details}
+              </div>
+            </div>
+          ) : (
+            <div className="approval-card-actions" hidden={editing}>
+              {onLater && (
+                <Button variant="ghost" disabled={settled} onClick={onLater}>
+                  Not now
+                </Button>
               )}
-            </Button>
-            {view.repeatable && (
-              <Hint label="Approves this, and actions like it later in this chat, without asking. Sending, posting, deleting and paying still ask.">
-                <Button
-                  variant="ghost"
-                  disabled={busy || Boolean(resolution)}
-                  onClick={() => void resolve('approve', false, 'chat')}
+              {canEditPost && (
+                <IconButton
+                  label="Edit the post"
+                  disabled={settled}
+                  onClick={() => setEditing(true)}
                 >
-                  Allow in this chat
-                </Button>
-              </Hint>
-            )}
-            {onAllowInChat && (
-              <Hint label="Approves this and switches this chat to Auto: a reviewer approves what matches your request, and anything else still asks you.">
-                <Button
-                  variant="ghost"
-                  className="approval-card-allow"
-                  disabled={busy || Boolean(resolution)}
-                  onClick={() => void resolve('approve', true)}
-                >
-                  Use Auto in this chat
-                </Button>
-              </Hint>
-            )}
-          </div>
+                  <Pencil size={16} aria-hidden />
+                </IconButton>
+              )}
+              {details}
+              {deny}
+              {approve}
+              {view.repeatable && (
+                <Hint label={ALLOW_IN_CHAT}>
+                  <Button
+                    variant="ghost"
+                    disabled={settled}
+                    onClick={() => void resolve('approve', false, 'chat')}
+                  >
+                    Allow in this chat
+                  </Button>
+                </Hint>
+              )}
+              {onAllowInChat && (
+                <Hint label={AUTO_IN_CHAT}>
+                  <Button
+                    variant="ghost"
+                    className="approval-card-allow"
+                    disabled={settled}
+                    onClick={() => void resolve('approve', true)}
+                  >
+                    Use Auto in this chat
+                  </Button>
+                </Hint>
+              )}
+            </div>
+          )}
         </>
       ) : (
         <div className="approval-card-context">
