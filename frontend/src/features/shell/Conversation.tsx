@@ -848,10 +848,11 @@ export default function Conversation({
       liveTurn(
         settleFinishedSteps(transcriptRows, finishedSteps),
         state.activity,
+        Boolean(running),
       ),
     // finishedKey stands for finishedSteps: they change together.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [transcriptRows, finishedKey, state.activity],
+    [transcriptRows, finishedKey, state.activity, Boolean(running)],
   );
   const shownItems = useRef<TranscriptItem[]>([]);
   const items = useMemo(() => {
