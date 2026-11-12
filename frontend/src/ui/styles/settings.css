@@ -5409,3 +5409,43 @@ button.settings-mcp-server-name:hover {
   margin: 6px 0 12px;
   color: var(--text-primary);
 }
+
+/* A phone: the list of pages first, then one page at a time with its way
+   back to the list (D6). The tab bar takes Close's place. */
+.settings-shell[data-mode='list'] {
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'head'
+    'nav';
+}
+.settings-shell[data-mode='list'] .settings-side-navigation {
+  display: flex;
+  max-height: none;
+  padding: 4px 12px 24px;
+  border-right: 0;
+}
+.settings-shell[data-mode='list']
+  .settings-side-navigation
+  .settings-category-list {
+  display: block;
+}
+.settings-shell[data-mode='list'] .settings-side-navigation a {
+  min-height: 44px;
+  font-size: var(--text-15);
+}
+/* A page keeps search above it, as compact Settings always have. */
+.settings-shell[data-mode='page'] {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    'head'
+    'nav'
+    'content';
+}
+.settings-shell-header .settings-back {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  margin-inline-start: -10px;
+  color: var(--text-primary);
+}

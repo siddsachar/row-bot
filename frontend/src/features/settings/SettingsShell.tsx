@@ -14,6 +14,7 @@ import {
   ArrowUpCircle,
   Bot,
   Brain,
+  ChevronLeft,
   Cloud,
   Cpu,
   Database,
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react';
 import { Field, Input, Kbd } from '../../ui/primitives';
 import { settingsReturnPath } from './return-path';
+import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
 import {
   agentProfileLibrary,
   searchFindsAgentProfiles,
@@ -114,15 +116,20 @@ export default function SettingsShell({
   learning = false,
   children,
 }: {
-  leaf: SettingsLeaf;
+  /** The open page; none for a phone's list of pages (D6). */
+  leaf?: SettingsLeaf;
   /** A build with Learning (preview): its page is listed (O34). */
   learning?: boolean;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   const place = usePlace();
   const navigate = useNavigate();
   const location = useLocation();
   const compactControls = useWorkspaceActions()?.compactControls;
+  // A phone lists the pages first and opens one at a time, with its way
+  // back to the list; the tab bar replaces Close (D6).
+  const phone = useMedia(PHONE_LAYOUT);
+  const mode = phone ? (leaf ? 'page' : 'list') : undefined;
   const heading = useRef<HTMLHeadingElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState<HTMLDivElement | null>(null);
@@ -200,7 +207,11 @@ export default function SettingsShell({
     // The frame is a size container, so the shell also compacts when the
     // settings area is narrow in a wide window (sidebar open, 200% zoom).
     <div className="settings-shell-frame">
-      <section className="settings-shell" aria-label="Settings">
+      <section
+        className="settings-shell"
+        aria-label="Settings"
+        data-mode={mode}
+      >
         {/* The workspace's own skip link targets a conversation; this one
             passes the settings list and lands on the open page. */}
         <a
@@ -217,40 +228,56 @@ export default function SettingsShell({
           className="settings-shell-header"
           data-compact-controls={compactControls ? 'true' : undefined}
         >
-          {compactControls?.navigation}
+          {mode === 'page' ? (
+            <Link
+              className="icon-button settings-back"
+              to="/settings"
+              aria-label="Back to Settings"
+            >
+              <ChevronLeft size={20} aria-hidden />
+            </Link>
+          ) : (
+            compactControls?.navigation
+          )}
           <h1>Settings</h1>
           {compactControls?.commands}
-          <Link
-            className="icon-button"
-            to={settingsReturnPath()}
-            aria-label="Close settings"
-          >
-            <X size={18} aria-hidden />
-          </Link>
-        </header>
-        <div className="settings-compact-picker">
-          <Field label="Settings section">
-            <select
-              className="input select"
-              value={leaf.id}
-              onChange={(event) =>
-                navigate(`/settings/${encodeURIComponent(event.target.value)}`)
-              }
+          {!phone && (
+            <Link
+              className="icon-button"
+              to={settingsReturnPath()}
+              aria-label="Close settings"
             >
-              {settingsGroups.map((group) => (
-                <optgroup key={group.id} label={group.label}>
-                  {leaves
-                    .filter((item) => item.group === group.id)
-                    .map((item) => (
-                      <option value={item.id} key={item.id}>
-                        {item.label}
-                      </option>
-                    ))}
-                </optgroup>
-              ))}
-            </select>
-          </Field>
-        </div>
+              <X size={18} aria-hidden />
+            </Link>
+          )}
+        </header>
+        {leaf && !phone && (
+          <div className="settings-compact-picker">
+            <Field label="Settings section">
+              <select
+                className="input select"
+                value={leaf.id}
+                onChange={(event) =>
+                  navigate(
+                    `/settings/${encodeURIComponent(event.target.value)}`,
+                  )
+                }
+              >
+                {settingsGroups.map((group) => (
+                  <optgroup key={group.id} label={group.label}>
+                    {leaves
+                      .filter((item) => item.group === group.id)
+                      .map((item) => (
+                        <option value={item.id} key={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+            </Field>
+          </div>
+        )}
         <nav
           className="settings-side-navigation"
           aria-label="Settings sections"
@@ -308,7 +335,7 @@ export default function SettingsShell({
                           {...optionProps(index)}
                           to={item.href}
                           aria-current={
-                            item.id === leaf.id ? 'page' : undefined
+                            item.id === leaf?.id ? 'page' : undefined
                           }
                           onClick={() => setQuery('')}
                         >
@@ -378,7 +405,7 @@ export default function SettingsShell({
                           <Link
                             to={item.href}
                             aria-current={
-                              item.id === leaf.id ? 'page' : undefined
+                              item.id === leaf?.id ? 'page' : undefined
                             }
                           >
                             <SettingIcon id={item.id} size={16} />
@@ -392,34 +419,36 @@ export default function SettingsShell({
             </div>
           )}
         </nav>
-        <div
-          className="settings-page-content"
-          id="settings-page"
-          ref={setContent}
-        >
-          <header className="settings-pane-header">
-            <span className="settings-pane-icon" aria-hidden>
-              <SettingIcon id={leaf.id} size={18} />
-            </span>
-            <div className="settings-pane-title">
-              <h2 ref={heading} tabIndex={-1}>
-                {leaf.label}
-              </h2>
-              <p>
-                {leaf.id === 'system' && place.kind !== 'this_computer'
-                  ? `Where Row-Bot works ${place.on}, and what it may do there.`
-                  : descriptions[leaf.id]}
-              </p>
-              <div className="settings-pane-status" ref={setStatusSlot} />
-            </div>
-            <div className="settings-pane-summary" ref={setSlot} />
-          </header>
-          <SettingsHeaderSlot.Provider value={slot}>
-            <SettingsStatusSlot.Provider value={statusSlot}>
-              {children}
-            </SettingsStatusSlot.Provider>
-          </SettingsHeaderSlot.Provider>
-        </div>
+        {leaf && (
+          <div
+            className="settings-page-content"
+            id="settings-page"
+            ref={setContent}
+          >
+            <header className="settings-pane-header">
+              <span className="settings-pane-icon" aria-hidden>
+                <SettingIcon id={leaf.id} size={18} />
+              </span>
+              <div className="settings-pane-title">
+                <h2 ref={heading} tabIndex={-1}>
+                  {leaf.label}
+                </h2>
+                <p>
+                  {leaf.id === 'system' && place.kind !== 'this_computer'
+                    ? `Where Row-Bot works ${place.on}, and what it may do there.`
+                    : descriptions[leaf.id]}
+                </p>
+                <div className="settings-pane-status" ref={setStatusSlot} />
+              </div>
+              <div className="settings-pane-summary" ref={setSlot} />
+            </header>
+            <SettingsHeaderSlot.Provider value={slot}>
+              <SettingsStatusSlot.Provider value={statusSlot}>
+                {children}
+              </SettingsStatusSlot.Provider>
+            </SettingsHeaderSlot.Provider>
+          </div>
+        )}
       </section>
     </div>
   );

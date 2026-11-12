@@ -166,8 +166,13 @@ test('settings aliases route to retained unified settings', async ({
     .getByRole('link', { name: 'Google account', exact: true })
     .click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/apps\/google$/);
-  // Compact Settings name the current page in the section picker.
-  if (page.viewportSize()!.width < 900)
+  // A phone's page has its way back to the list of pages (D6); a tablet's
+  // compact Settings name the current page in the section picker.
+  if (page.viewportSize()!.width < 768)
+    await expect(
+      page.getByRole('link', { name: 'Back to Settings', exact: true }),
+    ).toBeVisible();
+  else if (page.viewportSize()!.width < 900)
     await expect(
       page.getByRole('combobox', { name: 'Settings section', exact: true }),
     ).toHaveValue('apps');

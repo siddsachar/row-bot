@@ -392,3 +392,61 @@ it('has no Agents group; search still finds the Agent profile library, whose lin
     within(rows).getByRole('link', { name: /Agent profile library/ }),
   ).toHaveAttribute('href', '/settings/profiles');
 });
+
+function onPhone() {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+
+it('on a phone opens on the list of pages, and each page has its way back to it (D6)', async () => {
+  onPhone();
+  try {
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <Routes>
+          <Route path="settings" element={<SettingsShell />} />
+          <Route path="settings/:setting" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const list = screen.getByRole('navigation', { name: 'Settings sections' });
+    expect(within(list).getAllByRole('link')).toHaveLength(
+      settingsLeaves.length,
+    );
+    // The tab bar takes Close's place; no page shows beside the list.
+    expect(screen.queryByRole('link', { name: 'Close settings' })).toBeNull();
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
+
+    await userEvent.click(
+      within(list).getByRole('link', { name: 'Documents' }),
+    );
+    expect(screen.getByText('Documents owner')).toBeVisible();
+    expect(
+      screen.queryByRole('combobox', { name: 'Settings section' }),
+    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Back to Settings' }),
+    );
+    expect(screen.queryByText('Documents owner')).toBeNull();
+    expect(
+      screen.getByRole('navigation', { name: 'Settings sections' }),
+    ).toBeVisible();
+  } finally {
+    vi.mocked(window.matchMedia).mockImplementation(
+      (query: string) =>
+        ({
+          matches: false,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList,
+    );
+  }
+});
