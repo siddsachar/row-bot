@@ -49,6 +49,19 @@ def wav_seconds(data: bytes) -> float:
         return audio.getnframes() / float(audio.getframerate() or 1)
 
 
+# Said the way people say them (R10): the voice read "Row-Bot" as "robot" and "5.3.3" as "five point three
+# three". A pronunciation the caller gives goes first.
+_SAID = ((re.compile(r"\bRow-Bot\b", re.IGNORECASE), "Row Bot"),
+         (re.compile(r"\bv?(\d+)\.(\d+)\.(\d+)\b"), lambda found: " point ".join(found.groups())))
+
+
+def spoken(text: str) -> str:
+    """*text* as the voice should read it: Row-Bot's name and version numbers."""
+    for pattern, said in _SAID:
+        text = pattern.sub(said, text)
+    return text
+
+
 def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dict[str, str] | None = None) -> Speech:
     """The whole *text* in a local voice: never cut to a spoken reply's few sentences."""
     from row_bot.tts import VOICE_CATALOG, TTSService
@@ -71,6 +84,7 @@ def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dic
     for word, said in (pronunciations or {}).items():
         if str(word).strip() and str(said).strip():
             text = re.sub(rf"\b{re.escape(str(word).strip())}\b", str(said).strip(), text, flags=re.IGNORECASE)
+    text = spoken(text)
     chosen = voice or tts.voice
     data = tts.synthesize_wav_bytes(text, voice=chosen, speed=speed or None, truncate=False)
     if not data:

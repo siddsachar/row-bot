@@ -436,6 +436,31 @@ def capture_screenshot() -> Optional[bytes]:
 # VisionService
 # ═════════════════════════════════════════════════════════════════════════════
 
+
+def _backup_look(content: list[dict[str, Any]], model: str, exc: BaseException) -> str | None:
+    """The backup model's look when the vision model can't answer (its limit, an outage), as a chat's reply
+    would switch (R10: a video's checks were skipped when the Claude plan's limit was reached); None when
+    there's no backup, it's the same model, or it can't answer either."""
+    from langchain_core.messages import HumanMessage
+
+    from row_bot.models import get_llm_for
+    from row_bot.providers import backup
+
+    why, ref = backup.reason(exc), backup.backup_model()
+    if not why or not ref or ref == model:
+        return None
+    try:
+        answer = getattr(get_llm_for(ref).invoke([HumanMessage(content=content)]), "content", "")
+    except Exception as error:
+        logger.info("The backup model couldn't look either: %s", error)
+        return None
+    if isinstance(answer, list):
+        answer = "\n".join(item if isinstance(item, str) else str(item.get("text") or "")
+                           for item in answer if isinstance(item, (str, dict)))
+    if not str(answer or "").strip():
+        return None
+    return f"{backup.note(backup.model_name(model), backup.model_name(ref), why)}\n{answer}"
+
 class VisionService:
     """Manages vision model settings and provides image analysis."""
 
@@ -637,7 +662,8 @@ class VisionService:
             return str(answer or "")
         except Exception as exc:
             logger.error("Vision provider model error for %s: %s", label, exc)
-            return f"Vision analysis failed for {label}: {exc}"
+            answered = _backup_look(content, model, exc)
+            return answered if answered is not None else f"Vision analysis failed for {label}: {exc}"
 
     def _analyze_ollama_local(self, b64: str | list[str], question: str, model: str | None = None) -> str:
         """Send an image (or several, in order) to a local Ollama vision model."""
