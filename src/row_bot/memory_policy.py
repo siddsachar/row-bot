@@ -532,7 +532,31 @@ def _recall_token_budget(context_window: int | None = None) -> int:
     return min(1200, max(400, int(ctx * 0.03)))
 
 
-def format_recall_block(memories: list[dict], *, context_window: int | None = None) -> str:
+# One memory's share of the recall block (R11): the owner's own record, 33,000 characters of everything they
+# had said about themselves, filled the block in every turn, emails and family first.
+RECALLED_MEMORY_CHARS = 600
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_PHONE = re.compile(r"(?<![\w])\+?\d[\d ()-]{8,}\d(?![\w])")
+
+
+def recalled_text(content: str, query: str) -> str:
+    """What of one memory a turn is shown: the sentences about what it asks (else how it starts), within
+    ``RECALLED_MEMORY_CHARS``, with emails and phone numbers left out (search_memory reads it all)."""
+    text = _PHONE.sub("[phone]", _EMAIL.sub("[email]", " ".join(str(content or "").split())))
+    if len(text) <= RECALLED_MEMORY_CHARS:
+        return text
+    wanted = set(_terms(query))
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    chosen = [part for part in sentences if wanted & set(_terms(part))] or sentences[:1]
+    kept = ""
+    for part in chosen:
+        if len(kept) + len(part) + 1 > RECALLED_MEMORY_CHARS:
+            break
+        kept = f"{kept} {part}".strip()
+    return (kept or chosen[0][:RECALLED_MEMORY_CHARS]).rstrip() + " …"
+
+
+def format_recall_block(memories: list[dict], *, context_window: int | None = None, query: str = "") -> str:
     """Format selected memories as bounded background context."""
     if not memories:
         return ""
@@ -548,8 +572,7 @@ def format_recall_block(memories: list[dict], *, context_window: int | None = No
     for memory in memories[:AUTO_RECALL_MAX_MEMORIES]:
         category = memory.get("category", memory.get("entity_type", ""))
         subject = memory.get("subject", "")
-        content = memory.get("content", memory.get("description", "")) or ""
-        content = " ".join(str(content).split())
+        content = recalled_text(memory.get("content", memory.get("description", "")) or "", query)
         line = f"- [id={memory.get('id')}] [{category}] {subject}: {content}"
         if memory.get("via") == "graph" and memory.get("relations"):
             rel_strs = [
