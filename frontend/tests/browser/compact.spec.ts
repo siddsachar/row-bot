@@ -499,3 +499,44 @@ test('a phone opens Settings on its list of pages, and each page goes back to it
   await expect(page).toHaveURL(/\/app-v2\/settings$/);
   await expect(list.getByRole('link', { name: 'Models' })).toBeVisible();
 });
+
+test('a phone opens a message’s actions when a finger rests on it', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'A tablet opens the same actions as a popover.',
+  );
+  await openSeedConversation(page);
+  await page
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('instant reply fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const message = page
+    .getByRole('article', { name: 'You message' })
+    .filter({ hasText: 'instant reply fixture' })
+    .last();
+  // An instant reply leaves the chat idle for the tests after this one; the
+  // message's actions are ready once its own toolbar shows them.
+  await expect(
+    message.getByRole('button', { name: 'Copy message' }),
+  ).toBeAttached();
+  const box = await message.locator('.message-text').boundingBox();
+  const touch = await page.context().newCDPSession(page);
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: box!.x + 40, y: box!.y + 16 }],
+  });
+  await page.waitForTimeout(700);
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  const menu = page.getByRole('menu');
+  await expect(
+    menu.getByRole('menuitem', { name: 'Copy message' }),
+  ).toBeVisible();
+  // The press opened the actions, not the system's own text selection.
+  expect(await page.evaluate(() => getSelection()?.toString() ?? '')).toBe('');
+});
