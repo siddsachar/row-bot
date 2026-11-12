@@ -394,3 +394,35 @@ test('a phone composer gives the text its own full-width row and swaps voice for
   await message.fill('');
   await expect(send).toBeHidden();
 });
+
+test('a phone reaches Home, Chats, Workflows and Settings from a tab bar that a conversation hides', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Tablets keep the navigation drawer.',
+  );
+  await openHome(page);
+  const tabs = page.getByRole('navigation', { name: 'Main' });
+  await expect(tabs.getByRole('link', { name: 'Home' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  const box = await tabs.boundingBox();
+  expect(box!.y + box!.height).toBeGreaterThanOrEqual(viewport!.height - 1);
+
+  await tabs.getByRole('link', { name: 'Chats' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/library/);
+  await expect(tabs.getByRole('link', { name: 'Chats' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await tabs.getByRole('link', { name: 'Workflows' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/?\?tab=workflows/);
+  await tabs.getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/settings/);
+
+  await openSeedConversation(page);
+  await expect(tabs).toHaveCount(0);
+});

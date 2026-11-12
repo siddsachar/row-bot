@@ -619,3 +619,62 @@
     overflow: hidden;
   }
 }
+
+/* ------------------------------------------------------- phone tab bar */
+
+/* Home · Chats · Workflows · Settings along the bottom edge (D1). Toasts
+   and the install/offline banner sit above it. */
+.phone-tabs {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+.phone-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 56px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.phone-tab[aria-current='page'] {
+  color: var(--accent-solid);
+}
+.phone-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -4px;
+  border-radius: var(--radius-control);
+}
+.phone-tab-icon {
+  position: relative;
+  display: inline-flex;
+}
+.phone-tab-badge {
+  position: absolute;
+  top: -4px;
+  left: calc(100% - 6px);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--status-danger-text);
+  color: var(--surface);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+body:has(.phone-tabs) .notification-layer {
+  --notice-floor: calc(56px + env(safe-area-inset-bottom) + 8px);
+}
+body:has(.phone-tabs) .pwa-status {
+  bottom: calc(56px + env(safe-area-inset-bottom) + 8px);
+}

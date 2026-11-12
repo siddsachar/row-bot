@@ -91,6 +91,7 @@ import {
 } from './palette-switches';
 import { clientError } from '../../api/errors';
 import Navigation, { NavigationRail } from './Navigation';
+import PhoneTabBar, { phoneTabFor } from './PhoneTabBar';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
 import useNewChat from './useNewChat';
@@ -1771,6 +1772,12 @@ export default function Workspace() {
   ];
   const conversationVisible =
     Boolean(conversationId) && !homeOpen && !routeOpen && !compact;
+  // A phone moves between its four places with a tab bar (D1); a
+  // conversation and a panel sheet take the whole height.
+  const phoneTab =
+    layout.widthClass === 'phone' && !conversationVisible && !compact
+      ? phoneTabFor(location.pathname, location.search)
+      : null;
   const navigation = (inPane: boolean) => (
     <Navigation
       showBuddy={!layout.navigation.collapsed}
@@ -2204,6 +2211,7 @@ export default function Workspace() {
             {sideVisible && dock(sidePanels, 'side')}
           </Panel>
         </Group>
+        {phoneTab && <PhoneTabBar current={phoneTab} />}
         {conversationId &&
           railPanels.length > 0 &&
           // A page full screen on a phone has Back and × at the top: no third way out (N5).
