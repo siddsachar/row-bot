@@ -506,6 +506,13 @@
   .memory-import-sources {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .stat-group.memory-import-stats {
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+    gap: 6px;
+  }
+  .stat-group.memory-import-stats .stat {
+    padding: 6px 8px;
+  }
   .memory-import-drop {
     flex-wrap: wrap;
   }
