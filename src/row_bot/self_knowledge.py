@@ -332,10 +332,11 @@ def get_dynamic_state() -> str:
     """
     parts: list[str] = []
 
-    # Current model
+    # Current model: this turn's own (a chat's chosen model), else the default. An Opus chat was told it ran
+    # on the default GPT model (R12).
     try:
-        from row_bot.models import get_current_model
-        model = get_current_model()
+        from row_bot.models import _active_model_override, get_current_model
+        model = _active_model_override.get() or get_current_model()
         parts.append(f"- Current model: {model}")
     except Exception:
         pass

@@ -50,3 +50,21 @@ def test_the_turns_state_leaves_out_counts_that_change_every_turn_and_status_say
     assert "Knowledge graph" not in before and "dream cycle" not in before.lower()
     memory = status._row_bot_status("memory")
     assert "- Entities: 659" in memory and "- Last Dream Cycle: 2 insight(s), in 92s" in memory
+
+
+def test_the_turns_state_names_the_chats_own_model(tmp_path, monkeypatch):
+    """R12 (12 Nov): an Opus chat's turn context said "Current model: model:codex:gpt-6.1-sol", the default."""
+    import contextvars
+
+    from row_bot import models, self_knowledge
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(models, "get_current_model", lambda: "model:codex:gpt-6.1-sol")
+
+    def in_a_chat_with_its_own_model() -> str:
+        models.set_active_model_override("model:claude_subscription:claude-opus-5-5")
+        return self_knowledge.get_dynamic_state()
+
+    assert "- Current model: model:codex:gpt-6.1-sol" in self_knowledge.get_dynamic_state()
+    chosen = contextvars.copy_context().run(in_a_chat_with_its_own_model)
+    assert "- Current model: model:claude_subscription:claude-opus-5-5" in chosen
