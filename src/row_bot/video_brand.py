@@ -48,7 +48,8 @@ class Brand:
     intro: str = ""
     outro: str = ""
     music_mood: str = "calm"
-    framing: str = "framed"
+    # Edge to edge by default (R3, 12 Nov): footage small on a plain backdrop read as unfinished.
+    framing: str = "full"
     camera: str = "follow"
     # The voice that says the lines ("" the one chosen in Settings) and its speed.
     voice: str = ""
@@ -88,7 +89,7 @@ def _clean(data: dict[str, Any], *, check_logo: bool) -> Brand:
     mood = str(data.get("music_mood") or "calm")
     if mood not in MOODS:
         raise BrandError(f"The music mood is {', '.join(MOODS)}.")
-    framing = str(data.get("framing") or "framed")
+    framing = str(data.get("framing") or "full")
     if framing not in FRAMINGS:
         raise BrandError(f"Footage is {', '.join(FRAMINGS)}.")
     camera = str(data.get("camera") or "follow")
@@ -131,6 +132,11 @@ def _check_logo(ref: str) -> None:
 
     if not any(item["ref"] == ref and item["kind"] == "image" for item in media_library.items(limit=500)):
         raise BrandError("The logo is a picture from Library › Media.")
+
+
+def update(changes: dict[str, Any]) -> Brand:
+    """Change some of the kit's fields, keep the rest (from a chat: the person said how videos should look)."""
+    return save({**asdict(load()), **{key: value for key, value in changes.items() if value is not None}})
 
 
 def save(data: dict[str, Any]) -> Brand:

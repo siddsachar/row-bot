@@ -24,7 +24,10 @@ tags: []
   touches); a 16:9 video sets the phone in a device, 9:16 fills the height.
 - Its look and voice are the person's: the brand kit (colour, captions,
   framing, camera, voice, speed, music mood) sets every video, and a video
-  may choose its own voice and voice_speed. Change them when asked.
+  may choose its own voice and voice_speed. When the person says how their
+  videos should look ("full screen", a voice, a mood), save it with video
+  action brand, so the next video starts that way.
+- Captions only when the person asks for them: a narrated video needs none.
 - After make, read the checks and look at the review sheet with
   analyze_image. Fix what's off (a dull or long stretch: trim or speed it
   up; a line that doesn't match its picture: rewrite it) and make it again;
