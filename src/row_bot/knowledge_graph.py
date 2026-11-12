@@ -2650,6 +2650,62 @@ def delete_entity(entity_id: str) -> bool:
     return deleted
 
 
+_ENTITY_COLUMNS = ("id", "entity_type", "subject", "description", "aliases", "tags", "properties", "source",
+                   "created_at", "updated_at")
+_RELATION_COLUMNS = ("id", "source_id", "target_id", "relation_type", "confidence", "properties", "source",
+                     "created_at", "updated_at")
+
+
+def restore_entities(entities: Iterable[dict], relations: Iterable[dict] = (), *,
+                     remove_relations: Iterable[str] = (), recall: dict[str, str] | None = None,
+                     validate: Callable[[], None] | None = None) -> list[dict]:
+    """Put memories back exactly as they were saved (an Undo): every column of each row, by id.
+
+    A row that still exists is overwritten, a deleted one inserted again; then the relations in
+    ``remove_relations`` (by id) go, and ``relations`` come back by id when both ends exist and no equal
+    edge was saved since. ``recall`` puts back recall stamps. One transaction; returns the rows as saved.
+    """
+    rows = [{column: entity[column] for column in _ENTITY_COLUMNS} for entity in entities]
+    conn = _get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if validate is not None:
+            validate()
+        for row in rows:
+            values = tuple(row[column] for column in _ENTITY_COLUMNS)
+            if conn.execute("SELECT 1 FROM entities WHERE id=?", (row["id"],)).fetchone():
+                conn.execute(f"UPDATE entities SET {', '.join(f'{c}=?' for c in _ENTITY_COLUMNS[1:])} WHERE id=?",
+                             (*values[1:], row["id"]))
+            else:
+                conn.execute(f"INSERT INTO entities ({', '.join(_ENTITY_COLUMNS)}) "
+                             f"VALUES ({', '.join('?' * len(_ENTITY_COLUMNS))})", values)
+        for relation_id in remove_relations:
+            conn.execute("DELETE FROM relations WHERE id=?", (relation_id,))
+        for relation in relations:
+            ends = conn.execute("SELECT COUNT(*) FROM entities WHERE id IN (?,?)",
+                                (relation["source_id"], relation["target_id"])).fetchone()[0]
+            if ends < (1 if relation["source_id"] == relation["target_id"] else 2):
+                continue
+            conn.execute(f"INSERT OR IGNORE INTO relations ({', '.join(_RELATION_COLUMNS)}) "
+                         f"VALUES ({', '.join('?' * len(_RELATION_COLUMNS))})",
+                         tuple(relation[column] for column in _RELATION_COLUMNS))
+        for entity_id, recalled_at in (recall or {}).items():
+            conn.execute("""INSERT INTO knowledge_recall_stamps(entity_id,recalled_at) SELECT id,? FROM entities
+                WHERE id=? ON CONFLICT(entity_id) DO UPDATE SET recalled_at=excluded.recalled_at""",
+                         (recalled_at, entity_id))
+        if validate is not None:
+            validate()
+        conn.commit()
+    finally:
+        conn.close()
+    for row in rows:
+        _upsert_fts_entity(row)
+        if not _skip_reindex:
+            _upsert_index(row["id"])
+        _wiki_export_entity(row)
+    return rows
+
+
 def _reviewed_catalog_revision(conn: sqlite3.Connection) -> str:
     """Match the unfiltered passive catalog revision inside write admission."""
     digest = hashlib.sha256()
