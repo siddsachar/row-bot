@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { clientError } from '../../api/errors';
 import ApprovalCard from './ApprovalCard';
@@ -749,4 +750,96 @@ it('keeps an incognito chat’s memory unsaved with Don’t save (N11)', async (
     '3',
   );
   expect(screen.getByRole('status')).toHaveTextContent('Not saved to memory.');
+});
+
+function onPhone() {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+function offPhone() {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+
+it('on a phone keeps Deny and Approve in reach and the other choices, explained, under More choices (D4)', async () => {
+  onPhone();
+  try {
+    approval.mockResolvedValue({
+      ...view,
+      action_label: 'developer_commit_changes',
+      repeatable: true,
+    });
+    await renderCard();
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Allow in this chat' }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'More choices' }));
+    const allow = screen.getByRole('menuitem', { name: 'Allow in this chat' });
+    expect(allow).toHaveAccessibleDescription(/later in this chat/);
+    await userEvent.click(allow);
+
+    await waitFor(() =>
+      expect(intent).toHaveBeenCalledWith(
+        'approval-a',
+        'approval.resolve',
+        { decision: 'approve', nonce: 'nonce-a', scope: 'chat' },
+        '3',
+      ),
+    );
+  } finally {
+    offPhone();
+  }
+});
+
+it('on a phone answers from the details too, so reading them never means going back (D4)', async () => {
+  onPhone();
+  try {
+    await renderCard();
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    render(open.mock.calls[0][0].content);
+    const sheet = screen
+      .getByText('Delete a file in the workspace.', {
+        selector: '.approval-detail-reason',
+      })
+      .closest('.approval-detail') as HTMLElement;
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Approve' }));
+
+    await waitFor(() =>
+      expect(intent).toHaveBeenCalledWith(
+        'approval-a',
+        'approval.resolve',
+        { decision: 'approve', nonce: 'nonce-a' },
+        '3',
+      ),
+    );
+  } finally {
+    offPhone();
+  }
+});
+
+it('keeps the details read-only on a wide layout, where the card stays in view', async () => {
+  await renderCard();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  const sheet = document.querySelector('.approval-detail') as HTMLElement;
+  expect(within(sheet).queryByRole('button')).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'More choices' }),
+  ).not.toBeInTheDocument();
 });
