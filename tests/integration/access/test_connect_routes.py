@@ -76,6 +76,8 @@ def test_neutral_connect_page_reveals_no_instance_details(tmp_path) -> None:
     assert "Connect to this Row-Bot" in response.text
     assert "requires approval from its owner" in response.text
     assert "row-bot access invite" in response.text
+    # The same card as /setup, following the device's light or dark theme (D9).
+    assert '<meta name="color-scheme" content="light dark">' in response.text
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-robots-tag"] == "noindex"
     assert response.headers["referrer-policy"] == "same-origin"
@@ -92,8 +94,10 @@ def test_get_is_informational_and_strips_ticket_from_visible_history(tmp_path) -
     )
 
     assert response.status_code == 200
-    assert "Access: Full owner access" in response.text
-    assert "Duration: 30 days" in response.text
+    # What connecting gives, in words, before anyone connects.
+    assert "full owner access" in response.text
+    assert "for 30 days" in response.text
+    assert "Layout:" not in response.text
     assert "history.replaceState" in response.text
     assert "searchParams.delete('invitation')" in response.text
     assert 'action="/api/access/invitations/claim"' in response.text

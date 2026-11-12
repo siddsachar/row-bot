@@ -235,26 +235,27 @@ def _safe_script_string(value: str) -> str:
     return json.dumps(value).replace("<", "\\u003c").replace(">", "\\u003e")
 
 
+# What only the connect pages need on top of the shared card.
+_CONNECT_STYLE = """
+.steps { margin: 16px 0 0; padding-left: 22px; color: var(--text); font-size: 15px; line-height: 24px; }
+.steps li + li { margin-top: 4px; }
+.aside { margin: 16px 0 0; color: var(--muted); font-size: 13px; line-height: 20px; }
+.code-form input.name { font: inherit; font-size: 16px; letter-spacing: normal; text-transform: none; }
+code { padding: 1px 5px; border-radius: 5px; background: var(--sunken); font: 13px/20px ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+.back { margin: 24px 0 0; text-align: center; }
+"""
+
+
 def _page_shell(title: str, content: str, *, script: str = "") -> str:
+    """A connect page on the same card as /setup, in light and dark (D9)."""
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
   <title>{escape(title)}</title>
-  <style>
-    :root {{ color-scheme: dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }}
-    body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111719; color: #edf5f5; }}
-    main {{ width: min(92vw, 460px); padding: 28px; }}
-    h1 {{ margin: 0 0 12px; font-size: 1.8rem; }}
-    p {{ color: #b3c1c3; line-height: 1.5; }}
-    .detail {{ color: #e5eeee; }}
-    .warning {{ border-left: 3px solid #f6bf54; padding-left: 12px; }}
-    label {{ display: block; margin: 20px 0 8px; }}
-    input {{ box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #3a555a; border-radius: 8px; background: #172225; color: inherit; }}
-    button {{ width: 100%; margin-top: 18px; padding: 13px; border: 0; border-radius: 8px; background: #00b6c7; color: #061114; font-weight: 700; }}
-    code {{ color: #c6f5f8; }}
-  </style>
+  <style>{setup_words.CARD_STYLE}{_CONNECT_STYLE}</style>
   {script}
 </head>
 <body><main>{content}</main></body>
@@ -266,9 +267,17 @@ def _neutral_connect_page() -> str:
         "Connect to Row-Bot",
         """
 <h1>Connect to this Row-Bot</h1>
-<p>This Row-Bot requires approval from its owner. A device that was signed out, or away for more than 30 days, connects again the same way.</p>
-<p class="detail">On the computer running Row-Bot, open Settings › Devices &amp; remote access and choose Connect a phone or computer. Then scan the code with this device, or open its link here.</p>
-<p>Row-Bot running without a screen? Run <code>row-bot access invite --origin &lt;address&gt;</code> on that computer.</p>
+<p class="lead">This Row-Bot requires approval from its owner. To connect this device:</p>
+<ol class="steps">
+  <li>On the computer running Row-Bot, open Settings › Devices &amp; remote access.</li>
+  <li>Choose Connect a phone or computer.</li>
+  <li>Scan its code with this device, or open its link here.</li>
+</ol>
+<p class="aside">A device that was signed out, or away for more than 30 days, connects again the same way.</p>
+<details>
+  <summary>Row-Bot runs without a screen?</summary>
+  <p>Run <code>row-bot access invite --origin &lt;address&gt;</code> on that computer.</p>
+</details>
 """,
     )
 
@@ -281,8 +290,8 @@ def _terminal_connect_page(reason: str) -> str:
         "Invitation unavailable",
         f"""
 <h1>{escape(heading)}</h1>
-<p>{escape(detail)}</p>
-<p><a href="/connect">Return to the connection page</a></p>
+<p class="lead">{escape(detail)}</p>
+<p class="back"><a class="secondary" href="/connect">How to connect</a></p>
 """,
     )
 
@@ -294,11 +303,6 @@ def _available_connect_page(
     next_path: str,
 ) -> str:
     duration = "30 days" if lifetime is SessionLifetime.TRUSTED else "12 hours"
-    layout = "Responsive unified client"
-    warning = (
-        '<p class="warning">This authenticated browser receives full owner '
-        "access to Row-Bot, including files, tools, providers, and settings.</p>"
-    )
     script = f"""<script>
 (() => {{
   const invitation = {_safe_script_string(token)};
@@ -310,18 +314,18 @@ def _available_connect_page(
   }});
 }})();
 </script>"""
+    # What connecting gives stays in the lead, in words: full owner access.
     return _page_shell(
         "Connect to Row-Bot",
         f"""
 <h1>Connect this browser to Row-Bot?</h1>
-<p class="detail">Access: Full owner access<br>Layout: {layout}<br>Duration: {duration}</p>
-{warning}
-<form method="post" action="/api/access/invitations/claim">
+<p class="lead">It gets full owner access to this Row-Bot, including its files, tools, providers and settings, for {duration}.</p>
+<form class="code-form" method="post" action="/api/access/invitations/claim">
   <input id="invitation" name="invitation" type="hidden" value="">
   <input name="next" type="hidden" value="{escape(next_path, quote=True)}">
-  <label for="display_name">Device name</label>
-  <input id="display_name" name="display_name" maxlength="80" autocomplete="nickname" placeholder="This browser">
-  <button type="submit">Connect</button>
+  <label for="display_name">Name this device</label>
+  <input class="name" id="display_name" name="display_name" maxlength="80" autocomplete="nickname" placeholder="This browser">
+  <button class="primary" type="submit">Connect</button>
 </form>
 """,
         script=script,
