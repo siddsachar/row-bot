@@ -74,19 +74,23 @@ def _fact(index: int) -> str:
     return f"Fact {index:02d}: " + "I keep notes about my garden and my week. " * 6
 
 
-def test_a_long_conversation_sends_its_newest_messages_then_only_what_is_new(stack) -> None:
+def test_a_long_conversation_is_read_in_full_then_only_what_is_new(stack) -> None:
     threads, memory_extraction, model = stack
-    _chat(threads, "long", [(_fact(index), f"Noted {index:02d}.") for index in range(40)])
+    _chat(threads, "long", [(_fact(index), f"Noted {index:02d}.") for index in range(70)])
 
     memory_extraction.run_extraction()
 
-    [first] = model.read
-    assert "Fact 39" in first and "Fact 00" not in first
-    assert first.startswith(memory_extraction._OMITTED_LABEL)
-    assert len(first) <= memory_extraction._CONVERSATION_BUDGET + len(memory_extraction._OMITTED_LABEL) + 1
+    # Every message is read once, oldest first, in windows within the budget: before, only the newest
+    # 6,000 characters were read and the rest was passed over for good.
+    assert len(model.read) >= 3
+    assert all(len(text) <= memory_extraction._CONVERSATION_BUDGET for text in model.read)
+    new_parts = [text.split(memory_extraction._NEW_LABEL)[-1] for text in model.read]
+    assert all(sum(f"Fact {index:02d}" in part for part in new_parts) == 1 for index in range(70))
+    assert "Fact 00" in model.read[0] and "Fact 69" in model.read[-1]
+    calls = len(model.read)
 
     memory_extraction.run_extraction()
-    assert len(model.read) == 1  # nothing new: no call
+    assert len(model.read) == calls  # nothing new: no call
 
     _say(threads, "long", [("I just adopted a cat called Miso.", "Congratulations!")])
     memory_extraction.run_extraction()
@@ -96,9 +100,42 @@ def test_a_long_conversation_sends_its_newest_messages_then_only_what_is_new(sta
     # The two messages before it come first, as context; nothing older is sent again.
     earlier, new = second.split(memory_extraction._NEW_LABEL)
     assert earlier.startswith(memory_extraction._EARLIER_LABEL)
-    assert "Fact 39" in earlier and "Noted 39." in earlier
-    assert "Fact 38" not in second and "Fact 00" not in second
+    assert "Fact 69" in earlier and "Noted 69." in earlier
+    assert "Fact 68" not in second and "Fact 00" not in second
     assert "Miso" in new
+
+
+def test_a_backlog_longer_than_one_run_is_read_over_the_next_runs_without_gaps(stack, monkeypatch) -> None:
+    threads, memory_extraction, model = stack
+    monkeypatch.setattr(memory_extraction, "_CALLS_PER_RUN", 2)
+    _chat(threads, "backlog", [(_fact(index), f"Noted {index:02d}.") for index in range(40)])
+
+    memory_extraction.run_extraction()
+    assert len(model.read) == 2
+    for _ in range(10):
+        memory_extraction.run_extraction()
+
+    new_parts = [text.split(memory_extraction._NEW_LABEL)[-1] for text in model.read]
+    assert all(sum(f"Fact {index:02d}" in part for part in new_parts) == 1 for index in range(40))
+    calls = len(model.read)
+    memory_extraction.run_extraction()
+    assert len(model.read) == calls
+
+
+def test_an_outage_mid_conversation_resumes_at_the_window_it_missed(stack) -> None:
+    threads, memory_extraction, model = stack
+    _chat(threads, "outage", [(_fact(index), f"Noted {index:02d}.") for index in range(40)])
+    model.on_call = lambda: setattr(model, "fail", len(model.read) == 2)
+
+    memory_extraction.run_extraction()
+    missed = model.read[1].split(memory_extraction._NEW_LABEL)[-1]
+    model.on_call = None
+    model.fail = False
+    memory_extraction.run_extraction()
+
+    assert model.read[2].split(memory_extraction._NEW_LABEL)[-1] == missed
+    new_parts = [text.split(memory_extraction._NEW_LABEL)[-1] for text in model.read[:1] + model.read[2:]]
+    assert all(sum(f"Fact {index:02d}" in part for part in new_parts) == 1 for index in range(40))
 
 
 def test_renaming_or_changing_a_chat_setting_reads_nothing(stack, monkeypatch) -> None:
@@ -161,6 +198,7 @@ def test_a_conversation_read_before_watermarks_is_read_once_by_the_old_rule(stac
     _chat(threads, "unchanged", [(_fact(index), "Ok.") for index in range(30)])
     _chat(threads, "changed", [(_fact(index), "Ok.") for index in range(30)])
     with sqlite3.connect(threads.DB_PATH) as conn:
+        conn.execute("UPDATE thread_meta SET created_at = ?", ("2026-09-01T00:00:00",))
         conn.execute("UPDATE thread_meta SET updated_at = ? WHERE thread_id = ?", ("2026-09-20T00:00:00", "unchanged"))
         conn.execute("UPDATE thread_meta SET updated_at = ? WHERE thread_id = ?", ("2026-10-05T00:00:00", "changed"))
 

@@ -330,14 +330,18 @@ RELATIONS — Look for connections between entities:
 - Media: reading, watching, recommends, authored
 - General: owns
 
-IMPORTANT — ALWAYS output relations:
-- Every entity you extract should be connected to at least one other entity
-  where a natural relationship exists.
+Output a relation when the conversation states or clearly implies how two \
+entities relate. Do not invent one just to connect an entity:
 - If the fact is about the user, connect it to "User".
   Example: User mentions exercising → entity for "Exercise" + relation
   User→enjoys→Exercise
 - If you mention a person is the user's dad → entity for "Dad" + relation
   Dad→father_of→User
+
+DATES — Today is {today}. Write every date as a calendar date (e.g. \
+"14 November 2026"), never as "today", "tomorrow", "next week" or "last \
+month", and give the date a state started when it matters ("since \
+November 2026", not "currently").
 
 CORRECTIONS:
 - If the user corrects a previously stated fact during the conversation
