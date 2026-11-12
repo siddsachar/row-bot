@@ -61,10 +61,10 @@ def test_the_turns_state_names_the_chats_own_model(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(models, "get_current_model", lambda: "model:codex:gpt-6.1-sol")
 
-    def in_a_chat_with_its_own_model() -> str:
-        models.set_active_model_override("model:claude_subscription:claude-opus-5-5")
+    def state_with(override: str) -> str:
+        models.set_active_model_override(override)
         return self_knowledge.get_dynamic_state()
 
-    assert "- Current model: model:codex:gpt-6.1-sol" in self_knowledge.get_dynamic_state()
-    chosen = contextvars.copy_context().run(in_a_chat_with_its_own_model)
+    assert "- Current model: model:codex:gpt-6.1-sol" in contextvars.copy_context().run(state_with, "")
+    chosen = contextvars.copy_context().run(state_with, "model:claude_subscription:claude-opus-5-5")
     assert "- Current model: model:claude_subscription:claude-opus-5-5" in chosen
