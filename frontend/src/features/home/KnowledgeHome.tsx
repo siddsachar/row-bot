@@ -13,6 +13,7 @@ import {
   ArchiveRestore,
   ArrowLeft,
   ArrowRight,
+  BrushCleaning,
   GitMerge,
   History,
   Import,
@@ -211,6 +212,8 @@ export type KnowledgeHomeProps = {
   onAdd?: () => void;
   /** Import memories: what other assistants know, reviewed before it is saved. */
   onImport?: () => void;
+  /** Review memory: suggestions to keep, merge, rewrite or remove, approved in a list. */
+  onReview?: () => void;
   /** Open the editor's relations and replacement for this memory. */
   onMerge?: (id: string) => void;
   /** Review, confirm and delete one memory; resolves once it is gone. */
@@ -524,6 +527,7 @@ export default function KnowledgeHome({
   onEdit,
   onAdd,
   onImport,
+  onReview,
   onMerge,
   onDelete,
   onDeleteMany,
@@ -1092,6 +1096,11 @@ export default function KnowledgeHome({
             {onImport && (
               <IconButton size="sm" label="Import memories" onClick={onImport}>
                 <Import size={15} aria-hidden />
+              </IconButton>
+            )}
+            {onReview && (
+              <IconButton size="sm" label="Review memory" onClick={onReview}>
+                <BrushCleaning size={15} aria-hidden />
               </IconButton>
             )}
             <IconButton

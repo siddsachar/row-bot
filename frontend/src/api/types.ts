@@ -466,6 +466,41 @@ export interface ClientTransport {
     command: string,
     signal?: AbortSignal,
   ): Promise<Wire.MemoryImportReceipt>;
+  /** Knowledge › Review memory: one run over every memory, or one import's. */
+  memoryReviewOverview?(
+    importBatch?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewOverview>;
+  beginMemoryReview?(
+    importBatch?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  memoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  discardMemoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  cancelMemoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  memoryReviewProposals?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewProposals>;
+  applyMemoryReview?(
+    run: string,
+    command: Omit<Wire.MemoryReviewApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewReceipt>;
+  undoMemoryReview?(
+    run: string,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewReceipt>;
   insights?(signal?: AbortSignal): Promise<Wire.InsightsSnapshot>;
   insightReceipt?(
     command: string,

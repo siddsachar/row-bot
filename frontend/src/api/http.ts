@@ -2579,6 +2579,74 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  memoryReviewOverview(importBatch?: string, signal?: AbortSignal) {
+    return wire.getMemoryReviewOverview(
+      this.base,
+      this.session(),
+      importBatch,
+      signal,
+    );
+  }
+  beginMemoryReview(importBatch?: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.beginMemoryReview(
+      this.base,
+      proof,
+      {
+        client_session_id: proof.client_session_id,
+        ...(importBatch ? { import_batch: importBatch } : {}),
+      },
+      signal,
+    );
+  }
+  memoryReview(run: string, signal?: AbortSignal) {
+    return wire.getMemoryReview(this.base, this.session(), run, signal);
+  }
+  discardMemoryReview(run: string, signal?: AbortSignal) {
+    return wire.discardMemoryReview(this.base, this.session(), run, signal);
+  }
+  cancelMemoryReview(run: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.cancelMemoryReview(
+      this.base,
+      proof,
+      run,
+      { client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  memoryReviewProposals(run: string, signal?: AbortSignal) {
+    return wire.getMemoryReviewProposals(
+      this.base,
+      this.session(),
+      run,
+      signal,
+    );
+  }
+  applyMemoryReview(
+    run: string,
+    command: Omit<wire.MemoryReviewApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    return wire.applyMemoryReview(
+      this.base,
+      proof,
+      run,
+      { ...command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  undoMemoryReview(run: string, command: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.undoMemoryReview(
+      this.base,
+      proof,
+      run,
+      { command_id: command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
   insights(signal?: AbortSignal) {
     return wire.getInsights(this.base, this.session(), signal);
   }

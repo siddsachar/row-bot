@@ -7,7 +7,7 @@ import type {
   WikiSettingsSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Import } from 'lucide-react';
+import { BrushCleaning, Import } from 'lucide-react';
 import { Button, IconButton, Toggle } from '../../ui/primitives';
 import { AppLink } from '../../ui/app-link';
 import { humanizeToken } from '../../ui/format';
@@ -25,6 +25,8 @@ import WikiSettings, {
 import type { SettingsMutationIO } from './SettingsSnapshotPanels';
 import MemoryImportDialog from '../knowledge/MemoryImportDialog';
 import type { MemoryImportIO } from '../knowledge/memory-import-io';
+import MemoryReviewDialog from '../knowledge/MemoryReviewDialog';
+import type { MemoryReviewIO } from '../knowledge/memory-review-io';
 
 export type KnowledgeMaintenanceIO = {
   review(
@@ -56,6 +58,7 @@ export default function MemorySettings({
   maintenance,
   onMutation,
   importIO,
+  reviewIO,
   refreshToken = 0,
 }: {
   snapshot?: KnowledgeSettingsSnapshot;
@@ -64,6 +67,8 @@ export default function MemorySettings({
   wikiSnapshot?: WikiSettingsSnapshot;
   /** Import memories from another assistant (the same dialog as Knowledge's). */
   importIO?: MemoryImportIO;
+  /** Review memory: suggestions to keep, merge, rewrite or remove (the same dialog as Knowledge's). */
+  reviewIO?: MemoryReviewIO;
   /** The saved catalog, whose revision "Delete all" is reviewed against. */
   loadCatalog?: (signal?: AbortSignal) => Promise<EntitySummaryPage>;
   maintenance?: KnowledgeMaintenanceIO;
@@ -86,6 +91,9 @@ export default function MemorySettings({
     useState<KnowledgeMaintenanceReceipt | null>(null);
   const [dangerOpen, setDangerOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [reviewing, setReviewing] = useState<{ importBatch?: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!loadCatalog) return;
@@ -304,6 +312,22 @@ export default function MemorySettings({
               }
             />
           )}
+          {reviewIO && (
+            <SettingsItem
+              label="Review memory"
+              help="Row-Bot suggests what to keep, merge, rewrite or remove, each with a reason. Nothing changes until you approve, and you can undo it."
+              bind={false}
+              control={
+                <IconButton
+                  label="Review memory"
+                  variant="secondary"
+                  onClick={() => setReviewing({})}
+                >
+                  <BrushCleaning size={16} aria-hidden />
+                </IconButton>
+              }
+            />
+          )}
         </SettingsGroup>
       )}
       {/* Counts of nothing say nothing: shown once there are memories, or
@@ -385,6 +409,25 @@ export default function MemorySettings({
           onOpenChange={setImporting}
           io={importIO}
           onImported={onMutation}
+          onReview={
+            reviewIO
+              ? (importBatch) => {
+                  setImporting(false);
+                  setReviewing({ importBatch });
+                }
+              : undefined
+          }
+        />
+      )}
+      {reviewIO && (
+        <MemoryReviewDialog
+          open={reviewing !== null}
+          onOpenChange={(open) => {
+            if (!open) setReviewing(null);
+          }}
+          io={reviewIO}
+          importBatch={reviewing?.importBatch}
+          onChanged={onMutation}
         />
       )}
     </div>

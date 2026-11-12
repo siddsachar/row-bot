@@ -51,12 +51,12 @@ LOCAL_ENTRIES = frozenset({
     "runtimes", "learning_models", "piper", "kokoro", "logs", "plugin_logs", "crashes", "feedback_reports",
     "recovery", "evolution_backups", "migration-backups", "migration_reports", "backups",
     "doc_staging", "stale_plugins", "document_ingestion", ".checkpoint-locks", PENDING_DIR, UPLOADS_DIR,
-    "memory_import",
+    "memory_import", "memory_review",
     "backup_state.json", RESULT_FILE, "launcher_state.json",
 })
 LOCAL_NAMES = re.compile(
     r"(.*_cache\.json|.*\.log|.*\.log\.prev|.*\.lock|launcher-.*|tmp.*|.*-wal|.*-shm"
-    r"|mobile\.db\..*|.*-backup-\d{8}-\d{6}\.json|\.skills_activation\..+\.json|"
+    r"|mobile\.db\..*|memory\.db\.pre-review-.*|.*-backup-\d{8}-\d{6}\.json|\.skills_activation\..+\.json|"
     + re.escape(ASIDE_PREFIX) + r".*|" + re.escape(PARKED_PREFIX) + r".*)",
     re.IGNORECASE,
 )

@@ -682,8 +682,6 @@ def _merge_entities(entity_a: dict, entity_b: dict) -> dict | None:
     Two lessons (self_knowledge) merge without a word of the survivor changed:
     its text is what Learning tests.  A lesson never merges with another type.
     """
-    import row_bot.knowledge_graph as kg
-
     prompt, survivor, duplicate = _merge_prompt(entity_a, entity_b)
     lessons = _is_lesson(survivor), _is_lesson(duplicate)
     if any(lessons) and not all(lessons):
@@ -707,12 +705,28 @@ def _merge_entities(entity_a: dict, entity_b: dict) -> dict | None:
             logger.warning("Dream merge LLM call failed: %s", exc)
             return None
 
+    return merge_into(survivor, duplicate, merged_desc)
+
+
+def merge_into(survivor: dict, duplicate: dict, merged_desc: str) -> dict | None:
+    """Fold *duplicate* into *survivor*: its relations move over, its subject becomes an alias, the survivor
+    reads *merged_desc* (a lesson is left exactly as it is), and the duplicate is deleted.
+
+    The Dream Cycle's merge and Review memory's both end here, so a lesson that was the duplicate is handed
+    over to the survivor (O7) before the delete marks it gone.
+    """
+    import row_bot.knowledge_graph as kg
+
+    lessons = _is_lesson(survivor), _is_lesson(duplicate)
+    if any(lessons) and not all(lessons):
+        return None
+    dup_subj = duplicate.get("subject", "").strip()
+    surv_subj = survivor.get("subject", "").strip()
+
     # Union aliases
     a_aliases = set(a.strip() for a in (survivor.get("aliases", "") or "").split(",") if a.strip())
     b_aliases = set(a.strip() for a in (duplicate.get("aliases", "") or "").split(",") if a.strip())
     # Add the duplicate's subject as an alias if different
-    dup_subj = duplicate.get("subject", "").strip()
-    surv_subj = survivor.get("subject", "").strip()
     if dup_subj.lower() != surv_subj.lower():
         b_aliases.add(dup_subj)
     merged_aliases = ", ".join(sorted(a_aliases | b_aliases))

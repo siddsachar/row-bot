@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  BrushCleaning,
   CircleCheck,
   ListChecks,
   ListX,
@@ -76,12 +77,15 @@ export default function MemoryImportDialog({
   onOpenChange,
   io,
   onImported,
+  onReview,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   io: MemoryImportIO;
   /** Memories were imported or an import was undone: refresh what shows them. */
   onImported?: () => void;
+  /** Tidy up after the import: Review memory over this import's memories. */
+  onReview?: (batchId: string) => void;
 }) {
   const phone = useMedia(PHONE_LAYOUT);
   return (
@@ -99,6 +103,7 @@ export default function MemoryImportDialog({
           phone={phone}
           onClose={() => onOpenChange(false)}
           onImported={onImported}
+          onReview={onReview}
         />
       )}
     </ModalTask>
@@ -110,11 +115,13 @@ function ImportFlow({
   phone,
   onClose,
   onImported,
+  onReview,
 }: {
   io: MemoryImportIO;
   phone: boolean;
   onClose: () => void;
   onImported?: () => void;
+  onReview?: (batchId: string) => void;
 }) {
   const [sources, setSources] = useState<MemoryImportSources | null>(null);
   const [sourcesError, setSourcesError] = useState('');
@@ -502,7 +509,12 @@ function ImportFlow({
             onLeft={setLeft}
           />
         )}
-        {step === 'done' && receipt && <DoneStep receipt={receipt} />}
+        {step === 'done' && receipt && (
+          <DoneStep
+            receipt={receipt}
+            onReview={onReview && (() => onReview(receipt.batch_id))}
+          />
+        )}
       </div>
       <footer className="memory-import-footer">
         {step === 'source' && (
@@ -1031,7 +1043,13 @@ function PreviewStep({
   );
 }
 
-function DoneStep({ receipt }: { receipt: MemoryImportReceipt }) {
+function DoneStep({
+  receipt,
+  onReview,
+}: {
+  receipt: MemoryImportReceipt;
+  onReview?: () => void;
+}) {
   const undone = receipt.status === 'undone';
   return (
     <div className="memory-import-step memory-import-done" role="status">
@@ -1065,6 +1083,12 @@ function DoneStep({ receipt }: { receipt: MemoryImportReceipt }) {
               : ''}
             You can undo this import until {shortDate(receipt.undo_until)}.
           </p>
+          {onReview &&
+            receipt.added + receipt.updated + receipt.superseded > 0 && (
+              <Button onClick={onReview}>
+                <BrushCleaning size={14} aria-hidden /> Review what was imported
+              </Button>
+            )}
         </>
       )}
     </div>

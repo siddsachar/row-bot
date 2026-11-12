@@ -4661,6 +4661,35 @@ export class ClientController {
         throw clientError({ code: 'unsupported_command' });
       return this.transport.undoMemoryImport(batch, command, signal);
     });
+  memoryReviewOverview = (importBatch?: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.memoryReviewOverview?.(importBatch, signal),
+    );
+  beginMemoryReview = (importBatch?: string) =>
+    this.query(() => this.transport.beginMemoryReview?.(importBatch));
+  memoryReview = (run: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryReview?.(run, signal));
+  discardMemoryReview = (run: string) =>
+    this.query(() => this.transport.discardMemoryReview?.(run));
+  cancelMemoryReview = (run: string) =>
+    this.query(() => this.transport.cancelMemoryReview?.(run));
+  memoryReviewProposals = (run: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryReviewProposals?.(run, signal));
+  applyMemoryReview = (
+    run: string,
+    command: Omit<import('./types').MemoryReviewApply, 'client_session_id'>,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.applyMemoryReview)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.applyMemoryReview(run, command, signal);
+    });
+  undoMemoryReview = (run: string, command: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.undoMemoryReview)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.undoMemoryReview(run, command, signal);
+    });
   insights = (signal?: AbortSignal) =>
     this.query(() => this.transport.insights?.(signal));
   insightReceipt = (command: string, signal?: AbortSignal) =>

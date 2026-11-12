@@ -1,0 +1,244 @@
+/* Knowledge › Review memory. The dialog frame, footer, stats and rows' checks
+   are Import memories' (memory-import.css); these are the review's own rows. */
+.memory-review[data-step='list'] .memory-import-scroll {
+  overflow-y: auto;
+}
+.memory-review-promises {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 19px;
+}
+.memory-review-promises > li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.memory-review-promises svg {
+  flex: none;
+  color: var(--status-success-text);
+  transform: translateY(2px);
+}
+.memory-review-warnings {
+  margin: 0;
+  padding-inline-start: 18px;
+  color: var(--status-warning-text);
+  font-size: var(--text-13);
+}
+.memory-import-filters > .memory-review-filter {
+  flex: 1;
+  min-width: 140px;
+  width: auto;
+}
+.memory-review-groups {
+  display: grid;
+  gap: 10px;
+}
+.memory-review-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.memory-review-group > .disclosure-summary {
+  padding: 10px 12px;
+}
+.memory-review-group > .disclosure-body {
+  padding: 0 4px 6px;
+}
+.memory-review-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--weight-semibold);
+}
+.memory-review-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 4px 12px;
+}
+.memory-review-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.memory-review-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border-hairline);
+}
+.memory-review-row > .memory-import-check {
+  margin-top: -6px;
+}
+.memory-review-check-space {
+  flex: none;
+  width: 32px;
+}
+.memory-review-row[data-checked='false'][data-action='remove']
+  .memory-review-text,
+.memory-review-row[data-checked='false'] .memory-review-diff {
+  opacity: 0.7;
+}
+.memory-review-body {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+.memory-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: var(--text-12);
+}
+.memory-review-subject {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+.memory-review-mark {
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+.memory-review-mark[data-mark='long_record'] {
+  border-color: color-mix(
+    in srgb,
+    var(--status-warning-text) 45%,
+    var(--border-subtle)
+  );
+  color: var(--status-warning-text);
+}
+.memory-review-reason {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 18px;
+}
+.memory-review-reason > svg {
+  flex: none;
+  transform: translateY(2px);
+}
+.memory-review-reason[data-action='merge'] > svg,
+.memory-review-reason[data-action='rewrite'] > svg,
+.memory-review-reason[data-action='split'] > svg {
+  color: var(--status-info-text);
+}
+.memory-review-text,
+.memory-review-now,
+.memory-review-becomes {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  line-height: 19px;
+}
+.memory-review-text[data-clamp='true'] {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.memory-review-diff,
+.memory-review-split {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+.memory-review-now {
+  color: var(--text-secondary);
+}
+.memory-review-diff-label {
+  margin-inline-end: 4px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+.memory-review-diff del {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-muted);
+  color: var(--text-muted);
+}
+.memory-review-diff ins {
+  text-decoration: none;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--status-success-text) 16%, transparent);
+  color: var(--text-primary);
+}
+.memory-review-split-list {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  margin: 4px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  font-size: var(--text-13);
+  line-height: 18px;
+}
+.memory-review-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+.memory-review-edit {
+  display: grid;
+  gap: 4px;
+}
+.memory-review-edit > textarea {
+  width: 100%;
+  resize: vertical;
+}
+.memory-review-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: 4px;
+}
+.memory-review-edit-actions > small {
+  margin-inline-end: auto;
+}
+.memory-review-more {
+  margin: 6px 0 0 40px;
+}
+
+@media (max-width: 767px) {
+  .memory-import-filters > .memory-review-filter {
+    flex-basis: 100%;
+  }
+  .memory-review-row {
+    flex-wrap: wrap;
+  }
+  .memory-review-actions {
+    margin-inline-start: auto;
+  }
+  .memory-review-group-head {
+    padding-inline: 8px;
+  }
+  .memory-review-more {
+    margin-inline-start: 8px;
+  }
+}
+@media (pointer: coarse) {
+  .memory-review-check-space {
+    width: 44px;
+  }
+}

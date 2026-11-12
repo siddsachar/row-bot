@@ -51,7 +51,8 @@
 .memory-import-footer > .icon-action:first-child {
   margin-inline-end: auto;
 }
-.memory-import-footer .button svg {
+.memory-import-footer .button svg,
+.memory-import-done > .button svg {
   margin-inline-end: 6px;
   vertical-align: -2px;
 }
