@@ -175,7 +175,8 @@ def _export(project, shape: str, number: int | None) -> str:
     fresh = project
     for _ in range(int(INLINE_SECONDS * 5)):  # Until its edit has started (it's made in the background).
         fresh = video_projects.get(project.project_id, project.conversation_id) or project
-        if shape in (fresh.version(version.number) or version).exports:
+        current = fresh.version(version.number) or version
+        if shape in current.exports or shape in current.export_problems:
             break
         time.sleep(0.2)
     text = (f"Exporting version {version.number} as {shape}: it's saved to this chat when it's made, and shows in the "
