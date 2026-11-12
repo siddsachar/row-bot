@@ -39,11 +39,20 @@ AUTO_RECALL_DEFAULT_CONTEXT = 32_000
 AUTO_RECALL_MAX_QUERY_CHARS = 2_000
 CHARS_PER_TOKEN_APPROX = 4
 
-SEMANTIC_WEIGHT = 0.45
-LEXICAL_WEIGHT = 0.25
-RECENCY_WEIGHT = 0.15
-TIER_SOURCE_WEIGHT = 0.10
-EVIDENCE_RELATION_WEIGHT = 0.05
+# Relevance decides whether a memory is shown; recency and tier only order the relevant ones. Measured on
+# the owner's real turns (12 Nov): with recency, tier and evidence worth 0.30 of the 0.45 bar and a keyword
+# hit also counted as the meaning score, every turn got five memories, mostly the same project records.
+LEXICAL_ONLY_SHARE = 0.5  # A words-only match, when matching by meaning ran and found little.
+# A meaning score counts by how far it stands above the query's mean similarity to all memories: an unrelated
+# memory scores about 0.45 with the local model and about 0.15 with a cloud one, so a fixed bar can't serve both.
+SEMANTIC_CALIBRATED_SCALE = 1.4
+AUTO_RECALL_MAX_WORDS_ONLY = 2  # Memories matched by a name alone, when matching by meaning ran and missed them.
+AGREEMENT_BONUS = 0.15  # Meaning and words agree.
+RECENCY_WEIGHT = 0.10
+TIER_SOURCE_WEIGHT = 0.05
+AUTO_RECALL_RELATIVE_CUTOFF = 0.20  # Below the best memory by more than this, a memory is left out.
+FOLLOW_UP_TERMS = 3  # A latest message with fewer words than this is read with the one before it.
+RUNTIME_REQUEST_MAX_TERMS = 6
 
 _GREETING_WORDS = {
     "hello", "hi", "hey", "yo", "thanks", "thank", "ok", "okay", "cool",
@@ -225,8 +234,9 @@ def _is_greeting_only(text: str) -> bool:
 
 
 def _is_runtime_request(text: str) -> bool:
+    """A short question about Row-Bot itself ("what model are you using?"), not a task that names a tool."""
     terms = set(_terms(text))
-    if not terms:
+    if not terms or len(terms) > RUNTIME_REQUEST_MAX_TERMS:
         return False
     return bool(terms & _RUNTIME_WORDS) and not bool(terms & (_PERSONAL_ANCHORS - _RUNTIME_WORDS))
 
@@ -249,40 +259,39 @@ def _resource_is_anchored(entity: dict, query: str, tier: str) -> bool:
     return bool(q_terms & (subject_terms | source_terms))
 
 
-def _candidate_score(candidate: dict, query: str) -> tuple[float, dict]:
+def _candidate_score(candidate: dict, query: str, *, semantic_ran: bool = True,
+                     semantic_mean: float | None = None) -> tuple[float, float, dict]:
+    """(relevance, rank score, debug) of one recall candidate.
+
+    Relevance is how well the memory matches the request: its meaning score, or its words when matching by
+    meaning is unavailable. When meaning ran, a words-only match counts for part of its score, so a name that
+    appears in the message does not by itself bring a whole record in. Recency and tier only order memories
+    that are already relevant.
+    """
     props = _props(candidate)
     tier = _memory_tier(candidate, props)
 
     retrieval_score = max(0.0, min(1.0, float(candidate.get("score", 0) or 0)))
-    semantic_score = max(0.0, min(1.0, float(candidate.get("semantic_score", 0) or 0)))
-    lexical_score = max(0.0, min(1.0, float(candidate.get("lexical_score", 0) or 0)))
+    semantic = max(0.0, min(1.0, float(candidate.get("semantic_score", 0) or 0)))
+    if semantic and semantic_mean is not None and semantic_mean < 1.0:
+        semantic = max(0.0, min(1.0, SEMANTIC_CALIBRATED_SCALE * (semantic - semantic_mean) / (1.0 - semantic_mean)))
+    lexical = max(0.0, min(1.0, float(candidate.get("lexical_score", 0) or 0)))
     retrieval_debug = candidate.get("retrieval_debug", {}) or {}
     sources = set(retrieval_debug.get("sources") or [])
     via = str(candidate.get("via") or "")
-    is_lexical_only = via in {"keyword", "fts"} or (
-        sources and not (sources & {"semantic", "graph"})
-    )
-    if is_lexical_only:
-        lexical_component = max(lexical_score, retrieval_score)
-        semantic_component = 0.0
-    elif via == "graph":
-        lexical_component = lexical_score
-        semantic_component = retrieval_score * 0.8
+    # Reached only through a relation of a matching memory: its own score is the seed's, discounted.
+    graph = retrieval_score * 0.8 if via == "graph" and not sources - {"graph"} else 0.0
+
+    if semantic_ran:
+        relevance = max(semantic, LEXICAL_ONLY_SHARE * lexical, graph) + AGREEMENT_BONUS * min(semantic, lexical)
     else:
-        lexical_component = lexical_score
-        semantic_component = max(semantic_score, retrieval_score)
+        relevance = max(lexical, graph)
+    relevance = min(1.0, relevance)
 
     recency_component = max(0.0, min(1.0, float(candidate.get("decay_multiplier", 0.7) or 0.7)))
     tier_component = _tier_source_component(candidate, tier)
-    evidence_component = _evidence_component(candidate, props)
-
-    final = (
-        SEMANTIC_WEIGHT * semantic_component
-        + LEXICAL_WEIGHT * lexical_component
-        + RECENCY_WEIGHT * recency_component
-        + TIER_SOURCE_WEIGHT * tier_component
-        + EVIDENCE_RELATION_WEIGHT * evidence_component
-    )
+    rank = relevance * (1.0 - RECENCY_WEIGHT - TIER_SOURCE_WEIGHT
+                        + RECENCY_WEIGHT * recency_component + TIER_SOURCE_WEIGHT * tier_component)
     debug = {
         "id": candidate.get("id"),
         "subject": candidate.get("subject"),
@@ -290,14 +299,15 @@ def _candidate_score(candidate: dict, query: str) -> tuple[float, dict]:
         "sources": sorted(sources) or ([via] if via else []),
         "matched_field": retrieval_debug.get("matched_field"),
         "tier": tier,
-        "semantic": round(semantic_component, 4),
-        "lexical": round(lexical_component, 4),
+        "semantic": round(semantic, 4),
+        "lexical": round(lexical, 4),
+        "graph": round(graph, 4),
         "recency": round(recency_component, 4),
         "tier_source": round(tier_component, 4),
-        "evidence": round(evidence_component, 4),
-        "final": round(final, 4),
+        "relevance": round(relevance, 4),
+        "final": round(rank, 4),
     }
-    return round(final, 4), debug
+    return round(relevance, 4), round(rank, 4), debug
 
 
 def _is_weak_description_match(candidate: dict, score: float, min_score: float) -> bool:
@@ -313,8 +323,15 @@ def _is_weak_description_match(candidate: dict, score: float, min_score: float) 
 
 
 def _build_query(latest_user_text: str, recent_user_texts: list[str]) -> str:
-    pieces = [(latest_user_text or "").strip()]
-    pieces.extend(text.strip() for text in recent_user_texts if text and text.strip())
+    """The latest message; a short follow-up ("try now") is read with the message before it.
+
+    Earlier messages are not added otherwise: joined in, their names matched memories the latest message
+    is not about, in every turn of a long chat.
+    """
+    latest = (latest_user_text or "").strip()
+    pieces = [latest]
+    if len(_terms(latest)) < FOLLOW_UP_TERMS:
+        pieces.extend(text.strip() for text in recent_user_texts[:1] if text and text.strip())
     query = ""
     for piece in pieces:
         if not piece:
@@ -442,11 +459,14 @@ def build_auto_recall(
     scored: list[tuple[float, dict, dict]] = []
     rejected: list[dict] = []
 
+    semantic_ran = retrieval_diagnostics.get("semantic_status") in {"used", "no_matches"}
+    raw_mean = retrieval_diagnostics.get("semantic_mean")
+    semantic_mean = float(raw_mean) if isinstance(raw_mean, (int, float)) else None
     for candidate in candidates:
         props = _props(candidate)
         status = str(props.get("status") or "active").lower()
         tier = _memory_tier(candidate, props)
-        score, debug = _candidate_score(candidate, query)
+        score, rank, debug = _candidate_score(candidate, query, semantic_ran=semantic_ran, semantic_mean=semantic_mean)
         if status in {"archived", "contradicted", "needs_review"}:
             rejected.append({**debug, "reason": f"status_{status}"})
             continue
@@ -463,9 +483,15 @@ def build_auto_recall(
         if score < min_score:
             rejected.append({**debug, "reason": "below_threshold"})
             continue
-        scored.append((score, candidate, debug))
+        scored.append((rank, candidate, debug))
 
     scored.sort(key=lambda item: item[0], reverse=True)
+    if scored:
+        best = max(debug["relevance"] for _rank, _cand, debug in scored)
+        for _rank, _cand, debug in scored:
+            if debug["relevance"] < best - AUTO_RECALL_RELATIVE_CUTOFF:
+                rejected.append({**debug, "reason": "far_below_best"})
+        scored = [item for item in scored if item[2]["relevance"] >= best - AUTO_RECALL_RELATIVE_CUTOFF]
     if not scored:
         trace.update({
             "candidates_seen": len(candidates),
@@ -504,7 +530,25 @@ def build_auto_recall(
             )
 
     selected = []
-    for score, candidate, debug in scored[:AUTO_RECALL_MAX_MEMORIES]:
+    subjects: set[str] = set()
+    words_only_count = 0
+    for score, candidate, debug in scored:
+        if len(selected) >= AUTO_RECALL_MAX_MEMORIES:
+            break
+        subject = " ".join(str(candidate.get("subject") or "").lower().split())
+        if subject in subjects:  # Two records with one name ("Row-Bot", "row-bot"): the better one.
+            continue
+        words_only = semantic_ran and not debug["semantic"] and not debug["graph"]
+        if words_only and len(_terms(str(candidate.get("subject") or ""))) < 2:
+            # A one-word name ("Row-Bot", "X") turns up in most messages; its memory, when it matters, is
+            # found by meaning.
+            rejected.append({**debug, "reason": "words_only_single_name"})
+            continue
+        if words_only and words_only_count >= AUTO_RECALL_MAX_WORDS_ONLY:
+            rejected.append({**debug, "reason": "words_only_limit"})
+            continue
+        words_only_count += words_only
+        subjects.add(subject)
         selected_candidate = dict(candidate)
         selected_candidate["policy_score"] = score
         selected_candidate["policy_debug"] = debug
@@ -517,8 +561,8 @@ def build_auto_recall(
         "rejected": rejected[:8],
     })
     return _finish(
-        True,
-        "selected",
+        bool(selected),
+        "selected" if selected else "no_valid_candidates",
         selected,
         len(candidates),
         gating_ms=gating_ms,

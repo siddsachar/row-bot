@@ -1845,12 +1845,16 @@ def refresh_semantic_vectors(*, max_entities: int = 256,
     return {"refreshed": refreshed, "remaining": max(0, remaining - refreshed)}
 
 
-def semantic_search(query: str, top_k: int = 5, threshold: float = 0.5, *, for_auto_recall: bool = False) -> list[dict]:
+def semantic_search(query: str, top_k: int = 5, threshold: float = 0.5, *, for_auto_recall: bool = False,
+                    stats: dict | None = None) -> list[dict]:
+    """The memories closest in meaning to *query*. With ``stats``, also sets ``stats["mean"]``: the query's
+    mean similarity to every memory, the level an unrelated memory scores at with this embedding model."""
     with _generation_access():
-        return _search_vector_generation(query, top_k, threshold, for_auto_recall=for_auto_recall)
+        return _search_vector_generation(query, top_k, threshold, for_auto_recall=for_auto_recall, stats=stats)
 
 
-def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_auto_recall: bool) -> list[dict]:
+def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_auto_recall: bool,
+                              stats: dict | None = None) -> list[dict]:
     import faiss
 
     status, loaded = _vector_readiness()
@@ -1898,8 +1902,12 @@ def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_a
     # segments; each segment is searched deep enough to skip them.
     replaced = metadata.get("dead") or []
     candidates = []
+    similarity_sum, similarity_count = 0.0, 0
     for segment in metadata["segments"]:
         vectors = _read_generation_segment(directory, segment, dimension)
+        if stats is not None and vectors.count:
+            similarity_sum += float(np.sum(vectors.vectors @ query_vector[0], dtype=np.float64))
+            similarity_count += int(vectors.count)
         index = faiss.IndexFlatIP(dimension)
         index.add(vectors.vectors)
         skipped = (bisect.bisect_left(replaced, segment["start"] + segment["count"])
@@ -1915,6 +1923,8 @@ def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_a
         candidates.sort(key=lambda item: (-item[0], item[1]))
         del candidates[limit:]
         del index, vectors
+    if stats is not None and similarity_count:
+        stats["mean"] = similarity_sum / similarity_count
     results = []
     for score, position in candidates:
         entity = get_entity(metadata["ids"][position])
@@ -3647,6 +3657,12 @@ def _merge_recall_candidate(result_by_id: dict[str, dict], candidate: dict) -> N
         if source not in existing_sources:
             existing_sources.append(source)
 
+    # Each signal keeps its best value across the paths that found the memory (taken before a better
+    # candidate replaces the fields below: a keyword hit must not erase the meaning score).
+    best_scores = {
+        key: max(float(existing.get(key, 0) or 0), float(candidate.get(key, 0) or 0))
+        for key in ("semantic_score", "lexical_score", "bm25_score", "field_score", "decay_multiplier")
+    }
     if candidate.get("score", 0) > existing.get("score", 0):
         preserved_sources = list(existing_sources)
         preserved_relations = existing.get("relations", [])
@@ -3660,11 +3676,7 @@ def _merge_recall_candidate(result_by_id: dict[str, dict], candidate: dict) -> N
         if preserved_relations and not existing.get("relations"):
             existing["relations"] = preserved_relations
 
-    for key in ("semantic_score", "lexical_score", "bm25_score", "field_score", "decay_multiplier"):
-        existing[key] = max(
-            float(existing.get(key, 0) or 0),
-            float(candidate.get(key, 0) or 0),
-        )
+    existing.update(best_scores)
 
     if len(existing_debug.get("sources", [])) > 1:
         existing["via"] = "hybrid"
@@ -3768,14 +3780,18 @@ def retrieve_memory_candidates(
     seeds: list[dict] = []
     semantic_started = time.perf_counter()
     try:
+        similarity: dict = {}
         seeds = semantic_search(
             query,
             top_k=top_k,
             threshold=threshold,
             for_auto_recall=True,
+            stats=similarity,
         )
         if diagnostics is not None:
             diagnostics["semantic_status"] = "used" if seeds else "no_matches"
+            if "mean" in similarity:
+                diagnostics["semantic_mean"] = round(similarity["mean"], 4)
     except Exception as exc:
         seeds = []
         if diagnostics is not None:
