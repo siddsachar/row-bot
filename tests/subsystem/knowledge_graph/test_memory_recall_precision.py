@@ -141,3 +141,21 @@ def test_two_records_with_one_name_are_shown_once(tmp_path, monkeypatch, reload_
     decision = _recall(policy, "how is the launch film coming along")
 
     assert [m["id"] for m in decision.selected] == [first["id"]]
+
+
+def test_a_learning_lesson_is_recalled_on_the_turn_it_applies_to(tmp_path, monkeypatch, reload_for_data_dir):
+    kg, policy = _modules(tmp_path, monkeypatch, reload_for_data_dir)
+    lesson = kg.save_entity(
+        "self_knowledge",
+        "Video: verify narration against its transcript",
+        "Before delivering a narrated video, read its transcript and check every scene is voiced.",
+        source="learning",
+        properties={"learning_change": "change-1"},
+    )
+    garden = kg.save_entity("project", "Garden beds", "Raised beds planned for the spring.")
+    # A lesson is found by meaning like any memory: a lesson in use stays in the turns it applies to.
+    _meaning(kg, monkeypatch, {lesson["id"]: 0.72, garden["id"]: 0.47}, mean=0.42)
+
+    decision = _recall(policy, "render the narrated launch video and check the voice-over before sending it")
+
+    assert [m["id"] for m in decision.selected] == [lesson["id"]]
