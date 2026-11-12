@@ -15,12 +15,13 @@ from PIL import Image, ImageDraw
 KEY = (255, 0, 255)
 
 
-def painting(size: int = 160, *, eyes: str = "open", mouth: bool = False) -> bytes:
+def painting(size: int = 160, *, eyes: str = "open", mouth: bool = False,
+             outline: tuple[int, int, int] = (245, 245, 245)) -> bytes:
     image = Image.new("RGB", (size, size), KEY)
     draw = ImageDraw.Draw(image)
     k = size / 256
-    draw.ellipse([80 * k, 140 * k, 176 * k, 228 * k], fill=(60, 120, 200), outline=(245, 245, 245), width=max(1, round(2 * k)))
-    draw.ellipse([70 * k, 36 * k, 186 * k, 152 * k], fill=(80, 150, 230), outline=(245, 245, 245), width=max(1, round(2 * k)))
+    draw.ellipse([80 * k, 140 * k, 176 * k, 228 * k], fill=(60, 120, 200), outline=outline, width=max(1, round(2 * k)))
+    draw.ellipse([70 * k, 36 * k, 186 * k, 152 * k], fill=(80, 150, 230), outline=outline, width=max(1, round(2 * k)))
     for cx in (108, 148):
         if eyes == "open":
             draw.ellipse([(cx - 12) * k, 80 * k, (cx + 12) * k, 108 * k], fill=(255, 255, 255))

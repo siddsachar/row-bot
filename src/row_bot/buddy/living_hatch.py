@@ -289,6 +289,13 @@ def extract_patch(kind: str, base: CutOut, edited: bytes, face: tuple[float, flo
     if share < 0.004 or share > 0.55:
         return None
     feather = np.asarray(Image.fromarray((mask_array * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(3))) / 255.0
+    # An expression changes the face, never the outline: the model repaints the whole picture, so its edge (and
+    # the key colour's fringe on it) differs; the patch fades out inside the base art, clear of its edge.
+    opaque = Image.fromarray(((a[..., 3] > 254) * 255).astype(np.uint8))
+    inside = opaque.filter(ImageFilter.MinFilter(7)).filter(ImageFilter.GaussianBlur(1))
+    feather = feather * (np.asarray(inside) / 255.0)
+    if not (feather > 0.02).any():
+        return None
     ys, xs = np.nonzero(feather > 0.02)
     left, top, right, bottom = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
     patch = b[top:bottom, left:right].copy()

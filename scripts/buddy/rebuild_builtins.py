@@ -96,7 +96,7 @@ def expressions(pack: str, client) -> None:
     manifest["patches"] = "patches.png"
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     _review(work, art_png, patches)
-    print(f"{pack}: patches {sorted(patches)} → patches.png {len(atlas) // 1024} KB; review in {work / 'review.png'}")
+    print(f"{pack}: patches {sorted(patches)} -> patches.png {len(atlas) // 1024} KB; review in {work / 'review.png'}")
 
 
 def _review(work: pathlib.Path, art_png: bytes, patches: dict[str, living_hatch.Patch]) -> None:
