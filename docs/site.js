@@ -98,6 +98,17 @@
         return { label: 'Download for Windows', name: 'Windows', hint: '.exe', href: WINDOWS_URL, platform: 'windows' };
     }
 
+    // Where a link goes on a phone, and what it says: its own phone address (the browser door, W1), or a
+    // section of the home page.
+    function mobileLink(data, locationInfo = window.location) {
+        const isNavigation = data.osLabel === 'short';
+        const target = data.mobileTarget || (isNavigation ? 'install' : 'demos');
+        return {
+            href: data.mobileHref || sectionTarget(target, locationInfo),
+            label: data.mobileLabel || (isNavigation ? 'Desktop install' : 'See Row-Bot in action')
+        };
+    }
+
     function placementFor(element, fallback) {
         const requested = element?.dataset.placement;
         return CTA_PLACEMENTS.has(requested) ? requested : fallback;
@@ -130,10 +141,9 @@
 
     document.querySelectorAll('[data-os-primary]').forEach(link => {
         if (detectedDevice.device === 'mobile') {
-            const isNavigation = link.dataset.osLabel === 'short';
-            const target = link.dataset.mobileTarget || (isNavigation ? 'install' : 'demos');
-            link.href = sectionTarget(target);
-            link.textContent = link.dataset.mobileLabel || (isNavigation ? 'Desktop install' : 'See Row-Bot in action');
+            const choice = mobileLink(link.dataset);
+            link.href = choice.href;
+            link.textContent = choice.label;
             setPrimaryIntent(link, 'explore');
             return;
         }
@@ -144,6 +154,15 @@
             ? 'Download'
             : `${selectedPlatform.label} <small>&middot; ${selectedPlatform.hint}</small>`;
     });
+
+    // Other links with a phone address switch too; a [data-label] child keeps any arrow beside it.
+    if (detectedDevice.device === 'mobile') {
+        document.querySelectorAll('[data-mobile-href]:not([data-os-primary])').forEach(link => {
+            const choice = mobileLink(link.dataset);
+            link.href = choice.href;
+            (link.querySelector('[data-label]') || link).textContent = choice.label;
+        });
+    }
 
     document.querySelectorAll('[data-desktop-download]').forEach(link => {
         link.addEventListener('click', event => {
@@ -427,5 +446,5 @@
         });
     });
 
-    window.RowBotLanding = Object.freeze({ detectDevice, isHomepage, sectionTarget, platformChoice });
+    window.RowBotLanding = Object.freeze({ detectDevice, isHomepage, sectionTarget, platformChoice, mobileLink });
 })();

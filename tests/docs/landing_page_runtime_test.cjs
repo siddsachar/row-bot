@@ -313,3 +313,73 @@ const linuxHomepage = evaluateCtas({
     pathname: '/',
 });
 assert.equal(linuxHomepage.links.every(link => link.href === '#install'), true);
+
+// The browser door (W1), with the home page's own hero links: on a phone the main button opens the Railway
+// page and its partner hands off to the desktop; on a computer they keep the download and the demos.
+const { mobileLink } = window.RowBotLanding;
+assert.deepEqual(mobileLink({mobileHref: 'railway/', mobileLabel: 'Run in your browser'}, {pathname: '/'}),
+    {href: 'railway/', label: 'Run in your browser'});
+assert.deepEqual(mobileLink({osLabel: 'short'}, {pathname: '/features.html'}), {href: 'index.html#install', label: 'Desktop install'});
+assert.deepEqual(mobileLink({}, {pathname: '/'}), {href: '#demos', label: 'See Row-Bot in action'});
+
+const indexHtml = fs.readFileSync(path.resolve(__dirname, '../../docs/index.html'), 'utf8');
+function heroLink(pattern) {
+    const tag = indexHtml.match(pattern)[0];
+    const dataset = {};
+    for (const [, name, value = ''] of tag.matchAll(/\sdata-([a-z-]+)(?:="([^"]*)")?/g)) {
+        dataset[name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
+    }
+    return {dataset, href: tag.match(/href="([^"]*)"/)[1]};
+}
+
+function evaluateHero({navigator: runtimeNavigator, screen, coarse = false}) {
+    const main = heroLink(/<a [^>]*data-placement="hero"[^>]*>/);
+    const partner = heroLink(/<a class="hero-demo-link"[^>]*>/);
+    const primary = fakeLink(main.dataset, main.href);
+    const second = fakeLink(partner.dataset, partner.href);
+    const label = {textContent: 'Watch real demos'};
+    second.querySelector = selector => (selector === '[data-label]' ? label : null);
+    const documentElement = {dataset: {}, clientHeight: 900, scrollHeight: 900, scrollTop: 0};
+    const document = {
+        documentElement,
+        body: {},
+        activeElement: null,
+        addEventListener() {},
+        querySelector() { return null; },
+        querySelectorAll(selector) {
+            if (selector === '[data-os-primary]') return [primary];
+            if (selector === '[data-mobile-href]:not([data-os-primary])') return [second];
+            return [];
+        },
+    };
+    const runtimeWindow = {
+        navigator: runtimeNavigator,
+        screen,
+        document,
+        location: {href: 'https://row-bot.ai/', pathname: '/'},
+        matchMedia(query) { return {matches: query === '(pointer: coarse)' ? coarse : false, addEventListener() {}}; },
+        addEventListener() {},
+        setTimeout() {},
+    };
+    vm.runInNewContext(siteScript, {window: runtimeWindow, document, navigator: runtimeNavigator, URL, console});
+    return {device: documentElement.dataset.device, primary, second, label};
+}
+
+for (const testCase of mobileCtaCases) {
+    const phone = evaluateHero(testCase);
+    assert.equal(phone.device, 'mobile', testCase.name);
+    assert.equal(phone.primary.href, 'railway/', testCase.name);
+    assert.equal(phone.primary.textContent, 'Run in your browser', testCase.name);
+    assert.equal(phone.second.href, '#install-desktop', testCase.name);
+    assert.equal(phone.label.textContent, 'Continue on desktop', testCase.name);
+}
+for (const testCase of desktopCtaCases) {
+    const computer = evaluateHero(testCase);
+    assert.equal(computer.device, 'desktop', testCase.name);
+    assert.ok(computer.primary.href.endsWith(testCase.suffix), testCase.name);
+    assert.equal(computer.second.href, '#demos', testCase.name);
+    assert.equal(computer.label.textContent, 'Watch real demos', testCase.name);
+}
+// Where the phone links lead exists: the Railway page and the desktop handoff.
+assert.ok(fs.existsSync(path.resolve(__dirname, '../../docs/railway/index.html')));
+assert.match(indexHtml, /id="install-desktop"/);

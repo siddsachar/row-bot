@@ -41,6 +41,12 @@
 .landing-hero__note a { color: var(--text-soft); text-underline-offset: 3px; }
 .landing-hero__note a:hover { color: var(--steel-bright); }
 html[data-device='mobile'] .landing-hero__other { display: none; }
+/* Computers: one quiet line under the download for the browser door. Phones get it as their main button. */
+.landing-hero__browser { margin: 1rem 0 0; color: var(--text-soft); font-size: .9rem; }
+.landing-hero__browser a { color: var(--text); font-weight: 600; text-decoration: none; border-bottom: 1px solid var(--line-strong); }
+.landing-hero__browser a:hover { color: var(--steel-bright); border-bottom-color: currentColor; }
+html[data-device='mobile'] .landing-hero__browser { display: none; }
+.landing .nowrap { white-space: nowrap; }
 
 /* The real app, playing its four clips once through. */
 .product { max-width: 1120px; margin-top: clamp(88px, 8vw, 104px); }
@@ -213,6 +219,10 @@ html:not(.js) .scene-caption { display: block; margin: 16px 0 0; color: var(--te
 .local-proofs span { display: block; }
 .local-proofs strong { margin-bottom: 4px; color: #dcebf3; font-size: .88rem; }
 .local-proofs span { color: var(--text-soft); font-size: .78rem; line-height: 1.5; }
+.local-first__note { max-width: 760px; margin: 0 0 1.5rem; color: var(--text-soft); font-size: .84rem; line-height: 1.6; }
+.local-first__note strong { color: #dcebf3; font-weight: 600; }
+.local-first__note a { color: var(--steel-bright); text-underline-offset: 3px; }
+.local-first__note a:hover { color: var(--text); }
 .ownership-compare { min-width: 0; }
 .ownership-compare summary:focus-visible,
 .comparison-table-wrap:focus-visible { outline: 2px solid var(--story-cyan); outline-offset: -3px; }
@@ -223,10 +233,34 @@ html:not(.js) .scene-caption { display: block; margin: 16px 0 0; color: var(--te
 #demos.section, #faq.section, .local-first.section, .install-finale.section { padding-block: clamp(4.5rem, 6vw, 7rem); }
 #demos .section-head, #faq .section-head, .local-first .section-head { margin-bottom: clamp(2rem, 3vw, 3.5rem); }
 
+/* Install: on your computer, or in your browser. Phones see the browser first, then the desktop handoff. */
+.install-head { margin-bottom: clamp(2rem, 3vw, 3rem); }
+.install-head h2 { margin: 0; font-family: var(--serif); font-size: clamp(2.6rem, 4.2vw, 3.9rem); font-weight: 400; letter-spacing: -0.025em; line-height: 1; }
+.install-ways { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, .65fr); gap: clamp(2rem, 4.5vw, 4.5rem); align-items: start; }
+.install-way { min-width: 0; }
+.install-way h3 { margin: 0 0 .55rem; font-family: var(--serif); font-size: clamp(1.8rem, 2.4vw, 2.25rem); font-weight: 400; letter-spacing: -0.015em; line-height: 1.05; }
+.install-way p { margin: 0; color: var(--text-soft); }
+.install-way--computer { display: grid; gap: 1.6rem; }
+.install-way--browser { padding-left: clamp(2rem, 4vw, 4rem); border-left: 1px solid var(--line); }
+.install-browser__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .9rem 1.4rem; margin-top: 1.6rem; }
+.install-ways .mobile-handoff { text-align: left; }
+.install-ways .mobile-handoff > p:not(.kicker) { max-width: none; margin: 0; }
+.install-ways .handoff-actions { justify-content: flex-start; }
+.install-ways .mobile-direct-disclosure { margin-inline: 0; }
+html[data-device='mobile'] .install-ways { grid-template-columns: minmax(0, 1fr); }
+html[data-device='mobile'] .install-way--browser { padding: 0 0 2.4rem; border: 0; border-bottom: 1px solid var(--line); }
+html[data-device='mobile'] .install-browser__cta { border-color: transparent; background: var(--text); color: var(--ink); }
+.faq-list details p a { color: var(--steel-bright); text-underline-offset: 3px; }
+
 .mobile-direct-disclosure summary { justify-content: space-between; gap: .75rem; padding-inline: .65rem; border-radius: 8px; }
 .mobile-direct-disclosure summary::after { content: '+'; color: var(--story-cyan); font: 1.2rem var(--mono); }
 .mobile-direct-disclosure[open] summary::after { content: '−'; }
 .mobile-direct-disclosure summary:focus-visible { outline: 2px solid var(--story-cyan); outline-offset: 2px; }
+
+@media (max-width: 820px) {
+    .install-ways { grid-template-columns: minmax(0, 1fr); }
+    .install-way--browser { padding: 2.2rem 0 0; border: 0; border-top: 1px solid var(--line); }
+}
 
 @media (max-width: 1100px) {
     .scene-tab { padding: 12px 11px; }
@@ -246,6 +280,8 @@ html:not(.js) .scene-caption { display: block; margin: 16px 0 0; color: var(--te
     .landing-hero__lead { margin-bottom: 1.6rem; font-size: 1rem; }
     .landing-hero__cta { width: 100%; flex-direction: column; align-items: stretch; }
     .landing-hero__cta .hero-demo-link { justify-content: center; }
+    .install-browser__actions { flex-direction: column; align-items: stretch; }
+    .install-browser__actions .text-link { min-height: 44px; display: flex; align-items: center; justify-content: center; }
     .product { margin-top: 72px; }
     .product-frame { border-radius: 11px; }
     .product-frame__bar { height: 24px; border-radius: 10px 10px 0 0; }

@@ -145,9 +145,11 @@ def test_mobile_handoff_and_product_media_contracts() -> None:
     assert "document.execCommand?.('copy')" in JS
 
     parser = _parse()
-    # On a phone the hero's download button hands off to desktop; its partner opens the demos.
+    # On a phone the hero's download button opens Row-Bot in the browser (the Railway page); its partner
+    # hands off to the desktop (landing_page_runtime_test.cjs runs the switch).
     hero_primary = next(link for link in parser.links if link.get("data-placement") == "hero")
-    assert hero_primary.get("data-mobile-target") == "install"
+    assert hero_primary.get("data-mobile-href") == "railway/"
+    assert hero_primary.get("data-mobile-label") == "Run in your browser"
     video_images = [image for image in parser.images if image.get("src", "").startswith("media/landing-story/demos/")]
     deferred_images = [image for image in parser.images if image.get("data-src", "").startswith("media/landing-story/demos/")]
     assert len(video_images) == len(deferred_images) == 4
@@ -283,7 +285,7 @@ def test_marketing_pages_share_analytics_and_download_conversion_contract() -> N
     for name in MARKETING_PAGES:
         content = (ROOT / "docs" / name).read_text(encoding="utf-8")
         version = cache_versions[name]
-        assert f'src="site.js?v={version}"' in content, name
+        assert f'src="site.js?v={version}-r1"' in content, name
         assert f'href="site.css?v={version}-r1"' in content, name
         assert "googletagmanager.com/gtag/js" not in content, name
 
