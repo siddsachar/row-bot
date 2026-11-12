@@ -2117,7 +2117,7 @@ def _turn_recall(messages: list, max_tokens: int) -> tuple[list[dict], Any]:
     )
 
     def recall_block(memories: list[dict]) -> str:
-        return format_recall_block(memories, context_window=context_window)
+        return format_recall_block(memories, context_window=context_window, query=human_texts[0])
 
     selected = list(decision.selected) if decision.allowed and decision.selected else []
     if small_profile and len(selected) > _SMALL_PROFILE_RECALL_MEMORIES:
