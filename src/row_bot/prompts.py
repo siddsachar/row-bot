@@ -535,6 +535,40 @@ knowledge-base style.
 Return ONLY the merged description text. No preamble, no explanation."""
 
 
+DREAM_COMPARE_PROMPT = """\
+You are a knowledge-graph curator with high standards. Each numbered pair \
+below holds two saved memories that read alike. For each pair, decide what \
+the newer memory means for the older one.
+
+Answer with exactly one decision per pair:
+- "same": both say the same thing about the same subject, perhaps in other \
+words. One memory is enough, so the two will be merged.
+- "replaces": both answer the same question about the same subject, and the \
+NEWER memory changes, corrects or updates what the OLDER one says. Example: \
+an older "prefers a dark theme for recordings" and a newer "prefers a light \
+theme for recordings". The older one is kept but marked as replaced.
+- "different": anything else.
+
+RULES — read carefully:
+1. Reading alike is NOT enough. Two facts about the same person, place or \
+project that can both be true at once are "different", not "same".
+2. "same" only when merging loses nothing that matters: the same subject and \
+the same facts. A memory that adds a new fact is "different".
+3. "replaces" only when both cannot be true at once and the newer one is \
+what holds now. Never "replaces" when the newer one only adds detail.
+4. Different subjects (two people, two projects, two places) are always \
+"different", whatever their descriptions share.
+5. When unsure, answer "different". Leaving two memories apart costs little; \
+merging or replacing the wrong one loses what the person said.
+
+Return a JSON object with one entry per pair:
+{{"decisions": [{{"pair": <pair number>, "decision": "same" | "replaces" | "different", "reason": "<short reason>"}}]}}
+
+{pairs}
+
+Return ONLY the JSON object. No other text."""
+
+
 DREAM_ENRICH_PROMPT = """\
 You are a knowledge-graph curator. An entity has a thin description that \
 needs to be enriched using evidence from conversations.
