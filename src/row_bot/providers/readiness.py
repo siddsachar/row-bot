@@ -735,15 +735,23 @@ def _snapshot_for_resolved(
         except Exception:
             pass
     try:
-        from row_bot.providers.capability_resolution import resolve_capability_snapshot
+        from row_bot.providers.capability_resolution import resolve_capability_metadata
 
-        resolved_snapshot = resolve_capability_snapshot(
+        found = resolve_capability_metadata(
             resolved.provider_id,
             resolved.runtime_model,
             transport=resolved.transport,
         )
-        if resolved_snapshot:
-            return resolved_snapshot
+        if found.source == "ollama_static_fallback" and found.snapshot.get("tool_calling") is not True:
+            # A model made since the last catalog refresh (I30, e.g. prec-qwen3.5-4b): before refusing
+            # it tools on the family list's guess, ask Ollama what it does.
+            from row_bot.providers.model_catalog import ollama_reported_snapshot
+
+            reported = ollama_reported_snapshot(resolved.runtime_model)
+            if reported:
+                return reported
+        if found.snapshot:
+            return found.snapshot
     except Exception:
         pass
     return model_info_from_metadata(
