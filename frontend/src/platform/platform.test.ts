@@ -1453,6 +1453,34 @@ describe('desktop windows never run the browser versions silently (B231, B238)',
   });
 });
 
+describe('a save that starts before its file is made', () => {
+  it('starts inside the click and takes the name the made file has', async () => {
+    const { saveBrowserDownload } = await import('./download');
+    const named: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      named.push(this.download);
+    });
+    let name = '';
+    const browser = Object.assign(Object.create(window), {
+      document,
+      navigator: { userActivation: { isActive: true } },
+    }) as Window;
+    const result = await saveBrowserDownload(
+      async () => {
+        name = 'Row-Bot backup 2026-11-11 2100.zip';
+        return new Blob(['zip']);
+      },
+      () => name,
+      undefined,
+      browser,
+    );
+    expect(result).toEqual({ status: 'ok', value: null });
+    expect(named).toEqual(['Row-Bot backup 2026-11-11 2100.zip']);
+  });
+});
+
 describe('downloads in a desktop window (B275)', () => {
   it('never reports a download pywebview would cancel as started', async () => {
     const { saveBrowserDownload } = await import('./download');
