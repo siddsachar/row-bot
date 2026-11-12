@@ -19,6 +19,9 @@ PROVIDER_NAMES = {
     "deepseek": "DeepSeek",
     "mem0": "mem0",
     "letta": "Letta",
+    "hermes": "Hermes Agent",
+    "openclaw": "OpenClaw",
+    "grok_bot": "Grok Bot",
     "pasted": "Pasted text",
 }
 

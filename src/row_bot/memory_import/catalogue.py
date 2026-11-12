@@ -100,6 +100,22 @@ SOURCES: tuple[SourceInfo, ...] = (
         "Export the agent as an Agent File (.af) from Letta and add it; its core memory about you is imported.",
     ),
     SourceInfo(
+        "hermes", "Hermes Agent", "memories", False,
+        "Add USER.md and MEMORY.md from the memories folder of Hermes's home (~/.hermes, or %LOCALAPPDATA%\\hermes "
+        "on Windows), or the zip `hermes backup` makes. For chats, also add state.db or a `hermes sessions export` file.",
+    ),
+    SourceInfo(
+        "openclaw", "OpenClaw", "memories", False,
+        "Add USER.md, MEMORY.md and the dated notes in the memory folder of your agent's workspace "
+        "(~/.openclaw/workspace by default), or the workspace as a zip. For chats, also add the agent's "
+        "openclaw-agent.sqlite or its sessions .jsonl files.",
+    ),
+    SourceInfo(
+        "grok_bot", "Grok Bot", "none", True,
+        "Grok Bot keeps each Bot's memory in xAI's cloud with no export. Paste the prompt into each Bot's chat and "
+        "paste its answer back here (the text of a grok-bot-export file a Bot wrote works too).",
+    ),
+    SourceInfo(
         "other", "Another assistant", "none", True,
         "Paste the prompt into the assistant, then paste its whole answer back here.",
     ),
