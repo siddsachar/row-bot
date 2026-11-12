@@ -10,7 +10,9 @@ from collections.abc import Callable, Iterator
 from functools import partial
 from pathlib import Path
 
-from row_bot.memory_import import chatgpt, claude, copilot, deepseek, gemini, grok, letta, mem0, pasted, perplexity
+from row_bot.memory_import import (
+    agents, chatgpt, claude, copilot, deepseek, gemini, grok, letta, mem0, pasted, perplexity,
+)
 from row_bot.memory_import.archive import Member, expand, memory_member, normal_name
 from row_bot.memory_import.detect import classify, shard_number
 from row_bot.memory_import.models import ImportedConversation, ImportScan
@@ -34,6 +36,10 @@ _CONVERSATIONS: dict[str, tuple[str, ConversationReader]] = {
     "grok": ("grok", grok.iter_conversations),
     "deepseek": ("deepseek", deepseek.iter_conversations),
     "letta": ("letta", letta.iter_conversations),
+    "hermes_db": (agents.HERMES, agents.iter_hermes_db),
+    "hermes_sessions": (agents.HERMES, agents.iter_hermes_sessions),
+    "openclaw_transcript": (agents.OPENCLAW, agents.iter_openclaw_transcript),
+    "openclaw_db": (agents.OPENCLAW, agents.iter_openclaw_db),
 }
 _FACTS: dict[str, tuple[str, FactReader]] = {
     "claude_memory": ("claude", claude.read_memories),
@@ -42,9 +48,15 @@ _FACTS: dict[str, tuple[str, FactReader]] = {
     "openmemory": ("mem0", mem0.read_openmemory),
     "openmemory_lines": ("mem0", mem0.read_openmemory_lines),
     "letta": ("letta", letta.read_blocks),
+    "hermes_memory": (agents.HERMES, agents.read_hermes_memory),
+    "openclaw_memory": (agents.OPENCLAW, agents.read_openclaw_memory),
+    "grok_bot": (agents.GROK_BOT, agents.read_grok_bot_file),
 }
 _SKIP_REASONS = {
-    "account": "Account details (name, email, logins or billing) are never imported.",
+    "account": "Account details, settings and keys (name, email, logins, billing, passwords) are never imported.",
+    "agent_persona": "The agent's persona and operating rules, not memories about you.",
+    "database_in_archive": "A database inside an archive is not opened; add the database file itself to read its chats.",
+    "database_unknown": "A database Row-Bot doesn't know how to read.",
     "claude_projects": "Claude projects hold project instructions and documents, not memories about you.",
     "chatgpt_single": "A single ChatGPT chat on its own is not an export; add the whole export zip.",
     "empty": "The file holds no records.",

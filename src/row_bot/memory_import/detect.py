@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from row_bot.memory_import import agents
 from row_bot.memory_import.archive import Member, normal_name, sniff
 from row_bot.memory_import.copilot import is_copilot_csv
 from row_bot.memory_import.streaming import JsonFormatError, JsonStream
@@ -11,7 +12,10 @@ from row_bot.memory_import.values import as_dict, as_list
 
 
 ACCOUNT_NAMES = re.compile(
-    r"^(?:user|users|user-settings|login-history|account|profile)\.json$|^prod-mc-.*\.json$|^user-data-.*",
+    r"^(?:user|users|user-settings|login-history|account|profile)\.json$|^prod-mc-.*\.json$|^user-data-.*"
+    # Agents' settings and keys (Hermes and OpenClaw backups hold them): never read.
+    r"|^\.env(?:\..*)?$|^auth(?:-profiles)?\.json$|^openclaw\.json$|^config\.ya?ml$|^credentials?(?:[.-].*)?$"
+    r"|.*\.(?:pem|key)$",
 )
 _SNIFF_KEYS = 40
 _SNIFF_ITEMS = 5
@@ -66,6 +70,8 @@ def _object_kind(seen: dict[str, Any], *, final: bool) -> str | None:
         return "letta"
     if "agents" in seen and "blocks" in seen:
         return "letta"
+    if seen.get("format") == "grok-bot-export":
+        return "grok_bot"
     if {"conversations_memory", "memory_files", "project_memories"} & seen.keys():
         return "claude_memory"
     if "logical_files" in seen or "export_files" in seen:
@@ -116,6 +122,15 @@ def classify(member: Member) -> str:
     kind = sniff(member.head)
     if ACCOUNT_NAMES.match(member.base) or member.base.endswith(".xlsx"):
         return "account"
+    agent_file = agents.memory_file_kind(member)
+    if agent_file:
+        return agent_file
+    if member.head.startswith(b"SQLite format 3\x00"):
+        return agents.database_kind(member)
+    if member.base.endswith(".jsonl"):
+        lines = agents.jsonl_kind(member)
+        if lines:
+            return lines
     if kind == "json":
         try:
             return _classify_json(member)

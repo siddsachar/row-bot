@@ -46,6 +46,7 @@ class Member:
     open: Opener
     head: bytes
     archive: str | None = None
+    path: Path | None = None  # the picked file itself (not one inside an archive), for databases
 
     @property
     def base(self) -> str:
@@ -209,7 +210,7 @@ def expand(path: Path) -> Expansion:
         elif kind == "tar":
             _expand_tar(path, result)
         else:
-            result.members.append(Member(path.name, path.name, opener, head))
+            result.members.append(Member(path.name, path.name, opener, head, path=path))
     except UnsafeArchiveError as exc:
         result.members.clear()
         result.warnings.append(str(exc))

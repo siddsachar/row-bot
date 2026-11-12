@@ -5,6 +5,8 @@ with "Evidence … Date: [YYYY-MM-DD]" lines, and plain lists or Markdown.
 """
 from __future__ import annotations
 
+import json
+
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -84,8 +86,32 @@ def says_more_remain(trailer: str) -> bool:
     return bool(_MORE.search(trailer)) and not _NO_MORE.search(trailer)
 
 
+def _grok_bot_export(text: str) -> dict | None:
+    """A Grok Bot's ``grok-bot-export`` JSON, pasted on its own or in a fenced block, else ``None``."""
+    if "grok-bot-export" not in text:
+        return None
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    candidate = text[start:end + 1].replace("\u201c", '"').replace("\u201d", '"')
+    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)  # a trailing comma a model left in
+    try:
+        data = json.loads(candidate)
+    except ValueError:
+        return None
+    from row_bot.memory_import.agents import is_grok_bot_export
+
+    return data if is_grok_bot_export(data) else None
+
+
 def parse(text: str, sink: Sink, *, source: str = "pasted", label: str = "Pasted answer", ref: str = "pasted") -> bool:
     """Add the answer's facts to ``sink``; whether the answer says more remain."""
+    exported = _grok_bot_export(text)
+    if exported is not None:
+        from row_bot.memory_import.agents import read_grok_bot_export
+
+        read_grok_bot_export(exported, sink, ref=f"{ref}:grok-bot")
+        return False
     body, trailer = body_and_trailer(text)
     pending: list[_Pending] = []
     section: tuple[str, tuple[str, ...], str | None] = ("fact", (), None)
