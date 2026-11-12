@@ -84,6 +84,10 @@ def studio(tmp_path, monkeypatch, reload_for_data_dir):
         for arg in argv:
             if arg.startswith("file:") and argv[argv.index(arg) - 1] != "-i":
                 name = arg[len("file:"):]
+                if "%02d" in name:  # One read that picks a still at each time (stills_arguments).
+                    for number in range(1, " ".join(argv).count("gte(t,") + 1):
+                        (root / (name % number)).write_bytes(_jpeg())
+                    continue
                 (root / name).write_bytes(_jpeg() if name.endswith(".jpg") else MP4)
         tracked.on_output("stdout", "out_time_us=3000000\nprogress=end\n")
         tracked.exit(0)
@@ -291,6 +295,19 @@ def test_frames_are_saved_as_stills_with_one_contact_sheet(studio):
     edit = studio.edits.get(_edit_id(result))
     view = studio.edits.view(edit)
     assert (view["kind"], view["frame_count"], view["mime_type"]) == ("frames", 3, "image/jpeg")
+
+
+def test_many_frames_are_picked_in_one_read_of_the_video(studio):
+    """R5: 18 to 34 times opened the video once each and failed ("no details"); past a few, one read picks them."""
+    from row_bot.application.attachments import list_conversation_files
+
+    result = studio.edit(action="frames", inputs=["demo.mp4"], times=[0.25 * step for step in range(1, 21)])
+
+    assert ": saved 20 frames" in result
+    argv = studio.started[-1]["argv"]
+    assert argv.count("-i") == 1, "the video is read once"
+    names = sorted(item["name"] for item in list_conversation_files(studio.chat) if item["name"].startswith("frame-"))
+    assert names[0] == "frame-01.jpg" and names[-1] == "frame-20.jpg" and len(names) == 20
 
 
 def test_a_failed_edit_says_what_ffmpeg_said(studio):

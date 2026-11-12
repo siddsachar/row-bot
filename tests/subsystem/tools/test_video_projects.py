@@ -275,6 +275,43 @@ def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
         video_projects.export(project, "4:3")
 
 
+def test_an_export_that_cannot_be_made_says_why_in_the_videos_summary(studio, monkeypatch):
+    """R5 (12 Nov): a 9:16 export twice made no file and said nothing; the summary never listed exports."""
+    import threading
+
+    from row_bot import media_sources, video_edits, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    made = video_edits.get(_wait(project.project_id, 1).edit_id)
+    saved = register_attachment("conversation-a", "Launch demo v1.mp4", MP4)
+    video_edits._set(made, status="saved", media_ref=saved["attachment_ref"], mime_type="video/mp4")
+
+    def gone(value, conversation):
+        raise media_sources.SourceError(f"{value} isn't in this chat any more.")
+
+    found = media_sources.resolve
+    monkeypatch.setattr(media_sources, "resolve", gone)
+    video_projects.export(project, "9:16")
+    for _ in range(300):
+        if "9:16" in video_projects.get(project.project_id).latest.export_problems:
+            break
+        threading.Event().wait(0.01)
+    summary = video_projects.summary(video_projects.get(project.project_id))
+    assert "Export 9:16: not made: signup.mp4 isn't in this chat any more." in summary
+    assert video_projects.get(project.project_id).latest.edit_id == made.edit_id, "the version's own video stays"
+
+    monkeypatch.setattr(media_sources, "resolve", found)
+    video_projects.export(project, "9:16")
+    for _ in range(300):
+        if "9:16" in video_projects.get(project.project_id).latest.exports:
+            break
+        threading.Event().wait(0.01)
+    summary = video_projects.summary(video_projects.get(project.project_id))
+    assert "not made" not in summary and "Export 9:16:" in summary, "trying again clears the old reason"
+
+
 def test_the_brand_kit_is_used_for_every_video_unless_a_version_turns_it_off(studio):
     import io
 
