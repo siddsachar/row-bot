@@ -50,6 +50,7 @@ import {
   Bot,
   Code2,
   ImageOff,
+  Layers,
   LifeBuoy,
   ListPlus,
   MoreHorizontal,
@@ -2176,6 +2177,44 @@ export default function Conversation({
     });
     overlay.close();
   }
+  // On a phone the deck or folder this chat works on is one tap from its
+  // header (D7): a small pill saying what it is, or a list when several.
+  const workingOnResources = resources.filter((resource) => resource.available);
+  const workingOnGlyph = (resource: ResourceView) =>
+    resource.binding.kind === 'artifact' ? (
+      <Palette size={16} aria-hidden />
+    ) : (
+      <Code2 size={16} aria-hidden />
+    );
+  const workingOnKind = (resource: ResourceView) =>
+    resource.binding.kind === 'artifact' ? 'Design' : 'Code';
+  const workingOn =
+    headerMenu && workingOnResources.length === 1 ? (
+      <Button
+        variant="ghost"
+        className="working-on"
+        aria-label={`Working on ${workingOnResources[0].title}`}
+        onClick={() => resourcePanel(workingOnResources[0])}
+      >
+        {workingOnGlyph(workingOnResources[0])}
+        {workingOnKind(workingOnResources[0])}
+      </Button>
+    ) : headerMenu && workingOnResources.length > 1 ? (
+      <Menu
+        label="Working on"
+        variant="ghost"
+        className="working-on"
+        actions={workingOnResources.map((resource) => ({
+          label: resource.title,
+          description: workingOnKind(resource),
+          icon: workingOnGlyph(resource),
+          onSelect: () => resourcePanel(resource),
+        }))}
+      >
+        <Layers size={16} aria-hidden />
+        Work
+      </Menu>
+    ) : undefined;
   function useOutputInCode(output: { reference: string; mime: string }) {
     if (!id) return;
     const current = controller.getDraft(id);
@@ -3305,6 +3344,7 @@ export default function Conversation({
             actions={headerActions}
             leading={headerLeading}
             incognito={incognito}
+            workingOn={workingOn}
             menuActions={
               headerMenu && id && state.conversation?.id === id
                 ? [
