@@ -10,6 +10,7 @@ reported as None/False and the pet degrades (an opaque, clickable window).
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import sys
@@ -212,7 +213,14 @@ class _Mac:
         self.on_main = AppHelper.callAfter
 
     def prepare(self, window: Any) -> bool:
-        return True  # pywebview's Cocoa window is already transparent and takes clicks
+        """pywebview's Cocoa window is already transparent and takes clicks; make the first one count."""
+        try:
+            _first_click_where_marked()
+            setattr(window.native, _FIRST_CLICK, True)
+            return True
+        except Exception:
+            logger.warning("Buddy pet: first-click setup failed", exc_info=True)
+            return False
 
     def set_click_through(self, window: Any, through: bool) -> bool:
         try:
@@ -297,6 +305,31 @@ class _Mac:
 
     def foreground(self) -> OtherWindow | None:
         return window_in_use(self._listed(1), self.pid)
+
+
+_FIRST_CLICK = "row_bot_first_click"  # set on the pet's NSWindow
+
+
+@functools.cache
+def _first_click_where_marked() -> None:
+    """Let pywebview's web views act on the click that activates Row-Bot, in marked windows only.
+
+    WebKit says no, so a click on an inactive window only brings it forward;
+    every unmarked window (the main one) keeps that answer. The method is added
+    to pywebview's class once: swapping a live web view's class instead crashed
+    macOS 27, as WebKit observes its views.
+    """
+    import objc
+    from webview.platforms.cocoa import BrowserView
+
+    host = BrowserView.WebKitHost
+
+    def acceptsFirstMouse_(self, event):
+        if getattr(self.window(), _FIRST_CLICK, False):
+            return True
+        return objc.super(host, self).acceptsFirstMouse_(event)
+
+    objc.classAddMethods(host, [acceptsFirstMouse_])
 
 
 def pet_native(platform: str | None = None) -> PetNative | None:
