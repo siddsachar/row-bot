@@ -14,7 +14,7 @@
           "type": "string"
         },
         "completed_clips": {
-          "maximum": 6,
+          "maximum": 7,
           "minimum": 0,
           "title": "Completed Clips",
           "type": "integer"
@@ -64,7 +64,7 @@
           "type": "string"
         },
         "total_clips": {
-          "maximum": 6,
+          "maximum": 7,
           "minimum": 0,
           "title": "Total Clips",
           "type": "integer"

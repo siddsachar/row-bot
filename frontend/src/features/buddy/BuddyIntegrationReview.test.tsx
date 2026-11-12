@@ -59,7 +59,7 @@ const result = (id: string): HatchResult => ({
   command_id: id,
   job_id: 'buddy-hatch-' + id,
   status: 'running',
-  stage: 'motion_provider_started',
+  stage: 'expression_provider_started',
   pack_id: null,
   selected: false,
   completed_clips: 1,
@@ -83,7 +83,7 @@ function api(): BuddyPanelTransport {
       action: r.action,
       config_revision: r.config_revision,
       image_model: 'fixture/image',
-      video_model: 'fixture/video',
+      video_model: null,
       provider_calls: 7,
     })),
     execute: vi.fn(async (c) => ({
@@ -143,7 +143,7 @@ it('starts a generated look in one click and releases settled command state', as
   fireEvent.change(screen.getByLabelText('Describe your Buddy'), {
     target: { value: 'Synthetic look' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Generate full Buddy' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Hatch Buddy' }));
   await waitFor(() => expect(transport.execute).toHaveBeenCalledTimes(1));
   expect(transport.review).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole('button', { name: 'Dismiss review' })).toBeNull();

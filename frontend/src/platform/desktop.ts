@@ -344,6 +344,8 @@ export function createDesktopPlatform(
       ),
     readBuddyTarget: () =>
       run((platform) => platform.readBuddyTarget(), 'background'),
+    buddyPet: (request) =>
+      run((platform) => platform.buddyPet(request), 'background'),
     showMainWindow: (conversationId) =>
       run((platform) => platform.showMainWindow(conversationId)),
     moveWindow: (x, y) => native?.moveWindow(x, y) ?? false,

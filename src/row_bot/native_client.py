@@ -29,13 +29,18 @@ _SHELL_PATH = re.compile(r"/app-v2(?:/(?:[A-Za-z0-9_-]|%[0-9A-Fa-f]{2})+)*/?")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
                          "clipboard_write", "open_external", "managed_window", "save",
                          "terminal_open", "terminal_external", "buddy_placement", "buddy_follow",
-                         "main_window", "reveal_saved"})
+                         "buddy_pet", "main_window", "reveal_saved"})
 # A file a Save dialog wrote, shown in its folder later by a token (never its path); the newest few.
 _SAVED_TOKEN = re.compile(r"[0-9a-f]{32}")
 _SAVED_KEPT = 8
 # Main windows tear Buddy off and dock it; the desktop Buddy docks, hides
 # itself and reports that its first view is drawn ("ready").
 _BUDDY_ACTIONS = frozenset({"status", "dock", "hide", "ready"})
+# The desktop pet's own window: its layout (bubble open or not), the pixels that
+# take clicks, drags, and what it should look at. Answers carry only these keys.
+_PET_ACTIONS = frozenset({"layout", "hit", "drag", "state"})
+_PET_ANSWER = frozenset({"accepted", "side", "expanded", "width", "height", "petX", "petY", "cursor", "landed",
+                         "perched", "following"})
 # A document's lease. It runs from the latest attestation the document
 # exchanged, so a long-lived window renews it with a fresh one (B99).
 LEASE_SECONDS = 1800
@@ -43,6 +48,23 @@ LEASE_SECONDS = 1800
 
 def _unavailable(reason: str = "unsupported") -> dict[str, Any]:
     return {"status": "unavailable", "reason": reason}
+
+
+def _pet_answer(value: object) -> bool:
+    """A pet answer holds only plain layout and state values (and a cursor of three numbers)."""
+    if not isinstance(value, dict) or not value or not set(value) <= _PET_ANSWER:
+        return False
+    for key, item in value.items():
+        if key == "cursor":
+            if item is not None and not (isinstance(item, dict) and set(item) == {"x", "y", "age"} and all(
+                    isinstance(part, (int, float)) and not isinstance(part, bool) for part in item.values())):
+                return False
+        elif key == "side":
+            if item not in {"left", "right"}:
+                return False
+        elif not isinstance(item, (bool, int, float)) or (isinstance(item, float) and item != item):
+            return False
+    return True
 
 
 def safe_external_url(value: object) -> str | None:
@@ -136,6 +158,7 @@ class NativeDriver(Protocol):
     def managed_window(self, route: str) -> bool: ...
     def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None: ...
     def buddy_follow(self, conversation_id: str | None) -> dict[str, Any] | None: ...
+    def buddy_pet(self, payload: dict[str, Any]) -> dict[str, Any] | None: ...
     def main_window(self, conversation_id: str | None) -> bool: ...
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None: ...
     def reveal(self, path: Path) -> bool: ...
@@ -209,6 +232,7 @@ class PyWebViewDriver:
                  publish_buddy_target: Callable[[str], dict[str, Any] | None] | None = None,
                  read_buddy_target: Callable[[], dict[str, Any] | None] | None = None,
                  show_main_window: Callable[[str | None], bool] | None = None,
+                 buddy_pet: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
                  allowed: frozenset[str] | None = None) -> None:
         if publish_buddy_target is not None and read_buddy_target is not None:
             # One window either publishes what it shows or follows; never both.
@@ -223,6 +247,7 @@ class PyWebViewDriver:
         self._publish_buddy_target = publish_buddy_target
         self._read_buddy_target = read_buddy_target
         self._show_main_window = show_main_window
+        self._buddy_pet = buddy_pet
         self._allowed = allowed
 
     def capabilities(self) -> list[str]:
@@ -231,6 +256,7 @@ class PyWebViewDriver:
                                ("clipboard_write", self._write_clipboard), ("save", self._save_reference),
                                ("buddy_placement", self._buddy_placement),
                                ("buddy_follow", self._publish_buddy_target or self._read_buddy_target),
+                               ("buddy_pet", self._buddy_pet),
                                ("main_window", self._show_main_window)):
             if callback is not None:
                 result.append(name)
@@ -269,6 +295,9 @@ class PyWebViewDriver:
 
     def main_window(self, conversation_id: str | None) -> bool:
         return bool(self._show_main_window and self._show_main_window(conversation_id))
+
+    def buddy_pet(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        return self._buddy_pet(payload) if self._buddy_pet else None
 
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None:
         """The file written (so Show in folder can find it), None when cancelled, False when not saved."""
@@ -657,6 +686,15 @@ class NativeClientBridge:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")
                 return {"status": "ok", "value": None} if result else _unavailable()
+            if operation == "buddy_pet":
+                if (payload.get("action") not in _PET_ACTIONS
+                        or len(json.dumps(payload, separators=(",", ":"))) > 1024):
+                    return _unavailable("invalid_request")
+                value = self._driver.buddy_pet(dict(payload))
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                return ({"status": "ok", "value": value} if _pet_answer(value) else _unavailable("invalid_request"))
             if operation == "buddy_placement":
                 action = payload.get("action")
                 point = action == "tear_off" and set(payload) == {"action", "x", "y"}

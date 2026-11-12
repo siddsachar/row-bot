@@ -81,6 +81,39 @@ export type BuddyPlacement = {
   placement: 'docked' | 'desktop';
   visible: boolean;
 };
+/**
+ * The desktop pet's own window (D5–D9). The page reports its layout (bubble or
+ * menu open) and which pixels take clicks (Buddy's silhouette as 24×24 cells,
+ * base64, plus the open bubble or menu), says when a drag starts and ends,
+ * and reads where the cursor is and whether Buddy just landed.
+ */
+export type BuddyPetRequest =
+  | { action: 'layout'; expanded: boolean }
+  | {
+      action: 'hit';
+      pet: [number, number, number, number];
+      cells: string;
+      bubble?: [number, number, number, number] | null;
+      menu?: [number, number, number, number] | null;
+    }
+  | { action: 'drag'; phase: 'start' | 'end' }
+  | { action: 'state' };
+export type BuddyPetState = {
+  side: 'left' | 'right';
+  expanded: boolean;
+  width: number;
+  height: number;
+  /** Buddy's box inside the window, in CSS pixels. */
+  petX: number;
+  petY: number;
+  /** The cursor relative to Buddy's box, and seconds since it last moved. */
+  cursor: { x: number; y: number; age: number } | null;
+  landed: number;
+  perched: boolean;
+  following: boolean;
+};
+export type BuddyPetAnswer = Partial<BuddyPetState> & { accepted?: boolean };
+
 /** The conversation the desktop Buddy follows, as the native host last heard it. */
 export type BuddyTarget = { conversationId: string | null; revision: number };
 
@@ -105,6 +138,8 @@ export interface ClientPlatform {
   ): Promise<CapabilityResult<BuddyTarget>>;
   /** Desktop Buddy: the conversation the main window has open. */
   readBuddyTarget(): Promise<CapabilityResult<BuddyTarget>>;
+  /** Desktop Buddy: its own pet window (layout, hit mask, drags, state). */
+  buddyPet(request: BuddyPetRequest): Promise<CapabilityResult<BuddyPetAnswer>>;
   /** Desktop Buddy: bring the main window forward on a conversation. */
   showMainWindow(
     conversationId: string | null,

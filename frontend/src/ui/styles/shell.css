@@ -633,19 +633,17 @@
   background: var(--canvas);
 }
 
-/* Buddy in the footer: an avatar with an activity ring and its status; the
-   name is the avatar's tooltip. The ring is quiet at rest, turns while
-   Buddy works, and takes the approval, error and done tones. The collapsed
-   rail keeps a small avatar. */
+/* Buddy in the footer: the living character and its status; the name is
+   its tooltip. A small dot by its feet takes the working, approval and error
+   tones. The collapsed rail keeps a small Buddy. */
 .navigation,
 .navigation-rail {
   --nav-buddy-size: 112px;
-  --nav-buddy-ring-width: 2.5px;
-  --nav-buddy-ring: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  --nav-buddy-dot-size: 10px;
 }
 .navigation-rail {
   --nav-buddy-size: 30px;
-  --nav-buddy-ring-width: 2px;
+  --nav-buddy-dot-size: 7px;
 }
 /* A short sidebar keeps its room for the list: the avatar shrinks. Rows
    scrolled or focused into view stay clear of the sticky footer. */
@@ -713,30 +711,27 @@
   min-height: calc(var(--nav-buddy-size) + 8px);
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-card);
   background: transparent;
 }
-/* The ring: a hairline at rest; the activity colour while Buddy works. */
+/* What Buddy is busy with, at a glance: a small dot by its feet. Its pose says the rest. */
 .navigation .buddy-avatar-button::before,
 .navigation-rail .buddy-avatar-button::before {
   position: absolute;
-  inset: 0;
-  z-index: 0;
+  right: 12%;
+  bottom: 10%;
+  z-index: 2;
+  width: var(--nav-buddy-dot-size);
+  height: var(--nav-buddy-dot-size);
   content: '';
   border-radius: 50%;
-  background: var(--nav-buddy-ring);
-  -webkit-mask: radial-gradient(
-    farthest-side,
-    transparent calc(100% - var(--nav-buddy-ring-width)),
-    #000 calc(100% - var(--nav-buddy-ring-width) + 0.5px)
-  );
-  mask: radial-gradient(
-    farthest-side,
-    transparent calc(100% - var(--nav-buddy-ring-width)),
-    #000 calc(100% - var(--nav-buddy-ring-width) + 0.5px)
-  );
+  background: var(--nav-buddy-dot);
+  box-shadow: 0 0 0 2px var(--canvas);
+  opacity: 0;
   pointer-events: none;
-  transition: background-color var(--motion-popover) var(--ease-out);
+  transition:
+    opacity var(--motion-popover) var(--ease-out),
+    background-color var(--motion-popover) var(--ease-out);
 }
 .buddy-avatar-button:has(
   .buddy-avatar-frame:is(
@@ -745,13 +740,30 @@
     [data-state='tool']
   )
 ) {
-  --nav-buddy-ring: conic-gradient(
-    from 0deg,
-    var(--accent-solid),
-    color-mix(in srgb, var(--accent-solid) 10%, transparent) 70%,
-    var(--accent-solid)
-  );
-  --nav-buddy-ring-width: 3px;
+  --nav-buddy-dot: var(--accent-solid);
+}
+.buddy-avatar-button:has(
+  .buddy-avatar-frame:is([data-state='approval'], [data-state='stopping'])
+) {
+  --nav-buddy-dot: var(--status-warning-text);
+}
+.buddy-avatar-button:has(
+  .buddy-avatar-frame:is([data-state='error'], [data-state='disconnected'])
+) {
+  --nav-buddy-dot: var(--status-danger-text);
+}
+.buddy-avatar-button:has(
+    .buddy-avatar-frame:is(
+      [data-state='thinking'],
+      [data-state='streaming'],
+      [data-state='tool'],
+      [data-state='approval'],
+      [data-state='stopping'],
+      [data-state='error'],
+      [data-state='disconnected']
+    )
+  )::before {
+  opacity: 1;
 }
 .buddy-avatar-button:has(
     .buddy-avatar-frame:is(
@@ -760,31 +772,21 @@
       [data-state='tool']
     )
   )::before {
-  animation: nav-buddy-turn 1.6s linear infinite;
+  animation: nav-buddy-pulse 1.6s ease-in-out infinite;
 }
-.buddy-avatar-button:has(
-  .buddy-avatar-frame:is([data-state='approval'], [data-state='stopping'])
-) {
-  --nav-buddy-ring: var(--status-warning-text);
-  --nav-buddy-ring-width: 3px;
+@keyframes nav-buddy-pulse {
+  50% {
+    opacity: 0.45;
+  }
 }
-.buddy-avatar-button:has(
-  .buddy-avatar-frame:is([data-state='error'], [data-state='disconnected'])
-) {
-  --nav-buddy-ring: var(--status-danger-text);
-  --nav-buddy-ring-width: 3px;
-}
-.buddy-avatar-button:has(.buddy-avatar-frame[data-state='completed']) {
-  --nav-buddy-ring: var(--status-success-text);
-}
-@keyframes nav-buddy-turn {
-  to {
-    transform: rotate(360deg);
+@media (prefers-reduced-motion: reduce) {
+  .buddy-avatar-button::before {
+    animation: none !important;
   }
 }
 .navigation .buddy-avatar-button:hover,
 .navigation .buddy-avatar-button[data-state='open'] {
-  --nav-buddy-ring: color-mix(in srgb, var(--accent-solid) 70%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 .navigation .buddy-drag-handle,
 .navigation-rail .buddy-drag-handle {
@@ -797,15 +799,6 @@
 .navigation-rail .buddy-avatar-frame {
   width: var(--nav-buddy-size);
   height: var(--nav-buddy-size);
-  border: 0;
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--text-primary) 8%, transparent);
-}
-.navigation .buddy-avatar-frame::before,
-.navigation-rail .buddy-avatar-frame::before,
-.navigation .buddy-avatar-frame::after,
-.navigation-rail .buddy-avatar-frame::after {
-  display: none;
 }
 .navigation .buddy-avatar,
 .navigation-rail .buddy-avatar,

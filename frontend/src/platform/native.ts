@@ -1,4 +1,5 @@
 import type {
+  BuddyPetAnswer,
   BuddyPlacement,
   BuddyTarget,
   CapabilityResult,
@@ -47,6 +48,34 @@ const placementValue = (value: unknown): value is BuddyPlacement =>
   ['docked', 'desktop'].includes(String(value.placement)) &&
   typeof value.visible === 'boolean' &&
   Object.keys(value).length === 2;
+const PET_KEYS = new Set([
+  'accepted',
+  'side',
+  'expanded',
+  'width',
+  'height',
+  'petX',
+  'petY',
+  'cursor',
+  'landed',
+  'perched',
+  'following',
+]);
+const petValue = (value: unknown): value is BuddyPetAnswer =>
+  object(value) &&
+  Object.keys(value).length > 0 &&
+  Object.entries(value).every(([key, item]) => {
+    if (!PET_KEYS.has(key)) return false;
+    if (key === 'side') return item === 'left' || item === 'right';
+    if (key === 'cursor')
+      return (
+        item === null ||
+        (object(item) &&
+          ['x', 'y', 'age'].every((part) => Number.isFinite(item[part])) &&
+          Object.keys(item).length === 3)
+      );
+    return typeof item === 'boolean' || Number.isFinite(item);
+  });
 const targetValue = (value: unknown): value is BuddyTarget =>
   object(value) &&
   (value.conversationId === null ||
@@ -253,6 +282,7 @@ export function createPyWebViewPlatform(
         ? call('buddy_follow', { conversationId }, targetValue)
         : Promise.resolve(unavailable('invalid_conversation')),
     readBuddyTarget: () => call('buddy_follow', {}, targetValue),
+    buddyPet: (request) => call('buddy_pet', request, petValue),
     showMainWindow: (conversationId) =>
       conversationId === null || nativeConversationId(conversationId)
         ? call('main_window', { conversationId }, nullValue)

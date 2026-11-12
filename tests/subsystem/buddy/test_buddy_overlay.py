@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -128,6 +129,25 @@ def test_native_screen_normalization_prefers_windows_work_area():
     frame = SimpleNamespace(X=-1920, Y=40, Width=1920, Height=1000)
     native = SimpleNamespace(x=-1920, y=0, width=1920, height=1080, frame=frame)
     assert screen_areas_from_native([native]) == [ScreenArea(-1920, 40, 1920, 1000)]
+
+
+def test_on_macos_buddy_stands_above_the_dock_not_on_it(monkeypatch):
+    from row_bot.buddy.pet import FOOT, PET_HEIGHT, floor_position
+
+    def rect(x, y, width, height):
+        return SimpleNamespace(origin=SimpleNamespace(x=x, y=y), size=SimpleNamespace(width=width, height=height))
+
+    # A 982-point-high screen: a 37-point menu bar on top and a 76-point Dock at the bottom (AppKit's origin is the
+    # bottom left); pywebview's Cocoa screens carry only the whole frame.
+    screen = SimpleNamespace(frame=lambda: rect(0, 0, 1512, 982), visibleFrame=lambda: rect(0, 76, 1512, 869))
+    monkeypatch.setitem(sys.modules, "AppKit", SimpleNamespace(NSScreen=SimpleNamespace(screens=lambda: [screen])))
+    native = SimpleNamespace(x=0, y=0, width=1512, height=982, frame=rect(0, 0, 1512, 982))
+
+    areas = screen_areas_from_native([native])
+
+    assert areas == [ScreenArea(0, 37, 1512, 869)]
+    _, y = floor_position(600, areas)
+    assert y + PET_HEIGHT - FOOT == 982 - 76
 
 
 @pytest.mark.parametrize(

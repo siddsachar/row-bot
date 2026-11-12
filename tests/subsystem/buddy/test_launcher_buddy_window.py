@@ -166,23 +166,24 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
     assert report["main_publish"] == {"status": "ok", "value": {"conversationId": "conversation-1", "revision": 1}}
     assert report["main_hide"]["status"] == "unavailable"
 
-    # Tear-off: React route, frameless always-on-top 380x230, hidden until ready.
+    # Tear-off: React route, the frameless always-on-top pet window, hidden until ready.
     assert report["tear_off"] == {"status": "ok", "value": {"placement": "desktop", "visible": True}}
-    assert report["config_after_tear_off"] == {"placement": "desktop", "visible": True, "overlay": {"x": 710, "y": 524}}
+    assert report["config_after_tear_off"] == {"placement": "desktop", "visible": True, "overlay": {"x": 816, "y": 503}}
     assert report["buddy_url"] == f"http://127.0.0.1:{port}/app-v2/buddy-overlay"
     options = report["buddy_options"]
     assert "js_api" not in options
     assert {key: options[key] for key in ("width", "height", "frameless", "on_top", "hidden",
                                           "resizable", "easy_drag", "x", "y")} == {
-        "width": 380, "height": 230, "frameless": True, "on_top": True, "hidden": True,
-        "resizable": False, "easy_drag": False, "x": 710, "y": 524}
-    assert options["transparent"] is (sys.platform != "win32")
+        "width": 168, "height": 176, "frameless": True, "on_top": True, "hidden": True,
+        "resizable": False, "easy_drag": False, "x": 816, "y": 503}
+    # The OS helpers keep a transparent pet clickable on Windows too (D11).
+    assert options["transparent"] is True
     assert report["buddy_exposed"] == ["native_client_dispatch", "native_client_rebind"]
     assert report["visible_before_ready"] is False
 
-    # The overlay document gets exactly its three operations.
+    # The overlay document gets exactly its four operations.
     assert sorted(report["buddy_discover"]["value"]["capabilities"]) == [
-        "buddy_follow", "buddy_placement", "main_window"]
+        "buddy_follow", "buddy_pet", "buddy_placement", "main_window"]
     assert report["buddy_read"] == {"status": "ok", "value": {"conversationId": "conversation-1", "revision": 1}}
     assert report["buddy_publish"]["status"] == "unavailable"
     assert report["buddy_tear_off"]["status"] == "unavailable"
@@ -206,7 +207,12 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
     assert report["closing_torn_off"] == [False]
     # pywebview reports moves in physical pixels; the host keeps DIPs (B100).
     scale = report["scale"]
-    assert report["config_after_move"]["overlay"] == {"x": round(1234 / scale), "y": round(567 / scale)}
+    assert report["pet_drag"] == {"status": "ok", "value": {"accepted": True}}
+    assert report["pet_after_move"] == [pytest.approx(1234 / scale), pytest.approx(567 / scale)]
+    state = report["pet_state"]["value"]
+    assert report["pet_state"]["status"] == "ok" and state["width"] == 168 and state["expanded"] is False
+    assert report["pet_bad"] == {"status": "unavailable", "reason": "invalid_request"}
+    assert report["pet_bad_mask"] == {"status": "unavailable", "reason": "invalid_request"}
 
     assert report["bridge_after_navigation"]["status"] == "unavailable"
     assert _ok(report["hide"]) and report["visible_after_hide"] is False

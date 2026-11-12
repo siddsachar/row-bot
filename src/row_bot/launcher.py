@@ -2004,8 +2004,10 @@ from row_bot.buddy.native_host import (
     OVERLAY_ROUTE,
     BuddyWindowHost,
     buddy_overlay_url,
+    pet_callback,
     placement_callback,
 )
+from row_bot.buddy.pet_native import pet_native
 from row_bot.buddy.overlay import (
     apply_placement_state,
     enable_windows_per_monitor_dpi,
@@ -2016,7 +2018,7 @@ from row_bot.buddy.overlay import (
 
 _NAMED_WINDOWS = {}
 # Operations the desktop Buddy's document may use: nothing else.
-_BUDDY_CAPABILITIES = frozenset({"buddy_placement", "buddy_follow", "main_window"})
+_BUDDY_CAPABILITIES = frozenset({"buddy_placement", "buddy_follow", "buddy_pet", "main_window"})
 
 def _save_buddy_state(state, *, x=None, y=None):
     config = apply_placement_state(get_buddy_config(), state)
@@ -2244,6 +2246,7 @@ _BUDDY = BuddyWindowHost(
     port=_APP_PORT,
     log=_buddy_window_log,
     scale=_screen_scale,
+    pet_native=pet_native(sys.platform),
 )
 enable_windows_per_monitor_dpi(sys.platform)
 _install_windows_app_icon()
@@ -2513,6 +2516,7 @@ def _attach_client_v2(window, instance_id, role="main"):
             buddy_placement=placement_callback(_BUDDY, "buddy"),
             read_buddy_target=_BUDDY.target,
             show_main_window=_BUDDY.show_main,
+            buddy_pet=pet_callback(_BUDDY),
             allowed=_BUDDY_CAPABILITIES,
         )
         return attach_native_client(

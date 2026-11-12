@@ -82,6 +82,7 @@ BROWSER_SMOKE_SPECS = (
     "settings-providers",
     "unified-restart",
     "buddy-overlay",
+    "buddy-living",
     "polish-foundation",
     "apps-and-skills",
     "conversation-approvals",

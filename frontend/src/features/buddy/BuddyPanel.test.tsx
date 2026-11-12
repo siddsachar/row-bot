@@ -96,7 +96,7 @@ function result(id: string, status = 'running'): HatchResult {
     command_id: id,
     job_id: 'buddy-hatch-' + id,
     status,
-    stage: 'motion_provider_started',
+    stage: 'expression_provider_started',
     pack_id: null,
     selected: false,
     completed_clips: 2,
@@ -121,7 +121,7 @@ function transport(): BuddyPanelTransport {
       action: value.action,
       config_revision: value.config_revision,
       image_model: 'fixture/image',
-      video_model: 'fixture/video',
+      video_model: null,
       provider_calls: 7,
     })),
     execute: vi.fn(async (command) => ({

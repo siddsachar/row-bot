@@ -1435,6 +1435,23 @@
           "title": "Config Revision",
           "type": "string"
         },
+        "family": {
+          "anyOf": [
+            {
+              "enum": [
+                "floater",
+                "biped",
+                "winged"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
         "prompt": {
           "maxLength": 4000,
           "minLength": 1,

@@ -58,15 +58,15 @@ browsers, phones and server mode.
 - **Monitor with fixes** - health checks that run by themselves, with one
   fix per problem, and Insights that suggest improvements.
 - **Devices and remote access** - connect a phone or another computer with a
-  QR code over Tailscale, your Wi-Fi or a public link; a Buddy desktop overlay
-  on Windows and macOS; backup and restore of your profile.
+  QR code over Tailscale, your Wi-Fi or a public link; a living Buddy desktop
+  pet on Windows and macOS; backup and restore of your profile.
 
 ## Platforms
 
 | Platform | Package | Notes |
 |----------|---------|-------|
-| Windows 10/11, 64-bit | Installer, about 420 MB | Native window, tray, Buddy overlay, Computer Use. |
-| macOS 14 (Sonoma) or newer, Apple silicon | DMG, about 930 MB | Native window, tray, Buddy overlay, Computer Use. |
+| Windows 10/11, 64-bit | Installer, about 420 MB | Native window, tray, desktop Buddy, Computer Use. |
+| macOS 14 (Sonoma) or newer, Apple silicon | DMG, about 930 MB | Native window, tray, desktop Buddy, Computer Use. |
 | Linux x86_64 (glibc) | Tarball and one-line installer, about 790 MB | Opens in your browser; a native window and tray need GTK or Qt and AppIndicator. |
 | Docker, amd64 and arm64 | `ghcr.io/siddsachar/row-bot` | Authenticated single-owner server. |
 

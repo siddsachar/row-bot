@@ -1,4 +1,11 @@
-"""Explicit Hatch adapter using the canonical job, draft, pack and tool owners."""
+"""Explicit Hatch adapter using the canonical job, draft, pack and tool owners.
+
+A full Hatch paints the character on its family's pose guide, then paints six
+expression edits of that painting; ``living_hatch`` turns them into a living
+pack (cut-out art, rig, expression patches). "motion" (Bring to life) paints
+only the expressions for an existing still; "still" makes a pack from a
+retained still with no provider call.
+"""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -7,6 +14,7 @@ from dataclasses import asdict, dataclass
 import hashlib
 import io
 import json
+import logging
 import os
 from pathlib import Path
 import threading
@@ -14,9 +22,11 @@ from itertools import islice
 from typing import Any
 from uuid import UUID, uuid4
 
-from . import assets, config, hatch, client_service
+from . import assets, config, hatch, client_service, living_hatch
 from row_bot.developer.client_workspace import _directory_identity, _empty_parent_guard
 from row_bot.developer.edits import _rename_edit_no_replace
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -205,27 +215,14 @@ def _write_new(root: Path, filename: str, data: bytes, validate: Callable[[], No
             raise ValueError("hatch_storage_changed")
 
 
-def _png(data: bytes, *, motion: bool = False) -> bytes:
-    from PIL import Image, ImageOps
+def _png(data: bytes) -> bytes:
+    from PIL import Image
     if not isinstance(data, bytes) or not 0 < len(data) <= 16 * 1024 * 1024:
         raise ValueError("generated_media_too_large")
     with Image.open(io.BytesIO(data)) as source:
         if source.width * source.height > 16_777_216 or min(source.size) < 1 or max(source.size) > 4096:
             raise ValueError("generated_media_too_large")
         image = source.convert("RGBA")
-        if motion:
-            size = max(1024, image.width, image.height)
-            opaque = image.getchannel("A").getextrema()[0] == 255
-            if opaque:
-                # Crop before resizing; extreme aspect ratios must not create
-                # an unbounded intermediate canvas.
-                image = ImageOps.fit(image, (size, size), Image.Resampling.LANCZOS).convert("RGB")
-            else:
-                scale = min(size / image.width, size / image.height)
-                sprite = image.resize((max(1, int(image.width * scale)), max(1, int(image.height * scale))), Image.Resampling.LANCZOS)
-                image = Image.new("RGBA", (size, size), hatch._MOTION_SOURCE_BACKGROUND)
-                image.alpha_composite(sprite, ((size - sprite.width) // 2, (size - sprite.height) // 2))
-                image = image.convert("RGB")
         output = io.BytesIO()
         image.save(output, format="PNG")
         value = output.getvalue()
@@ -234,10 +231,22 @@ def _png(data: bytes, *, motion: bool = False) -> bytes:
     return value
 
 
+def _total(mode: str) -> int:
+    return {"full": living_hatch.FULL_STEPS, "motion": len(living_hatch.EXPRESSIONS)}.get(mode, 0)
+
+
 def _public(saved: dict) -> HatchResult:
+    # completed_clips/total_clips are the wire names; they count painted images.
     return HatchResult(1, saved["command_id"], saved["job_id"], saved["status"], saved["stage"],
         saved.get("pack_id") or None, bool(saved.get("selected")), int(saved.get("completed_clips", 0)),
-        len(hatch.MOTION_CLIP_SPECS), saved.get("code", ""), bool(saved.get("retained_copy")))
+        int(saved.get("total_clips", living_hatch.FULL_STEPS)), saved.get("code", ""),
+        bool(saved.get("retained_copy")))
+
+
+# Hatches from before 5.3.4 recorded motion stages; they stay readable for recovery.
+_STAGES = frozenset({"starting", "image_provider_started", "image_retained", "source_retained",
+    "expression_provider_started", "expression_retained", "rig_prepared", "motion_provider_started",
+    "motion_retained", "pack_publication_prepared", "pack_published", "completed", "stopped", "needs_attention"})
 
 
 def _saved(command_id: str) -> dict:
@@ -248,9 +257,8 @@ def _saved(command_id: str) -> dict:
             or any(not isinstance(saved.get(key), str) for key in ("pack_id", "status", "stage", "code"))
             or saved.get("pack_id") not in {"", "hatch-" + UUID(command_id).hex}
             or saved.get("status") not in {"queued", "running", "cancelling", "completed", "partial", "failed", "uncertain", "cancelled"}
-            or saved.get("stage") not in {"starting", "image_provider_started", "image_retained", "source_retained",
-                "motion_provider_started", "motion_retained", "pack_publication_prepared", "pack_published", "completed", "stopped", "needs_attention"}
-            or type(saved.get("completed_clips")) is not int or not 0 <= saved["completed_clips"] <= 6
+            or saved.get("stage") not in _STAGES
+            or type(saved.get("completed_clips")) is not int or not 0 <= saved["completed_clips"] <= living_hatch.FULL_STEPS
             or type(saved.get("selected")) is not bool or type(saved.get("retained_copy")) is not bool
             or saved.get("code") not in {"", "hatch_cancelled", "hatch_job_changed", "buddy_revision_conflict",
                 "file_revision_conflict", "hatch_storage_changed", "generated_media_too_large", "hatch_generation_uncertain", "hatch_incomplete"}):
@@ -277,7 +285,7 @@ def read_result(command_id: str, *, validate: Callable[[], None]) -> HatchResult
             and active.get("id") == "buddy-hatch-" + command_id and active.get("status") in hatch._RUNNING_JOB_STATES):
         validate()
         return HatchResult(1, command_id, active["id"], active["status"], "starting", None, False, 0,
-                           len(hatch.MOTION_CLIP_SPECS), "", False)
+                           int(active.get("total_clips", living_hatch.FULL_STEPS)), "", False)
     saved = _saved(command_id)
     if saved.get("status") in {"queued", "running", "cancelling"} and (active.get("id") != saved.get("job_id")
             or active.get("status") not in hatch._RUNNING_JOB_STATES):
@@ -296,16 +304,19 @@ def read_result(command_id: str, *, validate: Callable[[], None]) -> HatchResult
 
 
 def start_hatch(*, command_id: str, prompt: str, mode: str, expected_config_revision: str,
-                image_selection: str, video_selection: str, validate: Callable[[], None],
+                image_selection: str, validate: Callable[[], None],
                 validate_provider: Callable[[str, str], None], checkpoint: Callable[[HatchProgress], None],
                 checkpoint_config: Callable[[Any], None], checkpoint_draft: Callable[[str, Any], None], source_pack_id: str = "",
-                source_pack_revision: str = "", source_command_id: str = "", expected_source_digest: str | None = None) -> HatchResult:
+                source_pack_revision: str = "", source_command_id: str = "", expected_source_digest: str | None = None,
+                family: str = "auto") -> HatchResult:
     command_id = _command(command_id)
     if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= 4000 or mode not in {"full", "motion", "still"}:
         raise ValueError("invalid_hatch_request")
-    if any(not isinstance(value, str) or not 1 <= len(value) <= 256 or "/" not in value
-           for value in ([image_selection, video_selection] if mode == "full" else [video_selection] if mode == "motion" else [])):
+    if mode in {"full", "motion"} and (not isinstance(image_selection, str) or not 1 <= len(image_selection) <= 256
+                                       or "/" not in image_selection):
         raise ValueError("invalid_media_selection")
+    if family not in {"auto", *living_hatch.FAMILIES}:
+        raise ValueError("invalid_hatch_request")
     validate()
     # Canonical command receipts own payload idempotency. Existing durable work
     # is recovery only and must not fail merely because its own selection saved.
@@ -330,39 +341,43 @@ def start_hatch(*, command_id: str, prompt: str, mode: str, expected_config_revi
 
     def admitted(job_id: str) -> None:
         validate()
-        checkpoint(HatchProgress("job_admitted", command_id, job_id, pack_id, 0, len(hatch.MOTION_CLIP_SPECS)))
+        checkpoint(HatchProgress("job_admitted", command_id, job_id, pack_id, 0, _total(mode)))
 
     def run(job_id: str, cancellation: threading.Event) -> None:
         _run(command_id=command_id, job_id=job_id, pack_id=pack_id, prompt=prompt.strip(), mode=mode,
             source=source, expected_config_revision=expected_config_revision, image_selection=image_selection,
-            video_selection=video_selection, validate=validate, validate_provider=validate_provider,
+            family=living_hatch.choose_family(prompt, None if family == "auto" else family),
+            validate=validate, validate_provider=validate_provider,
             checkpoint=checkpoint, checkpoint_config=checkpoint_config, checkpoint_draft=checkpoint_draft,
             cancellation=cancellation)
 
-    started = hatch.start_hatch_generation_job(prompt, mode=mode,
+    started = hatch.start_hatch_generation_job(prompt, mode=mode, total_steps=_total(mode),
         _client_runner=run, _command_id=command_id, _validate=validate, _checkpoint=admitted)
     return HatchResult(1, command_id, started["id"], "queued", "starting", None, False, 0,
-                       len(hatch.MOTION_CLIP_SPECS), "", False)
+                       _total(mode), "", False)
 
 
 def _run(*, command_id, job_id, pack_id, prompt, mode, source, expected_config_revision,
-         image_selection, video_selection, validate, validate_provider, checkpoint, checkpoint_config,
+         image_selection, family, validate, validate_provider, checkpoint, checkpoint_config,
          checkpoint_draft, cancellation):
     from row_bot.application.attachment_context import prepared_attachments, current_caches
-    from row_bot.tools import image_gen_tool, video_gen_tool
+    from row_bot.tools import image_gen_tool
     from row_bot.providers.media_auth import validate_auth
     draft = hatch._DATA_DIR / command_id
     candidate = draft / "candidate"
+    total = _total(mode)
     saved = {"schema_version": 1, "command_id": command_id, "job_id": job_id, "prompt": prompt,
         "status": "running", "stage": "starting", "pack_id": "", "selected": False,
-        "completed_clips": 0, "code": "", "retained_copy": False}
+        "completed_clips": 0, "total_clips": total, "code": "", "retained_copy": False}
     revision = "missing"
     provider_pending = False
     proof_received = False
     candidate_identity = ""
     draft_identity = ""
-    completed = {}
+    painted = 0
+    edits: dict[str, bytes] = {}
     preview = b""
+    pack_files: dict[str, bytes] = {}
 
     def authority():
         validate()
@@ -374,7 +389,7 @@ def _run(*, command_id, job_id, pack_id, prompt, mode, source, expected_config_r
 
     def record(stage, *, status="running", code=""):
         nonlocal revision
-        saved.update(stage=stage, status=status, code=code, completed_clips=len(completed))
+        saved.update(stage=stage, status=status, code=code, completed_clips=painted)
         encoded = json.dumps(saved, sort_keys=True, ensure_ascii=False).encode("utf-8")
         # Private draft publication is a canonical owner update, not authority
         # to continue provider or selected-config effects after cancellation.
@@ -384,25 +399,38 @@ def _run(*, command_id, job_id, pack_id, prompt, mode, source, expected_config_r
         revision = config._publish_json_revision(draft, "manifest.json", encoded, expected_revision=revision,
             command_id=str(uuid4()), validate=storage_current, checkpoint=lambda proof: checkpoint_draft(stage, proof))
         hatch._update_hatch_job(job_id, status=status, phase=stage, pack_id=saved["pack_id"] or pack_id,
-            completed_clips=len(completed), total_clips=len(hatch.MOTION_CLIP_SPECS), message=stage.replace("_", " "), error=code)
-        checkpoint(HatchProgress(stage, command_id, job_id, saved["pack_id"] or pack_id,
-                                 len(completed), len(hatch.MOTION_CLIP_SPECS), code))
+            completed_clips=painted, total_clips=total, message=stage.replace("_", " "), error=code)
+        checkpoint(HatchProgress(stage, command_id, job_id, saved["pack_id"] or pack_id, painted, total, code))
+
+    def paint(stage: str, prompt_text: str, image_source: str, sink: Callable[[bytes], str]) -> None:
+        """One image edit on the person's image model, written only through the owned sink.
+
+        Credentials are checked before the stage says a provider started; the call stays
+        pending (an uncertain outcome) until the caller has checked its result."""
+        nonlocal provider_pending
+        authority()
+        auth = validate_provider("image", image_selection)
+        if auth is not None:
+            validate_auth(auth, image_selection)
+        record(stage)
+        provider_pending = True
+        with image_gen_tool.strict_generation_output(selection=image_selection,
+                validate=lambda: (authority(), validate_provider("image", image_selection)), sink=sink,
+                **({"auth": auth} if auth is not None else {})):
+            image_gen_tool._edit_image(prompt_text, image_source=image_source, size="1024x1024")
 
     def publish_pack():
         nonlocal proof_received
         authority()
         if _directory_identity(candidate, parent=True) != candidate_identity:
             raise ValueError("hatch_storage_changed")
-        manifest = {"schema": 1, "id": pack_id, "name": hatch._hatch_pack_name(prompt, pack_id)[:256],
-            "runtime": "generated_motion_pack" if len(completed) == len(hatch.MOTION_CLIP_SPECS) else "generated_still",
-            "version": "1.0.0", "preview": "preview.png", "prompt": prompt}
-        if manifest["runtime"] == "generated_motion_pack":
-            manifest.update(default_clip="idle", animation_map=hatch.MOTION_ANIMATION_MAP,
-                            clips={key: {"path": f"{key}.mp4"} for key in completed})
+        manifest = {"schema": 2, "id": pack_id, "name": hatch._hatch_pack_name(prompt, pack_id)[:256],
+            "runtime": assets.LIVING_RUNTIME, "version": "1.0.0", "art": "art.png", "rig": "rig.json",
+            "preview": "art.png", "prompt": prompt, **({"patches": "patches.png"} if "patches.png" in pack_files else {})}
         _write_new(candidate, "manifest.json", json.dumps(manifest, ensure_ascii=False).encode(), authority,
                    root_identity=candidate_identity)
         entries = list(islice(candidate.iterdir(), 9))
-        expected_names = {"manifest.json", "preview.png", *(f"{key}.mp4" for key in completed)}
+        expected_names = {"manifest.json", "preview.png", *pack_files}
         if {entry.name for entry in entries} != expected_names:
             raise ValueError("hatch_storage_changed")
         fingerprints = {path.name: hashlib.sha256(assets.read_buddy_asset(path, root=candidate)).hexdigest()
@@ -448,23 +476,17 @@ def _run(*, command_id, job_id, pack_id, prompt, mode, source, expected_config_r
             with prepared_attachments("buddy-hatch-" + command_id, []):
                 if mode == "full":
                     def image_sink(data):
-                        nonlocal preview
+                        nonlocal preview, painted
                         authority()
                         preview = _png(data)
                         _write_new(candidate, "preview.png", preview, authority, root_identity=candidate_identity)
                         saved["preview_digest"] = hashlib.sha256(preview).hexdigest()
                         saved["retained_copy"] = True
+                        painted += 1
                         return str(candidate / "preview.png")
-                    authority()
-                    image_auth = validate_provider("image", image_selection)
-                    if image_auth is not None:
-                        validate_auth(image_auth, image_selection)
-                    record("image_provider_started")
-                    provider_pending = True
-                    with image_gen_tool.strict_generation_output(selection=image_selection,
-                            validate=lambda: (authority(), validate_provider("image", image_selection)), sink=image_sink,
-                            **({"auth": image_auth} if image_auth is not None else {})):
-                        image_gen_tool._generate_image(hatch._buddy_image_prompt(prompt), size="1024x1024", quality="auto")
+                    current_caches().images["buddy-guide.png"] = living_hatch.pose_guide(family)
+                    paint("image_provider_started", living_hatch.paint_prompt(prompt, family), "buddy-guide.png",
+                          image_sink)
                     if not preview:
                         raise ValueError("hatch_generation_uncertain")
                     provider_pending = False
@@ -476,31 +498,31 @@ def _run(*, command_id, job_id, pack_id, prompt, mode, source, expected_config_r
                     saved["retained_copy"] = True
                     record("source_retained")
                 if mode != "still":
-                    current_caches().images["buddy-reference.png"] = _png(preview, motion=True)
-                for spec in (() if mode == "still" else hatch.MOTION_CLIP_SPECS):
-                    authority()
-                    def video_sink(data, clip=spec):
-                        authority()
-                        if len(data) < 12 or data[4:8] != b"ftyp":
-                            raise ValueError("hatch_media_invalid")
-                        _write_new(candidate, clip.filename, data, authority, root_identity=candidate_identity)
-                        completed[clip.id] = True
-                        return str(candidate / clip.filename)
-                    video_auth = validate_provider("motion", video_selection)
-                    if video_auth is not None:
-                        validate_auth(video_auth, video_selection)
-                    record("motion_provider_started")
-                    provider_pending = True
-                    with video_gen_tool.strict_generation_output(selection=video_selection,
-                            validate=lambda: (authority(), validate_provider("motion", video_selection)), sink=video_sink,
-                            **({"auth": video_auth} if video_auth is not None else {})):
-                        video_gen_tool._animate_image(hatch._buddy_motion_prompt(prompt, spec.id),
-                            image_source="buddy-reference.png", duration_seconds=spec.duration_seconds,
-                            aspect_ratio="1:1", resolution="720p")
-                    if spec.id not in completed:
-                        raise ValueError("hatch_generation_uncertain")
-                    provider_pending = False
-                    record("motion_retained")
+                    current_caches().images["buddy-base.png"] = living_hatch.edit_source(preview)
+                    for kind in living_hatch.EXPRESSIONS:
+                        def edit_sink(data, kind=kind):
+                            nonlocal painted
+                            authority()
+                            edits[kind] = _png(data)
+                            painted += 1
+                            return f"{kind}.png"
+                        paint("expression_provider_started", living_hatch.EXPRESSION_PROMPTS[kind], "buddy-base.png",
+                              edit_sink)
+                        provider_pending = False
+                        if kind not in edits:
+                            # The provider declined or failed: hatch with the expressions so far
+                            # rather than spend more calls on a failing model.
+                            logger.warning("Buddy Hatch: no %s expression came back; continuing without it", kind)
+                            break
+                        record("expression_retained")
+                authority()
+                built = living_hatch.build_pack(preview, edits, family, prompt)
+                logger.info("Buddy Hatch %s: %s", job_id, json.dumps(built.report, sort_keys=True))
+                pack_files = {"art.png": built.art, "rig.json": built.rig,
+                              **({"patches.png": built.patches} if built.patches else {})}
+                for name, data in pack_files.items():
+                    _write_new(candidate, name, data, authority, root_identity=candidate_identity)
+                record("rig_prepared")
                 publish_pack()
                 record("completed", status="completed")
     except Exception as error:

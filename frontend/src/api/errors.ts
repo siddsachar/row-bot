@@ -2216,6 +2216,11 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   buddy_data_policy_denied: ["Buddy isn't allowed to use that data.", 'none'],
+  buddy_image_model_cannot_edit: [
+    "Your image model can only make new pictures, and Buddy's expressions are edits. Choose a GPT Image or Nano Banana model.",
+    'review',
+    IMAGE_MODEL,
+  ],
   buddy_media_capability_unavailable: [
     'Generating a Buddy needs an image model. Choose one first.',
     'review',

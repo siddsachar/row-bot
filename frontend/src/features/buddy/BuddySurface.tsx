@@ -256,6 +256,7 @@ function OwnedBuddy({
         settingsOpen={settings}
         initialPrompt={initialPrompt}
         companionVisible={!settings && buddyPlacement.placement === 'docked'}
+        desktopPet={buddyPlacement.supported}
         onSettings={() => {
           // Navigate before closing (B17): closing first queues a history
           // step back that would land after the push and undo the route.

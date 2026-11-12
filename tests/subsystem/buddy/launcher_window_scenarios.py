@@ -92,8 +92,13 @@ def overlay_lifecycle(webview: Any, script: Any, report: dict[str, Any]) -> None
     # Closing the main window while Buddy is on the desktop only hides it.
     report["closing_torn_off"] = main.events.closing.fire()
     report["scale"] = script._screen_scale()
+    # A drag: the page says it started, the window moves (physical pixels), Buddy's box follows in DIPs.
+    report["pet_drag"] = buddy.dispatch("buddy_pet", {"action": "drag", "phase": "start"})
     report["moved"] = buddy.events.moved.fire(1234, 567)
-    report["config_after_move"] = _config()
+    report["pet_after_move"] = list(script._BUDDY.pet.position())
+    report["pet_state"] = buddy.dispatch("buddy_pet", {"action": "state"})
+    report["pet_bad"] = buddy.dispatch("buddy_pet", {"action": "teleport", "x": 1})
+    report["pet_bad_mask"] = buddy.dispatch("buddy_pet", {"action": "hit", "pet": [0, 0, 1, 1], "cells": "!!"})
 
     # Navigating away from the overlay document drops its bridge.
     home = buddy.url

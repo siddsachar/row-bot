@@ -148,6 +148,7 @@ export function createBrowserPlatform(
     buddyPlacement: async () => unavailable('buddy_placement_requires_native'),
     publishBuddyTarget: async () => unavailable('buddy_target_requires_native'),
     readBuddyTarget: async () => unavailable('buddy_target_requires_native'),
+    buddyPet: async () => unavailable('buddy_pet_requires_native'),
     showMainWindow: async () => unavailable('main_window_requires_native'),
     moveWindow: () => false,
     openTerminal: async () => unavailable('terminal_requires_native'),

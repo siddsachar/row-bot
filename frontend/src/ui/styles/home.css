@@ -330,8 +330,8 @@
   font-size: var(--text-15);
   line-height: var(--leading-15);
 }
-/* Buddy's live avatar with a status ring: amber while something waits,
-   green when all is calm. */
+/* Buddy, living, beside the greeting, with a status dot: amber while
+   something waits, green when all is calm. */
 .overview-buddy {
   position: relative;
   flex: none;
@@ -339,8 +339,6 @@
   place-items: center;
   width: 76px;
   height: 76px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-solid) 10%, transparent);
 }
 .overview-buddy > .buddy-avatar-frame {
   width: 100%;
