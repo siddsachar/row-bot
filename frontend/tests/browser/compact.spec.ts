@@ -426,3 +426,33 @@ test('a phone reaches Home, Chats, Workflows and Settings from a tab bar that a 
   await openSeedConversation(page);
   await expect(tabs).toHaveCount(0);
 });
+
+test('a phone opens the conversation list with a swipe in from the left edge', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Tablets keep the button only.',
+  );
+  await openSeedConversation(page);
+  const touch = await page.context().newCDPSession(page);
+  const y = Math.round(viewport!.height / 2);
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: 4, y }],
+  });
+  for (let step = 1; step <= 5; step += 1) {
+    await touch.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: 4 + step * 30, y }],
+    });
+  }
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect(
+    page.getByRole('dialog', { name: 'Conversations' }),
+  ).toBeVisible();
+});
