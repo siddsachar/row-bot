@@ -170,6 +170,9 @@ VALID_RELATION_TYPES = {
     "has_skill", "teaches",
     # Media
     "reading", "watching", "recommends", "authored", "listening_to",
+    # Work with others / plans
+    "works_with", "supports", "evaluates", "prepares_for", "plans", "promotes",
+    "competes_with", "includes",
     # General / ownership
     "uses", "created_by", "owns", "has_pet", "pet_of",
     "treats", "attends", "participates_in",
@@ -212,7 +215,6 @@ _RELATION_ALIASES: dict[str, str] = {
     "likes": "enjoys",
     "hates": "dislikes",
     "wrote": "authored",
-    "written_by": "authored",
     "reads": "reading",
     "watches": "watching",
     "listens_to": "listening_to",
@@ -233,8 +235,6 @@ _RELATION_ALIASES: dict[str, str] = {
     "wife_of": "married_to",
     "visited": "visits",
     "visiting": "visits",
-    "founded_by": "founded",
-    "created": "created_by",
     "made_by": "created_by",
     "participates": "participates_in",
     "attending": "attends",
@@ -247,24 +247,71 @@ _RELATION_ALIASES: dict[str, str] = {
     "interested": "interested_in",
     "hobby": "has_hobby",
     "has_interest": "interested_in",
+    # Tense and form variants of the same verb
+    "preparing_for": "prepares_for",
+    "planning": "plans",
+    "planned": "plans",
+    "has_visited": "visits",
+    "travels_to": "visits",
+    "travelled_to": "visits",
+    "traveled_to": "visits",
+    "supporting": "supports",
+    "evaluating": "evaluates",
+    "promoting": "promotes",
+    "collaborates_with": "works_with",
+    "working_with": "works_with",
+    "worked_with": "works_with",
+    "worked_on": "works_on",
+    "working_on": "works_on",
+    "uses_tool": "uses",
+    "using": "uses",
+    "used": "uses",
     # Document extraction types
     "extracted_from": "extracted_from",
     "uploaded": "uploaded",
-    "published_by": "authored",
     "implements": "uses",
-    "used_by": "uses",
     "references": "cites",
 }
 
 
+# Passive or inverse labels: the canonical label reads the other way, so the two ends swap.
+# "Atlas written_by Alice" is saved as "Alice authored Atlas".
+_INVERSE_RELATION_ALIASES: dict[str, str] = {
+    "written_by": "authored",
+    "published_by": "authored",
+    "authored_by": "authored",
+    "founded_by": "founded",
+    "created": "created_by",
+    "used_by": "uses",
+    "owned_by": "owns",
+    "employs": "employed_by",
+    "has_employee": "employed_by",
+    "attended_by": "attends",
+    "studied_by": "studies",
+    "taught_by": "teaches",
+    "led_by": "leads",
+}
+
+
+def canonical_relation(relation_type: str) -> tuple[str, bool]:
+    """The canonical label for *relation_type*, and whether its source and target swap to read that way."""
+    rt = relation_type.lower().strip().replace(" ", "_").replace("-", "_")
+    if rt in _INVERSE_RELATION_ALIASES:
+        return _INVERSE_RELATION_ALIASES[rt], True
+    return normalize_relation_type(rt), False
+
+
 def normalize_relation_type(relation_type: str) -> str:
-    """Map *relation_type* to its canonical form.
+    """Map *relation_type* to its canonical form (for a label that reads the other way, see
+    ``canonical_relation``: the ends swap).
 
     1. Exact match in ``_RELATION_ALIASES`` → return mapped value.
     2. Strip ``is_`` or ``has_`` prefix and check ``VALID_RELATION_TYPES``.
     3. Otherwise return the original (unchanged).
     """
-    rt = relation_type.lower().strip().replace(" ", "_")
+    rt = relation_type.lower().strip().replace(" ", "_").replace("-", "_")
+    if rt in _INVERSE_RELATION_ALIASES:
+        return _INVERSE_RELATION_ALIASES[rt]
     # 1. Explicit alias
     if rt in _RELATION_ALIASES:
         return _RELATION_ALIASES[rt]
@@ -1845,12 +1892,16 @@ def refresh_semantic_vectors(*, max_entities: int = 256,
     return {"refreshed": refreshed, "remaining": max(0, remaining - refreshed)}
 
 
-def semantic_search(query: str, top_k: int = 5, threshold: float = 0.5, *, for_auto_recall: bool = False) -> list[dict]:
+def semantic_search(query: str, top_k: int = 5, threshold: float = 0.5, *, for_auto_recall: bool = False,
+                    stats: dict | None = None) -> list[dict]:
+    """The memories closest in meaning to *query*. With ``stats``, also sets ``stats["mean"]``: the query's
+    mean similarity to every memory, the level an unrelated memory scores at with this embedding model."""
     with _generation_access():
-        return _search_vector_generation(query, top_k, threshold, for_auto_recall=for_auto_recall)
+        return _search_vector_generation(query, top_k, threshold, for_auto_recall=for_auto_recall, stats=stats)
 
 
-def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_auto_recall: bool) -> list[dict]:
+def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_auto_recall: bool,
+                              stats: dict | None = None) -> list[dict]:
     import faiss
 
     status, loaded = _vector_readiness()
@@ -1898,8 +1949,12 @@ def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_a
     # segments; each segment is searched deep enough to skip them.
     replaced = metadata.get("dead") or []
     candidates = []
+    similarity_sum, similarity_count = 0.0, 0
     for segment in metadata["segments"]:
         vectors = _read_generation_segment(directory, segment, dimension)
+        if stats is not None and vectors.count:
+            similarity_sum += float(np.sum(vectors.vectors @ query_vector[0], dtype=np.float64))
+            similarity_count += int(vectors.count)
         index = faiss.IndexFlatIP(dimension)
         index.add(vectors.vectors)
         skipped = (bisect.bisect_left(replaced, segment["start"] + segment["count"])
@@ -1915,6 +1970,8 @@ def _search_vector_generation(query: str, top_k: int, threshold: float, *, for_a
         candidates.sort(key=lambda item: (-item[0], item[1]))
         del candidates[limit:]
         del index, vectors
+    if stats is not None and similarity_count:
+        stats["mean"] = similarity_sum / similarity_count
     results = []
     for score, position in candidates:
         entity = get_entity(metadata["ids"][position])
@@ -3078,12 +3135,17 @@ def add_relation(
         )
         return None
 
+    relation_type, swap = canonical_relation(relation_type)
+    if swap:
+        source_id, target_id = target_id, source_id
+        if expected_entities is not None:
+            expected_entities = (expected_entities[1], expected_entities[0])
+
     strict = expected_entities is not None or validate is not None
     conn = _get_conn()
     rel_id = relation_id or uuid.uuid4().hex[:12]
     now = datetime.now().isoformat()
     props_json = json.dumps(properties or {})
-    relation_type = normalize_relation_type(relation_type)
     confidence = max(0.0, min(1.0, confidence))
 
     # Warn on unknown relation types (but still accept to avoid breakage)
@@ -3647,6 +3709,12 @@ def _merge_recall_candidate(result_by_id: dict[str, dict], candidate: dict) -> N
         if source not in existing_sources:
             existing_sources.append(source)
 
+    # Each signal keeps its best value across the paths that found the memory (taken before a better
+    # candidate replaces the fields below: a keyword hit must not erase the meaning score).
+    best_scores = {
+        key: max(float(existing.get(key, 0) or 0), float(candidate.get(key, 0) or 0))
+        for key in ("semantic_score", "lexical_score", "bm25_score", "field_score", "decay_multiplier")
+    }
     if candidate.get("score", 0) > existing.get("score", 0):
         preserved_sources = list(existing_sources)
         preserved_relations = existing.get("relations", [])
@@ -3660,11 +3728,7 @@ def _merge_recall_candidate(result_by_id: dict[str, dict], candidate: dict) -> N
         if preserved_relations and not existing.get("relations"):
             existing["relations"] = preserved_relations
 
-    for key in ("semantic_score", "lexical_score", "bm25_score", "field_score", "decay_multiplier"):
-        existing[key] = max(
-            float(existing.get(key, 0) or 0),
-            float(candidate.get(key, 0) or 0),
-        )
+    existing.update(best_scores)
 
     if len(existing_debug.get("sources", [])) > 1:
         existing["via"] = "hybrid"
@@ -3768,14 +3832,18 @@ def retrieve_memory_candidates(
     seeds: list[dict] = []
     semantic_started = time.perf_counter()
     try:
+        similarity: dict = {}
         seeds = semantic_search(
             query,
             top_k=top_k,
             threshold=threshold,
             for_auto_recall=True,
+            stats=similarity,
         )
         if diagnostics is not None:
             diagnostics["semantic_status"] = "used" if seeds else "no_matches"
+            if "mean" in similarity:
+                diagnostics["semantic_mean"] = round(similarity["mean"], 4)
     except Exception as exc:
         seeds = []
         if diagnostics is not None:

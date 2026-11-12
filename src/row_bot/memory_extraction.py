@@ -663,11 +663,9 @@ def _dedup_and_save(
             if not src_subj or not tgt_subj or not rel_type:
                 continue
 
-            # Pre-normalize relation type before any checks
-            rel_type = kg.normalize_relation_type(rel_type)
-
-            # Reject vague relation types that add noise to the graph
-            if rel_type in _EXTRACTION_BANNED_TYPES:
+            # Checked on the canonical label; saved with the one given, so add_relation can turn a
+            # label that reads the other way ("written_by") around.
+            if kg.normalize_relation_type(rel_type) in _EXTRACTION_BANNED_TYPES:
                 logger.info(
                     "Extraction skipped vague type '%s': %s --[%s]--> %s",
                     rel_type, rel.get("source_subject", "?"),
