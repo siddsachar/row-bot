@@ -3249,6 +3249,36 @@ it('says why the model cannot answer on Choose another model, too', async () => 
   );
 });
 
+it('says why Enter sent nothing, in the refused-send banner with its fix (I15)', async () => {
+  idleConversation();
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.state.workspace!.model_status = {
+    state: 'unavailable',
+    reason: "It can't use tools; switch to Chat only or choose another model",
+    fix: 'choose',
+    local: false,
+  };
+  mock.drafts.set('conversation-a', {
+    text: 'Read example.com',
+    attachments: [],
+  });
+  await act(async () => conversation());
+  expect(screen.queryByRole('alert')).toBeNull();
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  await act(async () => fireEvent.keyDown(box, { key: 'Enter' }));
+  await act(async () => fireEvent.keyDown(box, { key: 'Enter' }));
+  const shown = screen.getAllByRole('alert');
+  expect(shown).toHaveLength(1);
+  expect(shown[0]).toHaveTextContent(
+    "It can't use tools; switch to Chat only or choose another model. Nothing was sent; your message is kept.",
+  );
+  expect(
+    within(shown[0]).getByRole('button', { name: 'Choose a model' }),
+  ).toBeVisible();
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(box).toHaveValue('Read example.com');
+});
+
 it('sends while the model is unavailable when the backup model answers (#140)', async () => {
   idleConversation();
   // The server says a backup answers: send stays ready.
@@ -4017,4 +4047,82 @@ it('follows the latest again when the reader sends a message (U34)', async () =>
   expect(mock.intent).toHaveBeenCalled();
   expect(log.scrollTop).toBe(800);
   expect(screen.queryByRole('button', { name: 'Latest messages' })).toBeNull();
+});
+
+it('on a phone opens the folder or deck the chat works on from one tap in its header (D7)', async () => {
+  idleConversation();
+  const folder = {
+    resource_ref: 'conversation-a:binding',
+    conversation_revision: '1',
+    binding: {
+      binding_id: 'binding',
+      kind: 'workspace' as const,
+      resource_id: 'workspace',
+      role: 'primary' as const,
+      revision: '2',
+    },
+    title: 'Release notes',
+    resource_revision: '3',
+    available: true,
+  };
+  mock.state.workspace!.resources = [folder];
+  const onPanel = vi.fn();
+  const rendered = render(<Conversation onPanel={onPanel} headerMenu={[]} />);
+
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Working on Release notes' }),
+  );
+  expect(onPanel).toHaveBeenCalledWith(
+    expect.objectContaining({
+      panel_kind: 'workspace.inspector',
+      resource_ref: 'conversation-a:binding',
+    }),
+  );
+
+  // A wide layout keeps it in Conversation details.
+  rendered.rerender(<Conversation onPanel={onPanel} />);
+  expect(
+    screen.queryByRole('button', { name: /^Working on/ }),
+  ).not.toBeInTheDocument();
+});
+
+it('lists every piece of work under Working on when a chat has several (D7)', async () => {
+  idleConversation();
+  const resource = (
+    id: string,
+    kind: 'artifact' | 'workspace',
+    title: string,
+  ) => ({
+    resource_ref: `conversation-a:${id}`,
+    conversation_revision: '1',
+    binding: {
+      binding_id: id,
+      kind,
+      resource_id: id,
+      role: 'primary' as const,
+      revision: '2',
+    },
+    title,
+    resource_revision: '3',
+    available: true,
+  });
+  mock.state.workspace!.resources = [
+    resource('deck', 'artifact', 'Workshop deck'),
+    resource('code', 'workspace', 'Release notes'),
+  ];
+  const onPanel = vi.fn();
+  render(<Conversation onPanel={onPanel} headerMenu={[]} />);
+
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Working on' }),
+  );
+  await userEvent.click(
+    screen.getByRole('menuitem', { name: 'Workshop deck' }),
+  );
+  expect(onPanel).toHaveBeenCalledWith(
+    expect.objectContaining({
+      panel_kind: 'artifact.preview',
+      resource_ref: 'conversation-a:deck',
+    }),
+  );
 });

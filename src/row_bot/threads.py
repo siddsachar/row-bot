@@ -234,11 +234,15 @@ def _list_threads(*, include_details: bool = False):
 
 
 _PRUNE_BATCH = 50
+# Every checkpoint holds the chat's whole history, and a workflow chat saves one per step: the owner's
+# 883-message chat wrote 34 MB a step and threads.db reached 18.9 GB while the tidy-up waited (I32). Chats
+# resume and read from the newest, so each save drops all but these few.
+CHECKPOINTS_KEPT = 3
 
 
 def cleanup_old_checkpoints(
     *,
-    keep_per_thread: int = 10,
+    keep_per_thread: int = CHECKPOINTS_KEPT,
     min_age_minutes: int = 30,
 ) -> dict[str, int]:
     """Prune redundant LangGraph checkpoints while preserving latest state."""
@@ -1999,7 +2003,30 @@ class _DeletionAwareSqliteSaver(SqliteSaver):
         with checkpoint_mutation(thread_id):
             if _thread_write_blocked(thread_id):
                 return config
-            return super().put(config, checkpoint, metadata, new_versions)
+            written = super().put(config, checkpoint, metadata, new_versions)
+            self._drop_superseded(written)
+            return written
+
+    def _drop_superseded(self, config) -> None:
+        """Delete this chat's oldest checkpoints (and their writes) beyond the newest few (I32).
+
+        Two at most per save: one save adds one, so the count holds, and a backlog from before
+        (hundreds of 34 MB rows) shrinks a step at a time instead of holding the write lock (I29)."""
+        configurable = config.get("configurable", {})
+        key = (str(configurable.get("thread_id") or ""), str(configurable.get("checkpoint_ns") or ""))
+        with self.cursor() as cur:
+            superseded = [(*key, row[0]) for row in cur.execute(
+                "SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? AND checkpoint_ns = ? "
+                "AND checkpoint_id < (SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? "
+                "AND checkpoint_ns = ? ORDER BY checkpoint_id DESC LIMIT 1 OFFSET ?) "
+                "ORDER BY checkpoint_id LIMIT 2",
+                (*key, *key, CHECKPOINTS_KEPT - 1),
+            ).fetchall()]
+            for table in ("checkpoints", "writes"):
+                cur.executemany(
+                    f"DELETE FROM {table} WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+                    superseded,
+                )
 
     def put_writes(self, config, writes, task_id, task_path="") -> None:
         if _thread_write_blocked(_checkpoint_config_thread_id(config)):

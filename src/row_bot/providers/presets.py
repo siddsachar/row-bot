@@ -26,6 +26,8 @@ _NON_CHAT_MARKERS = (
     # Image makers and single-purpose models that Qwen's list gives no type (qwen-image-2.0, wan2.7-image,
     # z-image-turbo, qwen-mt-flash translation, qwen3-livetranslate, tongyi-tingwu, qwen-vl-ocr).
     "image", "-mt-", "livetranslate", "tingwu", "-ocr",
+    # Classifiers that answer in text (nemotron-3.5-content-safety).
+    "safety",
 )
 # Fireworks names its models by path ("accounts/fireworks/models/kimi-k3").
 _FIREWORKS_PATH = re.compile(r"^accounts/[^/]+/(?P<kind>models|routers)/(?P<name>.+)$")
@@ -46,6 +48,9 @@ class ProviderPreset:
     risk_label: str = "cloud_provider"
     # Its chat templates take one system message, first (Cerebras' Qwen refuses a second).
     system_first: bool = False
+    # Its list types no model and keeps retired ones (NVIDIA's still names adept/fuyu-8b and google/deplot),
+    # so its chat models are those models.dev's catalogue of it lists as answering in text (I12).
+    catalogue_lists_chat: bool = False
 
 
 PRESETS: dict[str, ProviderPreset] = {
@@ -70,7 +75,7 @@ PRESETS: dict[str, ProviderPreset] = {
         ProviderPreset("huggingface", "Hugging Face", "https://router.huggingface.co/v1", "HF_TOKEN",
                        "pay_per_use", "HF", risk_label="third_party_router"),
         ProviderPreset("nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY",
-                       "credits", "NV"),
+                       "credits", "NV", catalogue_lists_chat=True),
         ProviderPreset("vercel", "Vercel AI Gateway", "https://ai-gateway.vercel.sh/v1", "AI_GATEWAY_API_KEY",
                        "credits", "VG", risk_label="third_party_router"),
     )
@@ -130,6 +135,11 @@ def _is_chat(preset: ProviderPreset, row: dict[str, Any]) -> bool:
     name = str(row.get("name") or "").lower()
     if any(marker in model_id.rsplit("/", 1)[-1] or marker in name for marker in _NON_CHAT_MARKERS):
         return False
+    if preset.catalogue_lists_chat:
+        from row_bot.providers.capability_catalog import lookup
+
+        known = lookup(preset.id, str(row.get("id") or ""))
+        return known is not None and "text" in known.outputs
     kind = str(row.get("type") or "").strip().lower()
     if kind and (kind not in preset.chat_types if preset.chat_types else kind in _NON_CHAT_TYPES):
         return False

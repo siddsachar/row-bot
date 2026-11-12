@@ -255,3 +255,69 @@ def test_a_chat_that_already_holds_same_named_videos_can_name_each_one(conversat
     after = {item["attachment_ref"]: item["name"] for item in attachments.list_conversation_files("fixture")}
     assert after == {**names, outcome["payload"]["media_ref"]: "generated-video-6.mp4"}
     assert {path: path.read_bytes() for path in records} == records
+
+
+
+def _run_tool(name: str, args: dict, run) -> str:
+    """One tool call through the platform's tool wrapper, in the fixture chat; the stored result."""
+    import contextvars
+
+    from langchain_core.messages import AIMessage
+    from langchain_core.tools import StructuredTool
+    from langgraph.graph import END, START, MessagesState, StateGraph
+    from langgraph.prebuilt import ToolNode
+
+    from row_bot import agent
+    from row_bot.application import attachment_context
+
+    graph = StateGraph(MessagesState)
+    graph.add_node("tools", ToolNode([StructuredTool.from_function(func=run, name=name, description="A test tool.")],
+                                     wrap_tool_call=agent._wrap_platform_tool_call))
+    graph.add_edge(START, "tools")
+    graph.add_edge("tools", END)
+    call = {"id": "call-0", "name": name, "args": args, "type": "tool_call"}
+
+    def invoke() -> dict:
+        agent._current_thread_id_var.set("fixture")
+        attachment_context._current.set(AttachmentExecutionCaches("fixture"))
+        return graph.compile().invoke({"messages": [AIMessage(content="", tool_calls=[call], id="ai-0")]})
+
+    return str(contextvars.copy_context().run(invoke)["messages"][-1].content)
+
+
+def test_a_made_video_is_named_by_its_chat_file_never_its_private_path(conversation):
+    """R2 (12 Nov): generate_video said "Saved to: <private path>", which analyze_image refused, and every
+    clip was generated-video.mp4."""
+    from row_bot import media_sources
+    from row_bot.tools import video_gen_tool
+
+    saved: list[str] = []
+
+    def generate_video(prompt: str) -> str:
+        path = generated_media.save_generated_output("fixture", _video_bytes(1), prefix="vid", extension="mp4")
+        saved.append(path)
+        video_gen_tool._set_pending_video({"path": path, "provider": "Fixture"})
+        return f"Video generated successfully. Provider: Fixture\nSaved to: {path}"
+
+    text = _run_tool("generate_video", {"prompt": "Waves on a beach at dusk, slow pan"}, generate_video)
+
+    assert saved and saved[0] not in text and "Saved to:" not in text
+    assert "“waves-on-a-beach-at-dusk.mp4”" in text
+    [found] = media_sources.resolve("waves-on-a-beach-at-dusk.mp4", "fixture")
+    assert found.read_bytes() == _video_bytes(1)
+
+
+def test_analyze_image_finds_a_chat_file_named_as_its_file_path(conversation, monkeypatch):
+    """R2: the video tool's review sheet is a chat file; file_path looked only in the workspace."""
+    from row_bot.tools import vision_tool
+
+    looked: list[list[str]] = []
+    monkeypatch.setattr(vision_tool, "_analyze_files",
+                        lambda question, files, sheet, frames: looked.append(files) or "Seen.")
+    monkeypatch.setattr(vision_tool, "_get_vision_service", lambda: type("Service", (), {
+        "capture_and_analyze": staticmethod(lambda question, source, file_path: f"Image file not found: {file_path}"),
+    })())
+
+    assert vision_tool._analyze_image("Is the text legible?", source="file",
+                                      file_path="Launch v1 review.jpg") == "Seen."
+    assert looked == [["Launch v1 review.jpg"]]

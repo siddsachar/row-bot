@@ -1148,8 +1148,15 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     return f"⚠️ API error: {exc_str}"
 
 
+# A rate limit, never an overflow: Cerebras' 429 says "too many tokens processed" per minute (I21).
+_RATE_LIMIT_MARKERS = ("http 429", "status code: 429", "error code: 429", "rate limit", "rate_limit",
+                       "per minute", "too many requests")
+
+
 def _is_context_overflow_error(exc: object) -> bool:
     text = str(exc or "").lower()
+    if any(marker in text for marker in _RATE_LIMIT_MARKERS):
+        return False
     return any(marker in text for marker in (
         "context_length_exceeded",
         "context length",
@@ -1484,11 +1491,12 @@ def _interactive_progress_contract(runtime_surface: str) -> str:
 
     parts = [
         "INTERACTIVE PROGRESS:",
-        "While you work through tools, keep the person posted in short lines: before your first tool step, and "
-        "whenever you move on to something new, one sentence on what you're doing or what you just found "
-        "(\"Checking the October orders…\", \"Found 2 repeat customers; drafting the reply.\").",
+        "While you use tools, keep the person posted in short lines, each sent with its tool call: "
+        "before your first tool step, and whenever you move on to something new, one sentence on what you're "
+        "doing or found (\"Checking the October orders…\").",
         "Your own words, no tool names. Never reveal hidden reasoning, secrets, raw logs or unapproved content. "
         "Skip it for quick answers, and don't repeat these lines in the final answer.",
+        "A reply with no tool call ends your turn: end only when done, to ask the person, or with a wait set.",
     ]
     if workflow:
         parts.append("In a workflow run keep them sparse: a line as you start each part of the work.")
@@ -6288,7 +6296,15 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         skill_discovery_enabled,
         skill_fingerprint,
     ) = _call_with_tool_parents(_build_runtime_skill_snapshot, offered_parents, guides=True)
+    # A profile that doesn't allow delegation is never offered delegate_work: it was refused 9 times in 7
+    # workflows (R7). The dispatch refusal stays for a call that names it anyway.
+    profile_policy = (_dispatch_profile_snapshot() or {}).get("tool_policy_json")
+    no_delegation = isinstance(profile_policy, dict) and not profile_policy.get("allow_delegation")
+    if no_delegation:
+        eager_core_entries = [entry for entry in eager_core_entries
+                              if not (entry["tool"].name == "delegate_work" and entry["source"] == "core")]
     cache_key = frozenset(enabled_tool_names) | frozenset({
+        f"no_delegation:{no_delegation}",
         f"ctx:{effective_context}",
         f"model:{model_label}",
         f"provider:{readiness.provider_id}",
@@ -7267,6 +7283,20 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
 
         # The conversation is found as read_tool_output finds it; the source decides its read-back fence.
         result = cap_tool_message(result, source=_tool_call_runtime_name(request.tool_call or {}))
+        media: list[dict] = []
+        media_failed = False
+        if caches is not None:
+            # A made picture or video becomes a chat file here, so the result names it the way every
+            # media tool finds it, never by its private path (R2).
+            from row_bot.application.generated_media import capture_generated_media, name_saved_files
+            names: list[str] = []
+            try:
+                media = capture_generated_media(caches.conversation_id, caches, names=names,
+                                                label=_media_label(request.tool_call or {}))
+            except ValueError:
+                media_failed = True
+            if names and isinstance(result.content, str):
+                result = result.model_copy(update={"content": name_saved_files(result.content, names)})
         stamp_failed = False
         try:
             call = dict(request.tool_call or {})
@@ -7285,15 +7315,23 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
             _learning_tool_call(learning_turn, request, result, untrusted=stamp is not None or stamp_failed)
         if caches is None:
             return result
-        from row_bot.application.generated_media import capture_generated_media
         additional = dict(result.additional_kwargs)
-        try:
-            media = capture_generated_media(caches.conversation_id, caches)
-            if media:
-                additional["platform_media"] = media
-        except ValueError:
+        if media:
+            additional["platform_media"] = media
+        if media_failed:
             additional["platform_media_error"] = "media_unavailable"
         return result.model_copy(update={"additional_kwargs": additional})
+
+
+def _media_label(call: dict[str, Any]) -> str:
+    """A made file's name from its prompt: "waves-on-a-beach-at-dusk" (R2); "" when there's none."""
+    import re
+
+    args = call.get("args") if isinstance(call.get("args"), dict) else {}
+    if str(call.get("name") or "") == "tool_invoke" and isinstance(args.get("arguments"), dict):
+        args = args["arguments"]
+    words = re.findall(r"[a-z0-9]+", str(args.get("prompt") or "").lower())[:6]
+    return "-".join(words)[:48].strip("-")
 
 
 def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
@@ -9181,9 +9219,10 @@ def _stream_graph(agent, input_data, config: dict,
                                 _browser_tool_count += 1
                                 _recent_browser_actions.append(_browser_action_name(runtime_tool_name))
                                 _recent_browser_actions = _recent_browser_actions[-8:]
-                                # Only looking, never acting, many times in a row: stuck.
+                                # Only looking, never acting, many times in a row: stuck. Waiting isn't
+                                # looking: a long job is waited for (R6).
                                 _snapshot_heavy = len(_recent_browser_actions) >= 8 and all(
-                                    action in {"snapshot", "take_screenshot", "screenshot", "wait_for"}
+                                    action in {"snapshot", "take_screenshot", "screenshot"}
                                     for action in _recent_browser_actions[-8:]
                                 )
                                 if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
@@ -9480,9 +9519,8 @@ def _stream_graph(agent, input_data, config: dict,
         except Exception:
             pass
         _browser_msg = (
-            "⚠️ I used too many browser actions without reaching a stable result, "
-            "so I stopped before getting stuck in a longer loop. Try narrowing the request, "
-            "or use a site/search page that is less likely to block automation."
+            "⚠️ I took a long run of browser steps in this turn without settling, so I stopped to check "
+            "with you before going round again. Say carry on and I'll pick up from here, or tell me what to change."
         )
         _notify_api_error(_browser_msg)
         if full_answer:

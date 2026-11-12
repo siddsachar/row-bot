@@ -1001,3 +1001,15 @@ def test_a_scheduled_reply_x_wont_take_settles_with_its_draft_and_no_try_again(x
                            f"{shown[refused['id']]['reason']} It's in Home › Review, with the draft to copy.")
     assert x_posting.cancel_scheduled(refused["id"]) and refused["id"] not in {
         item["id"] for item in x_posting.scheduled_posts()}
+
+
+def test_a_read_with_no_count_uses_the_default(x, person):
+    """R7 (12 Nov): a model sends max_results null for "the default"; every such read was a TypeError."""
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    tool._x_post("post", text="Hello from Row-Bot")
+    [post] = fake.posted_by("111")
+
+    result = tool._x_read("read_tweet", tweet_id=post["id"], max_results=None)
+
+    assert post["id"] in result and "Error" not in result

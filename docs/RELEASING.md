@@ -245,8 +245,9 @@ the updater trusts only files listed there.
 - **Windows SDK `signtool.exe`**: the "Windows SDK Signing Tools for Desktop Apps"
   component (the script finds the newest under `Windows Kits\10\bin`).
 - **SimplySign Desktop** with the Certum code signing certificate
-  (thumbprint `2341B4B36A21DF948E538A88BB194FAE4D1CAE51`). The script asks you
-  to log in (the code from the phone app) once, before the first signature, and
+  (thumbprint `6075BA6528E51B7D33C07AAFF7730CD6A02CD7E8`, valid until
+  10 Nov 2027). The script asks you to log in (the code from the phone app)
+  once, before the first signature, and
   signs both files in that session. Before the first signature it checks the
   certificate with a fresh OCSP answer (`certutil -verify -urlfetch`) and
   refuses a revoked one: Windows keeps a CRL for a week, so its own checks

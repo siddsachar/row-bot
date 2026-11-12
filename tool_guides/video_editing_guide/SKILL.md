@@ -8,9 +8,14 @@ tools:
 tags: []
 ---
 - A video of scenes (a demo, how-to, teaser or explainer: recordings,
-  clips, title cards, a voice, music) is the video tool. A scene without a
-  source is a title card, and it voices each line and lays the music
-  itself: never draw cards, mix sound or run ffmpeg with scripts.
+  clips, title cards, a voice, music) starts with the video tool. A scene
+  without a source is a title card, and it voices each line and lays the
+  music itself.
+- When a look needs more than the video tool offers (a studio launch film,
+  motion and compositing of your own), writing your own compositor is
+  fine: a script in the workspace (Pillow, ffmpeg). Check still frames of
+  each scene first, render the whole film once they're right, and hold it
+  to the same checks.
 - A demo of a site or app in Row-Bot's browser: write the story first, 3-8
   steps with one spoken line each. Start browser_record, then before each
   step mark a beat with its note (a short title) and its line, do the step,
@@ -24,7 +29,10 @@ tags: []
   touches); a 16:9 video sets the phone in a device, 9:16 fills the height.
 - Its look and voice are the person's: the brand kit (colour, captions,
   framing, camera, voice, speed, music mood) sets every video, and a video
-  may choose its own voice and voice_speed. Change them when asked.
+  may choose its own voice and voice_speed. When the person says how their
+  videos should look ("full screen", a voice, a mood), save it with video
+  action brand, so the next video starts that way.
+- Captions only when the person asks for them: a narrated video needs none.
 - After make, read the checks and look at the review sheet with
   analyze_image. Fix what's off (a dull or long stretch: trim or speed it
   up; a line that doesn't match its picture: rewrite it) and make it again;

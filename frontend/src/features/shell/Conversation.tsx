@@ -50,6 +50,7 @@ import {
   Bot,
   Code2,
   ImageOff,
+  Layers,
   LifeBuoy,
   ListPlus,
   MoreHorizontal,
@@ -682,8 +683,9 @@ export default function Conversation({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const composerFieldRef = useRef<HTMLDivElement>(null);
   const [compactToolbar, setCompactToolbar] = useState(false);
-  // A narrow composer (phones, a squeezed chat) is one line: + field mic
-  // send, with the model, approvals and context usage under +.
+  // A narrow composer (phones, a squeezed chat) is two rows: the text full
+  // width, then + · chips · voice or send, with the model, approvals and
+  // context usage under +.
   const [singleLine, setSingleLine] = useState(false);
   useLayoutEffect(() => {
     const composer = toolbarRef.current?.closest('.composer');
@@ -793,7 +795,7 @@ export default function Conversation({
                   ? 'Reconnect to send. Your draft remains on this device.'
                   : !sendActionReady
                     ? state.workspace?.model_status?.state === 'unavailable'
-                      ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. Reconnect or choose another model; your message stays here.`
+                      ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. ${state.workspace.model_status.fix === 'reconnect' ? 'Reconnect or choose another model; your' : 'Your'} message stays here.`
                       : 'Choose a model to send. Your message stays here.'
                     : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
@@ -846,10 +848,11 @@ export default function Conversation({
       liveTurn(
         settleFinishedSteps(transcriptRows, finishedSteps),
         state.activity,
+        Boolean(running),
       ),
     // finishedKey stands for finishedSteps: they change together.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [transcriptRows, finishedKey, state.activity],
+    [transcriptRows, finishedKey, state.activity, Boolean(running)],
   );
   const shownItems = useRef<TranscriptItem[]>([]);
   const items = useMemo(() => {
@@ -1629,6 +1632,27 @@ export default function Conversation({
       void answerOrSend(waiting, outgoing.text.trim(), keepTargets, retry);
       return;
     }
+    const modelStatus = state.workspace?.model_status;
+    if (
+      id &&
+      outgoing.text.trim() &&
+      state.status === 'ready' &&
+      !sendActionReady &&
+      modelStatus?.state === 'unavailable' &&
+      !pendingSteering &&
+      !pendingSubmit &&
+      !pendingResume
+    ) {
+      // Enter on a model that can't answer says why, in the same banner a
+      // refused send shows, with its fix (I15); not a silent no-op.
+      const refused = clientError({ code: 'model_configuration_required' });
+      setError({
+        ...refused,
+        message: `${modelStatus.reason || "This model isn't ready"}. Nothing was sent; your message is kept.`,
+        action: modelStatus.fix === 'reconnect' ? undefined : refused.action,
+      });
+      return;
+    }
     if (
       !id ||
       !outgoing.text.trim() ||
@@ -2175,6 +2199,44 @@ export default function Conversation({
     });
     overlay.close();
   }
+  // On a phone the deck or folder this chat works on is one tap from its
+  // header (D7): a small pill saying what it is, or a list when several.
+  const workingOnResources = resources.filter((resource) => resource.available);
+  const workingOnGlyph = (resource: ResourceView) =>
+    resource.binding.kind === 'artifact' ? (
+      <Palette size={16} aria-hidden />
+    ) : (
+      <Code2 size={16} aria-hidden />
+    );
+  const workingOnKind = (resource: ResourceView) =>
+    resource.binding.kind === 'artifact' ? 'Design' : 'Code';
+  const workingOn =
+    headerMenu && workingOnResources.length === 1 ? (
+      <Button
+        variant="ghost"
+        className="working-on"
+        aria-label={`Working on ${workingOnResources[0].title}`}
+        onClick={() => resourcePanel(workingOnResources[0])}
+      >
+        {workingOnGlyph(workingOnResources[0])}
+        {workingOnKind(workingOnResources[0])}
+      </Button>
+    ) : headerMenu && workingOnResources.length > 1 ? (
+      <Menu
+        label="Working on"
+        variant="ghost"
+        className="working-on"
+        actions={workingOnResources.map((resource) => ({
+          label: resource.title,
+          description: workingOnKind(resource),
+          icon: workingOnGlyph(resource),
+          onSelect: () => resourcePanel(resource),
+        }))}
+      >
+        <Layers size={16} aria-hidden />
+        Work
+      </Menu>
+    ) : undefined;
   function useOutputInCode(output: { reference: string; mime: string }) {
     if (!id) return;
     const current = controller.getDraft(id);
@@ -3304,6 +3366,7 @@ export default function Conversation({
             actions={headerActions}
             leading={headerLeading}
             incognito={incognito}
+            workingOn={workingOn}
             menuActions={
               headerMenu && id && state.conversation?.id === id
                 ? [
@@ -3835,6 +3898,7 @@ export default function Conversation({
           <form
             className="composer"
             data-single-line={singleLine ? 'true' : undefined}
+            data-draft={draft.text.trim() ? 'text' : 'empty'}
             aria-label="Message composer"
             aria-busy={busy || talkBusy}
             onSubmit={(e) => {
@@ -4172,6 +4236,7 @@ export default function Conversation({
                         key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
                         compact
                         chevron
+                        startOnOpen={singleLine}
                         controller={controller}
                         scope={voiceScope}
                         available={

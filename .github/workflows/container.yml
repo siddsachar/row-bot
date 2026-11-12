@@ -280,7 +280,9 @@ jobs:
           amd64_ref="${IMAGE_NAME}:${version}-amd64"
           arm64_ref="${IMAGE_NAME}:${version}-arm64"
           inspect_digest() {
-            docker buildx imagetools inspect "$1" | awk '$1 == "Digest:" { print $2; exit }'
+            # jq reads all of buildx's output: `awk ... exit` closed the pipe early, and under pipefail
+            # the step exited 255 after a good push (5.3.3, run 42981422594).
+            docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r '.digest'
           }
           release_digest="$(inspect_digest "$release_ref")"
           amd64_digest="$(inspect_digest "$amd64_ref")"

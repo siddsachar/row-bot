@@ -91,6 +91,8 @@ import {
 } from './palette-switches';
 import { clientError } from '../../api/errors';
 import Navigation, { NavigationRail } from './Navigation';
+import PhoneTabBar, { phoneTabFor } from './PhoneTabBar';
+import { installEdgeSwipe } from './edge-swipe';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
 import useNewChat from './useNewChat';
@@ -411,7 +413,11 @@ export default function Workspace() {
   useBackgroundNotices(conversationId, (id) =>
     navigate(`/conversations/${encodeURIComponent(id)}`),
   );
-  useApprovalNotices(conversationId);
+  const homeTab = new URLSearchParams(location.search).get('tab') ?? '';
+  useApprovalNotices(
+    conversationId,
+    location.pathname === '/' && (homeTab === '' || homeTab === 'overview'),
+  );
   const connectionAction =
     state.error?.recovery === 'update' ? (
       <Button onClick={() => window.location.reload()}>Reload</Button>
@@ -1661,6 +1667,24 @@ export default function Workspace() {
           commands: commandsButton,
         },
   };
+  function openNavigationDrawer() {
+    overlay.open({
+      kind: 'drawer',
+      key: 'navigation-drawer',
+      title: 'Conversations',
+      description: 'Choose a conversation',
+      content: navigation(false),
+    });
+  }
+  // A phone opens the same list with a swipe in from the left edge (D10).
+  const edgeSwipeOpens = useEffectEvent(openNavigationDrawer);
+  useEffect(
+    () =>
+      layout.widthClass === 'phone'
+        ? installEdgeSwipe(() => edgeSwipeOpens())
+        : undefined,
+    [layout.widthClass],
+  );
   function navigationButton(back: boolean) {
     return (
       <IconButton
@@ -1676,13 +1700,7 @@ export default function Workspace() {
         onClick={() =>
           desktop
             ? update((previous) => toggleRegion(previous, 'navigation'))
-            : overlay.open({
-                kind: 'drawer',
-                key: 'navigation-drawer',
-                title: 'Conversations',
-                description: 'Choose a conversation',
-                content: navigation(false),
-              })
+            : openNavigationDrawer()
         }
       >
         {back ? (
@@ -1767,6 +1785,12 @@ export default function Workspace() {
   ];
   const conversationVisible =
     Boolean(conversationId) && !homeOpen && !routeOpen && !compact;
+  // A phone moves between its four places with a tab bar (D1); a
+  // conversation and a panel sheet take the whole height.
+  const phoneTab =
+    layout.widthClass === 'phone' && !conversationVisible && !compact
+      ? phoneTabFor(location.pathname, location.search)
+      : null;
   const navigation = (inPane: boolean) => (
     <Navigation
       showBuddy={!layout.navigation.collapsed}
@@ -2200,6 +2224,7 @@ export default function Workspace() {
             {sideVisible && dock(sidePanels, 'side')}
           </Panel>
         </Group>
+        {phoneTab && <PhoneTabBar current={phoneTab} />}
         {conversationId &&
           railPanels.length > 0 &&
           // A page full screen on a phone has Back and × at the top: no third way out (N5).

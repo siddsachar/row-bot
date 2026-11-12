@@ -4039,8 +4039,8 @@ def _digest_since(task_id: str) -> datetime | None:
 def send_due_digests(now: datetime | None = None) -> int:
     """Send each "daily digest" workflow its runs since its last digest, once a day from DIGEST_HOUR (G8).
 
-    Nothing goes on a day with no finished runs; a workflow's first digest covers the day before it.
-    Returns how many digests went out.
+    Nothing goes on a day with no finished runs; a workflow's first digest covers the day before it, from
+    midnight, and today so far. Returns how many digests went out.
     """
     from row_bot import workflow_turns
 
@@ -4054,7 +4054,9 @@ def send_due_digests(now: datetime | None = None) -> int:
         since = _digest_since(task["id"])
         if since is not None and since.astimezone().date() == moment.date():
             continue
-        start = since or moment - timedelta(days=1)
+        # Not just the last 24 hours: a run that finished yesterday between 6 PM and the hour of this
+        # first digest would never be in one (I34).
+        start = since or (moment - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         conn = _get_conn()
         try:
             rows = conn.execute(

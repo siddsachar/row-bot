@@ -8,8 +8,9 @@
  * - Panels below 1024px open as full-height sheets with their own header.
  * - Context opens as a full-height sheet on phones and a side sheet on
  *   tablets. The conversation drawer slides in from the left.
- * - A narrow composer is one line: + · field · mic · send (container width,
- *   so a squeezed desktop chat folds the same way).
+ * - A narrow composer is two rows: the text full width, then + · chips ·
+ *   voice or send (container width, so a squeezed desktop chat folds the
+ *   same way).
  */
 
 @keyframes sheet-up {
@@ -23,14 +24,14 @@
   }
 }
 
-/* ------------------------------------------------------- one-line composer */
+/* ------------------------------------------------------- two-row composer */
 
 .composer[data-single-line] .composer-field {
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    'chips chips chips'
-    'plus text actions';
-  align-items: end;
+    'text text text'
+    'plus chips actions';
+  align-items: center;
   column-gap: 4px;
   row-gap: 6px;
   padding: 5px;
@@ -39,8 +40,9 @@
 .composer[data-single-line] .composer-chips {
   grid-area: chips;
   flex-wrap: nowrap;
+  min-width: 0;
   overflow-x: auto;
-  padding: 2px 4px 0;
+  padding: 0 2px;
   scrollbar-width: none;
 }
 .composer[data-single-line] .composer-chips > *,
@@ -55,8 +57,9 @@
 }
 .composer[data-single-line] .message-composer {
   grid-area: text;
-  align-self: center;
-  padding: 6px 4px;
+  align-self: stretch;
+  max-height: 152px;
+  padding: 6px 8px 2px;
 }
 .composer[data-single-line] .composer-toolbar {
   display: contents;
@@ -85,17 +88,15 @@
   padding: 0 10px;
   background: var(--accent-subtle);
 }
-/* Too narrow for one line (a phone at 200% zoom leaves ~180px): the text
-   takes its own row under the chips and the controls sit below it, so the
-   draft never wraps per character and the composer never grows past the
-   screen (B156). */
-@container composer (max-width: 300px) {
-  .composer[data-single-line] .composer-field {
-    grid-template-areas:
-      'chips chips chips'
-      'text text text'
-      'plus . actions';
-  }
+/* Voice while the draft is empty, Send once there is text, Stop while it
+   answers: one place for the thumb. Voice in use stays until it stops. */
+.composer[data-single-line][data-draft='empty']
+  .composer-primary-slot:has(> [data-state='send']) {
+  display: none;
+}
+.composer[data-single-line][data-draft='text']
+  .composer-voice:not(:has([aria-busy='true'])) {
+  display: none;
 }
 /* Model, approvals and context usage live in the + menu. */
 .composer-plus-context {
@@ -129,6 +130,17 @@
 }
 .conversation-heading[data-layout] .conversation-actions {
   gap: 0;
+}
+/* The deck or folder this chat works on, one tap away (D7). */
+.conversation-heading[data-layout='phone'] .working-on.button {
+  flex: none;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
 }
 .compact-controls {
   align-items: center;
@@ -490,4 +502,190 @@
   .approval-card-allow.button {
     min-height: 44px;
   }
+}
+
+/* Touch screens have no keyboard to press: no keycaps or "↑↓ Navigate"
+   footers (the shortcuts still work with a keyboard attached). */
+@media (hover: none) and (pointer: coarse) {
+  .kbd,
+  .menu-item-kbd,
+  .tooltip-kbd,
+  .command-palette-kbd,
+  .command-palette-footer,
+  .slash-palette-footer,
+  .settings-search-kbd,
+  .nav-new-chat-kbd,
+  .approval-card-kbd {
+    display: none;
+  }
+}
+@media (pointer: coarse) {
+  .activity-summary {
+    min-height: 44px;
+  }
+  .resource-target.button {
+    min-height: 44px;
+    height: 44px;
+  }
+}
+/* A phone's search sheet uses its whole height for results. */
+@media (max-width: 767px) {
+  .command-palette-results {
+    max-height: none;
+  }
+}
+/* Monitor's status cards: one column on a phone. */
+@container home (max-width: 420px) {
+  .health-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Home's quick starts have no tooltip on touch, so they say what they make. */
+@media (hover: none) and (pointer: coarse) {
+  .overview-quick {
+    gap: 8px;
+  }
+  .overview-quick .overview-quick-start.icon-button {
+    width: auto;
+    min-width: 44px;
+    gap: 6px;
+    padding-inline: 10px 12px;
+  }
+  .overview-quick .overview-quick-start::after {
+    content: attr(data-short);
+    color: var(--text-secondary);
+    font-size: var(--text-13);
+    font-weight: 500;
+  }
+}
+
+/* -------------------------------------------- menus as sheets on phones */
+
+/* On a touch phone a menu or popover rises from the bottom edge as a sheet
+   over a scrim, full width, with a grab handle; a tap on the scrim, Escape
+   or a swipe down (sheet-swipe.ts) closes it. Radix still owns focus and
+   dismissal; only the placement it computes is set aside here. */
+@media (max-width: 767px) and (pointer: coarse) {
+  [data-radix-popper-content-wrapper]:has(
+    > :is(.menu, .popover, .model-picker, .combobox-popover):not(.buddy-peek)
+  ) {
+    position: fixed !important;
+    inset: 0 !important;
+    min-width: 0 !important;
+    transform: none !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding-top: calc(48px + env(safe-area-inset-top));
+    background: var(--overlay-scrim);
+    animation: appear var(--motion-overlay) var(--ease-out);
+  }
+  [data-radix-popper-content-wrapper]
+    > :is(.menu, .popover, .model-picker, .combobox-popover):not(.buddy-peek) {
+    position: relative;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: min(85dvh, 100%);
+    margin: 0 env(safe-area-inset-right) var(--virtual-keyboard-inset, 0px)
+      env(safe-area-inset-left);
+    border: 0;
+    border-radius: 14px 14px 0 0;
+    padding-top: 20px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    box-shadow: var(--shadow-modal);
+    animation: sheet-up var(--motion-panel) var(--ease-out);
+    touch-action: pan-y;
+  }
+  /* The handle: a visual cue for the swipe; the scrim and Escape close too. */
+  [data-radix-popper-content-wrapper]
+    > :is(.menu, .popover, .model-picker, .combobox-popover):not(
+      .buddy-peek
+    )::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-control);
+    transform: translateX(-50%);
+  }
+  .dialog.sheet::before {
+    content: '';
+    position: absolute;
+    z-index: 1;
+    top: 6px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-control);
+    transform: translateX(-50%);
+  }
+  /* Pickers keep their own scrolling list under a fixed search field. */
+  [data-radix-popper-content-wrapper] > :is(.model-picker, .combobox-popover) {
+    overflow: hidden;
+  }
+}
+
+/* ------------------------------------------------------- phone tab bar */
+
+/* Home · Chats · Workflows · Settings along the bottom edge (D1). Toasts
+   and the install/offline banner sit above it. */
+.phone-tabs {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+.phone-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 56px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.phone-tab[aria-current='page'] {
+  color: var(--accent-solid);
+}
+.phone-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -4px;
+  border-radius: var(--radius-control);
+}
+.phone-tab-icon {
+  position: relative;
+  display: inline-flex;
+}
+.phone-tab-badge {
+  position: absolute;
+  top: -4px;
+  left: calc(100% - 6px);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--status-danger-text);
+  color: var(--surface);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+body:has(.phone-tabs) .notification-layer {
+  --notice-floor: calc(56px + env(safe-area-inset-bottom) + 8px);
+}
+body:has(.phone-tabs) .pwa-status {
+  bottom: calc(56px + env(safe-area-inset-bottom) + 8px);
 }

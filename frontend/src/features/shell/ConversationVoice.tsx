@@ -14,6 +14,11 @@ export default function ConversationVoice(props: {
   compact?: boolean;
   /** Render the trigger as a small chevron beside the dictation mic. */
   chevron?: boolean;
+  /**
+   * One tap starts Talk (phones): the panel opens already talking, and its
+   * options show once Talk stops.
+   */
+  startOnOpen?: boolean;
   unavailableReason?: string;
   disabled: boolean;
   running: boolean;
@@ -113,7 +118,11 @@ export default function ConversationVoice(props: {
               : props.unavailableReason || 'Talk is unavailable'
           }
           aria-expanded={open}
-          onClick={() => setOpen(!open)}
+          onClick={() => {
+            // A one-tap open always starts the ordinary Talk.
+            if (!open && props.startOnOpen) setMode('talk');
+            setOpen(!open);
+          }}
           disabled={busy || !props.available}
         >
           {/* Beside Dictate, Talk shows its own glyph rather than a small
@@ -174,6 +183,7 @@ export default function ConversationVoice(props: {
               scope={scope}
               available={props.available}
               disabled={props.disabled || props.running || !props.context}
+              startOnMount={props.startOnOpen}
               start={async (request, signal) => {
                 setError('');
                 const value = await controller.startTalk(

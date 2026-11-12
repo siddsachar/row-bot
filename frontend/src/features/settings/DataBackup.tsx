@@ -31,8 +31,11 @@ export type DataBackupOwner = {
   send: (action: Action, extra?: Extra) => Promise<DataBackupReceipt>;
   /** The desktop pick of one backup archive, or null (cancelled or no desktop). */
   pick: () => Promise<string | null | 'unavailable'>;
-  /** Save the named last backup on this device: null once saved, else why not. */
-  download: (name: string) => Promise<string | null>;
+  /**
+   * Save a backup on this device: the named one, or the one a promise names
+   * once it is made (the save starts at the click). Null once saved, else why not.
+   */
+  download: (name: string | (() => Promise<string>)) => Promise<string | null>;
   /** Send an archive to restore from (no desktop picker); its upload id. */
   upload: (
     file: File,
@@ -44,6 +47,8 @@ export type DataBackupOwner = {
 };
 
 const POLL_MS = 1000;
+// A backup for moving that wasn't made: its waiting save just stops.
+const NOT_MADE = new Error('backup_not_made');
 
 const JOB_FAILED: Record<string, string> = {
   backup_failed: "The backup didn't finish. Try again.",
@@ -156,6 +161,19 @@ export function DataBackup({
   const transfer = useRef<AbortController | null>(null);
   // The archive this page sent, until its restore is confirmed or let go.
   const uploaded = useRef<string | null>(null);
+  // The backup Download backup is making, which its save waits for.
+  const making = useRef<{
+    resolve: (name: string) => void;
+    reject: (cause: Error) => void;
+  } | null>(null);
+  const settleMaking = useCallback((name: string | null) => {
+    const pending = making.current;
+    making.current = null;
+    if (pending) {
+      if (name) pending.resolve(name);
+      else pending.reject(NOT_MADE);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -167,23 +185,19 @@ export function DataBackup({
         watched.current = null;
         const forMove = moving.current && job.kind === 'backup';
         moving.current = false;
-        if (job.status === 'failed')
+        if (job.status === 'failed') {
+          if (forMove) settleMaking(null);
           setError(
             (job.code &&
               (JOB_FAILED[job.code] ??
                 clientError({ code: job.code }).message)) ||
               JOB_FAILED[`${job.kind}_failed`],
           );
-        else if (forMove) {
-          // Saved at once while the click still counts (a browser saves only
-          // just after one); otherwise Download backup saves it.
+        } else if (forMove) {
+          // Its save started at the click and has waited for this backup.
           setMoved(job);
           setSaved(false);
-          if (job.name)
-            void owner.download(job.name).then(
-              (reason) => alive.current && setSaved(reason === null),
-              () => undefined,
-            );
+          settleMaking(job.name ?? null);
         } else if (job.kind === 'backup')
           setNotice({
             name: job.name ?? next.last_backup_name ?? '',
@@ -193,7 +207,7 @@ export function DataBackup({
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
     }
-  }, [owner]);
+  }, [owner, settleMaking]);
 
   const forget = useCallback(() => {
     const upload = uploaded.current;
@@ -208,8 +222,9 @@ export function DataBackup({
       alive.current = false;
       transfer.current?.abort();
       forget();
+      settleMaking(null);
     };
-  }, [refresh, forget]);
+  }, [refresh, forget, settleMaking]);
 
   const running = state?.job?.status === 'running';
   useEffect(() => {
@@ -237,7 +252,13 @@ export function DataBackup({
     }
   }
 
-  async function download(name = state?.last_backup_name) {
+  async function download(
+    name:
+      | string
+      | (() => Promise<string>)
+      | null
+      | undefined = state?.last_backup_name,
+  ) {
     if (!name) return;
     setError('');
     setDownloading(true);
@@ -245,11 +266,15 @@ export function DataBackup({
       // Called straight from the click: the browser saves only for a gesture.
       const reason = await owner.download(name);
       if (!alive.current) return;
+      // A browser that wouldn't save even from the click: the backup's own
+      // line offers the click that saves it, once it is made.
+      if (reason === 'user_gesture_required' && typeof name !== 'string')
+        return;
       if (reason)
         setError(DOWNLOAD_FAILED[reason] ?? DOWNLOAD_FAILED.operation_failed);
-      else if (name === moved?.name) setSaved(true);
+      else if (typeof name !== 'string' || name === moved?.name) setSaved(true);
     } catch (cause) {
-      if (!alive.current) return;
+      if (!alive.current || cause === NOT_MADE) return;
       setError(problem(cause));
       // Gone, or a newer backup since: show the one there is now.
       if (clientError(cause).code === 'backup_unavailable') void refresh();
@@ -258,15 +283,25 @@ export function DataBackup({
     }
   }
 
-  /** Move Row-Bot: save the backup made for moving, or make a fresh one. */
+  /**
+   * Move Row-Bot: make a fresh backup and save it, in one click. The save
+   * starts now, while the click counts, and waits for the backup to be made.
+   * A backup made for moving that the browser wouldn't save is saved instead.
+   */
   function moveOut() {
     if (moved?.name && !saved) {
       void download(moved.name);
       return;
     }
     moving.current = true;
+    const made = new Promise<string>((resolve, reject) => {
+      making.current = { resolve, reject };
+    });
+    void download(() => made);
     void send('backup').then((receipt) => {
-      if (receipt?.status !== 'accepted') moving.current = false;
+      if (receipt?.status === 'accepted') return;
+      moving.current = false;
+      settleMaking(null);
     });
   }
 
@@ -392,7 +427,9 @@ export function DataBackup({
                 <p>
                   {saved
                     ? `Downloaded “${moved.name}”.`
-                    : `“${moved.name}” is ready. Choose Download backup to save it.`}
+                    : downloading
+                      ? `Saving “${moved.name}”…`
+                      : `“${moved.name}” is ready. Choose Download backup to save it.`}
                 </p>
                 {Boolean(moved.left_out?.length) && (
                   <p>Not in the backup: {moved.left_out!.join(' · ')}</p>
@@ -629,14 +666,19 @@ export default function ConnectedDataBackup({ host = null }: { host?: Host }) {
     download: async (name) => {
       // The server's own refusal says more than "the download failed".
       let refused: unknown;
-      const saved = await saveBrowserDownload(async () => {
-        try {
-          return await controller.downloadDataBackup(name);
-        } catch (cause) {
-          refused = cause;
-          throw cause;
-        }
-      }, name);
+      let chosen = typeof name === 'string' ? name : '';
+      const saved = await saveBrowserDownload(
+        async () => {
+          try {
+            if (typeof name !== 'string') chosen = await name();
+            return await controller.downloadDataBackup(chosen);
+          } catch (cause) {
+            refused = cause;
+            throw cause;
+          }
+        },
+        typeof name === 'string' ? name : () => chosen,
+      );
       if (refused !== undefined) throw refused;
       return saved.status === 'unavailable' ? saved.reason : null;
     },

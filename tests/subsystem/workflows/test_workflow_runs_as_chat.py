@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import closing
 
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
@@ -353,8 +354,16 @@ def test_a_daily_digest_sends_one_line_per_run_once_a_day_from_six(workflows, pl
     resolve(platform, pending_approval(workflows, waiting["thread_id"]), "approve", "approve-post")
     settle(platform, waiting["thread_id"])
     assert delivered == [], "a digest workflow sends nothing per run"
-    finished = datetime.fromisoformat(latest(workflows, task["id"])["finished_at"]).astimezone()
-    evening = finished.replace(hour=18, minute=5) + (timedelta(days=1) if finished.hour >= 18 else timedelta())
+    assert first["status"] == "completed"
+    # A fixed clock: both runs end just after six, and the first digest goes the next evening (I34: its
+    # window was the last 24 hours, so these two fell outside it).
+    with closing(workflows._get_conn()) as conn, conn:
+        run_ids = [row[0] for row in conn.execute(
+            "SELECT id FROM task_runs WHERE task_id = ? ORDER BY started_at", (task["id"],)).fetchall()]
+        for run_id, ended in zip(run_ids, ("2026-06-10T18:02:00", "2026-06-10T18:04:00")):
+            conn.execute("UPDATE task_runs SET finished_at = ? WHERE id = ?", (ended, run_id))
+    read, finished = datetime(2026, 6, 10, 18, 2).astimezone(), datetime(2026, 6, 10, 18, 4).astimezone()
+    evening = datetime(2026, 6, 11, 18, 5).astimezone()
 
     assert workflows.send_due_digests(evening.replace(hour=17, minute=59)) == 0, "not before six"
     assert workflows.send_due_digests(evening) == 1
@@ -364,9 +373,7 @@ def test_a_daily_digest_sends_one_line_per_run_once_a_day_from_six(workflows, pl
         return f"{moment:%H:%M}" if moment.date() == evening.date() else f"{moment:%a %H:%M}"
 
     [digest] = delivered
-    read = stamp(datetime.fromisoformat(first["finished_at"]).astimezone())
-    assert first["status"] == "completed"
-    assert digest == (f"Daily digest · 2 runs\n{read} · Finished · nothing was posted or sent\n"
+    assert digest == (f"Daily digest · 2 runs\n{stamp(read)} · Finished · nothing was posted or sent\n"
                       f"{stamp(finished)} · Sent · Posted on X as @row_bot_ai: {POST_LINK}")
 
 

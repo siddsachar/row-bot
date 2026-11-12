@@ -343,6 +343,44 @@ describe('a turn of several steps', () => {
     expect(live.running.map((group) => group.items[0].call_id)).toEqual(['c4']);
   });
 
+  it('keeps a saved running step on the live line when its live event is gone (R15)', () => {
+    // The chat re-read the turn mid-step and its activity no longer holds that step's event.
+    const run = threeSteps();
+    run.activity.pop();
+    const running = savedTrace('c4', 'generate_video', undefined);
+    running.status = 'pending';
+    running.counts = { pending: 1 };
+    running.items[0].status = 'pending';
+    run.rows = [
+      ...run.rows.filter((row) => !row.id.endsWith(':s4')),
+      {
+        id: 'assistant:checkpoint:a4',
+        message_id: 'a4',
+        role: 'assistant',
+        blocks: [
+          {
+            id: 'a4-text',
+            type: 'markdown',
+            text: 'Next, a shorter cut with captions.',
+          },
+        ],
+        traces: [running],
+      },
+    ];
+    const live = liveTurn(run.rows, run.activity, true);
+    // Under its words it read as done, and the live line below said "Thinking…" too.
+    expect(reading(buildTranscript(live.rows)).at(-1)).toBe(
+      'text: Next, a shorter cut with captions.',
+    );
+    expect(live.running.map((group) => group.items[0].call_id)).toEqual(['c4']);
+    // Once the turn has ended, a step saved as pending stays where it was saved.
+    const ended = liveTurn(run.rows, run.activity, false);
+    expect(reading(buildTranscript(ended.rows)).at(-1)).toBe(
+      'step: generate_video',
+    );
+    expect(ended.running).toEqual([]);
+  });
+
   it('keeps quiet tool steps at the end on the live line, with the step in progress', () => {
     const run = new LiveRun();
     run.say('s1', 'Filling in the claim.');

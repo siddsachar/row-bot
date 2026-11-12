@@ -398,3 +398,19 @@ it('terminal heartbeat stops capture even when its expiry is still positive', as
   expect(p.stop).toHaveBeenCalledWith(snapshot.handle);
   expect(screen.getByRole('button', { name: 'Talk' })).toBeVisible();
 });
+
+it('starts listening at once when opened by the one-tap Talk, and only then', async () => {
+  const p = props();
+  render(<TalkControls {...p} startOnMount />);
+  await screen.findByRole('button', { name: 'Send speech' });
+  expect(p.start).toHaveBeenCalledTimes(1);
+  expect(media).toHaveBeenCalledTimes(1);
+});
+
+it('a one-tap open that may not start yet stays idle and says why', async () => {
+  const p = props();
+  render(<TalkControls {...p} startOnMount disabled />);
+  expect(screen.getByRole('button', { name: 'Talk' })).toBeDisabled();
+  expect(p.start).not.toHaveBeenCalled();
+  expect(media).not.toHaveBeenCalled();
+});

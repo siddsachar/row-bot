@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import threading
 import uuid
 from dataclasses import dataclass
@@ -54,7 +55,46 @@ def _about(seconds: float) -> str:
         count, unit = math.ceil(seconds / 3600), "hour"
     return f"{count} {unit}{'' if count == 1 else 's'}"
 
-FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait"]
+FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on"]
+
+# A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
+# "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.
+CARRY_ON_NOTE = "Carrying on with the next step"
+CARRY_ON_PROMPT = (
+    "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
+    "nothing ran. Carry on with it now. If you need the person for something, ask them; if the work is "
+    "done, say so in a line.")
+_NEXT_STEP = re.compile(
+    r"\b(?:next|now|then),?\s+I(?:'|’)ll\b|\bI(?:'|’)ll\s+(?:now|next|then)\b"
+    r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
+    r"|\b(?:carrying on|moving on) (?:now|with)\b",
+    re.IGNORECASE)
+# The reply hands over to the person: their answer, OK or choice is what comes next.
+_HANDS_OVER = re.compile(
+    r"\?|\b(?:let me know|once you|when you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
+    r"|your call|say the word|up to you)\b",
+    re.IGNORECASE)
+_TAIL_CHARS = 400  # Of the reply's end: where a "next I'll" that ends the turn is.
+
+
+def stopped_on_next_step(reply: str) -> bool:
+    """The reply ends saying what it will do next, not handing over to the person."""
+    tail = str(reply or "").strip()[-_TAIL_CHARS:]
+    return bool(_NEXT_STEP.search(tail)) and not _HANDS_OVER.search(tail)
+
+
+def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followup_kind: str) -> None:
+    """Schedule one carry-on turn after a reply that stopped on its next step, never after another one."""
+    if status != "completed" or followup_kind == "carry_on" or not stopped_on_next_step(assistant_text):
+        return
+    from row_bot import tasks, waits
+    # A workflow's run moves on by itself, and a wait already brings the conversation back.
+    if tasks.active_run_for_conversation(conversation_id) is not None or waits.waiting(conversation_id):
+        return
+    with _LOCK:
+        if conversation_id in _PENDING:
+            return
+        _PENDING[conversation_id] = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE)
 
 
 @dataclass(frozen=True)
@@ -204,7 +244,7 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
                         assistant_text: str, model_ref: str, goal_id: str = "",
-                        error_text: str = "") -> None:
+                        error_text: str = "", followup_kind: str = "") -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
@@ -230,6 +270,8 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
                                  assistant_text=assistant_text, model_override=model_ref)
             except Exception:
                 _LOG.exception("Counting the goal's last turn failed for %s", conversation_id)
+        else:
+            _carry_on(conversation_id, status=status, assistant_text=assistant_text, followup_kind=followup_kind)
         return
     try:
         if status == "completed":

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { DictationHandle } from '../../api/types';
 import type { DictationScope } from './VoiceControls';
 import { Button } from '../../ui/primitives';
@@ -58,6 +58,8 @@ export type TalkControlsProps = {
   };
   onBusy?(busy: boolean): void;
   onSubmitted?(result: TalkResult): void;
+  /** Start Talk as soon as the controls appear: the tap that showed them. */
+  startOnMount?: boolean;
 };
 
 type Stage =
@@ -163,6 +165,11 @@ export default function TalkControls(props: TalkControlsProps) {
     props.scope.selectionKey,
     props.available,
   ]);
+  const startOnMount = useRef(props.startOnMount);
+  const startNow = useEffectEvent(() => void start());
+  useEffect(() => {
+    if (startOnMount.current) startNow();
+  }, []);
 
   function live(a: Attempt) {
     return current.current === a && !a.stopped;

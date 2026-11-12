@@ -275,6 +275,43 @@ def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
         video_projects.export(project, "4:3")
 
 
+def test_an_export_that_cannot_be_made_says_why_in_the_videos_summary(studio, monkeypatch):
+    """R5 (12 Nov): a 9:16 export twice made no file and said nothing; the summary never listed exports."""
+    import threading
+
+    from row_bot import media_sources, video_edits, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    made = video_edits.get(_wait(project.project_id, 1).edit_id)
+    saved = register_attachment("conversation-a", "Launch demo v1.mp4", MP4)
+    video_edits._set(made, status="saved", media_ref=saved["attachment_ref"], mime_type="video/mp4")
+
+    def gone(value, conversation):
+        raise media_sources.SourceError(f"{value} isn't in this chat any more.")
+
+    found = media_sources.resolve
+    monkeypatch.setattr(media_sources, "resolve", gone)
+    video_projects.export(project, "9:16")
+    for _ in range(300):
+        if "9:16" in video_projects.get(project.project_id).latest.export_problems:
+            break
+        threading.Event().wait(0.01)
+    summary = video_projects.summary(video_projects.get(project.project_id))
+    assert "Export 9:16: not made: signup.mp4 isn't in this chat any more." in summary
+    assert video_projects.get(project.project_id).latest.edit_id == made.edit_id, "the version's own video stays"
+
+    monkeypatch.setattr(media_sources, "resolve", found)
+    video_projects.export(project, "9:16")
+    for _ in range(300):
+        if "9:16" in video_projects.get(project.project_id).latest.exports:
+            break
+        threading.Event().wait(0.01)
+    summary = video_projects.summary(video_projects.get(project.project_id))
+    assert "not made" not in summary and "Export 9:16:" in summary, "trying again clears the old reason"
+
+
 def test_the_brand_kit_is_used_for_every_video_unless_a_version_turns_it_off(studio):
     import io
 
@@ -540,3 +577,21 @@ def test_a_wait_in_a_recorded_scene_needs_attention_once_its_line_is_said(studio
         "Waiting: 0:06–0:40 shows nothing being done. Speed that part up or cut it.",
         "Waiting: 0:41–0:50 shows nothing being done. Speed that part up or cut it."]
     assert not [line for line in review(8.0) if line.startswith("Waiting")], "sped up, the waits pass quickly"
+
+
+def test_how_the_person_says_videos_should_look_is_saved_for_every_next_video(studio):
+    """R3 (12 Nov): "full screen, no captions" was said in three chats and never kept; a new kit is full screen."""
+    from row_bot import video_brand
+    from row_bot.tools.video_project_tool import _video
+
+    assert video_brand.load().framing == "full", "edge to edge unless the person chooses framed"
+    video_brand.save({"colour": "#112233", "intro": "Row-Bot", "framing": "framed"})
+
+    said = _video(action="brand", framing="full", music_mood="upbeat")
+
+    kit = video_brand.load()
+    assert (kit.framing, kit.music_mood) == ("full", "upbeat")
+    assert (kit.colour, kit.intro) == ("#112233", "Row-Bot"), "what wasn't said stays as it was"
+    assert "every new video starts this way" in said and "framing full" in said
+    assert _video(action="brand", music_mood="loud").startswith("The music mood is"), "a wrong value is refused"
+    assert video_brand.load().music_mood == "upbeat"

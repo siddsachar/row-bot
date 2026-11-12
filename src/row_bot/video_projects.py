@@ -92,6 +92,8 @@ class Version:
     # Its shape ("" keeps its first video's) and its other shapes or GIF, each an edit: shape -> edit id.
     aspect: str = ""
     exports: dict[str, str] = field(default_factory=dict)
+    # Why an export in a shape didn't come out (shape -> words): it used to fail and say nothing (R5).
+    export_problems: dict[str, str] = field(default_factory=dict)
     # Use the brand kit (its colour, captions, logo, intro and outro).
     brand: bool = True
     # This video's own voice and speed for its lines ("" and 0: the brand kit's).
@@ -172,6 +174,8 @@ def _load(path: Path) -> Project | None:
                 voice=str(item.get("voice") or ""), voice_speed=float(item.get("voice_speed") or 0),
                 exports={str(key): str(value) for key, value in (item.get("exports") or {}).items()
                          if key in EXPORTS},
+                export_problems={str(key): str(value)[:300]
+                                 for key, value in (item.get("export_problems") or {}).items() if key in EXPORTS},
                 edit_id=str(item.get("edit_id") or ""), problem=str(item.get("problem") or ""),
             ))
         if not versions:
@@ -521,6 +525,9 @@ def export(project: Project, shape: str, number: int | None = None, *, download:
     made = video_edits.get(version.edit_id) if version.edit_id else None
     if made is None or made.status != "saved":
         raise ProjectError("Make this version first: its exports come from it.")
+    if shape in version.export_problems:
+        _update(project, version.number,
+                export_problems={key: value for key, value in version.export_problems.items() if key != shape})
     if shape == "gif":
         from row_bot.media_sources import resolve
 
@@ -697,13 +704,23 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
         else:
             _update(project, number, status="rendering", edit_id=edit.edit_id)
     except (SourceError, ValueError) as error:
-        if not shape:
-            _update(project, number, status="failed", problem=str(error)[:300])
+        _record_failure(project_id, conversation_id, number, shape, str(error)[:300])
         logger.info("A video project's video couldn't be made: %s", error)
     except Exception:
         logger.warning("A video project's video couldn't be made", exc_info=True)
-        if not shape:
-            _update(project, number, status="failed", problem="Something went wrong while making the video.")
+        _record_failure(project_id, conversation_id, number, shape, "Something went wrong while making the video.")
+
+
+def _record_failure(project_id: str, conversation_id: str, number: int, shape: str, words: str) -> None:
+    """A version's video that didn't come out says why; so does an export in another shape (R5)."""
+    project = get(project_id, conversation_id)
+    if project is None:
+        return
+    if not shape:
+        _update(project, number, status="failed", problem=words)
+        return
+    current = project.version(number)
+    _update(project, number, export_problems={**(current.export_problems if current else {}), shape: words})
 
 
 # ── Reading ─────────────────────────────────────────────────────────────────
@@ -835,4 +852,12 @@ def summary(project: Project, number: int | None = None) -> str:
         lines.append(f"Checks {verdict}:\n" + "\n".join(f"- {line}" for line in data["checks"]))
     if data["review_sheet"]:
         lines.append(REVIEW.format(sheet=data["review_sheet"]))
+    for item in data["exports"]:
+        made = item["edit"]
+        state = {"saved": f"made: {made['output_name']}", "failed": f"not made: {made.get('detail') or 'it failed'}",
+                 "stopped": "stopped"}.get(made["status"], "being made")
+        lines.append(f"Export {item['shape']}: {state}.")
+    shown = project.version(data["number"])
+    for shape, words in (shown.export_problems if shown is not None else {}).items():
+        lines.append(f"Export {shape}: not made: {words}")
     return "\n".join(lines)
