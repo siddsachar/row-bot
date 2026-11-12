@@ -7,5 +7,6 @@
   "art": "art.png",
   "rig": "rig.json",
   "preview": "art.png",
-  "prompt": "A compact botanical greenhouse desktop companion: soft rounded seedpod silhouette, fresh moss-green hood, dewdrop glass lantern core, tiny leaf-like side panels, warm cream eyes, gentle gardener posture, bright natural accents, cozy and capable without fantasy glyphs or ancient motifs."
+  "prompt": "A compact botanical greenhouse desktop companion: soft rounded seedpod silhouette, fresh moss-green hood, dewdrop glass lantern core, tiny leaf-like side panels, warm cream eyes, gentle gardener posture, bright natural accents, cozy and capable without fantasy glyphs or ancient motifs.",
+  "patches": "patches.png"
 }

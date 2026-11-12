@@ -7,5 +7,6 @@
   "art": "art.png",
   "rig": "rig.json",
   "preview": "art.png",
-  "prompt": "A compact space mission-control desktop companion: pearl white micro space-suit silhouette, glossy dark glass visor with bright expressive eyes, cobalt and amber status lights, tiny antenna ring, subtle star-map panel accents, confident zero-gravity posture, crisp and charming without fantasy or ancient motifs."
+  "prompt": "A compact space mission-control desktop companion: pearl white micro space-suit silhouette, glossy dark glass visor with bright expressive eyes, cobalt and amber status lights, tiny antenna ring, subtle star-map panel accents, confident zero-gravity posture, crisp and charming without fantasy or ancient motifs.",
+  "patches": "patches.png"
 }

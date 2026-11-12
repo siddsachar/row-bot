@@ -7,5 +7,6 @@
   "art": "art.png",
   "rig": "rig.json",
   "preview": "art.png",
-  "prompt": "A compact retro arcade desktop companion: chunky pixel-art inspired silhouette rendered as polished 3D, translucent charcoal CRT shell, cyan and magenta neon edge lights, warm yellow square eyes, tiny joystick charm, playful focused posture, clean readable shape, modern and friendly without fantasy or ancient motifs."
+  "prompt": "A compact retro arcade desktop companion: chunky pixel-art inspired silhouette rendered as polished 3D, translucent charcoal CRT shell, cyan and magenta neon edge lights, warm yellow square eyes, tiny joystick charm, playful focused posture, clean readable shape, modern and friendly without fantasy or ancient motifs.",
+  "patches": "patches.png"
 }

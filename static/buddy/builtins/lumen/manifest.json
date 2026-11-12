@@ -7,5 +7,6 @@
   "art": "art.png",
   "rig": "rig.json",
   "preview": "art.png",
-  "prompt": "A luminous archive-guide version of Buddy for Row-Bot: compact rounded silhouette, moonlit ink hood, warm gold inner glow, subtle teal glass accents, bright readable eyes, tiny folded page-like collar shapes, calm observant expression, elegant and friendly but not childish."
+  "prompt": "A luminous archive-guide version of Buddy for Row-Bot: compact rounded silhouette, moonlit ink hood, warm gold inner glow, subtle teal glass accents, bright readable eyes, tiny folded page-like collar shapes, calm observant expression, elegant and friendly but not childish.",
+  "patches": "patches.png"
 }
