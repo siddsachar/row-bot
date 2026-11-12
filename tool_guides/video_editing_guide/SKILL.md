@@ -8,9 +8,14 @@ tools:
 tags: []
 ---
 - A video of scenes (a demo, how-to, teaser or explainer: recordings,
-  clips, title cards, a voice, music) is the video tool. A scene without a
-  source is a title card, and it voices each line and lays the music
-  itself: never draw cards, mix sound or run ffmpeg with scripts.
+  clips, title cards, a voice, music) starts with the video tool. A scene
+  without a source is a title card, and it voices each line and lays the
+  music itself.
+- When a look needs more than the video tool offers (a studio launch film,
+  motion and compositing of your own), writing your own compositor is
+  fine: a script in the workspace (Pillow, ffmpeg). Check still frames of
+  each scene first, render the whole film once they're right, and hold it
+  to the same checks.
 - A demo of a site or app in Row-Bot's browser: write the story first, 3-8
   steps with one spoken line each. Start browser_record, then before each
   step mark a beat with its note (a short title) and its line, do the step,
