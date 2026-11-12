@@ -1398,6 +1398,25 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     PROVIDERS,
   ],
+  review_expired: ['This review was closed. Start it again.', 'review'],
+  review_busy: [
+    'Row-Bot is still reviewing your memory. Wait for it to finish.',
+    'retry',
+    RETRY,
+  ],
+  review_stale: [
+    'Some memories changed since this review. Review again before making changes.',
+    'review',
+  ],
+  review_backup_failed: [
+    "Row-Bot couldn't back up your memory first, so nothing was changed. Check there is free space, then try again.",
+    'retry',
+    RETRY,
+  ],
+  review_storage_unavailable: [
+    "Row-Bot can't write to its data folder to review your memory.",
+    'none',
+  ],
   data_job_running: [
     'A backup or restore is already running. Wait for it to finish.',
     'retry',

@@ -687,6 +687,8 @@ def propose(*, import_batch: str | None = None, invoke: Callable[[str], str] | N
 
 def overview(import_batch: str | None = None) -> dict:
     """What a review would read, and with what model, shown before it runs."""
+    if import_batch is not None and not _BATCH_ID.fullmatch(import_batch):
+        raise _error("invalid_query")
     entities = _entities()
     scope = _imported(entities, import_batch) if import_batch else entities
     by_id = {entity["id"]: entity for entity in entities}

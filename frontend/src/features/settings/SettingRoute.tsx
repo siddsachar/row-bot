@@ -39,6 +39,7 @@ import ToolCatalog from './ToolCatalog';
 import CustomToolsSettings from './CustomToolsSettings';
 import MemorySettings from './MemorySettings';
 import { memoryImportIO } from '../knowledge/memory-import-io';
+import { memoryReviewIO } from '../knowledge/memory-review-io';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
@@ -148,6 +149,7 @@ export default function SettingRoute() {
   const learningPreview = useLearningPreview();
   const learningIo = useLearning();
   const importIO = useMemo(() => memoryImportIO(controller), [controller]);
+  const reviewIO = useMemo(() => memoryReviewIO(controller), [controller]);
   const session = state.handshake?.client_session_id ?? '';
   const settingsDrafts = useRef({
     session,
@@ -546,6 +548,7 @@ export default function SettingRoute() {
               part={leaf.id}
               skillsMoved={learningPreview}
               host={settingsSnapshot?.system.hosted_by}
+              reviewIO={reviewIO}
             />
             {leaf.id === 'data' && <SandboxSettings />}
             {leaf.id === 'data' && settingsSnapshot && (
@@ -812,6 +815,7 @@ export default function SettingRoute() {
             snapshot={settingsSnapshot?.knowledge}
             refreshToken={knowledgeRefresh}
             importIO={importIO}
+            reviewIO={reviewIO}
           />
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-snapshot-page settings-documents-flow">

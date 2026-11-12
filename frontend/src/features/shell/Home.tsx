@@ -36,6 +36,8 @@ import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 import MemoryImportDialog from '../knowledge/MemoryImportDialog';
 import { memoryImportIO } from '../knowledge/memory-import-io';
+import MemoryReviewDialog from '../knowledge/MemoryReviewDialog';
+import { memoryReviewIO } from '../knowledge/memory-review-io';
 import { neverUsed } from './new-chat';
 import LearningHome, {
   LEARNING_VIEWS,
@@ -106,6 +108,11 @@ export default function Home({
   const [graphLimit, setGraphLimit] = useState(GRAPH_DEFAULT_LIMIT);
   const [importing, setImporting] = useState(false);
   const importIO = useMemo(() => memoryImportIO(controller), [controller]);
+  // Review memory: the whole memory, or one import's (from its done step).
+  const [reviewing, setReviewing] = useState<{ importBatch?: string } | null>(
+    null,
+  );
+  const reviewIO = useMemo(() => memoryReviewIO(controller), [controller]);
   const knowledgeRead = useRef({ at: 0, key: '' });
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [monitorLoading, setMonitorLoading] = useState(false);
@@ -661,6 +668,7 @@ export default function Home({
                     : undefined
                 }
                 onImport={() => setImporting(true)}
+                onReview={() => setReviewing({})}
                 onMerge={mergeMemory}
                 onDelete={(id, subject) => deleteMemories([{ id, subject }])}
                 onDeleteMany={deleteMemories}
@@ -763,7 +771,20 @@ export default function Home({
         open={importing}
         onOpenChange={setImporting}
         io={importIO}
+        onReview={(importBatch) => {
+          setImporting(false);
+          setReviewing({ importBatch });
+        }}
         onImported={() => setKnowledgeReload((value) => value + 1)}
+      />
+      <MemoryReviewDialog
+        open={reviewing !== null}
+        onOpenChange={(open) => {
+          if (!open) setReviewing(null);
+        }}
+        io={reviewIO}
+        importBatch={reviewing?.importBatch}
+        onChanged={() => setKnowledgeReload((value) => value + 1)}
       />
     </div>
   );

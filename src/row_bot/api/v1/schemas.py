@@ -4173,6 +4173,158 @@ class MemoryImportUndo(WireModel):
     client_session_id: UUID
 
 
+# Review memory (Knowledge › Review memory): a clean-up over the whole memory, or one import's memories.
+# Every memory gets one proposal with a plain reason; nothing changes before the person approves, memory
+# is backed up first, and Undo puts back exactly what was.
+MemoryReviewRunId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+MemoryReviewProposalId = Annotated[str, StringConstraints(pattern=r"^(?:memory|split):[^\s]{1,128}$")]
+MemoryReviewRevision = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+MemoryReviewReason = Literal[
+    "keep", "unchecked", "person_record", "lesson", "long_record", "document", "outdated", "test_data",
+    "not_about_the_person", "run_log", "duplicate", "rewrite", "merge", "split",
+]
+
+
+class MemoryReviewReceipt(WireModel):
+    run_id: MemoryReviewRunId
+    command_id: UUID
+    status: Literal["applied", "undone"]
+    applied_at: str = Field(max_length=40)
+    undone_at: str | None = Field(default=None, max_length=40)
+    undo_until: str = Field(max_length=40)
+    removed: int = Field(ge=0)
+    merged: int = Field(ge=0)
+    rewritten: int = Field(ge=0)
+    split: int = Field(ge=0)
+    added: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    # The copy of memory.db taken first, by file name.
+    backup: str = Field(max_length=120)
+
+
+class MemoryReviewOverview(WireModel):
+    """What a review would read, shown before it runs."""
+    memories: int = Field(ge=0)
+    model_calls: int = Field(ge=0)
+    # More than a few hundred memories: the first step also says how many model calls it takes.
+    many: bool
+    import_batch: MemoryImportBatchId | None = None
+    model: MemoryImportModel | None = None
+    recent: list[MemoryReviewReceipt] = Field(max_length=10)
+
+
+class MemoryReviewRequest(WireModel):
+    """Start a review: of every memory, or of one import's memories and the saved ones closest to them."""
+    client_session_id: UUID
+    import_batch: MemoryImportBatchId | None = None
+
+
+class MemoryReviewCancel(WireModel):
+    client_session_id: UUID
+
+
+class MemoryReviewJob(WireModel):
+    kind: Literal["review"]
+    status: Literal["running", "completed", "failed", "cancelled"]
+    done: int = Field(ge=0)
+    total: int | None = Field(default=None, ge=0)
+    code: str | None = Field(default=None, max_length=64)
+
+
+class MemoryReviewCounts(WireModel):
+    remove: int = Field(ge=0)
+    merge: int = Field(ge=0)
+    rewrite: int = Field(ge=0)
+    split: int = Field(ge=0)
+    keep: int = Field(ge=0)
+
+
+class MemoryReviewRun(WireModel):
+    run_id: MemoryReviewRunId
+    status: Literal["open", "applied"]
+    import_batch: MemoryImportBatchId | None = None
+    job: MemoryReviewJob | None = None
+    counts: MemoryReviewCounts
+    revision: MemoryReviewRevision | None = None
+    # A memory changed since the review was made: review again.
+    stale: bool
+    warnings: list[MemoryImportLine] = Field(max_length=20)
+    model: MemoryImportModel | None = None
+    receipt: MemoryReviewReceipt | None = None
+
+
+class MemoryReviewTarget(WireModel):
+    """The other memory a merge, duplicate or replacement names."""
+    memory_id: str = Field(min_length=1, max_length=128)
+    subject: str = Field(max_length=200)
+    text: str = Field(max_length=2000)
+
+
+class MemoryReviewSplitMemory(WireModel):
+    category: str = Field(max_length=40)
+    subject: str = Field(max_length=200)
+    text: str = Field(max_length=600)
+    # add: a new memory; update: adds to a saved one; skip: already saved.
+    action: Literal["add", "update", "skip"]
+    saved_subject: str | None = Field(default=None, max_length=200)
+    saved_text: str | None = Field(default=None, max_length=2000)
+    new_text: str | None = Field(default=None, max_length=1200)
+
+
+class MemoryReviewSplit(WireModel):
+    contacts_kept: int = Field(ge=0)
+    memories: list[MemoryReviewSplitMemory] = Field(max_length=2000)
+
+
+class MemoryReviewProposal(WireModel):
+    proposal_id: MemoryReviewProposalId
+    memory_id: str = Field(min_length=1, max_length=128)
+    action: Literal["keep", "remove", "merge", "rewrite", "split"]
+    reason_code: MemoryReviewReason
+    reason: str = Field(max_length=300)
+    subject: str = Field(max_length=200)
+    category: str = Field(max_length=40)
+    # The memory as saved (its start, for a long one) and its whole length.
+    text: str = Field(max_length=2000)
+    length: int = Field(ge=0)
+    # rewrite and merge: the text it will read; split: the person's record as it will read.
+    proposed_text: str | None = Field(default=None, max_length=4000)
+    into: MemoryReviewTarget | None = None
+    marks: list[Literal["long_record", "lesson", "person_record"]] = Field(max_length=3)
+    # Chosen at first. A long record, a lesson and the person's record never are.
+    selected: bool
+    # Kept, but the person may remove it themselves, confirming it by name (a long record or a lesson).
+    removable: bool
+    split: MemoryReviewSplit | None = None
+
+
+class MemoryReviewProposals(WireModel):
+    run_id: MemoryReviewRunId
+    revision: MemoryReviewRevision
+    items: list[MemoryReviewProposal] = Field(max_length=20000)
+
+
+class MemoryReviewChoice(WireModel):
+    """One approved proposal, with the person's edit of its text."""
+    proposal_id: MemoryReviewProposalId
+    text: str | None = Field(default=None, min_length=1, max_length=1500)
+    # Remove a kept long record or lesson; ``confirm`` repeats its subject.
+    remove: bool = False
+    confirm: str | None = Field(default=None, max_length=200)
+
+
+class MemoryReviewApply(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: MemoryReviewRevision
+    choices: list[MemoryReviewChoice] = Field(min_length=1, max_length=20000)
+
+
+class MemoryReviewUndo(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+
+
 class CustomToolLibraryReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "failed", "uncertain", "approval_required"]

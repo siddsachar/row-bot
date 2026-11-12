@@ -14586,6 +14586,481 @@
         }
       }
     },
+    "/api/v1/knowledge/review/overview": {
+      "get": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "import_batch",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./MemoryReviewOverview.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge/review/runs": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./MemoryReviewRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./MemoryReviewRun.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge/review/runs/{run_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./UploadCancelled.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./MemoryReviewRun.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge/review/runs/{run_id}/apply": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./MemoryReviewApply.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./MemoryReviewReceipt.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge/review/runs/{run_id}/cancel": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./MemoryReviewCancel.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./MemoryReviewRun.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge/review/runs/{run_id}/proposals": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./MemoryReviewProposals.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge/review/runs/{run_id}/undo": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./MemoryReviewUndo.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./MemoryReviewReceipt.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
     "/api/v1/learning": {
       "get": {
         "parameters": [

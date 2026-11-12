@@ -294,6 +294,11 @@ _STATUS.update(
         "import_storage_full": 507,
         "import_storage_unavailable": 503,
         "import_model_unavailable": 503,
+        "review_expired": 410,
+        "review_busy": 409,
+        "review_stale": 409,
+        "review_backup_failed": 503,
+        "review_storage_unavailable": 503,
     }
 )
 _STATUS.update(
@@ -1458,6 +1463,9 @@ def create_router(
                 memory_imports = sys.modules.get("row_bot.application.memory_import")
                 if memory_imports is not None:
                     await asyncio.to_thread(memory_imports.sweep)
+                memory_reviews = sys.modules.get("row_bot.application.memory_review")
+                if memory_reviews is not None:
+                    await asyncio.to_thread(memory_reviews.sweep)
 
         cleanup = asyncio.create_task(expire_uploads(), name="client-upload-expiry")
         try:
@@ -1477,6 +1485,9 @@ def create_router(
             memory_imports = sys.modules.get("row_bot.application.memory_import")
             if memory_imports is not None:
                 memory_imports.close_batches()
+            memory_reviews = sys.modules.get("row_bot.application.memory_review")
+            if memory_reviews is not None:
+                memory_reviews.close_runs()
             with terminal_clients_lock:
                 closing_terminals = tuple(terminal_clients.values())
                 terminal_clients.clear()
@@ -10446,6 +10457,101 @@ def create_router(
             memory_import.undo, batch_id, validate=dispatch_validation(request, current)
         )
         return await respond(request, dto.MemoryImportReceipt, receipt)
+
+    # Review memory: a background run proposes one change per memory, the person
+    # approves in a list, Apply backs memory up first, and Undo puts back exactly
+    # what was. A run belongs to the window that started it; Undo works from any.
+    @router.get("/knowledge/review/overview")
+    async def memory_review_overview(request: Request, import_batch: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application import memory_review
+
+        result = await call(memory_review.overview, import_batch)
+        return await respond(request, dto.MemoryReviewOverview, result)
+
+    @router.post("/knowledge/review/runs")
+    async def memory_review_begin(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.MemoryReviewRequest, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        await call(dispatch_validation(request, current))
+        from row_bot.application import memory_review
+
+        view = await call(memory_review.begin, current.id, import_batch=body.import_batch)
+        return await respond(request, dto.MemoryReviewRun, view)
+
+    @router.get("/knowledge/review/runs/{run_id}")
+    async def memory_review_status(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application import memory_review
+
+        view = await call(memory_review.status, current.id, run_id)
+        return await respond(request, dto.MemoryReviewRun, view)
+
+    @router.delete("/knowledge/review/runs/{run_id}")
+    async def memory_review_discard(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        from row_bot.application import memory_review
+
+        await call(memory_review.discard, current.id, run_id)
+        return await respond(request, dto.UploadCancelled, {"cancelled": True})
+
+    @router.post("/knowledge/review/runs/{run_id}/cancel")
+    async def memory_review_cancel(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        body = await _body(request, dto.MemoryReviewCancel, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application import memory_review
+
+        view = await call(memory_review.cancel_job, current.id, run_id)
+        return await respond(request, dto.MemoryReviewRun, view)
+
+    @router.get("/knowledge/review/runs/{run_id}/proposals")
+    async def memory_review_proposals(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application import memory_review
+
+        page = await call(memory_review.proposals, current.id, run_id)
+        return await respond(request, dto.MemoryReviewProposals, page)
+
+    @router.post("/knowledge/review/runs/{run_id}/apply")
+    async def memory_review_apply(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.MemoryReviewApply, 8 * 1024 * 1024)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application import memory_review
+
+        receipt = await call(
+            memory_review.apply,
+            current.id,
+            run_id,
+            command_id=str(body.command_id),
+            revision=body.revision,
+            choices=[choice.model_dump(mode="json") for choice in body.choices],
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.MemoryReviewReceipt, receipt)
+
+    @router.post("/knowledge/review/runs/{run_id}/undo")
+    async def memory_review_undo(run_id: str, request: Request) -> JSONResponse:
+        # One owner: a review applied from one device can be undone from another.
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.MemoryReviewUndo, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application import memory_review
+
+        receipt = await call(
+            memory_review.undo, run_id, validate=dispatch_validation(request, current)
+        )
+        return await respond(request, dto.MemoryReviewReceipt, receipt)
 
     @router.get("/custom-tools")
     async def custom_tool_library(request: Request) -> JSONResponse:

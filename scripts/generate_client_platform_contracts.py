@@ -77,6 +77,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "MemoryImportFileRequest", "MemoryImportFileView", "MemoryImportText", "MemoryImportJob", "MemoryImportBatch",
     "MemoryImportCandidatePage", "MemoryImportPreviewRequest", "MemoryImportPreview", "MemoryImportApply",
     "MemoryImportUndo",
+    "MemoryReviewReceipt", "MemoryReviewOverview", "MemoryReviewRequest", "MemoryReviewCancel", "MemoryReviewRun",
+    "MemoryReviewProposals", "MemoryReviewApply", "MemoryReviewUndo",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
@@ -385,6 +387,14 @@ OPERATIONS = (
     ("get", "/knowledge/import/batches/{batch_id}/preview", None, "MemoryImportPreview"),
     ("post", "/knowledge/import/batches/{batch_id}/apply", "MemoryImportApply", "MemoryImportReceipt"),
     ("post", "/knowledge/import/batches/{batch_id}/undo", "MemoryImportUndo", "MemoryImportReceipt"),
+    ("get", "/knowledge/review/overview", None, "MemoryReviewOverview"),
+    ("post", "/knowledge/review/runs", "MemoryReviewRequest", "MemoryReviewRun"),
+    ("get", "/knowledge/review/runs/{run_id}", None, "MemoryReviewRun"),
+    ("delete", "/knowledge/review/runs/{run_id}", None, "UploadCancelled"),
+    ("post", "/knowledge/review/runs/{run_id}/cancel", "MemoryReviewCancel", "MemoryReviewRun"),
+    ("get", "/knowledge/review/runs/{run_id}/proposals", None, "MemoryReviewProposals"),
+    ("post", "/knowledge/review/runs/{run_id}/apply", "MemoryReviewApply", "MemoryReviewReceipt"),
+    ("post", "/knowledge/review/runs/{run_id}/undo", "MemoryReviewUndo", "MemoryReviewReceipt"),
     ("get", "/insights", None, "InsightsSnapshot"),
     ("get", "/insights/commands/{command_id}", None, "InsightReceipt"),
     ("post", "/insights/commands", "InsightCommand", "InsightReceipt"),
@@ -1284,6 +1294,22 @@ export const applyMemoryImport = (base: string, proof: SessionProof, batch: stri
   jsonRequest(base, `/knowledge/import/batches/${id(batch)}/apply`, 'MemoryImportReceipt', proof, 'POST', validateWire('MemoryImportApply', command), command.command_id, signal);
 export const undoMemoryImport = (base: string, proof: SessionProof, batch: string, command: MemoryImportUndo, signal?: AbortSignal): Promise<MemoryImportReceipt> =>
   jsonRequest(base, `/knowledge/import/batches/${id(batch)}/undo`, 'MemoryImportReceipt', proof, 'POST', validateWire('MemoryImportUndo', command), command.command_id, signal);
+export const getMemoryReviewOverview = (base: string, proof: SessionProof, import_batch?: string, signal?: AbortSignal): Promise<MemoryReviewOverview> =>
+  jsonRequest(base, '/knowledge/review/overview' + query({import_batch}), 'MemoryReviewOverview', proof, 'GET', undefined, undefined, signal);
+export const beginMemoryReview = (base: string, proof: SessionProof, body: MemoryReviewRequest, signal?: AbortSignal): Promise<MemoryReviewRun> =>
+  jsonRequest(base, '/knowledge/review/runs', 'MemoryReviewRun', proof, 'POST', validateWire('MemoryReviewRequest', body), undefined, signal);
+export const getMemoryReview = (base: string, proof: SessionProof, run: string, signal?: AbortSignal): Promise<MemoryReviewRun> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}`, 'MemoryReviewRun', proof, 'GET', undefined, undefined, signal);
+export const discardMemoryReview = (base: string, proof: SessionProof, run: string, signal?: AbortSignal): Promise<UploadCancelled> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}`, 'UploadCancelled', proof, 'DELETE', undefined, undefined, signal);
+export const cancelMemoryReview = (base: string, proof: SessionProof, run: string, body: MemoryReviewCancel, signal?: AbortSignal): Promise<MemoryReviewRun> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}/cancel`, 'MemoryReviewRun', proof, 'POST', validateWire('MemoryReviewCancel', body), undefined, signal);
+export const getMemoryReviewProposals = (base: string, proof: SessionProof, run: string, signal?: AbortSignal): Promise<MemoryReviewProposals> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}/proposals`, 'MemoryReviewProposals', proof, 'GET', undefined, undefined, signal);
+export const applyMemoryReview = (base: string, proof: SessionProof, run: string, command: MemoryReviewApply, signal?: AbortSignal): Promise<MemoryReviewReceipt> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}/apply`, 'MemoryReviewReceipt', proof, 'POST', validateWire('MemoryReviewApply', command), command.command_id, signal);
+export const undoMemoryReview = (base: string, proof: SessionProof, run: string, command: MemoryReviewUndo, signal?: AbortSignal): Promise<MemoryReviewReceipt> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}/undo`, 'MemoryReviewReceipt', proof, 'POST', validateWire('MemoryReviewUndo', command), command.command_id, signal);
 export const getInsights = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<InsightsSnapshot> =>
   jsonRequest(base, '/insights', 'InsightsSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getInsightReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<InsightReceipt> =>
@@ -2065,6 +2091,8 @@ def outputs() -> dict[Path, str]:
                     ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "other"]}),
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
+        elif suffix == "/knowledge/review/overview":
+            query_parameters = [("import_batch", False, {"type": "string", "pattern": "^[0-9a-f]{32}$"})]
         elif suffix == "/knowledge/graph":
             query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 5000})]
         elif suffix == "/monitor/logs":
