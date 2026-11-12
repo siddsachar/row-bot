@@ -301,3 +301,21 @@ def test_a_night_reads_each_conversation_once_for_enrichment_and_inference(night
     assert len(infer) == 3
     excerpts = [prompt.split("Conversation excerpt where both appear:\n", 1)[1] for prompt in infer]
     assert all("Alice works at Acme with Bob." in excerpt for excerpt in excerpts)
+
+
+def test_a_long_record_is_never_merged_or_replaced(night, monkeypatch) -> None:
+    _threads, kg, memory_evolution, dream_cycle, model = night
+    sends = _memory(kg, "project", "Outreach register: sends", "Sent to creator. " * 120, 10)
+    contacts = _memory(kg, "project", "Outreach contact register", "Contacted creator. " * 120, 20)
+    _search(kg, monkeypatch, {frozenset((sends["id"], contacts["id"])): 0.92})
+    model.decide = lambda _block: "same"
+
+    summary = dream_cycle.run_dream_cycle()
+
+    # Longer than the model is shown: a merge would rewrite what it didn't read, a replacement would hide it.
+    assert summary["merges"] == [] and not summary.get("superseded")
+    assert model.asked(_COMPARE) == []
+    for entity in (sends, contacts):
+        kept = kg.get_entity(entity["id"])
+        assert kept["description"] == entity["description"]
+        assert _status(memory_evolution, kept).get("status", "active") == "active"

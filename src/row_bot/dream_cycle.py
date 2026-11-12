@@ -522,14 +522,18 @@ def _find_pair_candidates(entities: list[dict], *, limit: int = _PAIRS_PER_NIGHT
     """The closest pairs of memories across the whole graph: ``[(older, newer, similarity)]``.
 
     One search per memory (its nearest neighbours, of the same type family);
-    archived and superseded memories and the User record are left out.  A pair
+    archived and superseded memories, the User record and memories longer than
+    the model is shown are left out.  A pair
     is kept when its calibrated similarity reaches ``_PAIR_MIN_SIMILARITY``;
     the closest come first, each memory in at most one pair, and a pair the
     model turned down is skipped while both memories read the same.
     """
     import row_bot.knowledge_graph as kg
 
-    pool = {entity["id"]: entity for entity in entities if _active(entity) and not _is_user(entity)}
+    # A memory longer than the model is shown is never paired: a merge would rewrite what it didn't see, and
+    # a replacement would hide all of it (a long record, such as a register a workflow keeps).
+    pool = {entity["id"]: entity for entity in entities if _active(entity) and not _is_user(entity)
+            and len(entity.get("description") or "") <= _PAIR_DESCRIPTION_CHARS}
     closest: dict[str, tuple[float, str, str]] = {}
     for entity in pool.values():
         stats: dict = {}
