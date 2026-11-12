@@ -51,6 +51,7 @@ LOCAL_ENTRIES = frozenset({
     "runtimes", "learning_models", "piper", "kokoro", "logs", "plugin_logs", "crashes", "feedback_reports",
     "recovery", "evolution_backups", "migration-backups", "migration_reports", "backups",
     "doc_staging", "stale_plugins", "document_ingestion", ".checkpoint-locks", PENDING_DIR, UPLOADS_DIR,
+    "memory_import",
     "backup_state.json", RESULT_FILE, "launcher_state.json",
 })
 LOCAL_NAMES = re.compile(

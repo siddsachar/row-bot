@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "description": "Begin an import, scan it, look in its conversations, or stop the running step.",
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "client_session_id"
+  ],
+  "title": "MemoryImportRequest",
+  "type": "object"
+}

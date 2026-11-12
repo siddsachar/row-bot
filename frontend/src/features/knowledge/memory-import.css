@@ -1,0 +1,540 @@
+/* Knowledge › Import memories. Built from the shared tokens; the drop zone is
+   Documents' own, copied so the shared styles stay untouched. */
+.dialog.memory-import-dialog {
+  width: min(720px, calc(100vw - 48px));
+  height: min(760px, calc(100dvh - 48px));
+}
+.dialog.memory-import-dialog > .dialog-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.memory-import {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.memory-import-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 4px 24px 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.memory-import[data-step='review'] .memory-import-scroll,
+.memory-import[data-step='preview'] .memory-import-scroll {
+  overflow: hidden;
+}
+.memory-import-step {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+.memory-import-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: end;
+  gap: 8px;
+  padding: 12px 24px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+.memory-import-footer > .icon-action:first-child {
+  margin-inline-end: auto;
+}
+.memory-import-footer .button svg {
+  margin-inline-end: 6px;
+  vertical-align: -2px;
+}
+.memory-import-heading {
+  margin: 0;
+  font-size: var(--text-15);
+  line-height: var(--leading-20);
+  font-weight: var(--weight-semibold);
+}
+.memory-import-muted,
+.memory-import-how {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 19px;
+}
+.memory-import-notice {
+  margin: 0;
+  color: var(--status-success-text);
+  font-size: var(--text-13);
+}
+
+/* (a) Where from */
+.memory-import-sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.memory-import-source {
+  display: grid;
+  gap: 2px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text-primary);
+  text-align: start;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+.memory-import-source:hover {
+  background: var(--surface-hover);
+}
+.memory-import-source[aria-checked='true'] {
+  border-color: var(--accent-solid);
+  background: color-mix(in srgb, var(--accent-solid) 8%, var(--surface));
+}
+.memory-import-source:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.memory-import-source-name {
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+.memory-import-source-kind {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.memory-import-route {
+  display: grid;
+  gap: 12px;
+}
+.memory-import-files {
+  display: grid;
+  gap: 6px;
+}
+.memory-import-drop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+  transition:
+    border-color var(--motion-popover) var(--ease-out),
+    background var(--motion-popover) var(--ease-out);
+}
+.memory-import-drop[data-dragging='true'] {
+  border-color: var(--accent-solid);
+  background: color-mix(in srgb, var(--accent-solid) 8%, var(--surface));
+}
+.memory-import-drop[data-disabled='true'] {
+  opacity: 0.7;
+}
+.memory-import-drop:has(.memory-import-drop-input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.memory-import-drop-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.memory-import-drop-text {
+  display: grid;
+  flex: 1 1 12rem;
+  gap: 2px;
+  min-width: 0;
+}
+.memory-import-drop-text > strong {
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+.memory-import-drop-text > small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 17px;
+}
+.memory-import-drop > .button {
+  flex: none;
+  cursor: pointer;
+}
+.memory-import-drop-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.memory-import-file-list,
+.memory-import-recent {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.memory-import-file-list > li,
+.memory-import-recent > li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--radius-control);
+  font-size: var(--text-13);
+}
+.memory-import-file-list > li:hover {
+  background: var(--surface-hover);
+}
+.memory-import-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memory-import-file-meta {
+  flex: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.memory-import-recent > li {
+  padding: 6px 4px 6px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  color: var(--text-secondary);
+}
+.memory-import-recent > li > span {
+  flex: 1;
+  min-width: 0;
+}
+.memory-import-recent strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.memory-import-prompt {
+  display: grid;
+  gap: 6px;
+}
+.memory-import-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-13);
+}
+.memory-import-prompt-head > strong,
+.memory-import-paste > strong {
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+.memory-import-prompt-text {
+  max-height: 132px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: 18px;
+  white-space: pre-wrap;
+}
+.memory-import-prompt-text:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.memory-import-paste {
+  display: grid;
+  gap: 6px;
+}
+.memory-import-paste textarea {
+  min-height: 104px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+.memory-import-paste > small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+/* (b) Working */
+.memory-import-working {
+  display: grid;
+  gap: 10px;
+  align-content: center;
+  flex: 1;
+  max-width: 440px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 0;
+}
+.memory-import-working progress,
+.memory-import-inline-progress progress {
+  width: 100%;
+}
+
+/* (c) Review and (d) preview */
+.memory-import-counts {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-variant-numeric: tabular-nums;
+}
+.memory-import-notes {
+  font-size: var(--text-13);
+}
+.memory-import-notes ul {
+  display: grid;
+  gap: 4px;
+  max-height: 140px;
+  margin: 4px 0 0;
+  padding-inline-start: 18px;
+  overflow: auto;
+  color: var(--text-secondary);
+}
+.memory-import-conversations {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+.memory-import-conversations-text {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+.memory-import-conversations-text > strong {
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+.memory-import-conversations-text > small {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 17px;
+}
+.memory-import-inline-progress {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.memory-import-inline-progress > .field {
+  flex: 1;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+.memory-import-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.memory-import-filters > .select {
+  width: auto;
+  min-width: 140px;
+}
+.memory-import-filter-actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-inline-start: auto;
+}
+.memory-import-scroller {
+  position: relative;
+  flex: 1;
+  min-height: 160px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+.memory-import-scroller:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.memory-import-rows {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.memory-import-row {
+  position: absolute;
+  inset-inline: 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.memory-import-candidate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 8px 0 4px;
+}
+.memory-import-candidate[data-checked='false'] .memory-import-candidate-text {
+  color: var(--text-muted);
+}
+.memory-import-candidate.is-editing {
+  padding-inline: 8px;
+}
+.memory-import-candidate.is-editing > .input {
+  flex: 1;
+  min-width: 0;
+}
+.memory-import-candidate.is-editing > .select {
+  flex: none;
+  width: 132px;
+}
+.memory-import-check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+}
+.memory-import-check > input {
+  accent-color: var(--accent-solid);
+}
+.memory-import-candidate-body {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+.memory-import-candidate-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.memory-import-candidate-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.memory-import-candidate-meta > span:not(:first-child) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.memory-import-chip,
+.memory-import-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+}
+.memory-import-action {
+  font-weight: var(--weight-medium);
+}
+.memory-import-action[data-tone='add'] {
+  color: var(--status-success-text);
+}
+.memory-import-action[data-tone='update'] {
+  color: var(--status-info-text);
+}
+.memory-import-action[data-tone='supersede'] {
+  color: var(--status-warning-text);
+}
+.memory-import-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.memory-import-stats {
+  flex: none;
+}
+.memory-import-done {
+  align-items: flex-start;
+  padding-top: 8px;
+}
+.memory-import-done > .memory-import-stats {
+  align-self: stretch;
+}
+.memory-import-done-icon {
+  display: inline-flex;
+  color: var(--status-success-text);
+}
+.memory-import-done-icon[data-undone='true'] {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 767px) {
+  .dialog.memory-import-dialog {
+    width: 100%;
+    height: min(92dvh, 92%);
+    max-height: min(92dvh, 92%);
+  }
+  .memory-import-scroll {
+    padding: 4px 16px 12px;
+  }
+  .memory-import-footer {
+    padding-inline: 16px;
+  }
+  .memory-import-footer > .button {
+    flex: 1;
+  }
+  .memory-import-sources {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .memory-import-drop {
+    flex-wrap: wrap;
+  }
+  .memory-import-candidate.is-editing {
+    flex-wrap: wrap;
+    align-content: center;
+    row-gap: 6px;
+  }
+  .memory-import-candidate.is-editing > .input {
+    flex-basis: 100%;
+    order: -1;
+  }
+  .memory-import-conversations {
+    align-items: start;
+  }
+  .memory-import-filters > .select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+@media (pointer: coarse) {
+  .memory-import-check {
+    width: 44px;
+    height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .memory-import-source,
+  .memory-import-drop {
+    transition: none;
+  }
+}

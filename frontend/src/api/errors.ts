@@ -1366,6 +1366,38 @@ const CATALOG: Record<string, Entry> = {
     "The computer Row-Bot runs on doesn't have room for that backup. Free up space, then try again.",
     'none',
   ],
+  import_expired: ['This import was closed. Start it again.', 'review'],
+  import_busy: [
+    'Row-Bot is still working on this import. Wait for it to finish.',
+    'retry',
+    RETRY,
+  ],
+  import_applied: ['These memories were already imported.', 'none'],
+  import_preview_stale: [
+    'Some saved memories changed since the preview. Preview again before importing.',
+    'review',
+  ],
+  import_file_too_large: [
+    'That file is larger than 8 GB, the most Row-Bot imports at once.',
+    'none',
+  ],
+  import_too_many_files: [
+    'One import takes up to 20 files or pasted answers. Import the rest next.',
+    'none',
+  ],
+  import_storage_full: [
+    "The computer Row-Bot runs on doesn't have room for that file. Free up space, then try again.",
+    'none',
+  ],
+  import_storage_unavailable: [
+    "Row-Bot can't write to its data folder to import that.",
+    'none',
+  ],
+  import_model_unavailable: [
+    "Your chat model didn't answer. Check it in Settings, then try again.",
+    'retry',
+    PROVIDERS,
+  ],
   data_job_running: [
     'A backup or restore is already running. Wait for it to finish.',
     'retry',

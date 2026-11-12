@@ -7,7 +7,8 @@ import type {
   WikiSettingsSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, Toggle } from '../../ui/primitives';
+import { Import } from 'lucide-react';
+import { Button, IconButton, Toggle } from '../../ui/primitives';
 import { AppLink } from '../../ui/app-link';
 import { humanizeToken } from '../../ui/format';
 import { useNotify } from '../../ui/overlays';
@@ -22,6 +23,8 @@ import WikiSettings, {
   type WikiSettingsSession,
 } from '../knowledge/WikiSettings';
 import type { SettingsMutationIO } from './SettingsSnapshotPanels';
+import MemoryImportDialog from '../knowledge/MemoryImportDialog';
+import type { MemoryImportIO } from '../knowledge/memory-import-io';
 
 export type KnowledgeMaintenanceIO = {
   review(
@@ -52,12 +55,15 @@ export default function MemorySettings({
   loadCatalog,
   maintenance,
   onMutation,
+  importIO,
   refreshToken = 0,
 }: {
   snapshot?: KnowledgeSettingsSnapshot;
   settingsMutation?: SettingsMutationIO | null;
   wikiSession?: WikiSettingsSession;
   wikiSnapshot?: WikiSettingsSnapshot;
+  /** Import memories from another assistant (the same dialog as Knowledge's). */
+  importIO?: MemoryImportIO;
   /** The saved catalog, whose revision "Delete all" is reviewed against. */
   loadCatalog?: (signal?: AbortSignal) => Promise<EntitySummaryPage>;
   maintenance?: KnowledgeMaintenanceIO;
@@ -79,6 +85,7 @@ export default function MemorySettings({
   const [deleteResult, setDeleteResult] =
     useState<KnowledgeMaintenanceReceipt | null>(null);
   const [dangerOpen, setDangerOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     if (!loadCatalog) return;
@@ -281,6 +288,22 @@ export default function MemorySettings({
               </AppLink>
             }
           />
+          {importIO && (
+            <SettingsItem
+              label="Import memories"
+              help="Bring what ChatGPT, Claude, Gemini or another assistant knows about you. You check everything before it is saved."
+              bind={false}
+              control={
+                <IconButton
+                  label="Import memories"
+                  variant="secondary"
+                  onClick={() => setImporting(true)}
+                >
+                  <Import size={16} aria-hidden />
+                </IconButton>
+              }
+            />
+          )}
         </SettingsGroup>
       )}
       {/* Counts of nothing say nothing: shown once there are memories, or
@@ -355,6 +378,14 @@ export default function MemorySettings({
             </Button>
           )}
         </SettingsDangerZone>
+      )}
+      {importIO && (
+        <MemoryImportDialog
+          open={importing}
+          onOpenChange={setImporting}
+          io={importIO}
+          onImported={onMutation}
+        />
       )}
     </div>
   );

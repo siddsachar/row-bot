@@ -3987,6 +3987,192 @@ class DataBackupReceipt(WireModel):
     state: DataBackupState
 
 
+# Import memory (Knowledge › Import memories): what other assistants know about the person,
+# found in their export files or a pasted answer, reviewed, previewed, then saved, with Undo.
+MemoryImportCategory = Literal[
+    "person", "preference", "fact", "event", "place", "project", "organisation", "concept", "skill", "media",
+]
+MemoryImportBatchId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+MemoryImportCandidateId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{20}$")]
+MemoryImportLine = Annotated[str, StringConstraints(max_length=300)]
+
+
+class MemoryImportModel(WireModel):
+    """The default chat model that finding memories in conversations and the preview use."""
+    name: str = Field(max_length=200)
+    provider: str = Field(max_length=120)
+    on_this_computer: bool
+
+
+class MemoryImportSource(WireModel):
+    id: str = Field(max_length=40)
+    name: str = Field(max_length=80)
+    export: Literal["memories", "history", "none"]
+    prompt_route: bool
+    how_to_get: str = Field(max_length=600)
+
+
+class MemoryImportReceipt(WireModel):
+    batch_id: MemoryImportBatchId
+    command_id: UUID
+    status: Literal["applied", "undone"]
+    applied_at: str = Field(max_length=40)
+    undone_at: str | None = Field(default=None, max_length=40)
+    undo_until: str = Field(max_length=40)
+    sources: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=20)
+    added: int = Field(ge=0)
+    updated: int = Field(ge=0)
+    superseded: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    failed: int = Field(ge=0)
+
+
+class MemoryImportSources(WireModel):
+    sources: list[MemoryImportSource] = Field(max_length=40)
+    prompt: str = Field(max_length=8000)
+    continue_prompt: str = Field(max_length=2000)
+    file_max_bytes: int = Field(ge=1)
+    conversation_limit: int = Field(ge=1)
+    character_limit: int = Field(ge=1)
+    model: MemoryImportModel | None = None
+    recent: list[MemoryImportReceipt] = Field(max_length=10)
+
+
+class MemoryImportRequest(WireModel):
+    """Begin an import, scan it, look in its conversations, or stop the running step."""
+    client_session_id: UUID
+
+
+class MemoryImportFileRequest(WireModel):
+    """Room for one file of an export, sent in chunks next."""
+    client_session_id: UUID
+    name: str = Field(min_length=1, max_length=200)
+    size_bytes: int = Field(ge=1)
+
+
+class MemoryImportFileView(WireModel):
+    file_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+    name: str = Field(max_length=200)
+    size_bytes: int = Field(ge=1)
+    received_bytes: int = Field(ge=0)
+    chunk_bytes: Literal[1048576] = 1048576
+
+
+class MemoryImportText(WireModel):
+    """A pasted answer from the old assistant."""
+    client_session_id: UUID
+    text: str = Field(min_length=1, max_length=1_000_000)
+
+
+class MemoryImportJob(WireModel):
+    kind: Literal["scan", "conversations", "preview"]
+    status: Literal["running", "completed", "failed", "cancelled"]
+    done: int = Field(ge=0)
+    total: int | None = Field(default=None, ge=0)
+    code: str | None = Field(default=None, max_length=64)
+
+
+class MemoryImportSourceCount(WireModel):
+    source: str = Field(max_length=40)
+    label: str = Field(max_length=80)
+    facts: int = Field(ge=0)
+    conversations: int = Field(ge=0)
+
+
+class MemoryImportSkipped(WireModel):
+    name: MemoryImportLine
+    reason: MemoryImportLine
+
+
+class MemoryImportConversations(WireModel):
+    """Finding memories in past conversations: how many there are, the bound, and what a run read."""
+    available: int = Field(ge=0)
+    limit: int = Field(ge=0)
+    character_limit: int = Field(ge=1)
+    ran: bool
+    read: int = Field(ge=0)
+    characters: int = Field(ge=0)
+    found: int = Field(ge=0)
+
+
+class MemoryImportBatch(WireModel):
+    batch_id: MemoryImportBatchId
+    status: Literal["open", "applied"]
+    files: list[MemoryImportFileView] = Field(max_length=20)
+    texts: int = Field(ge=0)
+    job: MemoryImportJob | None = None
+    scanned: bool
+    found: int = Field(ge=0)
+    sources: list[MemoryImportSourceCount] = Field(max_length=20)
+    warnings: list[MemoryImportLine] = Field(max_length=50)
+    skipped: list[MemoryImportSkipped] = Field(max_length=100)
+    skipped_count: int = Field(ge=0)
+    conversations: MemoryImportConversations
+    model: MemoryImportModel | None = None
+    preview_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    receipt: MemoryImportReceipt | None = None
+
+
+class MemoryImportCandidate(WireModel):
+    candidate_id: MemoryImportCandidateId
+    text: str = Field(min_length=1, max_length=2000)
+    category: MemoryImportCategory
+    source: str = Field(max_length=40)
+    source_label: str = Field(max_length=200)
+    date: str | None = Field(default=None, max_length=10)
+    origin: Literal["export", "conversation"]
+
+
+class MemoryImportCandidatePage(WireModel):
+    batch_id: MemoryImportBatchId
+    items: list[MemoryImportCandidate] = Field(max_length=5000)
+
+
+class MemoryImportChoice(WireModel):
+    """One memory to preview, with the person's edits."""
+    candidate_id: MemoryImportCandidateId
+    text: str | None = Field(default=None, min_length=1, max_length=2000)
+    category: MemoryImportCategory | None = None
+
+
+class MemoryImportPreviewRequest(WireModel):
+    client_session_id: UUID
+    items: list[MemoryImportChoice] = Field(min_length=1, max_length=5000)
+
+
+class MemoryImportPreviewItem(WireModel):
+    candidate_id: MemoryImportCandidateId
+    action: Literal["add", "update", "supersede", "skip"]
+    text: str = Field(max_length=2000)
+    category: MemoryImportCategory
+    source_label: str = Field(max_length=200)
+    # The subject it is saved under (add, supersede) or the saved memory's (update, skip).
+    subject: str = Field(max_length=200)
+    saved_subject: str | None = Field(default=None, max_length=200)
+    saved_text: str | None = Field(default=None, max_length=2000)
+    # update: the saved memory as it will read.
+    new_text: str | None = Field(default=None, max_length=4000)
+
+
+class MemoryImportPreview(WireModel):
+    batch_id: MemoryImportBatchId
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    items: list[MemoryImportPreviewItem] = Field(max_length=5000)
+
+
+class MemoryImportApply(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    preview_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # Previewed memories the person unchecked.
+    exclude: list[MemoryImportCandidateId] = Field(default_factory=list, max_length=5000)
+
+
+class MemoryImportUndo(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+
+
 class CustomToolLibraryReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "failed", "uncertain", "approval_required"]
