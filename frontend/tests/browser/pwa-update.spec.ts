@@ -67,18 +67,20 @@ test('manifest and installed service worker cache only immutable public assets',
     scope: '/app-v2/',
     display: 'standalone',
   });
-  expect(manifest.icons).toEqual([
-    expect.objectContaining({
-      src: '/app-v2/icon-192.png',
-      sizes: '192x192',
-      type: 'image/png',
-    }),
-    expect.objectContaining({
-      src: '/app-v2/icon-512.png',
-      sizes: '512x512',
-      type: 'image/png',
-    }),
-  ]);
+  expect(manifest.icons).toEqual(
+    ['', 'maskable-'].flatMap((kind) =>
+      ['192', '512'].map((size) =>
+        expect.objectContaining({
+          src: `/app-v2/icon-${kind}${size}.png`,
+          sizes: `${size}x${size}`,
+          type: 'image/png',
+          purpose: kind ? 'maskable' : 'any',
+        }),
+      ),
+    ),
+  );
+  for (const image of [...manifest.icons, ...manifest.screenshots])
+    expect((await page.request.get(image.src)).ok()).toBe(true);
 
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;

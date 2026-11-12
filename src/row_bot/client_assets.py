@@ -20,7 +20,7 @@ from row_bot.access.policy import APP_INSTALL_PATHS, require_authenticated_owner
 
 _HASHED_ASSET = re.compile(r"assets/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|png|jpg|jpeg|webp|ico|woff2?)$")
 _PUBLIC_SHELL_ASSETS = frozenset(
-    {"app.webmanifest", "service-worker.js", "icon-192.png", "icon-512.png"}
+    {"service-worker.js", *(path.removeprefix("/app-v2/") for path in APP_INSTALL_PATHS)}
 )
 _DIGEST = re.compile(r"[a-f0-9]{64}")
 # Shell documents: the workspace, and the desktop Buddy served at

@@ -35,10 +35,19 @@ class AuthorizationDecision:
     reason: str
 
 
-# The app's name and icons, so a phone can install it: browsers fetch the manifest
-# without the session cookie. The service worker and the app itself stay behind it.
+# The app's name, icons and install screenshots, so a phone can install it: browsers
+# fetch the manifest and what it lists without the session cookie. The service worker
+# and the app itself stay behind it.
 APP_INSTALL_PATHS: frozenset[str] = frozenset(
-    {"/app-v2/app.webmanifest", "/app-v2/icon-192.png", "/app-v2/icon-512.png"}
+    {
+        "/app-v2/app.webmanifest",
+        "/app-v2/icon-192.png",
+        "/app-v2/icon-512.png",
+        "/app-v2/icon-maskable-192.png",
+        "/app-v2/icon-maskable-512.png",
+        "/app-v2/screenshot-phone.webp",
+        "/app-v2/screenshot-wide.webp",
+    }
 )
 PUBLIC_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
