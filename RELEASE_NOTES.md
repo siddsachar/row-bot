@@ -2,6 +2,193 @@
 
 ---
 
+## v5.3.4 - A Living Buddy, A Better Memory, And Work That Carries On
+
+Row-Bot 5.3.4 brings Buddy to life on your screen and your desktop, makes Row-Bot
+feel at home on your phone, and rebuilds memory: it brings up only what you ask
+about, keeps facts current, imports what other assistants know about you, and
+helps you tidy what it remembers. It also fixes what real long jobs ran into:
+replies that stopped on "Next I'll…", videos that kept captions and borders you
+didn't want, files one tool couldn't find from another, and a chat database that
+grew to tens of gigabytes. It arrives through background updates.
+
+### A Living Buddy
+
+- **Buddy comes alive** - Buddy is now a painted character that moves on your
+  computer: it breathes, blinks, follows your cursor with its eyes, leans in while
+  Row-Bot thinks, types along while it works, hops when a job finishes, looks
+  worried when something fails and dozes off when you leave it alone. Its mouth
+  moves with the voice when Row-Bot reads a reply aloud. Nothing is downloaded or
+  generated while it animates.
+- **No more frames** - in the sidebar, on Overview and in Settings, Buddy stands
+  on the page itself, in light and dark, instead of sitting in a disc.
+- **The six built-in Buddies** are rebuilt as living characters with six
+  expressions each, and the app is about 30 MB lighter without their video clips.
+- **Reduced motion** - with your device's reduced-motion setting on, Buddy stays
+  still apart from blinking and its expressions. Without WebGL 2 it shows as a
+  still picture.
+
+### A Desktop Pet (Windows and macOS apps)
+
+- **Drag Buddy onto your desktop** (or choose Pop out Buddy) and it lands on
+  whatever is under its feet: the top edge of a window, or the floor above the
+  taskbar or Dock. Only Buddy and its bubble take clicks; the space around it
+  passes clicks through.
+- **It sits on your windows** - it rides along when you move its window, hops over
+  to the window you switch to after a few seconds, and floats down when its window
+  closes, is minimised or goes full screen. Turn this off with **Sit on the window
+  I'm using** in Buddy's settings, or drop it on the taskbar or Dock.
+- **Its speech bubble** - click Buddy to open the thread you are following: send a
+  message, see progress and replies, stop a response and handle approvals. It
+  opens by itself for an approval, a question or a failed reply.
+- **Privacy** - to sit on your windows Buddy reads only the position and size of
+  the window you are using and where your cursor is. It never reads titles, app
+  names, contents or pixels, and none of it leaves your computer.
+
+### Making A Buddy
+
+- **New look… paints a living Buddy** - your image model paints the character and
+  six small edits of it (eyes closed, mouth open, happy, worried, focused,
+  surprised); Row-Bot cuts it out, gives it bones and turns the edits into
+  expressions on your computer. That is seven image requests. Pick a body
+  (Floater, Little biped, Winged) or let Row-Bot choose from your description.
+  It needs an image model that can edit pictures (GPT Image or Nano Banana);
+  Imagen cannot paint the expressions.
+- **Your earlier looks come alive too** - a look made before 5.3.4 animates from
+  its picture with no request at all. **Bring to life** paints its blinks and
+  expressions (six image requests). Your old files are left as they were.
+
+### On Your Phone
+
+Everything here applies on a phone (below 768 px) or a touch screen; the desktop is unchanged.
+
+- **a tab bar** - Home, Chats, Workflows and Settings are one tap each from a bar along the bottom, with what needs you counted on Home. A conversation takes the whole screen.
+- **menus rise as sheets** - menus, pickers and the + menu open from the bottom edge, full width, and close with a swipe down or a tap outside.
+- **a roomier composer** - the message gets its own full-width row (more than twice as wide while typing); the mic and Talk sit beside + until you type, then Send takes their place. One tap on Talk starts talking.
+- **approvals in reach** - Deny and Approve are two big buttons; the other choices, each explained, are under More choices, and the details sheet can answer too.
+- **the work is one tap away** - a chat that made a deck or a code folder shows it in its header ("Design" or "Code"), one tap to open.
+- **swipe in from the left** to open your conversations.
+- **long-press a message** for its actions, including Select text to copy part of it.
+- **Settings as a list** - Settings opens on its list of pages; each page has its way back.
+- **a clearer connect page** - the page a phone opens to connect matches the setup page, in light and dark, fits the screen, and says plainly that connecting gives full owner access and for how long.
+- **smaller things** - no keyboard shortcut hints on touch screens; Home's quick starts say Design, Code and Workflow; the search sheet shows every result; Monitor fits one column; no duplicate approval notice while Home lists it; the terminal no longer loads with every page.
+- **notifications when Row-Bot waits for you** (opt-in) - a phone that reaches Row-Bot over HTTPS (Tailscale, a tunnel or a hosted Row-Bot) can turn on Notifications on this device in Settings › Devices. When an approval or a question waits, it shows "Row-Bot is waiting for you". On iPhone, add Row-Bot to the Home Screen first.
+- **A proper home-screen icon** - the installed app's icon is no longer cropped on Android, a long-press on it offers New chat and Home, and the install prompt shows what Row-Bot looks like.
+- **What notifications send** - notifications are off until you turn them on, for each device. When one waits for you, Row-Bot sends an empty, encrypted wake-up through that device's browser push service; it carries no words from any chat, no title and no names, and the device shows Row-Bot's own fixed notice. Turning the switch off or signing the device out stops them.
+
+### Work That Carries On
+
+- **No more stopping on "Next I'll…"** - a reply that says what it will do next and
+  then ends, with nothing waiting on you, now carries on once by itself ("Carrying on
+  with the next step"). Row-Bot is also told that a reply with no step in it ends its
+  turn. It never chains, and a message from you comes first.
+- **Browser clicks that land** - a button, link or switch that something lies over is
+  pressed with its key when a click can't reach it. Waiting for a slow page lasts up
+  to 90 seconds, and waiting no longer counts as being stuck, so a long job isn't
+  stopped halfway. When Row-Bot does stop a long run of browser steps, it says how to
+  carry on.
+- **Tools that can run** - a workflow whose profile doesn't delegate is no longer
+  offered delegation, and reading X with no count uses the default instead of
+  failing.
+
+### Videos
+
+- **Full screen by default** - a new brand kit puts footage edge to edge, and captions
+  appear only when you ask for them. Say how your videos should look ("full screen",
+  a voice, a mood) and Row-Bot saves it in the brand kit, so the next video starts
+  that way.
+- **Files that pass between tools** - a picture or video Row-Bot makes is saved in the
+  chat under a name from its prompt ("waves-on-a-beach-at-dusk.mp4"), and that's the
+  name every tool finds it by. The video's review sheet opens by name too.
+- **Studio work** - when the video tool's look isn't enough, Row-Bot may write its
+  own compositor, checking stills of each scene before one full render. Frames it
+  takes are saved full size to read small text, and many frames come from one read
+  of the video.
+- **Exports that say what happened** - an export in another shape that can't be made
+  says why, and the video's summary lists each export.
+- **Said right** - narration says "Row Bot" and reads versions as "5 point 3 point 3".
+- **A backup look** - when the vision model can't answer (a limit, an outage), your
+  backup model checks the picture and says so.
+- **Posters in Outputs** - video tiles in a chat's Outputs show a frame of the video.
+
+### Workflows
+
+- **A late approval still posts** - a post approved after its time is offered again
+  on its card to go now, instead of being dropped.
+- **Notes that read** - a workflow's notes hold 6,000 characters, in plain sentences.
+- **The first daily digest** covers the whole of the day before.
+- **New schedules** start in your device's time zone, not the server's.
+
+### Models
+
+- **Ollama models newer than the catalogue** are judged by what Ollama says they can
+  do, not by their family's name.
+- **NVIDIA** lists only its current chat models.
+- **A rate limit isn't an overflow** - Cerebras' "too many requests" is no longer
+  logged as a context overflow.
+- **The right model named** - a chat on its own model is no longer told it runs on
+  your default.
+- **A model that can't answer says why** - pressing Enter on a model that can't use
+  tools shows the reason and Choose a model, and your message is kept.
+
+### Memory
+
+- **Import your memory** - bring in what ChatGPT, Claude, Gemini, Copilot, Perplexity,
+  Grok, DeepSeek, mem0, Letta, Hermes Agent, OpenClaw and Grok Bot remember, or paste
+  what any assistant remembers about you. You see a preview of what each memory will
+  do before anything is saved, and you can undo the import for 7 days. Nothing leaves
+  your computer.
+- **Review memory** - Row-Bot goes through everything it remembers and suggests what to
+  keep, merge, rewrite or remove, with a reason for each: test data, out-of-date facts,
+  repeats, run logs, and your own record split into clear facts. Nothing changes until
+  you approve, your memory is backed up first, and you can undo for 30 days. Long
+  records, such as workflow logs, are never changed unless you choose to.
+- **Only what your message is about** - memory now brings up only what your message is
+  about. Before, almost every reply got five loosely related memories. Each memory
+  shown is a few hundred characters at most, the parts about what you asked first, and
+  email addresses and phone numbers stay out of automatic recall.
+- **New facts replace old ones** - when you tell Row-Bot something new, it updates or
+  replaces what it already remembered instead of piling up contradictions. The old
+  version is kept as history.
+- **All of a long chat** - Row-Bot now reads all of a long chat for things to remember,
+  not just its last part, and saves dates as dates instead of "tomorrow".
+- **Connections the right way round** - "written by" and "used by" were saved backwards
+  before.
+- **A Dream Cycle that tidies** - each night it merges duplicates and marks outdated
+  memories as replaced, keeping the old one. Your memory is backed up before the first
+  such night.
+- **The wiki vault forgets what you deleted** - unedited backup copies of deleted
+  memories go after 30 days, and Delete all removes them. Editing an article brings
+  back only its text, names and status.
+
+### Privacy And Data
+
+- **Only you are you** - on a channel paired to you, someone saying they're somebody
+  else gets a friendly answer, and nothing about you or the people you know.
+- **A chat database that stays small** - a workflow chat saved its whole history at
+  every step, and threads.db could reach tens of gigabytes. Each chat now keeps its
+  newest saved states only. To give the space back once, quit Row-Bot and run
+  `row-bot --compact-chats`: the old file stays beside it as `threads.db.pre-compact`
+  until you delete it. A start beside a long write no longer fails with "database is
+  locked".
+- **Download backup in one click**, also away from the computer Row-Bot runs on.
+- **One live line** - a step that's running no longer shows "Thinking…" beside it
+  after the chat re-reads the turn.
+
+### For Hosts
+
+- No change to settings or sizes. Buddy animates in the browser; the desktop pet
+  exists only in the Windows and macOS apps. Buddy's data folder is no longer served
+  as static files under `/_buddy` (looks are read through the API), so nothing should
+  link there.
+- `row-bot --compact-chats` gives a large `threads.db` back to the disk; run it with
+  the server stopped, on the data volume, with room for a copy of the live data. It's
+  optional: from 5.3.4 the file stops growing.
+- New core dependency: `pywebpush` (with `py-vapid` and `http-ece`). Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
+- Import memory stages uploads in a `memory_import/` folder in the data folder (backups leave it out). An upload can be up to 8 GB a file, so the disk needs room for what a person imports.
+
+---
+
 ## v5.3.3 - Row-Bot In Your Browser, Every Model In One Place
 
 Row-Bot 5.3.3 runs in your browser, in your own Railway account, with nothing to
