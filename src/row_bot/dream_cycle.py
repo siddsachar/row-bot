@@ -30,6 +30,7 @@ import difflib
 import hashlib
 import json
 import logging
+import pathlib
 import re
 import sys
 import threading
@@ -1804,6 +1805,41 @@ def run_dream_cycle(on_status=None) -> dict:
         _dreaming.clear()
 
 
+BACKUP_NAME = "memory.db.pre-dream-whole-graph"
+
+
+def _backup_before_first_whole_graph_cycle(cfg: dict) -> bool:
+    """Copy memory.db once, before the first cycle that compares the whole graph (5.3.4) changes anything.
+
+    That first night may merge or replace up to a night's pairs of memories saved long before; the copy is
+    how they come back. Taken with SQLite's own backup, so a write in progress can't tear it. False when the
+    copy failed: the cycle then waits for another night.
+    """
+    import sqlite3
+
+    import row_bot.knowledge_graph as kg
+
+    if cfg.get("whole_graph_backup"):
+        return True
+    target = pathlib.Path(kg.DB_PATH).with_name(BACKUP_NAME)
+    try:
+        if not target.is_file():
+            source = sqlite3.connect(kg.DB_PATH)
+            copy = sqlite3.connect(str(target))
+            try:
+                source.backup(copy)
+            finally:
+                copy.close()
+                source.close()
+        cfg["whole_graph_backup"] = target.name
+        _save_config(cfg)
+        logger.info("Dream Cycle: memory backed up to %s before the first whole-graph cycle", target.name)
+        return True
+    except (OSError, sqlite3.Error) as exc:
+        logger.warning("Dream Cycle: memory could not be backed up first (%s)", type(exc).__name__)
+        return False
+
+
 def _run_dream_cycle(on_status=None) -> dict:
     import row_bot.knowledge_graph as kg
 
@@ -1849,6 +1885,12 @@ def _run_dream_cycle(on_status=None) -> dict:
 
     all_entities = kg.list_entities(limit=100_000)
     _status(f"Starting dream cycle — {entity_count} entities")
+    if not _backup_before_first_whole_graph_cycle(cfg):
+        summary["errors"].append("Skipped: memory could not be backed up before the first whole-graph cycle")
+        summary["summary"] = "Skipped — memory could not be backed up first; it will try again next night"
+        summary["duration_s"] = (datetime.now(timezone.utc) - start_time).total_seconds()
+        _append_journal(summary)
+        return summary
 
     # Discover candidates before deferring this cycle's projection writes.
     _status("Phase 1: Comparing similar memories…")

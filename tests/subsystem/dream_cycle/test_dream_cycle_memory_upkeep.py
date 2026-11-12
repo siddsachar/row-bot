@@ -319,3 +319,39 @@ def test_a_long_record_is_never_merged_or_replaced(night, monkeypatch) -> None:
         kept = kg.get_entity(entity["id"])
         assert kept["description"] == entity["description"]
         assert _status(memory_evolution, kept).get("status", "active") == "active"
+
+
+def test_memory_is_backed_up_once_before_the_first_whole_graph_cycle(night, monkeypatch) -> None:
+    import sqlite3
+
+    _threads, kg, _evolution, dream_cycle, model = night
+    older = _memory(kg, "fact", "Demo recordings", "Records the demo videos with OBS Studio.", 200)
+    newer = _memory(kg, "fact", "Recording tool", "Uses OBS to record demo videos.", 300)
+    _search(kg, monkeypatch, {frozenset((older["id"], newer["id"])): 0.85})
+    model.decide = lambda _block: "same"
+    model.merged = "Records the demo videos with OBS Studio."
+
+    dream_cycle.run_dream_cycle()
+
+    backup = kg._DATA_DIR / dream_cycle.BACKUP_NAME
+    with sqlite3.connect(backup) as conn:  # taken before the merge: both memories are in it
+        saved = {row[0] for row in conn.execute("SELECT id FROM entities")}
+    assert {older["id"], newer["id"]} <= saved
+    assert kg.get_entity(newer["id"]) is None
+    first = backup.stat().st_mtime_ns
+    dream_cycle.run_dream_cycle()
+    assert backup.stat().st_mtime_ns == first  # once only
+
+
+def test_a_cycle_waits_when_memory_cannot_be_backed_up(night, monkeypatch) -> None:
+    _threads, kg, _evolution, dream_cycle, model = night
+    older = _memory(kg, "fact", "Demo recordings", "Records the demo videos with OBS Studio.", 200)
+    newer = _memory(kg, "fact", "Recording tool", "Uses OBS to record demo videos.", 300)
+    _search(kg, monkeypatch, {frozenset((older["id"], newer["id"])): 0.85})
+    model.decide = lambda _block: "same"
+    (kg._DATA_DIR / dream_cycle.BACKUP_NAME).mkdir()  # the copy can't be written there
+
+    summary = dream_cycle.run_dream_cycle()
+
+    assert summary["summary"].startswith("Skipped — memory could not be backed up first")
+    assert model.asked(_COMPARE) == []
