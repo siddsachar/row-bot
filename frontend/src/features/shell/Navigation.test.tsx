@@ -829,9 +829,7 @@ it('delegates sidebar New chat and navigates Settings to the persistent shell', 
   );
   fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
   expect(onNewChat).toHaveBeenCalledTimes(1);
-  expect(screen.getByLabelText('Current route')).toHaveTextContent(
-    '/settings/models',
-  );
+  expect(screen.getByLabelText('Current route')).toHaveTextContent('/settings');
   expect(transport.counters.commands).toBe(0);
 });
 

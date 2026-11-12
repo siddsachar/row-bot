@@ -70,6 +70,19 @@ async function chooseFromMenu(scope: Locator, trigger: string, item: string) {
 }
 
 async function openHomeThroughNavigation(page: Page) {
+  // A phone moves between its places with the tab bar (D1); a conversation
+  // hides it, and its header's navigation button opens the drawer instead.
+  const tabHome = page
+    .getByRole('navigation', { name: 'Main', exact: true })
+    .getByRole('link', { name: 'Home', exact: true });
+  if (await tabHome.isVisible()) {
+    await tabHome.click();
+    await expect(page).toHaveURL(/\/app-v2\/?$/);
+    await expect(
+      page.getByRole('heading', { name: 'Home', exact: true }),
+    ).toBeVisible();
+    return;
+  }
   const home = page
     .getByRole('navigation', { name: 'Workspace navigation', exact: true })
     .getByRole('link', { name: 'Home', exact: true });
@@ -125,6 +138,21 @@ async function openSettingsRouteFromHome(
     name: 'Settings',
     exact: true,
   });
+  if ((page.viewportSize()?.width ?? 0) < 768) {
+    // A phone opens Settings on its list of pages, one tap from each (D6).
+    await activateRoute(page, settings, {
+      path: '/app-v2/settings',
+      headingName: 'Settings',
+    });
+    await activateRoute(
+      page,
+      page
+        .getByRole('navigation', { name: 'Settings sections' })
+        .getByRole('link', { name: route.linkName, exact: true }),
+      route,
+    );
+    return;
+  }
   await activateRoute(page, settings, {
     path: '/app-v2/settings/models',
     headingName: 'Models',
@@ -291,13 +319,18 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   await expect(settingsHeading).toHaveText('Tracker');
   await expect(settingsHeading).toBeVisible();
 
+  // A phone's page keeps only the search above it and goes back to the
+  // list of pages, one tap from each (D6).
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/app-v2/settings/models');
-  await expect(settingsNavigation).toBeHidden();
-  const picker = page.getByRole('combobox', { name: 'Settings section' });
-  await expect(picker).toBeVisible();
-  expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  await picker.selectOption('knowledge');
+  await expect(settingsNavigation.getByRole('link')).toHaveCount(0);
+  const back = page.getByRole('link', { name: 'Back to Settings' });
+  expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await back.click();
+  await expect(page).toHaveURL(/\/app-v2\/settings$/);
+  await settingsNavigation
+    .getByRole('link', { name: 'Memory', exact: true })
+    .click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge$/);
   await expect(settingsHeading).toHaveText('Memory');
   await expect(settingsHeading).toBeFocused();
@@ -312,7 +345,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   ).toHaveAttribute('aria-selected', 'true');
 });
 
-test('Owner-review narrow Settings keeps representative owners behind one accessible picker', async ({
+test('Owner-review phone Settings reach representative owners from one list of pages', async ({
   context,
   page,
 }, info) => {
@@ -330,28 +363,28 @@ test('Owner-review narrow Settings keeps representative owners behind one access
       }),
     );
   });
-  // The accessible picker replaces the side navigation below 1024px.
+  // A phone opens Settings on its list of pages, and each page goes back
+  // to it (D6).
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/app-v2/settings/models');
+  await page.goto('/app-v2/settings');
   const settings = page.getByRole('region', {
     name: 'Settings',
     exact: true,
   });
   const heading = settings.locator('.settings-pane-header h2');
-  const picker = page.getByRole('combobox', { name: 'Settings section' });
-  await expect(
-    page.getByRole('navigation', { name: 'Settings sections' }),
-  ).toBeHidden();
-  await expect(picker).toBeVisible();
-  expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  const list = page.getByRole('navigation', { name: 'Settings sections' });
   for (const id of ['models', 'documents', 'apps', 'preferences'] as const) {
-    if ((await picker.inputValue()) !== id) await picker.selectOption(id);
     const label = id[0].toUpperCase() + id.slice(1);
+    const link = list.getByRole('link', { name: label, exact: true });
+    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await link.click();
     await expect(page).toHaveURL(new RegExp(`/app-v2/settings/${id}$`));
     await expect(heading).toHaveText(label);
     await assertNoOverflow(page);
     await screenshot(page, info, `settings-shell-phone-${id}`);
     await accessibility(page, info, `settings-shell-phone-${id}`);
+    await page.getByRole('link', { name: 'Back to Settings' }).click();
+    await expect(page).toHaveURL(/\/app-v2\/settings$/);
   }
 });
 

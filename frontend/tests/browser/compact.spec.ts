@@ -186,10 +186,19 @@ test('compact themes, accents and accessibility preferences retain one mounted w
       .getByRole('link', { name: 'Settings', exact: true })
       .click();
   }
-  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
-  await page
-    .getByRole('combobox', { name: 'Settings section', exact: true })
-    .selectOption('appearance');
+  if (page.viewportSize()!.width < 768) {
+    // A phone opens Settings on its list of pages (D6).
+    await expect(page).toHaveURL(/\/app-v2\/settings$/);
+    await page
+      .getByRole('navigation', { name: 'Settings sections', exact: true })
+      .getByRole('link', { name: 'Appearance', exact: true })
+      .click();
+  } else {
+    await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
+    await page
+      .getByRole('combobox', { name: 'Settings section', exact: true })
+      .selectOption('appearance');
+  }
   await expect(page).toHaveURL(/\/app-v2\/settings\/appearance$/);
   await expect(
     page.getByRole('heading', { name: 'Appearance', exact: true }),
@@ -264,7 +273,12 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await assertCompactSurface(page, testInfo, 'compact-preferences');
   await captureSurface(page, testInfo, 'compact-theme-preferences');
   await page.goBack();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
+  // Back to where Settings opened: its list of pages on a phone.
+  await expect(page).toHaveURL(
+    page.viewportSize()!.width < 768
+      ? /\/app-v2\/settings$/
+      : /\/app-v2\/settings\/models$/,
+  );
   await page.goBack();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/p1-browser-a$/);
   await expect(workspace).toHaveAttribute('data-phase5-retained', 'true');
@@ -455,4 +469,33 @@ test('a phone opens the conversation list with a swipe in from the left edge', a
   await expect(
     page.getByRole('dialog', { name: 'Conversations' }),
   ).toBeVisible();
+});
+
+test('a phone opens Settings on its list of pages, and each page goes back to it', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Tablets keep the section picker.',
+  );
+  await openHome(page);
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Settings' })
+    .click();
+  const list = page.getByRole('navigation', { name: 'Settings sections' });
+  await list.getByRole('link', { name: 'Appearance' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/appearance/);
+  await expect(
+    page.getByRole('heading', { name: 'Appearance', level: 2 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('combobox', { name: 'Settings section' }),
+  ).toHaveCount(0);
+  await page
+    .getByRole('link', { name: 'Back to Settings', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/app-v2\/settings$/);
+  await expect(list.getByRole('link', { name: 'Models' })).toBeVisible();
 });

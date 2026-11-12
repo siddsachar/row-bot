@@ -323,10 +323,11 @@ test('compact navigation opens Settings after its drawer releases history', asyn
   // asynchronously, which must not undo the route the link opens.
   await drawer.getByRole('link', { name: 'Settings', exact: true }).click();
   await expect(drawer).toHaveCount(0);
+  // A phone opens Settings on its list of pages (D6).
   await expect(
-    page.getByRole('heading', { name: 'Models', exact: true }),
+    page.getByRole('navigation', { name: 'Settings sections', exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/conversation-a/);
   await expect(drawer).toHaveCount(0);

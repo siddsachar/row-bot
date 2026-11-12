@@ -243,14 +243,16 @@ test('Settings groups list every page, and search finds pages and rows', async (
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(settingsPath('models'));
   await waitForSettings(page, 'Models');
-  // Compact: the picker replaces the page links; the search stays.
+  // A phone's page keeps the search and goes back to the list of pages
+  // (D6); the keyboard reaches both.
   await expect(navigation.getByRole('link')).toHaveCount(0);
   await expect(
     navigation.getByRole('searchbox', { name: 'Find a setting' }),
   ).toBeVisible();
-  const picker = page.getByRole('combobox', { name: 'Settings section' });
-  await picker.focus();
-  await page.keyboard.press('ArrowDown');
+  await page.getByRole('link', { name: 'Back to Settings' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/app-v2\/settings$/);
+  await navigation.getByRole('link', { name: 'Voice', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(new RegExp(`${settingsPath('voice')}$`));
   await waitForSettings(page, 'Voice');
@@ -270,40 +272,34 @@ test('Settings shell preserves the exact owner order aliases history and reload'
   await blockFixtureServiceWorkers(context);
   await useLightBlueCompact(page);
   await page.goto('/app-v2/settings');
-  await expect(page).toHaveURL(new RegExp(`${settingsPath('models')}$`));
-  await waitForSettings(page, 'Models');
+  // A desktop opens on Models beside the list; a phone on the list (D6).
+  if (info.project.use.viewport!.width >= 768) {
+    await expect(page).toHaveURL(new RegExp(`${settingsPath('models')}$`));
+    await waitForSettings(page, 'Models');
+  } else await expect(page).toHaveURL(/\/app-v2\/settings$/);
 
   const expectedLabels = settingsRoutes.map(([, label]) => label);
-  if (info.project.use.viewport!.width >= 1024) {
-    const navigation = page.getByRole('navigation', {
-      name: 'Settings sections',
-      exact: true,
-    });
-    await expect(navigation).toBeVisible();
-    await expect(navigation.getByRole('heading')).toHaveCount(0);
-    const groups = navigation.getByRole('list');
-    await expect(groups).toHaveCount(6);
-    expect(
-      await groups.evaluateAll((lists) =>
-        lists.map((list) => list.getAttribute('aria-label')),
-      ),
-    ).toEqual([
-      'General',
-      'Models',
-      'Knowledge',
-      'Capabilities',
-      'Connections',
-      'System',
-    ]);
-    await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
-  } else {
-    const picker = page.getByRole('combobox', {
-      name: 'Settings section',
-      exact: true,
-    });
-    await expect(picker).toBeVisible();
-    await expect(picker.locator('option')).toHaveText(expectedLabels);
-  }
+  const navigation = page.getByRole('navigation', {
+    name: 'Settings sections',
+    exact: true,
+  });
+  await expect(navigation).toBeVisible();
+  await expect(navigation.getByRole('heading')).toHaveCount(0);
+  const groups = navigation.getByRole('list');
+  await expect(groups).toHaveCount(6);
+  expect(
+    await groups.evaluateAll((lists) =>
+      lists.map((list) => list.getAttribute('aria-label')),
+    ),
+  ).toEqual([
+    'General',
+    'Models',
+    'Knowledge',
+    'Capabilities',
+    'Connections',
+    'System',
+  ]);
+  await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
 
   // The first alias is a fresh deep link; the rest redirect in the app.
   for (const [index, [alias, destination, label]] of aliases.entries()) {
@@ -384,11 +380,14 @@ for (const [id, label] of settingsRoutes) {
         'compact',
       );
       await assertNoOverflow(page);
-      const close = page.getByRole('link', {
-        name: 'Close settings',
+      const phone = info.project.use.viewport!.width === 390;
+      // A phone has no Close (the tab bar), and its page goes back to the
+      // list of pages instead (D6).
+      const exit = page.getByRole('link', {
+        name: phone ? 'Back to Settings' : 'Close settings',
         exact: true,
       });
-      await close.focus();
+      await exit.focus();
       await page.keyboard.press('Tab');
       expect(
         await page.locator('.settings-shell').evaluate((root) => {
@@ -397,14 +396,14 @@ for (const [id, label] of settingsRoutes) {
         }),
         `${label} must retain keyboard focus inside the Settings shell`,
       ).toBe(true);
-      if (info.project.use.viewport!.width === 390) {
-        // One header on phones (B119): Settings carries the navigation
-        // toggle and commands instead of a second bar above it.
+      if (phone) {
+        // One header on phones (B119): Settings carries the way back and
+        // the commands instead of a second bar above it.
         await expect(page.locator('.compact-controls')).toHaveCount(0);
         await expect(
           page
             .locator('.settings-shell-header')
-            .getByRole('button', { name: 'Toggle navigation' }),
+            .getByRole('link', { name: 'Back to Settings' }),
         ).toBeVisible();
         await expectCoarseTargets(page, info);
       }

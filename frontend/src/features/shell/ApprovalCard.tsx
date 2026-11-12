@@ -28,6 +28,7 @@ import {
   type MenuAction,
 } from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
+import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
 import FolderSetupCard from './FolderSetupCard';
 import { BrowserThumbnail } from '../browser/BrowserThumbnail';
 import { ComputerThumbnail } from './ComputerStep';
@@ -50,23 +51,6 @@ import {
 // The Ctrl ↵ hint only where a hardware keyboard is likely: a fine pointer on a wide layout, never a phone
 // or a touch screen (B389). The shortcut itself works wherever a keyboard is.
 const KEYBOARD_LAYOUT = '(pointer: fine) and (min-width: 641px)';
-// A phone shows Deny and Approve as two full-width buttons and keeps the
-// rest of the choices under More choices (D4).
-const PHONE_LAYOUT = '(max-width: 767px)';
-function useMedia(query: string) {
-  const read = () =>
-    typeof matchMedia === 'function' ? matchMedia(query).matches : false;
-  const [matches, setMatches] = useState(read);
-  useEffect(() => {
-    if (typeof matchMedia !== 'function') return;
-    const media = matchMedia(query);
-    const changed = () => setMatches(media.matches);
-    media.addEventListener('change', changed);
-    changed();
-    return () => media.removeEventListener('change', changed);
-  }, [query]);
-  return matches;
-}
 
 type Hint_ = {
   action_label?: string;
@@ -423,6 +407,8 @@ export default function ApprovalCard({
     return () => document.removeEventListener('keydown', key);
   });
   const keyboard = useMedia(KEYBOARD_LAYOUT);
+  // A phone shows Deny and Approve as two full-width buttons and keeps the
+  // rest of the choices under More choices (D4).
   const phone = useMedia(PHONE_LAYOUT);
   const action = view?.action_label || hint?.action_label || '';
   // The app asking, shown as the catalog knows it.
