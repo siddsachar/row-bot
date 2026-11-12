@@ -131,6 +131,17 @@
 .conversation-heading[data-layout] .conversation-actions {
   gap: 0;
 }
+/* The deck or folder this chat works on, one tap away (D7). */
+.conversation-heading[data-layout='phone'] .working-on.button {
+  flex: none;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
 .compact-controls {
   align-items: center;
   min-height: 48px;
