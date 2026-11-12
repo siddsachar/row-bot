@@ -6296,7 +6296,15 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         skill_discovery_enabled,
         skill_fingerprint,
     ) = _call_with_tool_parents(_build_runtime_skill_snapshot, offered_parents, guides=True)
+    # A profile that doesn't allow delegation is never offered delegate_work: it was refused 9 times in 7
+    # workflows (R7). The dispatch refusal stays for a call that names it anyway.
+    profile_policy = (_dispatch_profile_snapshot() or {}).get("tool_policy_json")
+    no_delegation = isinstance(profile_policy, dict) and not profile_policy.get("allow_delegation")
+    if no_delegation:
+        eager_core_entries = [entry for entry in eager_core_entries
+                              if not (entry["tool"].name == "delegate_work" and entry["source"] == "core")]
     cache_key = frozenset(enabled_tool_names) | frozenset({
+        f"no_delegation:{no_delegation}",
         f"ctx:{effective_context}",
         f"model:{model_label}",
         f"provider:{readiness.provider_id}",
