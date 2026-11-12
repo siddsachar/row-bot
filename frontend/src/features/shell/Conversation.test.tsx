@@ -3249,6 +3249,36 @@ it('says why the model cannot answer on Choose another model, too', async () => 
   );
 });
 
+it('says why Enter sent nothing, in the refused-send banner with its fix (I15)', async () => {
+  idleConversation();
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.state.workspace!.model_status = {
+    state: 'unavailable',
+    reason: "It can't use tools; switch to Chat only or choose another model",
+    fix: 'choose',
+    local: false,
+  };
+  mock.drafts.set('conversation-a', {
+    text: 'Read example.com',
+    attachments: [],
+  });
+  await act(async () => conversation());
+  expect(screen.queryByRole('alert')).toBeNull();
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  await act(async () => fireEvent.keyDown(box, { key: 'Enter' }));
+  await act(async () => fireEvent.keyDown(box, { key: 'Enter' }));
+  const shown = screen.getAllByRole('alert');
+  expect(shown).toHaveLength(1);
+  expect(shown[0]).toHaveTextContent(
+    "It can't use tools; switch to Chat only or choose another model. Nothing was sent; your message is kept.",
+  );
+  expect(
+    within(shown[0]).getByRole('button', { name: 'Choose a model' }),
+  ).toBeVisible();
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(box).toHaveValue('Read example.com');
+});
+
 it('sends while the model is unavailable when the backup model answers (#140)', async () => {
   idleConversation();
   // The server says a backup answers: send stays ready.

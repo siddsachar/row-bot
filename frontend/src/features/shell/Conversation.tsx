@@ -795,7 +795,7 @@ export default function Conversation({
                   ? 'Reconnect to send. Your draft remains on this device.'
                   : !sendActionReady
                     ? state.workspace?.model_status?.state === 'unavailable'
-                      ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. Reconnect or choose another model; your message stays here.`
+                      ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. ${state.workspace.model_status.fix === 'reconnect' ? 'Reconnect or choose another model; your' : 'Your'} message stays here.`
                       : 'Choose a model to send. Your message stays here.'
                     : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
@@ -1629,6 +1629,27 @@ export default function Conversation({
       outgoing.text.trim().length <= 500
     ) {
       void answerOrSend(waiting, outgoing.text.trim(), keepTargets, retry);
+      return;
+    }
+    const modelStatus = state.workspace?.model_status;
+    if (
+      id &&
+      outgoing.text.trim() &&
+      state.status === 'ready' &&
+      !sendActionReady &&
+      modelStatus?.state === 'unavailable' &&
+      !pendingSteering &&
+      !pendingSubmit &&
+      !pendingResume
+    ) {
+      // Enter on a model that can't answer says why, in the same banner a
+      // refused send shows, with its fix (I15); not a silent no-op.
+      const refused = clientError({ code: 'model_configuration_required' });
+      setError({
+        ...refused,
+        message: `${modelStatus.reason || "This model isn't ready"}. Nothing was sent; your message is kept.`,
+        action: modelStatus.fix === 'reconnect' ? undefined : refused.action,
+      });
       return;
     }
     if (
