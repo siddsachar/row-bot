@@ -69,7 +69,8 @@ def test_memory_tool_save_list_update_delete_uses_isolated_memory_store(tmp_path
     )
 
     assert "Memory saved successfully" in saved
-    assert "Memory updated (merged with existing)" in updated
+    assert "Memory updated (merged with an existing one)" in updated
+    assert listed[0]["content"] == "Atlas has a timeline and launch plan."
     assert listed[0]["subject"] == "Atlas Tool"
     assert listed[0]["category"] == "project"
     assert "Memory updated successfully" in update_result
@@ -109,12 +110,18 @@ def test_memory_tool_saves_without_a_local_search_model_and_indexes_later(
     monkeypatch.setattr(kg, "_get_embedding_model", model_not_downloaded)
 
     saved = memory_tool._save_memory("preference", "Tea Tool", "The user prefers oolong tea.")
-    merged = memory_tool._save_memory("preference", "Tea Tool", "The user brews it at 90 degrees.")
     memory_id = memory.find_by_subject("preference", "Tea Tool")["id"]
+    from row_bot.providers import background
+
+    # The turn's model decides how the saved memory reads now; matching by meaning is unavailable.
+    monkeypatch.setattr(background, "invoke_background", lambda *_a, **_kw: json.dumps({"decisions": [{
+        "fact": 1, "action": "update", "memory_id": memory_id,
+        "text": "The user prefers oolong tea, brewed at 90 degrees."}]}))
+    merged = memory_tool._save_memory("preference", "Tea Tool", "The user brews it at 90 degrees.")
     updated = memory_tool._update_memory(memory_id, "The user prefers oolong tea brewed at 90 degrees.")
 
     assert saved.startswith("Memory saved successfully")
-    assert merged.startswith("Memory updated (merged with existing)")
+    assert merged.startswith("Memory updated (merged with an existing one)")
     assert updated.startswith("Memory updated successfully")
     assert [row["id"] for row in memory.list_memories()] == [memory_id]
     assert not kg.memory_vector_status()["ready"]

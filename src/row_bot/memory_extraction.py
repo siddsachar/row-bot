@@ -417,6 +417,42 @@ def _merge_properties(existing: dict, incoming: dict) -> dict:
     )
 
 
+def _reconcile_entities(extracted: list[dict], source: str, source_context: dict | None, *,
+                        validate=None, invoke=None) -> tuple[dict[str, str], int]:
+    """Reconcile a chat's (or an import's) new memories with saved ones; their subjects mapped to the
+    memories that now hold them, and how many memories were added or changed."""
+    import row_bot.knowledge_graph as kg
+    import row_bot.memory_reconcile as reconcile
+    from row_bot.memory import VALID_CATEGORIES
+
+    memories: list[reconcile.NewMemory] = []
+    for entry in extracted:
+        category = str(entry.get("category", "")).lower().strip()
+        subject = str(entry.get("subject", "")).strip()
+        content = str(entry.get("content", "")).strip()
+        if category not in VALID_CATEGORIES or not subject or not content:
+            continue
+        aliases = entry.get("aliases", "")
+        if isinstance(aliases, list):
+            aliases = ", ".join(str(alias) for alias in aliases)
+        memories.append(reconcile.NewMemory(
+            category, subject, content, aliases=str(aliases or "").strip(), source=source,
+            properties=_entry_properties(entry, source, source_context),
+        ))
+    if not memories:
+        return {}, 0
+    outcomes = reconcile.reconcile(memories, actor="extraction", invoke=invoke,
+                                   purpose="extraction", validate=validate)
+    mapped: dict[str, str] = {}
+    for outcome in outcomes:
+        names = [outcome.memory.subject, *outcome.memory.aliases.split(",")]
+        for name in names:
+            if name.strip():
+                mapped[kg._normalize_subject(name)] = outcome.entity_id
+        logger.info("Memory %s: [%s] %s", outcome.action, outcome.memory.category, outcome.memory.subject)
+    return mapped, sum(1 for outcome in outcomes if outcome.action != "skip")
+
+
 def _dedup_and_save(
     extracted: list[dict],
     source: str = "extraction",
@@ -462,7 +498,11 @@ def _dedup_and_save(
         if user_entity:
             subject_to_id[kg._normalize_subject("User")] = user_entity["id"]
 
-        for entry in extracted:
+        if not source.startswith("document:"):
+            mapped, changed = _reconcile_entities(extracted, source, source_context, validate=validate, invoke=invoke)
+            subject_to_id.update(mapped)
+            saved_count += changed
+        for entry in extracted if source.startswith("document:") else ():
             if validate is not None:
                 validate()
             category = entry.get("category", "").lower().strip()
@@ -480,8 +520,11 @@ def _dedup_and_save(
                 raw_aliases = ", ".join(str(a) for a in raw_aliases)
             new_aliases = (raw_aliases or "").strip()
 
-            # Check for existing memory with same subject (any category)
+            # Check for existing memory with same subject (any category), among documents only: a
+            # document never rewrites, relabels or flags something the person said.
             existing = find_by_subject(None, subject)
+            if existing and not str(existing.get("source") or "").startswith("document:"):
+                existing = None
 
             # FAISS semantic fallback — catches synonyms (e.g. "Father" vs "Dad")
             # Use higher threshold when source classes differ to avoid merging
@@ -498,14 +541,9 @@ def _dedup_and_save(
                         src_is_doc = source.startswith("document:")
                         hit_is_doc = hit_source.startswith("document:")
                         if src_is_doc != hit_is_doc:
-                            # Require tighter threshold for cross-source merges
-                            score = hit.get("score", 0)
-                            if score < 0.90:
-                                logger.info(
-                                    "Cross-source merge skipped (%.2f < 0.90): '%s' vs '%s' (src=%s, hit=%s)",
-                                    score, subject, hit.get("subject", "?"), source, hit_source,
-                                )
-                                hit = None
+                            logger.info("Cross-source merge skipped: '%s' vs '%s' (src=%s, hit=%s)",
+                                        subject, hit.get("subject", "?"), source, hit_source)
+                            hit = None
                         if hit:
                             existing = hit
                 except Exception:
@@ -1136,14 +1174,21 @@ def _read_conversations(
                     finished, stopped = False, True
                     break
                 if extracted:
-                    count = _dedup_and_save(
-                        extracted,
-                        source="extraction",
-                        source_context={
-                            "thread_id": tid,
-                            "thread_name": name,
-                        },
-                    )
+                    from row_bot.memory_reconcile import ReconcileUnavailable
+
+                    try:
+                        count = _dedup_and_save(
+                            extracted,
+                            source="extraction",
+                            source_context={
+                                "thread_id": tid,
+                                "thread_name": name,
+                            },
+                        )
+                    except ReconcileUnavailable:
+                        journal_entry["errors"].append("The model did not reply; the rest waits for the next run")
+                        finished, stopped = False, True
+                        break
                     total_saved += count
                     thread_extracted += len(extracted)
                     thread_saved += count

@@ -220,81 +220,32 @@ def _save_memory(category: str, subject: str, content: str, tags: str = "") -> s
             source_context={"actor": "manual"},
             high_authority=True,
         )
-        # Deterministic dedup: exact category + normalised subject match
-        existing = memory_db.find_by_subject(category, subject)
-        if existing:
-            # Same subject already stored — merge content intelligently.
-            old_content = existing.get("content", "").strip()
-            new_content = content.strip()
+        import row_bot.memory_reconcile as memory_reconcile
 
-            if new_content.lower() in old_content.lower():
-                # New content is already captured — keep existing as-is
-                merged = old_content
-            elif old_content.lower() in new_content.lower():
-                # New content is a superset — replace entirely
-                merged = new_content
-            else:
-                # Both have unique info — check for contradiction before merging
-                conflict = _check_contradiction(old_content, new_content, subject)
-                if conflict:
-                    memory_evo.mark_needs_review(
-                        existing["id"],
-                        conflict,
-                        actor="manual",
-                        incoming={
-                            "subject": subject,
-                            "category": category,
-                            "content": new_content,
-                            "source": "live",
-                        },
-                    )
-                    return (
-                        f"⚠️ CONFLICT for '{subject}': {conflict}\n"
-                        f"Existing content: {old_content}\n"
-                        f"New content: {new_content}\n"
-                        f"Ask the user which is correct before updating."
-                    )
-                # No contradiction — safe to combine
-                merged = f"{old_content}. {new_content}".replace(". . ", ". ")
-
-            result = memory_db.update_memory(
-                existing["id"],
-                merged,
-                tags=tags if tags else None,
-                source="live",
-                properties=memory_evo.merge_properties(
-                    existing.get("properties", {}),
-                    manual_props,
-                    source="live",
-                    entity_type=existing.get("entity_type", existing.get("category", category)),
-                    actor="manual",
-                    source_context={"actor": "manual"},
-                    high_authority=True,
-                ),
-            )
-            if result:
-                return (
-                    f"Memory updated (merged with existing).\n"
-                    f"ID: {result['id']}\n"
-                    f"Category: {result['category']}\n"
-                    f"Subject: {result['subject']}\n"
-                    f"Content: {result['content']}"
-                )
-
-        result = memory_db.save_memory(
-            category,
-            subject,
-            content,
-            tags,
-            source="live",
-            properties=manual_props,
-        )
+        memory = memory_reconcile.NewMemory(category, subject.strip(), content.strip(), tags=tags, source="live",
+                                            properties=manual_props)
+        try:
+            outcome = memory_reconcile.reconcile([memory], actor="manual")[0]
+        except memory_reconcile.ReconcileUnavailable:
+            # Without an answer it is saved as its own memory: what the person asked to keep is kept.
+            outcome = memory_reconcile.apply([("add", memory, None, memory.subject)], actor="manual")[0]
+        result = memory_db.get_memory(outcome.entity_id) or {}
+        previous = outcome.previous or {}
+        heading = {
+            "add": "Memory saved successfully.",
+            "update": "Memory updated (merged with an existing one).",
+            "supersede": (
+                "Memory saved. It replaces an older memory, kept as history: "
+                f"{previous.get('subject', '')}: {str(previous.get('description', ''))[:300]}"
+            ),
+            "skip": "Already saved: nothing changed.",
+        }[outcome.action]
         return (
-            f"Memory saved successfully.\n"
-            f"ID: {result['id']}\n"
-            f"Category: {result['category']}\n"
-            f"Subject: {result['subject']}\n"
-            f"Content: {result['content']}"
+            f"{heading}\n"
+            f"ID: {result.get('id', outcome.entity_id)}\n"
+            f"Category: {result.get('category', category)}\n"
+            f"Subject: {result.get('subject', subject)}\n"
+            f"Content: {result.get('content', outcome.text)}"
         )
     except (RuntimeError, ValueError) as exc:
         return f"Error: {exc}"

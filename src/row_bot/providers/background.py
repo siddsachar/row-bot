@@ -80,6 +80,8 @@ ANSWER_TOKENS: dict[str, int] = {
     # The Auto reviewer: {"decision", "reason"} in one short line.
     "approval_review": 200,
     "extraction": 4096,
+    # Up to eight decisions, each with at most one rewritten memory (memory_reconcile).
+    "memory_reconcile": 2048,
     "dream": 1536,
 }
 # Room for reasoning that still runs at the lowest effort (it counts against the
