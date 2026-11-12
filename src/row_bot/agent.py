@@ -7275,6 +7275,20 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
 
         # The conversation is found as read_tool_output finds it; the source decides its read-back fence.
         result = cap_tool_message(result, source=_tool_call_runtime_name(request.tool_call or {}))
+        media: list[dict] = []
+        media_failed = False
+        if caches is not None:
+            # A made picture or video becomes a chat file here, so the result names it the way every
+            # media tool finds it, never by its private path (R2).
+            from row_bot.application.generated_media import capture_generated_media, name_saved_files
+            names: list[str] = []
+            try:
+                media = capture_generated_media(caches.conversation_id, caches, names=names,
+                                                label=_media_label(request.tool_call or {}))
+            except ValueError:
+                media_failed = True
+            if names and isinstance(result.content, str):
+                result = result.model_copy(update={"content": name_saved_files(result.content, names)})
         stamp_failed = False
         try:
             call = dict(request.tool_call or {})
@@ -7293,15 +7307,23 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
             _learning_tool_call(learning_turn, request, result, untrusted=stamp is not None or stamp_failed)
         if caches is None:
             return result
-        from row_bot.application.generated_media import capture_generated_media
         additional = dict(result.additional_kwargs)
-        try:
-            media = capture_generated_media(caches.conversation_id, caches)
-            if media:
-                additional["platform_media"] = media
-        except ValueError:
+        if media:
+            additional["platform_media"] = media
+        if media_failed:
             additional["platform_media_error"] = "media_unavailable"
         return result.model_copy(update={"additional_kwargs": additional})
+
+
+def _media_label(call: dict[str, Any]) -> str:
+    """A made file's name from its prompt: "waves-on-a-beach-at-dusk" (R2); "" when there's none."""
+    import re
+
+    args = call.get("args") if isinstance(call.get("args"), dict) else {}
+    if str(call.get("name") or "") == "tool_invoke" and isinstance(args.get("arguments"), dict):
+        args = args["arguments"]
+    words = re.findall(r"[a-z0-9]+", str(args.get("prompt") or "").lower())[:6]
+    return "-".join(words)[:48].strip("-")
 
 
 def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:

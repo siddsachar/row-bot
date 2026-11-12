@@ -40,6 +40,19 @@ def save_generated_output(conversation_id: str, data: bytes, *, prefix: str, ext
             continue
 
 
+def name_saved_files(text: str, names: list[str]) -> str:
+    """A tool result that names the chat files it made instead of their private paths (R2).
+
+    Only a result that gave a private path ("Saved to: ...") changes; others already name what they show.
+    """
+    kept = [line for line in text.splitlines() if not line.startswith("Saved to: ")]
+    if len(kept) == len(text.splitlines()):
+        return text
+    quoted = ", ".join(f"\u201c{name}\u201d" for name in names)
+    return "\n".join(kept + [f"Saved in this chat's files as {quoted}: use that name with analyze_image, "
+                              "edit_video or the video tool."])
+
+
 def _image(conversation_id: str, encoded: str, name: str = "") -> dict:
     if not isinstance(encoded, str):
         raise AttachmentError("media_unavailable")
@@ -57,7 +70,7 @@ def _image(conversation_id: str, encoded: str, name: str = "") -> dict:
     return register_attachment(conversation_id, (Path(name).stem or "generated-image") + suffix, data)
 
 
-def _video(conversation_id: str, metadata: dict) -> dict:
+def _video(conversation_id: str, metadata: dict, label: str = "") -> dict:
     from row_bot import threads
     if not isinstance(metadata, dict) or not isinstance(metadata.get("path"), str) or not metadata["path"]:
         raise AttachmentError("media_unavailable")
@@ -80,14 +93,17 @@ def _video(conversation_id: str, metadata: dict) -> dict:
                 or after.st_mtime_ns != before.st_mtime_ns
                 or len(data) < 12 or data[4:8] != b"ftyp"):
             raise AttachmentError("media_unavailable")
-    return register_attachment(conversation_id, "generated-video.mp4", data)
+    return register_attachment(conversation_id, f"{label or 'generated-video'}.mp4", data)
 
 
-def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCaches) -> list[dict]:
+def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCaches, *,
+                            names: list[str] | None = None, label: str = "") -> list[dict]:
     """Drain only this call's private slots; never expose paths or remove originals.
 
     The ToolNode wrapper adds native issuing message/tool-call identities to each
     outcome. A failed output cannot discard another successfully captured output.
+    Each saved file's chat name goes into *names*; *label* (from the prompt) names
+    a file its tool didn't name.
     """
     image, name, video = caches.pending_image, caches.pending_image_name, caches.pending_video
     caches.pending_image, caches.pending_image_name = None, ""
@@ -100,7 +116,10 @@ def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCac
             if caches.conversation_id != conversation_id:
                 raise AttachmentError("action_denied")
             _conversation(conversation_id)
-            result = _image(conversation_id, value, name) if kind == "image" else _video(conversation_id, value)
+            result = (_image(conversation_id, value, name or label) if kind == "image"
+                      else _video(conversation_id, value, label))
+            if names is not None:
+                names.append(str(result.get("name") or ""))
             outcomes.append({"type": "media.available", "payload": {
                 "media_ref": result["attachment_ref"], "mime_type": result["mime_type"],
             }})
