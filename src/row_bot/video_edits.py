@@ -804,8 +804,11 @@ def summary(edit: VideoEdit) -> str:
     head = f"Video edit {edit.edit_id}: "
     if edit.status == "saved" and edit.kind == "frames":
         moments = ", ".join(clock(moment) for moment in edit.frame_times[:12])
+        stem = Path(edit.output_name).stem or "frame"
+        last = f"{stem}-{len(edit.frame_refs):02d}.jpg"
         return (head + f"saved {len(edit.frame_refs)} frames (at {moments}) to this chat's files; the person sees "
-                "them on one contact sheet. Look at them with analyze_image, files=['" + edit.edit_id + "'].")
+                "them on one contact sheet. Look at them with analyze_image, files=['" + edit.edit_id + "']. "
+                f"Each is also a full-size still ({stem}-01.jpg to {last}): name one to read small text.")
     if edit.status == "saved":
         from row_bot.recordings import size_words
 

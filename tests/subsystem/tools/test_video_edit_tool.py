@@ -285,6 +285,8 @@ def test_frames_are_saved_as_stills_with_one_contact_sheet(studio):
 
     assert ": saved 3 frames (at 0:01, 0:03, 0:05)" in result
     assert "files=['edit-" in result
+    # R4: a contact sheet can't show UI text; the result names the full-size stills to read it from.
+    assert "full-size still (frame-01.jpg to frame-03.jpg)" in result
     files = list_conversation_files(studio.chat)
     assert sorted(item["name"] for item in files if item["name"].startswith("frame")) == [
         "frame-01.jpg", "frame-02.jpg", "frame-03.jpg"]
