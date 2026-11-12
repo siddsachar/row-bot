@@ -7,7 +7,7 @@ description: "Run your own Row-Bot in your own Railway account and open it from 
 
 Railway, a cloud platform, can run your own private Row-Bot in your own Railway account. You open Row-Bot from any browser, on a computer or a phone, and it keeps working while your devices are off, so schedules and channels keep running.
 
-It's the same Row-Bot as the desktop app and as [Row-Bot on PikaPods](/docs/getting-started/in-your-browser), and it's yours alone: one owner, signed in from as many devices as you like. You bring the model: a ChatGPT or Claude plan, a Grok sign-in, an API key, or your own model server.
+It's the same Row-Bot as the desktop app and as any [hosted Row-Bot](/docs/getting-started/in-your-browser), and it's yours alone: one owner, signed in from as many devices as you like. You bring the model: a ChatGPT or Claude plan, a Grok sign-in, an API key, or your own model server.
 
 Railway runs the server and bills you for what it uses. New versions install by themselves each night. You keep your own backups and, if you like, a spending limit. [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see#railway) says plainly what Railway can reach.
 
@@ -51,9 +51,7 @@ If something stops it, the page says what to do:
 The same Row-Bot, set up in Railway's own pages.
 
 1. Open Row-Bot's template in Railway's template marketplace (search for **Row-Bot**) and choose **Deploy Now**. Sign in to Railway, or create an account.
-2. Deploy. Railway creates a project with one service, **row-bot**, its volume for your data, and its own address ending in `up.railway.app`. Leave the variables as they are: the template fills them in, your setup code included.
-3. In the service's **Settings › Deploy**, check the replica limits: **8 GB** of memory and **8 vCPU**. If they're empty, set them. Railway bills only what Row-Bot uses, and Row-Bot reads the memory limit to warn you before it runs short.
-4. In the service's **Settings › Source**, choose **Configure auto updates**, then **Update to the latest tag** and **Overnight** ([Updates](#updates)).
+2. Deploy. Railway creates a project with one service, **row-bot**, its volume for your data, and its own address ending in `up.railway.app`. Leave the variables as they are: the template fills them in, your setup code included. It also sets the memory and CPU limits (**8 GB** and **8 vCPU**; Railway bills only what Row-Bot uses) and turns on nightly automatic updates ([Updates](#updates)).
 
 The deploy log ends with `Row-Bot is running at`. If it shows `Row-Bot didn't start:` instead, the rest of that line says why.
 
@@ -94,7 +92,7 @@ If you give the service a domain of your own, set `ROW_BOT_PUBLIC_URL` to it (`h
 
 ## Updates
 
-New versions install by themselves each night when automatic updates are on in Railway. **Continue with Railway** turns them on; with the template, turn them on yourself (step 4 above). Railway then installs each new stable version of Row-Bot between 02:00 and 06:00 UTC, with your data and sign-ins kept.
+New versions install by themselves each night when automatic updates are on in Railway. **Continue with Railway** and the template both turn them on. Railway then installs each new stable version of Row-Bot between 02:00 and 06:00 UTC, with your data and sign-ins kept.
 
 **Settings › Updates** says **Updates come from Railway**, with your version, **Check in Railway** (your service's settings, where automatic updates are) and **What's new**. Row-Bot can't see Railway's settings, so if you turn automatic updates off, update from the service's settings yourself.
 
@@ -128,7 +126,7 @@ The model is billed by whoever provides it: a ChatGPT or Claude plan is the subs
 
 **Railway backs up your server only on its Pro plan.** So download a backup from time to time: in **Settings › Data**, choose **Download backup**. It saves a copy on your device. **Back up now** only keeps a copy on your Row-Bot server, on the same volume. A backup holds your conversations, memories, workflows, designs and settings, without passwords or sign-ins.
 
-The same backup moves your Row-Bot to the desktop app, to PikaPods, or to a new Railway service, and back: see [Moving To Your Computer And Back](/docs/getting-started/in-your-browser#moving-to-your-computer-and-back). To restore on Railway, choose **Restore from backup…** in **Settings › Data**, choose **Restore on restart**, then redeploy the service from its **Deployments** tab. Once everything has arrived, you can delete the old service.
+The same backup moves your Row-Bot to the desktop app, to another host, or to a new Railway service, and back: see [Moving To Your Computer And Back](/docs/getting-started/in-your-browser#moving-to-your-computer-and-back). To restore on Railway, choose **Restore from backup…** in **Settings › Data**, choose **Restore on restart**, then redeploy the service from its **Deployments** tab. Once everything has arrived, you can delete the old service.
 
 ## Railway's October Incident
 

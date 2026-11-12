@@ -1,30 +1,27 @@
 ---
 title: "Row-Bot In Your Browser"
-description: "Run your own Row-Bot on PikaPods and use it from any browser or your phone: start it, enter the setup code, choose a model, and see what's different from the desktop app."
+description: "Run your own Row-Bot on a hosting service and use it from any browser or your phone: start it, sign in, choose a model, and see what's different from the desktop app."
 ---
 
 # Row-Bot In Your Browser
 
-PikaPods, an independent hosting company, can run your own private Row-Bot for you on a small server. There's nothing to install: you open it from any browser, on a computer or a phone, and it keeps working while your devices are off, so schedules and channels keep running.
+A hosting service can run your own private Row-Bot for you on a small server. There's nothing to install: you open it from any browser, on a computer or a phone, and it keeps working while your devices are off, so schedules and channels keep running.
 
 It's the same Row-Bot as the desktop app, and it's yours alone: one owner, signed in from as many devices as you like. You bring the model: a ChatGPT or Claude plan, an API key, or your own model server.
 
-PikaPods runs the server, its billing and its backups; Row-Bot runs on it. [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) says plainly what that means for your data.
+Your host runs the server; Row-Bot runs on it. [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see) says plainly what that means for your data.
 
-Would you rather run it in a cloud account of your own? **Continue with Railway** at [row-bot.ai/railway](https://row-bot.ai/railway/) creates the same Row-Bot in your own Railway account in about 3 minutes and opens it signed in. [Row-Bot On Railway](/docs/getting-started/on-railway) has the steps, the template you can deploy by hand instead, and what it costs; there, you keep your own backups.
+## Start
 
-## Start On PikaPods
-
-1. Choose [Run on PikaPods](https://www.pikapods.com/pods?run=row-bot). It opens PikaPods with Row-Bot chosen at the recommended size.
-2. Sign in to PikaPods, or create an account. PikaPods asks for a payment method before starting Row-Bot.
-3. Add the pod. Its name, size and setup code are filled in for you, and it gets its own address ending in `pikapod.net`.
+- **On Railway:** **Continue with Railway** at [row-bot.ai/railway](https://row-bot.ai/railway/) creates your Row-Bot in your own Railway account in about 3 minutes and opens it signed in. [Row-Bot On Railway](/docs/getting-started/on-railway) has the steps, the template you can deploy by hand instead, and what it costs.
+- **On another host:** any service that runs Row-Bot's container image can host it. [Hosting Row-Bot](/docs/operations/hosting) has what the image needs.
 
 ## Enter The Setup Code
 
-The setup code makes your browser the owner, so nobody else can use your Row-Bot.
+The setup code makes your browser the owner, so nobody else can use your Row-Bot. **Continue with Railway** uses it for you and opens Row-Bot signed in. Otherwise:
 
-1. In PikaPods, open your pod's **More › Show Logs** and copy the code from the line that starts `Row-Bot setup code:`.
-2. Open your Row-Bot with PikaPods' **Open** button. It says **Welcome to your Row-Bot**.
+1. Find the code. On Railway, it's the sign-in link in the service's deploy log, or `ROW_BOT_SETUP_CODE` in its **Variables** ([Sign In](/docs/getting-started/on-railway#sign-in)). On another host, it's on the line that starts `Row-Bot setup code:` in the server's log.
+2. Open your Row-Bot at its address. It says **Welcome to your Row-Bot**.
 3. Paste the code into **Setup code** and choose **Continue**. Dashes, spaces and capitals don't matter.
 
 Row-Bot says "This browser is signed in." and asks how it should think. The code works once: from then on, anyone else who opens your address sees **This Row-Bot already has an owner**, and you add your other devices from Row-Bot itself ([Add Your Phone](#add-your-phone)).
@@ -60,7 +57,7 @@ Then add Row-Bot to your phone's home screen, so it opens like an app:
 
 ## What's Different
 
-A Row-Bot on PikaPods is the full Row-Bot, without the parts that need your own computer or a graphics card.
+A hosted Row-Bot is the full Row-Bot, without the parts that need your own computer or a graphics card.
 
 ### Works The Same
 
@@ -77,11 +74,11 @@ A Row-Bot on PikaPods is the full Row-Bot, without the parts that need your own 
 - **Your files live on the server,** not on your computer. Attach a file in a chat to give it to Row-Bot.
 - **Row-Bot says "your Row-Bot server"** where the desktop app says "this computer".
 - **Websites see a datacenter's address** when Row-Bot's browser visits them, so some may ask for extra checks.
-- **PikaPods installs updates.** They test each release first, so new versions usually arrive within a week. **Settings › Updates** shows your version and a **What's new** link; there's nothing for you to install.
+- **Your host installs updates.** On Railway, new versions install each night ([Updates](/docs/getting-started/on-railway#updates)). **Settings › Updates** shows your version and a **What's new** link.
 - **Local speech-to-text needs a 4 GB server.** On a smaller one, **Settings › Voice** marks it **Needs a 4 GB server**: use cloud speech-to-text there.
 - **Your Claude plan** works through Claude Code, which Row-Bot installs on your server when you choose **Use my Claude plan**.
 - **Models on your own hardware** work through a custom endpoint your server can reach over the internet, with a key or a tunnel in front: see [Use Your Own Model Server](/docs/guides/own-model-server).
-- **PikaPods looks after the server's backups.** For a copy you keep yourself, download a backup from **Settings › Data** ([Moving To Your Computer And Back](#moving-to-your-computer-and-back)).
+- **Keep a backup of your own.** Not every host backs up the server (Railway does only on its Pro plan): download a backup from **Settings › Data** from time to time ([Moving To Your Computer And Back](#moving-to-your-computer-and-back)).
 
 ### Not On A Hosted Row-Bot
 
@@ -93,13 +90,13 @@ For those, use the [desktop app](/docs/getting-started/installation). You can mo
 
 ## Costs
 
-- **The server:** priced by PikaPods by size; the recommended size is 4 GB. A 2 GB server also works if you use cloud speech-to-text. PikaPods asks for a payment method before starting Row-Bot.
+- **The server:** billed by your host for what it uses ([Railway's costs](/docs/getting-started/on-railway#costs)). Row-Bot needs 4 GB for local speech-to-text; 2 GB also works if you use cloud speech-to-text.
 - **The model:** billed by whoever provides it. A ChatGPT or Claude plan is the subscription you already pay for, with its limits. An API key is billed by its provider for what you use. Your own model server costs whatever running it costs you.
 - **Row-Bot itself** is free and open source, and bills you for nothing.
 
 ## Moving To Your Computer And Back
 
-Your Row-Bot isn't tied to PikaPods. A backup carries your conversations, memories, workflows, designs and settings between a hosted Row-Bot and the desktop app, either way.
+Your Row-Bot isn't tied to its host. A backup carries your conversations, memories, workflows, designs and settings between a hosted Row-Bot and the desktop app, either way.
 
 To move to your computer:
 
@@ -108,11 +105,11 @@ To move to your computer:
 3. Open **Settings › Data**, choose **Restore from backup…**, pick the file, and choose **Restore on restart**. The restore applies the next time Row-Bot starts.
 4. Sign in to your model again, and set up whatever the backup lists under "After restoring it, set these up again".
 
-To move back, choose **Back up now** in the desktop app's **Settings › Data**. Then, on your hosted Row-Bot, choose **Restore from backup…** in **Settings › Data**, pick the file, choose **Restore on restart**, and restart the pod in PikaPods.
+To move back, choose **Back up now** in the desktop app's **Settings › Data**. Then, on your hosted Row-Bot, choose **Restore from backup…** in **Settings › Data**, pick the file, choose **Restore on restart**, and restart Row-Bot on your host (on Railway, redeploy the service from its **Deployments** tab).
 
-A backup never holds passwords, API keys or sign-ins, your Claude plan's included, so you sign in again after moving. It also leaves out Row-Bot's browser sessions, your signed-in devices, and downloaded models and runtimes, which you download again where you need them. Once everything has arrived, you can remove the pod in PikaPods.
+A backup never holds passwords, API keys or sign-ins, your Claude plan's included, so you sign in again after moving. It also leaves out Row-Bot's browser sessions, your signed-in devices, and downloaded models and runtimes, which you download again where you need them. Once everything has arrived, you can remove the old server from your host.
 
 ## Getting Help
 
-- **PikaPods** helps with the server: billing, its size, its backups, and whether it's up. In Row-Bot, **Settings › System** shows **Hosted by PikaPods** with links to manage your pod, to PikaPods' support and to its status. See [PikaPods' support](https://docs.pikapods.com/) and its [uptime and maintenance windows](https://docs.pikapods.com/faq/account#business-use-and-service-level).
-- **Row-Bot** helps with everything inside Row-Bot: chats, models and sign-ins, workflows, memory, apps, the setup code and the out-of-memory notice. Start with [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted). Ask in [Discussions](https://github.com/siddsachar/row-bot/discussions), or [report a bug](https://github.com/siddsachar/row-bot/issues/new/choose): under "Where does Row-Bot run?" choose a hosting service, and name PikaPods and your pod's size. Monitor's **Copy diagnosis report** gives a summary to paste in.
+- **Your host** helps with the server: billing, its size, its backups, and whether it's up. In Row-Bot, **Settings › System** shows who hosts it, with links to manage the server and to the host's support. On Railway, see [Getting Help](/docs/getting-started/on-railway#getting-help).
+- **Row-Bot** helps with everything inside Row-Bot: chats, models and sign-ins, workflows, memory, apps, the setup code and the out-of-memory notice. Start with [Fix A Hosted Row-Bot](/docs/troubleshooting/hosted). Ask in [Discussions](https://github.com/siddsachar/row-bot/discussions), or [report a bug](https://github.com/siddsachar/row-bot/issues/new/choose): under "Where does Row-Bot run?" choose a hosting service, and name your host and your server's size. Monitor's **Copy diagnosis report** gives a summary to paste in.
