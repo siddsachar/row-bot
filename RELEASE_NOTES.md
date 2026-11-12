@@ -2,13 +2,15 @@
 
 ---
 
-## v5.3.4 - A Living Buddy, And Work That Carries On
+## v5.3.4 - A Living Buddy, A Better Memory, And Work That Carries On
 
-Row-Bot 5.3.4 brings Buddy to life on your screen and your desktop, and makes Row-Bot
-feel at home on your phone. It also fixes what real long jobs ran into: replies that
-stopped on "Next I'll…", videos that kept captions and borders you didn't want,
-files one tool couldn't find from another, and a chat database that grew to tens of
-gigabytes. It arrives through background updates.
+Row-Bot 5.3.4 brings Buddy to life on your screen and your desktop, makes Row-Bot
+feel at home on your phone, and rebuilds memory: it brings up only what you ask
+about, keeps facts current, imports what other assistants know about you, and
+helps you tidy what it remembers. It also fixes what real long jobs ran into:
+replies that stopped on "Next I'll…", videos that kept captions and borders you
+didn't want, files one tool couldn't find from another, and a chat database that
+grew to tens of gigabytes. It arrives through background updates.
 
 ### A Living Buddy
 
@@ -71,6 +73,7 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
 - **a clearer connect page** - the page a phone opens to connect matches the setup page, in light and dark, fits the screen, and says plainly that connecting gives full owner access and for how long.
 - **smaller things** - no keyboard shortcut hints on touch screens; Home's quick starts say Design, Code and Workflow; the search sheet shows every result; Monitor fits one column; no duplicate approval notice while Home lists it; the terminal no longer loads with every page.
 - **notifications when Row-Bot waits for you** (opt-in) - a phone that reaches Row-Bot over HTTPS (Tailscale, a tunnel or a hosted Row-Bot) can turn on Notifications on this device in Settings › Devices. When an approval or a question waits, it shows "Row-Bot is waiting for you". On iPhone, add Row-Bot to the Home Screen first.
+- **A proper home-screen icon** - the installed app's icon is no longer cropped on Android, a long-press on it offers New chat and Home, and the install prompt shows what Row-Bot looks like.
 - **What notifications send** - notifications are off until you turn them on, for each device. When one waits for you, Row-Bot sends an empty, encrypted wake-up through that device's browser push service; it carries no words from any chat, no title and no names, and the device shows Row-Bot's own fixed notice. Turning the switch off or signing the device out stops them.
 
 ### Work That Carries On
@@ -128,11 +131,38 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
 - **A model that can't answer says why** - pressing Enter on a model that can't use
   tools shows the reason and Choose a model, and your message is kept.
 
-### Memory, Privacy And Data
+### Memory
 
-- **Recall that fits the request** - each memory recalled into a turn is a few
-  hundred characters at most, the parts about what you asked first, and email
-  addresses and phone numbers stay out of automatic recall.
+- **Import your memory** - bring in what ChatGPT, Claude, Gemini, Copilot, Perplexity,
+  Grok, DeepSeek, mem0, Letta, Hermes Agent, OpenClaw and Grok Bot remember, or paste
+  what any assistant remembers about you. You see a preview of what each memory will
+  do before anything is saved, and you can undo the import for 7 days. Nothing leaves
+  your computer.
+- **Review memory** - Row-Bot goes through everything it remembers and suggests what to
+  keep, merge, rewrite or remove, with a reason for each: test data, out-of-date facts,
+  repeats, run logs, and your own record split into clear facts. Nothing changes until
+  you approve, your memory is backed up first, and you can undo for 30 days. Long
+  records, such as workflow logs, are never changed unless you choose to.
+- **Only what your message is about** - memory now brings up only what your message is
+  about. Before, almost every reply got five loosely related memories. Each memory
+  shown is a few hundred characters at most, the parts about what you asked first, and
+  email addresses and phone numbers stay out of automatic recall.
+- **New facts replace old ones** - when you tell Row-Bot something new, it updates or
+  replaces what it already remembered instead of piling up contradictions. The old
+  version is kept as history.
+- **All of a long chat** - Row-Bot now reads all of a long chat for things to remember,
+  not just its last part, and saves dates as dates instead of "tomorrow".
+- **Connections the right way round** - "written by" and "used by" were saved backwards
+  before.
+- **A Dream Cycle that tidies** - each night it merges duplicates and marks outdated
+  memories as replaced, keeping the old one. Your memory is backed up before the first
+  such night.
+- **The wiki vault forgets what you deleted** - unedited backup copies of deleted
+  memories go after 30 days, and Delete all removes them. Editing an article brings
+  back only its text, names and status.
+
+### Privacy And Data
+
 - **Only you are you** - on a channel paired to you, someone saying they're somebody
   else gets a friendly answer, and nothing about you or the people you know.
 - **A chat database that stays small** - a workflow chat saved its whole history at
@@ -155,6 +185,7 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   the server stopped, on the data volume, with room for a copy of the live data. It's
   optional: from 5.3.4 the file stops growing.
 - New core dependency: `pywebpush` (with `py-vapid` and `http-ece`). Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
+- Import memory stages uploads in a `memory_import/` folder in the data folder (backups leave it out). An upload can be up to 8 GB a file, so the disk needs room for what a person imports.
 
 ---
 
