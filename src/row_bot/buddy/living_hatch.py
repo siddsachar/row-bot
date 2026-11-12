@@ -280,7 +280,9 @@ def extract_patch(kind: str, base: CutOut, edited: bytes, face: tuple[float, flo
     if drift > 40:  # the whole character changed: identity drift
         return None
     difference = np.abs(b[..., :3] - a[..., :3]).max(axis=-1) * (np.maximum(a[..., 3], b[..., 3]) / 255.0)
-    changed = (difference > 30) & region
+    # An expression never adds the background's key colour (a glossy helmet repainted reflecting it, say).
+    spill = _key_tinted(b) & ~_key_tinted(a)
+    changed = (difference > 30) & region & ~spill
     opened = Image.fromarray((changed * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3))
     mask = opened.filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.MaxFilter(5))
     mask_array = np.asarray(mask) > 127
@@ -293,7 +295,8 @@ def extract_patch(kind: str, base: CutOut, edited: bytes, face: tuple[float, flo
     # the key colour's fringe on it) differs; the patch fades out inside the base art, clear of its edge.
     opaque = Image.fromarray(((a[..., 3] > 254) * 255).astype(np.uint8))
     inside = opaque.filter(ImageFilter.MinFilter(7)).filter(ImageFilter.GaussianBlur(1))
-    feather = feather * (np.asarray(inside) / 255.0)
+    tinted = Image.fromarray((spill * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1))
+    feather = feather * (np.asarray(inside) / 255.0) * (1 - np.asarray(tinted) / 255.0)
     if not (feather > 0.02).any():
         return None
     ys, xs = np.nonzero(feather > 0.02)
@@ -305,6 +308,14 @@ def extract_patch(kind: str, base: CutOut, edited: bytes, face: tuple[float, flo
     features = np.asarray(opened.filter(ImageFilter.MaxFilter(3))) > 127
     boxes = [tuple(value / size for value in box) for box in _components(features)]
     return Patch(kind, image, (left / size, top / size, (right - left) / size, (bottom - top) / size), boxes)
+
+
+def _key_tinted(rgba: np.ndarray) -> np.ndarray:
+    """Visible pixels whose hue is the key colour's magenta: green lowest, red and blue close, clearly saturated."""
+
+    r, g, b = rgba[..., 0], rgba[..., 1], rgba[..., 2]
+    chroma = np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b)
+    return (rgba[..., 3] > 24) & (g <= np.minimum(r, b)) & (chroma > 50) & (np.abs(r - b) < chroma * 0.3)
 
 
 def _components(mask: np.ndarray, limit: int = 4) -> list[tuple[int, int, int, int]]:

@@ -16,7 +16,7 @@ KEY = (255, 0, 255)
 
 
 def painting(size: int = 160, *, eyes: str = "open", mouth: bool = False,
-             outline: tuple[int, int, int] = (245, 245, 245)) -> bytes:
+             outline: tuple[int, int, int] = (245, 245, 245), shine: tuple[int, int, int] | None = None) -> bytes:
     image = Image.new("RGB", (size, size), KEY)
     draw = ImageDraw.Draw(image)
     k = size / 256
@@ -30,6 +30,8 @@ def painting(size: int = 160, *, eyes: str = "open", mouth: bool = False,
             draw.line([(cx - 12) * k, 96 * k, (cx + 12) * k, 96 * k], fill=(20, 20, 30), width=max(1, round(3 * k)))
     if mouth:
         draw.ellipse([118 * k, 118 * k, 138 * k, 136 * k], fill=(120, 20, 40))
+    if shine:  # a highlight on top of the head
+        draw.ellipse([110 * k, 50 * k, 146 * k, 66 * k], fill=shine)
     output = io.BytesIO()
     image.save(output, format="PNG")
     return output.getvalue()
