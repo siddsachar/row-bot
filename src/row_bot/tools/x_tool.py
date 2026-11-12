@@ -817,7 +817,8 @@ class XTool(BaseTool):
         except XAccountChoice as exc:
             return str(exc)
 
-        max_results = max(1, min(max_results, 100))
+        # A model sends null for "the default": that was a TypeError on every read (R7).
+        max_results = max(1, min(int(max_results or 10), 100))
 
         if action == "search":
             if not self._is_op_enabled("x_search"):
