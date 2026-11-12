@@ -1722,6 +1722,9 @@ class ClientPlatformService:
                 _LOG.warning("The sent draft could not be cleared for %s", conversation_id, exc_info=True)
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
         if followup is None and not resume and str(payload.get("text") or "").strip():
+            # The person wrote: a carry-on still pending from the last reply is theirs to steer now (R1).
+            from row_bot.application.conversation_followups import discard as discard_followup
+            discard_followup(conversation_id, "carry_on")
             # The person's message answers a goal that waits on them (B318).
             from row_bot import goals
             try:
@@ -1868,7 +1871,8 @@ class ClientPlatformService:
                     after_platform_turn(conversation_id, generation_id=generation_id, status=status,
                                         assistant_text=final_text, model_ref=model_ref,
                                         goal_id=str((started_goal or {}).get("id") or ""),
-                                        error_text=error_text)
+                                        error_text=error_text,
+                                        followup_kind=followup.kind if followup is not None else "")
                 with _turn_end_step(conversation_id, "the workflow's run"):
                     # A workflow's run moves on when its turn ends: its next message, or its outcome (F31).
                     from row_bot.workflow_turns import after_turn as after_workflow_turn

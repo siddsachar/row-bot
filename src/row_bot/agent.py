@@ -1496,6 +1496,8 @@ def _interactive_progress_contract(runtime_surface: str) -> str:
         "(\"Checking the October orders…\", \"Found 2 repeat customers; drafting the reply.\").",
         "Your own words, no tool names. Never reveal hidden reasoning, secrets, raw logs or unapproved content. "
         "Skip it for quick answers, and don't repeat these lines in the final answer.",
+        "Send each line with the tool call it announces: a reply with no tool call ends your turn. End only when "
+        "the work is done, when you need the person (ask them), or once a wait is set to bring you back.",
     ]
     if workflow:
         parts.append("In a workflow run keep them sparse: a line as you start each part of the work.")
