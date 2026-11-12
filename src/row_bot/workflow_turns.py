@@ -36,7 +36,8 @@ _LINK = re.compile(r"https?://[^\s<>\"')\]]+")
 _ALSO_OUTBOUND = frozenset({"x_engage", "outlook_draft_mail", "create_gmail_draft"})
 _LOCK = threading.Lock()
 _ATTEMPTS: dict[str, int] = {}  # run id -> passing failures tried again so far
-NOTES_LIMIT = 2_000  # Characters a workflow's notes may hold.
+# Characters a workflow's notes may hold: 2,000 squeezed them into run-together words (R8).
+NOTES_LIMIT = 6_000
 
 
 def _service() -> Any:
@@ -115,7 +116,8 @@ def with_notes(task: Mapping[str, Any], prompt: str, *, held: list[dict[str, str
         return f"{lead}\n\n---\n\n{prompt}" if lead else prompt
     return (f"{lead}\n\nBefore this run ends, keep them current for the next run with "
             f"task_update(task_id=\"{task_id}\", notes=...): what you checked and when, ids you'll need again, "
-            f"and what's left. Replace them whole; under {NOTES_LIMIT:,} characters.\n\n---\n\n{prompt}")
+            f"and what's left. Replace them whole, in plain sentences; under {NOTES_LIMIT:,} characters."
+            f"\n\n---\n\n{prompt}")
 
 
 def _take_held(task: Mapping[str, Any]) -> list[dict[str, str]]:

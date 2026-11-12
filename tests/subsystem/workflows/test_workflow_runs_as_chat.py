@@ -251,9 +251,10 @@ def test_workflow_notes_are_cut_to_their_limit_and_cleared_with_empty_text(workf
     from row_bot.tools.task_tool import _task_update
     task = create(workflows, "Check the release.")
 
-    cut = _task_update(task["id"], notes="x" * 2_500)
-    assert cut.endswith("Notes: 2,000 characters kept for the next run (cut to 2,000)")
-    assert len(workflow_turns.notes(task["id"])) == 2_000
+    # 2,000 squeezed a workflow's notes into run-together words (R8): it holds 6,000.
+    cut = _task_update(task["id"], notes="x" * 6_500)
+    assert cut.endswith("Notes: 6,000 characters kept for the next run (cut to 6,000)")
+    assert len(workflow_turns.notes(task["id"])) == workflow_turns.NOTES_LIMIT == 6_000
     assert _task_update(task["id"], notes="").endswith("Notes: cleared")
     assert workflow_turns.notes(task["id"]) == ""
 

@@ -1001,3 +1001,33 @@ def test_a_scheduled_reply_x_wont_take_settles_with_its_draft_and_no_try_again(x
                            f"{shown[refused['id']]['reason']} It's in Home › Review, with the draft to copy.")
     assert x_posting.cancel_scheduled(refused["id"]) and refused["id"] not in {
         item["id"] for item in x_posting.scheduled_posts()}
+
+
+def test_a_post_whose_time_passed_while_its_card_waited_is_asked_for_now(x, person):
+    """R8 (12 Nov): a post approved at 16:06 for 16:00 was dropped ("16:00 has passed, so nothing was posted"),
+    and the person had to say "Post it now". Its time passed: a new card asks to post it now."""
+    from datetime import datetime, timedelta
+
+    fake, tool = x
+    asked, _ = person
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    passed = (datetime.now() - timedelta(minutes=6)).replace(second=0, microsecond=0)
+
+    result = tool._x_post("post", text="Pick Qwen locally for this chat.", account="@rowbot_ai",
+                          post_at=passed.isoformat(timespec="minutes"))
+
+    [card] = asked
+    assert card["x_post"]["post_at"] == "", "the card says it goes out now, not at a time that has gone"
+    assert f"Its time ({passed.isoformat(timespec='minutes')}) had passed, so it went out at once." in result
+    assert _creates(fake) == 1
+
+
+def test_a_late_approval_never_moves_a_post_to_tomorrow_or_sends_a_long_missed_one():
+    from datetime import datetime
+
+    now = datetime(2026, 11, 11, 16, 6)
+    assert x_posting.slot("16:00", now, late_ok=True) is None, "just passed: today's, at once"
+    assert x_posting.slot("09:00", now, late_ok=True) == datetime(2026, 11, 12, 9, 0), "this morning's is tomorrow's"
+    assert x_posting.slot("16:00", now) == datetime(2026, 11, 12, 16, 0), "without a card waiting, as before"
+    with pytest.raises(x_posting.XPostError, match="has passed"):
+        x_posting.slot("2026-11-11T03:00", now, late_ok=True)

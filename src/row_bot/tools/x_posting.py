@@ -249,10 +249,16 @@ def question(account: XAccount, action: str) -> str:
 # A post may wait for a time slot (5.3.1 G3): approved now, sent by the scheduler at its time.
 SLOT_AHEAD = timedelta(days=7)  # How far ahead a post may be scheduled.
 SLOT_LATE = timedelta(hours=12)  # A post Row-Bot couldn't send by then (it was closed) is never sent late.
+# A local time ("16:00") this recently passed is today's, not tomorrow's: its approval came late (R8).
+SLOT_JUST_PASSED = timedelta(hours=1)
 
 
-def slot(value: str | None, now: datetime | None = None) -> datetime | None:
-    """When an approved post goes out: None for at once; a local time ("13:00", the next one) or date and time."""
+def slot(value: str | None, now: datetime | None = None, *, late_ok: bool = False) -> datetime | None:
+    """When an approved post goes out: None for at once; a local time ("13:00", the next one) or date and time.
+
+    *late_ok*: a time that passed while its approval waited (up to ``SLOT_LATE`` ago; a bare local time up to
+    ``SLOT_JUST_PASSED``) is None, at once: the person approved it late, and a new card asks for "now" (R8).
+    """
     text = str(value or "").strip()
     if not text:
         return None
@@ -261,7 +267,7 @@ def slot(value: str | None, now: datetime | None = None) -> datetime | None:
         if re.fullmatch(r"\d{1,2}:\d{2}", text):
             hour, minute = (int(part) for part in text.split(":"))
             when = moment.replace(hour=hour, minute=minute)
-            if when <= moment:
+            if when <= moment and not (late_ok and moment - when <= SLOT_JUST_PASSED):
                 when += timedelta(days=1)
         else:
             when = datetime.fromisoformat(text)
@@ -271,6 +277,8 @@ def slot(value: str | None, now: datetime | None = None) -> datetime | None:
     except ValueError:
         raise XPostError(f"post_at is a local time like 13:00 or 2026-10-29T09:30, not {text!r}, so nothing was "
                          "posted.") from None
+    if when <= moment and late_ok and moment - when <= SLOT_LATE:
+        return None
     if when <= moment:
         raise XPostError(f"{when:%Y-%m-%d %H:%M} has passed, so nothing was posted. Leave post_at out to post now.")
     if when - moment > SLOT_AHEAD:
