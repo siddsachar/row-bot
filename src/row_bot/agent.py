@@ -1491,11 +1491,12 @@ def _interactive_progress_contract(runtime_surface: str) -> str:
 
     parts = [
         "INTERACTIVE PROGRESS:",
-        "While you work through tools, keep the person posted in short lines: before your first tool step, and "
-        "whenever you move on to something new, one sentence on what you're doing or what you just found "
-        "(\"Checking the October orders…\", \"Found 2 repeat customers; drafting the reply.\").",
+        "While you use tools, keep the person posted in short lines, each sent with its tool call: "
+        "before your first tool step, and whenever you move on to something new, one sentence on what you're "
+        "doing or found (\"Checking the October orders…\").",
         "Your own words, no tool names. Never reveal hidden reasoning, secrets, raw logs or unapproved content. "
         "Skip it for quick answers, and don't repeat these lines in the final answer.",
+        "A reply with no tool call ends your turn: end only when done, to ask the person, or with a wait set.",
     ]
     if workflow:
         parts.append("In a workflow run keep them sparse: a line as you start each part of the work.")

@@ -68,6 +68,8 @@ def test_interactive_progress_contract_is_injected_for_interactive_agent_surface
         assert "INTERACTIVE PROGRESS:" in prompt
         assert "before your first tool step, and whenever you move on to something new" in prompt
         assert "don't repeat these lines in the final answer" in prompt
+        # A progress line on its own ended the turn mid-task three times (R1).
+        assert "A reply with no tool call ends your turn" in prompt
 
 
 def test_streaming_channel_gets_sparse_progress_contract(tmp_path, monkeypatch, reload_for_data_dir):
