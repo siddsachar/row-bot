@@ -101,7 +101,7 @@ export default function MemoryReviewDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={importBatch ? 'Review what was imported' : 'Review memory'}
-      description="Row-Bot suggests what to keep, merge, rewrite or remove. Nothing changes until you approve."
+      description="Suggestions to keep, merge, rewrite or remove, each with a reason."
       kind={phone ? 'sheet' : 'dialog'}
       className="memory-import-dialog memory-review-dialog"
     >
@@ -507,8 +507,8 @@ function IntroStep({
       </h3>
       <p className="memory-import-muted">
         {importBatch
-          ? `Row-Bot reads the ${plural(overview.memories, 'memory', 'memories')} that import saved, with the saved memories closest to them, and suggests what to keep, merge, rewrite or remove.`
-          : `Row-Bot reads each of your ${plural(overview.memories, 'memory', 'memories')} and suggests what to keep, merge, rewrite or remove, each with a reason.`}
+          ? `Row-Bot reads the ${plural(overview.memories, 'memory', 'memories')} that import saved, with the saved memories closest to them, and explains every suggestion.`
+          : `Row-Bot reads each of your ${plural(overview.memories, 'memory', 'memories')} and explains every suggestion.`}
       </p>
       <ul className="memory-review-promises">
         <li>
@@ -651,6 +651,7 @@ function ListStep({
         <Stat label="Remove" value={count('remove')} />
         <Stat label="Merge" value={count('merge')} />
         <Stat label="Rewrite" value={count('rewrite')} />
+        {count('split') > 0 && <Stat label="Split" value={count('split')} />}
         <Stat label="Keep" value={count('keep')} />
       </StatGroup>
       {warnings.length > 0 && (
@@ -924,7 +925,9 @@ function ProposalRow({
           <span id={subjectId} className="memory-review-subject">
             {item.subject || 'Untitled memory'}
           </span>
-          <CategoryChip category={item.category} />
+          {item.category !== 'self_knowledge' && (
+            <CategoryChip category={item.category} />
+          )}
           {item.marks.map((mark) => (
             <span key={mark} className="memory-review-mark" data-mark={mark}>
               {MARK_WORDS[mark]}

@@ -7567,7 +7567,9 @@ def mi_seed(x_fixture_token: str = Header(default="")) -> dict:
     kg._skip_reindex = True
     memory_import.close_batches()
     with sqlite3.connect(kg.DB_PATH) as conn:
-        conn.execute("DELETE FROM entities WHERE source LIKE 'import:%' OR id LIKE 'mi-entity-%'")
+        # Review memory's synthetic memories too: an import is previewed against these three alone.
+        conn.execute("DELETE FROM entities WHERE source LIKE 'import:%' OR id LIKE 'mi-entity-%' "
+                     "OR id LIKE 'mr-entity-%' OR source='review'")
         conn.executemany(
             "INSERT INTO entities (id,entity_type,subject,description,aliases,tags,properties,source,created_at,updated_at)"
             " VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -7608,6 +7610,100 @@ def mi_seed(x_fixture_token: str = Header(default="")) -> dict:
     kg.semantic_search = semantic_search
     background.invoke_background = invoke_background
     memory_import._model = lambda: {"name": "qwen3:8b", "provider": "Local", "on_this_computer": True}
+    return {"ok": True}
+
+
+# Knowledge › Review memory: synthetic memories shaped like a long-used profile's (test data, a replaced
+# preference, a run of appended sentences on the person's record, a long workflow register, a lesson), two
+# that read alike, and the person's default chat model answered by the Python tests' deterministic fake.
+_memory_review_fixture: dict = {}
+
+
+@app.post("/__mr_fixture/seed")
+def mr_seed(x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    import json as _json
+    import shutil
+    import sqlite3
+    from pathlib import Path as _Path
+    from row_bot.data_paths import get_row_bot_data_dir
+    if get_row_bot_data_dir(create=False).resolve() != predecessor.DATA.resolve():
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    from row_bot import knowledge_graph as kg
+    from row_bot.application import memory_review
+    from row_bot.providers import background
+    from tests.helpers.memory_review import FakeReviewModel
+
+    kg._skip_reindex = True
+    memory_review.close_runs()
+    register = " ".join(f"2026-10-{day:02d} emailed creator{day} at studio{day} about the launch video, status sent, "
+                        f"followupscheduledafterreplyreceived{day}" for day in range(1, 29))
+    person = " ".join(["Name is Sam Rivers.", "Lives in Leeds.", "Works as a sound engineer.",
+                       "Email address is sam@rivers-audio.net.",
+                       *[f"Prefers {thing}." for thing in ("a standing desk", "tea in the afternoon",
+                                                           "short answers", "trains for travel",
+                                                           "paper notebooks for planning")],
+                       *[f"Has an allotment task number {n} on the shed list." for n in range(30)]])
+    rows = [
+        ("mr-entity-01", "fact", "__MTEST_alpha", "Fixture memory made by a test run.", {}),
+        ("mr-entity-02", "preference", "Recording theme", "Records the app in dark theme.",
+         {"status": "superseded", "superseded_by": "mr-entity-03"}),
+        ("mr-entity-03", "preference", "Recording theme now", "Records the app in light theme.", {}),
+        ("mr-entity-04", "project", "Old garden plan", "An obsolete plan to pave the garden.", {}),
+        ("mr-entity-05", "concept", "Weather in Leeds", "General notes about the weather in Leeds.", {}),
+        ("mr-entity-06", "event", "Dentist", "Has a dentist appointment next week.", {}),
+        ("mr-entity-07", "project", "Assistant setup", "Uses Thoth as the desktop assistant.", {}),
+        ("mr-entity-08", "preference", "Coffee order", "Takes a flat white with oat milk.", {}),
+        ("mr-entity-09", "preference", "Morning coffee", "MERGE-ME every morning a flat white.", {}),
+        ("mr-entity-10", "fact", "Cello", "Plays the cello in a community orchestra.", {}),
+        ("mr-entity-11", "project", "Creator outreach register", register, {}),
+        ("mr-entity-12", "self_knowledge", "Check before done",
+         "Run the checks before saying a change is done.", {}),
+        ("mr-entity-13", "person", "User", person, {}),
+        ("mr-entity-14", "place", "Allotment", "Has an allotment by the canal.", {}),
+    ]
+    with sqlite3.connect(kg.DB_PATH) as conn:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("DELETE FROM entities WHERE id LIKE 'mr-entity-%' OR source='review'")
+        conn.executemany(
+            "INSERT INTO entities (id,entity_type,subject,description,aliases,tags,properties,source,created_at,updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [(entity_id, kind, subject, text, "", "", _json.dumps(props), "live",
+              f"2026-10-{number:02d}T09:00:00", f"2026-11-{number:02d}T09:00:00")
+             for number, (entity_id, kind, subject, text, props) in enumerate(rows, 1)])
+    root = predecessor.DATA / memory_review.FOLDER
+    for folder in root.glob("*"):
+        shutil.rmtree(folder, ignore_errors=True)
+    for copy in _Path(kg.DB_PATH).parent.glob(memory_review.BACKUP_PREFIX + "*"):
+        copy.unlink(missing_ok=True)
+
+    alike = {frozenset(("mr-entity-08", "mr-entity-09"))}
+
+    def semantic_search(query, top_k=5, threshold=0.5, *, for_auto_recall=False, stats=None):
+        if stats is not None:
+            stats["mean"] = 0.40
+        asking = [entity["id"] for entity in kg.list_entities(limit=1000) if kg._entity_text(entity) == query]
+        hits = []
+        for pair in alike:
+            for entity_id in asking:
+                if entity_id in pair:
+                    [other] = pair - {entity_id}
+                    found = kg.get_entity(other)
+                    if found is not None:
+                        hits.append({**found, "score": 0.92})
+        return hits[:top_k]
+
+    fake = FakeReviewModel()
+    original = _memory_review_fixture.setdefault("invoke", background.invoke_background)
+
+    def invoke_background(purpose, messages, *, answer=None, **how):
+        if purpose == "dream":
+            return fake(purpose, messages, answer=answer)
+        return original(purpose, messages, answer=answer, **how)
+
+    kg.semantic_search = semantic_search
+    background.invoke_background = invoke_background
+    memory_review._model = lambda: {"name": "qwen3:8b", "provider": "Local", "on_this_computer": True}
     return {"ok": True}
 
 

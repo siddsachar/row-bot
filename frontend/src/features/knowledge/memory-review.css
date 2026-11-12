@@ -134,9 +134,6 @@
   flex: none;
   transform: translateY(2px);
 }
-.memory-review-reason[data-action='remove'] > svg {
-  color: var(--status-danger-text);
-}
 .memory-review-reason[data-action='merge'] > svg,
 .memory-review-reason[data-action='rewrite'] > svg,
 .memory-review-reason[data-action='split'] > svg {
@@ -224,6 +221,9 @@
 }
 
 @media (max-width: 767px) {
+  .memory-import-filters > .memory-review-filter {
+    flex-basis: 100%;
+  }
   .memory-review-row {
     flex-wrap: wrap;
   }
