@@ -7478,7 +7478,7 @@ class BuddySnapshot(WireModel):
 
 class BuddyAsset(WireModel):
     id: str = Field(min_length=1, max_length=128)
-    content_type: Literal["image/png", "application/json"]
+    content_type: Literal["image/png", "image/webp", "application/json"]
 
 
 class BuddyPack(WireModel):

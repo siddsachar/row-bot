@@ -426,7 +426,8 @@ def _run(*, command_id, job_id, pack_id, prompt, mode, source, expected_config_r
             raise ValueError("hatch_storage_changed")
         manifest = {"schema": 2, "id": pack_id, "name": hatch._hatch_pack_name(prompt, pack_id)[:256],
             "runtime": assets.LIVING_RUNTIME, "version": "1.0.0", "art": "art.png", "rig": "rig.json",
-            "preview": "art.png", "prompt": prompt, **({"patches": "patches.png"} if "patches.png" in pack_files else {})}
+            "preview": "art.png", "prompt": prompt,
+            **({"patches": living_hatch.PATCHES_FILE} if living_hatch.PATCHES_FILE in pack_files else {})}
         _write_new(candidate, "manifest.json", json.dumps(manifest, ensure_ascii=False).encode(), authority,
                    root_identity=candidate_identity)
         entries = list(islice(candidate.iterdir(), 9))
@@ -519,7 +520,7 @@ def _run(*, command_id, job_id, pack_id, prompt, mode, source, expected_config_r
                 built = living_hatch.build_pack(preview, edits, family, prompt)
                 logger.info("Buddy Hatch %s: %s", job_id, json.dumps(built.report, sort_keys=True))
                 pack_files = {"art.png": built.art, "rig.json": built.rig,
-                              **({"patches.png": built.patches} if built.patches else {})}
+                              **({living_hatch.PATCHES_FILE: built.patches} if built.patches else {})}
                 for name, data in pack_files.items():
                     _write_new(candidate, name, data, authority, root_identity=candidate_identity)
                 record("rig_prepared")

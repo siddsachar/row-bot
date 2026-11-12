@@ -6,7 +6,7 @@
 
     python scripts/buddy/rebuild_builtins.py expressions [pack ...]
         Paint the six expression edits with OpenAI gpt-image-2 and turn them into
-        patches.png plus the rig's patch entries. Needs OPENAI_API_KEY in the
+        patches.webp plus the rig's patch entries. Needs OPENAI_API_KEY in the
         environment of the terminal it runs in (the owner sets it; nothing here
         prints or stores it). Each edit is kept in .local/buddy-rebuild/<pack>/,
         so a rerun only pays for what is missing; delete a file to repaint it.
@@ -86,17 +86,17 @@ def expressions(pack: str, client) -> None:
         print(f"{pack}: no patches")
         return
     atlas, meta = living_hatch.pack_atlas(list(patches.values()))
-    (folder / "patches.png").write_bytes(atlas)
+    (folder / living_hatch.PATCHES_FILE).write_bytes(atlas)
     rig["patches"] = meta
     blink = patches.get("blink")
     if blink and len(blink.mask_boxes[:3]) == len(rig["eyes"]):
         rig["eyes"] = [living_hatch._ellipse(box) for box in sorted(blink.mask_boxes[:3], key=lambda box: box[0])]
     (folder / "rig.json").write_text(json.dumps(rig, indent=2) + "\n", encoding="utf-8", newline="\n")
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-    manifest["patches"] = "patches.png"
+    manifest["patches"] = living_hatch.PATCHES_FILE
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     _review(work, art_png, patches)
-    print(f"{pack}: patches {sorted(patches)} -> patches.png {len(atlas) // 1024} KB; review in {work / 'review.png'}")
+    print(f"{pack}: patches {sorted(patches)} -> {living_hatch.PATCHES_FILE} {len(atlas) // 1024} KB; review in {work / 'review.png'}")
 
 
 def _review(work: pathlib.Path, art_png: bytes, patches: dict[str, living_hatch.Patch]) -> None:

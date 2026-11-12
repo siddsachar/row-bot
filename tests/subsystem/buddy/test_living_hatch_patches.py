@@ -44,3 +44,24 @@ def test_a_blink_patch_leaves_out_the_key_colour_the_model_reflected_onto_the_he
     r, g, b = after[..., 0], after[..., 1], after[..., 2]
     assert not ((after[..., 3] > 24) & (g + 50 < np.minimum(r, b)) & (abs(r - b) < 40)).any()
     assert _eyes_closed(before, after, eyes)
+
+
+def test_the_expression_atlas_is_webp_that_keeps_each_patch_feathered_edge_exactly():
+    base = living_art.cut_out(buddy_art.painting(256), size=192)
+    patches = [living_hatch.extract_patch("blink", base, buddy_art.painting(256, eyes="closed"), FACE),
+               living_hatch.extract_patch("talk", base, buddy_art.painting(256, mouth=True), FACE)]
+    assert all(patches)
+
+    data, rects = living_hatch.pack_atlas(patches)
+
+    assert data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    with Image.open(io.BytesIO(data)) as image:
+        atlas = np.asarray(image.convert("RGBA")).astype(int)
+    for patch in patches:
+        x, y, w, h = rects[patch.kind]["atlas"]
+        want, got = np.asarray(patch.image).astype(int), atlas[y:y + h, x:x + w]
+        # Alpha is lossless: where a patch fades into the art it does exactly what it did as a PNG.
+        assert (got[..., 3] == want[..., 3]).all()
+        # Colour is lossy but stays the patch's own: what is drawn (premultiplied) is close wherever it shows.
+        weight = want[..., 3:] / 255
+        assert np.abs((got[..., :3] - want[..., :3]) * weight)[want[..., 3] > 0].mean() < 8

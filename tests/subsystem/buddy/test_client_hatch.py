@@ -191,6 +191,7 @@ def test_full_hatch_paints_guide_and_expressions_then_selects_new_living_pack_on
     assert {selection for _, selection, _ in r.calls} == {"openai/reviewed-image"}
     pack = r.assets.load_buddy_pack(result.pack_id, strict=True)
     assert pack.runtime == "living" and pack.patches_path is not None
+    assert pack.patches_path.name == "patches.webp" and pack.patches_path.read_bytes()[8:12] == b"WEBP"
     rig = json.loads(pack.rig_path.read_bytes())
     assert {"blink", "talk"} <= set(rig["patches"]) and len(rig["eyes"]) == 2
     assert r.config.get_buddy_config()["pack_id"] == result.pack_id

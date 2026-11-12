@@ -28,6 +28,8 @@ FULL_STEPS = 1 + len(EXPRESSIONS)
 KEY_COLOUR = (255, 0, 255)
 #: The living art's square size in pixels (Buddy is drawn at up to ~240 px, at 2× and 3× pixel ratios).
 ART_SIZE = 768
+#: A living pack's expression atlas. Packs hatched before it was WebP keep (and still load) ``patches.png``.
+PATCHES_FILE = "patches.webp"
 _GUIDE_SIZE = 1024
 
 _WINGED = re.compile(r"\b(wing(s|ed)?|bird|owl|bat|fairy|faerie|moth|butterfly|dragon|angel|griffin|phoenix|bee|"
@@ -348,8 +350,21 @@ def _components(mask: np.ndarray, limit: int = 4) -> list[tuple[int, int, int, i
     return [box for _, box in boxes[:limit]]
 
 
+def encode_atlas(atlas: Image.Image) -> bytes:
+    """An atlas as WebP: lossy colour (about a quarter of a PNG's size), lossless alpha.
+
+    Looked at on full-size composites of every built-in's patches: colour error sits only on sharp
+    colour edges (chroma subsampling) and does not show at Buddy's largest size; alpha stays exact,
+    so a patch's feathered edge over the art is unchanged and shows no seam.
+    """
+
+    buffer = io.BytesIO()
+    atlas.save(buffer, format="WEBP", quality=92, alpha_quality=100)
+    return buffer.getvalue()
+
+
 def pack_atlas(patches: list[Patch]) -> tuple[bytes, dict[str, dict]]:
-    """Shelf-pack patches into one PNG; returns it and each patch's atlas and placement rects."""
+    """Shelf-pack patches into one WebP atlas; returns it and each patch's atlas and placement rects."""
 
     gap = 2
     width = 512
@@ -372,9 +387,7 @@ def pack_atlas(patches: list[Patch]) -> tuple[bytes, dict[str, dict]]:
         atlas.alpha_composite(patch.image, (px, py))
         meta[patch.kind] = {"atlas": [px, py, patch.image.width, patch.image.height],
                             "at": [round(value, 5) for value in patch.at]}
-    buffer = io.BytesIO()
-    atlas.save(buffer, format="PNG", optimize=True)
-    return buffer.getvalue(), meta
+    return encode_atlas(atlas), meta
 
 
 # ── Rig ──────────────────────────────────────────────────────────────────

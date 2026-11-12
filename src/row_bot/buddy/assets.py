@@ -143,6 +143,12 @@ def load_buddy_pack(pack_id: str = "glyph", *, strict: bool = False) -> BuddyPac
     return validate_buddy_pack(pack)
 
 
+def patches_content_type(path: pathlib.Path) -> str:
+    """An expression atlas is WebP or, in packs hatched before that, PNG; its file name says which."""
+
+    return "image/webp" if path.suffix.lower() == ".webp" else "image/png"
+
+
 def pack_files(pack: BuddyPack) -> dict[str, pathlib.Path]:
     """The pack's own files by asset id (a legacy pack has only its still)."""
 

@@ -42,7 +42,7 @@ export type RigBone = {
   radius?: Point;
 };
 export type RigPatch = {
-  /** Pixel rect in patches.png: x, y, width, height. */
+  /** Pixel rect in the patch atlas: x, y, width, height. */
   atlas: [number, number, number, number];
   /** Normalised rect on the art: x, y, width, height. */
   at: [number, number, number, number];
