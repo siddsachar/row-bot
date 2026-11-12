@@ -352,7 +352,37 @@ _REMOVE_WORDS = {
 }
 
 
-def _decided(entity: dict, decision: dict, offered: dict[str, dict]) -> dict:
+# Words two names can share without being about the same thing.
+_GENERIC_NAME_WORDS = frozenset({
+    "ai", "the", "and", "of", "for", "to", "in", "on", "with", "row", "bot", "rowbot", "app", "apps", "agent",
+    "agents", "project", "plan", "plans", "style", "user", "users", "my", "new", "old", "personal", "system",
+})
+CLOSE_ENOUGH_WITHOUT_A_NAME = 0.85  # calibrated similarity at which two differently named memories may merge
+
+
+def _names(entity: dict) -> set[str]:
+    words = f"{entity.get('subject') or ''} {(entity.get('aliases') or '').replace(',', ' ')}"
+    return {word for word in re.findall(r"[a-z0-9]+", words.casefold())
+            if len(word) > 1 and word not in _GENERIC_NAME_WORDS}
+
+
+def _same_thing_allowed(entity: dict, other: dict, closeness: dict[frozenset, float]) -> bool:
+    """Whether two memories may become one: a pair the near-duplicate search found, and a distinctive word in
+    both names (for two people, always), unless they are very close. Measured on a real profile (Nov 2026):
+    without this the model merged two different people and related-but-different topics, such as "Linux
+    support" into "Docker" or a company into a team."""
+    close = closeness.get(frozenset((entity["id"], other["id"])))
+    if close is None:
+        return False
+    if _names(entity) & _names(other):
+        return True
+    if entity.get("entity_type") == "person" or other.get("entity_type") == "person":
+        return False
+    return close >= CLOSE_ENOUGH_WITHOUT_A_NAME
+
+
+def _decided(entity: dict, decision: dict, offered: dict[str, dict],
+             closeness: dict[frozenset, float] | None = None) -> dict:
     """One model decision as a proposal; an answer it can't act on keeps the memory."""
     action = str(decision.get("action") or "").strip().lower()
     reason = str(decision.get("reason") or "").strip().lower()
@@ -360,6 +390,9 @@ def _decided(entity: dict, decision: dict, offered: dict[str, dict]) -> dict:
     other = offered.get(str(decision.get("into") or "").strip())
     if other is not None and other["id"] == entity["id"]:
         other = None
+    if other is not None and (action == "merge" or reason == "duplicate") \
+            and not _same_thing_allowed(entity, other, closeness or {}):
+        return _proposal(entity, "keep", "keep", "Nothing to change")
     if action == "remove" and reason in REMOVE_REASONS:
         if reason == "duplicate":
             if other is None:
@@ -638,8 +671,10 @@ def propose(*, import_batch: str | None = None, invoke: Callable[[str], str] | N
         logger.info("Memory review: near-duplicates could not be looked for", exc_info=True)
         pairs = []
     similar: dict[str, str] = {}
-    for older, newer, _similarity in pairs:
+    closeness: dict[frozenset, float] = {}
+    for older, newer, similarity in pairs:
         similar[older["id"]], similar[newer["id"]] = newer["id"], older["id"]
+        closeness[frozenset((older["id"], newer["id"]))] = float(similarity)
     batches = _batches(pool, pairs)
     split_calls = len(_split_chunks([part for part in _SENTENCE.split(_norm(user.get("description")))
                                      if part.strip()])) if user else 0
@@ -661,7 +696,7 @@ def propose(*, import_batch: str | None = None, invoke: Callable[[str], str] | N
                                                     "Row-Bot couldn't check this one; kept as it is")
         else:
             for entity in batch:
-                proposals[entity["id"]] = _decided(entity, decisions.get(entity["id"]) or {}, offered)
+                proposals[entity["id"]] = _decided(entity, decisions.get(entity["id"]) or {}, offered, closeness)
         done += 1
         if progress:
             progress(done, total)

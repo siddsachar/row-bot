@@ -297,3 +297,43 @@ def test_a_maintainer_can_print_proposals_as_json_without_applying(stack, capsys
     assert by_id[seeded["register"]["id"]]["reason_code"] == "long_record"
     assert snapshot(stack.kg.DB_PATH) == before
     assert sqlite3.connect(stack.kg.DB_PATH).execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 12
+
+
+def test_only_near_duplicates_merge_and_two_people_need_a_name_in_common(stack, monkeypatch) -> None:
+    kg = stack.kg
+    jack = _save(kg, "person", "Jack", "MERGE-ME a friend from the climbing club.")
+    bhola = _save(kg, "person", "Bhola", "The user's cousin in Delhi.")
+    dad = _save(kg, "person", "Dad", "The user's father, called Bob, lives in Manchester.")
+    kg.update_entity(dad["id"], dad["description"], aliases="Bob")
+    bob = _save(kg, "person", "Bob", "MERGE-ME the user's dad, retired engineer.")
+    linux = _save(kg, "concept", "Linux support", "Row-Bot runs on Linux desktops.")
+    docker = _save(kg, "concept", "Docker", "Row-Bot ships a Docker image for hosts.")
+    stack.near(jack, bhola)
+    stack.near(bob, dad)
+    original = type(stack.model)._decide
+
+    def decide(item: dict) -> dict:
+        if item["id"] == linux["id"]:  # the model says "merge" for a pair the near-duplicate search never found
+            return {"memory": item["id"], "action": "merge", "reason": "", "into": docker["id"],
+                    "text": "Row-Bot runs on Linux and ships a Docker image."}
+        return original(item)
+
+    monkeypatch.setattr(type(stack.model), "_decide", staticmethod(decide))
+
+    _view, found = _review(stack.service)
+
+    # Measured on a real profile: the model merged two different people and related topics.
+    assert found[jack["id"]]["action"] == "keep"
+    assert found[linux["id"]]["action"] == "keep"
+    assert found[bob["id"]]["action"] == "merge" and found[bob["id"]]["into"]["memory_id"] == dad["id"]
+
+
+def test_related_memories_with_different_names_stay_apart(stack, monkeypatch) -> None:
+    kg = stack.kg
+    acme = _save(kg, "organisation", "Acme Corp", "MERGE-ME the company the user's team works for.")
+    devops = _save(kg, "organisation", "DevOps team", "The user's team at work.")
+    stack.near(acme, devops, 0.8)  # close in meaning, but a company is not its team
+
+    _view, found = _review(stack.service)
+
+    assert found[acme["id"]]["action"] == "keep"
