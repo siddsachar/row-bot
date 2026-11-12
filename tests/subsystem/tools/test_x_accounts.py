@@ -1031,3 +1031,15 @@ def test_a_late_approval_never_moves_a_post_to_tomorrow_or_sends_a_long_missed_o
     assert x_posting.slot("16:00", now) == datetime(2026, 11, 12, 16, 0), "without a card waiting, as before"
     with pytest.raises(x_posting.XPostError, match="has passed"):
         x_posting.slot("2026-11-11T03:00", now, late_ok=True)
+
+
+def test_a_read_with_no_count_uses_the_default(x, person):
+    """R7 (12 Nov): a model sends max_results null for "the default"; every such read was a TypeError."""
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    tool._x_post("post", text="Hello from Row-Bot")
+    [post] = fake.posted_by("111")
+
+    result = tool._x_read("read_tweet", tweet_id=post["id"], max_results=None)
+
+    assert post["id"] in result and "Error" not in result
