@@ -7268,10 +7268,16 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
             handle.external_outcome = "sent"
         if not isinstance(result, ToolMessage):
             return result
+        # Bounded once, when created (D1); the stamp below is computed on the capped text, and the
+        # fence is rendered around it per request, so the tags are never cut.
+        from row_bot.tool_outputs import cap_tool_message
+
+        # The conversation is found as read_tool_output finds it; the source decides its read-back fence.
+        result = cap_tool_message(result, source=_tool_call_runtime_name(request.tool_call or {}))
         media: list[dict] = []
         media_failed = False
         if caches is not None:
-            # A made picture or video becomes a chat file now, so the result names it the way every
+            # A made picture or video becomes a chat file here, so the result names it the way every
             # media tool finds it, never by its private path (R2).
             from row_bot.application.generated_media import capture_generated_media, name_saved_files
             names: list[str] = []
@@ -7282,12 +7288,6 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
                 media_failed = True
             if names and isinstance(result.content, str):
                 result = result.model_copy(update={"content": name_saved_files(result.content, names)})
-        # Bounded once, when created (D1); the stamp below is computed on the capped text, and the
-        # fence is rendered around it per request, so the tags are never cut.
-        from row_bot.tool_outputs import cap_tool_message
-
-        # The conversation is found as read_tool_output finds it; the source decides its read-back fence.
-        result = cap_tool_message(result, source=_tool_call_runtime_name(request.tool_call or {}))
         stamp_failed = False
         try:
             call = dict(request.tool_call or {})

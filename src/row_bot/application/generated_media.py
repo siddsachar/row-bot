@@ -41,8 +41,13 @@ def save_generated_output(conversation_id: str, data: bytes, *, prefix: str, ext
 
 
 def name_saved_files(text: str, names: list[str]) -> str:
-    """A tool result that names the chat files it made instead of their private paths (R2)."""
+    """A tool result that names the chat files it made instead of their private paths (R2).
+
+    Only a result that gave a private path ("Saved to: ...") changes; others already name what they show.
+    """
     kept = [line for line in text.splitlines() if not line.startswith("Saved to: ")]
+    if len(kept) == len(text.splitlines()):
+        return text
     quoted = ", ".join(f"\u201c{name}\u201d" for name in names)
     return "\n".join(kept + [f"Saved in this chat's files as {quoted}: use that name with analyze_image, "
                               "edit_video or the video tool."])
