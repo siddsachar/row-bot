@@ -28,6 +28,10 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
              "service-worker.js": b"self.addEventListener('fetch', () => {});",
              "icon-192.png": b"fixture-192",
              "icon-512.png": b"fixture-512",
+             "icon-maskable-192.png": b"fixture-maskable-192",
+             "icon-maskable-512.png": b"fixture-maskable-512",
+             "screenshot-phone.webp": b"fixture-phone",
+             "screenshot-wide.webp": b"fixture-wide",
              "assets/index-abcdef12.js": b"export const fixture = true;"}
     for name, data in files.items():
         (root / name).write_bytes(data)
