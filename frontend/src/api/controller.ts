@@ -4601,6 +4601,66 @@ export class ClientController {
     }, signal);
   cancelDataBackupUpload = (upload: string) =>
     this.query(() => this.transport.cancelDataBackupUpload?.(upload));
+  memoryImportSources = (signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryImportSources?.(signal));
+  beginMemoryImport = (signal?: AbortSignal) =>
+    this.query(() => this.transport.beginMemoryImport?.(signal));
+  memoryImport = (batch: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryImport?.(batch, signal));
+  discardMemoryImport = (batch: string) =>
+    this.query(() => this.transport.discardMemoryImport?.(batch));
+  uploadMemoryImportFile = (
+    batch: string,
+    file: File,
+    progress?: (sent: number) => void,
+    signal?: AbortSignal,
+  ) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.uploadMemoryImportFile)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.uploadMemoryImportFile(
+        batch,
+        file,
+        progress,
+        current,
+      );
+    }, signal);
+  removeMemoryImportFile = (batch: string, file: string) =>
+    this.query(() => this.transport.removeMemoryImportFile?.(batch, file));
+  addMemoryImportText = (batch: string, text: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.addMemoryImportText?.(batch, text, signal));
+  memoryImportStep = (
+    batch: string,
+    step: 'scan' | 'conversations' | 'cancel',
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.memoryImportStep?.(batch, step, signal));
+  memoryImportCandidates = (batch: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryImportCandidates?.(batch, signal));
+  previewMemoryImport = (
+    batch: string,
+    items: import('./types').MemoryImportPreviewRequest['items'],
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.previewMemoryImport?.(batch, items, signal),
+    );
+  memoryImportPreview = (batch: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryImportPreview?.(batch, signal));
+  applyMemoryImport = (
+    batch: string,
+    command: Omit<import('./types').MemoryImportApply, 'client_session_id'>,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.applyMemoryImport)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.applyMemoryImport(batch, command, signal);
+    });
+  undoMemoryImport = (batch: string, command: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.undoMemoryImport)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.undoMemoryImport(batch, command, signal);
+    });
   insights = (signal?: AbortSignal) =>
     this.query(() => this.transport.insights?.(signal));
   insightReceipt = (command: string, signal?: AbortSignal) =>

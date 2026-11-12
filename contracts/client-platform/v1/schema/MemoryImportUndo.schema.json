@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id"
+  ],
+  "title": "MemoryImportUndo",
+  "type": "object"
+}

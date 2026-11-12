@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "description": "The default chat model that finding memories in conversations and the preview use.",
+  "properties": {
+    "name": {
+      "maxLength": 200,
+      "title": "Name",
+      "type": "string"
+    },
+    "on_this_computer": {
+      "title": "On This Computer",
+      "type": "boolean"
+    },
+    "provider": {
+      "maxLength": 120,
+      "title": "Provider",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "provider",
+    "on_this_computer"
+  ],
+  "title": "MemoryImportModel",
+  "type": "object"
+}

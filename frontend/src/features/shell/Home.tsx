@@ -34,6 +34,8 @@ import { BuddyPortrait } from '../buddy/BuddySurface';
 import ResourceSetup from './ResourceSetup';
 import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
+import MemoryImportDialog from '../knowledge/MemoryImportDialog';
+import { memoryImportIO } from '../knowledge/memory-import-io';
 import { neverUsed } from './new-chat';
 import LearningHome, {
   LEARNING_VIEWS,
@@ -102,6 +104,8 @@ export default function Home({
   const [knowledgeError, setKnowledgeError] = useState('');
   const [knowledgeReload, setKnowledgeReload] = useState(0);
   const [graphLimit, setGraphLimit] = useState(GRAPH_DEFAULT_LIMIT);
+  const [importing, setImporting] = useState(false);
+  const importIO = useMemo(() => memoryImportIO(controller), [controller]);
   const knowledgeRead = useRef({ at: 0, key: '' });
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [monitorLoading, setMonitorLoading] = useState(false);
@@ -656,6 +660,7 @@ export default function Home({
                     ? () => knowledgeOwner.get()?.open(null)
                     : undefined
                 }
+                onImport={() => setImporting(true)}
                 onMerge={mergeMemory}
                 onDelete={(id, subject) => deleteMemories([{ id, subject }])}
                 onDeleteMany={deleteMemories}
@@ -754,6 +759,12 @@ export default function Home({
           onMutation={() => setKnowledgeReload((value) => value + 1)}
         />
       )}
+      <MemoryImportDialog
+        open={importing}
+        onOpenChange={setImporting}
+        io={importIO}
+        onImported={() => setKnowledgeReload((value) => value + 1)}
+      />
     </div>
   );
 }

@@ -7544,5 +7544,72 @@ def b407_reset(x_fixture_token: str = Header(default="")) -> dict:
     return {"ok": True}
 
 
+
+# Knowledge › Import memories: a few synthetic saved memories, matching by shared words instead of
+# the search model, and the person's default chat model answered by the deterministic fake the
+# Python tests use. Nothing reaches a provider.
+_memory_import_fixture: dict = {}
+
+
+@app.post("/__mi_fixture/seed")
+def mi_seed(x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    import re
+    import sqlite3
+    from row_bot.data_paths import get_row_bot_data_dir
+    if get_row_bot_data_dir(create=False).resolve() != predecessor.DATA.resolve():
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    from row_bot import knowledge_graph as kg
+    from row_bot.application import memory_import
+    from row_bot.providers import background
+    from tests.helpers.memory_import import FakeModel
+
+    kg._skip_reindex = True
+    memory_import.close_batches()
+    with sqlite3.connect(kg.DB_PATH) as conn:
+        conn.execute("DELETE FROM entities WHERE source LIKE 'import:%' OR id LIKE 'mi-entity-%'")
+        conn.executemany(
+            "INSERT INTO entities (id,entity_type,subject,description,aliases,tags,properties,source,created_at,updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [("mi-entity-1", "preference", "App recordings theme", "Recordings of the app are made in dark theme.",
+              "", "", "{}", "manual", "2026-10-01T09:00:00", "2026-10-01T09:00:00"),
+             ("mi-entity-2", "project", "Greenhouse", "Is building a greenhouse", "", "", "{}", "manual",
+              "2026-10-02T09:00:00", "2026-10-02T09:00:00"),
+             ("mi-entity-3", "skill", "Cello", "Plays the cello in a community orchestra", "", "", "{}", "manual",
+              "2026-10-03T09:00:00", "2026-10-03T09:00:00")],
+        )
+    for folder in (predecessor.DATA / memory_import.FOLDER).glob("*"):
+        import shutil
+        shutil.rmtree(folder, ignore_errors=True)
+
+    def words(text: str) -> set[str]:
+        return {word for word in re.findall(r"[a-z]{4,}", text.lower())} - {"with", "from", "that", "made"}
+
+    def semantic_search(query, top_k=5, threshold=0.5, *, for_auto_recall=False, stats=None):
+        if stats is not None:
+            stats["mean"] = 0.40
+        asked = words(query)
+        hits = []
+        for entity in kg.list_entities(limit=500):
+            shared = len(asked & words(f"{entity['subject']} {entity['description']}"))
+            if shared >= 2:
+                hits.append({**entity, "score": min(0.95, 0.70 + 0.05 * shared)})
+        return sorted(hits, key=lambda hit: -hit["score"])[:top_k]
+
+    fake = FakeModel()
+    original = _memory_import_fixture.setdefault("invoke", background.invoke_background)
+
+    def invoke_background(purpose, messages, *, answer=None, **how):
+        if purpose == "extraction" and answer is not None and answer.name in {"memory_reconcile",
+                                                                              "memory_extraction"}:
+            return fake(purpose, messages, answer=answer)
+        return original(purpose, messages, answer=answer, **how)
+
+    kg.semantic_search = semantic_search
+    background.invoke_background = invoke_background
+    memory_import._model = lambda: {"name": "qwen3:8b", "provider": "Local", "on_this_computer": True}
+    return {"ok": True}
+
+
 if __name__ == "__main__":
     main()

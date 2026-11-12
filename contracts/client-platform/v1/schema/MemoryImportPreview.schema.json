@@ -1,0 +1,132 @@
+{
+  "$defs": {
+    "MemoryImportPreviewItem": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "add",
+            "update",
+            "supersede",
+            "skip"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "candidate_id": {
+          "pattern": "^[0-9a-f]{20}$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "person",
+            "preference",
+            "fact",
+            "event",
+            "place",
+            "project",
+            "organisation",
+            "concept",
+            "skill",
+            "media"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "new_text": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "New Text"
+        },
+        "saved_subject": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Subject"
+        },
+        "saved_text": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Text"
+        },
+        "source_label": {
+          "maxLength": 200,
+          "title": "Source Label",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 200,
+          "title": "Subject",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "action",
+        "text",
+        "category",
+        "source_label",
+        "subject"
+      ],
+      "title": "MemoryImportPreviewItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/MemoryImportPreviewItem"
+      },
+      "maxItems": 5000,
+      "title": "Items",
+      "type": "array"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "batch_id",
+    "revision",
+    "items"
+  ],
+  "title": "MemoryImportPreview",
+  "type": "object"
+}

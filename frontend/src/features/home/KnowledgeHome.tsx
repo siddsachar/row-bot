@@ -15,6 +15,7 @@ import {
   ArrowRight,
   GitMerge,
   History,
+  Import,
   ListChecks,
   ListFilter,
   Maximize2,
@@ -72,12 +73,28 @@ function memoryTierLabel(tier: string) {
   return MEMORY_TIERS[tier.trim().toLowerCase()] ?? humanizeToken(tier);
 }
 
+/** Where an imported memory came from (Knowledge › Import memories). */
+const IMPORTED_FROM: Record<string, string> = {
+  chatgpt: 'ChatGPT',
+  claude: 'Claude',
+  gemini: 'Gemini',
+  copilot: 'Microsoft Copilot',
+  perplexity: 'Perplexity',
+  grok: 'Grok',
+  deepseek: 'DeepSeek',
+  mem0: 'mem0',
+  letta: 'Letta',
+  pasted: 'Pasted answer',
+};
+
 function memorySourceLabel(source: string) {
   const value = source.trim();
   if (!value) return 'Unknown';
   if (value.startsWith('document:'))
     return `Document · ${value.slice('document:'.length) || 'unnamed'}`;
   if (value.startsWith('dream_')) return 'Dream Cycle';
+  if (value.startsWith('import:'))
+    return `Imported · ${IMPORTED_FROM[value.slice('import:'.length)] ?? humanizeToken(value.slice('import:'.length))}`;
   return humanizeToken(value);
 }
 
@@ -192,6 +209,8 @@ export type KnowledgeHomeProps = {
   onEdit: (id: string) => void;
   /** Add memory: opens a blank knowledge editor. */
   onAdd?: () => void;
+  /** Import memories: what other assistants know, reviewed before it is saved. */
+  onImport?: () => void;
   /** Open the editor's relations and replacement for this memory. */
   onMerge?: (id: string) => void;
   /** Review, confirm and delete one memory; resolves once it is gone. */
@@ -504,6 +523,7 @@ export default function KnowledgeHome({
   loadDetail,
   onEdit,
   onAdd,
+  onImport,
   onMerge,
   onDelete,
   onDeleteMany,
@@ -848,10 +868,26 @@ export default function KnowledgeHome({
                 Memories and their connections appear here as Row-Bot learns
                 about you.
               </p>
-              {onAdd && (
-                <Button className="small" onClick={onAdd}>
-                  Add memory
-                </Button>
+              {(onAdd || onImport) && (
+                <span
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  {onAdd && (
+                    <Button className="small" onClick={onAdd}>
+                      Add memory
+                    </Button>
+                  )}
+                  {onImport && (
+                    <Button className="small" onClick={onImport}>
+                      Import from another assistant
+                    </Button>
+                  )}
+                </span>
               )}
             </div>
           )}
@@ -1051,6 +1087,11 @@ export default function KnowledgeHome({
             {onAdd && (
               <IconButton size="sm" label="Add memory" onClick={onAdd}>
                 <Plus size={15} aria-hidden />
+              </IconButton>
+            )}
+            {onImport && (
+              <IconButton size="sm" label="Import memories" onClick={onImport}>
+                <Import size={15} aria-hidden />
               </IconButton>
             )}
             <IconButton

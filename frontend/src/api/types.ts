@@ -410,6 +410,62 @@ export interface ClientTransport {
     upload: string,
     signal?: AbortSignal,
   ): Promise<Wire.UploadCancelled>;
+  /** Knowledge › Import memories: one batch of files or pasted answers. */
+  memoryImportSources?(signal?: AbortSignal): Promise<Wire.MemoryImportSources>;
+  beginMemoryImport?(signal?: AbortSignal): Promise<Wire.MemoryImportBatch>;
+  memoryImport?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  discardMemoryImport?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  /** Send one export file in chunks; resolves to its file id. */
+  uploadMemoryImportFile?(
+    batch: string,
+    file: File,
+    progress?: (sent: number) => void,
+    signal?: AbortSignal,
+  ): Promise<string>;
+  removeMemoryImportFile?(
+    batch: string,
+    file: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  addMemoryImportText?(
+    batch: string,
+    text: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportStep?(
+    batch: string,
+    step: 'scan' | 'conversations' | 'cancel',
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportCandidates?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportCandidatePage>;
+  previewMemoryImport?(
+    batch: string,
+    items: Wire.MemoryImportPreviewRequest['items'],
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportPreview?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportPreview>;
+  applyMemoryImport?(
+    batch: string,
+    command: Omit<Wire.MemoryImportApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportReceipt>;
+  undoMemoryImport?(
+    batch: string,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportReceipt>;
   insights?(signal?: AbortSignal): Promise<Wire.InsightsSnapshot>;
   insightReceipt?(
     command: string,

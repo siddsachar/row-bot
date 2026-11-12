@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -37,6 +38,7 @@ import ProviderStatus from './ProviderStatus';
 import ToolCatalog from './ToolCatalog';
 import CustomToolsSettings from './CustomToolsSettings';
 import MemorySettings from './MemorySettings';
+import { memoryImportIO } from '../knowledge/memory-import-io';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
@@ -145,6 +147,7 @@ export default function SettingRoute() {
   const state = useClientState();
   const learningPreview = useLearningPreview();
   const learningIo = useLearning();
+  const importIO = useMemo(() => memoryImportIO(controller), [controller]);
   const session = state.handshake?.client_session_id ?? '';
   const settingsDrafts = useRef({
     session,
@@ -808,6 +811,7 @@ export default function SettingRoute() {
             }}
             snapshot={settingsSnapshot?.knowledge}
             refreshToken={knowledgeRefresh}
+            importIO={importIO}
           />
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-snapshot-page settings-documents-flow">
