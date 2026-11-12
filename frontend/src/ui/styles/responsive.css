@@ -689,3 +689,27 @@ body:has(.phone-tabs) .notification-layer {
 body:has(.phone-tabs) .pwa-status {
   bottom: calc(56px + env(safe-area-inset-bottom) + 8px);
 }
+
+/* ------------------------------------------------ long-press a message */
+
+/* A finger resting on a message opens its actions (D10), so its text keeps
+   the system's own selection and callout until Select text asks for them.
+   The menu's trigger is only its anchor: the toolbar shows the same
+   actions as buttons. */
+@media (hover: none) and (pointer: coarse) {
+  .message:not([data-selecting]) .message-text {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+.message-press-menu.button {
+  display: block;
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+}

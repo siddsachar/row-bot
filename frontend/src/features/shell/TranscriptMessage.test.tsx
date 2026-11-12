@@ -358,3 +358,40 @@ it('has no Teach without Learning, nor on your own messages', () => {
   );
   expect(screen.queryByRole('button', { name: 'Teach Row-Bot' })).toBeNull();
 });
+
+it('opens a message’s actions on a long-press, and Select text makes its text selectable (D10)', async () => {
+  const onEdit = vi.fn();
+  const row = {
+    id: 'user:message-9',
+    message_id: 'message-9',
+    role: 'user',
+    blocks: [{ id: 'b', type: 'markdown', text: 'Book the hall for Friday' }],
+  } as unknown as TranscriptRow;
+  render(
+    <TranscriptMessage
+      row={row}
+      conversationId="conversation-a"
+      onEdit={onEdit}
+    />,
+  );
+  const article = screen.getByRole('article');
+  const press = new Event('touchstart', { bubbles: true });
+  Object.defineProperty(press, 'touches', {
+    value: [{ clientX: 40, clientY: 40 }],
+  });
+  article.dispatchEvent(press);
+
+  const menu = await screen.findByRole('menu', {}, { timeout: 2000 });
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent),
+  ).toEqual(['Copy message', 'Select text', 'Edit as a new message']);
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Select text' }));
+  await waitFor(() =>
+    expect(article).toHaveAttribute('data-selecting', 'true'),
+  );
+  await waitFor(() =>
+    expect(window.getSelection()?.toString()).toBe('Book the hall for Friday'),
+  );
+});

@@ -15,11 +15,19 @@ import {
   Volume2,
   VolumeX,
   LayoutTemplate,
+  MoreHorizontal,
 } from 'lucide-react';
 import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
-import { Button, CopyGlyph, IconButton } from '../../ui/primitives';
+import {
+  Button,
+  CopyGlyph,
+  IconButton,
+  Menu,
+  type MenuAction,
+} from '../../ui/primitives';
+import { useLongPress } from './long-press';
 import { AgentStubs } from './AgentStubs';
 import ApprovalCard from './ApprovalCard';
 import { MediaPreview } from './MediaPreview';
@@ -284,6 +292,59 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     );
   const hasActivity = Boolean(traces?.length) && Boolean(conversationId);
   const actionable = toolbar && (hasText || Boolean(copyText)) && !streaming;
+  // A finger resting on a message opens its actions as a sheet (D10); its
+  // text is selectable again once Select text is chosen.
+  const article = useRef<HTMLElement>(null);
+  const [pressed, setPressed] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  useLongPress(
+    article,
+    () => {
+      setSelecting(false);
+      setPressed(true);
+    },
+    actionable,
+  );
+  function selectText() {
+    setSelecting(true);
+    requestAnimationFrame(() => {
+      const node = article.current?.querySelector('.message-text');
+      const selection = window.getSelection();
+      if (!node || !selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+  }
+  const pressActions: MenuAction[] = [
+    { label: 'Copy message', onSelect: () => void copy() },
+    ...(hasText
+      ? [{ label: 'Select text', onSelect: () => {}, afterClose: selectText }]
+      : []),
+    ...(row.role === 'assistant'
+      ? [
+          {
+            label: speaking ? 'Stop reading' : 'Read aloud',
+            onSelect: readAloud,
+          },
+        ]
+      : []),
+    ...(row.role === 'assistant' && onRetry
+      ? [{ label: 'Retry', onSelect: onRetry }]
+      : []),
+    ...(row.role === 'assistant' && teach && row.message_id
+      ? [
+          {
+            label: 'Teach Row-Bot',
+            onSelect: () => teach({ messageId: row.message_id ?? '' }),
+          },
+        ]
+      : []),
+    ...(row.role === 'user' && onEdit
+      ? [{ label: 'Edit as a new message', onSelect: () => onEdit(text) }]
+      : []),
+  ];
   if (row.note === 'continuation')
     // A server-started step: a goal's next turn, work continuing in a design
     // or code folder the assistant just created, or a workflow run's line,
@@ -379,8 +440,10 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     );
   return (
     <article
+      ref={article}
       className={`message message-${row.role}`}
       aria-label={`${author} message`}
+      data-selecting={selecting ? 'true' : undefined}
       data-message-id={row.message_id ?? row.id}
       data-row-id={row.id}
       data-latest={latest ? 'true' : undefined}
@@ -607,6 +670,22 @@ export const TranscriptMessage = memo(function TranscriptMessage({
               </IconButton>
             )}
           </div>
+        )}
+        {actionable && (
+          // Opened by a long-press on the message; out of the tab order,
+          // since the toolbar's buttons are the same actions.
+          <Menu
+            label="Message actions"
+            iconOnly
+            variant="ghost"
+            className="message-press-menu"
+            tabIndex={-1}
+            open={pressed}
+            onOpenChange={setPressed}
+            actions={pressActions}
+          >
+            <MoreHorizontal size={15} aria-hidden />
+          </Menu>
         )}
         {copied && (
           <small role="status" className="visually-hidden">
