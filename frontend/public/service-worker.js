@@ -68,3 +68,32 @@ self.addEventListener('fetch', (event) => {
     }),
   );
 });
+
+// Notifications on this device (D8): the wake-up carries no content, so the
+// words are Row-Bot's own and the same every time; opening it shows what
+// waits. One notice at a time: a newer one replaces it.
+self.addEventListener('push', (event) => {
+  event.waitUntil(
+    self.registration.showNotification('Row-Bot', {
+      body: 'Row-Bot is waiting for you.',
+      icon: '/app-v2/icon-192.png',
+      badge: '/app-v2/icon-192.png',
+      tag: 'row-bot-waiting',
+      renotify: true,
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((windows) => {
+        const open = windows.find(
+          (client) => new URL(client.url).origin === self.location.origin,
+        );
+        return open ? open.focus() : self.clients.openWindow('/app-v2/');
+      }),
+  );
+});

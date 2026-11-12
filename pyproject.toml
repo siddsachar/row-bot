@@ -62,6 +62,7 @@ dependencies = [
   "Pillow>=11.0,<14.0",
   "qrcode>=8.0,<9.0",
   "pyjwt[crypto]>=2.8,<3.0",
+  "pywebpush>=2.5,<3.0",
   "pywebview>=5.4,<6.0",
 ]
 

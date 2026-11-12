@@ -31,6 +31,7 @@ from fastapi import APIRouter
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from row_bot.access import push as push_notifications
 from row_bot.access import setup_page as setup_words
 from row_bot.access.config import AccessConfig, DeploymentMode
 from row_bot.access.cookies import AccessCookieManager
@@ -1324,6 +1325,92 @@ def build_access_router(
             cookies.clear(response)
         return response
 
+    # Notifications on this device (D8): an empty wake-up when Row-Bot waits
+    # on the person, only for a device signed in over HTTPS.
+    push_store = push_notifications.PushStore()
+
+    def _push_unavailable(context: AccessContext) -> str:
+        if not context.device_id:
+            return "this_computer"
+        if not push_notifications.push_origin_allowed(context.origin):
+            return "needs_https"
+        return ""
+
+    async def push_status(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        reason = _push_unavailable(context)
+        if reason:
+            return _json({"ok": True, "available": False, "reason": reason})
+        return _json(
+            {
+                "ok": True,
+                "available": True,
+                "public_key": push_store.public_key(),
+                "subscribed": push_store.subscribed(context.device_id or ""),
+            }
+        )
+
+    async def push_subscribe(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        if _push_unavailable(context):
+            return _error(
+                409,
+                "push_unavailable",
+                "Notifications need this device signed in over HTTPS.",
+            )
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        keys = payload.get("keys") if isinstance(payload.get("keys"), dict) else {}
+        endpoint = str(payload.get("endpoint") or "")
+        p256dh = str(keys.get("p256dh") or "")
+        auth = str(keys.get("auth") or "")
+        if (
+            len(endpoint) > 2048
+            or not 1 <= len(p256dh) <= 128
+            or not 1 <= len(auth) <= 64
+            or not push_notifications.endpoint_allowed(endpoint)
+        ):
+            return _error(
+                400,
+                "invalid_push_subscription",
+                "This browser's notification address isn't one Row-Bot can use.",
+            )
+        push_store.subscribe(
+            push_notifications.PushSubscription(
+                device_id=context.device_id or "",
+                endpoint=endpoint,
+                p256dh=p256dh,
+                auth=auth,
+                origin=context.origin,
+            )
+        )
+        return _json({"ok": True, "subscribed": True})
+
+    async def push_unsubscribe(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if context.device_id:
+            push_store.unsubscribe(context.device_id)
+        return _json({"ok": True, "subscribed": False})
+
     router.add_api_route("/connect", connect_page, methods=["GET"])
     router.add_api_route(
         "/api/access/invitations/claim",
@@ -1371,6 +1458,13 @@ def build_access_router(
         methods=["POST"],
     )
     router.add_api_route("/api/access/devices", list_devices, methods=["GET"])
+    router.add_api_route("/api/access/devices/push", push_status, methods=["GET"])
+    router.add_api_route(
+        "/api/access/devices/push/subscribe", push_subscribe, methods=["POST"]
+    )
+    router.add_api_route(
+        "/api/access/devices/push/unsubscribe", push_unsubscribe, methods=["POST"]
+    )
     router.add_api_route(
         "/api/access/devices/{device_id}/revoke",
         revoke_device,

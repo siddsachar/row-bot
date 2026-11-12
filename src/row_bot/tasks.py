@@ -4428,6 +4428,10 @@ def create_approval_request(
         message=message,
         question=stored_question(payload_text) is not None,
     )
+    # A device that turned notifications on gets an empty wake-up (D8).
+    from row_bot.access.push import wake_soon
+
+    wake_soon()
     return resume_token, req_id
 
 
