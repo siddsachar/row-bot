@@ -3962,7 +3962,16 @@ export default function Conversation({
                   (composerSnapshot.active_skills.length ||
                     composerSnapshot.suggestions.length),
                 )) && (
-                <div className="composer-chips">
+                <div
+                  className="composer-chips"
+                  // One line on a phone: the row scrolls sideways, so it
+                  // takes focus for the keys that scroll it.
+                  {...(singleLine && {
+                    role: 'group',
+                    'aria-label': 'Message options',
+                    tabIndex: 0,
+                  })}
+                >
                   {singleLine && needsModel && setupModelButton}
                   {!!resources.length && (
                     <ResourceTargets

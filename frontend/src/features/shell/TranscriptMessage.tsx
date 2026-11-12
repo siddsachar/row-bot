@@ -675,7 +675,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           // Opened by a long-press on the message; out of the tab order,
           // since the toolbar's buttons are the same actions.
           <Menu
-            label="Message actions"
+            label="More for this message"
             iconOnly
             variant="ghost"
             className="message-press-menu"
