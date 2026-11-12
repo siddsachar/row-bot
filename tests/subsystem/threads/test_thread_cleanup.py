@@ -1071,3 +1071,36 @@ def test_old_checkpoints_are_pruned_hourly_while_other_chats_run(tmp_path, monke
 
     assert cleanup.prune_checkpoints_while_busy()["checkpoints"] == 15 - threads.CHECKPOINTS_KEPT
     assert (kept("quiet"), kept("running")) == (threads.CHECKPOINTS_KEPT, 15)
+
+
+def test_compacting_the_chat_database_keeps_each_chats_newest_states_and_the_old_file(tmp_path) -> None:
+    """R13 (12 Nov): threads.db stopped growing with I32 but stayed 20 GB; the person may compact it once, with
+    Row-Bot closed, and the old file stays beside it until they delete it."""
+    from row_bot import chat_compact
+
+    database = tmp_path / "threads.db"
+    with closing(sqlite3.connect(database)) as conn, conn:
+        conn.execute("CREATE TABLE thread_meta (thread_id TEXT PRIMARY KEY, name TEXT)")
+        conn.execute("CREATE TABLE checkpoints (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT, checkpoint BLOB)")
+        conn.execute("CREATE TABLE writes (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)")
+        conn.execute("INSERT INTO thread_meta VALUES ('film', 'Launch film'), ('note', 'A note')")
+        for thread, count in (("film", 30), ("note", 2)):
+            for index in range(count):
+                conn.execute("INSERT INTO checkpoints VALUES (?, '', ?, ?)",
+                             (thread, f"cp-{index:02d}", b"history" * 20_000))
+                conn.execute("INSERT INTO writes VALUES (?, '', ?)", (thread, f"cp-{index:02d}"))
+
+    result = chat_compact.compact(database)
+
+    kept = tmp_path / ("threads.db" + chat_compact.KEPT_SUFFIX)
+    assert result["checkpoints"] == 30 - chat_compact.KEPT
+    assert result["after"] < result["before"] and kept.stat().st_size == result["before"]
+    with closing(sqlite3.connect(database)) as conn:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        newest = conn.execute("SELECT checkpoint_id FROM checkpoints WHERE thread_id = 'film' ORDER BY 1").fetchall()
+        assert [row[0] for row in newest] == ["cp-27", "cp-28", "cp-29"], "the newest states stay"
+        assert conn.execute("SELECT COUNT(*) FROM checkpoints WHERE thread_id = 'note'").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM writes").fetchone()[0] == chat_compact.KEPT + 2
+        assert conn.execute("SELECT COUNT(*) FROM thread_meta").fetchone()[0] == 2
+    with pytest.raises(RuntimeError, match="still there from the last time"):
+        chat_compact.compact(database)
