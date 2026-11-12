@@ -143,3 +143,21 @@ def test_launcher_recovery_args_and_backup_family(tmp_path, monkeypatch):
     assert (tmp_path / "backup" / "tasks.db").exists()
     assert (tmp_path / "backup" / "tasks.db-wal").exists()
     assert (tmp_path / "backup" / "tasks.db-shm").exists()
+
+
+def test_compacting_the_chats_is_refused_while_row_bot_runs_on_the_folder(tmp_path, monkeypatch, capsys):
+    """R13: the compact rewrites threads.db, so it runs only with the app closed, and says what it did."""
+    import row_bot.launcher as launcher
+    from row_bot import chat_compact
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+
+    args = launcher._build_arg_parser().parse_args(["--compact-chats"])
+    assert args.compact_chats is True
+    assert launcher._hand_off_to_running_instance(args) == 1, "another launcher holds the folder: nothing runs"
+
+    monkeypatch.setattr(chat_compact, "compact",
+                        lambda path: {"before": 20 * 1024 ** 3, "after": 1024 ** 3, "checkpoints": 12_345})
+    assert launcher._compact_chats() == 0
+    said = capsys.readouterr().out
+    assert "20.0 GB -> 1.0 GB (12,345 old saved states removed)" in said and "threads.db.pre-compact" in said

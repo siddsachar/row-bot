@@ -161,7 +161,9 @@ _initialised_dbs: set[str] = set()
 def _init_thread_db(*, raise_on_error: bool = False):
     """Create and migrate the thread metadata table."""
     try:
-        with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        # Waits for a writer as every other open here does: with the default 5 s, a start beside a long write
+        # failed 47 times ("database is locked", R13).
+        with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
             _use_wal(conn)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS thread_meta "

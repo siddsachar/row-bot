@@ -280,7 +280,8 @@ def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
     quit and this one holds the lock. Never starts a second server.
     """
     wants_server = bool(args.server or args.no_open)
-    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None)
+    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None
+                        or getattr(args, "compact_chats", False))
     if changes_data:
         logger.error("%s is running on this data folder; quit it before resetting or restoring data.",
                      APP_DISPLAY_NAME)
@@ -3911,6 +3912,25 @@ def _reset_all_local_dbs() -> int:
     return 0
 
 
+def _compact_chats() -> int:
+    """``--compact-chats``: threads.db made small again, the old file kept beside it (R13)."""
+    import sqlite3
+
+    from row_bot import chat_compact
+
+    try:
+        result = chat_compact.compact(get_threads_db_path())
+    except (RuntimeError, OSError, sqlite3.Error) as exc:
+        print(f"The chat database wasn't compacted: {exc}")
+        return 1
+    gb = 1024 ** 3
+    print(f"Chat database: {result['before'] / gb:.1f} GB -> {result['after'] / gb:.1f} GB "
+          f"({result['checkpoints']:,} old saved states removed).")
+    print(f"The old file is kept as threads.db{chat_compact.KEPT_SUFFIX} beside it: delete it once Row-Bot "
+          "opens your chats as before.")
+    return 0
+
+
 def _restore_data(selector: str | None = None) -> int:
     data_dir = _row_bot_data_dir()
     recovery_root = data_dir / "recovery"
@@ -4046,6 +4066,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--reset-db",
         action="store_true",
         help="Back up known local SQLite DBs before launch",
+    )
+    parser.add_argument(
+        "--compact-chats",
+        action="store_true",
+        help="Make the chat database small again (with the app closed); the old file is kept beside it",
     )
     parser.add_argument(
         "--restore-data",
@@ -4212,6 +4237,7 @@ def main(argv: list[str] | None = None) -> None:
         args.reset_tasks_db = False
         args.reset_db = False
         args.restore_data = None
+        args.compact_chats = False
     if not _claim_instance():
         handed_off = _hand_off_to_running_instance(args)
         if handed_off is not None:
@@ -4242,6 +4268,7 @@ def main(argv: list[str] | None = None) -> None:
         and not args.no_open
         and not args.reset_tasks_db
         and not args.reset_db
+        and not args.compact_chats
         and args.restore_data is None
         and _has_display_server()
     )
@@ -4260,6 +4287,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_reset_all_local_dbs())
     if args.restore_data is not None:
         raise SystemExit(_restore_data(args.restore_data))
+    if args.compact_chats:
+        raise SystemExit(_compact_chats())
 
     # Until the app is up, a second start leaves opening the window to this one.
     _write_launcher_state(
