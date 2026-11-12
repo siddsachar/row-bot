@@ -101,6 +101,24 @@ def test_a_torn_off_buddy_falls_to_the_floor_and_rests_there():
     assert control.state()["landed"] == 1 and host.rests[-1] == (400, FLOOR_Y)
 
 
+def test_a_popped_out_buddy_goes_to_sit_on_your_window_until_you_put_it_on_the_floor():
+    control, native, host, clock = controller()
+    run(control, clock, 1.5)
+    assert control.position() == (400, FLOOR_Y)
+    yours = pet.OtherWindow(4, pet.Rect(300, 500, 900, 400))
+    native.front, native.others = yours, [yours]
+    run(control, clock, 5)
+    assert control.state()["perched"] and control.position()[1] == 500 - pet.PET_HEIGHT + pet.FOOT
+    control.drag("start")
+    control.moved(400, 700)  # down to the floor, by hand
+    control.drag("end")
+    run(control, clock, 1.5)
+    other = pet.OtherWindow(5, pet.Rect(900, 300, 900, 400))
+    native.front, native.others = other, [yours, other]
+    run(control, clock, 30)
+    assert control.position() == (400, FLOOR_Y) and not control.state()["perched"]
+
+
 def test_a_drop_on_a_title_bar_perches_and_it_rides_along():
     control, native, host, clock = controller(drop=False)
     native.others = [pet.OtherWindow(9, pet.Rect(300, 500, 900, 400))]

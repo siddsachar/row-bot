@@ -20,6 +20,14 @@ def test_floor_is_the_work_area_bottom_of_the_screen_under_buddy():
     assert pet.floor_position(-50, SCREENS) == (0, 1040 - pet.PET_HEIGHT + pet.FOOT)
 
 
+def test_the_window_in_use_is_the_frontmost_and_none_while_row_bot_itself_is_in_front():
+    yours, behind = window(3, 100, 300), window(4, 500, 200)
+    assert pet.window_in_use([(77, yours), (88, behind)], own_pid=10) == yours
+    # Row-Bot's own window in front: not another app's window behind it.
+    assert pet.window_in_use([(10, window(1, 0, 0)), (77, yours)], own_pid=10) is None
+    assert pet.window_in_use([], own_pid=10) is None
+
+
 def test_buddy_perches_on_a_wide_visible_top_edge_only():
     spot = pet.perch_position(pet.Rect(300, 400, 900, 500), 250, SCREENS)
     assert spot == (308, 400 - pet.PET_HEIGHT + pet.FOOT)

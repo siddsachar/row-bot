@@ -15,7 +15,7 @@ import os
 import sys
 from typing import Any, Protocol
 
-from .pet import OtherWindow, Rect
+from .pet import OtherWindow, Rect, window_in_use
 
 logger = logging.getLogger(__name__)
 
@@ -264,15 +264,16 @@ class _Mac:
         # 13: kCFNumberDoubleType, matching the buffer; CoreFoundation converts the integer keys exactly.
         return out.value if self.cf.CFNumberGetValue(value, 13, self.ctypes.byref(out)) else None
 
-    def windows(self) -> list[OtherWindow]:
-        found: list[OtherWindow] = []
+    def _listed(self, limit: int) -> list[tuple[int, OtherWindow]]:
+        """Ordinary windows (layer 0) front to back, with their owner's pid, Row-Bot's own included."""
+        found: list[tuple[int, OtherWindow]] = []
         array = self.cg.CGWindowListCopyWindowInfo(1 | 16, 0)  # on screen only, no desktop elements
         if not array:
             return found
         try:
             for index in range(min(self.cf.CFArrayGetCount(array), 200)):  # front to back
                 info = self.cf.CFArrayGetValueAtIndex(array, index)
-                if self._number(info, "kCGWindowLayer") != 0 or self._number(info, "kCGWindowOwnerPID") == self.pid:
+                if self._number(info, "kCGWindowLayer") != 0:
                     continue
                 if (self._number(info, "kCGWindowAlpha") or 0) <= 0:
                     continue
@@ -282,16 +283,20 @@ class _Mac:
                     continue
                 if rect.w < 120 or rect.h < 80:
                     continue
-                found.append(OtherWindow(int(self._number(info, "kCGWindowNumber") or 0), Rect(rect.x, rect.y, rect.w, rect.h)))
-                if len(found) >= 32:
+                found.append((int(self._number(info, "kCGWindowOwnerPID") or 0),
+                              OtherWindow(int(self._number(info, "kCGWindowNumber") or 0),
+                                          Rect(rect.x, rect.y, rect.w, rect.h))))
+                if len(found) >= limit:
                     break
         finally:
             self.cf.CFRelease(array)
         return found
 
+    def windows(self) -> list[OtherWindow]:
+        return [window for pid, window in self._listed(48) if pid != self.pid][:32]
+
     def foreground(self) -> OtherWindow | None:
-        windows = self.windows()
-        return windows[0] if windows else None
+        return window_in_use(self._listed(1), self.pid)
 
 
 def pet_native(platform: str | None = None) -> PetNative | None:

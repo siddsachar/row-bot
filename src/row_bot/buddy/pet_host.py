@@ -85,7 +85,7 @@ class PetController:
             self._dragging = False
             self._place()
             if drop:
-                self._drop()
+                self._drop(by_hand=False)
             if self._threaded and not self._running:
                 self._running = True
                 self._thread = threading.Thread(target=self._loop, daemon=True, name="buddy-pet")
@@ -147,7 +147,7 @@ class PetController:
                                             window.frame.width / factor, window.frame.height / factor))
                 for window in self._native.windows()]
 
-    def _drop(self) -> None:
+    def _drop(self, *, by_hand: bool = True) -> None:
         """Land on whatever is under Buddy's feet: a window's top edge, else the floor."""
         x, y = self._pet
         feet = (x + PET_WIDTH / 2, y + PET_HEIGHT - FOOT)
@@ -157,7 +157,7 @@ class PetController:
         if spot is None:
             target = None
             spot = floor_position(x, self._screens())
-        self._follower.dropped(target, spot[0])
+        self._follower.dropped(target, spot[0], by_hand=by_hand)
         if abs(spot[0] - x) + abs(spot[1] - y) < 3:
             return  # already resting there: no landing to replay
         self._move = fall(self._pet, spot, self._clock()) if spot[1] >= y else hop(self._pet, spot, self._clock())

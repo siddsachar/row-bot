@@ -78,6 +78,14 @@ def perch_position(window: Rect, pet_x: float, screens: Iterable[ScreenArea]) ->
     return round(x), round(top)
 
 
+def window_in_use(listed: Iterable[tuple[int, OtherWindow]], own_pid: int) -> OtherWindow | None:
+    """The window you're using, from (owner pid, window) front to back: the frontmost, unless it's Row-Bot's own."""
+
+    for pid, window in listed:
+        return None if pid == own_pid else window
+    return None
+
+
 def window_under(x: float, y: float, windows: Iterable[OtherWindow]) -> OtherWindow | None:
     """The topmost window whose top edge band (±24 DIP) is under a drop point."""
 
@@ -136,9 +144,10 @@ class Follower:
     last_hop: float = -math.inf
     offset_x: float = 0.0  # where along its window Buddy sits
 
-    def dropped(self, on: OtherWindow | None, pet_x: float) -> None:
+    def dropped(self, on: OtherWindow | None, pet_x: float, *, by_hand: bool = True) -> None:
         self.perched_on = on.id if on else None
-        self.following = on is not None
+        # Put on the floor by hand, Buddy stays there; landing there on its own (popped out, the app starting) doesn't.
+        self.following = on is not None or not by_hand
         self.offset_x = pet_x - on.frame.x if on else 0.0
         self.candidate = None
 
