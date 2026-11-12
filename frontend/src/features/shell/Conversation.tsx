@@ -682,8 +682,9 @@ export default function Conversation({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const composerFieldRef = useRef<HTMLDivElement>(null);
   const [compactToolbar, setCompactToolbar] = useState(false);
-  // A narrow composer (phones, a squeezed chat) is one line: + field mic
-  // send, with the model, approvals and context usage under +.
+  // A narrow composer (phones, a squeezed chat) is two rows: the text full
+  // width, then + · chips · voice or send, with the model, approvals and
+  // context usage under +.
   const [singleLine, setSingleLine] = useState(false);
   useLayoutEffect(() => {
     const composer = toolbarRef.current?.closest('.composer');
@@ -3835,6 +3836,7 @@ export default function Conversation({
           <form
             className="composer"
             data-single-line={singleLine ? 'true' : undefined}
+            data-draft={draft.text.trim() ? 'text' : 'empty'}
             aria-label="Message composer"
             aria-busy={busy || talkBusy}
             onSubmit={(e) => {
@@ -4172,6 +4174,7 @@ export default function Conversation({
                         key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
                         compact
                         chevron
+                        startOnOpen={singleLine}
                         controller={controller}
                         scope={voiceScope}
                         available={

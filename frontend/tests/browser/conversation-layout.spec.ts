@@ -7,11 +7,12 @@ async function expectSingleToolbarRow(page: import('@playwright/test').Page) {
   await expect(toolbar).toBeAttached();
   const layout = await toolbar.evaluate((element) => {
     const composer = element.closest('.composer')!;
-    // A one-line composer places +, the field and the actions in the field's
-    // grid (the toolbar is display: contents); compare their centres.
+    // A narrow composer is two rows in the field's grid (the toolbar is
+    // display: contents): the text full width, then + and the actions on
+    // one line beneath it; compare that line's centres.
     const single = composer.hasAttribute('data-single-line');
     const row = single
-      ? ['.composer-control-cluster', '.message-composer', '.composer-actions']
+      ? ['.composer-control-cluster', '.composer-actions']
           .map((selector) => composer.querySelector(selector)!)
           .filter(Boolean)
       : Array.from(element.children).filter(
@@ -21,7 +22,15 @@ async function expectSingleToolbarRow(page: import('@playwright/test').Page) {
       ? composer.querySelector('.composer-field')!
       : element;
     const bounds = row.map((child) => child.getBoundingClientRect());
+    const text = composer.querySelector('.message-composer')!;
+    const textBox = text.getBoundingClientRect();
     return {
+      textAbove:
+        !single ||
+        textBox.bottom <= Math.min(...bounds.map((box) => box.top)) + 1,
+      textShare: single
+        ? textBox.width / container.getBoundingClientRect().width
+        : 1,
       tops: bounds.map((box) => (single ? box.top + box.height / 2 : box.top)),
       right: Math.max(...bounds.map((box) => box.right)),
       toolbarRight: container.getBoundingClientRect().right,
@@ -31,6 +40,8 @@ async function expectSingleToolbarRow(page: import('@playwright/test').Page) {
     };
   });
   expect(Math.max(...layout.tops) - Math.min(...layout.tops)).toBeLessThan(8);
+  expect(layout.textAbove).toBe(true);
+  expect(layout.textShare).toBeGreaterThan(0.85);
   expect(layout.right).toBeLessThanOrEqual(layout.toolbarRight + 1);
   expect(layout.overflow).toBe('visible');
   expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
@@ -232,7 +243,7 @@ test('context card and composer stay compact through panels, narrowing, keyboard
     ).toBeVisible();
     await extras.click();
   }
-  // 700px at 200% zoom is a 350px composer: one line, with approvals, the
+  // 700px at 200% zoom is a 350px composer: two rows, with approvals, the
   // model and context usage in + (the mode switches after the zoom lands).
   await expect(page.locator('.composer').first()).toHaveAttribute(
     'data-single-line',
