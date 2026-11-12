@@ -806,7 +806,6 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "review_sheet": edit.sheet if edit is not None and _status(version, edit) == "made" else "",
         "exports": [{"shape": shape, "edit": video_edits.view(found)} for shape in EXPORTS
                     if (found := video_edits.get(version.exports.get(shape, ""))) is not None],
-        "export_problems": dict(version.export_problems),
     }
 
 
@@ -858,6 +857,7 @@ def summary(project: Project, number: int | None = None) -> str:
         state = {"saved": f"made: {made['output_name']}", "failed": f"not made: {made.get('detail') or 'it failed'}",
                  "stopped": "stopped"}.get(made["status"], "being made")
         lines.append(f"Export {item['shape']}: {state}.")
-    for shape, words in data["export_problems"].items():
+    shown = project.version(data["number"])
+    for shape, words in (shown.export_problems if shown is not None else {}).items():
         lines.append(f"Export {shape}: not made: {words}")
     return "\n".join(lines)
