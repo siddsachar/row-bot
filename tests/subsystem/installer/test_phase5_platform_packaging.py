@@ -17,7 +17,16 @@ from scripts.client_build import select_client_payload
 pytestmark = [pytest.mark.subsystem, pytest.mark.installer]
 
 PWA_SHELL = frozenset(
-    {"app.webmanifest", "service-worker.js", "icon-192.png", "icon-512.png"}
+    {
+        "app.webmanifest",
+        "service-worker.js",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-maskable-192.png",
+        "icon-maskable-512.png",
+        "screenshot-phone.webp",
+        "screenshot-wide.webp",
+    }
 )
 
 
@@ -31,6 +40,10 @@ def _payload(root: Path) -> Path:
         "service-worker.js": b"self.addEventListener('fetch', () => {});",
         "icon-192.png": b"fixture 192 icon",
         "icon-512.png": b"fixture 512 icon",
+        "icon-maskable-192.png": b"fixture maskable 192 icon",
+        "icon-maskable-512.png": b"fixture maskable 512 icon",
+        "screenshot-phone.webp": b"fixture phone screenshot",
+        "screenshot-wide.webp": b"fixture wide screenshot",
     }
     for name, content in files.items():
         target = root / name

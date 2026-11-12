@@ -448,3 +448,34 @@ it('says whether the sidebar is open, and leaves out the conversation skip link 
   });
   expect(screen.queryByText('Skip to conversation')).toBeNull();
 });
+
+it("opens one new chat from the installed app's New chat shortcut", async () => {
+  vi.stubGlobal('innerWidth', 390);
+  vi.stubGlobal('innerHeight', 844);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  const commands = transport.counters.commands;
+  render(
+    <MemoryRouter initialEntries={['/?new=chat']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  await waitFor(
+    () =>
+      expect(screen.getByLabelText('Current route').textContent).toMatch(
+        /^\/conversations\/fixture-/,
+      ),
+    { timeout: 3000 },
+  );
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
+  expect(transport.counters.commands).toBe(commands + 1);
+});

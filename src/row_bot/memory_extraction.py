@@ -23,7 +23,7 @@ import threading
 import time
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.prompts import EXTRACTION_PROMPT
@@ -307,7 +307,7 @@ def _extract_from_conversation(conversation_text: str) -> list[dict]:
         from langchain_core.messages import HumanMessage
         from row_bot.providers.background import invoke_background
 
-        prompt = EXTRACTION_PROMPT.format(conversation=conversation_text)
+        prompt = EXTRACTION_PROMPT.format(conversation=conversation_text, today=date.today().strftime("%d %B %Y"))
         raw = invoke_background("extraction", [HumanMessage(content=prompt)], answer=_extraction_answer())
     except Exception as exc:
         logger.warning("Memory extraction LLM call failed: %s", exc)
@@ -663,11 +663,9 @@ def _dedup_and_save(
             if not src_subj or not tgt_subj or not rel_type:
                 continue
 
-            # Pre-normalize relation type before any checks
-            rel_type = kg.normalize_relation_type(rel_type)
-
-            # Reject vague relation types that add noise to the graph
-            if rel_type in _EXTRACTION_BANNED_TYPES:
+            # Checked on the canonical label; saved with the one given, so add_relation can turn a
+            # label that reads the other way ("written_by") around.
+            if kg.normalize_relation_type(rel_type) in _EXTRACTION_BANNED_TYPES:
                 logger.info(
                     "Extraction skipped vague type '%s': %s --[%s]--> %s",
                     rel_type, rel.get("source_subject", "?"),
@@ -771,9 +769,10 @@ _WATERMARK_VERSION = 1
 _ANCHORS = 3
 _OVERLAP_MESSAGES = 2  # messages already read, sent before the new ones as context
 _CONVERSATION_BUDGET = 6000  # characters of conversation per extraction call
+# Calls in one run, over all conversations: a long backlog is read over several runs, oldest first.
+_CALLS_PER_RUN = 24
 _EARLIER_LABEL = "[Earlier in this conversation, already read: context only]"
 _NEW_LABEL = "[New since then]"
-_OMITTED_LABEL = "[... earlier new messages not shown]"
 
 # Conversations where no person states facts about themselves: workflow runs,
 # delegated Agents' threads and Row-Bot's own temporary threads.
@@ -904,7 +903,8 @@ def read_to_end(thread_id: str) -> None:
     _save_watermark(thread_id, _watermark_for(_get_thread_messages(thread_id), revision))
 
 
-def _unread(thread_id: str, updated: str, watermark: dict | None, cutoff: str) -> _Unread | None:
+def _unread(thread_id: str, updated: str, watermark: dict | None, cutoff: str,
+            created: str = "") -> _Unread | None:
     """What a conversation holds past its watermark, or None when there is nothing to read.
 
     A conversation whose checkpoint is the one its watermark read is not even
@@ -920,7 +920,8 @@ def _unread(thread_id: str, updated: str, watermark: dict | None, cutoff: str) -
             # Read before watermarks existed, and unchanged since: start from its end.
             _save_watermark(thread_id, _watermark_for(messages, revision))
             return None
-        start = 0
+        # Started since: read in full. Started before and changed since: its newest window, once (the old rule).
+        start = 0 if created and created > cutoff else _newest_window_start(messages)
     else:
         start = _resume_index(messages, watermark)
     if not any(message.get("role") == "user" for message in messages[start:]):
@@ -930,27 +931,51 @@ def _unread(thread_id: str, updated: str, watermark: dict | None, cutoff: str) -
     return _Unread(messages, start, revision)
 
 
-def _conversation_window(messages: list[dict], start: int) -> str:
-    """The text one call reads: the unread messages, the newest kept when they
-    do not all fit, after up to two messages already read, as context."""
-    new_lines = [line for line in (_format_conversation([message]) for message in messages[start:]) if line]
-    kept: list[str] = []
+def _newest_window_start(messages: list[dict]) -> int:
+    """Where the newest ``_CONVERSATION_BUDGET`` characters of *messages* begin."""
     used = 0
-    for line in reversed(new_lines):
-        if kept and used + len(line) + 1 > _CONVERSATION_BUDGET:
-            break
-        kept.append(line)
-        used += len(line) + 1
-    kept.reverse()
-    parts: list[str] = []
-    if len(kept) < len(new_lines):
-        parts.append(_OMITTED_LABEL)
-    elif start:
-        context = _format_conversation(messages[max(0, start - _OVERLAP_MESSAGES):start])
-        labels = len(_EARLIER_LABEL) + len(_NEW_LABEL) + 3
-        if context and used + len(context) + labels <= _CONVERSATION_BUDGET:
-            parts += [_EARLIER_LABEL, context, _NEW_LABEL]
-    return "\n".join(parts + kept)
+    for index in range(len(messages) - 1, -1, -1):
+        used += len(_format_conversation([messages[index]])) + 1
+        if used > _CONVERSATION_BUDGET:
+            return min(index + 1, len(messages) - 1)
+    return 0
+
+
+def _conversation_windows(messages: list[dict], start: int) -> list[tuple[str, int]]:
+    """The unread messages as the texts extraction calls read, oldest first, each with the index just after
+    its last message.
+
+    Each window holds up to ``_CONVERSATION_BUDGET`` characters, after up to two messages already read, as
+    context. Every unread message is in one window: before, only the newest 6,000 characters of what was
+    unread were read and the rest was passed over for good (memory audit, Nov 2026). A message longer than
+    the budget gets a window of its own.
+    """
+    windows: list[tuple[str, int]] = []
+    index = start
+    while index < len(messages):
+        kept: list[str] = []
+        used = 0
+        end = index
+        while end < len(messages):
+            line = _format_conversation([messages[end]])
+            if line and kept and used + len(line) + 1 > _CONVERSATION_BUDGET:
+                break
+            if line:
+                kept.append(line)
+                used += len(line) + 1
+            end += 1
+        parts: list[str] = []
+        if index:
+            context = _format_conversation(messages[max(0, index - _OVERLAP_MESSAGES):index])
+            labels = len(_EARLIER_LABEL) + len(_NEW_LABEL) + 3
+            if context and used + len(context) + labels <= _CONVERSATION_BUDGET:
+                parts += [_EARLIER_LABEL, context, _NEW_LABEL]
+        if any(message.get("role") == "user" for message in messages[index:end]):
+            windows.append(("\n".join(parts + kept), end))
+        else:
+            windows.append(("", end))  # Nothing from the person: no call, the watermark moves past it.
+        index = end
+    return windows
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -1049,7 +1074,7 @@ def _read_conversations(
         thread_type, raw_watermark = watermarks.get(str(tid), ("", ""))
         if _skipped_thread(str(tid), str(name or ""), thread_type, workflow_ids, incognito_ids):
             continue
-        unread = _unread(str(tid), str(updated or ""), _parse_watermark(raw_watermark), cutoff)
+        unread = _unread(str(tid), str(updated or ""), _parse_watermark(raw_watermark), cutoff, str(_created or ""))
         if unread is not None:
             due.append((tid, name, unread))
 
@@ -1065,6 +1090,7 @@ def _read_conversations(
 
     total_saved = 0
     scanned = 0
+    calls = 0
     islands_repaired = 0
     journal_entry = {
         "timestamp": datetime.now().isoformat(),
@@ -1084,43 +1110,57 @@ def _read_conversations(
 
         if incognito_state(tid).incognito:
             continue  # Turned incognito since the run began: it is not read.
-        conv_text = _conversation_window(unread.messages, unread.start)
+        if calls >= _CALLS_PER_RUN:
+            break  # The rest is read next run, from its watermark.
 
         if on_status:
             on_status(f"Extracting memories from: {name}")
 
-        extracted = _extract_from_conversation(conv_text)
-        if incognito_state(tid).incognito:
-            # Turned incognito while it was being read: nothing from it is saved, and it stays unread.
-            continue
-        if isinstance(extracted, _NoReply):
-            # No reply from the model: this conversation and the rest stay unread.
-            journal_entry["errors"].append("The model did not reply; the rest waits for the next run")
-            break
+        thread_extracted = thread_saved = 0
+        finished = True
+        stopped = False
+        for text, end in _conversation_windows(unread.messages, unread.start):
+            if text:
+                if calls >= _CALLS_PER_RUN or (should_continue is not None and not should_continue()):
+                    finished = False
+                    break
+                calls += 1
+                extracted = _extract_from_conversation(text)
+                if incognito_state(tid).incognito:
+                    # Turned incognito while it was being read: nothing more from it is saved or read.
+                    finished = stopped = False
+                    break
+                if isinstance(extracted, _NoReply):
+                    # No reply from the model: the rest of this conversation, and the others, stay unread.
+                    journal_entry["errors"].append("The model did not reply; the rest waits for the next run")
+                    finished, stopped = False, True
+                    break
+                if extracted:
+                    count = _dedup_and_save(
+                        extracted,
+                        source="extraction",
+                        source_context={
+                            "thread_id": tid,
+                            "thread_name": name,
+                        },
+                    )
+                    total_saved += count
+                    thread_extracted += len(extracted)
+                    thread_saved += count
+            # Read to here: a later run starts after it. Until the whole conversation is read, the
+            # watermark names no checkpoint, so the next run loads the conversation again.
+            at_end = end >= len(unread.messages)
+            _save_watermark(tid, _watermark_for(unread.messages[:end], unread.revision if at_end else ""))
         scanned += 1
-        if extracted:
-            count = _dedup_and_save(
-                extracted,
-                source="extraction",
-                source_context={
-                    "thread_id": tid,
-                    "thread_name": name,
-                },
-            )
-            total_saved += count
-            logger.info("Thread '%s': extracted %d, saved %d", name, len(extracted), count)
-            journal_entry["thread_details"].append({
-                "thread": name or tid,
-                "extracted": len(extracted),
-                "saved": count,
-            })
-        else:
-            journal_entry["thread_details"].append({
-                "thread": name or tid,
-                "extracted": 0,
-                "saved": 0,
-            })
-        _save_watermark(tid, _watermark_for(unread.messages, unread.revision))
+        logger.info("Thread '%s': extracted %d, saved %d", name, thread_extracted, thread_saved)
+        journal_entry["thread_details"].append({
+            "thread": name or tid,
+            "extracted": thread_extracted,
+            "saved": thread_saved,
+            **({} if finished else {"read_to_end": False}),
+        })
+        if stopped:
+            break
 
     # One bounded canonical projection drain after all conversation writes.
     projection_pending = False

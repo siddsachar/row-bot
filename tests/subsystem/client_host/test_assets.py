@@ -25,6 +25,10 @@ def build(tmp_path: Path) -> Path:
              "service-worker.js": b"self.addEventListener('fetch', () => {});",
              "icon-192.png": b"fixture-192",
              "icon-512.png": b"fixture-512",
+             "icon-maskable-192.png": b"fixture-maskable-192",
+             "icon-maskable-512.png": b"fixture-maskable-512",
+             "screenshot-phone.webp": b"fixture-phone",
+             "screenshot-wide.webp": b"fixture-wide",
              "assets/index-abcdef12.js": b"export const fixture = true;",
              "assets/index-abcdef12.css": b"body { color: black }"}
     for name, data in files.items():
@@ -109,6 +113,8 @@ def test_a_phone_can_install_the_app_before_signing_in_and_nothing_else_opens(bu
     assert manifest.headers["content-type"].startswith("application/manifest+json")
     assert host.get("/app-v2/icon-192.png").content == b"fixture-192"
     assert host.get("/app-v2/icon-512.png").content == b"fixture-512"
+    assert host.get("/app-v2/icon-maskable-512.png").content == b"fixture-maskable-512"
+    assert host.get("/app-v2/screenshot-phone.webp").content == b"fixture-phone"
     # The service worker, the app and its code still need a sign-in.
     for path in ("/app-v2/service-worker.js", "/app-v2/assets/index-abcdef12.js", "/app-v2/index.html"):
         assert host.get(path).status_code == 401

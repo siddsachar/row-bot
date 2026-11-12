@@ -398,6 +398,20 @@ export default function Workspace() {
     conversationId ?? 'home',
   );
   const creation = useNewChat();
+  // The installed app's New chat shortcut opens /app-v2/?new=chat: once per visit.
+  const shortcutVisit = useRef('');
+  const newChatShortcut =
+    homeOpen && new URLSearchParams(location.search).get('new') === 'chat';
+  useEffect(() => {
+    if (
+      !newChatShortcut ||
+      state.status !== 'ready' ||
+      shortcutVisit.current === location.key
+    )
+      return;
+    shortcutVisit.current = location.key;
+    void creation.newChat();
+  }, [newChatShortcut, state.status, location.key, creation]);
   // The desktop terminal (B249): a dock under the conversation, a
   // full-screen sheet on phones. Closing it keeps the session.
   const terminal = useTerminalDock();
