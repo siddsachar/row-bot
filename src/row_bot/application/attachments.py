@@ -428,31 +428,64 @@ def inspect_attachment(reference: str) -> dict:
 
 THUMBNAIL_PIXELS = 160
 THUMBNAIL_SOURCE_PIXELS = 64_000_000
+VIDEO_THUMBNAIL_TYPES = frozenset({"video/mp4", "video/webm", "video/quicktime"})
+# A generated video often opens on black, so its poster is the frame half a second in.
+POSTER_SECONDS = 0.5
+
+
+def _video_poster(data: bytes):
+    """The frame at POSTER_SECONDS (or the last before it), decoded in-process by PyAV."""
+    import av
+
+    try:
+        with av.open(io.BytesIO(data), metadata_errors="ignore") as container:
+            if not container.streams.video:
+                raise AttachmentError("not_found")
+            stream = container.streams.video[0]
+            if stream.codec_context.width * stream.codec_context.height > THUMBNAIL_SOURCE_PIXELS:
+                raise AttachmentError("payload_too_large")
+            poster = None
+            for frame in container.decode(stream):
+                poster = frame
+                if frame.time is None or frame.time >= POSTER_SECONDS:
+                    break
+            if poster is None:
+                raise AttachmentError("not_found")
+            return poster.to_image()
+    except av.error.FFmpegError:
+        raise AttachmentError("not_found") from None
 
 
 def read_attachment_thumbnail(reference: str) -> bytes:
-    """A PNG of at most 160 px of an image attachment, for the composer's tiles.
+    """A PNG of at most 160 px of an image attachment, or of a video's poster frame.
 
     The picture is decoded and drawn again upright, so no original bytes or
-    metadata are served. Anything but a PNG or JPEG attachment, or one that
-    does not decode, is not_found; one over 64 megapixels is never decoded.
+    metadata are served. Anything but a PNG, JPEG or common video attachment,
+    or one that does not decode, is not_found; one over 64 megapixels is never
+    decoded. A video's frame needs PyAV (the media extra); without it, not_found.
     """
     from PIL import Image, ImageOps
     metadata, data = read_attachment(reference)
-    if metadata["mime_type"] not in {"image/png", "image/jpeg"}:
+    video = metadata["mime_type"] in VIDEO_THUMBNAIL_TYPES
+    if not video and metadata["mime_type"] not in {"image/png", "image/jpeg"}:
         raise AttachmentError("not_found")
     try:
-        with Image.open(io.BytesIO(data)) as source:
-            if source.width * source.height > THUMBNAIL_SOURCE_PIXELS:
-                raise AttachmentError("payload_too_large")
-            # A JPEG decodes at a fraction of its size (no-op for a PNG).
-            source.draft(None, (THUMBNAIL_PIXELS * 2, THUMBNAIL_PIXELS * 2))
-            image = ImageOps.exif_transpose(source)
-            image.thumbnail((THUMBNAIL_PIXELS, THUMBNAIL_PIXELS))
-            output = io.BytesIO()
-            image.convert("RGBA").save(output, format="PNG")
+        if video:
+            image = _video_poster(data)
+        else:
+            with Image.open(io.BytesIO(data)) as source:
+                if source.width * source.height > THUMBNAIL_SOURCE_PIXELS:
+                    raise AttachmentError("payload_too_large")
+                # A JPEG decodes at a fraction of its size (no-op for a PNG).
+                source.draft(None, (THUMBNAIL_PIXELS * 2, THUMBNAIL_PIXELS * 2))
+                image = ImageOps.exif_transpose(source)
+        image.thumbnail((THUMBNAIL_PIXELS, THUMBNAIL_PIXELS))
+        output = io.BytesIO()
+        image.convert("RGBA").save(output, format="PNG")
     except AttachmentError:
         raise
+    except ImportError:  # No PyAV: the tile keeps its play mark.
+        raise AttachmentError("not_found") from None
     except (OSError, ValueError, Image.DecompressionBombError):
         raise AttachmentError("not_found") from None
     return output.getvalue()
