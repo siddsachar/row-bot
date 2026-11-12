@@ -2639,10 +2639,14 @@ def delete_entity(entity_id: str) -> bool:
         _delete_fts_entity(entity_id)
         if not _skip_reindex:
             _remove_from_index(entity_id)
-        # Wiki vault cleanup
+        # Wiki vault cleanup. The memory is deleted already, so a vault failure is logged, not raised: its
+        # work row stays and the vault catches up.
         if entity_data:
             _learning_memories_deleted([entity_data])
-            _wiki_delete_entity(entity_data)
+            try:
+                _wiki_delete_entity(entity_data)
+            except Exception as exc:
+                logger.warning("The wiki article of a deleted memory was not retired yet (%s)", type(exc).__name__)
     return deleted
 
 

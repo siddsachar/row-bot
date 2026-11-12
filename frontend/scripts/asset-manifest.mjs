@@ -11,6 +11,10 @@ const publicShell = [
   'service-worker.js',
   'icon-192.png',
   'icon-512.png',
+  'icon-maskable-192.png',
+  'icon-maskable-512.png',
+  'screenshot-phone.webp',
+  'screenshot-wide.webp',
 ];
 // Shell documents: the workspace and the desktop Buddy (its own entry).
 const documents = ['index.html', 'buddy-overlay.html'];
@@ -36,7 +40,7 @@ for (const path of [...paths])
 const files = {};
 for (const path of [...paths].sort()) {
   if (
-    !/^(index\.html|buddy-overlay\.html|app\.webmanifest|service-worker\.js|icon-(?:192|512)\.png|assets\/[A-Za-z0-9_.-]+)$/.test(
+    !/^(index\.html|buddy-overlay\.html|app\.webmanifest|service-worker\.js|icon-(?:maskable-)?(?:192|512)\.png|screenshot-(?:phone|wide)\.webp|assets\/[A-Za-z0-9_.-]+)$/.test(
       path,
     )
   ) {
