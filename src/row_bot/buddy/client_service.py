@@ -171,7 +171,9 @@ def update_buddy(changes: dict[str, Any], *, expected_revision: str, command_id:
 _DERIVATION = b"living-derivation-1"
 _DERIVED: dict[tuple[str, str], tuple[bytes, bytes]] = {}
 PNG_SIGNATURE = bytes.fromhex("89504e470d0a1a0a")
-_CONTENT_TYPES = {"art": "image/png", "patches": "image/png", "preview": "image/png", "rig": "application/json"}
+_CONTENT_TYPES = {"art": "image/png", "preview": "image/png", "rig": "application/json"}
+_IMAGE_SIGNATURES = {"image/png": lambda data: data.startswith(PNG_SIGNATURE),
+                     "image/webp": lambda data: data[:4] == b"RIFF" and data[8:12] == b"WEBP"}
 
 
 def _pack(pack_id: str):
@@ -183,7 +185,8 @@ def _pack(pack_id: str):
     revision = hashlib.sha256(manifest + json.dumps(identities, sort_keys=True).encode()
                               + (_DERIVATION if pack.derived else b"")).hexdigest()
     ids = sorted({*paths, "art", "rig"})
-    descriptors = tuple(BuddyAsset(key, _CONTENT_TYPES[key]) for key in ids)
+    descriptors = tuple(BuddyAsset(key, assets.patches_content_type(paths[key]) if key == "patches"
+                                   else _CONTENT_TYPES[key]) for key in ids)
     # Every pack is shown as a living Buddy; a legacy pack's art and rig are derived from its still.
     return BuddyPack(pack.id, pack.name, revision, assets.LIVING_RUNTIME, pack.status == "available",
         pack.id.startswith("hatch-"), descriptors, {}), paths, root
@@ -269,8 +272,8 @@ def read_buddy_media(pack_id: str, asset_id: str, *, expected_revision: str,
         data = art if asset_id == "art" else rig
     if _pack(pack_id)[0].revision != expected_revision:
         raise BuddyClientError("buddy_revision_conflict")
-    content_type = _CONTENT_TYPES[asset_id]
-    if content_type == "image/png" and not data.startswith(PNG_SIGNATURE):
+    content_type = next(asset.content_type for asset in descriptor.assets if asset.id == asset_id)
+    if content_type in _IMAGE_SIGNATURES and not _IMAGE_SIGNATURES[content_type](data):
         raise BuddyClientError("buddy_asset_unavailable")
     if content_type == "application/json":
         try:

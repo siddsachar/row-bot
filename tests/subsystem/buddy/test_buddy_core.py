@@ -434,6 +434,7 @@ def test_buddy_loader_maps_stale_legacy_absolute_hatch_paths(monkeypatch, tmp_pa
 
 def test_builtin_buddy_pack_contract_is_explicit():
     import json
+    from PIL import Image
     from row_bot.buddy.assets import list_buddy_packs, load_buddy_pack
 
     expected_pack_ids = {"ember", "glyph", "lumen", "orbit", "pixel", "sprout"}
@@ -448,6 +449,12 @@ def test_builtin_buddy_pack_contract_is_explicit():
         assert rig["family"] in {"floater", "biped", "winged", "free"}
         assert {"body", "head"} <= {bone["id"] for bone in rig["bones"]}
         assert rig["eyes"], pack_id
+        # Painted expressions ship as one WebP atlas, and every patch the rig names lies inside it.
+        with Image.open(pack.patches_path) as atlas:
+            assert atlas.format == "WEBP" and atlas.mode == "RGBA", pack_id
+            for kind, patch in rig["patches"].items():
+                x, y, width, height = patch["atlas"]
+                assert x + width <= atlas.width and y + height <= atlas.height, (pack_id, kind)
 
 
 def test_stop_task_emits_buddy_cancel_immediately(monkeypatch):

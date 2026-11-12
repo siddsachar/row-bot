@@ -39,6 +39,13 @@ def test_global_buddy_projection_is_passive_idle_shell_state(service, env):
         assert media.status_code == 200, media.text
         assert media.content
         assert media.headers["content-type"].startswith(asset["content_type"])
+        # A built-in's expression atlas is WebP, declared and served as such.
+        glyph = next(item for item in packs.json()["packs"] if item["id"] == "glyph")
+        assert {"id": "patches", "content_type": "image/webp"} in glyph["assets"]
+        atlas = client.get("/api/v1/buddy/packs/glyph/media/patches", headers=headers,
+                           params={"revision": glyph["revision"]})
+        assert atlas.status_code == 200, atlas.text
+        assert atlas.headers["content-type"] == "image/webp" and atlas.content[8:12] == b"WEBP"
         assert not config._BUDDY_CONFIG_PATH.exists()
 
 

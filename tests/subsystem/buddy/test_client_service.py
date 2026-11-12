@@ -262,6 +262,35 @@ def test_living_pack_serves_its_own_files_and_refuses_a_rig_that_is_not_an_objec
         "hatch-living": False}
 
 
+@pytest.mark.parametrize("name, served_as", [("patches.webp", "image/webp"), ("patches.png", "image/png")])
+def test_living_pack_serves_its_expression_atlas_as_webp_or_an_older_png_and_refuses_a_mislabelled_one(
+        owner, name, served_as):
+    from PIL import Image
+    encoded = {}
+    with Image.open(io.BytesIO(buddy_art.painting(64))) as image:
+        for kind in ("WEBP", "PNG"):
+            buffer = io.BytesIO()
+            image.save(buffer, format=kind)
+            encoded[kind] = buffer.getvalue()
+    own, other = (encoded["WEBP"], encoded["PNG"]) if name.endswith(".webp") else (encoded["PNG"], encoded["WEBP"])
+    path = owner / "packs" / "hatch-atlas"
+    path.mkdir(parents=True)
+    (path / "art.png").write_bytes(encoded["PNG"])
+    (path / "rig.json").write_text(json.dumps({"schema": 1, "family": "floater"}))
+    (path / name).write_bytes(own)
+    (path / "manifest.json").write_text(json.dumps({"schema": 2, "id": "hatch-atlas", "name": "Atlas",
+        "runtime": "living", "art": "art.png", "rig": "rig.json", "patches": name}))
+    descriptor = service.list_buddy_packs(validate=lambda: None).packs[0]
+    assert descriptor.available and {asset.id: asset.content_type for asset in descriptor.assets} == {
+        "art": "image/png", "patches": served_as, "preview": "image/png", "rig": "application/json"}
+    assert service.read_buddy_media("hatch-atlas", "patches", expected_revision=descriptor.revision,
+                                    validate=lambda: None) == (own, served_as)
+    (path / name).write_bytes(other)  # not what its name says: refused, never served under the wrong type
+    descriptor = service.list_buddy_packs(validate=lambda: None).packs[0]
+    with pytest.raises(service.BuddyClientError, match="buddy_asset_unavailable"):
+        service.read_buddy_media("hatch-atlas", "patches", expected_revision=descriptor.revision, validate=lambda: None)
+
+
 @pytest.mark.parametrize("kind", ["absolute", "parent", "hardlink", "oversize"])
 def test_unsafe_pack_is_unavailable_and_healthy_sibling_survives(owner, kind):
     foreign = owner / "private.png"
