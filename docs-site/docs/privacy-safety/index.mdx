@@ -48,6 +48,7 @@ Row-Bot also contacts these on its own, as Settings › System › Privacy lists
 | ffmpeg, for video editing | The Python Package Index (`files.pythonhosted.org`) | Once, after you approve its card | Nothing personal; checked against its fingerprint |
 | Cua Driver, for computer use | GitHub (the Cua project's releases) | When you choose Install or Repair | Nothing personal; then Cua Driver's own telemetry, described below |
 | The browser runtime | Playwright's download servers | When you choose Install browser runtime | Nothing personal |
+| Notifications on a phone | That phone's browser push service: Google (Chrome, Edge on Android), Apple (an installed iPhone app), Mozilla (Firefox) or Microsoft (Edge on Windows) | Only while **Notifications on this device** is on, when Row-Bot starts waiting for you (an approval or a question) | An empty, encrypted wake-up: no words from any chat. See [Notifications On A Phone](#notifications-on-a-phone) |
 
 Computer use is a distinct opt-in boundary: Row-Bot works in an app with your real mouse and keyboard while a Stop bar shows on screen, and it asks before the first use of each app in a chat and before paying, sending, deleting or changing settings. Row-Bot downloads the pinned Cua Driver only after an explicit Install or Repair action, verifies the selected archive, and requires the current telemetry disclosure before any executable invocation. The reviewed 0.20.0 upstream telemetry includes pseudonymous identifiers and bounded product, platform, client, tool/outcome, duration/output, aggregate usage, permission, and lifecycle categories; its tagged event builders exclude prompts, tool arguments/results, typed text, screenshots, accessibility trees, app/window names, URLs, paths, raw values, and raw errors. See [Computer Use](/docs/computer-use/) for the full boundary.
 
@@ -83,6 +84,15 @@ Invitation links expire after 10 minutes and work once, but should still be trea
 Prefer Tailscale or HTTPS for remote access. Plain LAN HTTP is unencrypted and does not support a remote browser microphone. For an operator-managed proxy, allow only the canonical browser-facing origin and trust only the exact address that connects from the proxy to Row-Bot. Never resolve a forwarding-header error by trusting every private address or a whole container network.
 
 See [Remote Access And Server Mode](/docs/operations/remote-access) for layouts, lifetimes, revocation, Tailscale ownership, server mode, Docker, and recovery.
+
+### Notifications On A Phone
+
+A phone or computer signed in over HTTPS (Tailscale, a tunnel or a hosted Row-Bot) can turn on **Notifications on this device** in Settings › Devices. It's off until you turn it on, and on an iPhone or iPad it needs Row-Bot added to the Home Screen first.
+
+- **When**: only when Row-Bot starts waiting for you, for an approval or a question.
+- **What is sent**: an empty, encrypted wake-up to that device's browser push service (Google, Apple, Mozilla or Microsoft, whichever the browser uses). It carries no words from any chat, no title and no names; the device then shows Row-Bot's own fixed notice, "Row-Bot is waiting for you".
+- **What is kept**: Row-Bot keeps the device's push address and its encryption keys in `push_subscriptions.json`, and its own push key in `push_vapid_key.pem`, both in the Row-Bot data folder. Turning the switch off, or signing the device out, stops the wake-ups; a push address the browser drops is forgotten.
+- **What the push service sees**: that a wake-up was sent to that browser, and when; it can't read it.
 
 ## Approvals
 

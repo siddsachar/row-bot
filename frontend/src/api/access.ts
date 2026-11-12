@@ -473,3 +473,48 @@ export const accessClient: AccessClient = {
     await request('/api/access/logout', { method: 'POST', signal });
   },
 };
+
+/** Notifications on this device (D8): offered only over HTTPS. */
+export type AccessPushStatus =
+  | { available: true; publicKey: string; subscribed: boolean }
+  | { available: false; reason: 'this_computer' | 'needs_https' };
+
+export interface AccessPushClient {
+  status(signal?: AbortSignal): Promise<AccessPushStatus>;
+  subscribe(subscription: PushSubscriptionJSON): Promise<void>;
+  unsubscribe(): Promise<void>;
+}
+
+export const accessPushClient: AccessPushClient = {
+  async status(signal) {
+    const value = await request('/api/access/devices/push', {
+      method: 'GET',
+      signal,
+    });
+    if (value.available === true && typeof value.public_key === 'string')
+      return {
+        available: true,
+        publicKey: value.public_key,
+        subscribed: value.subscribed === true,
+      };
+    if (
+      value.available === false &&
+      (value.reason === 'this_computer' || value.reason === 'needs_https')
+    )
+      return { available: false, reason: value.reason };
+    throw { code: 'dependency_unavailable' };
+  },
+  async subscribe(subscription) {
+    await request(
+      '/api/access/devices/push/subscribe',
+      { method: 'POST' },
+      {
+        endpoint: subscription.endpoint ?? '',
+        keys: subscription.keys ?? {},
+      },
+    );
+  },
+  async unsubscribe() {
+    await request('/api/access/devices/push/unsubscribe', { method: 'POST' });
+  },
+};

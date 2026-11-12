@@ -91,3 +91,17 @@ def test_agent_run_approval_resumes_the_helper(tmp_path, monkeypatch, reload_for
 
     assert tasks.respond_to_approval(token, False) is True
     assert resumed == [("agent-run-1", token, False)]
+
+
+def test_a_new_approval_wakes_devices_that_turned_notifications_on(
+    tmp_path, monkeypatch, reload_for_data_dir
+) -> None:
+    tasks = fresh_tasks_module(tmp_path, reload_for_data_dir)
+    from row_bot.access import push
+
+    woken: list[int] = []
+    monkeypatch.setattr(push, "wake_soon", lambda: woken.append(1))
+
+    _helper_approval(tasks, monkeypatch, [])
+
+    assert woken == [1]
