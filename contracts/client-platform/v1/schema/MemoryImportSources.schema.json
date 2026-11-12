@@ -1,0 +1,234 @@
+{
+  "$defs": {
+    "MemoryImportModel": {
+      "additionalProperties": false,
+      "description": "The default chat model that finding memories in conversations and the preview use.",
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "title": "Name",
+          "type": "string"
+        },
+        "on_this_computer": {
+          "title": "On This Computer",
+          "type": "boolean"
+        },
+        "provider": {
+          "maxLength": 120,
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "provider",
+        "on_this_computer"
+      ],
+      "title": "MemoryImportModel",
+      "type": "object"
+    },
+    "MemoryImportReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "applied_at": {
+          "maxLength": 40,
+          "title": "Applied At",
+          "type": "string"
+        },
+        "batch_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "failed": {
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "skipped": {
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "sources": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Sources",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "undone"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "superseded": {
+          "minimum": 0,
+          "title": "Superseded",
+          "type": "integer"
+        },
+        "undo_until": {
+          "maxLength": 40,
+          "title": "Undo Until",
+          "type": "string"
+        },
+        "undone_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Undone At"
+        },
+        "updated": {
+          "minimum": 0,
+          "title": "Updated",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "batch_id",
+        "command_id",
+        "status",
+        "applied_at",
+        "undo_until",
+        "sources",
+        "added",
+        "updated",
+        "superseded",
+        "skipped",
+        "failed"
+      ],
+      "title": "MemoryImportReceipt",
+      "type": "object"
+    },
+    "MemoryImportSource": {
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "enum": [
+            "memories",
+            "history",
+            "none"
+          ],
+          "title": "Export",
+          "type": "string"
+        },
+        "how_to_get": {
+          "maxLength": 600,
+          "title": "How To Get",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 40,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "title": "Name",
+          "type": "string"
+        },
+        "prompt_route": {
+          "title": "Prompt Route",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "export",
+        "prompt_route",
+        "how_to_get"
+      ],
+      "title": "MemoryImportSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "character_limit": {
+      "minimum": 1,
+      "title": "Character Limit",
+      "type": "integer"
+    },
+    "continue_prompt": {
+      "maxLength": 2000,
+      "title": "Continue Prompt",
+      "type": "string"
+    },
+    "conversation_limit": {
+      "minimum": 1,
+      "title": "Conversation Limit",
+      "type": "integer"
+    },
+    "file_max_bytes": {
+      "minimum": 1,
+      "title": "File Max Bytes",
+      "type": "integer"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryImportModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "prompt": {
+      "maxLength": 8000,
+      "title": "Prompt",
+      "type": "string"
+    },
+    "recent": {
+      "items": {
+        "$ref": "#/$defs/MemoryImportReceipt"
+      },
+      "maxItems": 10,
+      "title": "Recent",
+      "type": "array"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/MemoryImportSource"
+      },
+      "maxItems": 40,
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "sources",
+    "prompt",
+    "continue_prompt",
+    "file_max_bytes",
+    "conversation_limit",
+    "character_limit",
+    "recent"
+  ],
+  "title": "MemoryImportSources",
+  "type": "object"
+}

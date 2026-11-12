@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "MemoryReviewChoice": {
+      "additionalProperties": false,
+      "description": "One approved proposal, with the person's edit of its text.",
+      "properties": {
+        "confirm": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confirm"
+        },
+        "proposal_id": {
+          "pattern": "^(?:memory|split):[^\\s]{1,128}$",
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "remove": {
+          "default": false,
+          "title": "Remove",
+          "type": "boolean"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 1500,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "required": [
+        "proposal_id"
+      ],
+      "title": "MemoryReviewChoice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "choices": {
+      "items": {
+        "$ref": "#/$defs/MemoryReviewChoice"
+      },
+      "maxItems": 20000,
+      "minItems": 1,
+      "title": "Choices",
+      "type": "array"
+    },
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id",
+    "revision",
+    "choices"
+  ],
+  "title": "MemoryReviewApply",
+  "type": "object"
+}

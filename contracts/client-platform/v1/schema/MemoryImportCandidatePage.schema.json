@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "MemoryImportCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[0-9a-f]{20}$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "person",
+            "preference",
+            "fact",
+            "event",
+            "place",
+            "project",
+            "organisation",
+            "concept",
+            "skill",
+            "media"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "maxLength": 10,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Date"
+        },
+        "origin": {
+          "enum": [
+            "export",
+            "conversation"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 40,
+          "title": "Source",
+          "type": "string"
+        },
+        "source_label": {
+          "maxLength": 200,
+          "title": "Source Label",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "text",
+        "category",
+        "source",
+        "source_label",
+        "origin"
+      ],
+      "title": "MemoryImportCandidate",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/MemoryImportCandidate"
+      },
+      "maxItems": 5000,
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "batch_id",
+    "items"
+  ],
+  "title": "MemoryImportCandidatePage",
+  "type": "object"
+}

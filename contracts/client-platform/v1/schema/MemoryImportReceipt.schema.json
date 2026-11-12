@@ -1,0 +1,95 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "added": {
+      "minimum": 0,
+      "title": "Added",
+      "type": "integer"
+    },
+    "applied_at": {
+      "maxLength": 40,
+      "title": "Applied At",
+      "type": "string"
+    },
+    "batch_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "failed": {
+      "minimum": 0,
+      "title": "Failed",
+      "type": "integer"
+    },
+    "skipped": {
+      "minimum": 0,
+      "title": "Skipped",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "maxLength": 80,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Sources",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "applied",
+        "undone"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "superseded": {
+      "minimum": 0,
+      "title": "Superseded",
+      "type": "integer"
+    },
+    "undo_until": {
+      "maxLength": 40,
+      "title": "Undo Until",
+      "type": "string"
+    },
+    "undone_at": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Undone At"
+    },
+    "updated": {
+      "minimum": 0,
+      "title": "Updated",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "batch_id",
+    "command_id",
+    "status",
+    "applied_at",
+    "undo_until",
+    "sources",
+    "added",
+    "updated",
+    "superseded",
+    "skipped",
+    "failed"
+  ],
+  "title": "MemoryImportReceipt",
+  "type": "object"
+}

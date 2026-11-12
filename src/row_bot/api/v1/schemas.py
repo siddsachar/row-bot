@@ -3987,6 +3987,344 @@ class DataBackupReceipt(WireModel):
     state: DataBackupState
 
 
+# Import memory (Knowledge › Import memories): what other assistants know about the person,
+# found in their export files or a pasted answer, reviewed, previewed, then saved, with Undo.
+MemoryImportCategory = Literal[
+    "person", "preference", "fact", "event", "place", "project", "organisation", "concept", "skill", "media",
+]
+MemoryImportBatchId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+MemoryImportCandidateId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{20}$")]
+MemoryImportLine = Annotated[str, StringConstraints(max_length=300)]
+
+
+class MemoryImportModel(WireModel):
+    """The default chat model that finding memories in conversations and the preview use."""
+    name: str = Field(max_length=200)
+    provider: str = Field(max_length=120)
+    on_this_computer: bool
+
+
+class MemoryImportSource(WireModel):
+    id: str = Field(max_length=40)
+    name: str = Field(max_length=80)
+    export: Literal["memories", "history", "none"]
+    prompt_route: bool
+    how_to_get: str = Field(max_length=600)
+
+
+class MemoryImportReceipt(WireModel):
+    batch_id: MemoryImportBatchId
+    command_id: UUID
+    status: Literal["applied", "undone"]
+    applied_at: str = Field(max_length=40)
+    undone_at: str | None = Field(default=None, max_length=40)
+    undo_until: str = Field(max_length=40)
+    sources: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=20)
+    added: int = Field(ge=0)
+    updated: int = Field(ge=0)
+    superseded: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    failed: int = Field(ge=0)
+
+
+class MemoryImportSources(WireModel):
+    sources: list[MemoryImportSource] = Field(max_length=40)
+    prompt: str = Field(max_length=8000)
+    continue_prompt: str = Field(max_length=2000)
+    file_max_bytes: int = Field(ge=1)
+    conversation_limit: int = Field(ge=1)
+    character_limit: int = Field(ge=1)
+    model: MemoryImportModel | None = None
+    recent: list[MemoryImportReceipt] = Field(max_length=10)
+
+
+class MemoryImportRequest(WireModel):
+    """Begin an import, scan it, look in its conversations, or stop the running step."""
+    client_session_id: UUID
+
+
+class MemoryImportFileRequest(WireModel):
+    """Room for one file of an export, sent in chunks next."""
+    client_session_id: UUID
+    name: str = Field(min_length=1, max_length=200)
+    size_bytes: int = Field(ge=1)
+
+
+class MemoryImportFileView(WireModel):
+    file_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+    name: str = Field(max_length=200)
+    size_bytes: int = Field(ge=1)
+    received_bytes: int = Field(ge=0)
+    chunk_bytes: Literal[1048576] = 1048576
+
+
+class MemoryImportText(WireModel):
+    """A pasted answer from the old assistant."""
+    client_session_id: UUID
+    text: str = Field(min_length=1, max_length=1_000_000)
+
+
+class MemoryImportJob(WireModel):
+    kind: Literal["scan", "conversations", "preview"]
+    status: Literal["running", "completed", "failed", "cancelled"]
+    done: int = Field(ge=0)
+    total: int | None = Field(default=None, ge=0)
+    code: str | None = Field(default=None, max_length=64)
+
+
+class MemoryImportSourceCount(WireModel):
+    source: str = Field(max_length=40)
+    label: str = Field(max_length=80)
+    facts: int = Field(ge=0)
+    conversations: int = Field(ge=0)
+
+
+class MemoryImportSkipped(WireModel):
+    name: MemoryImportLine
+    reason: MemoryImportLine
+
+
+class MemoryImportConversations(WireModel):
+    """Finding memories in past conversations: how many there are, the bound, and what a run read."""
+    available: int = Field(ge=0)
+    limit: int = Field(ge=0)
+    character_limit: int = Field(ge=1)
+    ran: bool
+    read: int = Field(ge=0)
+    characters: int = Field(ge=0)
+    found: int = Field(ge=0)
+
+
+class MemoryImportBatch(WireModel):
+    batch_id: MemoryImportBatchId
+    status: Literal["open", "applied"]
+    files: list[MemoryImportFileView] = Field(max_length=20)
+    texts: int = Field(ge=0)
+    job: MemoryImportJob | None = None
+    scanned: bool
+    found: int = Field(ge=0)
+    sources: list[MemoryImportSourceCount] = Field(max_length=20)
+    warnings: list[MemoryImportLine] = Field(max_length=50)
+    skipped: list[MemoryImportSkipped] = Field(max_length=100)
+    skipped_count: int = Field(ge=0)
+    conversations: MemoryImportConversations
+    model: MemoryImportModel | None = None
+    preview_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    receipt: MemoryImportReceipt | None = None
+
+
+class MemoryImportCandidate(WireModel):
+    candidate_id: MemoryImportCandidateId
+    text: str = Field(min_length=1, max_length=2000)
+    category: MemoryImportCategory
+    source: str = Field(max_length=40)
+    source_label: str = Field(max_length=200)
+    date: str | None = Field(default=None, max_length=10)
+    origin: Literal["export", "conversation"]
+
+
+class MemoryImportCandidatePage(WireModel):
+    batch_id: MemoryImportBatchId
+    items: list[MemoryImportCandidate] = Field(max_length=5000)
+
+
+class MemoryImportChoice(WireModel):
+    """One memory to preview, with the person's edits."""
+    candidate_id: MemoryImportCandidateId
+    text: str | None = Field(default=None, min_length=1, max_length=2000)
+    category: MemoryImportCategory | None = None
+
+
+class MemoryImportPreviewRequest(WireModel):
+    client_session_id: UUID
+    items: list[MemoryImportChoice] = Field(min_length=1, max_length=5000)
+
+
+class MemoryImportPreviewItem(WireModel):
+    candidate_id: MemoryImportCandidateId
+    action: Literal["add", "update", "supersede", "skip"]
+    text: str = Field(max_length=2000)
+    category: MemoryImportCategory
+    source_label: str = Field(max_length=200)
+    # The subject it is saved under (add, supersede) or the saved memory's (update, skip).
+    subject: str = Field(max_length=200)
+    saved_subject: str | None = Field(default=None, max_length=200)
+    saved_text: str | None = Field(default=None, max_length=2000)
+    # update: the saved memory as it will read.
+    new_text: str | None = Field(default=None, max_length=4000)
+
+
+class MemoryImportPreview(WireModel):
+    batch_id: MemoryImportBatchId
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    items: list[MemoryImportPreviewItem] = Field(max_length=5000)
+
+
+class MemoryImportApply(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    preview_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # Previewed memories the person unchecked.
+    exclude: list[MemoryImportCandidateId] = Field(default_factory=list, max_length=5000)
+
+
+class MemoryImportUndo(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+
+
+# Review memory (Knowledge › Review memory): a clean-up over the whole memory, or one import's memories.
+# Every memory gets one proposal with a plain reason; nothing changes before the person approves, memory
+# is backed up first, and Undo puts back exactly what was.
+MemoryReviewRunId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+MemoryReviewProposalId = Annotated[str, StringConstraints(pattern=r"^(?:memory|split):[^\s]{1,128}$")]
+MemoryReviewRevision = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+MemoryReviewReason = Literal[
+    "keep", "unchecked", "person_record", "lesson", "long_record", "document", "outdated", "test_data",
+    "not_about_the_person", "run_log", "duplicate", "rewrite", "merge", "split",
+]
+
+
+class MemoryReviewReceipt(WireModel):
+    run_id: MemoryReviewRunId
+    command_id: UUID
+    status: Literal["applied", "undone"]
+    applied_at: str = Field(max_length=40)
+    undone_at: str | None = Field(default=None, max_length=40)
+    undo_until: str = Field(max_length=40)
+    removed: int = Field(ge=0)
+    merged: int = Field(ge=0)
+    rewritten: int = Field(ge=0)
+    split: int = Field(ge=0)
+    added: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    # The copy of memory.db taken first, by file name.
+    backup: str = Field(max_length=120)
+
+
+class MemoryReviewOverview(WireModel):
+    """What a review would read, shown before it runs."""
+    memories: int = Field(ge=0)
+    model_calls: int = Field(ge=0)
+    # More than a few hundred memories: the first step also says how many model calls it takes.
+    many: bool
+    import_batch: MemoryImportBatchId | None = None
+    model: MemoryImportModel | None = None
+    recent: list[MemoryReviewReceipt] = Field(max_length=10)
+
+
+class MemoryReviewRequest(WireModel):
+    """Start a review: of every memory, or of one import's memories and the saved ones closest to them."""
+    client_session_id: UUID
+    import_batch: MemoryImportBatchId | None = None
+
+
+class MemoryReviewCancel(WireModel):
+    client_session_id: UUID
+
+
+class MemoryReviewJob(WireModel):
+    kind: Literal["review"]
+    status: Literal["running", "completed", "failed", "cancelled"]
+    done: int = Field(ge=0)
+    total: int | None = Field(default=None, ge=0)
+    code: str | None = Field(default=None, max_length=64)
+
+
+class MemoryReviewCounts(WireModel):
+    remove: int = Field(ge=0)
+    merge: int = Field(ge=0)
+    rewrite: int = Field(ge=0)
+    split: int = Field(ge=0)
+    keep: int = Field(ge=0)
+
+
+class MemoryReviewRun(WireModel):
+    run_id: MemoryReviewRunId
+    status: Literal["open", "applied"]
+    import_batch: MemoryImportBatchId | None = None
+    job: MemoryReviewJob | None = None
+    counts: MemoryReviewCounts
+    revision: MemoryReviewRevision | None = None
+    # A memory changed since the review was made: review again.
+    stale: bool
+    warnings: list[MemoryImportLine] = Field(max_length=20)
+    model: MemoryImportModel | None = None
+    receipt: MemoryReviewReceipt | None = None
+
+
+class MemoryReviewTarget(WireModel):
+    """The other memory a merge, duplicate or replacement names."""
+    memory_id: str = Field(min_length=1, max_length=128)
+    subject: str = Field(max_length=200)
+    text: str = Field(max_length=2000)
+
+
+class MemoryReviewSplitMemory(WireModel):
+    category: str = Field(max_length=40)
+    subject: str = Field(max_length=200)
+    text: str = Field(max_length=600)
+    # add: a new memory; update: adds to a saved one; skip: already saved.
+    action: Literal["add", "update", "skip"]
+    saved_subject: str | None = Field(default=None, max_length=200)
+    saved_text: str | None = Field(default=None, max_length=2000)
+    new_text: str | None = Field(default=None, max_length=1200)
+
+
+class MemoryReviewSplit(WireModel):
+    contacts_kept: int = Field(ge=0)
+    memories: list[MemoryReviewSplitMemory] = Field(max_length=2000)
+
+
+class MemoryReviewProposal(WireModel):
+    proposal_id: MemoryReviewProposalId
+    memory_id: str = Field(min_length=1, max_length=128)
+    action: Literal["keep", "remove", "merge", "rewrite", "split"]
+    reason_code: MemoryReviewReason
+    reason: str = Field(max_length=300)
+    subject: str = Field(max_length=200)
+    category: str = Field(max_length=40)
+    # The memory as saved (its start, for a long one) and its whole length.
+    text: str = Field(max_length=2000)
+    length: int = Field(ge=0)
+    # rewrite and merge: the text it will read; split: the person's record as it will read.
+    proposed_text: str | None = Field(default=None, max_length=4000)
+    into: MemoryReviewTarget | None = None
+    marks: list[Literal["long_record", "lesson", "person_record"]] = Field(max_length=3)
+    # Chosen at first. A long record, a lesson and the person's record never are.
+    selected: bool
+    # Kept, but the person may remove it themselves, confirming it by name (a long record or a lesson).
+    removable: bool
+    split: MemoryReviewSplit | None = None
+
+
+class MemoryReviewProposals(WireModel):
+    run_id: MemoryReviewRunId
+    revision: MemoryReviewRevision
+    items: list[MemoryReviewProposal] = Field(max_length=20000)
+
+
+class MemoryReviewChoice(WireModel):
+    """One approved proposal, with the person's edit of its text."""
+    proposal_id: MemoryReviewProposalId
+    text: str | None = Field(default=None, min_length=1, max_length=1500)
+    # Remove a kept long record or lesson; ``confirm`` repeats its subject.
+    remove: bool = False
+    confirm: str | None = Field(default=None, max_length=200)
+
+
+class MemoryReviewApply(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: MemoryReviewRevision
+    choices: list[MemoryReviewChoice] = Field(min_length=1, max_length=20000)
+
+
+class MemoryReviewUndo(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+
+
 class CustomToolLibraryReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "failed", "uncertain", "approval_required"]

@@ -1,14 +1,15 @@
-"""WP C1: the memory tool's contradiction check is a background call on the turn's own model.
+"""WP C1: save_memory's reconcile is a background call on the turn's own model.
 
-On local Ollama a check that loaded the default model mid-turn would swap the
-model out (F13); the check also runs at the lowest effort with a short cap and
-is counted as ``contradiction`` for the running conversation.
+On local Ollama a call that loaded the default model mid-turn would swap the
+model out (F13); the reconcile also runs at the lowest effort with a bounded
+reply and is counted as ``memory_reconcile`` for the running conversation.
 """
 
 from __future__ import annotations
 
 import contextvars
 import sqlite3
+import json
 from contextlib import closing
 
 import pytest
@@ -30,7 +31,7 @@ class _Checker(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "contradiction-fixture"
+        return "reconcile-fixture"
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         self.calls.append(dict(kwargs))
@@ -70,31 +71,38 @@ def _in_turn(fn):
     return contextvars.copy_context().run(run)
 
 
-def test_a_contradiction_found_by_the_turns_model_is_reported(memory) -> None:
+def _saved_id(reply: str) -> str:
+    return next(line.split(": ", 1)[1] for line in reply.splitlines() if line.startswith("ID: "))
+
+
+def test_a_change_found_by_the_turns_model_replaces_the_saved_memory(memory) -> None:
     memory_tool, checker, requested, ledger = memory
-    memory_tool._save_memory("fact", "Home city", "User lives in London.")
-    checker.replies = ['{"contradiction": true, "conflict": "London and Paris cannot both be home."}']
+    london = _saved_id(memory_tool._save_memory("fact", "Home city", "User lives in London."))
+    assert checker.calls == []  # nothing close yet: saved without a model call
+    checker.replies = [json.dumps({"decisions": [
+        {"fact": 1, "action": "supersede", "memory_id": london, "subject": "", "text": ""}]})]
 
     reply = _in_turn(lambda: memory_tool._save_memory("fact", "Home city", "User lives in Paris."))
 
-    assert "CONFLICT" in reply and "London and Paris cannot both be home." in reply
-    # The turn's own local model, with its context allocation and a short reply: no model swap.
+    assert reply.startswith("Memory saved. It replaces an older memory, kept as history: Home city: User lives in London.")
+    # The turn's own local model, with its context allocation and a bounded reply: no model swap.
     assert requested == [TURN_MODEL]
     [call] = checker.calls
-    assert call["options"] == {"num_ctx": 8192, "num_predict": 160}
-    assert call["format"]["required"] == ["contradiction", "conflict"]
+    assert call["options"]["num_ctx"] == 8192
+    assert call["format"]["required"] == ["decisions"]
     with closing(sqlite3.connect(ledger)) as connection:
         rows = connection.execute("SELECT purpose, thread_id, generation_id FROM model_usage").fetchall()
-    assert rows == [("contradiction", "thread-live", "gen-live")]
+    assert rows == [("memory_reconcile", "thread-live", "gen-live")]
 
 
-def test_compatible_facts_are_merged_from_a_schema_or_a_plain_no(memory) -> None:
+def test_something_new_about_a_saved_memory_is_written_into_it(memory) -> None:
     memory_tool, checker, _requested, _ledger = memory
-    memory_tool._save_memory("fact", "Home city", "User lives in London.")
-    checker.replies = ['{"contradiction": false, "conflict": ""}', "NO"]
+    home = _saved_id(memory_tool._save_memory("fact", "Home city", "User lives in London."))
+    checker.replies = [json.dumps({"decisions": [{"fact": 1, "action": "update", "memory_id": home, "subject": "",
+                                                  "text": "User lives in London and works from home on Fridays."}]})]
 
-    first = _in_turn(lambda: memory_tool._save_memory("fact", "Home city", "User works from home on Fridays."))
-    second = _in_turn(lambda: memory_tool._save_memory("fact", "Home city", "User cycles to the office."))
+    reply = _in_turn(lambda: memory_tool._save_memory("fact", "Home city", "User works from home on Fridays."))
 
-    assert "CONFLICT" not in first and "CONFLICT" not in second
-    assert len(checker.calls) == 2
+    assert reply.startswith("Memory updated (merged with an existing one).")
+    assert reply.endswith("Content: User lives in London and works from home on Fridays.")
+    assert len(checker.calls) == 1

@@ -1,0 +1,325 @@
+{
+  "$defs": {
+    "MemoryImportModel": {
+      "additionalProperties": false,
+      "description": "The default chat model that finding memories in conversations and the preview use.",
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "title": "Name",
+          "type": "string"
+        },
+        "on_this_computer": {
+          "title": "On This Computer",
+          "type": "boolean"
+        },
+        "provider": {
+          "maxLength": 120,
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "provider",
+        "on_this_computer"
+      ],
+      "title": "MemoryImportModel",
+      "type": "object"
+    },
+    "MemoryReviewCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "keep": {
+          "minimum": 0,
+          "title": "Keep",
+          "type": "integer"
+        },
+        "merge": {
+          "minimum": 0,
+          "title": "Merge",
+          "type": "integer"
+        },
+        "remove": {
+          "minimum": 0,
+          "title": "Remove",
+          "type": "integer"
+        },
+        "rewrite": {
+          "minimum": 0,
+          "title": "Rewrite",
+          "type": "integer"
+        },
+        "split": {
+          "minimum": 0,
+          "title": "Split",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "remove",
+        "merge",
+        "rewrite",
+        "split",
+        "keep"
+      ],
+      "title": "MemoryReviewCounts",
+      "type": "object"
+    },
+    "MemoryReviewJob": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "review",
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total"
+        }
+      },
+      "required": [
+        "kind",
+        "status",
+        "done"
+      ],
+      "title": "MemoryReviewJob",
+      "type": "object"
+    },
+    "MemoryReviewReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "applied_at": {
+          "maxLength": 40,
+          "title": "Applied At",
+          "type": "string"
+        },
+        "backup": {
+          "maxLength": 120,
+          "title": "Backup",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "failed": {
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "merged": {
+          "minimum": 0,
+          "title": "Merged",
+          "type": "integer"
+        },
+        "removed": {
+          "minimum": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "rewritten": {
+          "minimum": 0,
+          "title": "Rewritten",
+          "type": "integer"
+        },
+        "run_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "split": {
+          "minimum": 0,
+          "title": "Split",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "undone"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "undo_until": {
+          "maxLength": 40,
+          "title": "Undo Until",
+          "type": "string"
+        },
+        "undone_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Undone At"
+        }
+      },
+      "required": [
+        "run_id",
+        "command_id",
+        "status",
+        "applied_at",
+        "undo_until",
+        "removed",
+        "merged",
+        "rewritten",
+        "split",
+        "added",
+        "failed",
+        "backup"
+      ],
+      "title": "MemoryReviewReceipt",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "counts": {
+      "$ref": "#/$defs/MemoryReviewCounts"
+    },
+    "import_batch": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Import Batch"
+    },
+    "job": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryReviewJob"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryImportModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "receipt": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryReviewReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
+    "run_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "stale": {
+      "title": "Stale",
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "open",
+        "applied"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "maxLength": 300,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "counts",
+    "stale",
+    "warnings"
+  ],
+  "title": "MemoryReviewRun",
+  "type": "object"
+}

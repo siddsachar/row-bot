@@ -95,21 +95,22 @@ def test_mark_user_modified_restores_active_and_sets_actor(tmp_path, monkeypatch
     assert props["source_context"]["vault_path"] == "wiki/fact/Current city.md"
 
 
-def test_memory_tool_conflict_marks_existing_needs_review(tmp_path, monkeypatch, reload_for_data_dir):
+def test_memory_tool_contrary_fact_supersedes_and_keeps_the_old_one(tmp_path, monkeypatch, reload_for_data_dir):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch, reload_for_data_dir)
     import row_bot.tools.memory_tool as memory_tool
+    from row_bot.providers import background
 
     (memory_tool,) = reload_for_data_dir(None, "row_bot.tools.memory_tool")
     existing = kg.save_entity("fact", "Current city", "User lives in London.", source="live")
-    monkeypatch.setattr(memory_tool, "_check_contradiction", lambda old, new, subject: "City conflict")
+    monkeypatch.setattr(background, "invoke_background", lambda *args, **kwargs: json.dumps({"decisions": [
+        {"fact": 1, "action": "supersede", "memory_id": existing["id"], "subject": "", "text": ""}]}))
 
     result = memory_tool._save_memory("fact", "Current city", "User lives in Paris.")
 
     props = _props(kg.get_entity(existing["id"]))
-    assert "CONFLICT" in result
-    assert props["status"] == "needs_review"
-    assert props["review_reason"] == "City conflict"
-    assert props["review_candidate"]["content"] == "User lives in Paris."
+    assert "replaces an older memory" in result
+    assert props["status"] == "superseded"
+    assert kg.get_entity(props["superseded_by"])["description"] == "User lives in Paris."
 
 
 def test_memory_tool_update_marks_manual_authority_and_search_shows_status(tmp_path, monkeypatch, reload_for_data_dir):
@@ -159,12 +160,10 @@ def test_extraction_document_source_sets_resource_provenance(tmp_path, monkeypat
     assert props["source_context"]["window_count"] == 2
 
 
-def test_extraction_conflict_marks_review_without_overwrite(tmp_path, monkeypatch, reload_for_data_dir):
+def test_extraction_contrary_fact_supersedes_without_overwriting(tmp_path, monkeypatch, reload_for_data_dir):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch, reload_for_data_dir)
-    import row_bot.tools.memory_tool as memory_tool
 
     (extraction,) = reload_for_data_dir(None, "row_bot.memory_extraction")
-    (memory_tool,) = reload_for_data_dir(None, "row_bot.tools.memory_tool")
     existing = kg.save_entity(
         "fact",
         "Current city",
@@ -172,20 +171,24 @@ def test_extraction_conflict_marks_review_without_overwrite(tmp_path, monkeypatc
         properties={"last_user_modified_at": "2026-01-01T00:00:00"},
         source="live",
     )
-    monkeypatch.setattr(memory_tool, "_check_contradiction", lambda old, new, subject: "City conflict")
+    decisions = json.dumps({"decisions": [
+        {"fact": 1, "action": "supersede", "memory_id": existing["id"], "subject": "", "text": ""}]})
 
     saved = extraction._dedup_and_save(
         [{"category": "fact", "subject": "Current city", "content": "User lives in Paris."}],
         source="extraction",
         source_context={"thread_id": "thread-1"},
+        invoke=lambda _prompt: decisions,
     )
 
-    updated = kg.get_entity(existing["id"])
-    props = _props(updated)
-    assert saved == 0
-    assert updated["description"] == "User lives in London."
-    assert props["status"] == "needs_review"
-    assert props["review_reason"] == "City conflict"
+    kept = kg.get_entity(existing["id"])
+    props = _props(kept)
+    assert saved == 1
+    assert kept["description"] == "User lives in London."
+    assert props["status"] == "superseded"
+    newer = kg.get_entity(props["superseded_by"])
+    assert newer["description"] == "User lives in Paris."
+    assert _props(newer)["source_context"]["thread_id"] == "thread-1"
 
 
 def test_document_extraction_hub_and_entities_get_document_context(tmp_path, monkeypatch, reload_for_data_dir):

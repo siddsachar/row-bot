@@ -2406,6 +2406,247 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  memoryImportSources(signal?: AbortSignal) {
+    return wire.getMemoryImportSources(this.base, this.session(), signal);
+  }
+  beginMemoryImport(signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.beginMemoryImport(
+      this.base,
+      proof,
+      { client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  memoryImport(batch: string, signal?: AbortSignal) {
+    return wire.getMemoryImport(this.base, this.session(), batch, signal);
+  }
+  discardMemoryImport(batch: string, signal?: AbortSignal) {
+    return wire.discardMemoryImport(this.base, this.session(), batch, signal);
+  }
+  /** Send one export file, chunk by chunk; resolves to its file id. */
+  async uploadMemoryImportFile(
+    batch: string,
+    file: File,
+    progress?: (sent: number) => void,
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    signal?.throwIfAborted();
+    const name =
+      [...file.name.replace(/[\\/:\p{Cc}]/gu, '_')].slice(0, 200).join('') ||
+      'export';
+    const view = await wire.addMemoryImportFile(
+      this.base,
+      proof,
+      batch,
+      {
+        client_session_id: proof.client_session_id,
+        name,
+        size_bytes: file.size,
+      },
+      signal,
+    );
+    const step = view.chunk_bytes ?? 1048576;
+    let sent = view.received_bytes;
+    let failures = 0;
+    try {
+      while (sent < file.size) {
+        try {
+          const next = await wire.uploadMemoryImportChunk(
+            this.base,
+            proof,
+            batch,
+            view.file_id,
+            sent,
+            file.slice(sent, sent + step),
+            signal,
+          );
+          sent = next.received_bytes;
+          failures = 0;
+          progress?.(sent);
+        } catch (error) {
+          // A dropped connection or a busy server: carry on from what it has.
+          const retry =
+            error instanceof TypeError ||
+            (error as { retryable?: unknown }).retryable === true;
+          if (signal?.aborted || !retry || ++failures > 3) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 1000 * failures));
+          sent = (
+            await wire.getMemoryImportFile(
+              this.base,
+              proof,
+              batch,
+              view.file_id,
+              signal,
+            )
+          ).received_bytes;
+        }
+      }
+      return view.file_id;
+    } catch (error) {
+      await wire
+        .removeMemoryImportFile(this.base, proof, batch, view.file_id)
+        .catch(() => undefined);
+      throw error;
+    }
+  }
+  removeMemoryImportFile(batch: string, file: string, signal?: AbortSignal) {
+    return wire.removeMemoryImportFile(
+      this.base,
+      this.session(),
+      batch,
+      file,
+      signal,
+    );
+  }
+  addMemoryImportText(batch: string, text: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.addMemoryImportText(
+      this.base,
+      proof,
+      batch,
+      { client_session_id: proof.client_session_id, text },
+      signal,
+    );
+  }
+  memoryImportStep(
+    batch: string,
+    step: 'scan' | 'conversations' | 'cancel',
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    const body = { client_session_id: proof.client_session_id };
+    const send =
+      step === 'scan'
+        ? wire.scanMemoryImport
+        : step === 'conversations'
+          ? wire.findMemoryImportConversations
+          : wire.cancelMemoryImportStep;
+    return send(this.base, proof, batch, body, signal);
+  }
+  memoryImportCandidates(batch: string, signal?: AbortSignal) {
+    return wire.getMemoryImportCandidates(
+      this.base,
+      this.session(),
+      batch,
+      signal,
+    );
+  }
+  previewMemoryImport(
+    batch: string,
+    items: wire.MemoryImportPreviewRequest['items'],
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    return wire.previewMemoryImport(
+      this.base,
+      proof,
+      batch,
+      { client_session_id: proof.client_session_id, items },
+      signal,
+    );
+  }
+  memoryImportPreview(batch: string, signal?: AbortSignal) {
+    return wire.getMemoryImportPreview(
+      this.base,
+      this.session(),
+      batch,
+      signal,
+    );
+  }
+  applyMemoryImport(
+    batch: string,
+    command: Omit<wire.MemoryImportApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    return wire.applyMemoryImport(
+      this.base,
+      proof,
+      batch,
+      { ...command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  undoMemoryImport(batch: string, command: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.undoMemoryImport(
+      this.base,
+      proof,
+      batch,
+      { command_id: command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  memoryReviewOverview(importBatch?: string, signal?: AbortSignal) {
+    return wire.getMemoryReviewOverview(
+      this.base,
+      this.session(),
+      importBatch,
+      signal,
+    );
+  }
+  beginMemoryReview(importBatch?: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.beginMemoryReview(
+      this.base,
+      proof,
+      {
+        client_session_id: proof.client_session_id,
+        ...(importBatch ? { import_batch: importBatch } : {}),
+      },
+      signal,
+    );
+  }
+  memoryReview(run: string, signal?: AbortSignal) {
+    return wire.getMemoryReview(this.base, this.session(), run, signal);
+  }
+  discardMemoryReview(run: string, signal?: AbortSignal) {
+    return wire.discardMemoryReview(this.base, this.session(), run, signal);
+  }
+  cancelMemoryReview(run: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.cancelMemoryReview(
+      this.base,
+      proof,
+      run,
+      { client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  memoryReviewProposals(run: string, signal?: AbortSignal) {
+    return wire.getMemoryReviewProposals(
+      this.base,
+      this.session(),
+      run,
+      signal,
+    );
+  }
+  applyMemoryReview(
+    run: string,
+    command: Omit<wire.MemoryReviewApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    return wire.applyMemoryReview(
+      this.base,
+      proof,
+      run,
+      { ...command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  undoMemoryReview(run: string, command: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.undoMemoryReview(
+      this.base,
+      proof,
+      run,
+      { command_id: command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
   insights(signal?: AbortSignal) {
     return wire.getInsights(this.base, this.session(), signal);
   }

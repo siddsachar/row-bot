@@ -1,15 +1,21 @@
 """Dream Cycle — nightly background knowledge refinement.
 
 Runs during a configurable quiet window (default 1–5 AM local time) when
-the system is idle.  Performs three safe, non-destructive operations:
+the system is idle.  Each night it:
 
-1. **Duplicate merge** — entities with ≥0.93 semantic similarity AND same
-   type are auto-merged.
-2. **Description enrichment** — thin entities (<80 chars) that appear in
+1. **Compares similar memories** — across the whole graph, the closest pairs
+   by meaning (calibrated to the embedding model) go to the model, several
+   per call: the "same" are merged, a newer one that "replaces" an older one
+   marks it superseded (nothing deleted), and "different" is remembered.
+2. **Enriches thin descriptions** — entities (<80 chars) that appear in
    multiple conversations get richer descriptions.
-3. **Relationship inference** — entity pairs that co-occur in the same
-   conversation but have no edge are evaluated for a connection.
+3. **Decays stale inferences** — an inferred relation loses 10% per 30 days
+   unused and is removed below 0.3.
+4. **Infers relationships** — entity pairs named together in one passage of a
+   conversation, with no edge, are evaluated for a connection.
 
+The conversations are read once per night, for both 2 and 4.  Nothing in the
+person's memory is deleted except merged duplicates and pruned inferences.
 All changes are tagged with ``source="dream_*"`` for traceability and
 logged to a persistent dream journal (``~/.row-bot/dream_journal.json``).
 
@@ -19,9 +25,12 @@ calls (no agent overhead), conservative thresholds, batch-capped.
 
 from __future__ import annotations
 
+import bisect
+import difflib
 import hashlib
 import json
 import logging
+import pathlib
 import re
 import sys
 import threading
@@ -41,16 +50,14 @@ _CONFIG_FILE = _DATA_DIR / "dream_config.json"
 _JOURNAL_FILE = _DATA_DIR / "dream_journal.json"
 _REJECTION_CACHE_FILE = _DATA_DIR / "dream_rejections.json"
 
-# Defaults
+# Defaults.  Keys older versions saved (merge_threshold, batch_size, _batch_offset) are ignored.
 _DEFAULT_CONFIG = {
     "enabled": True,
     "window_start": 1,      # 1 AM local time
     "window_end": 5,         # 5 AM local time
-    "merge_threshold": 0.93,
     "enrich_min_chars": 80,
     "infer_confidence": 0.80,
     "min_entities": 20,
-    "batch_size": 50,
 }
 
 _JOURNAL_MAX_ENTRIES = 100
@@ -392,6 +399,17 @@ def _infer_answer():
     })
 
 
+def _compare_answer():
+    from row_bot.providers.background import json_object, structured_answer
+
+    decision = json_object({
+        "pair": {"type": "integer"},
+        "decision": {"type": "string", "enum": list(_PAIR_DECISIONS)},
+        "reason": {"type": "string"},
+    })
+    return structured_answer("memory_pairs", {"decisions": {"type": "array", "items": decision}})
+
+
 def _insights_answer():
     from row_bot.providers.background import json_object, structured_answer
 
@@ -418,70 +436,222 @@ def _insights_answer():
     return structured_answer("dream_insights", {"insights": {"type": "array", "items": insight}})
 
 
-# ── OP1: Duplicate merge ────────────────────────────────────────────────────
+# ── OP1: Similar memories — same, replaced or different ─────────────────────
+#
+# Every night looks at the whole graph: each memory's nearest neighbours by
+# meaning (one search per memory).  A raw score means little on its own (a
+# local model scores unrelated memories about 0.45, a cloud model far lower),
+# so it is calibrated against the query's mean similarity to every memory:
+# (score - mean) / (1 - mean).  The closest pairs go to the model, several per
+# call, and each comes back "same", "replaces" or "different".
 
-def _find_merge_candidates(batch: list[dict], threshold: float) -> list[tuple[dict, dict, float]]:
-    """Find pairs of entities with high semantic similarity and same type.
+_PAIR_NEIGHBOURS = 5            # nearest memories looked at for each memory
+_PAIR_MIN_SIMILARITY = 0.6      # calibrated similarity a pair needs to be asked about
+_PAIRS_PER_NIGHT = 20
+_PAIRS_PER_CALL = 5
+_PAIR_DESCRIPTION_CHARS = 1200
+_PAIR_DECISIONS = ("same", "replaces", "different")
+# Person, fact and preference memories are often the same thing saved under another type.
+_PERSONAL_TYPES = frozenset({"person", "fact", "preference"})
+# A self_knowledge memory may be a Learning lesson, tested in its exact text: it is
+# never rewritten or superseded, and only merged with a near-identical one.
+_LESSON_TYPE = "self_knowledge"
+_LESSON_NEAR_IDENTICAL = 0.9
 
-    Returns list of (entity_a, entity_b, score) tuples, deduplicated so
-    each entity appears at most once (highest-scoring pair wins).  A pair
-    whose merge the model turned down is skipped while both are unchanged.
+
+def _is_user(entity: dict) -> bool:
+    """The canonical User record (by subject or alias), which Dream never pairs."""
+    names = [entity.get("subject") or "", *(entity.get("aliases") or "").split(",")]
+    return any(" ".join(name.lower().split()) == "user" for name in names)
+
+
+def _active(entity: dict) -> bool:
+    from row_bot.memory_evolution import get_properties, normalize_status
+
+    return normalize_status(get_properties(entity).get("status")) not in {"archived", "superseded"}
+
+
+def _is_lesson(entity: dict) -> bool:
+    return str(entity.get("entity_type") or "") == _LESSON_TYPE
+
+
+def _type_family(entity: dict) -> str:
+    kind = str(entity.get("entity_type") or "")
+    return "personal" if kind in _PERSONAL_TYPES else kind
+
+
+def _near_identical(entity_a: dict, entity_b: dict) -> bool:
+    def words(entity: dict) -> str:
+        return " ".join(re.sub(r"[^\w\s]", " ", str(entity.get("description") or "").lower()).split())
+
+    return difflib.SequenceMatcher(None, words(entity_a), words(entity_b)).ratio() >= _LESSON_NEAR_IDENTICAL
+
+
+def _older_newer(entity_a: dict, entity_b: dict) -> tuple[dict, dict]:
+    def saved(entity: dict) -> tuple[str, str]:
+        return str(entity.get("created_at") or ""), str(entity["id"])
+
+    return (entity_a, entity_b) if saved(entity_a) <= saved(entity_b) else (entity_b, entity_a)
+
+
+def _pair_block(older: dict, newer: dict) -> str:
+    def memory(label: str, entity: dict) -> str:
+        saved = str(entity.get("created_at") or "")[:10] or "unknown"
+        return (f'{label} memory — type: {entity.get("entity_type", "")}, saved {saved}, '
+                f'subject: "{entity.get("subject", "")}"\n'
+                f'Description: {str(entity.get("description") or "")[:_PAIR_DESCRIPTION_CHARS]}')
+
+    return f"{memory('Older', older)}\n{memory('Newer', newer)}"
+
+
+def _pair_evidence(entity_a: dict, entity_b: dict) -> str:
+    """What the model reads about one pair (the rules and both memories), for the evidence cache."""
+    from row_bot.prompts import DREAM_COMPARE_PROMPT
+
+    return f"{DREAM_COMPARE_PROMPT}\n{_pair_block(*_older_newer(entity_a, entity_b))}"
+
+
+def _compare_prompt(pairs: list[tuple[dict, dict, float]]) -> str:
+    from row_bot.prompts import DREAM_COMPARE_PROMPT
+
+    blocks = "\n\n".join(f"Pair {number}\n{_pair_block(older, newer)}"
+                         for number, (older, newer, _similarity) in enumerate(pairs, 1))
+    return DREAM_COMPARE_PROMPT.format(pairs=blocks)
+
+
+def _find_pair_candidates(entities: list[dict], *, limit: int = _PAIRS_PER_NIGHT) -> list[tuple[dict, dict, float]]:
+    """The closest pairs of memories across the whole graph: ``[(older, newer, similarity)]``.
+
+    One search per memory (its nearest neighbours, of the same type family);
+    archived and superseded memories, the User record and memories longer than
+    the model is shown are left out.  A pair
+    is kept when its calibrated similarity reaches ``_PAIR_MIN_SIMILARITY``;
+    the closest come first, each memory in at most one pair, and a pair the
+    model turned down is skipped while both memories read the same.
     """
     import row_bot.knowledge_graph as kg
 
+    # A memory longer than the model is shown is never paired: a merge would rewrite what it didn't see, and
+    # a replacement would hide all of it (a long record, such as a register a workflow keeps).
+    pool = {entity["id"]: entity for entity in entities if _active(entity) and not _is_user(entity)
+            and len(entity.get("description") or "") <= _PAIR_DESCRIPTION_CHARS}
+    closest: dict[str, tuple[float, str, str]] = {}
+    for entity in pool.values():
+        stats: dict = {}
+        try:
+            hits = kg.semantic_search(kg._entity_text(entity), top_k=_PAIR_NEIGHBOURS + 1, threshold=0.0,
+                                      stats=stats)
+        except Exception as exc:
+            # The index or the embedding model is unavailable: every other search would fail the same way.
+            logger.info("Dream: memory search unavailable, comparing no more pairs tonight (%s)", exc)
+            break
+        mean = stats.get("mean")
+        mean = float(mean) if isinstance(mean, (int, float)) and mean < 1 else 0.0
+        for hit in hits:
+            other = pool.get(str(hit.get("id") or ""))
+            if other is None or other["id"] == entity["id"] or _type_family(other) != _type_family(entity):
+                continue
+            if (_is_lesson(entity) or _is_lesson(other)) and not _near_identical(entity, other):
+                continue
+            similarity = (float(hit.get("score") or 0.0) - mean) / (1 - mean)
+            if similarity < _PAIR_MIN_SIMILARITY:
+                continue
+            key = _pair_key(entity["id"], other["id"])
+            if key not in closest or similarity > closest[key][0]:
+                closest[key] = (similarity, entity["id"], other["id"])
+
     rejections = _load_rejection_cache()
     model_ref = _dream_model_ref()
-    seen_ids: set[str] = set()
-    candidates: list[tuple[dict, dict, float]] = []
-
-    for entity in batch:
-        eid = entity["id"]
-        if eid in seen_ids:
+    paired: set[str] = set()
+    pairs: list[tuple[dict, dict, float]] = []
+    for key, (similarity, id_a, id_b) in sorted(closest.items(), key=lambda item: (-item[1][0], item[0])):
+        if len(pairs) >= limit:
+            break
+        if id_a in paired or id_b in paired:
             continue
-        etype = entity.get("entity_type", "")
-        search_text = kg._entity_text(entity)
+        older, newer = _older_newer(pool[id_a], pool[id_b])
+        if _rejected_with_same_evidence("merge", key, _pair_evidence(older, newer), rejections, model_ref=model_ref):
+            continue
+        pairs.append((older, newer, similarity))
+        paired.update((id_a, id_b))
+    return pairs
 
+
+def _decide_pairs(pairs: list[tuple[dict, dict, float]]) -> list[tuple[dict, dict, float, str]]:
+    """One model decision per pair, ``_PAIRS_PER_CALL`` pairs per call.
+
+    A pair with no usable decision (a failed call, a reply cut short) is left
+    out, so it is asked again another night.
+    """
+    from row_bot.providers.background import list_field
+
+    decided: list[tuple[dict, dict, float, str]] = []
+    for start in range(0, len(pairs), _PAIRS_PER_CALL):
+        chunk = pairs[start:start + _PAIRS_PER_CALL]
         try:
-            hits = kg.semantic_search(search_text, top_k=5, threshold=threshold)
-        except Exception:
+            raw = _llm_call(_compare_prompt(chunk), answer=_compare_answer())
+        except Exception as exc:
+            logger.warning("Dream compare LLM call failed: %s", exc)
             continue
-
-        for hit in hits:
-            hid = hit["id"]
-            if hid == eid or hid in seen_ids:
+        answers: dict[int, str] = {}
+        for item in list_field(raw, "decisions") or []:
+            if not isinstance(item, dict):
                 continue
-            if hit.get("entity_type", "") != etype:
+            try:
+                number = int(item.get("pair"))
+            except (TypeError, ValueError):
                 continue
-            # Skip the "User" entity — never merge it
-            if entity.get("subject", "").strip().lower() == "user":
-                continue
-            if hit.get("subject", "").strip().lower() == "user":
-                continue
+            decision = str(item.get("decision") or "").strip().lower()
+            if 1 <= number <= len(chunk) and decision in _PAIR_DECISIONS:
+                answers.setdefault(number, decision)
+        for number, (older, newer, similarity) in enumerate(chunk, 1):
+            if number in answers:
+                decided.append((older, newer, similarity, answers[number]))
+    return decided
 
-            score = hit.get("score", 0)
 
-            # Subject-name guard: if normalized subjects differ
-            # significantly, require much higher similarity to merge.
-            subj_a = entity.get("subject", "").strip().lower()
-            subj_b = hit.get("subject", "").strip().lower()
-            if subj_a != subj_b:
-                # Check if one is a substring of the other (e.g. "Bob" / "Bob Smith")
-                is_substring = subj_a in subj_b or subj_b in subj_a
-                if not is_substring:
-                    # Different names — require 0.98+ or skip
-                    if score < 0.98:
-                        continue
+def _supersede(older: dict, newer: dict, similarity: float) -> dict | None:
+    """The newer memory changes the older one: the older is kept, marked superseded."""
+    from row_bot import memory_evolution
 
-            if _rejected_with_same_evidence("merge", _pair_key(eid, hid), _merge_prompt(entity, hit)[0],
-                                            rejections, model_ref=model_ref):
-                continue
+    old, new = memory_evolution.mark_superseded(
+        older["id"], newer["id"], reason="A newer memory changes this one (Dream Cycle)", actor="dream_cycle")
+    if not old or not new:
+        return None
+    return {
+        "old_id": older["id"],
+        "old_subject": older.get("subject", ""),
+        "new_id": newer["id"],
+        "new_subject": newer.get("subject", ""),
+        "old_description": str(older.get("description") or "")[:200],
+        "new_description": str(newer.get("description") or "")[:200],
+        "score": round(similarity, 4),
+    }
 
-            candidates.append((entity, hit, score))
-            seen_ids.add(eid)
-            seen_ids.add(hid)
-            break  # One merge per entity per cycle
 
-    return candidates
+def _settle_pairs(pairs: list[tuple[dict, dict, float]], summary: dict, status) -> None:
+    """Ask about *pairs* and act on each answer, recording merges and supersessions in *summary*."""
+    for older, newer, similarity, decision in _decide_pairs(pairs):
+        try:
+            lesson = _is_lesson(older) or _is_lesson(newer)
+            if decision == "same":
+                result = _merge_entities(older, newer)
+                if result:
+                    result["score"] = round(similarity, 4)
+                    summary["merges"].append(result)
+                    status(f"Merged: '{result['duplicate_subject']}' → "
+                           f"'{result['survivor_subject']}' ({similarity:.2f})")
+            elif decision == "replaces" and not lesson:
+                result = _supersede(older, newer, similarity)
+                if result:
+                    summary["superseded"].append(result)
+                    status(f"Replaced: '{result['old_subject']}' by a newer memory "
+                           f"'{result['new_subject']}' ({similarity:.2f})")
+            else:
+                # "different" — or "replaces" for a lesson, which is never superseded.
+                _record_rejection("merge", _pair_key(older["id"], newer["id"]), _pair_evidence(older, newer))
+        except Exception as exc:
+            summary["errors"].append(f"Compare error: {exc}")
 
 
 def _merge_prompt(entity_a: dict, entity_b: dict) -> tuple[str, dict, dict]:
@@ -507,31 +677,56 @@ def _merge_prompt(entity_a: dict, entity_b: dict) -> tuple[str, dict, dict]:
 
 
 def _merge_entities(entity_a: dict, entity_b: dict) -> dict | None:
-    """Merge two entities, keeping the older one. Returns merge log entry."""
+    """Merge two entities, keeping the older one. Returns merge log entry.
+
+    Two lessons (self_knowledge) merge without a word of the survivor changed:
+    its text is what Learning tests.  A lesson never merges with another type.
+    """
+    prompt, survivor, duplicate = _merge_prompt(entity_a, entity_b)
+    lessons = _is_lesson(survivor), _is_lesson(duplicate)
+    if any(lessons) and not all(lessons):
+        return None
+
+    if all(lessons):
+        merged_desc = str(survivor.get("description") or "")
+    else:
+        # LLM: synthesize best description from both
+        try:
+            from row_bot.providers.background import text_field
+
+            raw = _llm_call(prompt, answer=_description_answer())
+            merged_desc = text_field(raw, "description")
+            if not merged_desc or len(merged_desc) < 10:
+                if _answered(raw):
+                    _record_rejection("merge", _pair_key(survivor["id"], duplicate["id"]),
+                                      _pair_evidence(survivor, duplicate))
+                return None
+        except Exception as exc:
+            logger.warning("Dream merge LLM call failed: %s", exc)
+            return None
+
+    return merge_into(survivor, duplicate, merged_desc)
+
+
+def merge_into(survivor: dict, duplicate: dict, merged_desc: str) -> dict | None:
+    """Fold *duplicate* into *survivor*: its relations move over, its subject becomes an alias, the survivor
+    reads *merged_desc* (a lesson is left exactly as it is), and the duplicate is deleted.
+
+    The Dream Cycle's merge and Review memory's both end here, so a lesson that was the duplicate is handed
+    over to the survivor (O7) before the delete marks it gone.
+    """
     import row_bot.knowledge_graph as kg
 
-    # LLM: synthesize best description from both
-    prompt, survivor, duplicate = _merge_prompt(entity_a, entity_b)
-
-    try:
-        from row_bot.providers.background import text_field
-
-        raw = _llm_call(prompt, answer=_description_answer())
-        merged_desc = text_field(raw, "description")
-        if not merged_desc or len(merged_desc) < 10:
-            if _answered(raw):
-                _record_rejection("merge", _pair_key(survivor["id"], duplicate["id"]), prompt)
-            return None
-    except Exception as exc:
-        logger.warning("Dream merge LLM call failed: %s", exc)
+    lessons = _is_lesson(survivor), _is_lesson(duplicate)
+    if any(lessons) and not all(lessons):
         return None
+    dup_subj = duplicate.get("subject", "").strip()
+    surv_subj = survivor.get("subject", "").strip()
 
     # Union aliases
     a_aliases = set(a.strip() for a in (survivor.get("aliases", "") or "").split(",") if a.strip())
     b_aliases = set(a.strip() for a in (duplicate.get("aliases", "") or "").split(",") if a.strip())
     # Add the duplicate's subject as an alias if different
-    dup_subj = duplicate.get("subject", "").strip()
-    surv_subj = survivor.get("subject", "").strip()
     if dup_subj.lower() != surv_subj.lower():
         b_aliases.add(dup_subj)
     merged_aliases = ", ".join(sorted(a_aliases | b_aliases))
@@ -558,16 +753,19 @@ def _merge_entities(entity_a: dict, entity_b: dict) -> dict | None:
     except Exception as exc:
         logger.debug("Re-pointing relations failed: %s", exc)
 
-    # Update survivor with merged description + aliases
-    try:
-        kg.update_entity(
-            survivor["id"],
-            merged_desc,
-            aliases=merged_aliases if merged_aliases else None,
-        )
-    except Exception as exc:
-        logger.warning("Dream merge update failed: %s", exc)
-        return None
+    # Update survivor with merged description + aliases (a lesson is left exactly as it is)
+    if not all(lessons):
+        try:
+            kg.update_entity(
+                survivor["id"],
+                merged_desc,
+                aliases=merged_aliases if merged_aliases else None,
+            )
+        except Exception as exc:
+            logger.warning("Dream merge update failed: %s", exc)
+            return None
+    else:
+        merged_aliases = str(survivor.get("aliases") or "")
 
     # A lesson in use that was the duplicate moves to the survivor (O7), before the delete marks it gone.
     if str(duplicate.get("entity_type") or "") == "self_knowledge":
@@ -598,166 +796,221 @@ def _merge_entities(entity_a: dict, entity_b: dict) -> dict | None:
     }
 
 
-# ── OP2: Description enrichment ─────────────────────────────────────────────
+# ── Conversations, read once per night ──────────────────────────────────────
+#
+# One pass over the conversations collects what enrichment and inference both
+# need: the sentences naming each thin memory, and the passages naming two
+# memories together.  Only bounded excerpts are kept, never whole conversations.
 
-def _find_thin_entities(batch: list[dict], min_chars: int) -> list[dict]:
-    """Find entities with descriptions shorter than min_chars."""
-    return [e for e in batch if len(e.get("description", "") or "") < min_chars]
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|(?=\b(?:User|Assistant):)")
+_MENTION_CHARS = 500          # sentences naming a memory, per conversation
+_MENTION_CONVERSATIONS = 3
+_PASSAGE_CHARS = 700          # one passage naming both memories of a pair
+_PAIR_EXCERPTS = 3
+_MAX_TRACKED_PAIRS = 10_000
 
 
-def _find_conversation_mentions(subject: str, aliases: str = "") -> list[str]:
-    """Search conversations for sentence-level mentions of an entity.
+class _Conversations:
+    """What one read of the conversations found."""
 
-    Instead of extracting raw character windows (which mix facts about
-    different entities), this splits conversation text into sentences and
-    only returns sentences that actually mention the target entity's name
-    or aliases.  Returns up to 3 excerpts (one per conversation).
-    """
+    def __init__(self) -> None:
+        # Entity id -> up to 3 excerpts (one per conversation) of the sentences naming it.
+        self.mentions: dict[str, list[str]] = {}
+        # (id, id) -> [conversations with a passage naming both, the longest such passages (up to 3)].
+        self.pairs: dict[tuple[str, str], list] = {}
+
+
+def _entity_names(entity: dict) -> set[str]:
+    names = {str(entity.get("subject") or "").strip().lower()}
+    names.update(alias.strip().lower() for alias in str(entity.get("aliases") or "").split(","))
+    return {name for name in names if len(name) >= 2 and name != "user"}
+
+
+def _name_pattern(name: str) -> re.Pattern:
+    return re.compile(r"(?<!\w)" + re.escape(name) + r"(?!\w)", re.IGNORECASE)
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of each sentence or conversation turn, whitespace trimmed."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for match in [*_SENTENCE_BREAK.finditer(text), None]:
+        end = len(text) if match is None else match.start()
+        piece = text[start:end]
+        if piece.strip():
+            spans.append((start + len(piece) - len(piece.lstrip()), start + len(piece.rstrip())))
+        if match is not None:
+            start = max(start, match.end())
+    return spans
+
+
+def _read_conversation(text: str, patterns: dict[str, tuple[re.Pattern, list[str]]],
+                       mention_ids: set[str], found: _Conversations) -> None:
+    lower = text.lower()
+    present = [(pattern, ids) for name, (pattern, ids) in patterns.items() if name in lower]
+    if not present:
+        return
+    spans = _sentence_spans(text)
+    starts = [start for start, _end in spans]
+    # Sentence index -> {entity id: (start, end) of its first mention there}
+    named: dict[int, dict[str, tuple[int, int]]] = {}
+    for pattern, ids in present:
+        for match in pattern.finditer(text):
+            index = bisect.bisect_right(starts, match.start()) - 1
+            if index < 0 or match.end() > spans[index][1]:
+                continue
+            for entity_id in ids:
+                named.setdefault(index, {}).setdefault(entity_id, match.span())
+
+    # Enrichment: the sentences naming each thin memory, in order, up to _MENTION_CHARS.
+    sentences_of: dict[str, list[int]] = {}
+    for index in sorted(named):
+        for entity_id in named[index]:
+            if entity_id in mention_ids:
+                sentences_of.setdefault(entity_id, []).append(index)
+    for entity_id, indices in sentences_of.items():
+        excerpts = found.mentions.setdefault(entity_id, [])
+        if len(excerpts) >= _MENTION_CONVERSATIONS:
+            continue
+        kept: list[str] = []
+        total = 0
+        for index in indices:
+            sentence = text[spans[index][0]:spans[index][1]]
+            kept.append(sentence)
+            total += len(sentence)
+            if total >= _MENTION_CHARS:
+                break
+        excerpts.append(" ".join(kept))
+
+    # Inference: a passage naming both, in one sentence or two adjacent ones (the first such).
+    passages: dict[tuple[str, str], tuple[int, str, int, str]] = {}
+    for index in sorted(named):
+        here = named[index]
+        after = named.get(index + 1, {})
+        for entity_a in here:
+            for entity_b, where in [*((other, index) for other in here), *((other, index + 1) for other in after)]:
+                if entity_a == entity_b:
+                    continue
+                key = tuple(sorted((entity_a, entity_b)))
+                if key not in passages:
+                    passages[key] = (index, entity_a, where, entity_b)
+    for key, (index_a, entity_a, index_b, entity_b) in passages.items():
+        first, last = min(index_a, index_b), max(index_a, index_b)
+        span_a, span_b = named[index_a][entity_a], named[index_b][entity_b]
+        low, high = min(span_a[0], span_b[0]), max(span_a[1], span_b[1])
+        if high - low > _PASSAGE_CHARS:
+            continue  # named too far apart to be one passage
+        begin, finish = spans[first][0], spans[last][1]
+        if finish - begin > _PASSAGE_CHARS:
+            begin = max(begin, low - (_PASSAGE_CHARS - (high - low)) // 2)
+            finish = min(finish, begin + _PASSAGE_CHARS)
+        excerpt = text[begin:finish].strip()
+        entry = found.pairs.get(key)
+        if entry is None:
+            if len(found.pairs) >= _MAX_TRACKED_PAIRS:
+                continue
+            entry = found.pairs[key] = [0, []]
+        entry[0] += 1
+        # The longest passages, ties by text: the same conversations give the same evidence in any order.
+        entry[1] = sorted([*entry[1], excerpt], key=lambda passage: (len(passage), passage),
+                          reverse=True)[:_PAIR_EXCERPTS]
+
+
+def _read_conversations(entities: list[dict], mention_ids: set[str] | frozenset[str] = frozenset()) -> _Conversations:
+    """Read every conversation once: mentions of the *mention_ids* memories, and passages naming two of *entities*."""
     from row_bot.threads import _list_threads
     from row_bot.memory_extraction import _get_thread_messages, _format_conversation
 
-    names = {subject.lower()}
-    for alias in (aliases or "").split(","):
-        alias = alias.strip()
-        if alias:
-            names.add(alias.lower())
-
-    threads = _list_threads()
-    if not threads:
-        return []
-
-    excerpts = []
-    for tid, name, created, updated, *rest in threads:
-        if len(excerpts) >= 3:
-            break
+    names: dict[str, set[str]] = {}
+    for entity in entities:
+        for name in _entity_names(entity):
+            names.setdefault(name, set()).add(entity["id"])
+    patterns = {name: (_name_pattern(name), sorted(ids)) for name, ids in names.items()}
+    wanted = set(mention_ids)
+    found = _Conversations()
+    if not patterns:
+        return found
+    for tid, *_rest in _list_threads() or []:
         try:
             messages = _get_thread_messages(tid)
             if not messages:
                 continue
-            conv_text = _format_conversation(messages)
-            conv_lower = conv_text.lower()
-            if not any(n in conv_lower for n in names):
-                continue
-
-            # Split into sentences and keep only those mentioning the entity
-            relevant = _extract_relevant_sentences(conv_text, names)
-            if relevant:
-                excerpts.append(relevant)
+            _read_conversation(_format_conversation(messages), patterns, wanted, found)
         except Exception:
-            continue
+            logger.debug("Dream could not read conversation %s", tid, exc_info=True)
+    return found
 
-    return excerpts
+
+def _find_conversation_mentions(subject: str, aliases: str = "") -> list[str]:
+    """Up to 3 excerpts (one per conversation) of the sentences naming *subject* or an alias."""
+    entity = {"id": "_mentioned", "subject": subject, "aliases": aliases}
+    return _read_conversations([entity], {"_mentioned"}).mentions.get("_mentioned", [])
 
 
-def _extract_relevant_sentences(text: str, names: set[str], max_chars: int = 500) -> str:
-    """Extract sentences from *text* that mention any name in *names*.
+# ── OP2: Description enrichment ─────────────────────────────────────────────
 
-    Splits on sentence boundaries (`.!?` followed by whitespace or newline)
-    and on conversation turn boundaries (`User:` / `Assistant:`).  Returns
-    only the sentences that contain at least one of the target names,
-    concatenated and capped at *max_chars*.
+# Names whose appearance in an enriched description is checked against the evidence.
+_NAMED_TYPES = frozenset({"person", "place", "organisation"})
+_ENRICH_PER_NIGHT = 20  # thin memories with evidence asked about per night
+
+
+def _other_names(entities: list[dict]) -> set[str]:
+    """The names (subjects and aliases) of the people, places and organisations in memory."""
+    names: set[str] = set()
+    for entity in entities:
+        if str(entity.get("entity_type") or "") in _NAMED_TYPES and not _is_user(entity):
+            names.update(name for name in _entity_names(entity) if len(name) >= 3)
+    return names
+
+
+def _prepare_enrichment_inputs(entities: list[dict], min_chars: int) -> tuple[list[dict], set[str]]:
+    """Thin memories, those turned down before last, and the names enrichment is checked for.
+
+    A lesson (self_knowledge) is never rewritten, and the User record is left to extraction.
     """
-    # Split on sentence-ending punctuation or conversation turn markers
-    parts = re.split(r'(?<=[.!?])\s+|(?=\b(?:User|Assistant):)', text)
-    kept: list[str] = []
-    total = 0
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
-        part_lower = part.lower()
-        if any(n in part_lower for n in names):
-            kept.append(part)
-            total += len(part)
-            if total >= max_chars:
-                break
-    return " ".join(kept)
-
-
-def _collect_other_subjects(entity_id: str | None, all_entities: list[dict] | None = None) -> set[str]:
-    """Build a set of lowercased subject names for all entities EXCEPT *entity_id*.
-
-    Used by the post-enrichment validator to detect cross-entity fact-bleed.
-    """
-    if all_entities is None:
-        import row_bot.knowledge_graph as kg
-        all_entities = kg.list_entities(limit=100_000)
-
-    others: set[str] = set()
-    for e in all_entities:
-        if entity_id and e["id"] == entity_id:
-            continue
-        subj = (e.get("subject", "") or "").strip().lower()
-        if subj and len(subj) >= 3 and subj != "user":
-            others.add(subj)
-        for alias in (e.get("aliases", "") or "").split(","):
-            alias = alias.strip().lower()
-            if alias and len(alias) >= 3 and alias != "user":
-                others.add(alias)
-    return others
-
-
-def _prepare_enrichment_inputs(
-    all_entities: list[dict],
-    merges: list[dict],
-    min_chars: int,
-) -> tuple[list[dict], set[str]]:
-    """Prepare Phase 2 enrichment candidates and validation guardrails."""
-    merged_ids = {
-        item.get("duplicate_id")
-        for item in merges
-        if item.get("duplicate_id")
-    }
-    surviving_entities = [
-        entity for entity in all_entities
-        if entity["id"] not in merged_ids
-    ]
-    thin_entities = _find_thin_entities(surviving_entities, min_chars)
+    thin = [entity for entity in entities
+            if not _is_lesson(entity) and not _is_user(entity) and _active(entity)
+            and len(entity.get("description", "") or "") < min_chars]
     # Entities whose enrichment the model turned down go last, so the others get their turn.
     turned_down = _load_rejection_cache()["enrich"]
-    thin_entities.sort(key=lambda entity: (entity["id"] in turned_down, entity.get("updated_at", "")))
-    other_subjects = _collect_other_subjects(None, surviving_entities)
-    return thin_entities[:20], other_subjects
+    thin.sort(key=lambda entity: (entity["id"] in turned_down, entity.get("updated_at", "")))
+    return thin, _other_names(entities)
 
 
 def _validate_enrichment(
     enriched: str,
     entity: dict,
-    other_subjects: set[str],
+    other_names: set[str],
+    excerpts: list[str],
 ) -> bool:
-    """Return True if *enriched* passes cross-entity contamination check.
+    """Return True if *enriched* passes the cross-entity contamination check.
 
-    Scans the enriched description for mentions of other known entity
-    subjects.  Subjects that already appear in the entity's known
-    relationships are allowed (e.g. "Diana works with Bob" is fine if
-    Diana→Bob is an existing relation).  Everything else is contamination.
+    A person, place or organisation named in the new text must come from the
+    evidence: the conversation excerpts, the current description, or the
+    entity's known relations.  Another one is contamination.
     """
     import row_bot.knowledge_graph as kg
 
     enriched_lower = enriched.lower()
-    entity_subject = (entity.get("subject", "") or "").strip().lower()
-
-    # Collect peer subjects from existing relationships — these are allowed
-    allowed: set[str] = set()
+    sources = " ".join([*excerpts, str(entity.get("description") or "")]).lower()
+    allowed = _entity_names(entity)
     try:
-        rels = kg.get_relations(entity["id"], direction="both")
-        for r in rels:
-            peer = (r.get("peer_subject", "") or "").strip().lower()
+        for relation in kg.get_relations(entity["id"], direction="both"):
+            peer = (relation.get("peer_subject", "") or "").strip().lower()
             if peer:
                 allowed.add(peer)
     except Exception:
         pass
 
-    for subj in other_subjects:
-        if subj == entity_subject:
+    for name in other_names:
+        name = name.strip().lower()
+        if not name or name in allowed or name not in enriched_lower:
             continue
-        if subj in allowed:
-            continue
-        # Use word-boundary check to avoid false positives on substrings
-        if re.search(r'\b' + re.escape(subj) + r'\b', enriched_lower):
+        pattern = _name_pattern(name)
+        if pattern.search(enriched_lower) and not pattern.search(sources):
             logger.info(
-                "Dream enrich REJECTED for '%s': mentions unrelated entity '%s'",
-                entity.get("subject", ""), subj,
+                "Dream enrich REJECTED for '%s': names '%s', which the evidence does not",
+                entity.get("subject", ""), name,
             )
             return False
     return True
@@ -793,15 +1046,18 @@ def _enrich_prompt(entity: dict, excerpts: list[str]) -> str:
 def _enrich_entity(
     entity: dict,
     excerpts: list[str],
-    other_subjects: set[str] | None = None,
+    other_names: set[str] | None = None,
 ) -> dict | None:
     """Enrich an entity's description using conversation context.
 
     A reply that fails a check below is remembered as turned down for this
-    prompt, so the same entity and evidence are not sent again.
+    prompt, so the same entity and evidence are not sent again.  A lesson
+    (self_knowledge) is never rewritten.
     """
     import row_bot.knowledge_graph as kg
 
+    if _is_lesson(entity):
+        return None
     prompt = _enrich_prompt(entity, excerpts)
 
     def turned_down() -> None:
@@ -836,8 +1092,8 @@ def _enrich_entity(
         return None
 
     # Layer 2: Cross-entity contamination check (deterministic)
-    if other_subjects is not None:
-        if not _validate_enrichment(enriched, entity, other_subjects):
+    if other_names is not None:
+        if not _validate_enrichment(enriched, entity, other_names, excerpts):
             turned_down()
             return None
 
@@ -895,102 +1151,32 @@ def _enrich_entity(
 
 # ── OP3: Relationship inference ──────────────────────────────────────────────
 
-def _find_cooccurring_pairs(batch: list[dict]) -> list[tuple[dict, dict, str, int]]:
-    """Find entity pairs that co-occur in conversations but have no edge.
+def _find_cooccurring_pairs(entities: list[dict], conversations: _Conversations) -> list[tuple[dict, dict, str, int]]:
+    """Entity pairs named together in a passage of a conversation, with no edge yet.
 
-    Returns list of (entity_a, entity_b, conversation_excerpt, co_occurrence_count)
-    tuples.  Limited to 1 pair per entity to keep batch size manageable.
-    Requires word-boundary matching and counts co-occurrences across
-    conversations to produce a quality signal.
+    Returns ``(entity_a, entity_b, excerpt, co_occurrence_count)`` tuples, the
+    most conversations first.  The excerpt is always a passage naming both
+    (the read keeps no other), and the count is how many conversations hold one.
     """
     import re as _re
     import row_bot.knowledge_graph as kg
-    from row_bot.threads import _list_threads
-    from row_bot.memory_extraction import _get_thread_messages, _format_conversation
-
-    threads = _list_threads()
-    if not threads:
-        return []
-
-    # Build entity lookup by subject/aliases (lowercased) with word-boundary
-    # regex patterns to avoid substring false positives (e.g. "Bob" matching
-    # "Bobsled").
-    entity_names: dict[str, dict] = {}
-    entity_patterns: dict[str, _re.Pattern] = {}
-    for e in batch:
-        subj = (e.get("subject", "") or "").strip().lower()
-        if subj and subj != "user":
-            entity_names[subj] = e
-            entity_patterns[subj] = _re.compile(r"\b" + _re.escape(subj) + r"\b", _re.IGNORECASE)
-        for alias in (e.get("aliases", "") or "").split(","):
-            alias = alias.strip().lower()
-            if alias and alias != "user":
-                entity_names[alias] = e
-                entity_patterns[alias] = _re.compile(r"\b" + _re.escape(alias) + r"\b", _re.IGNORECASE)
-
-    # First pass: count co-occurrences across ALL conversations
-    pair_conversations: dict[tuple[str, str], list[str]] = {}  # pair_key → [excerpts]
-
-    for tid, name, created, updated, *rest in threads:
-        try:
-            messages = _get_thread_messages(tid)
-            if not messages:
-                continue
-            conv_text = _format_conversation(messages)
-        except Exception:
-            continue
-
-        # Find which entities from our batch appear (with word boundaries)
-        found_in_conv: list[dict] = []
-        seen_entity_ids: set[str] = set()
-        for name_str, pattern in entity_patterns.items():
-            entity = entity_names[name_str]
-            if entity["id"] not in seen_entity_ids and pattern.search(conv_text):
-                found_in_conv.append(entity)
-                seen_entity_ids.add(entity["id"])
-
-        # Record all pairs in this conversation
-        for i, ea in enumerate(found_in_conv):
-            for eb in found_in_conv[i + 1:]:
-                if ea["id"] == eb["id"]:
-                    continue
-                pair_key = tuple(sorted([ea["id"], eb["id"]]))
-
-                # Extract excerpt around first entity mention
-                excerpt = conv_text[:500]
-                for name_str, pattern in entity_patterns.items():
-                    if entity_names[name_str]["id"] == ea["id"]:
-                        m = pattern.search(conv_text)
-                        if m:
-                            idx = m.start()
-                            start = max(0, idx - 200)
-                            end = min(len(conv_text), idx + 500)
-                            excerpt = conv_text[start:end]
-                            break
-
-                if pair_key not in pair_conversations:
-                    pair_conversations[pair_key] = []
-                pair_conversations[pair_key].append(excerpt)
-
-    # Second pass: filter, rank, and select pairs
     from collections import Counter as _Counter
 
     _VAGUE_EDGE_TYPES = {"related_to", "associated_with"}
     _HUB_CAP = 3  # max appearances per entity across selected pairs
 
     pairs: list[tuple[dict, dict, str, int]] = []
-    seen_pairs: set[tuple[str, str]] = set()
     entity_use_count: _Counter = _Counter()
 
     # Build entity lookup by ID for quick access
-    entity_by_id: dict[str, dict] = {e["id"]: e for e in batch}
+    entity_by_id: dict[str, dict] = {e["id"]: e for e in entities}
     rejections = _load_rejection_cache()
     model_ref = _dream_model_ref()
 
-    # Sort by co-occurrence count descending (most evidence first)
-    ranked_pairs = sorted(pair_conversations.items(), key=lambda x: len(x[1]), reverse=True)
+    # Sort by co-occurrence count descending (most evidence first), ties by pair
+    ranked_pairs = sorted(conversations.pairs.items(), key=lambda item: (-item[1][0], item[0]))
 
-    for pair_key, excerpts in ranked_pairs:
+    for pair_key, (co_count, excerpts) in ranked_pairs:
         if len(pairs) >= 25:
             break
 
@@ -1002,7 +1188,7 @@ def _find_cooccurring_pairs(batch: list[dict]) -> list[tuple[dict, dict, str, in
 
         ea = entity_by_id.get(ea_id)
         eb = entity_by_id.get(eb_id)
-        if not ea or not eb:
+        if not ea or not eb or not excerpts:
             continue
 
         # Pre-flight merge check: if A's description mentions B's subject
@@ -1040,14 +1226,11 @@ def _find_cooccurring_pairs(batch: list[dict]) -> list[tuple[dict, dict, str, in
         except Exception:
             continue
 
-        # Multi-excerpt evidence: join up to 3 best excerpts for rich context.
-        # Ties go by text, so the same conversations give the same evidence.
-        co_count = len(excerpts)
-        sorted_excerpts = sorted(excerpts, key=lambda text: (len(text), text), reverse=True)
+        # Multi-excerpt evidence: up to 3 passages (the longest first) for rich context.
         if co_count >= 3:
-            evidence = "\n\n---\n\n".join(sorted_excerpts[:3])
+            evidence = "\n\n---\n\n".join(excerpts[:3])
         else:
-            evidence = sorted_excerpts[0]
+            evidence = excerpts[0]
 
         # Skip a pair the model turned down after reading this same evidence
         if _rejected_with_same_evidence("infer", _pair_key(ea_id, eb_id),
@@ -1055,7 +1238,6 @@ def _find_cooccurring_pairs(batch: list[dict]) -> list[tuple[dict, dict, str, in
             continue
 
         pairs.append((ea, eb, evidence, co_count))
-        seen_pairs.add(pair_key)
         entity_use_count[ea_id] += 1
         entity_use_count[eb_id] += 1
 
@@ -1538,6 +1720,88 @@ def _run_insights_phase(cycle_id: str, on_status=None) -> dict:
     return result
 
 
+# ── OP4: Confidence decay on stale inferences ───────────────────────────────
+#
+# Each inferred relation keeps its own decay stamp (``decayed_at`` in its
+# properties); ``updated_at`` is left alone.  It loses 10% per 30 days unused
+# and is removed below 0.3.  One re-stated since (``updated_at`` newer than
+# its stamp) starts over.  Times compare as aware UTC; the naive timestamps
+# saved elsewhere are local time.
+
+_DECAY_EVERY_DAYS = 30
+_DECAY_FACTOR = 0.9         # 10% less per period
+_DECAY_DELETE_BELOW = 0.3   # removed when confidence drops below this
+
+
+def _as_utc(value) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(str(value or ""))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.astimezone()  # a naive stored time is local time
+    return moment.astimezone(timezone.utc)
+
+
+def _decay_inferences(status=None) -> tuple[list[dict], list[dict]]:
+    """Decay and prune Dream's inferred relations: ``(decayed, pruned)`` journal entries."""
+    import row_bot.knowledge_graph as kg
+
+    now = datetime.now(timezone.utc)
+    period = timedelta(days=_DECAY_EVERY_DAYS)
+    conn = kg._get_conn()
+    try:
+        rows = [dict(row) for row in conn.execute(
+            "SELECT id, relation_type, confidence, properties, updated_at "
+            "FROM relations WHERE source = 'dream_infer'").fetchall()]
+    finally:
+        conn.close()
+
+    decayed: list[dict] = []
+    to_prune: list[dict] = []
+    updates: list[tuple[float, str, str]] = []
+    for row in rows:
+        try:
+            props = json.loads(row["properties"] or "{}")
+        except (TypeError, ValueError):
+            props = {}
+        props = props if isinstance(props, dict) else {}
+        stated = _as_utc(row["updated_at"])
+        stamp = _as_utc(props.get("decayed_at"))
+        since = stated if stamp is None or (stated is not None and stated > stamp) else stamp
+        if since is None:
+            continue
+        periods = int((now - since) / period)
+        if periods < 1:
+            continue
+        old_conf = float(row["confidence"] or 0.0)
+        new_conf = round(old_conf * _DECAY_FACTOR ** periods, 4)
+        if new_conf < _DECAY_DELETE_BELOW:
+            to_prune.append({"relation_id": row["id"], "relation_type": row["relation_type"],
+                             "old_confidence": old_conf})
+            continue
+        props["decayed_at"] = (since + periods * period).isoformat()
+        updates.append((new_conf, json.dumps(props), row["id"]))
+        decayed.append({"relation_id": row["id"], "relation_type": row["relation_type"],
+                        "old_confidence": old_conf, "new_confidence": new_conf})
+
+    if updates:
+        conn = kg._get_conn()
+        try:
+            conn.executemany("UPDATE relations SET confidence = ?, properties = ? WHERE id = ?", updates)
+            conn.commit()
+        finally:
+            conn.close()
+
+    pruned: list[dict] = []
+    for entry in to_prune:
+        if kg.delete_relation(entry["relation_id"]):
+            pruned.append(entry)
+            if status:
+                status(f"Pruned stale inference: {entry['relation_type']} (conf {entry['old_confidence']:.2f})")
+    return decayed, pruned
+
+
 # ── Main dream cycle ────────────────────────────────────────────────────────
 
 def run_dream_cycle(on_status=None) -> dict:
@@ -1555,6 +1819,41 @@ def run_dream_cycle(on_status=None) -> dict:
         _dreaming.clear()
 
 
+BACKUP_NAME = "memory.db.pre-dream-whole-graph"
+
+
+def _backup_before_first_whole_graph_cycle(cfg: dict) -> bool:
+    """Copy memory.db once, before the first cycle that compares the whole graph (5.3.4) changes anything.
+
+    That first night may merge or replace up to a night's pairs of memories saved long before; the copy is
+    how they come back. Taken with SQLite's own backup, so a write in progress can't tear it. False when the
+    copy failed: the cycle then waits for another night.
+    """
+    import sqlite3
+
+    import row_bot.knowledge_graph as kg
+
+    if cfg.get("whole_graph_backup"):
+        return True
+    target = pathlib.Path(kg.DB_PATH).with_name(BACKUP_NAME)
+    try:
+        if not target.is_file():
+            source = sqlite3.connect(kg.DB_PATH)
+            copy = sqlite3.connect(str(target))
+            try:
+                source.backup(copy)
+            finally:
+                copy.close()
+                source.close()
+        cfg["whole_graph_backup"] = target.name
+        _save_config(cfg)
+        logger.info("Dream Cycle: memory backed up to %s before the first whole-graph cycle", target.name)
+        return True
+    except (OSError, sqlite3.Error) as exc:
+        logger.warning("Dream Cycle: memory could not be backed up first (%s)", type(exc).__name__)
+        return False
+
+
 def _run_dream_cycle(on_status=None) -> dict:
     import row_bot.knowledge_graph as kg
 
@@ -1566,6 +1865,7 @@ def _run_dream_cycle(on_status=None) -> dict:
         "cycle_id": cycle_id,
         "timestamp": start_time.isoformat(),
         "merges": [],
+        "superseded": [],
         "enrichments": [],
         "inferred_relations": [],
         "errors": [],
@@ -1597,71 +1897,48 @@ def _run_dream_cycle(on_status=None) -> dict:
         _append_journal(summary)
         return summary
 
-    # Select batch
-    batch_size = cfg.get("batch_size", 50)
     all_entities = kg.list_entities(limit=100_000)
-    # Rotate through entities using a stored offset so each cycle
-    # processes a different slice instead of always the same oldest 50
-    all_entities.sort(key=lambda e: e.get("updated_at", ""))
-    batch_offset = cfg.get("_batch_offset", 0)
-    if batch_offset >= len(all_entities):
-        batch_offset = 0
-    end = batch_offset + batch_size
-    if end <= len(all_entities):
-        batch = all_entities[batch_offset:end]
-    else:
-        # Wrap around
-        batch = all_entities[batch_offset:] + all_entities[:end - len(all_entities)]
-    # Advance offset for next cycle (half-overlap for continuity)
-    next_offset = (batch_offset + batch_size // 2) % max(len(all_entities), 1)
-    cfg["_batch_offset"] = next_offset
-    _save_config(cfg)
-
-    _status(f"Starting dream cycle — {len(batch)} entities (of {entity_count})")
+    _status(f"Starting dream cycle — {entity_count} entities")
+    if not _backup_before_first_whole_graph_cycle(cfg):
+        summary["errors"].append("Skipped: memory could not be backed up before the first whole-graph cycle")
+        summary["summary"] = "Skipped — memory could not be backed up first; it will try again next night"
+        summary["duration_s"] = (datetime.now(timezone.utc) - start_time).total_seconds()
+        _append_journal(summary)
+        return summary
 
     # Discover candidates before deferring this cycle's projection writes.
-    _status("Phase 1: Scanning for duplicates…")
-    merge_threshold = cfg.get("merge_threshold", 0.93)
-    candidates = _find_merge_candidates(batch, merge_threshold)
+    _status("Phase 1: Comparing similar memories…")
+    candidates = _find_pair_candidates(all_entities)
     with kg.projection_batch(drain_on_exit=False):
 
-        for entity_a, entity_b, score in candidates:
-            try:
-                result = _merge_entities(entity_a, entity_b)
-                if result:
-                    result["score"] = round(score, 4)
-                    summary["merges"].append(result)
-                    _status(
-                        f"Merged: '{result['duplicate_subject']}' → "
-                        f"'{result['survivor_subject']}' ({score:.2f})"
-                    )
-            except Exception as exc:
-                summary["errors"].append(f"Merge error: {exc}")
+        _settle_pairs(candidates, summary, _status)
+
+        # What is left after the merges and replacements, read again.
+        entities = [entity for entity in kg.list_entities(limit=100_000)
+                    if _active(entity) and not _is_user(entity)]
 
         # ── OP2: Description enrichment ──────────────────────────────
         _status("Phase 2: Enriching thin descriptions…")
         min_chars = cfg.get("enrich_min_chars", 80)
-        enrichment_candidates, other_subjects = _prepare_enrichment_inputs(
-            all_entities,
-            summary["merges"],
-            min_chars,
-        )
+        thin_entities, other_names = _prepare_enrichment_inputs(entities, min_chars)
+        # The one read of the conversations tonight, for enrichment and inference.
+        conversations = _read_conversations(entities, {entity["id"] for entity in thin_entities})
         model_ref = _dream_model_ref()
 
-        for entity in enrichment_candidates:
-
-            excerpts = _find_conversation_mentions(
-                entity.get("subject", ""),
-                entity.get("aliases", ""),
-            )
+        asked = 0
+        for entity in thin_entities:
+            if asked >= _ENRICH_PER_NIGHT:
+                break
+            excerpts = conversations.mentions.get(entity["id"], [])
             if len(excerpts) < 2:
                 continue  # Need 2+ conversations as evidence
             if _rejected_with_same_evidence("enrich", str(entity["id"]), _enrich_prompt(entity, excerpts),
                                             model_ref=model_ref):
                 continue  # Turned down before by this model, and nothing new to read
+            asked += 1
 
             try:
-                result = _enrich_entity(entity, excerpts, other_subjects)
+                result = _enrich_entity(entity, excerpts, other_names)
                 if result:
                     summary["enrichments"].append(result)
                     _status(
@@ -1673,44 +1950,10 @@ def _run_dream_cycle(on_status=None) -> dict:
 
         # ── OP3: Confidence decay on stale inferences ────────────────
         _status("Phase 3: Decaying stale inferences…")
-        _DECAY_AFTER_DAYS = 90
-        _DECAY_FACTOR = 0.9       # reduce by 10% each cycle
-        _DECAY_DELETE_BELOW = 0.3  # remove if confidence drops below this
         summary["decayed"] = []
         summary["pruned"] = []
-        _decay_conn = None
         try:
-            _decay_conn = kg._get_conn()
-            cutoff_date = (datetime.now(timezone.utc) - timedelta(days=_DECAY_AFTER_DAYS)).isoformat()
-            stale_rows = _decay_conn.execute(
-                "SELECT id, source_id, target_id, relation_type, confidence, updated_at "
-                "FROM relations WHERE source = 'dream_infer' AND updated_at < ?",
-                (cutoff_date,),
-            ).fetchall()
-            for row in stale_rows:
-                old_conf = row["confidence"]
-                new_conf = round(old_conf * _DECAY_FACTOR, 4)
-                if new_conf < _DECAY_DELETE_BELOW:
-                    # Prune: too low to be useful
-                    kg.delete_relation(row["id"])
-                    summary["pruned"].append({
-                        "relation_id": row["id"],
-                        "relation_type": row["relation_type"],
-                        "old_confidence": old_conf,
-                    })
-                    _status(f"Pruned stale inference: {row['relation_type']} (conf {old_conf:.2f})")
-                else:
-                    _decay_conn.execute(
-                        "UPDATE relations SET confidence = ?, updated_at = ? WHERE id = ?",
-                        (new_conf, datetime.now(timezone.utc).isoformat(), row["id"]),
-                    )
-                    summary["decayed"].append({
-                        "relation_id": row["id"],
-                        "relation_type": row["relation_type"],
-                        "old_confidence": old_conf,
-                        "new_confidence": new_conf,
-                    })
-            _decay_conn.commit()
+            summary["decayed"], summary["pruned"] = _decay_inferences(_status)
             if summary["decayed"] or summary["pruned"]:
                 _status(
                     f"Decayed {len(summary['decayed'])} stale inference(s), "
@@ -1718,14 +1961,11 @@ def _run_dream_cycle(on_status=None) -> dict:
                 )
         except Exception as exc:
             summary["errors"].append(f"Decay error: {exc}")
-        finally:
-            if _decay_conn:
-                _decay_conn.close()
 
         # ── OP4: Relationship inference ──────────────────────────────
         _status("Phase 4: Inferring relationships…")
         infer_confidence = cfg.get("infer_confidence", 0.7)
-        pairs = _find_cooccurring_pairs(batch)
+        pairs = _find_cooccurring_pairs(entities, conversations)
 
         for entity_a, entity_b, excerpt, co_count in pairs[:15]:  # Cap inferences per cycle
             try:
@@ -1777,6 +2017,8 @@ def _run_dream_cycle(on_status=None) -> dict:
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     summary["duration_s"] = round(duration, 1)
     parts = [f"{m} merge(s), {e} enrichment(s), {r} inference(s)"]
+    if summary["superseded"]:
+        parts.append(f"{len(summary['superseded'])} replaced by newer memories")
     if d or p:
         parts.append(f"{d} decayed, {p} pruned")
     if i_add or i_merge:

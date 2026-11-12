@@ -7,6 +7,7 @@ import {
   BarChart3,
   BookOpen,
   AppWindow,
+  BrushCleaning,
   ExternalLink,
   Calculator,
   CalendarClock,
@@ -5732,6 +5733,7 @@ export function PreferencesSnapshotPanel({
   part = 'preferences',
   skillsMoved = false,
   host = null,
+  onReviewMemory,
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
@@ -5742,6 +5744,8 @@ export function PreferencesSnapshotPanel({
   skillsMoved?: boolean;
   /** The hosting company that runs this Row-Bot and installs its updates (H3). */
   host?: SettingsSnapshot['system']['hosted_by'];
+  /** Opens Review memory, beside the Dream Cycle's overnight tidy-up. */
+  onReviewMemory?: () => void;
 }) {
   // The controls' own check time, newer than this page's snapshot after Check now (B373).
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
@@ -5884,6 +5888,7 @@ export function PreferencesSnapshotPanel({
       snapshot={snapshot}
       mutation={mutation}
       skillsMoved={skillsMoved}
+      onReviewMemory={onReviewMemory}
     />
   );
 }
@@ -5944,10 +5949,12 @@ function PreferencesPage({
   snapshot,
   mutation,
   skillsMoved,
+  onReviewMemory,
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
   skillsMoved: boolean;
+  onReviewMemory?: () => void;
 }) {
   const identity = snapshot.identity;
   const dream = snapshot.dream_cycle;
@@ -6084,6 +6091,22 @@ function PreferencesPage({
             </>
           }
         />
+        {onReviewMemory && (
+          <SettingsItem
+            label="Review memory"
+            help="A clean-up you run yourself: Row-Bot suggests what to keep, merge, rewrite or remove, and you approve each change."
+            bind={false}
+            control={
+              <IconButton
+                label="Review memory"
+                variant="secondary"
+                onClick={onReviewMemory}
+              >
+                <BrushCleaning size={16} aria-hidden />
+              </IconButton>
+            }
+          />
+        )}
       </SettingsGroup>
     </div>
   );

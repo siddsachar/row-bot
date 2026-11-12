@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "MemoryImportChoice": {
+      "additionalProperties": false,
+      "description": "One memory to preview, with the person's edits.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[0-9a-f]{20}$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "enum": [
+                "person",
+                "preference",
+                "fact",
+                "event",
+                "place",
+                "project",
+                "organisation",
+                "concept",
+                "skill",
+                "media"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "required": [
+        "candidate_id"
+      ],
+      "title": "MemoryImportChoice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/MemoryImportChoice"
+      },
+      "maxItems": 5000,
+      "minItems": 1,
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "client_session_id",
+    "items"
+  ],
+  "title": "MemoryImportPreviewRequest",
+  "type": "object"
+}

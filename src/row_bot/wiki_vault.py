@@ -441,7 +441,23 @@ def _publish(manifest: dict, staged: dict[str, dict], *, validate: Callable[[], 
                              if relative not in staged}
     manifest["conflicts"].update({relative: staged[relative] for relative in conflicts})
     _write_manifest(manifest, **strict)
+    _prune_now_and_then(manifest)
     return published, conflicts
+
+
+_last_prune = 0.0
+
+
+def _prune_now_and_then(manifest: dict) -> None:
+    """Prune old recovery copies at most once a day per run of the app (each save publishes)."""
+    global _last_prune
+    if _last_prune and time.monotonic() - _last_prune < 86400:
+        return
+    _last_prune = time.monotonic()
+    try:
+        prune_recovery_copies(manifest=manifest)
+    except (OSError, ValueError):
+        logger.debug("Recovery copies were not pruned", exc_info=True)
 
 
 def _retire(manifest: dict, relatives: set[str], *, validate: Callable[[], None] | None = None) -> int:
@@ -810,11 +826,59 @@ def delete_entity_md(entity: dict, *, only_if_entity_absent: bool = False,
                 **({"validate": validate} if validate is not None else {}))
 
 
+RECOVERY_KEEP_DAYS = 30
+
+
+def prune_recovery_copies(*, everything: bool = False, manifest: dict | None = None) -> int:
+    """Remove recovery copies of Row-Bot's own, unedited output older than ``RECOVERY_KEEP_DAYS`` (all of
+    them with ``everything``). A copy of a file the person edited is always kept, and so is a copy the
+    ownership manifest still names. Called with the export lock held; returns how many files went.
+
+    Every replaced or retired article used to stay in ``.row-bot-recovery`` for good, so the folder grew
+    with each save and kept the text of deleted memories (memory audit, Nov 2026).
+    """
+    folder = get_vault_path() / "wiki" / ".row-bot-recovery"
+    if not folder.is_dir():
+        return 0
+    manifest = manifest if manifest is not None else _read_manifest()
+    named = {str(entry.get("candidate") or "") for section in ("files", "conflicts", "pending")
+             for entry in (manifest.get(section) or {}).values() if isinstance(entry, dict)}
+    cutoff = time.time() - RECOVERY_KEEP_DAYS * 86400
+    removed = 0
+    for path in list(folder.iterdir()):
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            if not everything and path.stat().st_mtime > cutoff:
+                continue
+            if path.suffix == ".candidate":
+                if f".row-bot-recovery/{path.name}" in named:
+                    continue
+                path.unlink()
+                removed += 1
+            elif path.suffix == ".retained":
+                sidecar = path.with_suffix(".json")
+                expected = json.loads(sidecar.read_text(encoding="utf-8")).get("expected_hash") if sidecar.is_file() else None
+                if not expected or _digest(path.read_bytes()) != expected:
+                    continue  # The person edited it, or it can't be told: kept.
+                path.unlink()
+                sidecar.unlink()
+                removed += 1
+        except (OSError, ValueError):
+            logger.debug("Recovery copy %s left in place", path.name, exc_info=True)
+    return removed
+
+
 def clear_wiki_folder() -> int:
-    """Retire unchanged generated files; preserve external files and recovery copies."""
+    """Retire unchanged generated files and their recovery copies; keep external files and edited copies.
+
+    Used by Delete all: the text of the deleted memories goes too, except a copy of a file the person edited.
+    """
     with _export_lock:
         manifest = _manifest_for_write()
-        return _retire(manifest, set(manifest["files"]))
+        retired = _retire(manifest, set(manifest["files"]))
+        prune_recovery_copies(everything=True, manifest=manifest)
+        return retired
 
 
 def rebuild_vault(*, cancelled: Callable[[], bool] | None = None,
@@ -1476,10 +1540,14 @@ def _parse_entity_text(text: str) -> dict | None:
     if not entity_id:
         return None
 
-    # Extract description: text between "# Subject" and "## Connections"
-    desc_match = re.search(r"^# .+?\n\s*\n(.*?)(?=\n## Connections|\Z)",
-                           body, re.DOTALL)
-    description = desc_match.group(1).strip() if desc_match else ""
+    # The description: the text after the "# Subject" line, up to "## Connections". An article without its
+    # heading is not read (None), rather than saved as an empty memory.
+    heading = re.search(r"^# .*$", body, re.MULTILINE)
+    if heading is None:
+        return None
+    rest = body[heading.end():]
+    connections = re.search(r"^## Connections\b", rest, re.MULTILINE)
+    description = (rest[:connections.start()] if connections else rest).strip()
 
     known = {
         "id", "type", "subject", "aliases", "tags", "source", "created", "updated",
@@ -1631,22 +1699,27 @@ def import_from_vault(
                 manifest = _read_manifest()
                 manifest.setdefault("conflicts", {})[relative] = _stage(render_entity_md(existing), existing, **strict)
                 _write_manifest(manifest, **strict)
-        existing_props = existing.get("properties", {})
+        existing_props = memory_evo.get_properties(existing)
         parsed_props = parsed.get("properties", {}) or {}
-        if "status" not in parsed_props:
-            parsed_props["status"] = "active"
+        # Only what a person edits comes back from the article: its text, names and status. Machine
+        # properties (evidence, supersedes, review details) round-trip through the frontmatter in a lossy
+        # form and were written back at high authority, mangling lists. An edit resolves a memory waiting for
+        # review, as before.
+        status = str(parsed_props.get("status") or existing_props.get("status") or "active")
         merged_props = memory_evo.merge_properties(
             existing_props,
-            parsed_props,
+            {"status": status},
             source=parsed.get("source", (existing or {}).get("source", "")),
             entity_type=parsed.get("entity_type", (existing or {}).get("entity_type", "")),
             actor="wiki",
-            source_context={
-                "actor": "wiki",
-                "vault_path": str(filepath),
-            },
+            source_context={"actor": "wiki"},  # Never the file's local path: articles may be synced or shared.
             high_authority=True,
         )
+        if status == existing_props.get("status") and status in {"superseded", "archived"}:
+            # Editing the text of a replaced or archived memory doesn't bring it back (its status line would).
+            for key in ("status", "superseded_by"):
+                if key in existing_props:
+                    merged_props[key] = existing_props[key]
         updated = kg.update_entity(
             entity_id,
             subject=parsed.get("subject"),
