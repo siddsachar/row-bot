@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "description": "Try Row-Bot free: an OpenRouter sign-in and where it stands (openrouter_sign_in).",
+  "properties": {
+    "flow_id": {
+      "maxLength": 36,
+      "minLength": 36,
+      "title": "Flow Id",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 512,
+      "title": "Message",
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "waiting",
+        "finishing",
+        "done",
+        "failed",
+        "cancelled",
+        "expired",
+        "unavailable"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "route": {
+      "enum": [
+        "this_computer",
+        "device"
+      ],
+      "title": "Route",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "url": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Url"
+    }
+  },
+  "required": [
+    "schema_version",
+    "flow_id",
+    "phase",
+    "route",
+    "message"
+  ],
+  "title": "OpenRouterSignIn",
+  "type": "object"
+}

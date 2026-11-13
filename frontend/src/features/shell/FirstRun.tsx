@@ -54,6 +54,7 @@ import { useWorkspaceActions } from './workspace-actions';
 import { markFirstChat } from './first-chat';
 import { DESKTOP_APP_URL, OWN_MODEL_SERVER_GUIDE } from './hosted-links';
 import HostTrialNote from './HostTrialNote';
+import TryFreePanel, { freeFirst } from './TryFree';
 
 /** "Set up later" for this window: Home stops opening Setup until next time. */
 export const SETUP_LATER_KEY = 'row-bot:setup-later:v1';
@@ -66,7 +67,7 @@ export function setupDeferred(): boolean {
   }
 }
 
-type Path = 'local' | 'subscription' | 'key' | 'grok';
+type Path = 'local' | 'subscription' | 'key' | 'grok' | 'free';
 type Step =
   | { kind: 'pick' }
   | { kind: 'testing'; label: string; connected?: string }
@@ -361,6 +362,8 @@ type Option = {
   ref: string;
   name: string;
   chatOnly: boolean;
+  /** Short facts beside the name ("Recommended", "Free"). */
+  tags?: string[];
 };
 
 const localOption = (model: LocalRuntimeModel): Option => ({
@@ -469,6 +472,11 @@ function ModelOptions({
               onClick={() => onPick(option.ref, option.name)}
             >
               <span>{option.name}</span>
+              {option.tags?.map((tag) => (
+                <span key={tag} className="first-run-model-tag">
+                  {tag}
+                </span>
+              ))}
               {option.chatOnly && (
                 <span className="first-run-model-tag">Chat only</span>
               )}
@@ -488,10 +496,13 @@ function ModelOptions({
 function ProviderModels({
   providerId,
   label,
+  free = false,
   onPick,
 }: {
   providerId: string;
   label: string;
+  /** Only its free models, recommended first ("Try it free"). */
+  free?: boolean;
   onPick: (modelRef: string, label: string) => void;
 }) {
   const { controller } = useRuntime();
@@ -519,15 +530,14 @@ function ProviderModels({
           undefined,
         );
         if (stopped) return;
-        setRows(
-          (page?.items ?? []).filter(
-            (row) =>
-              row.categories.includes('chat') &&
-              row.configured &&
-              row.runtime_ready &&
-              row.installed !== false,
-          ),
+        const usable = (page?.items ?? []).filter(
+          (row) =>
+            row.categories.includes('chat') &&
+            row.configured &&
+            row.runtime_ready &&
+            row.installed !== false,
         );
+        setRows(free ? freeFirst(usable) : usable);
       } catch (cause) {
         if (!stopped) setError(clientError(cause).message);
       }
@@ -535,7 +545,7 @@ function ProviderModels({
     return () => {
       stopped = true;
     };
-  }, [controller, providerId, attempt]);
+  }, [controller, providerId, free, attempt]);
   if (error)
     return (
       <div className="first-run-panel-body" role="alert">
@@ -565,14 +575,15 @@ function ProviderModels({
     );
   return (
     <div className="first-run-panel-body">
-      <h3>Pick a model from {label}</h3>
+      <h3>{free ? 'Pick a free model' : `Pick a model from ${label}`}</h3>
       <ModelOptions
-        label={`${label} models`}
-        options={rows.map((row) => ({
+        label={free ? 'Free models' : `${label} models`}
+        options={rows.map((row, index) => ({
           ref: row.selection_ref,
           name: row.display_name || row.model_id,
           chatOnly:
             row.runtime_mode === 'chat_only' || row.tool_calling === false,
+          tags: free ? (index ? ['Free'] : ['Recommended', 'Free']) : undefined,
         }))}
         onPick={onPick}
       />
@@ -688,7 +699,7 @@ function KeyPanel({
   );
 }
 
-type Hosted = 'chatgpt' | 'claude' | 'key' | 'grok';
+type Hosted = 'chatgpt' | 'claude' | 'key' | 'grok' | 'free';
 
 /** A promise the click that starts ChatGPT's sign-in copies from (U3). */
 function deferred() {
@@ -842,7 +853,10 @@ function HostedChoices({
     <section className="first-run first-run-hosted" aria-label="First run">
       <header className="first-run-header">
         <h1>How should Row-Bot think?</h1>
-        <p>Sign in with a plan you already have. You can add others later.</p>
+        <p>
+          Sign in with a plan you already have, or try it free. You can add
+          others later.
+        </p>
       </header>
       <div
         className="first-run-big"
@@ -866,6 +880,15 @@ function HostedChoices({
         >
           <BadgeCheck size={20} aria-hidden />
           <span>{USE_MY_CLAUDE_PLAN}</span>
+        </button>
+        <button
+          type="button"
+          className="first-run-big-choice first-run-big-choice-wide"
+          aria-pressed={path === 'free'}
+          onClick={() => choose('free')}
+        >
+          <Sparkles size={20} aria-hidden />
+          <span>No plan? Try it free</span>
         </button>
       </div>
       {listed &&
@@ -916,6 +939,24 @@ function HostedChoices({
             />
           </div>,
           USE_MY_CLAUDE_PLAN,
+        )}
+      {!listed &&
+        path === 'free' &&
+        panel(
+          <TryFreePanel
+            connected={connected.has('openrouter')}
+            models={
+              <ProviderModels
+                providerId="openrouter"
+                label="OpenRouter"
+                free
+                onPick={pick}
+              />
+            }
+            onConnected={() => void reload()}
+            onUseKey={() => choose('key')}
+          />,
+          'Try it free',
         )}
       <Disclosure
         className="first-run-other"
@@ -1300,6 +1341,13 @@ export default function FirstRun({
           pressed={path === 'key'}
           onClick={() => setPath('key')}
         />
+        <ChoiceCard
+          icon={Sparkles}
+          title="Try it free"
+          detail="No plan or key. Free models through OpenRouter."
+          pressed={path === 'free'}
+          onClick={() => setPath('free')}
+        />
       </div>
       {path && (
         <section
@@ -1309,7 +1357,9 @@ export default function FirstRun({
               ? `On ${place.name}`
               : path === 'subscription'
                 ? 'With my subscription'
-                : 'With an API key'
+                : path === 'free'
+                  ? 'Try it free'
+                  : 'With an API key'
           }
         >
           {path === 'local' && <LocalPanel runtime={runtime} onPick={pick} />}
@@ -1372,6 +1422,24 @@ export default function FirstRun({
             </div>
           )}
           {path === 'key' && keyPanel}
+          {path === 'free' && (
+            <TryFreePanel
+              connected={connected.has('openrouter')}
+              models={
+                <ProviderModels
+                  providerId="openrouter"
+                  label="OpenRouter"
+                  free
+                  onPick={pick}
+                />
+              }
+              onConnected={() => void reload()}
+              onUseKey={() => {
+                setKeyProvider('openrouter');
+                setPath('key');
+              }}
+            />
+          )}
         </section>
       )}
       {endpointModels}

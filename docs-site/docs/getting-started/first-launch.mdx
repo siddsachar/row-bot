@@ -13,16 +13,18 @@ The first time you open Row-Bot, it asks one question: **How should Row-Bot thin
 
 ## How Should Row-Bot Think?
 
-Pick one of three cards. You can add other providers later.
+Pick one of four cards. You can add other providers later.
 
 | Choice | What it means | Tradeoffs |
 | --- | --- | --- |
 | **On this computer** | Private and free, with Ollama. | Needs Ollama and a downloaded model; larger models need more memory and disk space. |
 | **With my subscription** | ChatGPT, Claude or Grok. | Uses a plan you already pay for and follows that provider's terms. ChatGPT and Grok sign in from Row-Bot; Claude works through Claude Code, which **Use my Claude plan** installs from Anthropic if needed before Claude's own sign-in. |
 | **With an API key** | OpenAI, Anthropic, Google, OpenRouter and more, or your own endpoint. | Needs an API key and internet access; the provider bills per use and receives the prompts you send it. |
+| **Try it free** | No plan or key: OpenRouter's free models. | Needs a free OpenRouter account and internet access; about 50 messages a day; your messages go to OpenRouter and the free model's host, and some free hosts may keep what you send. Free models don't make pictures. |
 
 - **On this computer** walks you through it: **Install Ollama** if it is missing, **Start Ollama** if it isn't running, **Download a model**, then **Pick a model** from the models on this computer. Up to three are tagged **Recommended**: your saved choice first, then the largest models that use tools. A variant with its safety training removed ("abliterated" or "uncensored") is never recommended, but stays under **Show all models**.
 - **With my subscription** lets you choose ChatGPT, Claude or Grok. ChatGPT and Grok sign in in your browser. Claude offers **Use my Claude plan**: Row-Bot installs Claude Code from Anthropic if it isn't there yet, then opens Claude's own sign-in in a small panel. Row-Bot never handles your Claude sign-in. See [Claude (Your Claude Plan)](/docs/settings/providers#claude-your-claude-plan).
+- **Try it free** says what happens before anything is sent: about 50 messages a day (each step of a longer task counts as one), who sees your messages, and that free models don't make pictures. **Sign in with OpenRouter** opens OpenRouter's page in your browser; it makes you a free account if you don't have one. When you approve, OpenRouter gives Row-Bot a key of your own, saved like a pasted one, and Row-Bot lists the free models with one marked **Recommended**. **Use an API key** is there if you have one. When the day's free messages are used up, the chat says when they come back and offers **Use this computer**, **Sign in with a plan** or **Add credits** (once you've ever bought credits, OpenRouter allows about 1,000 free messages a day).
 - **With an API key** lists the recommended providers first and the rest under **More providers**. Choose one, paste its key, and pick a model. Advanced users can add an OpenAI-compatible endpoint, such as LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM or SGLang.
 
 After you pick a model, Row-Bot sends it a short test message. A local model can take a minute to load the first time. If the model doesn't answer, choose **Try again** or **Choose another model**.
@@ -35,10 +37,11 @@ In an installed Row-Bot, the first screen also says that Row-Bot downloads updat
 
 ## On A Hosted Row-Bot
 
-When a hosting company runs Row-Bot for you (its server is set up with `ROW_BOT_HOSTED_BY`, as Row-Bot on Railway is), the server has no graphics card for running models, so the first launch asks with two big buttons instead of three cards:
+When a hosting company runs Row-Bot for you (its server is set up with `ROW_BOT_HOSTED_BY`, as Row-Bot on Railway is), the server has no graphics card for running models, so the first launch asks with big buttons instead of cards:
 
 - **Sign in with ChatGPT**: one click starts ChatGPT's sign-in, copies its code and opens OpenAI's page in a new tab. Paste the code there and approve; Row-Bot notices when you're done. If your browser doesn't allow the copy, or doesn't open the tab, the code and an **Open sign-in page** button stay on screen. If the code runs out, **Get a new code** starts again.
 - **Use my Claude plan**: Row-Bot installs Claude Code from Anthropic on your server and opens Claude's own sign-in, as described in [Claude (Your Claude Plan)](/docs/settings/providers#claude-your-claude-plan).
+- **No plan? Try it free**: the same as **Try it free** above. OpenRouter's page opens in a new tab and returns to your Row-Bot's own address, so it works from a phone too.
 - **Other ways**:
   - **Use an API key**: the same providers as **With an API key**.
   - **Use my own model server**: opens the custom endpoint form with Ollama picked, for a model server you run elsewhere, such as Ollama, llama.cpp, vLLM or LM Studio. See [Use Your Own Model Server](/docs/guides/own-model-server) for reaching it safely from the internet.

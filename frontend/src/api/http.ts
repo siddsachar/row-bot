@@ -1285,6 +1285,15 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  startOpenRouterSignIn(signal?: AbortSignal) {
+    return wire.startOpenRouterSignIn(this.base, this.session(), signal);
+  }
+  openRouterSignIn(flow: string, signal?: AbortSignal) {
+    return wire.getOpenRouterSignIn(this.base, this.session(), flow, signal);
+  }
+  cancelOpenRouterSignIn(flow: string, signal?: AbortSignal) {
+    return wire.cancelOpenRouterSignIn(this.base, this.session(), flow, signal);
+  }
   cancelSubscriptionStart(command: string, signal?: AbortSignal) {
     return wire.cancelSubscriptionStart(
       this.base,

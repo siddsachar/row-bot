@@ -1543,6 +1543,16 @@ export interface ClientTransport {
     command: string,
     signal?: AbortSignal,
   ): Promise<Wire.SubscriptionFlowSnapshot>;
+  /** Try Row-Bot free: an OpenRouter sign-in. */
+  startOpenRouterSignIn?(signal?: AbortSignal): Promise<Wire.OpenRouterSignIn>;
+  openRouterSignIn?(
+    flow: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.OpenRouterSignIn>;
+  cancelOpenRouterSignIn?(
+    flow: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.OpenRouterSignIn>;
   reviewSubscriptionAction?(
     body: Wire.SubscriptionActionRequest,
     signal?: AbortSignal,

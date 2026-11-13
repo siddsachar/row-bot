@@ -4070,6 +4070,20 @@ export class ClientController {
       throw clientError({ code: 'protocol_incompatible' });
     return result.options;
   };
+  startOpenRouterSignIn = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.startOpenRouterSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.startOpenRouterSignIn(signal);
+    });
+  openRouterSignIn = (flow: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.openRouterSignIn?.(flow, signal));
+  cancelOpenRouterSignIn = (flow: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.cancelOpenRouterSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.cancelOpenRouterSignIn(flow, signal);
+    });
   cancelSubscriptionStart = (command: string) =>
     this.authenticatedResult((signal) => {
       if (!this.transport.cancelSubscriptionStart)

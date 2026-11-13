@@ -1,4 +1,4 @@
-"""Google's and X's sign-in callbacks reach their route without a session.
+"""Google's, X's and OpenRouter's sign-in callbacks reach their route without a session.
 
 A sign-in started on another device returns through Row-Bot's public address
 in whatever browser the provider sends back: no Row-Bot session, no Origin.
@@ -54,6 +54,24 @@ def test_a_providers_callback_reaches_its_route_without_a_session(account) -> No
     assert response.headers["content-type"].startswith("text/plain")
     assert "isn't valid" in response.text and "fixture-secret-code" not in response.text
     assert response.headers["referrer-policy"] == "no-referrer"
+
+
+def test_openrouters_callback_reaches_its_route_without_a_session() -> None:
+    with _server() as client:
+        response = client.get("/api/v1/settings/providers/openrouter/sign-in/callback",
+                              params={"state": "s" * 43, "code": "fixture-secret-code"})
+
+    assert response.status_code == 400
+    assert "isn't valid" in response.text and "fixture-secret-code" not in response.text
+    assert response.headers["referrer-policy"] == "no-referrer"
+
+
+def test_starting_or_reading_an_openrouter_sign_in_needs_a_session() -> None:
+    flow = "00000000-0000-4000-8000-000000000000"
+    with _server() as client:
+        assert client.post("/api/v1/settings/providers/openrouter/sign-in", json={}).status_code == 401
+        assert client.get(f"/api/v1/settings/providers/openrouter/sign-in/{flow}").status_code == 401
+        assert client.post("/api/v1/settings/providers/openrouter/sign-in/callback").status_code == 401
 
 
 def test_every_other_account_route_still_needs_a_session() -> None:

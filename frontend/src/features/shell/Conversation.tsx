@@ -25,6 +25,7 @@ import type {
   WriteTarget,
 } from '../../api/types';
 import { clientError, rejectedBeforeRunning } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { unbindWithUndo } from './resource-unbind';
 import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
@@ -278,6 +279,10 @@ function publishComposerClearance() {
     );
 }
 
+/** turn_failure's first sentence when OpenRouter's free models stop for the day. */
+const FREE_DAY_USED = "Today's free messages are used up.";
+const OPENROUTER_CREDITS = 'https://openrouter.ai/settings/credits';
+
 export default function Conversation({
   onPanel,
   completedDesignId,
@@ -330,6 +335,7 @@ export default function Conversation({
   const chatProvider = state.workspace?.controls?.model_selection?.provider_id;
   const overlay = useOverlay();
   const navigate = useNavigate();
+  const placeKind = usePlace().kind;
   const id = state.selectedConversationId;
   // Learning (preview): Teach on replies and failed steps, the chat menu's item.
   const learningChat = useChatTeach(id);
@@ -2611,6 +2617,9 @@ export default function Conversation({
   const interrupted =
     !isRunning && generation?.status === 'interrupted' && !signInNeeded;
   const failed = !interrupted && !signInNeeded && Boolean(thisFailure);
+  // OpenRouter's free models stop for the day: the next steps, not an error (turn_failure).
+  const freeDayUsed =
+    (interrupted || failed) && failureReason.startsWith(FREE_DAY_USED);
   const settledMedia = useMemo(
     () =>
       new Set(
@@ -3755,7 +3764,36 @@ export default function Conversation({
                   </div>
                 </div>
               )}
-              {(interrupted || failed) && (
+              {freeDayUsed && (
+                <div className="turn-notice" data-tone="warning">
+                  <TriangleAlert className="turn-notice-icon" aria-hidden />
+                  <div className="turn-notice-text">
+                    <strong>Today’s free messages are used up</strong>
+                    <span>
+                      {failureReason.slice(FREE_DAY_USED.length).trim()} Row-Bot
+                      stopped here; carry on then, or keep going another way.
+                    </span>
+                  </div>
+                  <div className="turn-notice-actions">
+                    {placeKind === 'this_computer' && (
+                      <Button onClick={() => navigate('/settings/models')}>
+                        Use this computer
+                      </Button>
+                    )}
+                    <Button onClick={() => navigate('/settings/providers')}>
+                      Sign in with a plan
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        void platform.openExternal(OPENROUTER_CREDITS)
+                      }
+                    >
+                      Add credits
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {(interrupted || failed) && !freeDayUsed && (
                 <div
                   className="turn-notice"
                   data-tone={interrupted ? 'warning' : 'danger'}

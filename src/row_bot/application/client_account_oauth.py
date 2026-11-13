@@ -65,15 +65,21 @@ def _account(account: str) -> str:
     return account
 
 
-def public_callback(account: str, public_origins: Iterable[str]) -> str | None:
-    """The account's callback at Row-Bot's one approved public HTTPS origin; None without exactly one."""
+def public_callback_origin(public_origins: Iterable[str]) -> str | None:
+    """Row-Bot's one approved public HTTPS origin, for a sign-in's way back; None without exactly one."""
     from row_bot.access.config import canonical_origin
 
     try:
         origins = {canonical_origin(value) for value in public_origins if str(value).startswith("https://")}
     except ValueError:
         return None
-    return origins.pop() + CALLBACK_PATH.format(account=_account(account)) if len(origins) == 1 else None
+    return origins.pop() if len(origins) == 1 else None
+
+
+def public_callback(account: str, public_origins: Iterable[str]) -> str | None:
+    """The account's callback at Row-Bot's one approved public HTTPS origin; None without exactly one."""
+    origin = public_callback_origin(public_origins)
+    return origin + CALLBACK_PATH.format(account=_account(account)) if origin else None
 
 
 def _google_kind(client: dict | None) -> str:
