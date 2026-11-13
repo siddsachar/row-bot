@@ -205,13 +205,9 @@ test('compare v1, review it with its experiment details, try it for document loo
     sheet.getByRole('button', { name: 'Use v1 for document lookups' }),
   ).toBeVisible();
   await shoot(page, info, 'review');
-  // A phone's menu rises as a sheet under the finger; a mouse click would
-  // release over it and pick an item, where a touch stays with the button.
-  const more = sheet.getByRole('button', {
-    name: 'More for Personal model v1',
-  });
-  if (info.project.use.hasTouch) await more.tap();
-  else await more.click();
+  await sheet
+    .getByRole('button', { name: 'More for Personal model v1' })
+    .click();
   await page.getByRole('menuitem', { name: 'Experiment details' }).click();
   const details = sheet.getByRole('region', { name: 'Experiment details' });
   await expect(details.getByText(/^154 examples of your work/)).toBeVisible();

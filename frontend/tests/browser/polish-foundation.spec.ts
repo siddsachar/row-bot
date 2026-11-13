@@ -89,12 +89,8 @@ for (const appearance of ['light', 'dark'] as const) {
       page.getByRole('button', { name: 'Sample model' }),
     ).toHaveAccessibleDescription('Local Small');
 
-    // B3: long menus stay inside the viewport and scroll within. A phone's
-    // menu rises as a sheet under the finger; a mouse click would release
-    // over it and pick an item, where a touch stays with the button.
-    const longMenu = page.getByRole('button', { name: 'Long sample menu' });
-    if (touch) await longMenu.tap();
-    else await longMenu.click();
+    // B3: long menus stay inside the viewport and scroll within.
+    await page.getByRole('button', { name: 'Long sample menu' }).click();
     await expect(
       page.getByRole('menuitem', { name: 'Sample option 45' }),
     ).toBeVisible();

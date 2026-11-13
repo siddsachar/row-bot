@@ -23,7 +23,7 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useClientState, useRuntime } from '../../runtime';
-import { Button, Hint, Menu } from '../../ui/primitives';
+import { Button, Hint, Menu, useMenuOpen } from '../../ui/primitives';
 import ComposerSkills, {
   SkillsAnchor,
   type ComposerSkillAction,
@@ -150,6 +150,8 @@ export default function ComposerControls({
   // Connect and Reconnect open that provider's sheet in Settings › Models.
   const providerSheet = (providerId?: string) =>
     navigate(providerSheetPath(providerId));
+  // The + menu rises as a sheet on a phone: it opens on the tap (useMenuOpen).
+  const plusMenu = useMenuOpen();
   const workspace = state.workspace;
   const controls = workspace?.controls;
   const id = state.selectedConversationId;
@@ -307,6 +309,7 @@ export default function ComposerControls({
         className="composer-plus"
         aria-label="Add files and more"
         disabled={state.status !== 'ready'}
+        {...plusMenu.triggerProps}
       >
         <Plus size={18} aria-hidden />
       </Button>
@@ -319,7 +322,7 @@ export default function ComposerControls({
       aria-label="Conversation controls"
       aria-busy={saving}
     >
-      <Dropdown.Root>
+      <Dropdown.Root open={plusMenu.open} onOpenChange={plusMenu.onOpenChange}>
         {composer ? (
           <ComposerSkills
             composer={composer}
