@@ -14,6 +14,15 @@ test('offline and reconnect keep the compact draft without replaying a command',
     if (new URL(request.url()).pathname === '/api/v1/events')
       eventRequests += 1;
   });
+  // Other specs on this fixture server may have sent messages already; only
+  // a call made after this test starts would be a replay.
+  const fixtureState = async () =>
+    (
+      await page.request.get('/__p1_fixture/state', {
+        headers: fixtureHeaders(),
+      })
+    ).json();
+  const callsBefore = (await fixtureState()).calls.length;
   await openSeedConversation(page);
   const composer = page.getByRole('textbox', {
     name: 'Message',
@@ -65,16 +74,13 @@ test('offline and reconnect keep the compact draft without replaying a command',
     'Draft retained through deterministic network handoff',
   );
   await expect.poll(() => eventRequests).toBeGreaterThan(initialEventRequests);
-  const fixture = await (
-    await page.request.get('/__p1_fixture/state', {
-      headers: fixtureHeaders(),
-    })
-  ).json();
-  expect(fixture.calls).toEqual([]);
+  const fixture = await fixtureState();
+  const replayed = fixture.calls.slice(callsBefore);
+  expect(replayed).toEqual([]);
   expect(fixture.external_calls).toBe(0);
   await writeEvidence(testInfo, 'offline-reconnect-proof', {
     eventRequests,
-    producerCalls: fixture.calls.length,
+    producerCalls: replayed.length,
     externalCalls: fixture.external_calls,
     draftRetained: true,
     scope:

@@ -3,6 +3,7 @@ import {
   forwardRef,
   Fragment,
   isValidElement,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -13,12 +14,14 @@ import {
   type CSSProperties,
   type InputHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
   type SelectHTMLAttributes,
 } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
+import { PHONE_SHEETS } from './sheet-swipe';
 import * as Popover from '@radix-ui/react-popover';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import {
@@ -314,6 +317,41 @@ const MenuItem = forwardRef<
   );
 });
 
+/**
+ * A menu's open state, opened on the click where menus rise as phone sheets.
+ * Radix opens a menu on the press and chooses an item on the click that
+ * follows; a sheet rises under the finger, so that click would choose
+ * whatever item it lands on. Elsewhere Radix's press-and-drag stays.
+ */
+export function useMenuOpen(
+  open?: boolean,
+  onOpenChange?: (open: boolean) => void,
+) {
+  const [inner, setInner] = useState(false);
+  const shown = open ?? inner;
+  const change = useCallback(
+    (next: boolean) => {
+      if (open === undefined) setInner(next);
+      onOpenChange?.(next);
+    },
+    [open, onOpenChange],
+  );
+  const sheetPress = useRef(false);
+  const triggerProps = {
+    onPointerDown: (event: ReactPointerEvent) => {
+      sheetPress.current = window.matchMedia?.(PHONE_SHEETS).matches === true;
+      // Radix skips its own opening once the press is marked handled.
+      if (sheetPress.current) event.preventDefault();
+    },
+    onClick: () => {
+      if (!sheetPress.current) return;
+      sheetPress.current = false;
+      change(!shown);
+    },
+  };
+  return { open: shown, onOpenChange: change, triggerProps };
+}
+
 export function Menu({
   label,
   actions,
@@ -347,6 +385,7 @@ export function Menu({
 }) {
   const opener = useRef<HTMLButtonElement>(null);
   const afterClose = useRef<(() => void) | null>(null);
+  const menu = useMenuOpen(open, onOpenChange);
   // A row's one-line description describes it; it is not part of its name.
   const descriptions = useId();
   const trigger = (
@@ -363,6 +402,7 @@ export function Menu({
         variant={variant}
         iconOnly={iconOnly}
         tabIndex={tabIndex}
+        {...menu.triggerProps}
       >
         {children ?? label}
         {!iconOnly && <ChevronDown size={16} aria-hidden />}
@@ -370,7 +410,7 @@ export function Menu({
     </Dropdown.Trigger>
   );
   return (
-    <Dropdown.Root open={open} onOpenChange={onOpenChange}>
+    <Dropdown.Root open={menu.open} onOpenChange={menu.onOpenChange}>
       {hint ? <Hint label={hint}>{trigger}</Hint> : trigger}
       <Dropdown.Portal>
         <Dropdown.Content

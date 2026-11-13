@@ -94,8 +94,10 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(
       page.getByRole('menuitem', { name: 'Sample option 45' }),
     ).toBeVisible();
-    const bounds = await withinViewport(page, '.menu');
-    expect(bounds).toEqual({ inside: true, scrolls: true });
+    // A phone's sheet slides up into place: measured once it has settled.
+    await expect
+      .poll(() => withinViewport(page, '.menu'))
+      .toEqual({ inside: true, scrolls: true });
     await page.keyboard.press('Escape');
 
     await page.getByRole('button', { name: 'Open sample inspector' }).click();

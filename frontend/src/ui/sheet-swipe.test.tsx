@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useEffect } from 'react';
@@ -132,4 +132,37 @@ it('does nothing off a touch phone, where menus stay popovers', async () => {
 
   expect(moved.defaultPrevented).toBe(false);
   expect(screen.getByRole('menu')).toBe(menu);
+});
+
+it('a phone menu opens on the tap, so the press that opened it chooses nothing', async () => {
+  const chosen = vi.fn();
+  render(
+    <Menu
+      label="Long sample menu"
+      actions={[{ label: 'First option', onSelect: chosen }]}
+    />,
+  );
+  const trigger = screen.getByRole('button', { name: 'Long sample menu' });
+  // The press alone no longer opens it (the sheet would rise under the finger)…
+  fireEvent.pointerDown(trigger, { button: 0, pointerType: 'touch' });
+  expect(screen.queryByRole('menu')).toBeNull();
+  // …the tap's click does, and chooses nothing.
+  fireEvent.click(trigger);
+  expect(await screen.findByRole('menu')).toBeVisible();
+  expect(chosen).not.toHaveBeenCalled();
+});
+
+it('away from phone sheets a menu still opens on the press', async () => {
+  phone = false;
+  render(
+    <Menu
+      label="Long sample menu"
+      actions={[{ label: 'First option', onSelect: vi.fn() }]}
+    />,
+  );
+  fireEvent.pointerDown(
+    screen.getByRole('button', { name: 'Long sample menu' }),
+    { button: 0, pointerType: 'mouse' },
+  );
+  expect(await screen.findByRole('menu')).toBeVisible();
 });

@@ -51,6 +51,17 @@
   flex: none;
   white-space: nowrap;
 }
+/* A note (the backup model answers, the model can't see images) is read in
+   full: the row wraps around it instead of scrolling it out of sight. */
+.composer[data-single-line] .composer-chips:has(.composer-vision-note) {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+.composer[data-single-line] .composer-chips .composer-vision-note {
+  flex: 1 1 100%;
+  min-width: 0;
+  white-space: normal;
+}
 .composer[data-single-line] .composer-control-cluster {
   grid-area: plus;
   flex: none;
