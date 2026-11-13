@@ -376,6 +376,67 @@ describe('Buddy avatar lifecycle', () => {
     expect(loadMedia).toHaveBeenCalledTimes(1);
   });
 
+  it('starts no blob: image while the page unloads, and shows the still again when it returns', async () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:still',
+      revokeObjectURL: vi.fn(),
+    });
+    let arrive: (blob: Blob) => void = () => undefined;
+    const loadMedia = vi.fn<BuddyMediaLoader>(
+      () => new Promise((resolve) => (arrive = resolve)),
+    );
+    const view = render(
+      <BuddyAvatar
+        conversation={null}
+        pack={pack}
+        snapshot={snapshot}
+        loadMedia={loadMedia}
+        preview
+      />,
+    );
+    const image = () => view.container.querySelector('img.buddy-avatar');
+    // The still arrives as the page unloads: the browser would load a blob:
+    // image started now as a ping, which the page's connect-src refuses.
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    await act(async () => arrive(new Blob(['still'])));
+    expect(image()).toHaveAttribute('data-glyph', 'true');
+    expect(image()?.getAttribute('src')).not.toMatch(/^blob:/);
+
+    // Back from the back/forward cache, Buddy shows its still.
+    act(() => {
+      window.dispatchEvent(new Event('pageshow'));
+    });
+    expect(image()).toHaveAttribute('src', 'blob:still');
+  });
+
+  it('shows the still again when the person stays after beforeunload', async () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:still',
+      revokeObjectURL: vi.fn(),
+    });
+    const loadMedia = vi.fn<BuddyMediaLoader>(async () => new Blob(['media']));
+    const props = { conversation: null, pack, loadMedia, preview: true };
+    const view = render(<BuddyAvatar {...props} snapshot={snapshot} />);
+    const image = () => view.container.querySelector('img.buddy-avatar');
+    await waitFor(() => expect(image()).toHaveAttribute('src', 'blob:still'));
+
+    // A render while beforeunload runs (an unsaved draft asks to stay)...
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'));
+      view.rerender(
+        <BuddyAvatar
+          {...props}
+          snapshot={{ ...snapshot, activity: 'thinking' }}
+        />,
+      );
+    });
+    expect(image()).toHaveAttribute('data-glyph', 'true');
+    // ...and the page carries on.
+    await waitFor(() => expect(image()).toHaveAttribute('src', 'blob:still'));
+  });
+
   it('shows an explicit glyph fallback for an unavailable selected pack', () => {
     const loadMedia = vi.fn<BuddyMediaLoader>();
     const view = render(

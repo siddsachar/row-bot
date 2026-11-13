@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
-import { revokeLater, type BuddyMediaLoader } from './media';
+import { revokeLater, usePageUnloading, type BuddyMediaLoader } from './media';
 import glyph from '../../assets/row_bot_glyph_256.png';
 import {
   isLivingPack,
@@ -50,6 +50,7 @@ export function BuddyAvatar({
   handle?: React.RefObject<LivingBuddyHandle | null>;
 }) {
   const [still, setStill] = useState('');
+  const unloading = usePageUnloading();
   const asset = stillAsset(pack);
   const packId = pack?.id ?? '';
   const revision = pack?.revision ?? '';
@@ -85,14 +86,16 @@ export function BuddyAvatar({
         : still
           ? 'still'
           : 'fallback';
+  // No blob: image starts loading while the page unloads (see media.ts).
+  const shown = unloading ? '' : still;
   const image = (
     <img
       className="buddy-avatar"
-      src={still || glyph}
+      src={shown || glyph}
       alt=""
       aria-hidden="true"
-      data-glyph={still ? undefined : 'true'}
-      onError={still ? () => setStill('') : undefined}
+      data-glyph={shown ? undefined : 'true'}
+      onError={shown ? () => setStill('') : undefined}
     />
   );
   return (

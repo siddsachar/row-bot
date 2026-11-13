@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
 import { rememberBuddyMedia, revokeLater } from './BuddyAvatar';
+import { usePageUnloading } from './media';
 import type { BuddyPanelSession } from './BuddyPanel';
 
 const noSession = {
@@ -57,6 +58,8 @@ export function useBuddyStill(conversation: string | null): string {
     [controller],
   );
   const [still, setStill] = useState({ key: '', url: '' });
+  // No blob: image starts loading while the page unloads (see media.ts).
+  const unloading = usePageUnloading();
   const key = `${conversation}\u0000${packId}\u0000${revision}`;
   useEffect(() => {
     if (!conversation || !packId) return;
@@ -75,5 +78,5 @@ export function useBuddyStill(conversation: string | null): string {
       if (url) revokeLater(url);
     };
   }, [conversation, key, loadMedia, packId, revision]);
-  return still.key === key ? still.url : '';
+  return still.key === key && !unloading ? still.url : '';
 }
