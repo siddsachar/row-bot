@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 
 import pytest
 
@@ -103,17 +104,38 @@ def test_a_wake_up_reaches_signed_in_devices_and_forgets_gone_ones(tmp_path) -> 
 
 
 def test_the_wake_up_carries_no_content(tmp_path, monkeypatch) -> None:
-    import pywebpush
+    import httpx
 
     calls = []
-    monkeypatch.setattr(pywebpush, "webpush", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(httpx, "post", lambda url, **kwargs: calls.append((url, kwargs)) or httpx.Response(201))
     store = push.PushStore(tmp_path)
     store.public_key()
 
     assert push._send(_subscription("device-a"), store.key_path) is None
 
-    (info,), options = calls[0]
-    assert info["endpoint"] == "https://fcm.googleapis.com/fcm/send/abc"
-    assert options["data"] is None
-    assert options["vapid_claims"] == {"sub": "https://row-bot.example"}
-    assert options["headers"]["Topic"] == "needs-you"
+    url, options = calls[0]
+    assert url == "https://fcm.googleapis.com/fcm/send/abc"
+    assert options["content"] == b""
+    headers = options["headers"]
+    assert headers["Topic"] == "needs-you" and headers["TTL"] == str(push.WAKE_TTL_SECONDS)
+    # Signed for this push service with Row-Bot's own key (VAPID, RFC 8292).
+    scheme, _, fields = headers["Authorization"].partition(" ")
+    token = dict(field.split("=", 1) for field in fields.split(","))["t"]
+    claims = json.loads(base64.urlsafe_b64decode(token.split(".")[1] + "=="))
+    assert scheme == "vapid"
+    assert claims["aud"] == "https://fcm.googleapis.com" and claims["sub"] == "https://row-bot.example"
+    assert dict(field.split("=", 1) for field in fields.split(","))["k"] == store.public_key()
+    from py_vapid import Vapid02
+
+    assert Vapid02.verify(headers["Authorization"])
+
+
+def test_a_push_service_refusal_reports_its_status(tmp_path, monkeypatch) -> None:
+    import httpx
+
+    monkeypatch.setattr(httpx, "post", lambda url, **kwargs: httpx.Response(410))
+    store = push.PushStore(tmp_path)
+    store.public_key()
+
+    assert push._send(_subscription("device-a"), store.key_path) == 410
+

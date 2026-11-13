@@ -184,7 +184,7 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
 - `row-bot --compact-chats` gives a large `threads.db` back to the disk; run it with
   the server stopped, on the data volume, with room for a copy of the live data. It's
   optional: from 5.3.4 the file stops growing.
-- New core dependency: `pywebpush` (with `py-vapid` and `http-ece`). Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
+- New core dependency: `py-vapid`, which signs the push wake-ups. Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
 - Import memory stages uploads in a `memory_import/` folder in the data folder (backups leave it out). An upload can be up to 8 GB a file, so the disk needs room for what a person imports.
 
 ---
