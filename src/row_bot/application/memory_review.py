@@ -100,15 +100,27 @@ _DATED = re.compile(
 _OLD_NAME = re.compile(r"\bthoth\b", re.IGNORECASE)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
-_CONTACT_WORDS = re.compile(r"\b(?:address|lives at|street|postcode|post code|zip code|phone|mobile|e-?mail|"
-                            r"whatsapp|telegram|signal number)\b", re.IGNORECASE)
+# A way to reach the person: the label of a contact detail next to its value, or a home address. A sentence
+# that only mentions email or Telegram ("sends outreach emails", "a Telegram channel") is not a contact detail.
+_CONTACT_LABELS = re.compile(
+    r"\b(?:telegram|whatsapp|signal|skype|discord)\b[^.]{0,40}?\b(?:id|number|handle|user ?name)\b|"
+    r"\b(?:lives at|home address|postal address|street address|postcode|post code|zip code)\b",
+    re.IGNORECASE)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
+# Records grown by appending were joined with ".." and no space ("...gmail.com..User's name"): those are
+# sentence ends too (an ellipsis "..." is not).
+_GLUED = re.compile(r"(?<![.])\.\.(?![.])\s*")
 
 
 def _has_contact(text: str) -> bool:
-    if _EMAIL.search(text) or _CONTACT_WORDS.search(text):
+    if _EMAIL.search(text) or _CONTACT_LABELS.search(text):
         return True
     return any(sum(char.isdigit() for char in match.group()) >= 9 for match in _PHONE.finditer(text))
+
+
+def _sentences(text: str) -> list[str]:
+    """A record's sentences, including ones an earlier append glued together."""
+    return [part.strip() for part in _SENTENCE.split(_GLUED.sub(". ", _norm(text))) if part.strip()]
 
 
 def _props(entity: dict) -> dict:
@@ -510,7 +522,7 @@ def _split(user: dict, invoke: Callable[[str], str] | None, step: Callable[[], N
     from row_bot.prompts import MEMORY_REVIEW_SPLIT_PROMPT
     from row_bot.providers.background import list_field
 
-    sentences = [part.strip() for part in _SENTENCE.split(_norm(user.get("description"))) if part.strip()]
+    sentences = _sentences(user.get("description"))
     # Contact details stay on the person's record: the model never sees them, so they can't be spread.
     contacts = [sentence for sentence in sentences if _has_contact(sentence)]
     rest = [sentence for sentence in sentences if not _has_contact(sentence)]
@@ -676,7 +688,7 @@ def propose(*, import_batch: str | None = None, invoke: Callable[[str], str] | N
         similar[older["id"]], similar[newer["id"]] = newer["id"], older["id"]
         closeness[frozenset((older["id"], newer["id"]))] = float(similarity)
     batches = _batches(pool, pairs)
-    split_calls = len(_split_chunks([part for part in _SENTENCE.split(_norm(user.get("description")))
+    split_calls = len(_split_chunks([part for part in _sentences(user.get("description"))
                                      if part.strip()])) if user else 0
     total = len(batches) + split_calls
     done = 0

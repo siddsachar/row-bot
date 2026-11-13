@@ -337,3 +337,23 @@ def test_related_memories_with_different_names_stay_apart(stack, monkeypatch) ->
     _view, found = _review(stack.service)
 
     assert found[acme["id"]]["action"] == "keep"
+
+
+def test_a_record_glued_together_splits_into_sentences_and_keeps_only_real_contact_details(stack) -> None:
+    # A record grown by appending: sentences joined with ".." and no space, and words like "email" or
+    # "Telegram" in sentences that are not contact details.
+    glued = ("Email addresses: sam@rivers-audio.net..Name is Sam Rivers..Lives in Leeds..Works as a sound engineer."
+             " Sends outreach emails every Monday..Runs a Telegram channel for clients..Telegram account ID: 4815162342."
+             " Prefers short replies...Plays bass in a covers band.")
+    user = _save(stack.kg, "person", "User", glued * 3 + " Filler sentence about the studio." * 60)
+
+    _view, found = _review(stack.service)
+
+    split = found[user["id"]]
+    assert split["action"] == "split"
+    record = split["proposed_text"]
+    assert "sam@rivers-audio.net" in record and "4815162342" in record
+    assert "outreach emails" not in record and "Telegram channel" not in record
+    assert ".." not in record.replace("...", "")
+    new = " ".join(entry["text"] for entry in split["split"]["memories"])
+    assert "outreach emails" in new and "Telegram channel" in new
