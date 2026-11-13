@@ -321,3 +321,20 @@ def test_analyze_image_finds_a_chat_file_named_as_its_file_path(conversation, mo
     assert vision_tool._analyze_image("Is the text legible?", source="file",
                                       file_path="Launch v1 review.jpg") == "Seen."
     assert looked == [["Launch v1 review.jpg"]]
+
+
+def test_a_later_turn_edits_the_chats_last_picture_or_one_by_its_name(conversation, monkeypatch):
+    """T8: "make it night" in the next turn couldn't find the picture the turn before made."""
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools import image_gen_tool
+
+    first = b"\x89PNG\r\n\x1a\nfirst-picture"
+    second = b"\x89PNG\r\n\x1a\nsecond-picture"
+    register_attachment("fixture", "lighthouse-at-dawn.png", first)
+    register_attachment("fixture", "lighthouse-at-noon.png", second)
+    monkeypatch.setattr("row_bot.tool_outputs.current_thread_id", lambda: "fixture")
+    # A new turn: nothing in this turn's own cache.
+    monkeypatch.setattr(image_gen_tool, "_execution_image_cache", lambda: {})
+
+    assert image_gen_tool._resolve_image_source("last") == second
+    assert image_gen_tool._resolve_image_source("lighthouse-at-dawn.png") == first

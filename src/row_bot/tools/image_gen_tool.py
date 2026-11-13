@@ -612,6 +612,38 @@ def _xai_parameter_options(value: Any) -> set[str]:
     return {str(item).strip().lower() for item in value if str(item).strip()}
 
 
+def _newest_chat_picture() -> bytes | None:
+    """The newest picture in this chat's files (generated, edited or attached)."""
+    from row_bot.application.attachments import AttachmentError, list_conversation_files
+    from row_bot.tool_outputs import current_thread_id
+
+    conversation = current_thread_id()
+    if not conversation:
+        return None
+    try:
+        files = list_conversation_files(conversation)
+    except AttachmentError:
+        return None
+    for item in files:  # Newest first.
+        if str(item.get("mime_type") or "").startswith("image/"):
+            return _chat_picture(str(item["name"]))
+    return None
+
+
+def _chat_picture(name: str) -> bytes | None:
+    from row_bot import media_sources
+    from row_bot.tool_outputs import current_thread_id
+
+    conversation = current_thread_id()
+    if not conversation:
+        return None
+    try:
+        found = media_sources.chat_file(conversation, name)
+        return found.read_bytes() if found is not None and found.kind == "image" else None
+    except media_sources.SourceError:
+        return None
+
+
 def _resolve_image_source(image_source: str) -> bytes:
     """Resolve an image_source string to raw bytes.
 
@@ -620,11 +652,14 @@ def _resolve_image_source(image_source: str) -> bytes:
       2. Key match in _image_cache → pasted/attached image
       3. File path on disk
     """
-    # "last" — use the last generated image
+    # "last" — the image this turn made, else the chat's newest picture (a later turn's "make it night").
     if image_source.strip().lower() == "last":
         last_b64 = _execution_image_cache().get("__last_generated__")
         if last_b64:
             return last_b64
+        newest = _newest_chat_picture()
+        if newest is not None:
+            return newest
         raise ValueError(
             "No previously generated image available. "
             "Generate an image first, then use edit_image with image_source='last'."
@@ -652,6 +687,11 @@ def _resolve_image_source(image_source: str) -> bytes:
             ws_path = Path(ws_root) / image_source
             if ws_path.exists() and ws_path.is_file():
                 return ws_path.read_bytes()
+
+    # A picture saved in this chat's files, by the name its result gave ("Saved in this chat's files as …").
+    named = _chat_picture(image_source)
+    if named is not None:
+        return named
 
     raise ValueError(
         f"Could not find image '{image_source}'. "

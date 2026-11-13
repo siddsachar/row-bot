@@ -67,13 +67,15 @@ def _connection_changed(provider_id: str, *, connected: bool = True) -> None:
 
 
 def _default_image_model_to_chatgpt() -> None:
-    """A ChatGPT plan makes images too: with no image model chosen yet, it becomes ChatGPT's."""
+    """A ChatGPT plan makes images too: with no image model chosen yet, it becomes ChatGPT's, switched on."""
     from row_bot.providers.codex_media import CODEX_IMAGE_MODEL, codex_images_plan_note
     from row_bot.tools import registry as tool_registry
     try:
         if tool_registry.get_tool_config("image_gen", "model", None) or codex_images_plan_note():
             return
         tool_registry.set_tool_config("image_gen", "model", f"codex/{CODEX_IMAGE_MODEL}")
+        # "Make me a picture" then just works, with no "Turn on Image Generation?" first.
+        tool_registry.set_enabled("image_gen", True)
     except Exception:
         logger.warning("Could not default the image model to ChatGPT", exc_info=True)
 

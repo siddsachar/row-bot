@@ -283,8 +283,9 @@ def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
     changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None
                         or getattr(args, "compact_chats", False))
     if changes_data:
-        logger.error("%s is running on this data folder; quit it before resetting or restoring data.",
-                     APP_DISPLAY_NAME)
+        doing = ("compacting chats" if getattr(args, "compact_chats", False)
+                 else "restoring data" if args.restore_data is not None else "resetting data")
+        logger.error("%s is running on this data folder; quit it before %s.", APP_DISPLAY_NAME, doing)
         return 1
     _launch_event("instance_already_running", mode="server" if wants_server else "desktop")
     deadline = time.monotonic() + _INSTANCE_WAIT_SECONDS
@@ -2599,7 +2600,7 @@ def _load_window_mode() -> str:
     try:
         import json
 
-        cfg = json.loads(config_path.read_text())
+        cfg = json.loads(config_path.read_text(encoding="utf-8-sig"))  # Notepad may add a BOM.
         mode = cfg.get("window_mode", "ask")
         if mode in ("ask", "native", "browser"):
             return mode

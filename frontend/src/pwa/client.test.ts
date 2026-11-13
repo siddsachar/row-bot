@@ -227,6 +227,8 @@ it('presents stable offline and explicit update controls', async () => {
   value.setOnline(true);
   value.event('online');
   expect(await screen.findByTestId('pwa-apply-update')).toBeVisible();
+  // It says why it's there, not just a button (T15).
+  expect(screen.getByText('A new version of Row-Bot is ready.')).toBeVisible();
   await user.click(screen.getByTestId('pwa-apply-update'));
   expect(waiting.postMessage).toHaveBeenCalledTimes(1);
 });

@@ -534,10 +534,11 @@ function ProviderModels({
           await new Promise((resolve) => window.setTimeout(resolve, 1000));
         }
         // The catalog read that assesses readiness (as Settings › Models does).
+        // Free models are a few among hundreds: ask for them, not the first page.
         const page = await controller.modelCatalogPage(
           'chat',
           providerId,
-          '',
+          free ? 'free' : '',
           undefined,
         );
         if (stopped) return;
