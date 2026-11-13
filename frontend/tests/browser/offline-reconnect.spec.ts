@@ -14,15 +14,8 @@ test('offline and reconnect keep the compact draft without replaying a command',
     if (new URL(request.url()).pathname === '/api/v1/events')
       eventRequests += 1;
   });
-  await openSeedConversation(page);
-  const composer = page.getByRole('textbox', {
-    name: 'Message',
-    exact: true,
-  });
-  await composer.fill('Draft retained through deterministic network handoff');
-  const initialEventRequests = eventRequests;
   // Other specs on this fixture server may have sent messages already; only
-  // a call made after this point would be a replay.
+  // a call made after this test starts would be a replay.
   const fixtureState = async () =>
     (
       await page.request.get('/__p1_fixture/state', {
@@ -30,6 +23,13 @@ test('offline and reconnect keep the compact draft without replaying a command',
       })
     ).json();
   const callsBefore = (await fixtureState()).calls.length;
+  await openSeedConversation(page);
+  const composer = page.getByRole('textbox', {
+    name: 'Message',
+    exact: true,
+  });
+  await composer.fill('Draft retained through deterministic network handoff');
+  const initialEventRequests = eventRequests;
 
   // A read or save the page happens to start during the outage (the draft,
   // the queue, Buddy's picture) fails as any request would offline.
