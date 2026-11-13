@@ -337,3 +337,63 @@ def test_related_memories_with_different_names_stay_apart(stack, monkeypatch) ->
     _view, found = _review(stack.service)
 
     assert found[acme["id"]]["action"] == "keep"
+
+
+def test_a_record_glued_together_splits_into_sentences_and_keeps_only_real_contact_details(stack) -> None:
+    # A record grown by appending: sentences joined with ".." and no space, and words like "email" or
+    # "Telegram" in sentences that are not contact details.
+    glued = ("Email addresses: sam@rivers-audio.net..Name is Sam Rivers..Lives in Leeds..Works as a sound engineer."
+             " Uses sam@rivers-audio.net for work email."
+             " Sends outreach emails every Monday..Runs a Telegram channel for clients..Telegram account ID: 4815162342."
+             " Prefers short replies...Plays bass in a covers band.")
+    user = _save(stack.kg, "person", "User", glued * 3 + " Filler sentence about the studio." * 60)
+
+    _view, found = _review(stack.service)
+
+    split = found[user["id"]]
+    assert split["action"] == "split"
+    record = split["proposed_text"]
+    assert "sam@rivers-audio.net" in record and "4815162342" in record
+    assert "outreach emails" not in record and "Telegram channel" not in record
+    assert ".." not in record.replace("...", "")
+    assert record.count("sam@rivers-audio.net") == 1  # each contact detail once
+    new = " ".join(entry["text"] for entry in split["split"]["memories"])
+    assert "outreach emails" in new and "Telegram channel" in new
+
+
+def test_the_profile_is_written_once_from_every_part_of_a_long_record(stack) -> None:
+    # Each part of a long record is read on its own, so their profile lines repeat; one more call writes it once.
+    part = "Name is Sam Rivers. Lives in Leeds. Works as a sound engineer. " + "Keeps a studio diary entry. " * 140
+    user = _save(stack.kg, "person", "User", part * 3)
+
+    _view, found = _review(stack.service)
+
+    record = found[user["id"]]["proposed_text"]
+    assert record.count("Name is Sam Rivers.") == 1 and record.count("Lives in Leeds.") == 1
+    assert sum("\nLines:\n" in prompt for prompt in stack.model.prompts) == 1
+
+
+def test_two_facts_for_one_saved_memory_never_overwrite_each_other(stack, monkeypatch) -> None:
+    kg = stack.kg
+    studio = _save(kg, "project", "The studio gets", "Building a home recording studio.")  # the facts' subject
+    user = _save(kg, "person", "User", ("Name is Sam Rivers. Lives in Leeds. The studio gets acoustic panels. "
+                                        "The studio gets a new desk. ") * 40)
+    original = type(stack.model).__call__
+
+    def call(self, purpose, messages, *, answer=None, **how):
+        prompt = messages[0].content
+        if "closest to each (JSON):" in prompt:  # the model says both facts add to the studio memory
+            items = json.loads(prompt.split("closest to each (JSON):\n", 1)[1].split("\n\nReply with only", 1)[0])
+            return json.dumps({"decisions": [
+                {"fact": item["fact"], "action": "update" if "studio" in item["text"].lower() else "add",
+                 "memory_id": studio["id"] if "studio" in item["text"].lower() else "", "subject": "",
+                 "text": f"Building a home recording studio. {item['text']}"} for item in items]})
+        return original(self, purpose, messages, answer=answer, **how)
+
+    monkeypatch.setattr(type(stack.model), "__call__", call)
+
+    _view, found = _review(stack.service)
+
+    entries = [e for e in found[user["id"]]["split"]["memories"] if "studio" in e["text"].lower()]
+    assert [e["action"] for e in entries].count("update") == 1
+    assert [e["action"] for e in entries].count("add") == len(entries) - 1

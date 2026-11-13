@@ -20,7 +20,6 @@ import json
 import logging
 from pathlib import Path
 import threading
-from typing import Any
 from urllib.parse import urlsplit
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -168,26 +167,31 @@ def _active_device_ids() -> set[str]:
 
 
 def _send(subscription: PushSubscription, key_path: Path) -> int | None:
-    """Send one empty wake-up; the push service's status when it refused."""
-    from pywebpush import WebPushException, webpush
+    """Send one empty wake-up; the push service's status when it refused.
 
-    try:
-        webpush(
-            {
-                "endpoint": subscription.endpoint,
-                "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
-            },
-            data=None,
-            vapid_private_key=str(key_path),
-            vapid_claims={"sub": subscription.origin},
-            ttl=WAKE_TTL_SECONDS,
-            headers={"Urgency": "high", "Topic": "needs-you"},
-            timeout=10,
-        )
-    except WebPushException as exc:
-        response: Any = getattr(exc, "response", None)
-        return int(getattr(response, "status_code", 0) or 0)
-    return None
+    An empty push carries nothing to encrypt, so it is a bare POST to the
+    subscription's endpoint, signed for that push service (VAPID, RFC 8292).
+    """
+    import time
+
+    import httpx
+    from py_vapid import Vapid02
+
+    endpoint = urlsplit(subscription.endpoint)
+    claims = {
+        "aud": f"{endpoint.scheme}://{endpoint.netloc}",
+        "sub": subscription.origin,
+        # Push services take a signature for at most a day.
+        "exp": int(time.time()) + 12 * 60 * 60,
+    }
+    headers = {
+        **Vapid02.from_file(str(key_path)).sign(claims),
+        "TTL": str(WAKE_TTL_SECONDS),
+        "Urgency": "high",
+        "Topic": "needs-you",
+    }
+    response = httpx.post(subscription.endpoint, headers=headers, content=b"", timeout=10)
+    return None if 200 <= response.status_code < 300 else response.status_code
 
 
 def wake(

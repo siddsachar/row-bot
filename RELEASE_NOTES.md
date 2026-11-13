@@ -131,13 +131,18 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   to expect: about 50 messages a day, who sees your messages, and that free models
   don't make pictures. When the day's free messages are used up, the chat says when
   they come back and offers Use this computer, Sign in with a plan or Add credits.
-  On a hosted Row-Bot it's "No plan? Try it free", under the two plan buttons.
+  On a hosted Row-Bot it's "No plan? Try it free", under the two plan buttons, and
+  later it's **Sign in with OpenRouter** in OpenRouter's provider sheet.
 - **Pictures with your ChatGPT plan** - signed in with ChatGPT on a paid plan,
   Row-Bot makes and edits pictures with ChatGPT's own GPT Image 2, with no API key.
   If you haven't chosen an image model, it becomes your Image model when you sign
   in. Images use your plan's limits about 3–5 times faster than messages, and when
   the limit is reached Row-Bot says when it resets. The Free ChatGPT plan makes no
   images.
+- **Pictures, smoother** - "make it night" in a later message edits the last
+  picture instead of making a new one; a downloaded picture is named from its
+  prompt with the right extension (not "result"); and a tool you turn on in a chat
+  is used straight away, without asking you to send the request again.
 - **Ollama models newer than the catalogue** are judged by what Ollama says they can
   do, not by their family's name.
 - **NVIDIA** lists only its current chat models.
@@ -209,7 +214,7 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
 - `row-bot --compact-chats` gives a large `threads.db` back to the disk; run it with
   the server stopped, on the data volume, with room for a copy of the live data. It's
   optional: from 5.3.4 the file stops growing.
-- New core dependency: `pywebpush` (with `py-vapid` and `http-ece`). Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
+- New core dependency: `py-vapid`, which signs the push wake-ups. Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
 - Try it free signs in to OpenRouter through the server's public HTTPS address
   (`/api/v1/settings/providers/openrouter/sign-in/callback`, which needs no session
   and accepts only a waiting sign-in's one-time state). Without exactly one public

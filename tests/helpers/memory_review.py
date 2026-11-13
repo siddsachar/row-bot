@@ -40,6 +40,9 @@ class FakeReviewModel:
         if "Memories (JSON):\n" in prompt:
             return json.dumps({"decisions": [self._decide(item) for item in json.loads(
                 _between(prompt, "Memories (JSON):\n", "\n\nReply with only"))]})
+        if "\nLines:\n" in prompt:  # the profile written once: each line once, in order
+            lines = _between(prompt, "\nLines:\n", "\n\nReply with only").splitlines()
+            return json.dumps({"profile": list(dict.fromkeys(line.removeprefix("- ") for line in lines))})
         if "\nText:\n" in prompt:
             text = _between(prompt, "\nText:\n", "\n\nReply with only")
             profile, memories = [], []
