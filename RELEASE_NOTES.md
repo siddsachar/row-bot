@@ -145,6 +145,9 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   is used straight away, without asking you to send the request again.
 - **Ollama models newer than the catalogue** are judged by what Ollama says they can
   do, not by their family's name.
+- **Slow first loads are fine** - checking a large Ollama model right after a
+  restart no longer says the tool check timed out; the model loads first, then is
+  checked (newer Ollama versions load more slowly on Windows with an NVIDIA card).
 - **NVIDIA** lists only its current chat models.
 - **A rate limit isn't an overflow** - Cerebras' "too many requests" is no longer
   logged as a context overflow.
