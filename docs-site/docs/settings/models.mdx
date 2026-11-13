@@ -22,13 +22,21 @@ Each job has its own picker, using the same grouped, searchable list as the comp
 - **Main model** is the default model for new conversations and background work. A conversation can still choose its own model in the composer. Background work tied to a conversation, such as checking its goal's progress or compacting it, uses that conversation's model; memory extraction and Dream Cycle use the main model. Either way, Row-Bot uses the lowest reasoning effort that model offers, when it knows the model's reasoning choices.
 - **Vision** reads images, screenshots and your camera. Leave it as **Same as main model** if your main model can see, or choose another model. Choose a **Camera** here too.
 - **Image** makes and edits pictures.
+
+### Images With Your ChatGPT Plan
+
+Signed in with ChatGPT on a paid plan, Row-Bot can make and edit pictures with ChatGPT's own image model, **GPT Image 2**, with no API key. When you sign in and haven't chosen an image model yet, it becomes your Image model; you can choose another any time.
+
+- Images count toward your ChatGPT plan's limits and use them about 3–5 times faster than messages. When the limit is reached, Row-Bot says when it resets; choose another image model to keep going.
+- The Free ChatGPT plan doesn't make images.
+- An edit changes the picture from your words and can't use a mask to mark one area.
 - **Video** makes short clips and animates pictures.
 
 Turn Vision, Image or Video off when you don't want that job done at all.
 
 The Image and Video pickers offer the models each connected provider's own model list has right now, so a new image or video model appears after **Refresh catalog**, without a Row-Bot update. When a provider stops listing the model you chose, usually because it retired it, the picker says so: choose another.
 
-Image models come from OpenAI, Google, xAI, OpenRouter, Vercel AI Gateway, Together AI, Requesty, Qwen (Alibaba Cloud), Atlas Cloud, MiniMax and Z.AI; video models from Google, xAI, OpenRouter, Together AI, Qwen (Alibaba Cloud), Atlas Cloud, MiniMax and Z.AI. MiniMax's and Z.AI's own lists leave out their image and video models, so Row-Bot adds the ones their docs name. OpenRouter's image and video pickers offer the models its image and video services take, not its routers such as Auto Router. OpenRouter, Vercel AI Gateway and Atlas Cloud reach many image makers (FLUX, Seedream, Recraft, Imagen and others) with one key, and OpenRouter, Together AI and Atlas Cloud reach video makers such as Veo, Seedance, Kling and Hailuo. Together AI's, MiniMax's, Z.AI's and Atlas Cloud's image models make new images but don't edit them here, and Atlas Cloud's video models make clips from text with each model's own length and size. An OpenRouter image or video model gets the length, size and aspect ratio nearest the one asked for, of those OpenRouter lists for it, and its own for any it lists none of. Buddy's new looks use OpenAI, Google or xAI.
+Image models come from your ChatGPT plan, OpenAI, Google, xAI, OpenRouter, Vercel AI Gateway, Together AI, Requesty, Qwen (Alibaba Cloud), Atlas Cloud, MiniMax and Z.AI; video models from Google, xAI, OpenRouter, Together AI, Qwen (Alibaba Cloud), Atlas Cloud, MiniMax and Z.AI. MiniMax's and Z.AI's own lists leave out their image and video models, so Row-Bot adds the ones their docs name. OpenRouter's image and video pickers offer the models its image and video services take, not its routers such as Auto Router. OpenRouter, Vercel AI Gateway and Atlas Cloud reach many image makers (FLUX, Seedream, Recraft, Imagen and others) with one key, and OpenRouter, Together AI and Atlas Cloud reach video makers such as Veo, Seedance, Kling and Hailuo. Together AI's, MiniMax's, Z.AI's and Atlas Cloud's image models make new images but don't edit them here, and Atlas Cloud's video models make clips from text with each model's own length and size. An OpenRouter image or video model gets the length, size and aspect ratio nearest the one asked for, of those OpenRouter lists for it, and its own for any it lists none of. Buddy's new looks use OpenAI, Google or xAI.
 
 ## Your Models
 

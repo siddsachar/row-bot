@@ -256,6 +256,9 @@ def _get_client() -> tuple:
 
         ctx = xai_media_auth_context(provider)
         return None, ctx.label, provider
+    if provider == "codex":
+        # The ChatGPT sign-in; the request itself says if it needs reconnecting.
+        return None, IMAGE_PROVIDER_META["codex"]["label"], provider
 
     meta = IMAGE_PROVIDER_META.get(provider)
     if not meta:
@@ -418,8 +421,16 @@ def _atlascloud_image(provider_id: str, model: str, prompt: str, size: str, qual
     raise RuntimeError(f"Atlas Cloud's image job {job_id} did not finish within {_DIRECT_TIMEOUT}s")
 
 
+def _codex_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    from row_bot.providers.codex_media import codex_image
+
+    _validate_generation()
+    return codex_image(model, prompt, size=size, quality=quality, source=source)
+
+
 # The image routes with their own APIs (OpenAI, Google and xAI have theirs above).
 _DIRECT_IMAGE: dict[str, Callable[[str, str, str, str, str, str], str]] = {
+    "codex": _codex_image,
     "openrouter": _openrouter_image,
     "together": _together_image,
     "minimax": _minimax_image,

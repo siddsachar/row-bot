@@ -755,6 +755,11 @@ export default function ModelsPanel({
               status={
                 picker.warning ? (
                   <StatusLine tone="warning">{picker.warning}</StatusLine>
+                ) : surface === 'image' &&
+                  picker.current_ref.startsWith('model:codex:') ? (
+                  <StatusLine>
+                    Uses your ChatGPT plan’s limits, about 3–5 times a message.
+                  </StatusLine>
                 ) : undefined
               }
               control={
