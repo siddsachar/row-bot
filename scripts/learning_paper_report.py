@@ -1167,7 +1167,9 @@ def _hugging_face_trainer(copy: Path) -> Any:
     from row_bot.learning.training import jobs as jobs_module
 
     secret_store.use_memory_backend()
-    sign_in = auth.HuggingFaceSignIn()
+    # This loop is the only poller: the sign-in's own background poll would race it for the one token answer
+    # and leave this loop nothing pending (13 Nov: the participant authorized and the run stopped).
+    sign_in = auth.HuggingFaceSignIn(start_threads=False)
     state = sign_in.start()
     say(f"Sign in to Hugging Face: open {state.code.verification_uri} and enter the code {state.code.user_code},")
     say("then click Authorize. Waiting ...")

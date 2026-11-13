@@ -1329,3 +1329,61 @@ def test_the_schema_takes_a12s_parts_and_a_v1_report_is_unchanged(learning_on, m
     with pytest.raises(report.SchemaError):
         report.validate({**built, "design": {**built["design"], "local_reference": "qwen3.8:27b-canary"}},
                         report.FREEZE)
+
+
+def test_the_27b_sign_in_finishes_when_the_participant_authorizes(data_dir, tmp_path, monkeypatch):
+    """13 Nov: the v2 freeze stopped at "the Hugging Face sign-in didn't finish" though the participant had
+    authorized. Here Hugging Face answers the first poll "pending" and the next one with the token; a second poller
+    that took that answer would leave the script's loop with nothing pending."""
+
+    import functools
+    import threading
+
+    import httpx
+
+    from row_bot import secret_store
+    from row_bot.learning.remote import auth
+
+    main = threading.current_thread()
+    other_took_it = threading.Event()
+    asked = {"main": 0}
+
+    def hugging_face(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/oauth/register":
+            return httpx.Response(201, json={"client_id": "client-123"})
+        if path == "/oauth/device":
+            return httpx.Response(200, json={"device_code": "device-xyz", "user_code": "ABCD-EFGH",
+                                             "verification_uri": "https://hf.co/oauth/device", "expires_in": 300})
+        if path == "/oauth/token":
+            on_main = threading.current_thread() is main
+            if not asked["main"]:  # the participant authorizes after the script's first poll
+                asked["main"] += on_main
+                return httpx.Response(400, json={"error": "authorization_pending"})
+            if not on_main:
+                other_took_it.set()
+            return httpx.Response(200, json={"access_token": "hf_oauth_marker", "refresh_token": "hf_refresh_marker",
+                                             "expires_in": 3600})
+        if path == "/api/whoami-v2":
+            return httpx.Response(200, json={"name": "ada"})
+        return httpx.Response(404)
+
+    real_sleep = report.time.sleep
+
+    def sleep(seconds: float) -> None:  # a poll interval: the script waits briefly, any other poller doesn't
+        if threading.current_thread() is main:
+            other_took_it.wait(0.2)
+        else:
+            real_sleep(0.001)
+
+    monkeypatch.setattr(auth, "HuggingFaceSignIn",
+                        functools.partial(auth.HuggingFaceSignIn, transport=httpx.MockTransport(hugging_face)))
+    monkeypatch.setattr(report.time, "sleep", sleep)
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    try:
+        trainer = report._hugging_face_trainer(copy)  # noqa: SLF001 - the freeze's sign-in step
+    finally:
+        secret_store._set_backend_for_tests(None)  # noqa: SLF001
+
+    assert trainer is not None and not other_took_it.is_set()
