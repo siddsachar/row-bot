@@ -118,6 +118,10 @@ def _has_contact(text: str) -> bool:
     return any(sum(char.isdigit() for char in match.group()) >= 9 for match in _PHONE.finditer(text))
 
 
+def _sentence_end(line: str) -> str:
+    return line if line.endswith((".", "!", "?")) else line + "."
+
+
 def _sentences(text: str) -> list[str]:
     """A record's sentences, including ones an earlier append glued together."""
     return [part.strip() for part in _SENTENCE.split(_GLUED.sub(". ", _norm(text))) if part.strip()]
@@ -541,7 +545,7 @@ def _split(user: dict, invoke: Callable[[str], str] | None, step: Callable[[], N
         if not lines and not found:
             # Nothing came back for this part: trimming the record now would lose what it says.
             raise ModelUnavailable("no split")
-        profile += [_norm(line) for line in lines or [] if isinstance(line, str) and _norm(line)]
+        profile += [_sentence_end(_norm(line)) for line in lines or [] if isinstance(line, str) and _norm(line)]
         for item in found or []:
             if not isinstance(item, dict):
                 continue
@@ -559,7 +563,18 @@ def _split(user: dict, invoke: Callable[[str], str] | None, step: Callable[[], N
                 subject = _subject_from(text)
             facts.append((category, subject, text))
         step()
-    kept: list[str] = list(dict.fromkeys(contacts))
+    # Each contact detail once: a contact sentence that adds no address, number or ID already kept is left
+    # out (a real record said the same email five times, once as a guess).
+    kept: list[str] = []
+    reached: set[str] = set()
+    for sentence in dict.fromkeys(contacts):
+        details = {value.lower().rstrip(".") for value in _EMAIL.findall(sentence)} | {
+            re.sub(r"\D", "", match.group()) for match in _PHONE.finditer(sentence)
+            if sum(char.isdigit() for char in match.group()) >= 9}
+        if details and details <= reached:
+            continue
+        reached |= details
+        kept.append(sentence if sentence.endswith((".", "!", "?")) else sentence + ".")
     size = sum(len(line) + 1 for line in kept)
     for line in dict.fromkeys(profile):
         if line in kept:

@@ -343,6 +343,7 @@ def test_a_record_glued_together_splits_into_sentences_and_keeps_only_real_conta
     # A record grown by appending: sentences joined with ".." and no space, and words like "email" or
     # "Telegram" in sentences that are not contact details.
     glued = ("Email addresses: sam@rivers-audio.net..Name is Sam Rivers..Lives in Leeds..Works as a sound engineer."
+             " Uses sam@rivers-audio.net for work email."
              " Sends outreach emails every Monday..Runs a Telegram channel for clients..Telegram account ID: 4815162342."
              " Prefers short replies...Plays bass in a covers band.")
     user = _save(stack.kg, "person", "User", glued * 3 + " Filler sentence about the studio." * 60)
@@ -355,5 +356,6 @@ def test_a_record_glued_together_splits_into_sentences_and_keeps_only_real_conta
     assert "sam@rivers-audio.net" in record and "4815162342" in record
     assert "outreach emails" not in record and "Telegram channel" not in record
     assert ".." not in record.replace("...", "")
+    assert record.count("sam@rivers-audio.net") == 1  # each contact detail once
     new = " ".join(entry["text"] for entry in split["split"]["memories"])
     assert "outreach emails" in new and "Telegram channel" in new
