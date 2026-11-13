@@ -58,6 +58,7 @@ test('hosted: ChatGPT in one click, straight into a chat with one suggestion, th
   await expect(choices.getByRole('button')).toHaveText([
     'Sign in with ChatGPT',
     'Use my Claude plan',
+    'No plan? Try it free',
   ]);
   await expect(
     page.getByText(/Running models on this server needs a GPU/),
