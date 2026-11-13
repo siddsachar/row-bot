@@ -118,22 +118,28 @@ def test_the_tool_probe_does_not_reload_the_chat_model(ollama, monkeypatch) -> N
     from row_bot.providers import ollama as ollama_provider
 
     sent: list[dict] = []
+    timeouts: list[float] = []
 
     def post(url, json, timeout):
         sent.append(json)
+        timeouts.append(timeout)
         message = {"role": "assistant", "content": "", "tool_calls": [
             {"function": {"name": "row_bot_probe", "arguments": {"value": "ok"}}},
-        ]} if len(sent) == 1 else {"role": "assistant", "content": "ok"}
+        ]} if len(sent) == 2 else {"role": "assistant", "content": "ok"}
         return SimpleNamespace(status_code=200, text="", json=lambda: {"message": message})
 
     monkeypatch.setattr(httpx, "post", post)
     ollama_provider._tool_probe_cache.clear()
 
-    result = ollama_provider.probe_ollama_tool_round_trip(MODEL, force=True)
+    result = ollama_provider.probe_ollama_tool_round_trip(MODEL, force=True, timeout=20.0)
 
     assert result["tool_round_trip"] is True
-    assert [request["options"] for request in sent] == [{"temperature": 0, "num_ctx": USER_CONTEXT}] * 2
-    assert [request["keep_alive"] for request in sent] == [OLLAMA_CHAT_KEEP_ALIVE] * 2
+    # The model loads first, with the probe's own settings, so the probe neither reloads it
+    # nor counts a slow cold load against its 20 seconds.
+    assert sent[0]["messages"] == []
+    assert timeouts[0] > 20.0 and timeouts[1:] == [20.0, 20.0]
+    assert [request["options"] for request in sent] == [{"temperature": 0, "num_ctx": USER_CONTEXT}] * 3
+    assert [request["keep_alive"] for request in sent] == [OLLAMA_CHAT_KEEP_ALIVE] * 3
 
 
 def test_a_user_keep_alive_for_the_server_is_respected(ollama, monkeypatch) -> None:

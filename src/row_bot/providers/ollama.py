@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 _tool_probe_cache: dict[str, dict[str, Any]] = {}
 _TOOL_PROBE_TTL_SECONDS = 10 * 60
+# A cold load of a large model can take minutes (Ollama 0.40.16 turned mmap off on Windows CUDA),
+# so loading gets its own allowance and the probe's own timeout covers only the replies.
+_MODEL_LOAD_TIMEOUT_SECONDS = 300.0
 
 TOOL_CAPABLE_FAMILIES = {
     "qwen3", "qwen3.5", "qwen3.6", "qwen3.8", "qwen3-coder", "llama3.1", "llama3.3",
@@ -116,6 +119,17 @@ def probe_ollama_tool_round_trip(model_id: str, *, force: bool = False, timeout:
         chat_settings = ollama_chat_request_settings(model_id) or {}
         options = {"temperature": 0, **chat_settings.get("options", {})}
         lifetime = {"keep_alive": chat_settings["keep_alive"]} if "keep_alive" in chat_settings else {}
+        # An empty chat only loads the model, with the same settings the probe uses.
+        loaded = httpx.post(
+            f"{base_url}/api/chat",
+            json={"model": model_id, "messages": [], "options": options, **lifetime},
+            timeout=_MODEL_LOAD_TIMEOUT_SECONDS,
+        )
+        if loaded.status_code >= 400:
+            result["status_code"] = loaded.status_code
+            result["error"] = loaded.text[:300]
+            _tool_probe_cache[model_id] = dict(result)
+            return result
         first = httpx.post(
             f"{base_url}/api/chat",
             json={

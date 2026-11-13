@@ -509,6 +509,8 @@ def test_ollama_tool_probe_requires_tool_call_and_round_trip(monkeypatch):
             return self._payload
 
     def post(url, json, timeout):
+        if json["messages"] == []:
+            return Response(200, {"done": True, "done_reason": "load"})
         calls.append(json)
         if len(calls) == 1:
             return Response(200, {
