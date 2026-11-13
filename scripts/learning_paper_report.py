@@ -492,6 +492,8 @@ EXPLORATORY_REASONS = enum("declined", "rows_not_reproducible", "rows_changed", 
                            "signed_out", "export_failed", "download_failed", "couldnt_start", "no_starting_model",
                            "runtime_unavailable", "stopped", "too_few_problems")
 RUNTIMES = enum("row_bot", "ollama", "lmstudio", "llama_cpp", "vllm")
+#: Why an arm didn't come up: serving's own reason codes (fixed words, never content), or "no_file".
+SERVE_FAILURE = Text(pattern=re.compile(r"^[a-z_]{1,40}$"))
 
 RUN = Obj({
     "on": Text(pattern=DAY), "build": Maybe(Text(pattern=COMMIT)), "build_clean": BOOL,
@@ -620,8 +622,10 @@ FREEZE = Obj({
                    # A12 1: v2's real work is captured after the end of this day (the v1 freeze) up to ``as_of``.
                    "since": Text(pattern=DAY),
                    # A12 5: the larger local reference arm's model, and the arms run model by model with it.
-                   "local_reference": enum(*LOCAL_REFERENCE_MODELS, "other"), "order": enum("interleaved", "model")},
-                  optional=frozenset({"since", "local_reference", "order"})),
+                   "local_reference": enum(*LOCAL_REFERENCE_MODELS, "other"), "order": enum("interleaved", "model"),
+                   # Why an arm didn't come up (a run that served nothing says why).
+                   "serve_failures": Map(enum("start", "personal"), SERVE_FAILURE)},
+                  optional=frozenset({"since", "local_reference", "order", "serve_failures"})),
     # The evaluated version's training examples, how many came from imported past chats, and its training targets
     # (added before v2's freeze; optional, so the v1 report still reads for --combine-with).
     "versions": Obj({"total": COUNT, "pilots": COUNT, "candidates": COUNT, "evaluated": Maybe(COUNT),
@@ -649,7 +653,8 @@ FREEZE = Obj({
                                            "cached": COUNT, "identical": Obj({"problems": COUNT, "identical": COUNT}),
                                            "splits": Map(SPLITS, ARM_SPLIT)})),
         "contrasts": Map(EXPLORATORY_CONTRASTS, Map(SPLITS, SPLIT_ANALYSIS)),
-    }),
+        "serve_failures": Map(enum("start27", "personal27", "start", "personal"), SERVE_FAILURE),
+    }, optional=frozenset({"serve_failures"})),
     # A12 2 and 4c (secondary): the gap closed on real work, and the judged long answers' calibration and counts.
     "gap_closed": Map(enum("real_uncorrected", "real_corrected"), GAP),
     "judged_long_answers": JUDGED,
@@ -885,6 +890,13 @@ class Prepared:
     runtime: str
     cleanup: Callable[[], None] = lambda: None
     reason: str | None = None
+    # Why each arm that didn't come up didn't (13 Nov: the v2 freeze served neither starting model and its report
+    # couldn't say why).
+    failures: dict[str, str] = field(default_factory=dict)
+
+
+#: Serving reasons that mean the runtime isn't there: asking it again changes nothing.
+NOT_THERE = frozenset({"not_running", "not_installed", "not_local", "server_missing", "server_unavailable"})
 
 
 def serve_arms(copy: Path, version: Mapping[str, Any]) -> Prepared:
@@ -902,7 +914,7 @@ def serve_arms(copy: Path, version: Mapping[str, Any]) -> Prepared:
         if state is not None and state.gguf and (base_model.folder(model.id, copy) / state.gguf).is_file():
             base_gguf = base_model.folder(model.id, copy) / state.gguf
     if base_gguf is None:
-        return Prepared({}, context, runtime, reason="no_starting_model")
+        return Prepared({}, context, runtime, reason="no_starting_model", failures={"start": "no_file"})
     number = int(version["version"])
     made: list[Callable[[], None]] = []
 
@@ -911,13 +923,20 @@ def serve_arms(copy: Path, version: Mapping[str, Any]) -> Prepared:
             with contextlib.suppress(Exception):
                 undo()
 
-    start = serving.serve(runtime, version=number, gguf=base_gguf, serve_context=int(context),
-                          folder=base_model.folder(model.id, copy), root=copy, tag=base_model.tag(copy),
-                          tool_turn=False)
+    def serve(**arguments: Any) -> Any:
+        # A first load after a restart or a runtime update can outlast the readiness check (13 Nov: Ollama
+        # 0.40.16 loaded the starting model in 20.3 s against the check's 20 s); a second load reads the cached file.
+        outcome = serving.serve(runtime, **arguments)
+        if outcome.state != "ready" and outcome.reason not in NOT_THERE:
+            outcome = serving.serve(runtime, **arguments)
+        return outcome
+
+    start = serve(version=number, gguf=base_gguf, serve_context=int(context),
+                  folder=base_model.folder(model.id, copy), root=copy, tag=base_model.tag(copy), tool_turn=False)
     if start.state == "ready":
         made.append(lambda: base_model.withdraw(model.id, root=copy))
-    personal = serving.serve(runtime, version=number, gguf=Path(version["_gguf"]), serve_context=int(context),
-                             folder=Path(version["_gguf"]).parent, root=copy, tool_turn=False)
+    personal = serve(version=number, gguf=Path(version["_gguf"]), serve_context=int(context),
+                     folder=Path(version["_gguf"]).parent, root=copy, tool_turn=False)
     if personal.state == "ready":
         made.append(lambda: serving.withdraw(runtime, number, root=copy))
     if start.state != "ready" or personal.state != "ready" or not start.model_ref or not personal.model_ref:
@@ -925,7 +944,9 @@ def serve_arms(copy: Path, version: Mapping[str, Any]) -> Prepared:
         reasons = {start.reason, personal.reason}
         reason = ("runtime_unavailable" if reasons & {"not_running", "not_installed", "not_local"} else
                   "no_starting_model" if start.state != "ready" else "no_version")
-        return Prepared({}, context, runtime, reason=reason)
+        failures = {name: str(outcome.reason or "failed") for name, outcome in (("start", start), ("personal", personal))
+                    if outcome.state != "ready" or not outcome.model_ref}
+        return Prepared({}, context, runtime, reason=reason, failures=failures)
     return Prepared({"start": start.model_ref, "personal": personal.model_ref}, int(context), runtime, cleanup)
 
 
@@ -1288,10 +1309,12 @@ def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: H
     prepared = hooks.prepare(copy, row) if row is not None else Prepared({}, None, "row_bot", reason="no_version")
     try:
         if not prepared.refs:
+            found.section["serve_failures"] = {f"{name}27": why for name, why in prepared.failures.items()}
             return found.fail(prepared.reason or "runtime_unavailable")
         local = hooks.prepare(copy, found.section["_newest"])
         try:
             if not local.refs:
+                found.section["serve_failures"] = dict(local.failures)
                 return found.fail(local.reason or "runtime_unavailable")
             arms = [evaluation.Arm("start27", model_ref=prepared.refs["start"], subject_kind="baseline",
                                    serve_context=prepared.serve_context),
@@ -1352,6 +1375,7 @@ def exploratory_section(found: Exploratory) -> dict[str, Any]:
         "arms": arms,
         "contrasts": {name: {split: _split(part) for split, part in value.items()}
                       for name, value in (result.get("contrasts") or {}).items()},
+        **({"serve_failures": found.section["serve_failures"]} if found.section.get("serve_failures") else {}),
     }
 
 
@@ -1785,6 +1809,8 @@ def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: 
                  "adjusted": {name: (adjusted[name] if {"H1": p_h1, "H2": p_h2, "H3": p_h3}[name] is not None
                                      else None) for name in family}},
     }
+    if prepared.failures:
+        built["design"]["serve_failures"] = dict(prepared.failures)
     # A12's secondary parts, present only when they apply (a v1 run without them is unchanged).
     if paper == "v2":
         built["design"]["since"] = V1_FREEZE.isoformat()

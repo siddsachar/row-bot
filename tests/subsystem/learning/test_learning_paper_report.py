@@ -1387,3 +1387,62 @@ def test_the_27b_sign_in_finishes_when_the_participant_authorizes(data_dir, tmp_
         secret_store._set_backend_for_tests(None)  # noqa: SLF001
 
     assert trainer is not None and not other_took_it.is_set()
+
+
+def test_an_arm_that_outlasts_its_first_readiness_check_is_served_on_the_second(data_dir, tmp_path, monkeypatch):
+    """13 Nov: after an Ollama update the starting model's first load took 20.3 s against the readiness check's 20 s,
+    so the v2 freeze served no starting model and evaluated nothing. A second load reads the cached file."""
+
+    from row_bot.learning.training import base_model, serving, weights
+
+    model = weights.MODELS["qwen3.5-9b"]
+    folder = base_model.folder(model.id, tmp_path)
+    folder.mkdir(parents=True)
+    (folder / "base.gguf").write_bytes(b"gguf")
+    base_model.write(base_model.BaseState(model.id, "ready", gguf="base.gguf"), tmp_path)
+    personal = tmp_path / "learning_models" / "versions" / "v6" / "personal.gguf"
+    personal.parent.mkdir(parents=True)
+    personal.write_bytes(b"gguf")
+    version = {"version": 6, "_runtime": "ollama", "_serve_context": 32768, "_base": model.repo, "_gguf": personal}
+    asked: list[str] = []
+
+    def serve(runtime, *, tag=None, **_arguments):
+        arm = "start" if tag else "personal"
+        asked.append(arm)
+        if arm == "start" and asked.count("start") == 1:
+            return serving.ServeOutcome("failed", runtime, reason="probe_failed")
+        return serving.ServeOutcome("ready", runtime, model_ref=f"model:ollama:{arm}")
+
+    monkeypatch.setattr(serving, "serve", serve)
+    prepared = report.serve_arms(tmp_path, version)
+    assert prepared.refs == {"start": "model:ollama:start", "personal": "model:ollama:personal"}
+    assert asked == ["start", "start", "personal"]
+
+    asked.clear()
+    monkeypatch.setattr(serving, "serve", lambda runtime, **_: asked.append("ask") or serving.ServeOutcome(
+        "failed", runtime, reason="not_running"))
+    prepared = report.serve_arms(tmp_path, version)
+    assert (prepared.refs, prepared.reason) == ({}, "runtime_unavailable")
+    assert asked == ["ask", "ask"]  # the runtime isn't there: each arm is asked once
+
+
+def test_a_freeze_that_serves_no_arm_says_why_in_its_report(profile, folders, capsys, chats):
+    scratch, out = folders
+    _trained_on_the_profiles_rows(profile, chats)
+    fake = _Exploratory()
+    hooks = _exploratory_hooks(fake, "upload", chats)
+    hooks.prepare = lambda copy, version: report.Prepared({}, 32768, "ollama", reason="no_starting_model",
+                                                          failures={"start": "probe_failed"})
+
+    code = report.main(["--freeze", "--as-of", "2030-01-01", "--hugging-face-27b", "--profile", str(profile),
+                        "--scratch", str(scratch), "--out", str(out), "--yes"], hooks=hooks)
+
+    printed = capsys.readouterr()
+    assert code == 0, printed.out
+    written = _written(out)
+    report.validate(written, report.FREEZE)
+    assert written["hypotheses"]["H1"]["reason"] == "no_starting_model"
+    assert written["design"]["serve_failures"] == {"start": "probe_failed"}
+    found = written["exploratory_27b"]
+    assert (found["state"], found["reason"]) == ("not_run", "no_starting_model")
+    assert found["serve_failures"] == {"start27": "probe_failed"}
