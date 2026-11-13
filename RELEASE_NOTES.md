@@ -10,7 +10,9 @@ about, keeps facts current, imports what other assistants know about you, and
 helps you tidy what it remembers. It also fixes what real long jobs ran into:
 replies that stopped on "Next I'll…", videos that kept captions and borders you
 didn't want, files one tool couldn't find from another, and a chat database that
-grew to tens of gigabytes. It arrives through background updates.
+grew to tens of gigabytes. New to Row-Bot with no plan or key? Try it free with
+OpenRouter's free models. And a ChatGPT plan now makes pictures too. It arrives
+through background updates.
 
 ### A Living Buddy
 
@@ -69,6 +71,8 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
 - **the work is one tap away** - a chat that made a deck or a code folder shows it in its header ("Design" or "Code"), one tap to open.
 - **swipe in from the left** to open your conversations.
 - **long-press a message** for its actions, including Select text to copy part of it.
+- **a tap opens a menu, and only that** - a menu that rises as a sheet opens when you lift your finger, so the tap that opens it never chooses whichever item rose under it.
+- **notes in the composer read in full** - "the main model isn't available, so … will answer" and "this model can't see images" wrap instead of being cut off.
 - **Settings as a list** - Settings opens on its list of pages; each page has its way back.
 - **a clearer connect page** - the page a phone opens to connect matches the setup page, in light and dark, fits the screen, and says plainly that connecting gives full owner access and for how long.
 - **smaller things** - no keyboard shortcut hints on touch screens; Home's quick starts say Design, Code and Workflow; the search sheet shows every result; Monitor fits one column; no duplicate approval notice while Home lists it; the terminal no longer loads with every page.
@@ -121,8 +125,29 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
 
 ### Models
 
+- **Try it free** - first run has a fourth way in, for anyone with no plan or key:
+  sign in to OpenRouter (it makes you a free account if you need one) and pick one
+  of its free models, one marked Recommended. Before anything is sent, it says what
+  to expect: about 50 messages a day, who sees your messages, and that free models
+  don't make pictures. When the day's free messages are used up, the chat says when
+  they come back and offers Use this computer, Sign in with a plan or Add credits.
+  On a hosted Row-Bot it's "No plan? Try it free", under the two plan buttons, and
+  later it's **Sign in with OpenRouter** in OpenRouter's provider sheet.
+- **Pictures with your ChatGPT plan** - signed in with ChatGPT on a paid plan,
+  Row-Bot makes and edits pictures with ChatGPT's own GPT Image 2, with no API key.
+  If you haven't chosen an image model, it becomes your Image model when you sign
+  in. Images use your plan's limits about 3–5 times faster than messages, and when
+  the limit is reached Row-Bot says when it resets. The Free ChatGPT plan makes no
+  images.
+- **Pictures, smoother** - "make it night" in a later message edits the last
+  picture instead of making a new one; a downloaded picture is named from its
+  prompt with the right extension (not "result"); and a tool you turn on in a chat
+  is used straight away, without asking you to send the request again.
 - **Ollama models newer than the catalogue** are judged by what Ollama says they can
   do, not by their family's name.
+- **Slow first loads are fine** - checking a large Ollama model right after a
+  restart no longer says the tool check timed out; the model loads first, then is
+  checked (newer Ollama versions load more slowly on Windows with an NVIDIA card).
 - **NVIDIA** lists only its current chat models.
 - **A rate limit isn't an overflow** - Cerebras' "too many requests" is no longer
   logged as a context overflow.
@@ -143,6 +168,10 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   repeats, run logs, and your own record split into clear facts. Nothing changes until
   you approve, your memory is backed up first, and you can undo for 30 days. Long
   records, such as workflow logs, are never changed unless you choose to.
+- **A long person record becomes a short, current profile** - Review memory turns a
+  person record that grew by appending into a short profile: each fact once,
+  contradictions settled, each contact detail kept once, and the rest as separate
+  memories. You see the split before anything changes.
 - **Only what your message is about** - memory now brings up only what your message is
   about. Before, almost every reply got five loosely related memories. Each memory
   shown is a few hundred characters at most, the parts about what you asked first, and
@@ -171,6 +200,10 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   `row-bot --compact-chats`: the old file stays beside it as `threads.db.pre-compact`
   until you delete it. A start beside a long write no longer fails with "database is
   locked".
+- **Try it free sends nothing until you sign in** - choosing it only shows what
+  happens. Signing in gives Row-Bot a key of your own, saved like a pasted one; then
+  your messages go to OpenRouter and the free model's host, and some free hosts may
+  keep what you send. The privacy page's list of connections includes it.
 - **Download backup in one click**, also away from the computer Row-Bot runs on.
 - **One live line** - a step that's running no longer shows "Thinking…" beside it
   after the chat re-reads the turn.
@@ -185,6 +218,12 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   the server stopped, on the data volume, with room for a copy of the live data. It's
   optional: from 5.3.4 the file stops growing.
 - New core dependency: `py-vapid`, which signs the push wake-ups. Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
+- Try it free signs in to OpenRouter through the server's public HTTPS address
+  (`/api/v1/settings/providers/openrouter/sign-in/callback`, which needs no session
+  and accepts only a waiting sign-in's one-time state). Without exactly one public
+  HTTPS origin, a hosted Row-Bot says to use an OpenRouter key instead. Once chosen,
+  the server talks to openrouter.ai like any OpenRouter key. Pictures with a ChatGPT
+  plan use the same chatgpt.com address as ChatGPT chat.
 - Import memory stages uploads in a `memory_import/` folder in the data folder (backups leave it out). An upload can be up to 8 GB a file, so the disk needs room for what a person imports.
 
 ---
