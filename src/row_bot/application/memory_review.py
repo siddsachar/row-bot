@@ -635,6 +635,10 @@ def _split(user: dict, invoke: Callable[[str], str] | None, step: Callable[[], N
     for action, memory, target, value in planned:
         entry = {"category": memory.category, "subject": memory.subject, "text": memory.content,
                  "action": "skip", "saved_subject": None, "saved_text": None, "new_text": None, "target": None}
+        if action == "update" and target is not None and target["id"] in involved:
+            # A second fact for a memory another fact already rewrites: each rewrite is worked out from the
+            # memory as it was, so applying both would keep only the last. This one gets its own memory.
+            action, value = "add", memory.subject
         if action == "add":
             entry.update(action="add", subject=value or memory.subject)
         elif action == "update" and target is not None:
