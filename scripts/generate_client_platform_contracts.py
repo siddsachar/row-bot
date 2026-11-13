@@ -86,7 +86,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
-    "SubscriptionActionRequest", "SubscriptionActionResult", "SubscriptionActionReceipt", "SubscriptionQuiescence",
+    "SubscriptionActionRequest", "SubscriptionActionResult", "SubscriptionActionReceipt", "SubscriptionQuiescence", "OpenRouterSignIn",
     "SubscriptionOptionsSnapshot", "SubscriptionOptionsReview",
     "SubscriptionOptionsRequest", "SubscriptionOptionsResult", "SubscriptionOptionsReceipt",
     "SubscriptionProbeResult", "SubscriptionProbeSnapshot", "SubscriptionProbeRequest", "SubscriptionProbeReview", "SubscriptionProbeState",
@@ -446,6 +446,10 @@ OPERATIONS = (
     ("post", "/settings/providers/subscriptions/review", "SubscriptionActionRequest", "SubscriptionActionReview"),
     ("get", "/settings/providers/subscriptions/flows/{flow_id}", None, "SubscriptionFlowSnapshot"),
     ("delete", "/settings/providers/subscriptions/flows", None, "SubscriptionQuiescence"),
+    ("post", "/settings/providers/openrouter/sign-in", "EmptyPayload", "OpenRouterSignIn"),
+    ("get", "/settings/providers/openrouter/sign-in/{flow_id}", None, "OpenRouterSignIn"),
+    ("post", "/settings/providers/openrouter/sign-in/{flow_id}/cancel", "EmptyPayload", "OpenRouterSignIn"),
+    ("get", "/settings/providers/openrouter/sign-in/callback", None, "bytes"),
     ("post", "/settings/providers/subscriptions/starts/{command_id}/cancel", "EmptyPayload", "SubscriptionFlowSnapshot"),
     ("get", "/settings/providers/subscriptions/{provider_id}/receipts/{command_id}", None, "SubscriptionActionReceipt"),
     ("post", "/settings/providers/default-model/review", "DefaultModelReviewRequest", "DefaultModelReview"),
@@ -1700,6 +1704,12 @@ export const getSubscriptionReceipt = (base: string, proof: SessionProof, provid
   jsonRequest(base, `/settings/providers/subscriptions/${id(provider)}/receipts/${id(command)}`, 'SubscriptionActionReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendSubscriptionAction = (base: string, proof: SessionProof, command: Command, signal?: AbortSignal): Promise<SubscriptionActionResult> =>
   jsonRequest(base, '/settings/providers/commands', 'SubscriptionActionResult', proof, 'POST', command, command.command_id, signal);
+export const startOpenRouterSignIn = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<OpenRouterSignIn> =>
+  jsonRequest(base, '/settings/providers/openrouter/sign-in', 'OpenRouterSignIn', proof, 'POST', {}, undefined, signal);
+export const getOpenRouterSignIn = (base: string, proof: SessionProof, flow: string, signal?: AbortSignal): Promise<OpenRouterSignIn> =>
+  jsonRequest(base, `/settings/providers/openrouter/sign-in/${id(flow)}`, 'OpenRouterSignIn', proof, 'GET', undefined, undefined, signal);
+export const cancelOpenRouterSignIn = (base: string, proof: SessionProof, flow: string, signal?: AbortSignal): Promise<OpenRouterSignIn> =>
+  jsonRequest(base, `/settings/providers/openrouter/sign-in/${id(flow)}/cancel`, 'OpenRouterSignIn', proof, 'POST', {}, undefined, signal);
 export const revokeSubscriptionFlows = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SubscriptionQuiescence> =>
   jsonRequest(base, '/settings/providers/subscriptions/flows', 'SubscriptionQuiescence', proof, 'DELETE', undefined, undefined, signal, true);
 export const getDefaultModel = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<DefaultModelSnapshot> =>
@@ -2044,6 +2054,7 @@ def outputs() -> dict[Path, str]:
             "/native/revoke",
             "/settings/mcp/auth/callback",
             "/accounts/{account}/auth/callback",
+            "/settings/providers/openrouter/sign-in/callback",
             "/native/selections/complete",
             "/native/terminal/open",
             "/native/attachments/{reference}",
@@ -2067,6 +2078,8 @@ def outputs() -> dict[Path, str]:
                                 ("revision", False, {"type": "string", "maxLength": 64})]
         elif suffix in {"/settings/mcp/auth/callback", "/accounts/{account}/auth/callback"}:
             query_parameters = [(name, False, {"type": "string", "maxLength": 4096}) for name in ("state", "code", "error")]
+        elif suffix == "/settings/providers/openrouter/sign-in/callback":
+            query_parameters = [(name, False, {"type": "string", "maxLength": 4096}) for name in ("state", "code")]
         elif suffix == "/settings/mcp/configuration":
             query_parameters = [("query", False, {"type": "string", "maxLength": 128}),
                                 ("limit", False, {"type": "integer", "minimum": 1, "maximum": 50}),

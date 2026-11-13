@@ -418,6 +418,10 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
+/* With "Try it free" there are four equal ways: two by two. */
+.first-run-choices:has(> :nth-child(4)) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .first-run-choice {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -693,6 +697,11 @@
   font-weight: var(--weight-semibold);
   cursor: pointer;
 }
+/* "No plan? Try it free": the third way, under the two plans, across both. */
+.first-run-big-choice-wide {
+  grid-column: 1 / -1;
+  min-height: 52px;
+}
 .first-run-big-choice svg {
   flex: none;
   color: var(--accent-solid);
@@ -801,7 +810,8 @@
   .first-run-header h1 {
     font-size: var(--text-20);
   }
-  .first-run-choices {
+  .first-run-choices,
+  .first-run-choices:has(> :nth-child(4)) {
     grid-template-columns: minmax(0, 1fr);
   }
   .first-run-choice {
@@ -847,4 +857,54 @@
   .first-run .spin {
     animation: none;
   }
+}
+
+/* "Try it free": what happens, in three plain lines, before anything is sent. */
+.try-free-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-13);
+}
+.try-free-facts li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.try-free-facts svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+.try-free .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.try-free-key {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.try-free-key button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-link);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.try-free-waiting {
+  display: grid;
+  gap: 10px;
+}
+.try-free-waiting p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
 }

@@ -22,6 +22,9 @@ const mock = vi.hoisted(() => ({
     refreshLiveProvider: vi.fn(),
     liveProviderRefresh: vi.fn(),
     updates: vi.fn(),
+    startOpenRouterSignIn: vi.fn(),
+    openRouterSignIn: vi.fn(),
+    cancelOpenRouterSignIn: vi.fn(),
   },
 }));
 
@@ -139,6 +142,7 @@ it('on a phone reaching Row-Bot, local models are on the computer Row-Bot runs o
     'On your Row-Bot server',
     'With my subscription',
     'With an API key',
+    'Try it free',
   ]);
   await within(choices).findByText("Ollama isn't installed yet");
   fireEvent.click(
@@ -190,7 +194,12 @@ it('asks one question and detects Ollama without a refresh button', async () => 
     within(choices)
       .getAllByRole('button')
       .map((button) => button.querySelector('strong')?.textContent),
-  ).toEqual(['On this computer', 'With my subscription', 'With an API key']);
+  ).toEqual([
+    'On this computer',
+    'With my subscription',
+    'With an API key',
+    'Try it free',
+  ]);
   expect(
     await within(choices).findByText("Ollama isn't installed yet"),
   ).toBeVisible();
@@ -499,6 +508,71 @@ it("lists a connected provider's usable chat models from the assessed catalog", 
       'model:anthropic:claude-usable',
     ),
   );
+});
+
+it('Try it free signs in to OpenRouter only when asked, then offers its free models, recommended first', async () => {
+  const flow = (phase: 'waiting' | 'done') => ({
+    schema_version: 1,
+    flow_id: '00000000-0000-4000-8000-000000000001',
+    phase,
+    route: 'this_computer',
+    url: 'https://openrouter.ai/auth?code_challenge=synthetic',
+    message: '',
+  });
+  mock.controller.startOpenRouterSignIn.mockResolvedValue(flow('waiting'));
+  mock.controller.openRouterSignIn.mockResolvedValue(flow('done'));
+  mock.controller.refreshLiveProvider.mockResolvedValue({ running: false });
+  mock.controller.liveProviderRefresh.mockResolvedValue({ running: false });
+  const row = (model_id: string) => ({
+    provider_id: 'openrouter',
+    model_id,
+    selection_ref: `model:openrouter:${model_id}`,
+    display_name: model_id,
+    categories: ['chat'],
+    configured: true,
+    runtime_ready: true,
+    installed: true,
+    runtime_mode: 'agent',
+  });
+  mock.controller.modelCatalogPage.mockResolvedValue({
+    items: [
+      row('openai/gpt-5.5'),
+      row('openrouter/free'),
+      row('some-lab/small:free'),
+      row('google/gemma-4-31b-it:free'),
+    ],
+  });
+  show();
+  fireEvent.click(screen.getByRole('button', { name: /Try it free/ }));
+  const panel = screen.getByRole('region', { name: 'Try it free' });
+  expect(
+    within(panel).getByText(
+      'About 50 messages a day. Each step of a longer task counts as one.',
+    ),
+  ).toBeVisible();
+  // Nothing goes to OpenRouter until the person signs in.
+  expect(mock.controller.startOpenRouterSignIn).not.toHaveBeenCalled();
+  fireEvent.click(
+    within(panel).getByRole('button', { name: 'Sign in with OpenRouter' }),
+  );
+  expect(
+    await within(panel).findByText(/Finish signing in on the OpenRouter page/),
+  ).toBeVisible();
+  expect(
+    within(panel).getByRole('link', { name: 'Open the page again' }),
+  ).toHaveAttribute('href', flow('waiting').url);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1600);
+  });
+  const list = await screen.findByRole('list', { name: 'Free models' });
+  const names = within(list)
+    .getAllByRole('button')
+    .map((button) => button.textContent);
+  expect(names).toEqual([
+    'google/gemma-4-31b-it:freeRecommendedFreeUse',
+    'openrouter/freeFreeUse',
+    'some-lab/small:freeFreeUse',
+  ]);
 });
 
 it('lists your models, then Row-Bot’s picks, with every other model one step away', async () => {

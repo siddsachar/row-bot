@@ -83,6 +83,7 @@ const mock = vi.hoisted(() => ({
   dismiss: vi.fn(),
   download: vi.fn(),
   writeClipboard: vi.fn(),
+  openExternal: vi.fn(),
   platformDiscover: vi.fn(),
   drafts: new Map<string, { text: string; attachments: [] }>(),
   setDraft: vi.fn(),
@@ -167,6 +168,7 @@ vi.mock('../../runtime', () => {
       discover: mock.platformDiscover,
       save: vi.fn(),
       writeClipboard: mock.writeClipboard,
+      openExternal: mock.openExternal,
     },
     conversationActionsOwner: {
       get: () => ({ get: () => ({}) }),
@@ -1645,6 +1647,35 @@ it('after a reload the interrupted reply still says why it stopped', async () =>
   expect(screen.getByRole('log', { name: 'Conversation' })).toHaveTextContent(
     reason,
   );
+});
+
+it('used-up free messages say when they come back and offer the next steps, not an error', async () => {
+  interruptedConversation();
+  mock.state.projection = {
+    rows: [],
+    generation: {
+      generation_id: 'interrupted-run',
+      quiesced: true,
+      can_stop: false,
+      status: 'interrupted',
+      failure_reason:
+        "Today's free messages are used up. They come back at 01:00.",
+    },
+  } as unknown as Snapshot;
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  expect(log).toHaveTextContent('Today’s free messages are used up');
+  expect(log).toHaveTextContent('They come back at 01:00.');
+  expect(log).not.toHaveTextContent('The response was interrupted');
+  const user = userEvent.setup();
+  await user.click(within(log).getByRole('button', { name: 'Add credits' }));
+  expect(mock.openExternal).toHaveBeenCalledWith(
+    'https://openrouter.ai/settings/credits',
+  );
+  await user.click(
+    within(log).getByRole('button', { name: 'Sign in with a plan' }),
+  );
+  expect(mock.navigate).toHaveBeenLastCalledWith('/settings/providers');
 });
 
 it('Claude signed the person out: says so in U11’s words, with Sign in again', async () => {

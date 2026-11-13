@@ -24,11 +24,35 @@ def _provider_words(raw: str) -> str:
     return " ".join(raw.split())
 
 
+# OpenRouter's free models: about 50 messages a day (1,000 once credits were ever bought) and
+# 20 a minute. The client offers the next steps when the day's are used up.
+FREE_DAY_USED = "Today's free messages are used up."
+_FREE_RESET = re.compile(r"X-RateLimit-Reset['\"]?\s*:\s*['\"]?(?P<ms>\d{12,13})", re.IGNORECASE)
+
+
+def _free_limit(text: str) -> str:
+    lower = text.lower()
+    if "free-models-per-day" in lower:
+        found = _FREE_RESET.search(text)
+        if found:
+            from datetime import datetime
+
+            when = datetime.fromtimestamp(int(found.group("ms")) / 1000).strftime("%H:%M")
+            return f"{FREE_DAY_USED} They come back at {when}."
+        return f"{FREE_DAY_USED} They come back tomorrow."
+    if "free-models-per-min" in lower:
+        return "Free models take about 20 messages a minute. Wait a minute, then resume."
+    return ""
+
+
 def failure_reason(error_text: str) -> str:
     """The reason shown on a failed turn, with secrets taken out and kept short."""
     from row_bot.evolution import redact_secrets
 
     text = str(error_text or "").strip()
+    free = _free_limit(text)
+    if free:
+        return free
     text = text.removeprefix("⚠️").strip()
     if text.startswith("API error:"):
         text = _provider_words(text[len("API error:"):].strip())

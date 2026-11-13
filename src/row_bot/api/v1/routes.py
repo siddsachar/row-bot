@@ -8663,6 +8663,56 @@ def create_router(
             request, dto.SubscriptionQuiescence, {"quiescent": quiescent}
         )
 
+    @router.post("/settings/providers/openrouter/sign-in")
+    async def openrouter_sign_in_start(request: Request) -> JSONResponse:
+        """Try Row-Bot free: start an OpenRouter sign-in (openrouter_sign_in)."""
+        current = await session(request, lane="control")
+        await _body(request, dto.EmptyPayload, 1024)
+        from row_bot.application import openrouter_sign_in
+
+        result = await call(openrouter_sign_in.start, owner_id=current.id, device=await account_device(request))
+        return await respond(request, dto.OpenRouterSignIn, result)
+
+    @router.get("/settings/providers/openrouter/sign-in/callback")
+    async def openrouter_sign_in_callback(request: Request) -> Response:
+        """OpenRouter returns a browser here from another device. No session: only a
+        waiting sign-in's one-time state is accepted."""
+        from row_bot.application import openrouter_sign_in
+
+        values = request.query_params
+        if any(len(values.getlist(key)) > 1 for key in ("state", "code")):
+            phase = "invalid"
+        else:
+            phase = await call(openrouter_sign_in.accept_callback, state=values.get("state", ""),
+                               code=values.get("code", ""))
+        message, status = {
+            "done": ("Row-Bot is signed in to OpenRouter. Return to Row-Bot; you can close this tab.", 200),
+            "failed": ("Signing in to OpenRouter didn't finish. Return to Row-Bot and try again.", 400),
+        }.get(phase, ("This sign-in has expired or isn't valid. Return to Row-Bot and sign in again.", 400))
+        return Response(message, status_code=status, media_type="text/plain",
+            headers={**HEADERS, "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'"})
+
+    @router.get("/settings/providers/openrouter/sign-in/{flow_id}")
+    async def openrouter_sign_in_read(flow_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        if len(flow_id) != 36:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application import openrouter_sign_in
+
+        result = await call(openrouter_sign_in.read, owner_id=current.id, flow_id=flow_id)
+        return await respond(request, dto.OpenRouterSignIn, result)
+
+    @router.post("/settings/providers/openrouter/sign-in/{flow_id}/cancel")
+    async def openrouter_sign_in_cancel(flow_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        await _body(request, dto.EmptyPayload, 1024)
+        if len(flow_id) != 36:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application import openrouter_sign_in
+
+        result = await call(openrouter_sign_in.cancel, owner_id=current.id, flow_id=flow_id)
+        return await respond(request, dto.OpenRouterSignIn, result)
+
     @router.post("/settings/providers/subscriptions/starts/{command_id}/cancel")
     async def subscription_cancel_start(
         command_id: UUID, request: Request

@@ -1681,6 +1681,16 @@ class SubscriptionActionReceipt(WireModel):
     accounts: SubscriptionAccountsSnapshot
 
 
+class OpenRouterSignIn(WireModel):
+    """Try Row-Bot free: an OpenRouter sign-in and where it stands (openrouter_sign_in)."""
+    schema_version: Literal[1]
+    flow_id: str = Field(min_length=36, max_length=36)
+    phase: Literal["waiting", "finishing", "done", "failed", "cancelled", "expired", "unavailable"]
+    route: Literal["this_computer", "device"]
+    url: str | None = Field(default=None, max_length=4096)
+    message: str = Field(max_length=512)
+
+
 class SubscriptionQuiescence(WireModel):
     quiescent: bool
 

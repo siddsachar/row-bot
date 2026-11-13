@@ -203,7 +203,11 @@ it('asks with two big buttons and other ways, and never looks for a local runtim
     within(choices)
       .getAllByRole('button')
       .map((button) => button.textContent),
-  ).toEqual(['Sign in with ChatGPT', 'Use my Claude plan']);
+  ).toEqual([
+    'Sign in with ChatGPT',
+    'Use my Claude plan',
+    'No plan? Try it free',
+  ]);
   expect(screen.queryByText('On this computer')).toBeNull();
   fireEvent.click(screen.getByText('Other ways'));
   const other = screen.getByRole('list', { name: 'Other ways' });
