@@ -50,7 +50,7 @@ def name_saved_files(text: str, names: list[str]) -> str:
         return text
     quoted = ", ".join(f"\u201c{name}\u201d" for name in names)
     return "\n".join(kept + [f"Saved in this chat's files as {quoted}: use that name with analyze_image, "
-                              "edit_video or the video tool."])
+                              "edit_image, edit_video or the video tool."])
 
 
 def _image(conversation_id: str, encoded: str, name: str = "") -> dict:

@@ -113,6 +113,17 @@ class Followup:
 _PENDING: dict[str, Followup] = {}
 
 
+def after_tool_turned_on(conversation_id: str, label: str) -> None:
+    """A tool turned on mid-turn reaches the model only in its next turn: Row-Bot starts that turn itself."""
+    if not conversation_id:
+        return
+    schedule(conversation_id, Followup(
+        kind="carry_on",
+        prompt=(f"This is Row-Bot, not the person: {label} is now on and ready. Carry on with what the "
+                "person asked, using it."),
+        note=f"Carrying on with {label}"))
+
+
 def schedule(conversation_id: str, followup: Followup) -> None:
     """Remember the next follow-up; resource work goes before a goal step."""
     with _LOCK:

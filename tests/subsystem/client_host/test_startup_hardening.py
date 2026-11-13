@@ -331,6 +331,14 @@ def test_window_mode_picker_windows_defaults_without_console(tmp_path, monkeypat
     assert launcher._ask_window_mode() == "native"
 
 
+def test_a_saved_window_mode_is_read_even_with_a_bom(tmp_path, monkeypatch):
+    """Notepad can save app_config.json with a BOM; it then asked the window question again (T2)."""
+    monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
+    (tmp_path / "app_config.json").write_text('{"window_mode": "native"}', encoding="utf-8-sig")
+
+    assert launcher._load_window_mode() == "native"
+
+
 def test_window_mode_picker_uses_gui_result(tmp_path, monkeypatch):
     class FakeProc:
         pid = 202

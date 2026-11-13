@@ -148,7 +148,11 @@ def test_signing_in_with_chatgpt_makes_it_the_image_model_only_when_none_is_chos
     monkeypatch.setattr(model_catalog_cache, "provider_connection_changed", lambda *a, **k: None)
     monkeypatch.setattr(registry, "get_tool_config", lambda tool, key, default=None: config.get(key, default))
     monkeypatch.setattr(registry, "set_tool_config", lambda tool, key, value: config.update({key: value}))
+    enabled = []
+    monkeypatch.setattr(registry, "set_enabled", lambda tool, on: enabled.append((tool, on)))
 
     subscription_controls._connection_changed("codex")
 
     assert config.get("model") == after
+    # Only when it set the model does it switch the image tool on too (T6).
+    assert enabled == ([("image_gen", True)] if after and not saved else [])

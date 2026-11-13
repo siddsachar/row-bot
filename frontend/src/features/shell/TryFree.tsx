@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ImageOff, Loader2, MessagesSquare, Eye } from 'lucide-react';
-import type { OpenRouterSignIn } from '../../api/types';
+import type { OpenRouterSignIn as SignInFlow } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { usePlace } from '../../api/place';
 import { useRuntime } from '../../runtime';
@@ -48,25 +48,22 @@ const FACTS = [
 ];
 
 /**
- * "Try it free": sign in to OpenRouter (an account is made if needed), then
- * pick one of its free models. Nothing is sent before Sign in is chosen.
+ * Sign in to OpenRouter (OAuth PKCE): its key comes back as the person's own,
+ * saved like a pasted one. The button, the wait and what went wrong; `after`
+ * sits beside the button (first run's "Use an API key").
  */
-export default function TryFreePanel({
-  connected,
-  models,
+export function OpenRouterSignIn({
   onConnected,
-  onUseKey,
+  variant = 'primary',
+  after,
 }: {
-  /** OpenRouter already has a key: its free models straight away. */
-  connected: boolean;
-  /** The free models to pick from, once signed in. */
-  models: ReactNode;
   onConnected: () => void;
-  onUseKey: () => void;
+  variant?: 'primary' | 'secondary';
+  after?: ReactNode;
 }) {
   const { controller } = useRuntime();
   const place = usePlace();
-  const [flow, setFlow] = useState<OpenRouterSignIn | null>(null);
+  const [flow, setFlow] = useState<SignInFlow | null>(null);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
   const tab = useRef<Window | null>(null);
@@ -120,10 +117,73 @@ export default function TryFreePanel({
     setFlow(next);
   }
 
-  if (connected || flow?.phase === 'done') return <>{models}</>;
+  if (flow?.phase === 'done')
+    return <p role="status">Signed in to OpenRouter. Its key is saved.</p>;
+  if (waiting)
+    return (
+      <div className="try-free-waiting">
+        <p role="status">
+          <Loader2 size={14} className="spin" aria-hidden /> Finish signing in
+          on the OpenRouter page.
+        </p>
+        <div className="actions">
+          {flow?.url && (
+            <a
+              className="button secondary"
+              href={flow.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open the page again
+            </a>
+          )}
+          <Button variant="ghost" onClick={() => void cancel()}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
   const ended =
     flow &&
     ['failed', 'expired', 'unavailable', 'cancelled'].includes(flow.phase);
+  return (
+    <>
+      {(error || (ended && flow?.message)) && (
+        <p role="alert">{error || flow?.message}</p>
+      )}
+      <div className="actions">
+        <Button
+          variant={variant}
+          disabled={starting}
+          onClick={() => void signIn()}
+        >
+          Sign in with OpenRouter
+        </Button>
+        {after}
+      </div>
+    </>
+  );
+}
+
+/**
+ * "Try it free": sign in to OpenRouter (an account is made if needed), then
+ * pick one of its free models. Nothing is sent before Sign in is chosen.
+ */
+export default function TryFreePanel({
+  connected,
+  models,
+  onConnected,
+  onUseKey,
+}: {
+  /** OpenRouter already has a key: its free models straight away. */
+  connected: boolean;
+  /** The free models to pick from, once signed in. */
+  models: ReactNode;
+  onConnected: () => void;
+  onUseKey: () => void;
+}) {
+  const [signedIn, setSignedIn] = useState(false);
+  if (connected || signedIn) return <>{models}</>;
   return (
     <div className="first-run-panel-body try-free">
       <h3>Try Row-Bot free</h3>
@@ -139,50 +199,20 @@ export default function TryFreePanel({
           </li>
         ))}
       </ul>
-      {waiting ? (
-        <div className="try-free-waiting">
-          <p role="status">
-            <Loader2 size={14} className="spin" aria-hidden /> Finish signing in
-            on the OpenRouter page.
-          </p>
-          <div className="actions">
-            {flow?.url && (
-              <a
-                className="button secondary"
-                href={flow.url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open the page again
-              </a>
-            )}
-            <Button variant="ghost" onClick={() => void cancel()}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <>
-          {(error || (ended && flow?.message)) && (
-            <p role="alert">{error || flow?.message}</p>
-          )}
-          <div className="actions">
-            <Button
-              variant="primary"
-              disabled={starting}
-              onClick={() => void signIn()}
-            >
-              Sign in with OpenRouter
-            </Button>
-            <span className="try-free-key">
-              Have a key?{' '}
-              <button type="button" onClick={onUseKey}>
-                Use an API key
-              </button>
-            </span>
-          </div>
-        </>
-      )}
+      <OpenRouterSignIn
+        onConnected={() => {
+          setSignedIn(true);
+          onConnected();
+        }}
+        after={
+          <span className="try-free-key">
+            Have a key?{' '}
+            <button type="button" onClick={onUseKey}>
+              Use an API key
+            </button>
+          </span>
+        }
+      />
     </div>
   );
 }
