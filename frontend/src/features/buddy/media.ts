@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 // A replaced image may still start its fetch in a later task, so a retired
 // media URL outlives the commit that dropped it by this long.
@@ -6,6 +6,55 @@ const REVOKE_DELAY_MS = 2000;
 
 export function revokeLater(url: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
+}
+
+// The browser counts an image that starts loading while the page unloads
+// (beforeunload, pagehide) as a ping, which connect-src governs, so a blob:
+// still would break the page's policy then. A render can still land in that
+// moment: React commits pending updates (a still that just arrived) with any
+// synchronous one. Buddy shows Row-Bot's glyph in such a render instead.
+let leaving = false;
+let hidden = false;
+const unloadListeners = new Set<() => void>();
+
+function unloadChanged() {
+  if (!leaving && !hidden) unloadListeners.forEach((listener) => listener());
+}
+
+if (typeof window !== 'undefined') {
+  // Capture: these run before the page's own handlers, which may render.
+  window.addEventListener(
+    'beforeunload',
+    () => {
+      leaving = true;
+      // The person stayed (an unsaved draft asked them to): carry on.
+      window.setTimeout(() => {
+        leaving = false;
+        unloadChanged();
+      }, 0);
+    },
+    true,
+  );
+  window.addEventListener('pagehide', () => (hidden = true), true);
+  window.addEventListener(
+    'pageshow',
+    () => {
+      hidden = false;
+      unloadChanged();
+    },
+    true,
+  );
+}
+
+/** True while the page unloads: no Buddy image may start loading then. */
+export function usePageUnloading(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      unloadListeners.add(listener);
+      return () => unloadListeners.delete(listener);
+    },
+    () => leaving || hidden,
+  );
 }
 
 export type BuddyMediaLoader = (
