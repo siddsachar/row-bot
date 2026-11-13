@@ -1289,15 +1289,6 @@ wheels = [
 ]
 
 [[package]]
-name = "http-ece"
-version = "1.2.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cryptography" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/af/249d1576653b69c20b9ac30e284b63bd94af6a175d72d87813235caf2482/http_ece-1.2.1.tar.gz", hash = "sha256:8c6ab23116bbf6affda894acfd5f2ca0fb8facbcbb72121c11c75c33e7ce8cff", size = 8830, upload-time = "2024-08-08T00:10:47.301Z" }
-
-[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -3421,22 +3412,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pywebpush"
-version = "2.5.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "cryptography" },
-    { name = "http-ece" },
-    { name = "py-vapid" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/54/ff/db9efe7454d329bfa6fe433e0f881eb9d28489fc4b8427ee2fbaedc5f42b/pywebpush-2.5.0.tar.gz", hash = "sha256:8260f8e42d70ed95a3bd00527ffcb43b5b3df8983a4a48b059fe29b06dc3d92c", size = 28565, upload-time = "2026-08-29T21:57:11.062Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/fc/32c8902ce796e8b21c229fa50478fd70e2be2fe7c3ac2259771cf1d5aa07/pywebpush-2.5.0-py3-none-any.whl", hash = "sha256:b5f5d45024223a04e73fe17f7a8e62540f35bbcc62b49e64d0a1080ff2dc26f2", size = 22520, upload-time = "2026-08-30T20:32:15.039Z" },
-]
-
-[[package]]
 name = "pywebview"
 version = "5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -3762,12 +3737,12 @@ dependencies = [
     { name = "pillow" },
     { name = "plyer" },
     { name = "psutil" },
+    { name = "py-vapid" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "pyobjc-core", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
     { name = "pystray" },
-    { name = "pywebpush" },
     { name = "pywebview" },
     { name = "pyyaml" },
     { name = "qrcode" },
@@ -3983,6 +3958,7 @@ requires-dist = [
     { name = "plotly", marker = "extra == 'media'", specifier = ">=6.0,<7.0" },
     { name = "plyer", specifier = ">=2.1,<3.0" },
     { name = "psutil", specifier = ">=6.0,<8.0" },
+    { name = "py-vapid", specifier = ">=1.9,<2.0" },
     { name = "pydantic", specifier = ">=2.10,<3.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8,<3.0" },
     { name = "pyngrok", marker = "extra == 'all'", specifier = ">=7.0,<8.0" },
@@ -3998,7 +3974,6 @@ requires-dist = [
     { name = "python-pptx", marker = "extra == 'designer'", specifier = ">=1.0,<2.0" },
     { name = "python-telegram-bot", marker = "extra == 'all'", specifier = ">=22.0,<23.0" },
     { name = "python-telegram-bot", marker = "extra == 'channels'", specifier = ">=22.0,<23.0" },
-    { name = "pywebpush", specifier = ">=2.5,<3.0" },
     { name = "pywebview", specifier = ">=5.4,<6.0" },
     { name = "pywinpty", marker = "sys_platform == 'win32' and extra == 'all'", specifier = ">=2.0,<3.0" },
     { name = "pywinpty", marker = "sys_platform == 'win32' and extra == 'developer'", specifier = ">=2.0,<3.0" },
