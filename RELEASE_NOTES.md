@@ -160,6 +160,10 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   repeats, run logs, and your own record split into clear facts. Nothing changes until
   you approve, your memory is backed up first, and you can undo for 30 days. Long
   records, such as workflow logs, are never changed unless you choose to.
+- **A record that grew into one long note is split** - when a person's record had
+  become one long block, Review memory proposes a short profile plus separate facts,
+  keeps only contact details that are really theirs, and shows the split before
+  anything changes.
 - **Only what your message is about** - memory now brings up only what your message is
   about. Before, almost every reply got five loosely related memories. Each memory
   shown is a few hundred characters at most, the parts about what you asked first, and
