@@ -1,9 +1,24 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type { ProviderSettingsSnapshot } from '../../api/types';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import { createProviderSettingsSessions } from './provider-settings-sessions';
+
+const runtime = vi.hoisted(() => ({
+  controller: {
+    startOpenRouterSignIn: vi.fn(),
+    openRouterSignIn: vi.fn(),
+    cancelOpenRouterSignIn: vi.fn(),
+  },
+}));
+vi.mock('../../runtime', () => ({ useRuntime: () => runtime }));
 
 const snapshot: ProviderSettingsSnapshot = {
   schema_version: 1,
@@ -104,4 +119,43 @@ it('requires explicit discard at capacity and cannot discard an unresolved recei
   );
   expect(await screen.findByLabelText('New API key')).toHaveValue('');
   expect(old.session.active).toBe(false);
+});
+
+it("OpenRouter's sheet signs in instead of a pasted key, then closes", async () => {
+  const flow = {
+    schema_version: 1,
+    flow_id: '00000000-0000-4000-8000-000000000001',
+    route: 'this_computer',
+    url: 'https://openrouter.ai/auth?code_challenge=synthetic',
+    message: '',
+  };
+  runtime.controller.startOpenRouterSignIn.mockResolvedValue({
+    ...flow,
+    phase: 'waiting',
+  });
+  runtime.controller.openRouterSignIn.mockResolvedValue({
+    ...flow,
+    phase: 'done',
+  });
+  const { owner } = fixture();
+  const onCancel = vi.fn();
+  render(
+    <ProviderSettingsPanel
+      owner={owner}
+      providerId="openrouter"
+      onSaved={vi.fn()}
+      onCancel={onCancel}
+    />,
+  );
+  // The pasted key stays available beside it.
+  expect(await screen.findByLabelText('New API key')).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Sign in with OpenRouter' }),
+  );
+  expect(
+    await screen.findByText(/Finish signing in on the OpenRouter page/),
+  ).toBeVisible();
+  await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), {
+    timeout: 3000,
+  });
 });

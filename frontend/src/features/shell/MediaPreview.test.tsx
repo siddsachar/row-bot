@@ -6,7 +6,12 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { fileKind, forgetMediaPreviews, MediaPreview } from './MediaPreview';
+import {
+  defaultDownloadName,
+  fileKind,
+  forgetMediaPreviews,
+  MediaPreview,
+} from './MediaPreview';
 
 const mock = vi.hoisted(() => ({ download: vi.fn(), notify: vi.fn() }));
 const platform = vi.hoisted(() => ({ save: vi.fn(), discover: vi.fn() }));
@@ -69,10 +74,21 @@ it('retrieves through the authenticated controller and releases the owned image 
   expect(URL.createObjectURL).toHaveBeenCalledWith(blob);
   expect(
     screen.getByRole('link', { name: 'Download generated result' }),
-  ).toHaveAttribute('download', 'result');
+  ).toHaveAttribute('download', 'image.png');
   unmount();
   expect(mock.download.mock.calls[0][1].aborted).toBe(true);
   expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:fixture-1');
+});
+
+it('names a download from its prompt and type, never a bare "result"', () => {
+  expect(
+    defaultDownloadName(
+      'image/png',
+      'A red lighthouse on a rocky coast at dawn, soft light.',
+    ),
+  ).toBe('a-red-lighthouse-on-a-rocky-coast-at-dawn-soft.png');
+  expect(defaultDownloadName('video/mp4')).toBe('video.mp4');
+  expect(defaultDownloadName('application/octet-stream')).toBe('file');
 });
 
 it('retries a retrieval failure without another transport or direct URL', async () => {

@@ -908,3 +908,21 @@
   gap: 6px;
   margin: 0;
 }
+/* OpenRouter's provider sheet: sign in instead of pasting a key. */
+.provider-sign-in {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.provider-sign-in p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.provider-sign-in .actions,
+.try-free-waiting .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

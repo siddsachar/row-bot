@@ -432,7 +432,8 @@ function ImportFlow({
     <div className="memory-import" data-step={step}>
       <div className="memory-import-scroll">
         {error && <ErrorState title="That didn't work">{error}</ErrorState>}
-        {notice && (
+        {/* The done step says "Import undone" itself (T12). */}
+        {notice && step !== 'done' && (
           <p role="status" className="memory-import-notice">
             {notice}
           </p>

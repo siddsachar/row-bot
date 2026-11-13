@@ -2150,9 +2150,17 @@ def _update_setting(setting: str, value: str) -> str:
                     f"Failed to {'enable' if on else 'disable'} tool '{resolved_label}'. "
                     f"The setting did not take effect."
                 )
+            if on:
+                # This turn's tools were fixed when it began: the next turn has it, and starts by itself.
+                from row_bot.application.conversation_followups import after_tool_turned_on
+                from row_bot.tool_outputs import current_thread_id
+                after_tool_turned_on(current_thread_id(), resolved_label)
+                return (f"{resolved_label} is on. It's ready in your next turn, which Row-Bot starts by "
+                        "itself: end this turn now with one short line saying you'll do it, without asking "
+                        "the person to send anything.")
             if resolved_name == "mcp":
-                return f"MCP client and tool '{resolved_label}' {'enabled' if on else 'disabled'}."
-            return f"Tool '{resolved_label}' {'enabled' if on else 'disabled'}."
+                return f"MCP client and tool '{resolved_label}' disabled."
+            return f"Tool '{resolved_label}' disabled."
         except Exception as exc:
             return f"Failed to toggle tool: {exc}"
 

@@ -344,3 +344,28 @@ def test_not_now_on_a_tool_toggle_is_final_for_the_turn(monkeypatch):
     monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: False)
     answer = _update_setting("tool_toggle", "developer:on")
     assert "chose Not now" in answer and "Don't ask again" in answer
+
+
+def test_a_tool_turned_on_mid_turn_carries_on_by_itself_in_the_next_turn(monkeypatch):
+    """The turn's tools were fixed when it began; the person shouldn't have to say "Create it now" (T7)."""
+    import langgraph.types
+    from row_bot.application import conversation_followups
+    from row_bot.tools import registry
+    from row_bot.tools import row_bot_status_tool
+    from row_bot.tools.row_bot_status_tool import _update_setting
+
+    state = {"on": False}
+    monkeypatch.setattr(row_bot_status_tool, "_resolve_tool_name", lambda name: ("image_gen", "Image Generation", []))
+    monkeypatch.setattr(registry, "is_enabled", lambda name: state["on"])
+    monkeypatch.setattr(registry, "set_enabled", lambda name, on: state.update(on=on))
+    monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: True)
+    monkeypatch.setattr("row_bot.tool_outputs.current_thread_id", lambda: "conversation-t7")
+    conversation_followups.discard("conversation-t7")
+
+    answer = _update_setting("tool_toggle", "image_gen:on")
+
+    assert state["on"] is True
+    assert "next turn, which Row-Bot starts by itself" in answer and "end this turn now" in answer
+    followup = conversation_followups.take("conversation-t7")
+    assert followup is not None and followup.kind == "carry_on"
+    assert "Image Generation is now on" in followup.prompt
