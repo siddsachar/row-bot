@@ -359,3 +359,15 @@ def test_a_record_glued_together_splits_into_sentences_and_keeps_only_real_conta
     assert record.count("sam@rivers-audio.net") == 1  # each contact detail once
     new = " ".join(entry["text"] for entry in split["split"]["memories"])
     assert "outreach emails" in new and "Telegram channel" in new
+
+
+def test_the_profile_is_written_once_from_every_part_of_a_long_record(stack) -> None:
+    # Each part of a long record is read on its own, so their profile lines repeat; one more call writes it once.
+    part = "Name is Sam Rivers. Lives in Leeds. Works as a sound engineer. " + "Keeps a studio diary entry. " * 140
+    user = _save(stack.kg, "person", "User", part * 3)
+
+    _view, found = _review(stack.service)
+
+    record = found[user["id"]]["proposed_text"]
+    assert record.count("Name is Sam Rivers.") == 1 and record.count("Lives in Leeds.") == 1
+    assert sum("\nLines:\n" in prompt for prompt in stack.model.prompts) == 1

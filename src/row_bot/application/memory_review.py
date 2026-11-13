@@ -58,6 +58,7 @@ FOLDER = "memory_review"
 LONG_RECORD_CHARS = 1_200  # What the model is shown of a memory (the Dream Cycle's pair bound).
 TEXT_LIMIT = 600  # A rewritten or merged memory.
 PROFILE_CHARS = 1_500  # The person's own record after a split.
+PROFILE_LINES = 8  # Sentences in that profile (besides contact details).
 BATCH = 8  # Memories read in one model call.
 SPLIT_CHUNK_CHARS = 4_000  # Of the person's record, per model call.
 MANY_MEMORIES = 300  # Past this, the first step also says how many model calls a review takes.
@@ -116,6 +117,30 @@ def _has_contact(text: str) -> bool:
     if _EMAIL.search(text) or _CONTACT_LABELS.search(text):
         return True
     return any(sum(char.isdigit() for char in match.group()) >= 9 for match in _PHONE.finditer(text))
+
+
+def _one_profile(lines: list[str], invoke: Callable[[str], str] | None) -> list[str]:
+    """The profile written once from every part's lines: each part of a long record is read on its own, so
+    their lines repeat and contradict each other (two employers, a name four times). Raises ModelUnavailable."""
+    from row_bot.prompts import MEMORY_REVIEW_PROFILE_PROMPT
+    from row_bot.providers.background import list_field
+
+    prompt = MEMORY_REVIEW_PROFILE_PROMPT.format(lines="\n".join(f"- {line}" for line in lines))
+    try:
+        raw = _call(prompt, invoke, answer=None if invoke else _profile_answer())
+    except Exception as exc:
+        raise ModelUnavailable(type(exc).__name__) from exc
+    written = [_sentence_end(_norm(line)) for line in list_field(raw, "profile") or []
+               if isinstance(line, str) and _norm(line)]
+    if not written:
+        raise ModelUnavailable("no profile")
+    return written[:PROFILE_LINES]
+
+
+def _profile_answer():
+    from row_bot.providers.background import structured_answer
+
+    return structured_answer("memory_review_profile", {"profile": {"type": "array", "items": {"type": "string"}}})
 
 
 def _sentence_end(line: str) -> str:
@@ -563,6 +588,8 @@ def _split(user: dict, invoke: Callable[[str], str] | None, step: Callable[[], N
                 subject = _subject_from(text)
             facts.append((category, subject, text))
         step()
+    profile = _one_profile(list(dict.fromkeys(profile)), invoke) if len(profile) > 1 else profile
+    step()
     # Each contact detail once: a contact sentence that adds no address, number or ID already kept is left
     # out (a real record said the same email five times, once as a guess).
     kept: list[str] = []
@@ -704,7 +731,7 @@ def propose(*, import_batch: str | None = None, invoke: Callable[[str], str] | N
         closeness[frozenset((older["id"], newer["id"]))] = float(similarity)
     batches = _batches(pool, pairs)
     split_calls = len(_split_chunks([part for part in _sentences(user.get("description"))
-                                     if part.strip()])) if user else 0
+                                     if part.strip()])) + 1 if user else 0
     total = len(batches) + split_calls
     done = 0
     if progress:
@@ -758,7 +785,7 @@ def overview(import_batch: str | None = None) -> dict:
     if import_batch:
         read = min(len(entities), read * (1 + NEIGHBOURS))
     users = [entity for entity in scope if _is_user(entity) and len(entity.get("description") or "") > PROFILE_CHARS]
-    split_calls = sum(math.ceil(len(entity.get("description") or "") / SPLIT_CHUNK_CHARS) for entity in users)
+    split_calls = sum(math.ceil(len(entity.get("description") or "") / SPLIT_CHUNK_CHARS) + 1 for entity in users)
     return {
         "memories": len(scope),
         "model_calls": math.ceil(read / BATCH) + split_calls if read or split_calls else 0,
