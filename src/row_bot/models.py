@@ -3255,6 +3255,8 @@ def _fetch_codex_models() -> int:
         return 0
     if not infos:
         return 0
+    # Its list names chat models only; the plan also makes images (codex_media).
+    infos = [*infos, *_documented_media_model_infos("codex", {info.model_id for info in infos})]
     entries = {
         model_info.selection_ref: model_info_to_cache_entry(model_info)
         for model_info in infos

@@ -519,6 +519,26 @@ it('keeps an unset Image model unset and lists an unavailable Video model with i
   expect(controller.updateModelSurface).not.toHaveBeenCalled();
 });
 
+it('says a ChatGPT image model uses the plan’s limits faster than messages', async () => {
+  const controller = fixture();
+  const state = structuredClone(baseState);
+  vi.spyOn(controller, 'modelsSettings').mockResolvedValue(state);
+  show(controller);
+  await screen.findByRole('button', { name: 'Image model' });
+  expect(screen.queryByText(/ChatGPT plan’s limits/)).toBeNull();
+  cleanup();
+  state.image.current_ref = 'model:codex:gpt-image-2';
+  state.image.options.push(
+    option(state.image.current_ref, 'GPT Image 2 - ChatGPT'),
+  );
+  show(controller);
+  expect(
+    await screen.findByText(
+      'Uses your ChatGPT plan’s limits, about 3–5 times a message.',
+    ),
+  ).toBeVisible();
+});
+
 it('reviews and saves the selected Brain default internally with the exact qualified identity', async () => {
   const { controller } = show();
   const select = await screen.findByRole('button', { name: 'Main model' });

@@ -16,6 +16,7 @@ import {
   Cpu,
   Download,
   HardDrive,
+  Image,
   KeyRound,
   Loader2,
   LogIn,
@@ -97,6 +98,16 @@ export const CODE_COPIED =
   'Paste the code (it’s copied) and approve. Row-Bot notices when you’re done.';
 export const CODE_NOT_COPIED =
   'Enter this code on OpenAI’s page and approve. Row-Bot notices when you’re done.';
+
+/** A ChatGPT plan makes pictures too (paid plans; codex_media). */
+function ChatGptPicturesNote() {
+  return (
+    <p className="first-run-note">
+      <Image size={14} aria-hidden />
+      <span>A paid ChatGPT plan makes pictures too.</span>
+    </p>
+  );
+}
 
 const SUBSCRIPTIONS = [
   { value: 'codex', label: 'ChatGPT' },
@@ -895,7 +906,13 @@ function HostedChoices({
       {!listed &&
         path === 'chatgpt' &&
         !connected.has('codex') &&
-        panel(signIn('codex'), 'Sign in with ChatGPT')}
+        panel(
+          <div className="stack">
+            {signIn('codex')}
+            <ChatGptPicturesNote />
+          </div>,
+          'Sign in with ChatGPT',
+        )}
       {!listed &&
         path === 'claude' &&
         !connected.has('claude_subscription') &&
@@ -1369,6 +1386,7 @@ export default function FirstRun({
                   Signing in is available once Row-Bot is connected.
                 </p>
               )}
+              {subscription === 'codex' && <ChatGptPicturesNote />}
             </div>
           )}
           {path === 'key' && keyPanel}
