@@ -441,7 +441,12 @@ it('Claude in the first run offers Use my Claude plan: Claude’s own sign-in, n
   });
   show();
   fireEvent.click(screen.getByRole('button', { name: /With my subscription/ }));
+  // ChatGPT, chosen first, says its plan makes pictures too; Claude doesn't.
+  expect(
+    await screen.findByText('A paid ChatGPT plan makes pictures too.'),
+  ).toBeVisible();
   fireEvent.click(await screen.findByRole('radio', { name: 'Claude' }));
+  expect(screen.queryByText(/makes pictures too/)).toBeNull();
   expect(
     await screen.findByText(
       'Row-Bot runs Claude Code, Anthropic’s program, with your own Claude plan. Its limits apply.',

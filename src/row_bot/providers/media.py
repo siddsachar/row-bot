@@ -15,6 +15,8 @@ IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
     "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎", "route": "google"},
     "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏", "route": "xai"},
     "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription", "route": "xai"},
+    # The ChatGPT sign-in: the Codex backend's own image endpoints (codex_media).
+    "codex": {"auth": "oauth", "label": "ChatGPT", "emoji": "C", "risk_label": "subscription", "route": "codex"},
     "openrouter": {"key": "OPENROUTER_API_KEY", "label": "OpenRouter", "emoji": "🌐", "route": "openrouter",
                    "base_url": "https://openrouter.ai/api/v1"},
     "vercel": {"key": "AI_GATEWAY_API_KEY", "label": "Vercel AI Gateway", "emoji": "VG", "route": "openai",
@@ -52,13 +54,15 @@ VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
 }
 
 # The image and video models of providers whose model lists leave them out: MiniMax
-# lists its text models only and Z.AI's list names no media models. Their refresh adds
+# lists its text models only, Z.AI's list names no media models and ChatGPT's lists
+# its chat models only. Their refresh adds
 # these to the catalog beside the listed ones. Every other provider's media models come
 # from its own list.
 UNLISTED_MEDIA_MODELS: dict[str, dict[str, dict[str, str]]] = {
     "image": {
         "minimax": {"image-01": "Image-01"},
         "zai": {"glm-image": "GLM-Image"},
+        "codex": {"gpt-image-2": "GPT Image 2"},
     },
     "video": {
         "minimax": {"MiniMax-H3": "MiniMax H3", "MiniMax-H3-Highspeed": "MiniMax H3 Highspeed",
@@ -75,6 +79,15 @@ def _media_provider_available(provider_id: str, meta: dict[str, str]) -> bool:
                 from row_bot.providers.xai_oauth import xai_oauth_runtime_available
 
                 return bool(xai_oauth_runtime_available(refresh_if_needed=False))
+            except Exception:
+                return False
+        if provider_id == "codex":
+            try:
+                from row_bot.providers.codex import check_codex_token_health
+                from row_bot.providers.codex_media import codex_images_plan_note
+
+                health = check_codex_token_health(refresh_if_needed=False)
+                return bool(health.runnable) and not codex_images_plan_note()
             except Exception:
                 return False
         return False
