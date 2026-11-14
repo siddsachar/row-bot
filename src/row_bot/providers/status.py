@@ -182,6 +182,53 @@ def provider_status_cards(*, refresh_tokens: bool = False) -> list[dict]:
     return cards
 
 
+# A saved sign-in that can't be renewed any more: only the person signs in again.
+_SIGN_IN_GONE = frozenset({"expired", "revoked"})
+
+
+def short_provider_name(display_name: str) -> str:
+    """"ChatGPT / Codex" → "ChatGPT", "Claude (your Claude plan)" → "Claude"."""
+    return display_name.split(" (", 1)[0].split(" / ", 1)[0].strip() or display_name
+
+
+def sign_in_problems() -> list[dict[str, str]]:
+    """Subscription sign-ins someone set up that can't be used now: provider id, name, status, words.
+
+    Local reads only: saved sign-ins are read without renewing them, and Claude Code is asked
+    only once Claude has been used here. A provider never connected is not a problem.
+    """
+    from row_bot.providers import claude_subscription
+
+    problems: list[dict[str, str]] = []
+    for definition in list_provider_definitions():
+        if definition.risk_label != "subscription":
+            continue
+        name = short_provider_name(definition.display_name)
+        if definition.id == claude_subscription.CLAUDE_SUBSCRIPTION_PROVIDER_ID:
+            if not claude_subscription.signed_in_before():
+                continue
+            state = claude_subscription.claude_plan_status().state
+            if state == "signed_out":
+                problems.append(_sign_in_problem(definition.id, name, "error",
+                                                 f"{name} isn't signed in any more. Sign in again to use its models."))
+            elif state == "too_old":
+                problems.append(_sign_in_problem(definition.id, name, "warn",
+                                                 "Claude Code needs an update before Claude's models can run."))
+            continue
+        health = str(provider_status(definition.id, refresh_tokens=False).get("token_health") or "")
+        if health in _SIGN_IN_GONE:
+            problems.append(_sign_in_problem(definition.id, name, "error",
+                                             f"Your {name} sign-in has expired. Sign in again to use its models."))
+        elif health == "error":
+            problems.append(_sign_in_problem(definition.id, name, "warn",
+                                             f"Row-Bot couldn't read your {name} sign-in. Open it to check."))
+    return problems
+
+
+def _sign_in_problem(provider_id: str, name: str, status: str, detail: str) -> dict[str, str]:
+    return {"provider_id": provider_id, "name": name, "status": status, "detail": detail}
+
+
 def summarize_providers() -> str:
     lines = ["**Providers**"]
     for card in provider_status_cards():

@@ -189,15 +189,47 @@ def check_ollama(*, live_probe: bool = True) -> CheckResult:
 
 
 def check_active_model() -> CheckResult:
-    """Check if the configured model is available."""
+    """The main model is chosen and, for a provider's model, can run (G25).
+
+    Readiness comes from what Row-Bot already knows (no sign-in is renewed, nothing is
+    probed); a model on this computer is the Ollama check's to report.
+    """
     try:
         from row_bot.models import get_current_model
         model = get_current_model()
-        if model:
+        if not model:
+            return CheckResult("Model", "warn", "No model selected", settings_tab="Models")
+        from row_bot.providers.resolution import resolve_provider_config
+
+        resolved = resolve_provider_config(model, allow_legacy_local=True)
+        if resolved.provider_id in {"ollama", "local"}:
             return CheckResult("Model", "ok", model, settings_tab="Models")
-        return CheckResult("Model", "warn", "No model selected", settings_tab="Models")
+        from row_bot.providers.readiness import evaluate_runtime_readiness
+
+        readiness = evaluate_runtime_readiness(resolved, refresh_provider_status=False)
+        if readiness.selected_mode == "agent":
+            return CheckResult("Model", "ok", model, settings_tab="Models")
+        if readiness.selected_mode == "chat_only":
+            return CheckResult("Model", "warn", f"{model} can chat, but tools and actions are off.",
+                               settings_tab="Models")
+        return CheckResult("Model", "error", f"{model} can't run: {readiness.selection_reason}", settings_tab="Models")
     except Exception as exc:
         return CheckResult("Model", "error", str(exc), settings_tab="Models")
+
+
+def check_sign_ins() -> list[CheckResult]:
+    """Subscription sign-ins (ChatGPT, Claude, Grok) that were set up and can't be used now (G24).
+
+    Local reads only, so it runs with the local checks: an expired sign-in shows in Needs you
+    before a chat fails on it. Providers that are fine or never connected say nothing.
+    """
+    from row_bot.providers.status import sign_in_problems
+
+    return [
+        CheckResult(f"{problem['name']} sign-in", problem["status"], problem["detail"], settings_tab="Models",
+                    metadata={"provider_id": problem["provider_id"]})
+        for problem in sign_in_problems()
+    ]
 
 
 def check_cloud_api() -> CheckResult:
@@ -846,6 +878,7 @@ ALL_CHECKS = [
     check_ollama,
     check_active_model,
     check_cloud_api,
+    check_sign_ins,
     check_channels,
     check_tunnel,
     check_gmail_oauth,
@@ -931,6 +964,10 @@ SLOW_CHECKS = (check_wiki_vault,)
 
 
 def _check_id(fn: Callable[[], CheckResult | list[CheckResult]], result: CheckResult) -> str:
+    if fn is check_sign_ins:
+        # By the provider, so its fix opens that provider's row whatever the name says.
+        provider = str(result.metadata.get("provider_id") or "")
+        return "sign-in:" + (re.sub(r"[^a-z0-9]+", "-", provider.lower()).strip("-")[:48] or "provider")
     slug = re.sub(r"[^a-z0-9]+", "-", result.name.lower()).strip("-")[:48] or "check"
     return f"channel:{slug}" if fn is check_channels else slug
 
