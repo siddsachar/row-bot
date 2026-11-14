@@ -246,7 +246,7 @@ def test_after_the_first_the_turn_context_says_only_what_changed(env):
     state = env.new_turn(None, "Summarise notes.txt.", "t1")
     first = _block(env.call(state, "t1"))
     assert "Current date and time: Sunday, October 11, 2026 at" in first
-    assert "Approval mode for action-capable tools: approve." in first
+    assert "Approval level for this chat: Ask." in first
     assert "Available tool groups for this turn include: filesystem, web_search." in first
     assert "Current model: gpt-4.1" in first
     assert "[id=mem_a]" in first
@@ -267,7 +267,7 @@ def test_after_the_first_the_turn_context_says_only_what_changed(env):
     env.dynamic = "Current state:\n- Current model: gpt-5.5"
     state = env.new_turn(state, "Carry on.", "t3")
     third = _block(env.call(state, "t3"))
-    assert "Approval mode for action-capable tools: block." in third
+    assert "Approval level for this chat: Block." in third
     assert "Available tool groups for this turn include: filesystem." in third
     assert "Current model: gpt-5.5" in third
     assert "Relevant long-term memory" not in third
@@ -305,7 +305,7 @@ def test_a_compaction_summary_brings_back_a_full_snapshot(env, monkeypatch):
 
     assert any("<HISTORICAL_CONTEXT" in str(message.content) for message in request)
     assert "Current date and time:" in third
-    assert "Approval mode for action-capable tools: approve." in third
+    assert "Approval level for this chat: Ask." in third
     assert "Available tool groups for this turn include:" in third
     assert "Current model: gpt-4.1" in third
     assert "[id=mem_a]" in third  # its first showing is summarised away, so it is shown again
@@ -327,7 +327,7 @@ def test_a_compaction_later_in_the_turn_appends_a_full_snapshot(env, monkeypatch
 
     assert len(created) == 1 and messages[-1] is created[0]  # appended after the latest tool result
     snapshot = str(created[0].content)
-    assert "Current date and time:" in snapshot and "Approval mode" in snapshot
+    assert "Current date and time:" in snapshot and "Approval level" in snapshot
     assert created[0].id.endswith("-1")
     assert env.recalls == 2  # the turn's recall is reused, not run again
 

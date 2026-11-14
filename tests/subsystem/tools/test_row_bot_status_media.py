@@ -31,47 +31,47 @@ def _isolated_row_bot_data(tmp_path, monkeypatch):
 
 def test_row_bot_status_normalizes_dynamic_image_model_label(monkeypatch):
     import row_bot.tools.image_gen_tool as image_gen_tool
-    from row_bot.tools.row_bot_status_tool import _normalize_provider_model_value
+    from row_bot.self_settings import normalize_media_model
 
     monkeypatch.setattr(image_gen_tool, "get_available_image_models", lambda: {
         "openai/gpt-image-2": "⬡  GPT Image 2  (OpenAI)",
         "google/gemini-3-pro-image-preview": "💎  Nano Banana Pro  (Google)",
     })
 
-    assert _normalize_provider_model_value("image_gen_model", "GPT Image 2") == "openai/gpt-image-2"
-    assert _normalize_provider_model_value("image_gen_model", "gpt-image-2") == "openai/gpt-image-2"
-    assert _normalize_provider_model_value("image_gen_model", "Nano Banana Pro") == "google/gemini-3-pro-image-preview"
+    assert normalize_media_model("GPT Image 2", image_gen_tool.get_available_image_models()) == "openai/gpt-image-2"
+    assert normalize_media_model("gpt-image-2", image_gen_tool.get_available_image_models()) == "openai/gpt-image-2"
+    assert normalize_media_model("Nano Banana Pro", image_gen_tool.get_available_image_models()) == "google/gemini-3-pro-image-preview"
 
 
 def test_row_bot_status_normalizes_dynamic_video_model_label(monkeypatch):
     import row_bot.tools.video_gen_tool as video_gen_tool
-    from row_bot.tools.row_bot_status_tool import _normalize_provider_model_value
+    from row_bot.self_settings import normalize_media_model
 
     monkeypatch.setattr(video_gen_tool, "get_available_video_models", lambda: {
         "google/veo-3.1-generate-preview": "💎  Veo 3.1  (Google)",
         "xai/grok-imagine-video": "𝕏  Grok Imagine Video  (xAI)",
     })
 
-    assert _normalize_provider_model_value("video_gen_model", "Veo 3.1") == "google/veo-3.1-generate-preview"
-    assert _normalize_provider_model_value("video_gen_model", "grok-imagine-video") == "xai/grok-imagine-video"
+    assert normalize_media_model("Veo 3.1", video_gen_tool.get_available_video_models()) == "google/veo-3.1-generate-preview"
+    assert normalize_media_model("grok-imagine-video", video_gen_tool.get_available_video_models()) == "xai/grok-imagine-video"
 
 
 def test_row_bot_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
     import row_bot.tools.image_gen_tool as image_gen_tool
-    from row_bot.tools.row_bot_status_tool import _normalize_provider_model_value
+    from row_bot.self_settings import normalize_media_model
 
     monkeypatch.setattr(image_gen_tool, "get_available_image_models", lambda: {
         "openai/shared-image": "⬡  Shared Image  (OpenAI)",
         "custom_openai_lab/shared-image": "↔  Shared Image  (Lab)",
     })
 
-    assert _normalize_provider_model_value("image_gen_model", "shared-image") == "shared-image"
+    assert normalize_media_model("shared-image", image_gen_tool.get_available_image_models()) == "shared-image"
 
 
 def test_row_bot_status_resolves_explicit_xai_oauth_media_label(monkeypatch):
     import row_bot.tools.image_gen_tool as image_gen_tool
     import row_bot.tools.video_gen_tool as video_gen_tool
-    from row_bot.tools.row_bot_status_tool import _normalize_provider_model_value
+    from row_bot.self_settings import normalize_media_model
 
     monkeypatch.setattr(image_gen_tool, "get_available_image_models", lambda: {
         "xai/grok-imagine-image": "ð•  Grok Imagine  (xAI)",
@@ -82,10 +82,10 @@ def test_row_bot_status_resolves_explicit_xai_oauth_media_label(monkeypatch):
         "xai_oauth/grok-imagine-video": "X  Grok Imagine Video  (xAI Grok)",
     })
 
-    assert _normalize_provider_model_value("image_gen_model", "Grok Imagine (xAI Grok)") == "xai_oauth/grok-imagine-image"
-    assert _normalize_provider_model_value("image_gen_model", "grok-imagine-image") == "grok-imagine-image"
-    assert _normalize_provider_model_value("video_gen_model", "Grok Imagine Video (xAI Grok)") == "xai_oauth/grok-imagine-video"
-    assert _normalize_provider_model_value("video_gen_model", "grok-imagine-video") == "grok-imagine-video"
+    assert normalize_media_model("Grok Imagine (xAI Grok)", image_gen_tool.get_available_image_models()) == "xai_oauth/grok-imagine-image"
+    assert normalize_media_model("grok-imagine-image", image_gen_tool.get_available_image_models()) == "grok-imagine-image"
+    assert normalize_media_model("Grok Imagine Video (xAI Grok)", video_gen_tool.get_available_video_models()) == "xai_oauth/grok-imagine-video"
+    assert normalize_media_model("grok-imagine-video", video_gen_tool.get_available_video_models()) == "grok-imagine-video"
 
 
 def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
@@ -146,7 +146,7 @@ def test_row_bot_status_media_update_saves_the_tool_model(monkeypatch):
 
     result = _update_setting("image_gen_model", "GPT Image 2")
 
-    assert result == "Image generation model set to: openai/gpt-image-2"
+    assert result.splitlines()[0] == "Image generation model set to: openai/gpt-image-2"
     assert calls == [("image_gen", "model", "openai/gpt-image-2")]
 
 
@@ -154,7 +154,6 @@ def test_row_bot_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatc
     import row_bot.api_keys as api_keys
     import row_bot.models as models
     import row_bot.providers.config as provider_config
-    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -162,17 +161,17 @@ def test_row_bot_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatc
     monkeypatch.setattr(models, "list_cloud_models", lambda provider=None: [])
     monkeypatch.setattr(models, "list_cloud_vision_models", lambda: [])
 
-    model_value, error = _resolve_model_update_value("gpt-99-fictional", surface="chat")
+    monkeypatch.setattr("row_bot.self_settings.approve", lambda _change: pytest.fail("an invalid model reached a card"))
 
-    assert model_value is None
-    assert "not pinned for Brain" in str(error)
+    from row_bot.self_settings import change
+
+    assert "not pinned for Brain" in change("default_model", "gpt-99-fictional")
 
 
 def test_row_bot_status_rejects_installed_unknown_local_chat_model(tmp_path, monkeypatch):
     import row_bot.api_keys as api_keys
     import row_bot.models as models
     import row_bot.providers.config as provider_config
-    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -180,17 +179,18 @@ def test_row_bot_status_rejects_installed_unknown_local_chat_model(tmp_path, mon
     monkeypatch.setattr(models, "list_cloud_models", lambda provider=None: [])
     monkeypatch.setattr(models, "list_cloud_vision_models", lambda: [])
 
-    model_value, error = _resolve_model_update_value("gemma4:e4b", surface="chat")
+    monkeypatch.setattr("row_bot.self_settings.approve", lambda _change: pytest.fail("an invalid model reached a card"))
 
-    assert model_value is None
-    assert "not pinned for Brain" in str(error)
+    from row_bot.self_settings import change
+
+    assert "not pinned for Brain" in change("default_model", "gemma4:e4b")
 
 
 def test_row_bot_status_rejects_local_model_without_vision_metadata(tmp_path, monkeypatch):
     import row_bot.api_keys as api_keys
     import row_bot.models as models
     import row_bot.providers.config as provider_config
-    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
+    from row_bot.self_settings import resolve_model_update_value as _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -208,7 +208,7 @@ def test_row_bot_status_allows_installed_local_vision_from_cached_ollama_metadat
     import row_bot.api_keys as api_keys
     import row_bot.models as models
     import row_bot.providers.config as provider_config
-    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
+    from row_bot.self_settings import resolve_model_update_value as _resolve_model_update_value
 
     model_id = "qwen3.6:35b-a3b-mtp-q4_K_M"
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -257,7 +257,7 @@ def test_row_bot_status_vision_model_update_persists_valid_model(tmp_path, monke
 
     result = _update_setting("vision_model", "gemma3:4b")
 
-    assert result == "Vision model changed to: gemma3:4b"
+    assert result.splitlines()[0] == "Vision model changed to: gemma3:4b"
     assert vision_service.model == "gemma3:4b"
     assert calls == ["clear"]
 
@@ -265,7 +265,7 @@ def test_row_bot_status_vision_model_update_persists_valid_model(tmp_path, monke
 def test_row_bot_status_allows_a_starred_codex_vision_model(tmp_path, monkeypatch):
     import row_bot.models as models
     from row_bot.providers.codex import fallback_codex_model_infos
-    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
+    from row_bot.self_settings import resolve_model_update_value as _resolve_model_update_value
     from tests.helpers.starred_models import starred_profile
 
     model_info = next(info for info in fallback_codex_model_infos() if info.model_id == "gpt-5.5")

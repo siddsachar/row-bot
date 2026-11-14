@@ -32,7 +32,7 @@ _READ_OPERATIONS = {
         "developer_list_agent_changes",
     },
     "browser": {"browser_extract", "browser_wait_for"},
-    "row_bot_status": {"row_bot_status"},
+    "row_bot_status": {"row_bot_status", "row_bot_docs"},
     "conversation_search": {"search_conversations", "list_conversations"},
     "calculator": {"calculate"},
     "system_info": {"get_system_info"},

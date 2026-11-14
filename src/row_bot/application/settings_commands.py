@@ -1246,6 +1246,20 @@ def execute_settings_update(
     return admissions.complete_command(owner_id, key, result)
 
 
+def apply_settings_change(page: str, field: str, value: Any) -> dict[str, Any]:
+    """Save one allowlisted field for Row-Bot itself (``row_bot.self_settings``): the same validation and
+    write as a reviewed command from the Settings page, without the client's review id and receipt.
+
+    Secrets and actions (installs, removals, deletes) are never saved this way.
+    """
+    page, field, value, secret = _normal_value(page, field, value)
+    if secret or (page, field) in _ACTION_FIELDS or page == "learning":
+        raise SettingsCommandError("settings_action_unavailable")
+    snapshot, _result = _apply({"page": page, "field": field, "value": value, "secret": False,
+                                "settings_revision": ""}, validate=lambda: None)
+    return snapshot
+
+
 def read_settings_receipt(
     command_id: str, *, owner_id: str, validate: Callable[[], None]
 ) -> dict[str, Any] | None:
@@ -1265,6 +1279,7 @@ def read_settings_receipt(
 
 __all__ = [
     "SettingsCommandError",
+    "apply_settings_change",
     "execute_settings_update",
     "read_settings_receipt",
     "review_settings_update",

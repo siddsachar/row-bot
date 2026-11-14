@@ -49,7 +49,7 @@ from langgraph.types import interrupt, Command
 from row_bot.threads import pick_or_create_thread, checkpointer
 import logging
 
-from row_bot.approval_policy import DEFAULT_APPROVAL_MODE, decision_for_action, normalize_approval_mode
+from row_bot.approval_policy import DEFAULT_APPROVAL_MODE, approval_label, decision_for_action, normalize_approval_mode
 from row_bot.agent_budget import (
     AgentNoProgress,
     claim_budget_finalization,
@@ -1431,7 +1431,8 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
             "would need."
         )
     fields = [
-        ContextField("approval", f"Approval mode for action-capable tools: {get_approval_mode()}."),
+        # In the person's words (Ask, Auto, Hands-off, Block), so Row-Bot never says "full mode" (G10).
+        ContextField("approval", f"Approval level for this chat: {approval_label(get_approval_mode())}."),
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
     ]
@@ -5749,7 +5750,7 @@ RARELY_USED_TOOL_GROUPS = frozenset({
 RARELY_USED_TOOLS = frozenset({
     "agent_profiles", "agent_profile_save", "agent_promote", "agent_retry",
     "row_bot_create_skill", "row_bot_patch_skill", "row_bot_send_feedback", "row_bot_apply_proposal",
-    "row_bot_reject_proposal", "row_bot_verify_proposal", "row_bot_review_skill_library",
+    "row_bot_reject_proposal", "row_bot_verify_proposal", "row_bot_review_skill_library", "row_bot_fix",
 })
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
     "current_on_demand_tools", default={}

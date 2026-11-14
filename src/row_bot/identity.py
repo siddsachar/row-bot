@@ -79,7 +79,9 @@ def get_identity_config() -> dict:
 def save_identity_config(identity: dict) -> None:
     """Persist identity dict into user_config.json (merges with existing data)."""
     config = _load_user_config()
+    # Other identity keys ("Learn new skills") stay as they are.
     config["identity"] = {
+        **(config.get("identity") if isinstance(config.get("identity"), dict) else {}),
         "name": (identity.get("name") or _DEFAULT_NAME).strip() or _DEFAULT_NAME,
         "personality": sanitize_personality(identity.get("personality", "")),
     }
@@ -100,12 +102,3 @@ def is_self_improvement_enabled() -> bool:
     """Return whether the self-improvement features are enabled."""
     raw = _load_user_config().get("identity", {})
     return raw.get("self_improvement", True)
-
-
-def set_self_improvement_enabled(enabled: bool) -> None:
-    """Persist the self-improvement toggle."""
-    config = _load_user_config()
-    identity = config.get("identity", {})
-    identity["self_improvement"] = bool(enabled)
-    config["identity"] = identity
-    _save_user_config(config)

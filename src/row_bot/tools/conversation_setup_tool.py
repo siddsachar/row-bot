@@ -105,26 +105,10 @@ def _clean_name(value: str, fallback: str) -> str:
 
 
 def _turn_on(group: str, label: str, why: str) -> bool:
-    """Ask to turn on a tool group through the standard approval (a setup card)."""
-    if registry.is_enabled(group):
-        return True
-    from row_bot.tools.approval_gate import request_approval
+    """Ask to turn on a tool group with the "Turn on" card, by the approval level, as row_bot_update_setting does."""
+    from row_bot.self_settings import turn_on
 
-    # By the approval level: the person under Ask (and Block), the reviewer first under Auto, Hands-off.
-    approved = request_approval(
-        {
-            "tool": "row_bot_update_setting",
-            "label": f"Turn on {label}",
-            "description": why,
-            "args": {"setting": "tool_toggle", "value": f"{group}:on"},
-            "setup": {"kind": "tool", "label": label},
-        },
-        risks=("turns on a tool group in Settings",),
-    )
-    if not approved:
-        return False
-    registry.set_enabled(group, True)
-    return registry.is_enabled(group)
+    return turn_on(group, label, why)
 
 
 def _existing(conversation_id: str, kind: str) -> Any:

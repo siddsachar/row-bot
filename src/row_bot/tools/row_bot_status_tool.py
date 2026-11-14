@@ -1,9 +1,10 @@
-"""Row-Bot status / introspection tool — lets the agent query its own configuration.
+"""Row-Bot's self tools: what it is now, its own guides, its settings and what needs attention.
 
-Provides read operations (always allowed) for settings, channel status,
-memory stats, model info, provider status, and API key validity. Write operations
-(changing settings, toggling channels) require user confirmation via
-LangGraph interrupt().
+- ``row_bot_status`` reads live state one area at a time (no approval: it changes nothing).
+- ``row_bot_docs`` searches Row-Bot's own guides, shipped with this version and read offline (``row_bot.guides``).
+- ``row_bot_update_setting`` changes one of the settings in ``row_bot.self_settings``: checked first, approved
+  by the chat's approval level, undoable.
+- ``row_bot_fix`` checks again or hands the person a problem's fix (``row_bot.self_health``).
 """
 
 from __future__ import annotations
@@ -20,124 +21,27 @@ from pydantic import BaseModel, Field
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
-from row_bot.tools.approval_gate import gate_action
 
 logger = logging.getLogger(__name__)
 
 _DATA_DIR = get_row_bot_data_dir()
 
 
-def _approval_gate_bool(payload: dict, *, blocked_message: str) -> bool:
-    return gate_action(
-        payload,
-        risks=("changes a Row-Bot setting",),
-        blocked_message=blocked_message,
-        cancelled_message="",
-    ) is None
-
-
 # ═════════════════════════════════════════════════════════════════════════════
 # INPUT SCHEMAS
 # ═════════════════════════════════════════════════════════════════════════════
 
-# Settings the model may change. What each value means is in row_bot_status_guide
-# (CHANGING SETTINGS). The legacy 'model' alias still works but is not offered.
-_SETTINGS = (
-    "thread_model", "default_model", "vision_model", "name", "personality", "context_size",
-    "cloud_context_size", "dream_cycle", "dream_window", "skill_toggle", "skill_pin", "tool_toggle",
-    "image_gen_model", "video_gen_model", "run_dream_cycle", "self_improvement",
-)
+def _setting_ids() -> tuple[str, ...]:
+    from row_bot.self_settings import IDS
+
+    return IDS
 
 
 class _SettingUpdateInput(BaseModel):
-    setting: Literal[_SETTINGS] = Field(description="The setting to change.")  # type: ignore[valid-type]
-    value: str = Field(
-        description=(
-            "New value: 'on'/'off'; '<name>:on' or '<name>:off' for skill_toggle, skill_pin and tool_toggle; "
-            "'START-END' hours for dream_window; a token count; 'now' for run_dream_cycle; or a pinned "
-            "model ref or label ('default' clears thread_model)."
-        )
+    setting: Literal[_setting_ids()] = Field(  # type: ignore[valid-type]
+        description="The setting to change; row_bot_status 'settings' lists each with what it takes."
     )
-
-
-def _normalize_provider_model_value(setting: str, value: str) -> str:
-    """Return a canonical provider/model value when the media model is unique."""
-    normalized = (value or "").strip()
-    if not normalized:
-        return normalized
-
-    if setting == "image_gen_model":
-        from row_bot.tools.image_gen_tool import get_available_image_models
-        options = get_available_image_models()
-    elif setting == "video_gen_model":
-        from row_bot.tools.video_gen_tool import get_available_video_models
-        options = get_available_video_models()
-    else:
-        return normalized
-
-    if normalized in options:
-        return normalized
-
-    def _media_lookup_tokens(text: str) -> set[str]:
-        raw = re.sub(r"^[^A-Za-z0-9]+", "", str(text or "")).strip()
-        tokens = {_normalize_lookup_token(raw)}
-        raw_without_icon = re.sub(r"^[A-Za-z]{1,3}\s{2,}", "", raw).strip()
-        if raw_without_icon and raw_without_icon != raw:
-            tokens.add(_normalize_lookup_token(raw_without_icon))
-        stripped = re.sub(r"\s*\([^)]*\)\s*$", "", raw).strip()
-        tokens.add(_normalize_lookup_token(stripped))
-        without_icon_prefix = re.sub(r"^[A-Za-z]{1,3}\s{2,}", "", stripped).strip()
-        if without_icon_prefix and without_icon_prefix != stripped:
-            tokens.add(_normalize_lookup_token(without_icon_prefix))
-        if "/" in stripped:
-            tokens.add(_normalize_lookup_token(stripped.split("/", 1)[1]))
-        return {token for token in tokens if token}
-
-    desired = _normalize_lookup_token(normalized)
-    desired_tokens = _media_lookup_tokens(normalized)
-    exact_matches: list[str] = []
-    fuzzy_matches: list[str] = []
-    for config_value, label in options.items():
-        provider, _, model_id = config_value.partition("/")
-        candidates = {
-            config_value,
-            model_id or config_value,
-            label,
-            f"{provider} {model_id}",
-            f"{provider} {label}",
-        }
-        tokens = set().union(*(_media_lookup_tokens(candidate) for candidate in candidates))
-        if desired in tokens:
-            exact_matches.append(config_value)
-        elif desired_tokens & tokens:
-            fuzzy_matches.append(config_value)
-
-    if len(exact_matches) == 1:
-        return exact_matches[0]
-    if not exact_matches and len(fuzzy_matches) == 1:
-        return fuzzy_matches[0]
-    return normalized
-
-
-def _normalize_lookup_token(value: str) -> str:
-    """Normalize a human/tool label into a stable lookup token."""
-    token = re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower())
-    token = re.sub(r"_+", "_", token).strip("_")
-    if token.endswith("_tool"):
-        token = token[:-5]
-    return token
-
-
-def _model_setting_supported_message() -> str:
-    return (
-        "model, vision_model, name, personality, context_size, cloud_context_size, "
-        "dream_cycle, dream_window, skill_toggle, skill_pin, tool_toggle, image_gen_model, "
-        "video_gen_model, run_dream_cycle, self_improvement"
-    )
-
-
-def _surface_label(surface: str) -> str:
-    return {"chat": "Brain", "vision": "Vision"}.get(surface, surface.replace("_", " ").title())
+    value: str = Field(description="The new value, in the form row_bot_status 'settings' gives for it.")
 
 
 def _pinned_choice_status_lines(
@@ -188,174 +92,62 @@ def _pinned_choice_status_lines(
     return lines
 
 
-def _resolve_model_update_value(value: str, *, surface: str) -> tuple[str | None, str | None]:
-    """Resolve a status-tool model update to a runnable model id or an error."""
-    if surface == "chat":
-        try:
-            from row_bot.providers.selection import resolve_catalog_model_selection
-
-            resolved = resolve_catalog_model_selection(
-                value,
-                surface="chat",
-                require_agent_ready=True,
-                require_pinned=True,
-            )
-            return resolved.ref, None
-        except Exception as exc:
-            return None, str(exc)
-
-    from row_bot.models import is_model_local, list_cloud_models, list_cloud_vision_models
-    from row_bot.providers.capabilities import snapshot_supports_surface
-    from row_bot.providers.selection import star_cannot_run, list_model_choice_options, model_ref, resolve_selection
-
-    raw = (value or "").strip()
-    if not raw:
-        return None, f"No {_surface_label(surface)} model was provided."
-
-    resolved = resolve_selection(raw)
-    if not resolved:
-        return None, f"Model '{raw}' not found. Pin it in Settings → Models first."
-
-    provider_id = resolved.provider_id or "local"
-    model_id = resolved.model_id
-    starred = {
-        str(option["value"]): option
-        for option in list_model_choice_options(surface, include_inactive=True)
-    }
-    star = starred.get(resolved.ref)
-    if star:
-        if star_cannot_run(star):
-            reason = str(star.get("reason") or "This Quick Choice is inactive.")
-            return None, f"Model '{raw}' is not active for {_surface_label(surface)}. {reason}"
-        return model_id, None
-
-    if provider_id in {"local", "ollama"}:
-        if not is_model_local(model_id):
-            return None, f"Local model '{raw}' is not installed. Install it with Ollama or pin an installed model in Settings → Models."
-        if surface == "vision":
-            from row_bot.providers.capability_resolution import resolve_capability_snapshot
-
-            snapshot = resolve_capability_snapshot("ollama", model_id)
-            if not snapshot or not snapshot_supports_surface(snapshot, "vision"):
-                return None, f"Local model '{raw}' is installed, but Row-Bot does not have Vision capability metadata for it. Choose a Vision model from Settings → Models."
-        return model_id, None
-
-    known_provider_models = set(list_cloud_models(provider_id))
-    if model_id not in known_provider_models:
-        return None, f"Provider model '{raw}' is not in the current catalog. Refresh Providers or pin it from Settings → Models first."
-    if surface == "vision" and model_id not in set(list_cloud_vision_models()):
-        provider_ref = model_ref(provider_id, model_id)
-        from row_bot.models import is_cloud_vision_model
-        if not is_cloud_vision_model(provider_ref):
-            return None, f"Provider model '{raw}' is not marked as Vision-capable in the catalog."
-    return model_id, None
-
-
 def _tool_display_label(tool) -> str:
-    """Return a friendly display label without leading emoji."""
-    label = getattr(tool, "display_name", "") or getattr(tool, "name", "")
-    label = re.sub(r"^[^A-Za-z0-9]+", "", str(label)).strip()
-    return label or getattr(tool, "name", "")
+    from row_bot.self_settings import tool_display_label
 
-
-def _resolve_tool_name(value: str) -> tuple[str | None, str | None, list[str]]:
-    """Resolve a tool alias like ``video_generation`` to a registered tool."""
-    from row_bot.tools import registry as tool_registry
-
-    raw = (value or "").strip()
-    if not raw:
-        return None, None, []
-
-    direct = tool_registry.get_tool(raw)
-    if direct is not None:
-        return direct.name, _tool_display_label(direct), []
-
-    normalized = _normalize_lookup_token(raw)
-    alias_to_name: dict[str, str] = {}
-    for tool in tool_registry.get_all_tools():
-        aliases = {
-            tool.name,
-            _normalize_lookup_token(tool.name),
-            _normalize_lookup_token(_tool_display_label(tool)),
-        }
-        for alias in aliases:
-            if alias:
-                alias_to_name.setdefault(alias, tool.name)
-
-    resolved_name = alias_to_name.get(normalized)
-    if resolved_name:
-        resolved_tool = tool_registry.get_tool(resolved_name)
-        return resolved_name, _tool_display_label(resolved_tool), []
-
-    suggestions: list[str] = []
-    for tool in tool_registry.get_all_tools():
-        label = _tool_display_label(tool)
-        if normalized and (normalized in _normalize_lookup_token(label)
-                           or normalized in _normalize_lookup_token(tool.name)):
-            suggestions.append(label)
-    return None, None, suggestions[:3]
+    return tool_display_label(tool)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # QUERY HANDLERS (read-only, always allowed)
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _resolve_manual_skill_name(value: str) -> tuple[str | None, str | None, list[str]]:
-    """Resolve a Skill Library name/display label to a manual skill id."""
-    from row_bot.skills import get_manual_skill_statuses
-
-    raw = (value or "").strip()
-    if not raw:
-        return None, None, []
-
-    statuses = get_manual_skill_statuses()
-    for skill, _is_available in statuses:
-        if raw == skill.name:
-            return skill.name, skill.display_name, []
-
-    normalized = _normalize_lookup_token(raw)
-    alias_to_name: dict[str, str] = {}
-    labels: dict[str, str] = {}
-    for skill, _is_available in statuses:
-        labels[skill.name] = skill.display_name
-        for alias in {
-            skill.name,
-            _normalize_lookup_token(skill.name),
-            _normalize_lookup_token(skill.display_name),
-        }:
-            if alias:
-                alias_to_name.setdefault(alias, skill.name)
-
-    resolved_name = alias_to_name.get(normalized)
-    if resolved_name:
-        return resolved_name, labels.get(resolved_name, resolved_name), []
-
-    suggestions: list[str] = []
-    for skill, _is_available in statuses:
-        label = skill.display_name
-        if normalized and (
-            normalized in _normalize_lookup_token(label)
-            or normalized in _normalize_lookup_token(skill.name)
-        ):
-            suggestions.append(label)
-    return None, None, suggestions[:3]
-
-
 def _query_overview() -> str:
-    """Full status summary across all categories."""
+    """A short summary: version, the model and whether it can use tools, approval level, problems, update."""
+    from row_bot.approval_policy import approval_label
     from row_bot.version import __version__
-    parts = [f"**Row-Bot v{__version__}**"]
-    for cat in ("model", "providers", "vision", "image_gen", "video_gen", "voice", "api_keys", "memory",
-                "channels", "skills", "tools", "plugins", "mcp", "identity", "tasks", "agents", "agent_profiles", "goals",
-                "insights", "evolution", "config", "designer", "updates"):
-        try:
-            if cat == "model":
-                parts.append(_query_model(compact_pinned=True))
-            else:
-                parts.append(_QUERY_HANDLERS[cat]())
-        except Exception as exc:
-            parts.append(f"[{cat}] Error: {exc}")
-    return "\n\n".join(parts)
+
+    lines = [f"**Row-Bot v{__version__}**", _model_summary_line()]
+    try:
+        from row_bot.agent import get_approval_mode
+
+        lines.append(f"- Approval level for this chat: {approval_label(get_approval_mode())}")
+    except Exception as exc:
+        lines.append(f"- Approval level: unavailable ({exc})")
+    try:
+        from row_bot.self_health import problems
+
+        found = problems()
+        lines.append(f"- Needs attention: {len(found)} (category 'health')" if found else "- Needs attention: nothing")
+    except Exception as exc:
+        lines.append(f"- Needs attention: unavailable ({exc})")
+    try:
+        import row_bot.updater as updater
+
+        summary = updater.summary_for_status()
+        lines.append(f"- Update: v{summary['available_version']} available" if summary["update_available"]
+                     else "- Update: none available")
+    except Exception as exc:
+        lines.append(f"- Update: unavailable ({exc})")
+    lines.append("- For detail, ask one category: model, providers, tools, skills, plugins, mcp, settings, health, "
+                 "features, voice, channels, memory, agents, goals, usage, updates.")
+    return "\n".join(lines)
+
+
+def _model_summary_line() -> str:
+    try:
+        from row_bot.models import _active_model_override, get_current_model
+        from row_bot.providers.readiness import evaluate_runtime_readiness
+
+        model = _active_model_override.get("") or get_current_model()
+        if not model:
+            return "- Model: none chosen yet (the model pill, or Settings › Models › Main model)"
+        mode = evaluate_runtime_readiness(model, probe_ollama_tools=False, refresh_provider_status=False).selected_mode
+        words = {"agent": "can use tools", "chat_only": "can only chat: tools and actions are off",
+                 "blocked": "can't run now"}.get(mode, mode)
+        return f"- Model: {model} ({words})"
+    except Exception as exc:
+        return f"- Model: unavailable ({exc})"
 
 
 def _query_model(*, compact_pinned: bool = False) -> str:
@@ -716,26 +508,6 @@ def _query_mcp() -> str:
         return f"**MCP Client**\nError: {exc}"
 
 
-def _query_api_keys() -> str:
-    try:
-        from row_bot.api_keys import get_key
-        providers = {
-            "OpenRouter": "OPENROUTER_API_KEY",
-            "OpenAI": "OPENAI_API_KEY",
-            "Anthropic": "ANTHROPIC_API_KEY",
-            "Google AI": "GOOGLE_API_KEY",
-            "xAI": "XAI_API_KEY",
-            "Tavily": "TAVILY_API_KEY",
-        }
-        lines = ["**API Keys** (never shows actual key values)"]
-        for label, env_var in providers.items():
-            configured = bool(get_key(env_var))
-            lines.append(f"- {label}: {'configured' if configured else 'not set'}")
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"**API Keys**\nError: {exc}"
-
-
 def _query_providers() -> str:
     try:
         from row_bot.providers.status import summarize_providers
@@ -832,29 +604,20 @@ def _query_tasks() -> str:
         from row_bot.tasks import diagnose_task_schema, list_tasks
         diag = diagnose_task_schema()
         tasks = list_tasks()
-        schema_lines = [
-            "**Task DB Schema**",
-            f"- Path: {diag.get('db_path')}",
-            f"- OK: {diag.get('ok')}",
-            f"- Size: {diag.get('size_bytes', 0)} bytes",
-            f"- user_version: {diag.get('user_version', '(unknown)')}",
-            f"- WAL/SHM: {diag.get('wal_exists')} / {diag.get('shm_exists')}",
-            f"- Missing tables: {diag.get('missing_tables', [])}",
-            f"- Missing columns: {diag.get('missing_columns', {})}",
-        ]
-        if diag.get("last_repair"):
-            schema_lines.append(f"- Last repair: {diag.get('last_repair')}")
-        if diag.get("error"):
-            schema_lines.append(f"- Error: {diag.get('error')}")
+        lines: list[str] = []
+        if not diag.get("ok"):
+            missing = ", ".join(diag.get("missing_tables") or []) or "columns"
+            lines += ["**Workflow database**", f"- Needs repair: missing {missing}"
+                      + (f"; {diag.get('error')}" if diag.get("error") else ""), ""]
         if not tasks:
-            return "\n".join(schema_lines + ["", "**Scheduled Tasks**", "No tasks configured."])
-        lines = [f"**Scheduled Tasks** ({len(tasks)} total)"]
-        for t in tasks[:10]:  # Show at most 10
-            status = "enabled" if t.get("enabled", True) else "disabled"
-            lines.append(f"- {t.get('name', 'Unnamed')}: {t.get('schedule', 'no schedule')} ({status})")
+            return "\n".join(lines + ["**Scheduled Tasks**", "No tasks configured."])
+        lines.append(f"**Scheduled Tasks** ({len(tasks)} total)")
+        for task in tasks[:10]:  # Show at most 10
+            status = "enabled" if task.get("enabled", True) else "disabled"
+            lines.append(f"- {task.get('name', 'Unnamed')}: {task.get('schedule', 'no schedule')} ({status})")
         if len(tasks) > 10:
             lines.append(f"  ... and {len(tasks) - 10} more")
-        return "\n".join(schema_lines + [""] + lines)
+        return "\n".join(lines)
     except Exception as exc:
         return f"**Scheduled Tasks**\nError: {exc}"
 
@@ -1433,7 +1196,7 @@ def _query_voice() -> str:
         try:
             tts_path = _DATA_DIR / "tts_settings.json"
             if tts_path.is_file():
-                tts = json.loads(tts_path.read_text())
+                tts = json.loads(tts_path.read_text(encoding="utf-8"))
                 lines.append(f"- TTS enabled: {'yes' if tts.get('enabled', False) else 'no'}")
                 lines.append(f"- TTS voice: {tts.get('voice', 'af_heart')}")
                 lines.append(f"- TTS speed: {tts.get('speed', 1.0)}")
@@ -1445,7 +1208,7 @@ def _query_voice() -> str:
         try:
             voice_path = _DATA_DIR / "voice_settings.json"
             if voice_path.is_file():
-                voice = json.loads(voice_path.read_text())
+                voice = json.loads(voice_path.read_text(encoding="utf-8"))
                 lines.append(f"- Whisper model: {voice.get('whisper_model', 'small')}")
             else:
                 lines.append("- Whisper model: small (default)")
@@ -1544,7 +1307,7 @@ def _query_config() -> str:
         # Dream cycle
         dc_path = _DATA_DIR / "dream_config.json"
         if dc_path.is_file():
-            dc = json.loads(dc_path.read_text())
+            dc = json.loads(dc_path.read_text(encoding="utf-8"))
             lines.append(f"- Dream cycle: {'enabled' if dc.get('enabled', True) else 'disabled'}"
                          f" (window {dc.get('window_start', 1)}:00–{dc.get('window_end', 5)}:00)")
         else:
@@ -1555,7 +1318,7 @@ def _query_config() -> str:
         # Memory extraction
         me_path = _DATA_DIR / "memory_extraction_state.json"
         if me_path.is_file():
-            me = json.loads(me_path.read_text())
+            me = json.loads(me_path.read_text(encoding="utf-8"))
             last = me.get("last_extraction", "never")
             entities = me.get("entities_saved", 0)
             lines.append(f"- Memory extraction: last run {last}, {entities} entities saved")
@@ -1567,10 +1330,8 @@ def _query_config() -> str:
         # Wiki vault
         wv_path = _DATA_DIR / "wiki_config.json"
         if wv_path.is_file():
-            wv = json.loads(wv_path.read_text())
+            wv = json.loads(wv_path.read_text(encoding="utf-8"))
             lines.append(f"- Wiki vault: {'enabled' if wv.get('enabled', False) else 'disabled'}")
-            if wv.get("enabled"):
-                lines.append(f"  Path: {wv.get('vault_path', '~/.row-bot/vault')}")
         else:
             lines.append("- Wiki vault: disabled (default)")
     except Exception:
@@ -1584,8 +1345,37 @@ def _query_version() -> str:
 
 
 def _query_features() -> str:
-    from row_bot.self_knowledge import features_text
-    return features_text()
+    """What Row-Bot does, by area, from its own guides for this version (never a hand-kept list)."""
+    from row_bot import guides
+
+    try:
+        pages = guides.pages()
+    except guides.GuidesUnavailable as exc:
+        return f"**Row-Bot features**\n{exc}"
+    groups: dict[str, list] = {}
+    for page in pages:
+        if page.group not in {"", "reference"}:  # The guides' home page; generated reference tables.
+            groups.setdefault(page.group, []).append(page)
+    lines = ["**Row-Bot features** (by area, from its guides for this version; row_bot_docs reads any of them)"]
+    for group, items in groups.items():
+        index = next((page for page in items if page.route.rstrip("/") == f"{guides.GUIDES_ROOT}/{group}"), None)
+        head = index.title if index else group.replace("-", " ").title()
+        about = f": {index.description}" if index and index.description else ""
+        others = [page.title for page in items if page is not index]
+        lines.append(f"- {head}{about}" + (f" Guides: {'; '.join(others)}." if others else ""))
+    return "\n".join(lines)
+
+
+def _query_health() -> str:
+    from row_bot.self_health import describe
+
+    return describe()
+
+
+def _query_settings() -> str:
+    from row_bot.self_settings import describe
+
+    return describe()
 
 
 def _query_designer() -> str:
@@ -1620,7 +1410,6 @@ _QUERY_HANDLERS = {
     "providers": _query_providers,
     "insights": _query_insights,
     "evolution": _query_evolution,
-    "api_keys": _query_api_keys,
     "identity": _query_identity,
     "tasks": _query_tasks,
     "agents": _query_agents,
@@ -1635,6 +1424,8 @@ _QUERY_HANDLERS = {
     "errors": _query_errors,
     "designer": _query_designer,
     "updates": lambda: _query_updates(),
+    "health": _query_health,
+    "settings": _query_settings,
     "usage": lambda: _query_usage(),
 }
 
@@ -1747,507 +1538,63 @@ def _row_bot_status(category: str) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# WRITE HANDLERS (require user confirmation)
+# CHANGES, GUIDES AND FIXES (the self system)
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _update_setting(setting: str, value: str) -> str:
-    """Update a Row-Bot setting (with interrupt-based confirmation)."""
-    def interrupt(payload: dict) -> bool:
-        return _approval_gate_bool(
-            payload,
-            blocked_message="BLOCKED: Changing Row-Bot settings is disabled in Block approval mode.",
-        )
+    """Change one setting: checked, approved by the chat's approval level, saved with its undo."""
+    from row_bot.self_settings import change
 
-    setting = setting.strip().lower()
-    value = value.strip()
+    return change(setting, value)
 
-    if setting in {"thread_model", "default_model", "model"}:
-        runtime_context = _active_runtime_context()
-        runtime_surface = str(runtime_context.get("runtime_surface") or "").strip()
-        thread_id = str(runtime_context.get("thread_id") or "").strip()
-        if runtime_surface in {"agent_child", "agent_child_resume"}:
-            return (
-                "Child Agents cannot switch their own runtime model. "
-                "Ask the parent to spawn the child with delegate_work(model=...) "
-                "or use /agent --model=model:provider:model-id for explicit command spawns."
-            )
-        if setting == "model" and thread_id:
-            return (
-                "Model scope is ambiguous in this conversation, so I did not change anything. "
-                "Use setting='thread_model' to change this conversation, or "
-                "setting='default_model' to change the global default for new conversations and workflows."
-            )
-        if setting == "thread_model":
-            if not thread_id:
-                return (
-                    "Cannot change the conversation model because no active thread is in context. "
-                    "Use setting='default_model' only if you want to change the global default."
-                )
-            if value.lower() in {"", "default", "inherit", "global"}:
-                approval = interrupt({
-                    "tool": "row_bot_update_setting",
-                    "label": "Clear conversation model override",
-                    "description": "Use the global default model for this conversation.",
-                    "args": {"setting": "thread_model", "value": value or "default"},
-                })
-                if not approval:
-                    return "Thread model change cancelled."
-                try:
-                    from row_bot.agent import clear_agent_cache
-                    from row_bot.models import get_current_model
-                    from row_bot.threads import _set_thread_model_override
 
-                    _set_thread_model_override(thread_id, "")
-                    clear_agent_cache()
-                    return f"Thread model override cleared; using global default: {get_current_model()}"
-                except Exception as exc:
-                    return f"Failed to change thread model: {exc}"
-            try:
-                model_value, error = _resolve_model_update_value(value, surface="chat")
-                if error:
-                    return error
-                if not model_value:
-                    return f"Model '{value}' not found. Pin it in Settings -> Models first."
-            except Exception as exc:
-                return f"Failed to resolve thread model: {exc}"
-            approval = interrupt({
-                "tool": "row_bot_update_setting",
-                "label": "Change conversation model",
-                "description": f"Switch this conversation to: {model_value}",
-                "args": {"setting": "thread_model", "value": model_value},
-            })
-            if not approval:
-                return "Thread model change cancelled."
-            try:
-                from row_bot.agent import clear_agent_cache
-                from row_bot.threads import _set_thread_model_override
+class _DocsInput(BaseModel):
+    query: str = Field(default="", description="What the person wants to do or know, in their words.")
+    page: str = Field(default="", description="A guide link from an earlier result (/docs/...#section) to read whole.")
 
-                _set_thread_model_override(thread_id, model_value)
-                clear_agent_cache()
-                return f"Thread model override changed to: {model_value}"
-            except Exception as exc:
-                return f"Failed to change thread model: {exc}"
-        result_prefix = (
-            "Active model changed to:" if setting == "model"
-            else "Global default model changed to:"
-        )
-        cancel_text = "Model change cancelled." if setting == "model" else "Default model change cancelled."
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change global default model",
-            "description": f"Switch the global default model to: {value}",
-            "args": {"setting": setting, "value": value},
-        })
-        if not approval:
-            return cancel_text
-        try:
-            from row_bot.models import set_model
-            from row_bot.agent import clear_agent_cache
-            model_value, error = _resolve_model_update_value(value, surface="chat")
-            if error:
-                return error
-            if not model_value:
-                return f"Model '{value}' not found. Pin it in Settings → Models first."
-            set_model(model_value)
-            clear_agent_cache()
-            return f"{result_prefix} {model_value}"
-        except Exception as exc:
-            return f"Failed to change model: {exc}"
 
-    elif setting == "vision_model":
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change Vision model",
-            "description": f"Switch the Vision model to: {value}",
-            "args": {"setting": "vision_model", "value": value},
-        })
-        if not approval:
-            return "Vision model change cancelled."
-        try:
-            from row_bot.agent import clear_agent_cache
-            from row_bot.tools.vision_tool import _get_vision_service
+_SECTION_CHARS = 1_500
+_PAGE_CHARS = 8_000
 
-            model_value, error = _resolve_model_update_value(value, surface="vision")
-            if error:
-                return error
-            if not model_value:
-                return f"Vision model '{value}' not found. Pin a Vision model in Settings → Models first."
-            _get_vision_service().model = model_value
-            clear_agent_cache()
-            return f"Vision model changed to: {model_value}"
-        except Exception as exc:
-            return f"Failed to change Vision model: {exc}"
 
-    elif setting == "name":
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change assistant name",
-            "description": f"Change the assistant name to: {value}",
-            "args": {"setting": "name", "value": value},
-        })
-        if not approval:
-            return "Name change cancelled."
-        try:
-            from row_bot.identity import get_identity_config, save_identity_config
-            from row_bot.agent import clear_agent_cache
-            cfg = get_identity_config()
-            cfg["name"] = value
-            save_identity_config(cfg)
-            clear_agent_cache()
-            return f"Assistant name changed to: {value}"
-        except Exception as exc:
-            return f"Failed to change name: {exc}"
+def _row_bot_docs(query: str = "", page: str = "") -> str:
+    """Row-Bot's own guides for this version, read offline."""
+    from row_bot import guides
 
-    elif setting == "personality":
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change personality",
-            "description": f"Set personality to: {value}",
-            "args": {"setting": "personality", "value": value},
-        })
-        if not approval:
-            return "Personality change cancelled."
-        try:
-            from row_bot.identity import get_identity_config, save_identity_config, sanitize_personality
-            from row_bot.agent import clear_agent_cache
-            sanitized = sanitize_personality(value)
-            cfg = get_identity_config()
-            cfg["personality"] = sanitized
-            save_identity_config(cfg)
-            clear_agent_cache()
-            result = f"Personality updated."
-            if sanitized != value:
-                result += " (Some text was removed due to disallowed patterns.)"
-            return result
-        except Exception as exc:
-            return f"Failed to change personality: {exc}"
+    try:
+        if page.strip():
+            found = guides.read(page)
+            if found is None:
+                return f"No guide at {page}. Search with a query instead."
+            text = found.text if len(found.text) <= _PAGE_CHARS else found.text[:_PAGE_CHARS].rstrip() + " …"
+            return f"### {found.title}\nCite: [{found.title}]({getattr(found, 'link', found.route)})\n\n{text}"
+        if not query.strip():
+            return "Give a query (what the person wants to do or know) or a guide link as page."
+        sections = guides.search(query)
+    except guides.GuidesUnavailable as exc:
+        return str(exc)
+    if not sections:
+        return (f"No guide covers '{query}'. For live state use row_bot_status; otherwise say the guides don't "
+                "cover it rather than guessing.")
+    parts = []
+    for section in sections:
+        text = section.text if len(section.text) <= _SECTION_CHARS else (
+            section.text[:_SECTION_CHARS].rstrip() + f" … (read it whole with page='{section.link}')")
+        parts.append(f"### {section.title}\nCite: [{section.title}]({section.link})\n\n{text}")
+    parts.append("Answer from these in the guide's words: numbered steps for a how-to, each setting linked to its row "
+                 "as the guide or row_bot_status 'settings' gives it (e.g. [Dream Cycle](/settings/preferences#dream-cycle)), "
+                 "and the guide cited with its link.")
+    return "\n\n".join(parts)
 
-    elif setting == "context_size":
-        try:
-            size = int(value)
-        except ValueError:
-            return f"Invalid context size '{value}' — must be an integer (e.g. 65536)."
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change local context size",
-            "description": f"Set local model context window to {size:,} tokens",
-            "args": {"setting": "context_size", "value": value},
-        })
-        if not approval:
-            return "Context size change cancelled."
-        try:
-            from row_bot.models import set_context_size
-            set_context_size(size)
-            return f"Local context size set to {size:,} tokens."
-        except Exception as exc:
-            return f"Failed to change context size: {exc}"
 
-    elif setting == "cloud_context_size":
-        try:
-            size = int(value)
-        except ValueError:
-            return f"Invalid context size '{value}' — must be an integer (e.g. 131072)."
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change provider context cap",
-            "description": f"Set provider context cap to {size:,} tokens",
-            "args": {"setting": "cloud_context_size", "value": value},
-        })
-        if not approval:
-            return "Provider context size change cancelled."
-        try:
-            from row_bot.models import set_cloud_context_size
-            set_cloud_context_size(size)
-            return f"Provider context cap set to {size:,} tokens."
-        except Exception as exc:
-            return f"Failed to change cloud context size: {exc}"
+class _FixInput(BaseModel):
+    problem: str = Field(description="A problem's id from row_bot_status 'health', or 'all' to check everything again.")
 
-    elif setting == "dream_cycle":
-        enabled = value.strip().lower() in ("on", "true", "yes", "enable", "enabled", "1")
-        disabled = value.strip().lower() in ("off", "false", "no", "disable", "disabled", "0")
-        if not enabled and not disabled:
-            return f"Invalid value '{value}'. Use 'on' or 'off'."
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": f"{'Enable' if enabled else 'Disable'} dream cycle",
-            "description": f"Set dream cycle to {'enabled' if enabled else 'disabled'}",
-            "args": {"setting": "dream_cycle", "value": value},
-        })
-        if not approval:
-            return "Dream cycle change cancelled."
-        try:
-            from row_bot.dream_cycle import set_enabled as dc_set_enabled
-            dc_set_enabled(enabled)
-            return f"Dream cycle {'enabled' if enabled else 'disabled'}."
-        except Exception as exc:
-            return f"Failed to change dream cycle: {exc}"
 
-    elif setting == "dream_window":
-        try:
-            parts = value.replace(" ", "").split("-")
-            start, end = int(parts[0]), int(parts[1])
-            assert 0 <= start <= 23 and 0 <= end <= 23
-        except Exception:
-            return f"Invalid dream window '{value}'. Use 'START-END' (e.g. '1-5', hours 0–23)."
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change dream cycle window",
-            "description": f"Set dream cycle window to {start}:00–{end}:00",
-            "args": {"setting": "dream_window", "value": value},
-        })
-        if not approval:
-            return "Dream window change cancelled."
-        try:
-            from row_bot.dream_cycle import set_window
-            set_window(start, end)
-            return f"Dream cycle window set to {start}:00–{end}:00."
-        except Exception as exc:
-            return f"Failed to change dream window: {exc}"
+def _row_bot_fix(problem: str) -> str:
+    from row_bot.self_health import fix
 
-    elif setting == "skill_toggle":
-        try:
-            name_part, toggle = value.rsplit(":", 1)
-            name_part = name_part.strip()
-            on = toggle.strip().lower() in ("on", "true", "yes", "enable", "enabled", "1")
-            off = toggle.strip().lower() in ("off", "false", "no", "disable", "disabled", "0")
-            if not on and not off:
-                raise ValueError
-        except Exception:
-            return f"Invalid value '{value}'. Use 'skill_name:on' or 'skill_name:off'."
-        try:
-            resolved_name, resolved_label, suggestions = _resolve_manual_skill_name(name_part)
-        except Exception as exc:
-            return f"Failed to inspect Skill Library: {exc}"
-        if not resolved_name:
-            suggestion_text = f" Try one of: {', '.join(suggestions)}." if suggestions else ""
-            return f"Unknown Skill Library item '{name_part}'.{suggestion_text}"
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": f"Turn {'on' if on else 'off'} skill '{resolved_label}'",
-            "description": f"Set Skill Library item '{resolved_label}' to {'Available' if on else 'Off'}",
-            "args": {"setting": "skill_toggle", "value": f"{resolved_name}:{'on' if on else 'off'}"},
-        })
-        if not approval:
-            return "Skill toggle cancelled."
-        try:
-            from row_bot.skills import is_pinned as skill_is_pinned
-            from row_bot.skills import set_enabled as skill_set_enabled
-            was_pinned = skill_is_pinned(resolved_name)
-            skill_set_enabled(resolved_name, on)
-            if not on and was_pinned:
-                return f"Skill '{resolved_label}' is now Off and no longer pinned."
-            return f"Skill '{resolved_label}' is now {'Available' if on else 'Off'}."
-        except Exception as exc:
-            return f"Failed to toggle skill: {exc}"
-
-    elif setting == "skill_pin":
-        try:
-            name_part, toggle = value.rsplit(":", 1)
-            name_part = name_part.strip()
-            on = toggle.strip().lower() in ("on", "true", "yes", "enable", "enabled", "1")
-            off = toggle.strip().lower() in ("off", "false", "no", "disable", "disabled", "0")
-            if not on and not off:
-                raise ValueError
-        except Exception:
-            return f"Invalid value '{value}'. Use 'skill_name:on' or 'skill_name:off'."
-        try:
-            resolved_name, resolved_label, suggestions = _resolve_manual_skill_name(name_part)
-        except Exception as exc:
-            return f"Failed to inspect Skill Library: {exc}"
-        if not resolved_name:
-            suggestion_text = f" Try one of: {', '.join(suggestions)}." if suggestions else ""
-            return f"Unknown Skill Library item '{name_part}'.{suggestion_text}"
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": f"{'Pin' if on else 'Unpin'} skill '{resolved_label}'",
-            "description": (
-                f"{'Pin' if on else 'Unpin'} Skill Library item '{resolved_label}' "
-                f"for new chats, tasks, designer threads, and developer threads"
-            ),
-            "args": {"setting": "skill_pin", "value": f"{resolved_name}:{'on' if on else 'off'}"},
-        })
-        if not approval:
-            return "Skill pin change cancelled."
-        try:
-            from row_bot.skills import is_enabled as skill_is_enabled
-            from row_bot.skills import set_pinned as skill_set_pinned
-            skill_set_pinned(resolved_name, on)
-            if on:
-                return (
-                    f"Skill '{resolved_label}' is now pinned and Available. "
-                    "It will start active in new chats, tasks, designer threads, and developer threads."
-                )
-            if skill_is_enabled(resolved_name):
-                return (
-                    f"Skill '{resolved_label}' is no longer pinned. "
-                    "It remains Available unless you turn it off separately."
-                )
-            return (
-                f"Skill '{resolved_label}' is no longer pinned. "
-                "It is Off and will stay Off unless you make it Available."
-            )
-        except Exception as exc:
-            return f"Failed to change skill pin: {exc}"
-
-    elif setting == "tool_toggle":
-        try:
-            name_part, toggle = value.rsplit(":", 1)
-            name_part = name_part.strip()
-            on = toggle.strip().lower() in ("on", "true", "yes", "enable", "enabled", "1")
-            off = toggle.strip().lower() in ("off", "false", "no", "disable", "disabled", "0")
-            if not on and not off:
-                raise ValueError
-        except Exception:
-            return f"Invalid value '{value}'. Use 'tool_name:on' or 'tool_name:off'."
-        from row_bot.tools import registry as tool_registry
-        resolved_name, resolved_label, suggestions = _resolve_tool_name(name_part)
-        if not resolved_name:
-            suggestion_text = f" Try one of: {', '.join(suggestions)}." if suggestions else ""
-            return f"Unknown tool '{name_part}'.{suggestion_text}"
-        if resolved_name == "mcp":
-            try:
-                from row_bot.mcp_client import config as mcp_config
-                current_state = mcp_config.is_globally_enabled()
-            except Exception:
-                current_state = tool_registry.is_enabled(resolved_name)
-        else:
-            current_state = tool_registry.is_enabled(resolved_name)
-        if current_state == on:
-            return f"Tool '{resolved_label}' is already {'enabled' if on else 'disabled'}."
-        canonical_value = f"{resolved_name}:{'on' if on else 'off'}"
-        request = {
-            "tool": "row_bot_update_setting",
-            "label": f"{'Enable' if on else 'Disable'} tool '{resolved_label}'",
-            "description": f"Set tool '{resolved_label}' to {'enabled' if on else 'disabled'}",
-            "args": {"setting": "tool_toggle", "value": canonical_value},
-        }
-        if on:
-            # Shown as a "Turn on …" card in the conversation (decision 12). Pictures and
-            # videos are switched on and off beside their models (F5).
-            page = "Models" if resolved_name in {"image_gen", "video_gen"} else "Tools"
-            request.update({
-                "label": f"Turn on {resolved_label}",
-                "description": (
-                    f"Row-Bot needs {resolved_label} for this. You can turn it off again in "
-                    f"Settings › {page}."
-                ),
-                "setup": {"kind": "tool", "label": resolved_label},
-            })
-        approval = interrupt(request)
-        if not approval:
-            if on:
-                from row_bot.tools.conversation_setup_tool import declined
-                return declined(resolved_label) + " Answer without it."
-            return "Tool toggle cancelled."
-        try:
-            if resolved_name == "mcp":
-                from row_bot.mcp_client import config as mcp_config
-                mcp_config.set_global_enabled(on)
-                actual_state = mcp_config.is_globally_enabled() and tool_registry.is_enabled(resolved_name)
-            else:
-                tool_registry.set_enabled(resolved_name, on)
-                actual_state = tool_registry.is_enabled(resolved_name)
-            if actual_state != on:
-                return (
-                    f"Failed to {'enable' if on else 'disable'} tool '{resolved_label}'. "
-                    f"The setting did not take effect."
-                )
-            if on:
-                # This turn's tools were fixed when it began: the next turn has it, and starts by itself.
-                from row_bot.application.conversation_followups import after_tool_turned_on
-                from row_bot.tool_outputs import current_thread_id
-                after_tool_turned_on(current_thread_id(), resolved_label)
-                return (f"{resolved_label} is on. It's ready in your next turn, which Row-Bot starts by "
-                        "itself: end this turn now with one short line saying you'll do it, without asking "
-                        "the person to send anything.")
-            if resolved_name == "mcp":
-                return f"MCP client and tool '{resolved_label}' disabled."
-            return f"Tool '{resolved_label}' disabled."
-        except Exception as exc:
-            return f"Failed to toggle tool: {exc}"
-
-    elif setting == "image_gen_model":
-        model_value = _normalize_provider_model_value(setting, value)
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change image generation model",
-            "description": f"Set image gen model to: {model_value}",
-            "args": {"setting": "image_gen_model", "value": model_value},
-        })
-        if not approval:
-            return "Image gen model change cancelled."
-        try:
-            from row_bot.tools import registry as tool_registry
-            tool_registry.set_tool_config("image_gen", "model", model_value)
-            return f"Image generation model set to: {model_value}"
-        except Exception as exc:
-            return f"Failed to change image gen model: {exc}"
-
-    elif setting == "video_gen_model":
-        model_value = _normalize_provider_model_value(setting, value)
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Change video generation model",
-            "description": f"Set video gen model to: {model_value}",
-            "args": {"setting": "video_gen_model", "value": model_value},
-        })
-        if not approval:
-            return "Video gen model change cancelled."
-        try:
-            from row_bot.tools import registry as tool_registry
-            tool_registry.set_tool_config("video_gen", "model", model_value)
-            return f"Video generation model set to: {model_value}"
-        except Exception as exc:
-            return f"Failed to change video gen model: {exc}"
-
-    elif setting == "run_dream_cycle":
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": "Run dream cycle now",
-            "description": "Manually trigger the dream cycle immediately (bypasses time window check)",
-            "args": {"setting": "run_dream_cycle", "value": "now"},
-        })
-        if not approval:
-            return "Dream cycle run cancelled."
-        try:
-            import threading
-            from row_bot.dream_cycle import run_dream_cycle
-            def _run():
-                try:
-                    run_dream_cycle()
-                except Exception as exc:
-                    logger.error("Manual dream cycle failed: %s", exc, exc_info=True)
-            threading.Thread(target=_run, name="manual-dream-cycle", daemon=True).start()
-            return "Dream cycle started in background. It may take a few minutes to complete."
-        except Exception as exc:
-            return f"Failed to start dream cycle: {exc}"
-
-    elif setting == "self_improvement":
-        enabled = value.strip().lower() in ("on", "true", "yes", "enable", "enabled", "1")
-        disabled = value.strip().lower() in ("off", "false", "no", "disable", "disabled", "0")
-        if not enabled and not disabled:
-            return f"Invalid value '{value}'. Use 'on' or 'off'."
-        approval = interrupt({
-            "tool": "row_bot_update_setting",
-            "label": f"{'Enable' if enabled else 'Disable'} self-improvement",
-            "description": f"Set self-improvement to {'enabled' if enabled else 'disabled'}",
-            "args": {"setting": "self_improvement", "value": value},
-        })
-        if not approval:
-            return "Self-improvement change cancelled."
-        try:
-            from row_bot.identity import set_self_improvement_enabled
-            from row_bot.agent import clear_agent_cache
-            set_self_improvement_enabled(enabled)
-            clear_agent_cache()
-            return f"Self-improvement {'enabled' if enabled else 'disabled'}."
-        except Exception as exc:
-            return f"Failed to change self-improvement: {exc}"
-
-    else:
-        return (
-            f"Unknown setting '{setting}'. Supported: {_model_setting_supported_message()}."
-        )
+    return fix(problem)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -2473,9 +1820,8 @@ class RowBotStatusTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Query or change Row-Bot's own configuration: current model and pinned model choices, "
-            "active channels, memory stats, skills, tools, API keys, "
-            "identity settings, and scheduled tasks."
+            "Row-Bot's own state, guides, settings and health: what it is running now, how to do things in "
+            "Row-Bot, changing its settings with approval, and what needs attention."
         )
 
     @property
@@ -2494,32 +1840,53 @@ class RowBotStatusTool(BaseTool):
             StructuredTool.from_function(
                 func=_row_bot_status,
                 name="row_bot_status",
-                description="Query Row-Bot's own status and configuration, one category at a time.",
+                description=(
+                    "Row-Bot's live state, one area at a time: version, model and readiness, providers and "
+                    "sign-ins, tools, skills, the settings Row-Bot can change ('settings'), what needs "
+                    "attention ('health'), and more."
+                ),
                 args_schema=_StatusQueryInput,
+            ),
+            StructuredTool.from_function(
+                func=_row_bot_docs,
+                name="row_bot_docs",
+                description=(
+                    "Search Row-Bot's own guides for this version, offline: how to do something in Row-Bot, "
+                    "what a feature or setting does, or where it is. Cite the guide and link each setting."
+                ),
+                args_schema=_DocsInput,
             ),
             StructuredTool.from_function(
                 func=_update_setting,
                 name="row_bot_update_setting",
-                description="Change a Row-Bot setting; the person approves the change first.",
+                description=(
+                    "Change one of the settings row_bot_status 'settings' lists. It is checked first; the "
+                    "chat's approval level decides who approves, and the person can undo it."
+                ),
                 args_schema=_SettingUpdateInput,
+            ),
+            StructuredTool.from_function(
+                func=_row_bot_fix,
+                name="row_bot_fix",
+                description=(
+                    "Check again for what needs attention (row_bot_status 'health'), or get one problem's fix: "
+                    "Row-Bot checks again itself and gives the person the link for fixes only they can do."
+                ),
+                args_schema=_FixInput,
             ),
         ]
 
-        # Self-improvement tools: only available when enabled
-        try:
-            from row_bot.identity import is_self_improvement_enabled
-            self_improve = is_self_improvement_enabled()
-        except Exception:
-            self_improve = True  # safe fallback
+        # Self-improvement tools: only while "Learn new skills" is on.
+        from row_bot.identity import is_self_improvement_enabled
 
-        if self_improve:
+        if is_self_improvement_enabled():
             tools.append(StructuredTool.from_function(
                 func=_create_skill,
                 name="row_bot_create_skill",
                 description=(
                     "Create a proposal for a new user skill (reusable instruction pack). "
-                    "Requires user confirmation. Additive only — cannot "
-                    "apply the proposal separately after preview and approval."
+                    "Additive only: it never overwrites a skill. Apply the proposal separately, "
+                    "after the person has previewed and approved it."
                 ),
                 args_schema=_CreateSkillInput,
             ))
