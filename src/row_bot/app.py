@@ -730,6 +730,14 @@ async def _run_startup_sequence():
     except Exception:
         logger.warning("Could not fold the model lists into stars; the old files are kept", exc_info=True)
 
+    # Once (5.3.4): new installs start with Buddy Tile; a profile set up before keeps its Glyph.
+    try:
+        from row_bot.buddy.config import keep_earlier_default_pack
+        with _startup_phase("buddy_default_pack"):
+            await asyncio.to_thread(keep_earlier_default_pack)
+    except Exception:
+        logger.warning("Could not keep this profile's Buddy", exc_info=True)
+
     # Once: Claude now runs the person's own Claude Code; the old Claude sign-in's stored tokens go (N1).
     try:
         from row_bot.providers.claude_subscription import retire_old_claude_sign_in

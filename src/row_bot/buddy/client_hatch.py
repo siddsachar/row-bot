@@ -131,7 +131,7 @@ def retire_pack(pack_id: str, *, command_id: str, expected_pack_revision: str,
             if revision != expected_config_revision:
                 raise ValueError("buddy_revision_conflict")
             if saved.get("pack_id") == pack_id:
-                client_service.update_buddy({"pack_id": "glyph"}, expected_revision=revision,
+                client_service.update_buddy({"pack_id": config.DEFAULT_PACK_ID}, expected_revision=revision,
                     command_id=command_id, validate=validate, checkpoint=checkpoint_config)
                 config_changed = True
             descriptor, _, _ = client_service._pack(pack_id)

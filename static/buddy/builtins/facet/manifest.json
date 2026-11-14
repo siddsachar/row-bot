@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "facet",
+  "name": "Buddy Facet",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact low-poly desktop companion: a faceted geometric fox-like character in teal and coral with crisp flat-shaded triangles, simple bright eyes, a clean modern low-poly 3D style, playful and graphic.",
+  "patches": "patches.png"
+}

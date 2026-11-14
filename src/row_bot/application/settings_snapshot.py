@@ -376,7 +376,9 @@ def _buddy(root: Path) -> dict[str, Any]:
     bubbles = _text(config.get("bubble_verbosity") or "normal", 32)
     if bubbles not in _BUDDY_BUBBLE_OPTIONS:
         bubbles = "normal"
-    pack_id = _text(config.get("pack_id") or "glyph", 128)
+    from row_bot.buddy.config import DEFAULT_PACK_ID
+
+    pack_id = _text(config.get("pack_id") or DEFAULT_PACK_ID, 128)
     packs = _buddy_pack_rows(root, pack_id)
     if packs and not any(item["selected"] for item in packs):
         pack_id = packs[0]["pack_id"]

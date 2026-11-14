@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "hover",
+  "name": "Buddy Hover",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact drone desktop companion: a rounded white and orange quadcopter body with four small propellers as wings, a dark glass camera face with two bright eyes, tiny landing skids, polished 3D product render, alert and helpful.",
+  "patches": "patches.png"
+}

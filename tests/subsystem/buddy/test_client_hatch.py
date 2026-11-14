@@ -390,9 +390,9 @@ def test_retirement_rechecks_revocation_after_checkpoint_preserving_pack(hatch_o
 
 def test_selected_pack_retirement_switches_to_valid_default_with_config_proof(hatch_owner):
     r = hatch_owner
-    default = r.assets._BUILTIN_PACKS_DIR / "glyph"
+    default = r.assets._BUILTIN_PACKS_DIR / "tile"
     default.mkdir(parents=True)
-    (default / "manifest.json").write_text(json.dumps({"id": "glyph", "name": "Default", "runtime": "generated_still", "preview": "preview.png"}))
+    (default / "manifest.json").write_text(json.dumps({"id": "tile", "name": "Default", "runtime": "generated_still", "preview": "preview.png"}))
     (default / "preview.png").write_bytes(r.png)
     result = r.start()
     proofs = []
@@ -400,7 +400,7 @@ def test_selected_pack_retirement_switches_to_valid_default_with_config_proof(ha
         expected_pack_revision=r.client.client_service._pack(result.pack_id)[0].revision,
         expected_config_revision=r.config.read_buddy_config_revision()[1], validate=lambda: None,
         checkpoint=r.progress.append, checkpoint_config=proofs.append, checkpoint_retirement=lambda proof: None)
-    assert r.config.get_buddy_config()["pack_id"] == "glyph"
+    assert r.config.get_buddy_config()["pack_id"] == "tile"
     assert r.config.read_buddy_config_recovery(proofs[0]) == "applied"
 
 

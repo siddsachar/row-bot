@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "tide",
+  "name": "Buddy Tide",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact deep-sea lantern desktop companion: translucent aqua jellyfish-bell hood with a soft bioluminescent rim, pearl-white body, tiny coral-pink frills, bright friendly eyes, gentle floating posture, calm ocean accents.",
+  "patches": "patches.png"
+}

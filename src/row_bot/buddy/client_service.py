@@ -96,7 +96,7 @@ def _preferences(saved: dict) -> BuddyPreferences:
         return value if value in choices else choices[0]
     name = saved.get("display_name", "Buddy")
     description = saved.get("personality_description", "")
-    pack = saved.get("pack_id", "glyph")
+    pack = saved.get("pack_id", config.DEFAULT_PACK_ID)
     if (not isinstance(name, str) or len(name) > 128
             or not isinstance(description, str) or len(description) > 200
             or not isinstance(pack, str) or len(pack) > 128):
