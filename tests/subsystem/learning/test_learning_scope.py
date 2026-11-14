@@ -45,6 +45,8 @@ def _decide(facts: SourceFacts, **settings) -> scope.ScopeDecision:
         (SourceFacts("channel", "x_1", channel=None, shared=False, with_owner=True), False, scope.UNKNOWN_SOURCE),
         (SourceFacts("unknown", "who-knows"), False, scope.UNKNOWN_SOURCE),
         (SourceFacts("email", "x"), False, scope.UNKNOWN_SOURCE),  # type: ignore[arg-type]
+        # Row-Bot's own background work, with no person in the turn.
+        (SourceFacts("background", "prep-1"), False, scope.BACKGROUND_WORK),
     ],
 )
 def test_the_decision_for_each_kind_of_source(facts, allowed, reason):
@@ -106,6 +108,7 @@ OWNERS = {"telegram": "4242", "sms": "+44 7700-900001", "whatsapp": "44770090000
     [
         (ThreadInfo(exists=True), None, "app", None),
         (ThreadInfo(exists=True, is_workflow=True), None, "workflow", None),
+        (ThreadInfo(exists=True, thread_type="proactive"), None, "background", None),
         # A private Telegram chat's id is the person's id.
         (_channel("telegram", "4242"), None, "channel", True),
         (_channel("telegram", "5555"), None, "channel", False),
@@ -144,9 +147,14 @@ def test_a_delegated_agents_thread_answers_for_the_conversation_that_started_it(
             "orphan": ThreadInfo(exists=True, thread_type="agent_child"),
             "app-child": ThreadInfo(exists=True, thread_type="agent_child", parent_thread_id="chat-1"),
             "chat-1": ThreadInfo(exists=True),
+            "prep-child": ThreadInfo(exists=True, thread_type="agent_child", parent_thread_id="prep-1"),
+            "prep-1": ThreadInfo(exists=True, thread_type="proactive"),
         },
         OWNERS,
     )
+    background = scope.describe_thread("prep-child", lookup=lookup)
+    assert (background.conversation, background.root_thread_id) == ("background", "prep-1")
+    assert scope.decide(background, ON).reason == scope.BACKGROUND_WORK
     shared = scope.describe_thread("child-2", lookup=lookup)
     assert (shared.conversation, shared.root_thread_id, shared.shared) == ("channel", "slack_C1", True)
     assert scope.decide(shared, ON).reason == scope.SHARED_CONVERSATION
@@ -189,6 +197,8 @@ def test_check_reads_real_conversations_and_channel_refs(learning_on):
     owner_dm = threads.create_thread("Owner DM", thread_id=f"tg_4242_{suffix}", seed_default_skills=False)
     group = threads.create_thread("Group", thread_id=f"tg_-100_{suffix}", seed_default_skills=False)
     stranger = threads.create_thread("Stranger", thread_id=f"sms_447700900009_{suffix}", seed_default_skills=False)
+    prepared = threads.create_thread("Brief", thread_id=f"prep-{suffix}", thread_type="proactive",
+                                     seed_default_skills=False)
     tasks.record_thread_channel_ref(owner_dm, channel="telegram", target=4242, shared=False)
     tasks.record_thread_channel_ref(group, channel="telegram", target=-100, shared=True)
     tasks.record_thread_channel_ref(stranger, channel="sms", target="+447700900009", shared=False)
@@ -198,6 +208,7 @@ def test_check_reads_real_conversations_and_channel_refs(learning_on):
     assert scope.check(owner_dm, lookup=lookup) == scope.ScopeDecision(True, scope.OWNER_CHANNEL_CHAT)
     assert scope.check(group, lookup=lookup) == scope.ScopeDecision(False, scope.SHARED_CONVERSATION)
     assert scope.check(stranger, lookup=lookup) == scope.ScopeDecision(False, scope.NOT_OWNER)
+    assert scope.check(prepared, lookup=lookup) == scope.ScopeDecision(False, scope.BACKGROUND_WORK)
     assert scope.check(f"never-created-{suffix}", lookup=lookup).reason == scope.UNKNOWN_SOURCE
 
     save_learning_settings(learning_on, sources={"my_chats": False})

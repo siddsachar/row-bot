@@ -175,6 +175,19 @@ def test_hands_off_saves_without_asking_and_records_it(profile, level, person):
     assert json.loads((profile / "user_config.json").read_text(encoding="utf-8"))["file_log_level"] == "WARNING"
 
 
+def test_row_bot_turns_notification_details_off_on_the_persons_ok_and_undoes_it(profile, level, person):
+    from row_bot.access.push import PushStore
+
+    answer = self_settings.change("notification_details", "off")
+
+    [card] = person["cards"]
+    assert card["change"]["where"] == "Settings › Devices & remote access › Show details in notifications"
+    assert answer.startswith("Phone notifications now say only")
+    assert PushStore(profile).show_details() is False
+    undo = json.loads(answer.split(self_settings.UNDO_PREFIX, 1)[1].splitlines()[0])
+    assert (undo["setting"], undo["value"]) == ("notification_details", "on")
+
+
 def test_block_refuses_on_both_turn_on_paths(profile, level, person, monkeypatch):
     """G22: the setup tool's "Turn on" used to ask the person under Block while the setting tool refused."""
     from row_bot.tools import registry

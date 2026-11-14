@@ -66,7 +66,7 @@ def test_a_phone_on_plain_http_is_told_notifications_need_https(tmp_path, monkey
     client, _device_id = _phone(tmp_path, monkeypatch, origin)
 
     status = client.get("/api/access/devices/push").json()
-    assert status == {"ok": True, "available": False, "reason": "needs_https"}
+    assert status == {"ok": True, "available": False, "reason": "needs_https", "show_details": True}
     assert _subscribe(client, origin).status_code == 409
     assert not (tmp_path / "data" / push.VAPID_KEY_FILENAME).exists()
 
@@ -80,3 +80,21 @@ def test_only_a_browser_push_service_and_the_same_origin_are_accepted(tmp_path, 
     assert refused.json()["error"] == "invalid_push_subscription"
     assert _subscribe(client, "https://elsewhere.example").status_code == 403
     assert push.PushStore(tmp_path / "data").subscriptions() == []
+
+
+def test_notices_show_details_until_the_person_turns_them_off(tmp_path, monkeypatch) -> None:
+    origin = "https://row-bot.example"
+    client, _device_id = _phone(tmp_path, monkeypatch, origin)
+
+    assert client.get("/api/access/devices/push").json()["show_details"] is True
+
+    off = client.post("/api/access/devices/push/details", json={"show_details": False}, headers={"origin": origin})
+    assert off.json() == {"ok": True, "show_details": False}
+    assert client.get("/api/access/devices/push").json()["show_details"] is False
+    assert push.PushStore(tmp_path / "data").show_details() is False
+
+    assert client.post("/api/access/devices/push/details", json={"show_details": "no"},
+                       headers={"origin": origin}).status_code == 400
+    assert client.post("/api/access/devices/push/details", json={"show_details": True},
+                       headers={"origin": "https://elsewhere.example"}).status_code == 403
+    assert push.PushStore(tmp_path / "data").show_details() is False

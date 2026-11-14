@@ -4437,6 +4437,7 @@ def create_approval_request(
     conn.close()
     from row_bot.questions import stored_question
 
+    question = stored_question(payload_text)
     _emit_buddy_approval_event(
         "needed",
         run_id=run_id,
@@ -4444,14 +4445,26 @@ def create_approval_request(
         step_id=step_id,
         approval_id=req_id,
         resume_token=resume_token,
-        label="Row-Bot has a question" if stored_question(payload_text) is not None else "Approval pending",
+        label="Row-Bot has a question" if question is not None else "Approval pending",
         message=message,
-        question=stored_question(payload_text) is not None,
+        question=question is not None,
     )
-    # A device that turned notifications on gets an empty wake-up (D8).
-    from row_bot.access.push import wake_soon
+    # A device that turned notifications on is told what waits (D8): the question, or the
+    # approval's first line. Tapping it opens the chat it waits in; a workflow's opens Home.
+    from row_bot.access.push import notify_soon
 
-    wake_soon()
+    if resume_kind == "agent_run":
+        conversation_id = parent_thread_id or source_thread_id
+    elif resume_kind in {"conversation", "mcp_app", "parent_orchestration"}:
+        conversation_id = source_thread_id or parent_thread_id
+    else:
+        conversation_id = ""
+    if question is not None:
+        notify_soon("Row-Bot asked you a question", question["questions"][0]["question"],
+                    conversation_id=conversation_id)
+    else:
+        first_line = next((line for line in str(message or "").splitlines() if line.strip()), "")
+        notify_soon("Approval needed", first_line, conversation_id=conversation_id)
     return resume_token, req_id
 
 

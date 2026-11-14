@@ -120,6 +120,7 @@ _NOT_USED = {
     "my_chats_off": "Learning from your chats is off in Settings › Learning.",
     "workflows_and_goals_off": "Learning from workflows and goals is off in Settings › Learning.",
     "incognito_chat": "Learning doesn’t use chats that are or were incognito.",
+    "background_work": "Learning doesn’t use what Row-Bot prepares on its own, such as briefs and drafts.",
 }
 _LESSON_LIMIT = 200
 

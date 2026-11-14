@@ -1325,8 +1325,8 @@ def build_access_router(
             cookies.clear(response)
         return response
 
-    # Notifications on this device (D8): an empty wake-up when Row-Bot waits
-    # on the person, only for a device signed in over HTTPS.
+    # Notifications on this device (D8): an encrypted notice when Row-Bot
+    # waits on the person, only for a device signed in over HTTPS.
     push_store = push_notifications.PushStore()
 
     def _push_unavailable(context: AccessContext) -> str:
@@ -1341,16 +1341,37 @@ def build_access_router(
         if context is None:
             return _error(403, "forbidden", "Owner access is required.")
         reason = _push_unavailable(context)
+        # Whether notices show details is one setting for every device, so
+        # it can be changed from any of them, this computer too.
+        show_details = push_store.show_details()
         if reason:
-            return _json({"ok": True, "available": False, "reason": reason})
+            return _json(
+                {"ok": True, "available": False, "reason": reason, "show_details": show_details}
+            )
         return _json(
             {
                 "ok": True,
                 "available": True,
                 "public_key": push_store.public_key(),
                 "subscribed": push_store.subscribed(context.device_id or ""),
+                "show_details": show_details,
             }
         )
+
+    async def push_details(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        if not isinstance(payload.get("show_details"), bool):
+            return _error(400, "invalid_push_setting", "Say whether notifications show details.")
+        push_store.set_show_details(payload["show_details"])
+        return _json({"ok": True, "show_details": push_store.show_details()})
 
     async def push_subscribe(request: Request) -> JSONResponse:
         context = _owner_context(request)
@@ -1464,6 +1485,9 @@ def build_access_router(
     )
     router.add_api_route(
         "/api/access/devices/push/unsubscribe", push_unsubscribe, methods=["POST"]
+    )
+    router.add_api_route(
+        "/api/access/devices/push/details", push_details, methods=["POST"]
     )
     router.add_api_route(
         "/api/access/devices/{device_id}/revoke",

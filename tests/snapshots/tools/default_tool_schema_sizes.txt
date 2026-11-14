@@ -78,7 +78,7 @@ row_bot_reject_proposal: 495
 row_bot_review_skill_library: 422
 row_bot_send_feedback: 776
 row_bot_status: 789
-row_bot_update_setting: 887
+row_bot_update_setting: 1042
 row_bot_verify_proposal: 459
 run_command: 902
 save_memory: 732
@@ -118,4 +118,4 @@ workspace_read_file: 867
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (120 tools): 89395
+TOTAL (120 tools): 89550
