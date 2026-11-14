@@ -124,6 +124,10 @@ def _validate_fields(fields: TaskEditableFields, *, schedule: bool = True) -> No
             3 if kind == "daily" else 4
         ):
             raise TaskControlError("invalid_task_schedule")
+        try:
+            tasks.check_schedule(fields.schedule)
+        except tasks.ScheduleTooOftenError as exc:
+            raise TaskControlError(exc.code) from exc
         if kind in {"interval", "interval_minutes"}:
             amount = parsed["hours" if kind == "interval" else "minutes"]
             if not math.isfinite(amount) or amount <= 0 or (

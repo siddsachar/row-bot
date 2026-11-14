@@ -33,7 +33,7 @@ _FULL_AUTONOMY_REFUSAL = (
 ApprovalModeChoice = Literal["block", "approve", "auto"]
 _SCHEDULE_FORMATS = (
     "'daily:HH:MM', 'weekly:DAY:HH:MM' (e.g. 'weekly:monday:09:00'), 'interval:H' (every H hours), "
-    "'interval_minutes:M' or 'cron:EXPR' (e.g. 'cron:0 9 * * mon-fri')"
+    "'interval_minutes:M' (every M minutes, 1 or more) or 'cron:EXPR' (e.g. 'cron:0 9 * * mon-fri')"
 )
 _TEMPLATE_VARIABLES = "{{date}}, {{day}}, {{time}}, {{month}}, {{year}} and {{task_id}} (this task's own id)"
 _TASK_LIST_CHARS = 30_000  # Beyond this the list is saved, and read on with read_tool_output.
