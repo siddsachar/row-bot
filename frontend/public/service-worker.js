@@ -69,23 +69,56 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Notifications on this device (D8): the wake-up carries no content, so the
-// words are Row-Bot's own and the same every time; opening it shows what
-// waits. One notice at a time: a newer one replaces it.
+// Notifications on this device (D8): each push was encrypted for this browser,
+// which decrypts it before this runs. It carries a short title, one line and
+// the place in Row-Bot it is about; a push without them shows Row-Bot's own
+// generic words. One notice per place: a newer one replaces it.
+const HOME = '/app-v2/';
+const PLACE = /^\/app-v2\/(?:conversations\/[A-Za-z0-9%._~-]{1,256})?$/;
+
+const noticeOf = (data) => {
+  let value = null;
+  try {
+    value = data ? data.json() : null;
+  } catch {
+    value = null;
+  }
+  const text = (field, limit) =>
+    typeof value?.[field] === 'string'
+      ? value[field].trim().slice(0, limit)
+      : '';
+  const title = text('title', 60);
+  const path = text('path', 300);
+  return {
+    title: title || 'Row-Bot',
+    body: title ? text('body', 120) : 'Row-Bot is waiting for you.',
+    path: PLACE.test(path) ? path : HOME,
+  };
+};
+
 self.addEventListener('push', (event) => {
+  const notice = noticeOf(event.data);
   event.waitUntil(
-    self.registration.showNotification('Row-Bot', {
-      body: 'Row-Bot is waiting for you.',
+    self.registration.showNotification(notice.title, {
+      body: notice.body,
       icon: '/app-v2/icon-192.png',
       badge: '/app-v2/icon-192.png',
-      tag: 'row-bot-waiting',
+      tag: `row-bot:${notice.path}`,
       renotify: true,
+      data: { path: notice.path },
     }),
   );
 });
 
+// Tapping a notice opens the place it is about: in an open Row-Bot window
+// when there is one, otherwise in a new one.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const path = event.notification.data?.path;
+  const target = new URL(
+    PLACE.test(path ?? '') ? path : HOME,
+    self.location.origin,
+  ).href;
   event.waitUntil(
     self.clients
       .matchAll({ type: 'window', includeUncontrolled: true })
@@ -93,7 +126,14 @@ self.addEventListener('notificationclick', (event) => {
         const open = windows.find(
           (client) => new URL(client.url).origin === self.location.origin,
         );
-        return open ? open.focus() : self.clients.openWindow('/app-v2/');
+        if (!open) return self.clients.openWindow(target);
+        return open
+          .focus()
+          .then((client) =>
+            client.url === target || typeof client.navigate !== 'function'
+              ? client
+              : client.navigate(target).catch(() => client),
+          );
       }),
   );
 });

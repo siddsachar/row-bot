@@ -679,6 +679,12 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'access',
+    anchor: 'notification-details',
+    label: 'Show details in notifications',
+    keywords: 'phone push notifications lock screen preview privacy',
+  },
+  {
+    leaf: 'access',
     anchor: 'network',
     label: 'Network access',
     keywords: 'listen wifi lan allowed addresses origins',

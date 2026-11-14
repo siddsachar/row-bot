@@ -11,7 +11,8 @@ approval level decides who approves it (``tools.approval_gate``):
   person approves it, whatever the reviewer would say.
 - **repair** (running the Dream Cycle now): as a preference.
 
-Everything else (approval levels, keys and sign-ins, devices and remote access, install stats, Learning,
+Everything else (approval levels, keys and sign-ins, devices and remote access apart from whether phone
+notifications show details, install stats, Learning,
 data-folder access, updates, the workspace folder, appearance, downloads and installs, anything that
 deletes) is not here: Row-Bot shows the row instead.
 
@@ -501,6 +502,30 @@ def _prepare_log_detail(setting: Setting, value: str) -> Change:
     return _change(setting, _log_now(), Value(level.lower(), level.capitalize()), apply)
 
 
+# ── Phone notifications (saved by the push store, as Settings › Devices does) ──
+
+
+def _push_details_now() -> Value:
+    from row_bot.access.push import PushStore
+
+    return _switch(PushStore().show_details())
+
+
+def _prepare_push_details(setting: Setting, value: str) -> Change:
+    on = _on_off(value)
+
+    def apply() -> str:
+        from row_bot.access.push import PushStore
+
+        PushStore().set_show_details(on)
+        if on:
+            return "Phone notifications now show what they're about."
+        return "Phone notifications now say only \"Row-Bot is waiting for you\"."
+
+    return _change(setting, _push_details_now(), _switch(on), apply,
+                   title=f"Turn {'on' if on else 'off'} {setting.label}")
+
+
 # ── Skills and tools ──────────────────────────────────────────────────────────
 
 
@@ -848,6 +873,10 @@ SETTINGS: tuple[Setting, ...] = (
             _switch_now("voice", "runtime", "captions_enabled")),
     Setting("log_detail", "Log detail", "system", "System", "logging.level", "preference",
             "debug, info, warning or error", _prepare_log_detail, _log_now),
+    Setting("notification_details", "Show details in notifications", "access", "Devices & remote access",
+            "notification-details", "preference",
+            "'on' (a phone's notice says what it's about) or 'off' (only \"Row-Bot is waiting for you\")",
+            _prepare_push_details, _push_details_now),
     Setting("skill_toggle", "Skills", "skills", "Skills", "", "preference",
             "'skill_name:on' (Available) or 'skill_name:off'", _prepare_skill),
     Setting("skill_pin", "Skills", "skills", "Skills", "", "preference",
@@ -1014,7 +1043,7 @@ def describe() -> str:
         lines.append(f"- {setting.id}: {setting.label}{where}.{now} Takes {setting.takes}.")
     lines.append(
         "Row-Bot never changes these, only shows where they are: approval levels, keys and sign-ins, devices and "
-        "remote access, install stats, Learning, data-folder access, updates, the workspace folder, appearance, "
+        "remote access (apart from whether notifications show details), install stats, Learning, data-folder access, updates, the workspace folder, appearance, "
         "downloads and installs, and anything that deletes."
     )
     return "\n".join(lines)
