@@ -45,6 +45,17 @@ When progressive discovery is available, Row-Bot can search enabled skills and l
 
 Automatic selection changes instructions only. It cannot add a denied tool, alter credentials, bypass approvals, expand a workspace, or change an Agent Profile. Read [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills) for the complete tool and skill flow.
 
+## Check-ins
+
+**Check-ins** is a built-in skill for people who want Row-Bot to consult them along the way instead of handing back finished work. With it on, Row-Bot asks two or three scoping questions before open-ended work, checks in at milestones ("Here's what I found so far. Does this cover it?"), and confirms before anything high-stakes.
+
+- It used to be called **Proactive Agent** and was pinned in every new chat. It is no longer pinned anywhere: updating Row-Bot unpinned it once, everywhere. A chat where you turned it on yourself keeps it, and you can pin it again.
+- Its two most useful habits are now part of every chat: Row-Bot mentions a memory that bears on what you're doing, in one line, and offers at most one obvious next step.
+- To use it, type `/check-ins` in a chat, or pin it in **Settings › Skills** (**⋯ › Advanced settings**) to have it in every new chat.
+- Check-ins asks questions and pauses for your answers, so long work stops more often. Leave it off if you'd rather Row-Bot carry on until the work is done.
+
+Check-ins changes how Row-Bot behaves inside a chat. Row-Bot speaking first, outside a chat, is [Proactive Row-Bot](/docs/guides/proactive).
+
 ## Troubleshooting
 
 - If a skill is not used, make your prompt match its purpose, confirm it is in **Your skills**, or call it with its slash command. The command on its own turns the skill on for the chat; inside a longer message it focuses just that turn on the skill. See [Mention an app or a skill](/docs/chat/#mention-an-app-or-a-skill).

@@ -26,6 +26,8 @@ const sidebars: SidebarsConfig = {
       items: [
         'app-shell/navigation',
         'home/overview',
+        'guides/proactive',
+        'guides/morning-brief',
         'chat/index',
         'chat/model-picker',
         'chat/reasoning-controls',
