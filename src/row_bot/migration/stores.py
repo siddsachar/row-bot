@@ -121,7 +121,7 @@ def write_personality(root: Path, text: str) -> None:
     from row_bot.identity import sanitize_personality
     from row_bot.providers.config import provider_config_transaction, write_provider_metadata
 
-    path = Path(root) / "user_config.json"
+    path = Path(root).resolve() / "user_config.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     with provider_config_transaction(path):
         try:
@@ -244,7 +244,9 @@ def current_default_model(root: Path) -> str | None:
 def write_default_model(root: Path, reference: str) -> None:
     from row_bot.providers.saved_model_settings import update_saved_model_settings
 
-    update_saved_model_settings(lambda raw: {**raw, "model": reference}, path=Path(root) / "model_settings.json")
+    # The settings reader refuses a path through a link, and a data folder may be reached through one
+    # (macOS's /var is /private/var): write to the folder itself.
+    update_saved_model_settings(lambda raw: {**raw, "model": reference}, path=Path(root).resolve() / "model_settings.json")
     if is_live_data_dir(root):
         # A running chat runtime picks the new default up; a cold start reads the file.
         runtime = sys.modules.get("row_bot.models")
@@ -297,7 +299,7 @@ def add_custom_endpoint(root: Path, endpoint: dict[str, Any]) -> None:
     from row_bot.providers.config import load_provider_config, provider_config_transaction, save_provider_config
     from row_bot.providers.custom import normalize_custom_endpoint
 
-    path = Path(root) / "providers.json"
+    path = Path(root).resolve() / "providers.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     with provider_config_transaction(path):
         config = load_provider_config(path, strict=True)

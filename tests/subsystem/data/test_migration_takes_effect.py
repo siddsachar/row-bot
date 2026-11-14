@@ -7,6 +7,7 @@ Settings › Data migration (scan, review, apply), then asks Row-Bot's own reade
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -194,6 +195,38 @@ def test_a_model_on_a_provider_row_bot_lacks_is_not_brought_over(tmp_path, profi
     model = _item(preview, "model:default")
     assert model["action"] == "manual_review" and not model["selected"]
     assert "Choose a model" in model["reason"]
+
+
+def _linked_folder(tmp_path: Path) -> Path:
+    """A folder reached through a link, as macOS's temporary folders are (/var is /private/var)."""
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        if os.name != "nt":
+            raise
+        import _winapi  # a junction needs no special rights on Windows
+
+        _winapi.CreateJunction(str(real), str(link))
+    return link
+
+
+def test_folders_reached_through_a_linked_parent_still_take_each_item(tmp_path):
+    from row_bot.migration import MigrationStatus, apply_migration_plan, build_hermes_plan
+
+    linked = _linked_folder(tmp_path)
+    source = create_realistic_hermes_home(linked / ".hermes")
+    target = linked / "profile"
+    result = apply_migration_plan(build_hermes_plan(source, target_root=target))
+
+    assert [(item.id, item.reason) for item in result.items if item.status == MigrationStatus.ERROR] == []
+    assert json.loads((target / "model_settings.json").read_text(encoding="utf-8"))["model"] == "model:openai:gpt-5.4"
+    config = json.loads((target / "user_config.json").read_text(encoding="utf-8"))
+    assert config["identity"]["personality"] == "Calm, direct, remembers commitments, prefers concise plans."
+    endpoints = json.loads((target / "providers.json").read_text(encoding="utf-8"))["custom_endpoints"]
+    assert [endpoint["id"] for endpoint in endpoints] == ["local-llm"]
 
 
 def test_hermes_in_its_windows_folder_is_found(tmp_path, monkeypatch):
