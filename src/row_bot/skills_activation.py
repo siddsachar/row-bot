@@ -902,6 +902,28 @@ def seed_thread_default_skills(
         return list(state["pinned"])
 
 
+def retire_default_seeded_skill(name: str) -> int:
+    """Drop a skill from every conversation that has it only because it was a default pin.
+
+    A conversation where the person turned the skill on themselves (it isn't in that
+    conversation's ``default_seeded`` snapshot) keeps it. Returns how many changed.
+    """
+    with _state_lock:
+        store = _load_store()
+        changed = 0
+        for state in store.get("threads", {}).values():
+            if not isinstance(state, dict):
+                continue
+            seeded = state.get("default_seeded") or []
+            if name in seeded and name in (state.get("pinned") or []):
+                state["pinned"] = [item for item in state["pinned"] if item != name]
+                state["default_seeded"] = [item for item in seeded if item != name]
+                changed += 1
+        if changed:
+            _save_store(store)
+        return changed
+
+
 def reset_thread(thread_id: str, *, surface: str = "chat") -> None:
     import row_bot.skills as skills
 

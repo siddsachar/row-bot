@@ -88,7 +88,7 @@ def test_channel_skills_text_fallback_lists_available_runtime_skills(tmp_path, r
     response = commands.dispatch("slack", "/skills", thread_id="slack_1")
     assert response
     assert "Available skills" in response
-    assert "Meeting Notes" in response
+    assert "Brain Dump" in response  # The first page lists ten; the query below finds the rest.
     assert "browser_guide" not in response
 
     response = commands.dispatch("slack", "/skills meeting", thread_id="slack_1")
