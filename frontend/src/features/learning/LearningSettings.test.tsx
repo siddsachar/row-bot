@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { SettingsSnapshot } from '../../api/types';
@@ -327,6 +328,44 @@ it('on: its settings, and turning Learning off asks with what stays', async () =
   fireEvent.click(within(confirm).getByRole('button', { name: 'Turn off' }));
   await act(async () => undefined);
   expect(io.run).toHaveBeenCalledWith('turn_off');
+});
+
+it('a Pause or Resume that takes a while says so, and is not sent twice', async () => {
+  const io = fakeIO(learningSnapshot({ state: 'on' }), {
+    after: (action) => ({ state: action === 'pause' ? 'paused' : 'on' }),
+  });
+  // Each command waits until the test lets it finish, as on a large profile.
+  const answer = io.run;
+  let finish = () => {};
+  io.run = vi.fn(
+    (...args: Parameters<LearningIO['run']>) =>
+      new Promise<Awaited<ReturnType<LearningIO['run']>>>((resolve) => {
+        finish = () => resolve(answer(...args));
+      }),
+  );
+  show(io);
+  const user = userEvent.setup();
+  const more = () => screen.getByRole('button', { name: 'More for Learning' });
+
+  await user.click(more());
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Pause Learning' }),
+  );
+  expect(screen.getByText('Pausing Learning…')).toBeVisible();
+  await user.click(more());
+  expect(
+    await screen.findByRole('menuitem', { name: 'Pause Learning' }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  await user.keyboard('{Escape}');
+  await act(async () => finish());
+  expect(screen.getByText('Learning paused')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Resume' }));
+  expect(screen.getByText('Resuming Learning…')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled();
+  await act(async () => finish());
+  expect(screen.getByText('Learning on')).toBeVisible();
+  expect(io.run).toHaveBeenCalledTimes(2);
 });
 
 it('an earlier Download answer reads as Ready to download, and a pairing-only channel is explained', () => {

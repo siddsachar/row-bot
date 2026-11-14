@@ -1178,6 +1178,14 @@ def _control_state(settings: learning.LearningSettings, opted_out: list[str]) ->
     }
 
 
+def _state(settings: learning.LearningSettings) -> str:
+    return "off" if not settings.enabled else "paused" if settings.paused else "on"
+
+
+def _revision(settings: learning.LearningSettings, opted_out: list[str]) -> str:
+    return sha256(json.dumps(_control_state(settings, opted_out), sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
     """Learning's state for Settings › Learning, the setup sheet and the Learning tab."""
 
@@ -1186,7 +1194,7 @@ def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
     root = _root()
     settings = learning.read_settings()
     opted_out = _store().opted_out_chats() if learning.store_exists() else []
-    state = "off" if not settings.enabled else "paused" if settings.paused else "on"
+    state = _state(settings)
     training = _training(settings)  # first: it loads the runner the engine's state comes from
     night = _night() if settings.enabled else None
     changes = _changes() if settings.enabled else []
@@ -1216,9 +1224,7 @@ def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
         "kinds_learning": _kinds_learning(changes) if settings.enabled else [],
         "method": _method() if settings.enabled else None,
     }
-    data["revision"] = sha256(
-        json.dumps(_control_state(settings, opted_out), sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    data["revision"] = _revision(settings, opted_out)
     validate()
     return data
 
@@ -2016,18 +2022,23 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
         if existing["target"] != target or existing["type"] != wire["type"]:
             raise ClientPlatformError("idempotency_mismatch")
         return admissions.claim_command(owner_id, command["command_id"], wire, target)
-    snapshot = read_learning(validate=validate)
-    if snapshot["revision"] != command["revision"]:
-        raise ClientPlatformError("learning_revision_conflict", snapshot["revision"])
-    state = snapshot["state"]
+    # The checks read only the saved choices, not the whole snapshot: on a large profile that read
+    # takes seconds, and the receipt already makes one.
+    validate()
+    settings = learning.read_settings()
+    exists = learning.store_exists()
+    revision = _revision(settings, _store().opted_out_chats() if exists else [])
+    if revision != command["revision"]:
+        raise ClientPlatformError("learning_revision_conflict", revision)
+    state = _state(settings)
     setup_values = _setup_values(command.get("setup")) if action == "turn_on" else {}
     if action in {"turn_off", "pause", "resume", "answer_download"} and state == "off":
         raise ClientPlatformError("learning_off")
     if action == "pause" and state == "paused" or action == "resume" and state != "paused":
-        raise ClientPlatformError("learning_revision_conflict", snapshot["revision"])
+        raise ClientPlatformError("learning_revision_conflict", revision)
     if action == "turn_on" and state != "off":
-        raise ClientPlatformError("learning_revision_conflict", snapshot["revision"])
-    if action == "delete_data" and not snapshot["data"]["exists"]:
+        raise ClientPlatformError("learning_revision_conflict", revision)
+    if action == "delete_data" and not exists:
         raise ClientPlatformError("learning_data_missing")
     if action == "teach":
         from row_bot.learning import teach

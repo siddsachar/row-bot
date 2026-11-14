@@ -116,6 +116,42 @@ it('Overview while reading past chats counts them with a real denominator', () =
   expect(bar).toHaveAttribute('value', '61');
 });
 
+it('a Pause or Resume that takes a while says so, and is not sent twice', async () => {
+  const io = fakeIO(on(), {
+    after: (action) => ({ state: action === 'pause' ? 'paused' : 'on' }),
+  });
+  // Each command waits until the test lets it finish, as on a large profile.
+  const answer = io.run;
+  let finish = () => {};
+  io.run = vi.fn(
+    (...args: Parameters<LearningIO['run']>) =>
+      new Promise<Awaited<ReturnType<LearningIO['run']>>>((resolve) => {
+        finish = () => resolve(answer(...args));
+      }),
+  );
+  show(io);
+  const user = userEvent.setup();
+  const more = () => screen.getByRole('button', { name: 'More for Learning' });
+
+  await user.click(more());
+  await user.click(await screen.findByRole('menuitem', { name: 'Pause' }));
+  expect(screen.getByText('Pausing…')).toBeVisible();
+  await user.click(more());
+  expect(
+    await screen.findByRole('menuitem', { name: 'Pause' }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  await user.keyboard('{Escape}');
+  await act(async () => finish());
+  expect(screen.getByText('Paused')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Resume' }));
+  expect(screen.getByText('Resuming…')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled();
+  await act(async () => finish());
+  expect(screen.getByText('On')).toBeVisible();
+  expect(io.run).toHaveBeenCalledTimes(2);
+});
+
 it('the … menu pauses, opens settings and deletes learning data after a confirm', async () => {
   const io = fakeIO(
     on({
