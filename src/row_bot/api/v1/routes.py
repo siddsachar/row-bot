@@ -3169,18 +3169,41 @@ def create_router(
         await readable_conversation(conversation_id)
         return await respond(request, dto.ConversationComposer, result)
 
+    @router.post("/conversations/{conversation_id}/setting-changes/undo")
+    async def undo_setting_change(conversation_id: str, request: Request) -> JSONResponse:
+        """The person's Undo on a setting Row-Bot changed: their own action, so nothing is asked."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SettingChangeUndoRequest, 1024)
+        await readable_conversation(conversation_id)
+        from row_bot.application.client_self import undo_setting_change as undo
+
+        result = await call(undo, conversation_id, body.message_id)
+        return await respond(request, dto.SettingChangeUndoResult, result)
+
+    @router.get("/guides/page")
+    async def guide_page(request: Request, route: str) -> JSONResponse:
+        """One of Row-Bot's guides, from the copy this install ships."""
+        await session(request)
+        if len(route) > 256:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_self import read_guide_page
+
+        return await respond(request, dto.GuidePageView, await call(read_guide_page, route))
+
     @router.post("/conversations/{conversation_id}/composer/command")
     async def composer_command(conversation_id: str, request: Request) -> JSONResponse:
         await session(request, lane="view")
         body = await _body(request, dto.SlashCommandRead, 1024)
         await readable_conversation(conversation_id)
-        if body.command_id in {"status", "tools"}:
+        if body.command_id == "status":
+            # For the person: never the model's overview, its ids or paths (G6).
+            from row_bot.application.client_self import person_status
+
+            title, text = "Status", await call(person_status, conversation_id)
+        elif body.command_id == "tools":
             from row_bot.tools.row_bot_status_tool import _row_bot_status
 
-            text = _row_bot_status(
-                "overview" if body.command_id == "status" else "tools"
-            )
-            title = "Status" if body.command_id == "status" else "Tools"
+            title, text = "Tools", _row_bot_status("tools")
         elif body.command_id == "profiles":
             from row_bot.agent_commands import format_agent_profiles
 
@@ -11256,6 +11279,7 @@ def create_router(
                 "memory_text",
                 "folder",
                 "x_post",
+                "setting_change",
                 "policy_revision",
             )
             if k in view

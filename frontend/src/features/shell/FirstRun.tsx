@@ -999,7 +999,7 @@ function HostedChoices({
           <li>
             <Link
               className="first-run-other-choice"
-              to="/settings/providers?add=custom-endpoint&type=ollama&from=setup"
+              to="/settings/models?add=custom-endpoint&type=ollama&from=setup"
             >
               <Server size={18} aria-hidden />
               <span>
@@ -1463,7 +1463,7 @@ export default function FirstRun({
       )}
       {endpointModels}
       <footer className="first-run-footer">
-        <Link to="/settings/providers?add=custom-endpoint">
+        <Link to="/settings/models?add=custom-endpoint">
           Other (custom endpoint)
         </Link>
         <span aria-hidden>·</span>

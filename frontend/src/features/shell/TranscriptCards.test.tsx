@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { EventRecord, ResourceView } from '../../api/types';
+import type { ContextType } from 'react';
+import { RuntimeContext } from '../../runtime';
 import {
   CardActionsContext,
   liveCards,
@@ -474,4 +476,137 @@ it('keeps earlier versions behind one quiet toggle', () => {
   fireEvent.click(toggle);
   expect(fold).toHaveAttribute('open');
   expect(within(fold).getAllByRole('button', { name: 'Open' })).toHaveLength(2);
+});
+
+const settingCard: TranscriptCard = {
+  kind: 'setting',
+  callId: 'call-a',
+  messageId: 'message-a',
+  change: {
+    label: 'Dream Cycle',
+    where: 'Settings › Preferences › Dream Cycle',
+    href: '/settings/preferences#dream-cycle',
+    before: '1:00–5:00',
+    after: '2:00–6:00',
+  },
+};
+
+function renderSettingCard(
+  undoSettingChange: ReturnType<typeof vi.fn>,
+  card: TranscriptCard = settingCard,
+) {
+  return render(
+    <RuntimeContext.Provider
+      value={
+        { controller: { undoSettingChange } } as unknown as NonNullable<
+          ContextType<typeof RuntimeContext>
+        >
+      }
+    >
+      <OverlayProvider>
+        <TranscriptCards cards={[card]} conversation="conversation-a" />
+      </OverlayProvider>
+    </RuntimeContext.Provider>,
+  );
+}
+
+it('shows a setting Row-Bot changed, its row, and undoes it with one click', async () => {
+  const undoSettingChange = vi.fn(async () => ({
+    status: 'undone',
+    message: 'Undone: Dream Cycle is back to 1:00–5:00.',
+  }));
+  renderSettingCard(undoSettingChange);
+
+  const card = screen.getByRole('group', { name: 'Changed Dream Cycle' });
+  expect(card).toHaveTextContent('Changed Dream Cycle to 2:00–6:00');
+  expect(
+    within(card).getByRole('link', { name: 'Show in Settings' }),
+  ).toHaveAttribute('href', '/app-v2/settings/preferences#dream-cycle');
+
+  await act(async () => {
+    fireEvent.click(
+      within(card).getByRole('button', { name: 'Undo: back to 1:00–5:00' }),
+    );
+  });
+
+  expect(undoSettingChange).toHaveBeenCalledWith('conversation-a', 'message-a');
+  const undone = screen.getByRole('group', { name: 'Undone: Dream Cycle' });
+  expect(undone).toHaveTextContent('Undone: Dream Cycle is back to 1:00–5:00');
+  expect(within(undone).queryByRole('button')).toBeNull();
+});
+
+it('says when a setting changed since and leaves it alone', async () => {
+  const undoSettingChange = vi.fn(async () => ({
+    status: 'changed_since',
+    message:
+      "Dream Cycle has changed since, so it wasn't undone. Change it in Settings.",
+  }));
+  renderSettingCard(undoSettingChange);
+
+  await act(async () => {
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Undo: back to 1:00–5:00' }),
+    );
+  });
+
+  expect(
+    screen.getByRole('button', {
+      name: 'Changed since: open Settings to change it',
+    }),
+  ).toBeDisabled();
+  expect(screen.getByRole('status')).toHaveTextContent('has changed since');
+});
+
+it('words a tool Row-Bot turned on, with Turn it off again', () => {
+  renderSettingCard(vi.fn(), {
+    ...settingCard,
+    change: {
+      label: 'Web Search',
+      where: 'Settings › Tools',
+      href: '/settings/tools#search-tools',
+      before: 'Off',
+      after: 'On',
+    },
+  } as TranscriptCard);
+
+  expect(screen.getByRole('group')).toHaveTextContent('Turned on Web Search');
+  expect(
+    screen.getByRole('button', { name: 'Turn it off again' }),
+  ).toBeEnabled();
+});
+
+it('reads the change and its result message from a settled setting step', () => {
+  const cards = tracedCards([
+    {
+      group_id: 'group-a',
+      name: 'Row-Bot Status',
+      kind: 'generic',
+      group_order: 0,
+      status: 'succeeded',
+      counts: {},
+      items: [
+        {
+          item_id: 'item-a',
+          group_id: 'group-a',
+          call_id: 'call-a',
+          result_message_id: 'message-a',
+          call_order: 0,
+          group_order: 0,
+          canonical_name: 'Update Setting',
+          status: 'succeeded',
+          safe_input: '',
+          safe_summary: '',
+          summary_truncated: false,
+          content_ref: '',
+          specialization: {
+            kind: 'setting_change',
+            display_name: 'Dream Cycle',
+            setting_change: (settingCard as { change: unknown }).change,
+          },
+        },
+      ],
+    },
+  ] as never);
+
+  expect(cards).toEqual([settingCard]);
 });

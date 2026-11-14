@@ -843,3 +843,82 @@ it('keeps the details read-only on a wide layout, where the card stays in view',
     screen.queryByRole('button', { name: 'More choices' }),
   ).not.toBeInTheDocument();
 });
+
+const change = {
+  label: 'Dream Cycle',
+  where: 'Settings › Preferences › Dream Cycle',
+  href: '/settings/preferences#dream-cycle',
+  before: '1:00–5:00',
+  after: '2:00–6:00',
+};
+
+it('asks about a setting change in words: what it is, what it becomes, and where it is', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'row_bot_update_setting',
+    reason: 'Dream Cycle: 1:00–5:00 → 2:00–6:00',
+    setting_change: change,
+  });
+  render(<ApprovalCard id="approval-a" />);
+
+  const card = await screen.findByRole('complementary', {
+    name: 'Change Dream Cycle',
+  });
+  expect(card).toHaveTextContent('Change Dream Cycle?');
+  expect(card).toHaveTextContent('1:00–5:00 → 2:00–6:00');
+  expect(
+    within(card).getByRole('link', { name: 'Show in Settings' }),
+  ).toHaveAttribute('href', '/app-v2/settings/preferences#dream-cycle');
+  await waitFor(() =>
+    expect(within(card).getByRole('button', { name: 'Change' })).toBeEnabled(),
+  );
+  await act(async () => {
+    fireEvent.click(within(card).getByRole('button', { name: 'Change' }));
+  });
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce-a' },
+    '3',
+  );
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Changing Dream Cycle…',
+  );
+});
+
+it('leaves a setting as it was with Not now, an icon with its name', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'row_bot_update_setting',
+    setting_change: change,
+  });
+  render(<ApprovalCard id="approval-a" />);
+  const notNow = await screen.findByRole('button', { name: 'Not now' });
+  await waitFor(() => expect(notNow).toBeEnabled());
+
+  await act(async () => {
+    fireEvent.click(notNow);
+  });
+
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'reject', nonce: 'nonce-a' },
+    '3',
+  );
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Dream Cycle stays as it was.',
+  );
+});
+
+it('shows the shortcut only where it works', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'row_bot_update_setting',
+    setting_change: change,
+  });
+  render(<ApprovalCard id="approval-a" shortcut={false} />);
+
+  const button = await screen.findByRole('button', { name: 'Change' });
+  expect(button).not.toHaveAttribute('aria-keyshortcuts');
+});

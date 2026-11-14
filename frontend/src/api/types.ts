@@ -794,6 +794,12 @@ export interface ClientTransport {
     body: Wire.SlashCommandRead,
     signal?: AbortSignal,
   ): Promise<Wire.SlashCommandResult>;
+  undoSettingChange?(
+    conversation: string,
+    body: Wire.SettingChangeUndoRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SettingChangeUndoResult>;
+  guidePage?(route: string, signal?: AbortSignal): Promise<Wire.GuidePageView>;
   library?(
     kind: 'artifact' | 'workspace',
     cursor?: string,

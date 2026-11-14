@@ -44,7 +44,7 @@ const OUTLOOK = open('apps/outlook', 'Outlook');
 const CHANNELS = open('apps?category=communication', 'Apps');
 const PLUGINS = open('apps', 'Apps');
 const MCP = open('apps', 'Apps');
-const RUNTIMES = open('apps?view=advanced', 'Runtimes', 'chats');
+const RUNTIMES = open('apps?view=advanced', 'Runtimes', 'runtimes');
 const SKILLS = open('skills', 'Skills');
 const TOOLS = open('tools', 'Built-in tools', 'built-in-tools');
 const WIKI = open('knowledge', 'Wiki vault', 'wiki-vault');

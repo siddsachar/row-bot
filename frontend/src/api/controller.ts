@@ -2018,6 +2018,18 @@ export class ClientController {
     this.query(() =>
       this.transport.composerCommand?.(conversation, { command_id }, signal),
     );
+  /** The person's Undo on a setting Row-Bot changed (its step's result message). */
+  undoSettingChange = (
+    conversation: string,
+    message_id: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.undoSettingChange?.(conversation, { message_id }, signal),
+    );
+  /** One of Row-Bot's guides, from the copy this install ships. */
+  guidePage = (route: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.guidePage?.(route, signal));
   private setDraftStatus(id: string, status: ClientState['draftStatus']): void {
     this.draftStates.set(id, status);
     if (this.state.selectedConversationId === id)

@@ -784,6 +784,43 @@ export function settingsRowHref(row: SettingsRow) {
   );
 }
 
+/** A Settings row or page a link in a chat names, as its chip shows it. */
+export type SettingsLink = { to: string; label: string };
+
+/**
+ * Where a link Row-Bot wrote goes in Settings, with the row's own name
+ * ("Preferences › Dream Cycle"), never the words the model wrote. Accepts
+ * `/settings/…` and `/app-v2/settings/…`. Null when the page or row isn't
+ * there, so a stale link reads as plain text instead of landing nowhere.
+ */
+export function settingsLink(href: string): SettingsLink | null {
+  const path = href.replace(/^\/app-v2(?=\/settings\/)/, '');
+  const match = /^\/settings\/([a-z-]+)(\/[^?#]*)?(\?[^#]*)?(?:#(.+))?$/.exec(
+    path,
+  );
+  if (!match) return null;
+  const [, page, rest = '', query = '', anchor = ''] = match;
+  const leaf = resolveSetting(page);
+  if (!leaf) return null;
+  if (rest) {
+    const own = settingsRows.find(
+      (row) => row.href === `/settings/${page}${rest}`,
+    );
+    return own
+      ? { to: own.href!, label: `${labelOf(own.leaf)} › ${own.label}` }
+      : null;
+  }
+  if (anchor) {
+    const row = settingsRows.find(
+      (item) => item.leaf === leaf.id && item.anchor === anchor,
+    );
+    return row
+      ? { to: settingsRowHref(row), label: `${leaf.label} › ${row.label}` }
+      : null;
+  }
+  return { to: `${leaf.href}${query}`, label: leaf.label };
+}
+
 /** Whether every word of a search names the Agent profile library. */
 export function searchFindsAgentProfiles(query: string) {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);

@@ -1675,7 +1675,7 @@ it('used-up free messages say when they come back and offer the next steps, not 
   await user.click(
     within(log).getByRole('button', { name: 'Sign in with a plan' }),
   );
-  expect(mock.navigate).toHaveBeenLastCalledWith('/settings/providers');
+  expect(mock.navigate).toHaveBeenLastCalledWith('/settings/models');
 });
 
 it('Claude signed the person out: says so in U11’s words, with Sign in again', async () => {
@@ -3238,7 +3238,7 @@ it('says so when an attached image cannot be seen and offers a vision model (dec
   fireEvent.click(
     screen.getByRole('button', { name: 'Choose a vision model' }),
   );
-  expect(mock.navigate).toHaveBeenCalledWith('/settings/models#vision');
+  expect(mock.navigate).toHaveBeenCalledWith('/settings/models#vision-model');
 });
 
 it('offers the fix that matches why the model cannot answer', async () => {

@@ -498,15 +498,19 @@ function clip(value: string, limit = 140): string {
 }
 
 /** The one argument worth showing inline, from the bounded public input. */
-/** The settings Row-Bot may change, in words: a step names one, never its ID (F5). */
+/**
+ * The settings Row-Bot may change, in Settings' own words: a step names one
+ * while its card is up, never its ID (F5). The finished step's card names it
+ * from the change itself (row_bot.self_settings).
+ */
 const SETTING_NAMES: Record<string, string> = {
   thread_model: "This chat's model",
-  default_model: 'Default model',
+  default_model: 'Main model',
   vision_model: 'Vision model',
   name: 'Name',
   personality: 'Personality',
-  context_size: 'Context size',
-  cloud_context_size: 'Cloud context size',
+  context_size: 'Reading limit',
+  cloud_context_size: 'Reading limit',
   dream_cycle: 'Dream Cycle',
   dream_window: 'Dream Cycle hours',
   run_dream_cycle: 'Dream Cycle',
@@ -516,6 +520,9 @@ const SETTING_NAMES: Record<string, string> = {
   image_gen_model: 'Image model',
   video_gen_model: 'Video model',
   self_improvement: 'Learn new skills',
+  read_aloud: 'Read aloud',
+  live_captions: 'Live captions',
+  log_detail: 'Log detail',
 };
 
 export function keyArgument(safeInput: string | undefined): string {
@@ -690,6 +697,7 @@ const SILENT_E = new Set([
   'analyz',
   'animat',
   'calculat',
+  'chang',
   'clon',
   'coordinat',
   'creat',

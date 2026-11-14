@@ -42,3 +42,12 @@ def test_every_tool_row_a_turn_on_card_shows_exists():
             assert (page, anchor) in rows, name
         else:
             assert any(row_page == page for row_page, _anchor in rows), name
+
+
+def test_the_page_names_chat_apps_see_are_the_settings_pages():
+    from row_bot.application.client_self import SETTINGS_PAGES
+    from scripts.docs.collect_inventory import collect_settings
+
+    pages = {page["id"]: page["title"] for page in collect_settings()}
+
+    assert SETTINGS_PAGES == pages

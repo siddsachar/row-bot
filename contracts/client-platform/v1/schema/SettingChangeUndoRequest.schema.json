@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "description": "Undo on a setting step: the step's result message, read again by the server.",
+  "properties": {
+    "message_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Message Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "message_id"
+  ],
+  "title": "SettingChangeUndoRequest",
+  "type": "object"
+}

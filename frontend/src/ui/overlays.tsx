@@ -680,3 +680,8 @@ export function useOverlay() {
   if (!context) throw new Error('OverlayProvider is required');
   return context;
 }
+
+/** The overlays, or null outside the app (a message rendered on its own). */
+export function useOptionalOverlay() {
+  return useContext(OverlayContext);
+}

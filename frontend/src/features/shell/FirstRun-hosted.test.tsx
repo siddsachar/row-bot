@@ -218,7 +218,7 @@ it('asks with two big buttons and other ways, and never looks for a local runtim
     within(other).getByRole('link', { name: /Use my own model server/ }),
   ).toHaveAttribute(
     'href',
-    '/settings/providers?add=custom-endpoint&type=ollama&from=setup',
+    '/settings/models?add=custom-endpoint&type=ollama&from=setup',
   );
   expect(
     within(other).getByRole('link', { name: 'How to reach it safely' }),
