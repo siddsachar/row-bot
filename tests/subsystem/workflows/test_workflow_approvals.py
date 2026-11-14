@@ -93,15 +93,30 @@ def test_agent_run_approval_resumes_the_helper(tmp_path, monkeypatch, reload_for
     assert resumed == [("agent-run-1", token, False)]
 
 
-def test_a_new_approval_wakes_devices_that_turned_notifications_on(
+def test_a_new_approval_or_question_tells_devices_what_waits_and_where(
     tmp_path, monkeypatch, reload_for_data_dir
 ) -> None:
     tasks = fresh_tasks_module(tmp_path, reload_for_data_dir)
     from row_bot.access import push
+    from row_bot.questions import card, normalize
 
-    woken: list[int] = []
-    monkeypatch.setattr(push, "wake_soon", lambda: woken.append(1))
+    told: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        push, "notify_soon", lambda title, body="", *, conversation_id="": told.append((title, body, conversation_id))
+    )
 
-    _helper_approval(tasks, monkeypatch, [])
+    # A helper's approval: its first line, opening the chat that started the helper.
+    _helper_approval(tasks, monkeypatch, [], parent_thread_id="chat-1", source_thread_id="helper-thread")
+    # Row-Bot's question in a chat: the question itself, opening that chat.
+    asked = card(normalize([{"header": "Venue", "question": "Which venue?",
+                             "options": [{"label": "The Hall"}, {"label": "The Park"}]}]))
+    tasks.create_approval_request("pass-1", "", "conversation", "Which venue?", resume_kind="conversation",
+                                  source_thread_id="chat-2", approval_payload_json={"interrupt": asked})
+    # A workflow step's approval: no chat of its own, so tapping it opens Home.
+    tasks.create_approval_request("run-1", "task-1", "step-1", "Send email to Sam?\nAction: send_gmail_message")
 
-    assert woken == [1]
+    assert told == [
+        ("Approval needed", "Approve?", "chat-1"),
+        ("Row-Bot asked you a question", "Which venue?", "chat-2"),
+        ("Approval needed", "Send email to Sam?", ""),
+    ]

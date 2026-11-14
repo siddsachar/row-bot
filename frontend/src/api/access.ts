@@ -474,15 +474,20 @@ export const accessClient: AccessClient = {
   },
 };
 
-/** Notifications on this device (D8): offered only over HTTPS. */
-export type AccessPushStatus =
+/**
+ * Notifications on this device (D8): offered only over HTTPS. Whether they
+ * show details is one setting for every device.
+ */
+export type AccessPushStatus = { showDetails: boolean } & (
   | { available: true; publicKey: string; subscribed: boolean }
-  | { available: false; reason: 'this_computer' | 'needs_https' };
+  | { available: false; reason: 'this_computer' | 'needs_https' }
+);
 
 export interface AccessPushClient {
   status(signal?: AbortSignal): Promise<AccessPushStatus>;
   subscribe(subscription: PushSubscriptionJSON): Promise<void>;
   unsubscribe(): Promise<void>;
+  setShowDetails(on: boolean): Promise<boolean>;
 }
 
 export const accessPushClient: AccessPushClient = {
@@ -491,18 +496,32 @@ export const accessPushClient: AccessPushClient = {
       method: 'GET',
       signal,
     });
+    if (typeof value.show_details !== 'boolean')
+      throw { code: 'dependency_unavailable' };
+    const showDetails = value.show_details;
     if (value.available === true && typeof value.public_key === 'string')
       return {
         available: true,
         publicKey: value.public_key,
         subscribed: value.subscribed === true,
+        showDetails,
       };
     if (
       value.available === false &&
       (value.reason === 'this_computer' || value.reason === 'needs_https')
     )
-      return { available: false, reason: value.reason };
+      return { available: false, reason: value.reason, showDetails };
     throw { code: 'dependency_unavailable' };
+  },
+  async setShowDetails(on) {
+    const value = await request(
+      '/api/access/devices/push/details',
+      { method: 'POST' },
+      { show_details: on },
+    );
+    if (typeof value.show_details !== 'boolean')
+      throw { code: 'dependency_unavailable' };
+    return value.show_details;
   },
   async subscribe(subscription) {
     await request(

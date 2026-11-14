@@ -523,6 +523,7 @@ const SETTING_NAMES: Record<string, string> = {
   read_aloud: 'Read aloud',
   live_captions: 'Live captions',
   log_detail: 'Log detail',
+  notification_details: 'Notification details',
 };
 
 export function keyArgument(safeInput: string | undefined): string {
