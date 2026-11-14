@@ -157,6 +157,9 @@ def test_a_networked_sandbox_sits_alone_with_its_gate_on_a_network_with_no_way_o
     proxy = f"http://{env.gate}:3128"
     values = _env(box)
     assert [values[name] for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")] == [proxy] * 4
+    # Only the sandbox's own loopback goes direct; Node 24+'s fetch uses the gate too.
+    assert values["NO_PROXY"] == values["no_proxy"] == "localhost,127.0.0.1,::1"
+    assert values["NODE_USE_ENV_PROXY"] == "1"
     # The gate is up before the sandbox starts.
     assert env.docker.calls.index(gate) < env.docker.calls.index(box)
 
@@ -165,12 +168,15 @@ def test_a_networked_sandbox_never_takes_the_computers_proxy_settings(sandbox, m
     env = sandbox
     monkeypatch.setenv("HTTPS_PROXY", "http://10.0.0.5:3128")
     monkeypatch.setenv("no_proxy", "*")
+    monkeypatch.setenv("NODE_USE_ENV_PROXY", "0")
     monkeypatch.setenv("PROJECT_TOKEN_NAME", "kept")
-    workspace = dataclasses.replace(env.workspace, sandbox_env_allowlist=["HTTPS_PROXY", "no_proxy", "PROJECT_TOKEN_NAME"])
+    workspace = dataclasses.replace(env.workspace, sandbox_env_allowlist=[
+        "HTTPS_PROXY", "no_proxy", "NODE_USE_ENV_PROXY", "PROJECT_TOKEN_NAME"])
     env.runtime.ensure_docker_sandbox(workspace)
     values = _env(env.docker.runs(env.box)[0])
     assert values["HTTPS_PROXY"] == f"http://{env.gate}:3128"
     assert values["no_proxy"] == "localhost,127.0.0.1,::1"
+    assert values["NODE_USE_ENV_PROXY"] == "1"
     assert values["PROJECT_TOKEN_NAME"] == "kept"
 
 

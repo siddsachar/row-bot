@@ -1,15 +1,20 @@
 """Opt-in check with real Docker: a networked Developer sandbox reaches the internet, never this computer.
 
-A service listens on this computer's loopback (like an unauthenticated Ollama). A sandbox with its
-network on must reach a public site through its gate, and must not reach that service, neither
-through the gate nor directly by ``host.docker.internal`` or Docker Desktop's host address.
+A service listens on this computer (like an unauthenticated Ollama). A sandbox with its network on
+must reach public sites through its gate, with the tools an agent uses (curl, pip, git over https,
+npm, and Node's fetch on Node 24+), and must not reach that service: neither through the gate nor
+directly, by ``host.docker.internal``, Docker Desktop's host address, Docker's bridge gateway or its
+own network's gateway address.
 
 It needs Docker already running (it never starts Docker Desktop) and the sandbox image on this
-computer (it never pulls one); otherwise it is skipped. It reaches example.com::
+computer (it never pulls one); otherwise it is skipped. It reaches example.com, PyPI, GitHub and the
+npm registry::
 
     uv run python -m pytest tests/e2e/test_developer_sandbox_network_e2e.py -m e2e
 
-``ROW_BOT_SANDBOX_E2E_IMAGE`` picks another local image with Python 3.
+``ROW_BOT_SANDBOX_E2E_IMAGE`` picks another local image with Python 3. ``ROW_BOT_SANDBOX_E2E_BIND``
+sets the service's address (default ``127.0.0.1``); on Linux Docker Engine use ``0.0.0.0``, which a
+container on Docker's default network can reach through the bridge gateway.
 """
 from __future__ import annotations
 
@@ -26,7 +31,7 @@ import pytest
 pytestmark = [pytest.mark.e2e]
 
 PROBE = r'''
-import json, socket, sys, urllib.error, urllib.request
+import json, shutil, socket, struct, subprocess, sys, urllib.error, urllib.request
 port = int(sys.argv[1])
 
 def through_gate(url):
@@ -45,13 +50,47 @@ def direct(host):
     except Exception as error:
         return type(error).__name__
 
+def tool(command):
+    if not shutil.which(command[0]):
+        return "missing"
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=180)
+    except Exception as error:
+        return type(error).__name__
+    return "ok" if done.returncode == 0 else "failed: " + (done.stderr or done.stdout)[-300:]
+
+def own_gateway():
+    """The first address of the sandbox's own network: the host's, were it on the bridge."""
+    with open("/proc/net/route") as table:
+        for line in table.readlines()[1:]:
+            fields = line.split()
+            if fields[2] == "00000000" and fields[1] != "00000000":
+                # The kernel prints addresses little-endian.
+                network = int.from_bytes(bytes.fromhex(fields[1])[::-1], "big")
+                mask = int.from_bytes(bytes.fromhex(fields[7])[::-1], "big")
+                return socket.inet_ntoa(struct.pack(">I", (network & mask) + 1))
+    return ""
+
+def node_major():
+    try:
+        return int(subprocess.run(["node", "--version"], capture_output=True, text=True).stdout.strip()[1:].split(".")[0])
+    except Exception:
+        return 0
+
+hosts = ["host.docker.internal", "192.168.65.254", own_gateway(), *sys.argv[2:]]
+fetch = "fetch('https://example.com/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(2))"
 print(json.dumps({
     "public": through_gate("https://example.com/"),
-    "host_by_name": through_gate(f"http://host.docker.internal:{port}/"),
-    "host_by_address": through_gate(f"http://192.168.65.254:{port}/"),
     "metadata": through_gate("http://169.254.169.254/latest/meta-data/"),
-    "direct_by_name": direct("host.docker.internal"),
-    "direct_by_address": direct("192.168.65.254"),
+    "through_gate": {host: through_gate(f"http://{host}:{port}/") for host in hosts if host},
+    "direct": {host: direct(host) for host in hosts if host},
+    "tools": {
+        "curl": tool(["curl", "-fsS", "-o", "/dev/null", "https://example.com/"]),
+        "pip": tool(["python3", "-m", "pip", "download", "--no-deps", "--no-cache-dir", "-q", "-d", "/tmp/rb-pip", "six"]),
+        "git": tool(["git", "ls-remote", "https://github.com/octocat/Hello-World.git", "HEAD"]),
+        "npm": tool(["npm", "view", "--cache", "/tmp/rb-npm", "left-pad", "version"]),
+        "node_fetch": tool(["node", "-e", fetch]) if node_major() >= 24 else "node before 24",
+    },
 }))
 '''
 
@@ -72,7 +111,7 @@ def _docker() -> str:
 
 @pytest.fixture
 def host_service():
-    """A loopback-only service on this computer that counts every request it gets."""
+    """A service on this computer that counts every request it gets."""
     seen: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -85,7 +124,7 @@ def host_service():
         def log_message(self, *_args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer((os.environ.get("ROW_BOT_SANDBOX_E2E_BIND") or "127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield server.server_address[1], seen
@@ -105,6 +144,9 @@ def test_a_networked_sandbox_reaches_the_internet_but_not_this_computer(tmp_path
     if subprocess.run([binary, "image", "inspect", image], capture_output=True, check=False).returncode != 0:
         pytest.skip(f"The sandbox image {image} isn't on this computer (docker pull {image})")
     port, seen = host_service
+    # The host's address on Docker's default network (172.17.0.1 unless the engine chose another).
+    bridge = subprocess.run([binary, "network", "inspect", "bridge", "-f", "{{range .IPAM.Config}}{{.Gateway}} {{end}}"],
+                            capture_output=True, text=True, check=False).stdout.split() or ["172.17.0.1"]
     folder = tmp_path / "project"
     folder.mkdir()
     (folder / "probe.py").write_text(PROBE, encoding="utf-8", newline="\n")
@@ -113,8 +155,8 @@ def test_a_networked_sandbox_reaches_the_internet_but_not_this_computer(tmp_path
         sandbox_network="on", sandbox_image=image,
     )
     try:
-        outcome = runtime.run_docker_sandbox_command(workspace, f"python3 probe.py {port}", thread_id="e2e",
-                                                     timeout=240)
+        outcome = runtime.run_docker_sandbox_command(workspace, f"python3 probe.py {port} {' '.join(bridge)}", thread_id="e2e",
+                                                     timeout=600)
         assert outcome.returncode == 0, outcome.stderr
         found = json.loads(outcome.stdout.strip().splitlines()[-1])
         # The next command reuses the same sandbox behind the same gate.
@@ -125,11 +167,19 @@ def test_a_networked_sandbox_reaches_the_internet_but_not_this_computer(tmp_path
     finally:
         runtime.cleanup_workspace_sandbox(workspace.id)
 
+    print(json.dumps(found, indent=2))
     assert found["public"] == 200, found
-    # The gate refuses this computer, by name and by address, and cloud metadata.
-    assert found["host_by_name"] == 403 and found["host_by_address"] == 403 and found["metadata"] == 403, found
+    # The agent's own tools work through the gate (each one the image has).
+    for name, result in found["tools"].items():
+        assert result in {"ok", "missing", "node before 24"}, (name, result)
+    assert found["tools"]["curl"] == "ok", found
+    if image == DEFAULT_SANDBOX_IMAGE:
+        assert found["tools"]["pip"] == found["tools"]["git"] == found["tools"]["npm"] == "ok", found
+    # The gate refuses this computer, by every name and address, and cloud metadata.
+    assert found["metadata"] == 403, found
+    assert set(found["through_gate"].values()) == {403}, found
     # And there is no way round the gate.
-    assert found["direct_by_name"] != "open" and found["direct_by_address"] != "open", found
+    assert "open" not in found["direct"].values(), found
     assert seen == []
     # Nothing of the sandbox is left behind.
     from row_bot.developer import sandbox_egress

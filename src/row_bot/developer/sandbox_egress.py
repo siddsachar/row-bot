@@ -12,8 +12,9 @@ with its network on ("ask" or "on") never joins it. Instead, per code folder:
 - the gate (``row-bot-egress-<digest>``), a small container on Docker's default network and the
   internal one, running ``egress_proxy`` with Python's standard library: it opens public internet
   addresses only, after resolving them itself, and pins the connection to the checked address;
-- the sandbox points ``HTTP_PROXY`` / ``HTTPS_PROXY`` at the gate. A program that ignores those has
-  no way out at all. The sandbox also loses ``NET_RAW`` and the gate never forwards packets, so raw
+- the sandbox points ``HTTP_PROXY`` / ``HTTPS_PROXY`` (and their lowercase forms, which curl and
+  git read, plus ``NODE_USE_ENV_PROXY=1`` for Node 24+'s fetch) at the gate; only its own loopback
+  goes direct. A program that ignores those has no way out at all, SSH git remotes included. The sandbox also loses ``NET_RAW`` and the gate never forwards packets, so raw
   frames sent to the gate don't get routed onwards.
 
 The gate runs from the default sandbox image when it is on this computer (it has Python 3), else
@@ -38,7 +39,11 @@ Docker = Callable[..., subprocess.CompletedProcess]
 GATE_PORT = 3128
 PROXY_VARIABLES = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 NO_PROXY_VARIABLES = ("NO_PROXY", "no_proxy")
-_PROXY_NAMES = {name.upper() for name in (*PROXY_VARIABLES, *NO_PROXY_VARIABLES, "ALL_PROXY")}
+# Only the sandbox's own loopback goes direct; everything else goes to the gate.
+NO_PROXY = "localhost,127.0.0.1,::1"
+# Node 24+'s built-in fetch and undici read the proxy variables only with this set.
+NODE_PROXY = ("NODE_USE_ENV_PROXY", "1")
+_PROXY_NAMES = {name.upper() for name in (*PROXY_VARIABLES, *NO_PROXY_VARIABLES, NODE_PROXY[0], "ALL_PROXY")}
 # Docker's bridge options for an internal network with no host-side address. Podman has neither.
 _DOCKER_NETWORK_OPTIONS = (
     "com.docker.network.bridge.gateway_mode_ipv4=isolated",
@@ -70,7 +75,8 @@ def sandbox_network_args(workspace_id: str) -> list[str]:
     for name in PROXY_VARIABLES:
         args.extend(["-e", f"{name}={proxy}"])
     for name in NO_PROXY_VARIABLES:
-        args.extend(["-e", f"{name}=localhost,127.0.0.1,::1"])
+        args.extend(["-e", f"{name}={NO_PROXY}"])
+    args.extend(["-e", "=".join(NODE_PROXY)])
     return args
 
 
