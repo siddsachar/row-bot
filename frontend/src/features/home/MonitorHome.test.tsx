@@ -336,7 +336,7 @@ it('shows the kept results after leaving the tab, without running anything', asy
     check('Ollama', 'warn', 'Server offline', 'Models', NOW_SECONDS - 240, {
       network: true,
     }),
-    check('Cloud API', 'ok', 'Keys configured', 'Providers', NOW_SECONDS - 240),
+    check('Cloud API', 'ok', 'Keys configured', 'Models', NOW_SECONDS - 240),
     check('Disk', 'ok', '40.0 GB free', 'System', NOW_SECONDS - 240),
   );
   const loadHealth = vi.fn(async () => kept);
@@ -431,9 +431,9 @@ it('names what is not in use beside what is OK, never "1 of 3 OK" (U18)', async 
   renderMonitor({
     loadHealth: vi.fn(async () =>
       diagnosis(
-        check('GitHub', 'ok', 'Connected as fixture', 'Accounts'),
-        check('Slack', 'inactive', 'Not set up', 'Accounts'),
-        check('Telegram', 'inactive', 'Not set up', 'Accounts'),
+        check('GitHub', 'ok', 'Connected as fixture', 'Apps'),
+        check('Slack', 'inactive', 'Not set up', 'Apps'),
+        check('Telegram', 'inactive', 'Not set up', 'Apps'),
       ),
     ),
   });
@@ -447,10 +447,15 @@ it('names what is not in use beside what is OK, never "1 of 3 OK" (U18)', async 
 it('marks a stale connection result and checks again on request', async () => {
   const run = vi.fn(async () =>
     diagnosis(
-      check('GitHub', 'ok', 'Connected as fixture', 'Accounts', NOW_SECONDS, {
+      check('GitHub', 'ok', 'Connected as fixture', 'Apps', NOW_SECONDS, {
         network: true,
       }),
-      check('Tunnel', 'inactive', 'Ready (no active tunnels)', 'Access'),
+      check(
+        'Tunnel',
+        'inactive',
+        'Ready (no active tunnels)',
+        'Devices & remote access',
+      ),
     ),
   );
   renderMonitor({
@@ -461,11 +466,16 @@ it('marks a stale connection result and checks again on request', async () => {
           'GitHub',
           'ok',
           'Connected as fixture',
-          'Accounts',
+          'Apps',
           NOW_SECONDS - 26 * 3_600,
           { network: true, stale: true },
         ),
-        check('Tunnel', 'inactive', 'Ready (no active tunnels)', 'Access'),
+        check(
+          'Tunnel',
+          'inactive',
+          'Ready (no active tunnels)',
+          'Devices & remote access',
+        ),
       ),
     ),
   });
@@ -532,7 +542,7 @@ it('sends each check to the settings page that fixes it, by its name', async () 
   renderMonitor({
     loadHealth: vi.fn(async () =>
       diagnosis(
-        check('Tunnel', 'warn', 'Not running', 'Access'),
+        check('Tunnel', 'warn', 'Not running', 'Devices & remote access'),
         check('Tools', 'ok', '12 / 14 enabled', 'Tools'),
       ),
     ),
@@ -1557,7 +1567,7 @@ it('puts the worst check fix under its tile and in its detail', async () => {
             name: 'Default model',
           }),
         },
-        check('Cloud API', 'ok', 'Keys configured', 'Providers'),
+        check('Cloud API', 'ok', 'Keys configured', 'Models'),
       ),
     ),
   });
@@ -1587,7 +1597,7 @@ it('renews an expired sign-in from its tile with the Accounts row action', async
   renderMonitor({
     loadHealth: vi.fn(async () =>
       diagnosis({
-        ...check('Gmail OAuth', 'warn', 'Token expired', 'Accounts'),
+        ...check('Gmail OAuth', 'warn', 'Token expired', 'Apps'),
         network: true,
         fix: fix({
           kind: 'reconnect_account',
@@ -1616,7 +1626,7 @@ it('renews an expired sign-in from its tile with the Accounts row action', async
 const googleExpired = () =>
   vi.fn(async () =>
     diagnosis({
-      ...check('Gmail OAuth', 'warn', 'Token expired', 'Accounts'),
+      ...check('Gmail OAuth', 'warn', 'Token expired', 'Apps'),
       network: true,
       fix: fix({
         kind: 'reconnect_account',

@@ -87,6 +87,12 @@ _PAGE_IDS = {
     "Skills": "skills", "Apps": "apps", "System": "system", "Devices & remote access": "access",
     "Updates": "updates", "Data": "data",
 }
+# Kept results saved before Settings renamed these pages name them the old way (G36). Connection checks
+# can stay kept for hours, so they are read under the page's name today.
+_RENAMED_PAGES = {
+    "Providers": "Models", "Accounts": "Apps", "Channels": "Apps", "MCP": "Apps", "Plugins": "Apps",
+    "Knowledge": "Memory", "Access": "Devices & remote access",
+}
 # A sign-in Row-Bot can renew from its own row on Settings › Apps.
 _ACCOUNTS = {"gmail-oauth": ("google", "Google"), "calendar-oauth": ("google", "Google"), "x-oauth": ("x", "X")}
 # Nothing in Row-Bot fixes these; once they are fixed outside it, check again.
@@ -127,7 +133,7 @@ def _kept_entry(check_id: object, value: object) -> dict[str, Any] | None:
         "status": value["status"],
         "detail": value["detail"][:512],
         "checked_at": float(checked_at),
-        "settings_tab": value["settings_tab"][:64],
+        "settings_tab": _RENAMED_PAGES.get(value["settings_tab"], value["settings_tab"])[:64],
         "network": value["network"],
     }
 

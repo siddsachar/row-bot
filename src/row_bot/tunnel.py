@@ -184,7 +184,7 @@ def ngrok_configuration_status() -> tuple[str, str]:
             return (
                 "error",
                 "ngrok authtoken metadata exists, but the keyring secret is unreadable. "
-                "Clear and re-save the authtoken in Settings › System > Tunnel Settings.",
+                "Clear and re-save the authtoken in Settings › Devices & remote access › Public link.",
             )
     except Exception as exc:
         log.debug("Unable to inspect NGROK_AUTHTOKEN status: %s", exc)
