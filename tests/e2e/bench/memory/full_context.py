@@ -128,8 +128,8 @@ def ask(runtime: Any, task: MemoryTask, call: Callable[[str], str], *, context_t
             from ..ledger import BudgetStop
 
             raise BudgetStop(step.errors[0])
-        from ..runtime import PROVIDER_LIMIT_MARKERS, ProviderLimit
+        from ..runtime import ProviderLimit, limit_text
 
-        if step.errors and any(marker in step.errors[0].lower() for marker in PROVIDER_LIMIT_MARKERS):
+        if step.errors and limit_text(step.errors[0]):
             raise ProviderLimit(step.errors[0][:300])
     return steps

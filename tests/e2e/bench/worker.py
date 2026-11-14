@@ -68,8 +68,8 @@ def _judge_call(runtime: Any, model_ref: str, protocol: Any) -> Any:
     runnable = with_usage_purpose(llm, "judge")
 
     def call(messages: list[tuple[str, str]]) -> str:
-        return _text(runnable.invoke([SystemMessage(content=text) if role == "system" else HumanMessage(content=text)
-                                      for role, text in messages]))
+        return _limited(lambda: runnable.invoke([SystemMessage(content=text) if role == "system"
+                                                 else HumanMessage(content=text) for role, text in messages]))
 
     return call
 
@@ -95,9 +95,23 @@ def _prompt_call(model_ref: str, purpose: str) -> Any:
     runnable = with_usage_purpose(models.get_llm_for(model_ref), purpose)
 
     def call(prompt: str) -> str:
-        return _text(runnable.invoke([HumanMessage(content=prompt)]))
+        return _limited(lambda: runnable.invoke([HumanMessage(content=prompt)]))
 
     return call
+
+
+def _limited(invoke: Any) -> str:
+    """One call's reply text; a usage or rate limit becomes ``ProviderLimit`` (the run stops, resumable)."""
+    from .runtime import ProviderLimit, limit_text
+
+    try:
+        return _text(invoke())
+    except ProviderLimit:
+        raise
+    except Exception as exc:
+        if limit_text(str(exc)):
+            raise ProviderLimit(f"{type(exc).__name__}: {exc}"[:300]) from exc
+        raise
 
 
 def _text(reply: Any) -> str:
@@ -144,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
                              **spec.get("record", {})}
         if spec["kind"] == "memory":
             code = _memory(spec, runtime, trajectory, run_dir, redact)
+        elif spec["kind"] == "probe":
+            code = _probe(runtime, trajectory)
         else:
             code = _judge(spec, runtime, trajectory, run_dir, redact)
         trajectory.status = trajectory.status if trajectory.status != "running" else "done"
@@ -202,6 +218,21 @@ def _memory(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, 
     return 0
 
 
+def _probe(runtime: Any, trajectory: Any) -> int:
+    """Before a benchmark starts: one tiny call, to see the plan is not throttled (its limit is shared
+    with the owner's everyday Row-Bot). A limit raises ``ProviderLimit`` (exit 76) and nothing starts."""
+    from .trajectory import Step
+
+    step = Step(kind="probe", name="throttle check", prompt="Reply with exactly: ok")
+    started = time.monotonic()
+    step.answer = _prompt_call(runtime.config.model_ref, "bench_probe")(step.prompt)[:50]
+    step.seconds = round(time.monotonic() - started, 3)
+    runtime.drain_calls(step, phase="probe")
+    trajectory.steps.append(step)
+    runtime.limits.check()
+    return 0
+
+
 def _judge(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, redact: Any) -> int:
     from .memory import judge as scoring
     from .memory.datasets import Question
@@ -229,6 +260,7 @@ def _judge(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, r
         runtime.drain_calls(step, phase="judge")
         trajectory.steps.append(step)
         _append(run_dir / "judgments.jsonl", scoring.to_dicts(found), redact)
+        runtime.limits.check()
     return 0
 
 

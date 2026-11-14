@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -41,7 +42,8 @@ HANDS_OFF = "full"  # Row-Bot's Hands-off approval level: nothing stops for a pe
 MAX_RESUMES = 3
 _TOOL_ARGS = 400
 #: Reply text that means the ChatGPT plan (or another provider) hit a usage or rate limit.
-PROVIDER_LIMIT_MARKERS = ("rate limit", "rate_limit", "usage limit", "usage_limit", "429", "too many requests")
+PROVIDER_LIMIT_MARKERS = ("rate limit", "rate_limit", "ratelimit", "usage limit", "usage_limit", "limit reached",
+                          "too many requests", "error code: 429", "status code 429", "http 429", "429 client error")
 
 
 #: The one local model every benchmark run uses (the owner's instruction, 14 Nov 2026): the stock Ollama
@@ -76,7 +78,45 @@ def ollama_identity(model: str, *, host: str = "", client: Any = None) -> dict[s
 
 
 class ProviderLimit(RuntimeError):
-    """The provider answered with a usage or rate limit: the run stops (the owner's own use comes first)."""
+    """The provider answered with a usage or rate limit: the run stops cleanly, resumable, with no retry
+    loop (the plan's limit is shared with the owner's everyday Row-Bot)."""
+
+
+def limit_text(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(marker in lowered for marker in PROVIDER_LIMIT_MARKERS)
+
+
+def reset_hint(text: str) -> str:
+    """When the limit resets, as the provider said it ("try again in 2h 5m", "resets at 14:00"), or ''."""
+    match = re.search(r"(try again (?:in|after|at)[^.;\n]{1,60}|resets? (?:in|at|after|on)[^.;\n]{1,60}"
+                      r"|retry[- ]after[:= ]*[^.;\n]{1,40})", str(text or ""), re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
+class LimitWatch(logging.Handler):
+    """Watches Row-Bot's own log lines for a usage or rate limit. Background calls (extraction, Dream)
+    swallow their errors and log them, so this is how ingestion learns the plan's limit was reached."""
+
+    def __init__(self) -> None:
+        # Warnings and errors only: a failed call is logged at WARNING or above, and INFO lines carry
+        # timings and counts that are not limits.
+        super().__init__(level=logging.WARNING)
+        self.hit = ""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.hit:
+            return
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return
+        if limit_text(message):
+            self.hit = message[:500]
+
+    def check(self) -> None:
+        if self.hit:
+            raise ProviderLimit(self.hit[:300])
 
 
 def child_env(data_dir: Path, workspace: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -269,6 +309,7 @@ class BenchRuntime:
     policy: netguard.NetworkPolicy = field(default_factory=netguard.NetworkPolicy)
     sign_in: SignIn | None = None
     local_model: dict[str, Any] = field(default_factory=dict)
+    limits: LimitWatch = field(default_factory=LimitWatch)
     _undo: list[Callable[[], None]] = field(default_factory=list)
     _seen_row: int = 0
 
@@ -291,6 +332,9 @@ class BenchRuntime:
 
         self.policy = netguard.NetworkPolicy(blocked_hosts=self.config.blocked_hosts, canaries=self.config.canaries)
         self._undo.append(netguard.install(self.policy))
+        watched = logging.getLogger("row_bot")
+        watched.addHandler(self.limits)
+        self._undo.append(lambda: watched.removeHandler(self.limits))
         if self.config.provider == "codex":
             if self.eval_profile is None:
                 raise BenchEnvironmentError("the ChatGPT lane needs the eval profile (ROW_BOT_LIVE_EVAL_CODEX_PROFILE)")
@@ -428,6 +472,7 @@ class BenchRuntime:
                                                          (call.args or {}).items()}} for call in result.tool_calls]
         step.metrics = {"interrupts_declined": result.interrupts, "tool_results": len(result.tool_results)}
         self.drain_calls(step)
-        if step.status != "done" and any(marker in " ".join(step.errors).lower() for marker in PROVIDER_LIMIT_MARKERS):
+        if step.status != "done" and limit_text(" ".join(step.errors)):
             raise ProviderLimit(step.errors[0][:300])
+        self.limits.check()  # a limit a background call met during the turn (recall, a title)
         return step

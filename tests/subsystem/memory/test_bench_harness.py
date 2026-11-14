@@ -628,6 +628,83 @@ def test_the_local_model_is_the_stock_qwen_and_its_digest_is_recorded() -> None:
         ollama_identity("ofix-personal-27b", client=Ollama())
 
 
+# ── The plan's usage limit ──────────────────────────────────────────────────
+
+
+def test_a_usage_limit_in_a_background_call_stops_the_task_and_says_when_it_resets() -> None:
+    import logging
+
+    from tests.e2e.bench.runtime import LimitWatch, ProviderLimit, limit_text, reset_hint
+
+    watch = LimitWatch()
+    logger = logging.getLogger("row_bot.memory_extraction")
+    logging.getLogger("row_bot").addHandler(watch)
+    try:
+        logger.info("memory auto-recall trace: total_ms=429.0 selected=3")  # a timing, not a limit
+        watch.check()
+        logger.warning("Memory extraction LLM call failed: Error code: 429 - usage limit reached; "
+                       "try again in 2 hours 5 minutes.")
+    finally:
+        logging.getLogger("row_bot").removeHandler(watch)
+    with pytest.raises(ProviderLimit, match="usage limit"):
+        watch.check()
+    assert reset_hint(watch.hit) == "try again in 2 hours 5 minutes"
+    assert reset_hint("Rate limited.") == "" and limit_text("Too Many Requests") and not limit_text("all fine")
+
+
+def test_a_run_on_the_plan_starts_only_after_a_throttle_check_and_stops_cleanly_at_a_limit(
+        tmp_path, monkeypatch) -> None:
+    started: list[str] = []
+
+    def fake_worker(run_dir, spec, **_kwargs):
+        started.append(spec["kind"])
+        trajectory = Trajectory(spec["task_id"], "probe", config={"kind": spec["kind"]}, status="provider_limit",
+                                reason="RateLimitError: usage limit reached, resets at 18:40 UTC")
+        append_jsonl(run_dir / "trajectories.jsonl", trajectory)
+        return 76
+
+    monkeypatch.setattr(orchestrate, "run_worker", fake_worker)
+    monkeypatch.setattr(orchestrate, "_book_and_run",
+                        lambda run_dir, spec, provider, what, expect: fake_worker(run_dir, spec))
+    assert orchestrate.throttle_check(tmp_path, "ollama", "qwen3.8:27b", LedgerCaps()) == 0  # local: no check
+    assert orchestrate.throttle_check(tmp_path, "codex", "auto", LedgerCaps()) == 76
+    assert started == ["probe"]
+    found = json.loads((tmp_path / "limit.json").read_text(encoding="utf-8"))
+    assert found["resets"] == "resets at 18:40 UTC" and "--run-dir" in found["resume"]
+
+
+# ── BEAM's full-context subset ──────────────────────────────────────────────
+
+
+def test_beams_full_context_runs_on_a_fixed_subset_and_memory_mode_reports_it_paired(tmp_path) -> None:
+    import shutil
+
+    root = _beam_chats(tmp_path)
+    for number in range(2, 12):
+        shutil.copytree(root / "1", root / str(number))
+    args = orchestrate.build_parser().parse_args(["plan", "--benchmark", "beam-1m", "--data", str(root)])
+    assert len(orchestrate.build_tasks(args)) == 11  # memory mode: every conversation
+    args.mode = "full-context"
+    assert [task.task_id for task in orchestrate.build_tasks(args)] == [f"beam1m_{n}" for n in range(1, 11)]
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run.json").write_text(json.dumps({"benchmark": "beam-1m", "mode": "memory", "config": {},
+                                                  "protocol": {"name": "beam", "headline": "categories"}}),
+                                      encoding="utf-8")
+    with (run_dir / "judgments.jsonl").open("w", encoding="utf-8") as handle:
+        for question_id, category, score in (("beam_1_summarization_0", "summarization", 1.0),
+                                             ("beam_1_abstention_0", "abstention", 0.5),
+                                             ("beam_11_summarization_0", "summarization", 0.0)):
+            handle.write(json.dumps(vars(scoring.Judgment(question_id, "original", "model:codex:gpt-6.1-sol", 0,
+                                                          score, category=category))) + "\n")
+    scores = orchestrate.build_scores(run_dir)
+    assert scores["scores"][0]["headline"] == 0.5  # categories: summarization 0.5, abstention 0.5
+    (paired,) = scores["paired_subset"]["scores"]
+    assert (paired["questions"], paired["headline"]) == (2, 0.75)
+    assert "full-context subset" in orchestrate.render_report(scores)
+
+
 # ── Worker environment and lanes ────────────────────────────────────────────
 
 

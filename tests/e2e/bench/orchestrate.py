@@ -46,7 +46,7 @@ from .memory.datasets import (
     longmemeval_v2_tasks,
 )
 from .memory.protocols import JudgeProtocol, load as load_protocol, protocol_from_json, protocol_to_json
-from .runtime import LOCAL_MODEL, BenchConfig, child_env
+from .runtime import LOCAL_MODEL, BenchConfig, child_env, reset_hint
 from .trajectory import read_jsonl
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -56,6 +56,13 @@ OUT_ENV = "ROW_BOT_BENCH_OUT"
 BENCHMARKS = (LOCOMO, LONGMEMEVAL_S, BEAM_1M, LONGMEMEVAL_V2)
 MEMORY, FULL_CONTEXT = "memory", "full-context"
 PUBLISHED = Path(__file__).resolve().parent / "memory" / "published.json"
+#: BEAM-1M's full-context baseline runs on a fixed subset, chosen before any run (the orchestrator's
+#: decision, 14 Nov 2026): the 10 lowest conversation ids (1-10 in the release), 200 questions. Memory
+#: mode runs all 35, and its report also gives its score on this subset, so the comparison is paired.
+BEAM_SUBSET_SIZE = 10
+BEAM_FULL_CONTEXT_SUBSET = tuple(range(1, BEAM_SUBSET_SIZE + 1))
+BEAM_SUBSET_RULE = "the 10 lowest conversation ids (1-10), fixed before any run"
+EXIT_PROVIDER_LIMIT = 76
 TASK_TIMEOUT_MIN = 24 * 60
 # Rough planning figures (tokens); the smoke run measures the real ones.
 EXTRACTION_PROMPT_TOKENS = 2_500
@@ -101,8 +108,11 @@ def build_tasks(args: argparse.Namespace) -> list[MemoryTask]:
         tasks = longmemeval_tasks(Path(args.data), question_ids=args.question_ids.split(",") if args.question_ids
                                   else None, limit=args.questions)
     elif args.benchmark == BEAM_1M:
-        tasks = beam_tasks(Path(args.data), conversations=_numbers(args.conversations),
-                           questions_per_category=args.questions)
+        conversations = _numbers(args.conversations)
+        if conversations is None and mode == FULL_CONTEXT:
+            present = sorted(int(item.name) for item in Path(args.data).iterdir() if item.name.isdigit())
+            conversations = present[:BEAM_SUBSET_SIZE]
+        tasks = beam_tasks(Path(args.data), conversations=conversations, questions_per_category=args.questions)
     elif args.benchmark == LONGMEMEVAL_V2:
         tasks = longmemeval_v2_tasks(Path(args.data), tier=args.tier,
                                      domains=args.domains.split(",") if args.domains else None)
@@ -238,6 +248,34 @@ def _book_and_run(run_dir: Path, spec: dict[str, Any], provider: str, what: str,
         book.end(kind, what)
 
 
+def limit_report(run_dir: Path) -> dict[str, Any]:
+    """The usage limit that stopped a run, and when the provider said it resets; written to ``limit.json``."""
+    reason = next((item.reason for item in reversed(read_jsonl(run_dir / "trajectories.jsonl"))
+                   if item.status == "provider_limit"), "")
+    found = {"at": time.strftime("%Y-%m-%d %H:%M"), "reason": reason,
+             "resets": reset_hint(reason) or "not stated by the provider", "resume": f"--run-dir {run_dir}"}
+    (run_dir / "limit.json").write_text(json.dumps(found, indent=1), encoding="utf-8")
+    print(f"stopped: the provider's usage limit ({reason[:200]}); resets: {found['resets']}; "
+          f"resume with --run-dir {run_dir}")
+    return found
+
+
+def throttle_check(run_dir: Path, provider: str, model: str, caps: LedgerCaps) -> int:
+    """One tiny call on the ChatGPT plan before a benchmark starts (booked like the rest): its limit is
+    shared with the owner's everyday Row-Bot, so nothing starts while it is throttled."""
+    if billing_for(provider) != PLAN:
+        return 0
+    spec = {"kind": "probe", "task_id": f"probe-{time.strftime('%Y%m%d-%H%M%S')}", "benchmark": "probe",
+            "config": asdict(BenchConfig(provider=provider, model=model, tools=())), "caps": asdict(caps),
+            "usage_book": str(usage_book_path())}
+    code = _book_and_run(run_dir, spec, provider, "throttle check", "1 min")
+    if code == EXIT_PROVIDER_LIMIT:
+        limit_report(run_dir)
+    elif code:
+        print(f"the throttle check failed (exit {code}); see {run_dir / 'logs'}")
+    return code
+
+
 def run(args: argparse.Namespace) -> int:
     if not enabled():
         print(f"set {ENABLE_ENV}=1 to run (it uses the model you name)")
@@ -263,7 +301,11 @@ def run(args: argparse.Namespace) -> int:
             [row for row in review if row["question_id"] in asked], indent=1), encoding="utf-8")
     config = BenchConfig(provider=provider, model=model, tools=tuple(args.tools.split(",")) if args.tools else (),
                          reasoning_effort=args.reasoning_effort or "")
+    conversations = sorted({int(task.task_id.split("_")[-1]) for task in tasks}) if args.benchmark == BEAM_1M else []
     record = {"run": {"benchmark": args.benchmark, "mode": args.mode, "data": Path(args.data).name,
+                      "conversations": conversations,
+                      "subset_rule": BEAM_SUBSET_RULE if args.benchmark == BEAM_1M and args.mode == FULL_CONTEXT
+                      and not args.conversations else "",
                       "key": Path(args.key).name if args.key else "", "dream": bool(args.dream),
                       "perspectives": args.perspectives if args.benchmark == LOCOMO and args.mode == MEMORY else "",
                       "tier": args.tier if args.benchmark == LONGMEMEVAL_V2 else "",
@@ -272,6 +314,9 @@ def run(args: argparse.Namespace) -> int:
                                                   "protocol": protocol.describe()}, indent=1), encoding="utf-8")
     finished = done_tasks(run_dir)
     print(f"run folder: {run_dir}")
+    code = throttle_check(run_dir, provider, model, caps)
+    if code:
+        return code
     for task in tasks:
         if task.task_id in finished:
             print(f"{task.task_id}: done earlier")
@@ -284,9 +329,11 @@ def run(args: argparse.Namespace) -> int:
         expect = f"{max(10, figures['windows'] + figures['questions'])} min"
         code = _book_and_run(run_dir, spec, provider, f"{label} {task.task_id}", expect)
         print(f"{task.task_id}: exit {code}")
-        if code in (75, 76, 77):
-            print({75: "a cap stopped the run", 76: "the provider's usage limit stopped the run",
-                   77: "stopped on request"}[code])
+        if code == EXIT_PROVIDER_LIMIT:
+            limit_report(run_dir)
+            return code
+        if code in (75, 77):
+            print({75: "a cap stopped the run", 77: "stopped on request"}[code])
             return code
     if args.judge:
         return judge(args, run_dir=run_dir)
@@ -331,9 +378,13 @@ def judge(args: argparse.Namespace, *, run_dir: Path | None = None) -> int:
                 "usage_book": str(usage_book_path()), "protocol": protocol_to_json(protocol),
                 "questions": [vars(item) for item in questions if item.question_id in wanted],
                 "answers": [asdict(item) for item in todo], "keys": list(keys), "runs": args.judge_runs}
-        code = _book_and_run(run_dir, spec, provider, f"{protocol.name} judge {ref}",
-                             f"{max(5, len(todo) // 20)} min")
-        print(f"judge {ref}: exit {code}")
+        code = throttle_check(run_dir, provider, model, caps)
+        if not code:
+            code = _book_and_run(run_dir, spec, provider, f"{protocol.name} judge {ref}",
+                                 f"{max(5, len(todo) // 20)} min")
+            print(f"judge {ref}: exit {code}")
+            if code == EXIT_PROVIDER_LIMIT:
+                limit_report(run_dir)
         if code:
             return code
     write_report(run_dir)
@@ -398,6 +449,16 @@ def build_scores(run_dir: Path) -> dict[str, Any]:
             item["headline"] = item["mean_over_categories"] if headline == "categories" else item["accuracy"]
             item["published_judge"] = name == published
             scores.append(item)
+    paired: dict[str, Any] = {}
+    if run.get("benchmark") == BEAM_1M:
+        # The full-context baseline's fixed subset: every BEAM run reports its score on it too (paired).
+        prefixes = tuple(f"beam_{number}_" for number in BEAM_FULL_CONTEXT_SUBSET)
+        chosen = [item for item in judgments if item.question_id.startswith(prefixes)]
+        paired = {"rule": BEAM_SUBSET_RULE, "scores": []}
+        for name in judges:
+            for key in keys:
+                found = scoring.accuracy(chosen, key=key, judge=name)
+                paired["scores"].append({**found, "headline": found["mean_over_categories"]})
     # The newest attempt of each task (a resumed task's earlier attempt is in the file too).
     every = read_jsonl(run_dir / "trajectories.jsonl")
     trajectories = list({item.task_id: item for item in every}.values())
@@ -420,7 +481,8 @@ def build_scores(run_dir: Path) -> dict[str, Any]:
         "reader": {"provider": config.get("provider"), "models": readers, "local_model": local,
                    "reasoning_effort": config.get("reasoning_effort"), "tools": config.get("tools")},
         "dream": run.get("dream"), "protocol": protocol, "judge_settings": judge_settings,
-        "scores": scores, "judge_sensitivity": sensitivity,
+        "scores": scores, "judge_sensitivity": sensitivity, "paired_subset": paired,
+        "conversations": run.get("conversations") or [], "subset_rule": run.get("subset_rule") or "",
         "tasks": {"done": sum(item.status == "done" for item in memory_runs),
                   "other": [{"task_id": item.task_id, "status": item.status, "reason": item.reason}
                             for item in trajectories if item.status != "done"]},
@@ -468,6 +530,11 @@ def render_report(scores: Mapping[str, Any]) -> str:
                           for name, value in item["by_category"].items())
         lines.append(f"- {item['key']} / {item['judge']}: {cells}; abstention {_pct(item['abstention'])}, "
                      f"non-abstention {_pct(item['non_abstention'])}; unparsed {item['unparsed_verdicts']}")
+    if scores.get("subset_rule"):
+        lines.append(f"- conversations: {scores['subset_rule']}")
+    for item in (scores.get("paired_subset") or {}).get("scores", []):
+        lines.append(f"- on the full-context subset ({scores['paired_subset']['rule']}), {item['key']} / "
+                     f"{item['judge']}: {_pct(item['headline'])} (n={item['questions']})")
     for item in scores["judge_sensitivity"]:
         if item.get("questions"):
             lines.append(f"- judge agreement ({item['key']}, n={item['questions']}): {item['primary']} "

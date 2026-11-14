@@ -60,6 +60,7 @@ def extract_until_read(runtime: BenchRuntime) -> dict[str, Any]:
         journal = extraction._load_extraction_journal()  # noqa: SLF001
         if len(runtime.ledger.refused) > refused:
             raise BudgetStop(runtime.ledger.refused[-1])
+        runtime.limits.check()  # the plan's limit: stop now, resumable, no retry loop
         if len(journal) == before:
             break  # nothing was due: every conversation is read to its end
         runs += 1
@@ -122,6 +123,7 @@ def dream(runtime: BenchRuntime, task: MemoryTask) -> Step:
     when = task.sessions[-1].when if task.sessions else task.ask_at
     with pinned_clock(when):
         found = dream_cycle.run_dream_cycle() or {}
+    runtime.limits.check()
     step.seconds = round(time.monotonic() - started, 3)
     step.metrics = {key: (len(value) if isinstance(value, list) else value) for key, value in found.items()
                     if key in {"merges", "superseded", "enrichments", "inferred_relations", "errors", "duration_s"}}
