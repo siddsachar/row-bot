@@ -1,5 +1,41 @@
 {
   "$defs": {
+    "ProactiveKindCounts": {
+      "additionalProperties": false,
+      "description": "A kind's last 30 days: reached a surface, acted on, dismissed, left alone. Kept on this computer.",
+      "properties": {
+        "acted": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Acted",
+          "type": "integer"
+        },
+        "dismissed": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Dismissed",
+          "type": "integer"
+        },
+        "ignored": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Ignored",
+          "type": "integer"
+        },
+        "shown": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Shown",
+          "type": "integer"
+        }
+      },
+      "title": "ProactiveKindCounts",
+      "type": "object"
+    },
     "ProactiveKindView": {
       "additionalProperties": false,
       "properties": {
@@ -19,6 +55,9 @@
           "maxLength": 60,
           "title": "Label",
           "type": "string"
+        },
+        "last_30_days": {
+          "$ref": "#/$defs/ProactiveKindCounts"
         },
         "on": {
           "title": "On",
@@ -136,6 +175,11 @@
     "ProactiveSourceView": {
       "additionalProperties": false,
       "properties": {
+        "connected": {
+          "default": true,
+          "title": "Connected",
+          "type": "boolean"
+        },
         "id": {
           "enum": [
             "mail",
@@ -200,6 +244,11 @@
       "minimum": 1,
       "title": "Follow Up Days",
       "type": "integer"
+    },
+    "introduced": {
+      "default": false,
+      "title": "Introduced",
+      "type": "boolean"
     },
     "kinds": {
       "items": {

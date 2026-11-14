@@ -34,6 +34,7 @@ describe('settings navigation metadata', () => {
       'Preferences',
       'Appearance',
       'Buddy',
+      'Proactive',
       'Models',
       'Voice',
       'Memory',

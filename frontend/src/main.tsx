@@ -17,6 +17,11 @@ import { createClientController } from './api';
 import { selectClientPlatform } from './platform';
 import { RuntimeContext } from './runtime';
 import { provideLive } from './live';
+import {
+  noteAppOpen,
+  proactiveIO,
+  provideProactive,
+} from './features/proactive/proactive-state';
 import { bindPageLifecycle } from './page-lifecycle';
 import { PwaStatus } from './pwa';
 import { ThemeProvider } from './ui/theme';
@@ -175,6 +180,9 @@ async function start() {
   await controller.start();
   // Background state reaches the sidebar, Home and Monitor at once (B407).
   provideLive(controller.live);
+  // Proactive: opening the window is a break (the day's first brings the brief).
+  provideProactive(proactiveIO(controller));
+  noteAppOpen(controller);
   let platform = await selectClientPlatform(
     controller,
     controller.getSnapshot().handshake,

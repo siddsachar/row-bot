@@ -82,7 +82,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -254,6 +254,10 @@ OPERATIONS = (
     ("delete", "/proactive/rules/{rule_id}", None, "ProactiveSettingsView"),
     ("get", "/proactive/drafts", None, "ProactiveDraftPage"),
     ("get", "/proactive/drafts/{draft_id}", None, "ProactiveDraftView"),
+    ("put", "/proactive/drafts/{draft_id}", "ProactiveDraftEdit", "ProactiveDraftView"),
+    ("post", "/proactive/drafts/{draft_id}/send", None, "ProactiveDraftView"),
+    ("post", "/proactive/drafts/{draft_id}/send/answer", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome"),
+    ("get", "/proactive/preview", None, "ProactivePreview"),
     ("post", "/proactive/boundaries", "ProactiveBoundary", "ProactiveBoundaryNoted"),
     ("get", "/row-bot-sandboxes", None, "RowBotSandboxPage"),
     ("post", "/row-bot-sandboxes", "RowBotSandboxCreate", "RowBotSandboxView"),
@@ -903,6 +907,40 @@ export const getWaits = (base: string, proof: SessionProof, signal?: AbortSignal
   jsonRequest(base, '/waits', 'WaitPage', proof, 'GET', undefined, undefined, signal);
 export const stopWait = (base: string, proof: SessionProof, wait: string, signal?: AbortSignal): Promise<WaitPage> =>
   jsonRequest(base, `/waits/${id(wait)}/stop`, 'WaitPage', proof, 'POST', undefined, undefined, signal);
+/** Proactive Row-Bot: For you, "Why this?", feedback, the Activity log, settings, rules and drafts. */
+export const getProactiveMoments = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveMomentPage> =>
+  jsonRequest(base, '/proactive/moments', 'ProactiveMomentPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveMoment = (base: string, proof: SessionProof, moment: string, signal?: AbortSignal): Promise<ProactiveMomentDetail> =>
+  jsonRequest(base, `/proactive/moments/${id(moment)}`, 'ProactiveMomentDetail', proof, 'GET', undefined, undefined, signal);
+export const sendProactiveFeedback = (base: string, proof: SessionProof, moment: string, body: ProactiveFeedback, signal?: AbortSignal): Promise<ProactiveMomentDetail> =>
+  jsonRequest(base, `/proactive/moments/${id(moment)}/feedback`, 'ProactiveMomentDetail', proof, 'POST', validateWire('ProactiveFeedback', body), undefined, signal);
+export const getProactiveActivity = (base: string, proof: SessionProof, before?: number, limit?: number, signal?: AbortSignal): Promise<ProactiveActivityPage> =>
+  jsonRequest(base, '/proactive/activity' + query({before, limit}), 'ProactiveActivityPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/settings', 'ProactiveSettingsView', proof, 'GET', undefined, undefined, signal);
+export const changeProactiveSettings = (base: string, proof: SessionProof, body: ProactiveSettingsChange, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/settings', 'ProactiveSettingsView', proof, 'PUT', validateWire('ProactiveSettingsChange', body), undefined, signal);
+export const addProactiveRule = (base: string, proof: SessionProof, body: ProactiveRuleWrite, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/rules', 'ProactiveSettingsView', proof, 'POST', validateWire('ProactiveRuleWrite', body), undefined, signal);
+export const changeProactiveRule = (base: string, proof: SessionProof, rule: string, body: ProactiveRuleWrite, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, `/proactive/rules/${id(rule)}`, 'ProactiveSettingsView', proof, 'PUT', validateWire('ProactiveRuleWrite', body), undefined, signal);
+export const deleteProactiveRule = (base: string, proof: SessionProof, rule: string, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, `/proactive/rules/${id(rule)}`, 'ProactiveSettingsView', proof, 'DELETE', undefined, undefined, signal);
+export const getProactiveDrafts = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveDraftPage> =>
+  jsonRequest(base, '/proactive/drafts', 'ProactiveDraftPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveDraft = (base: string, proof: SessionProof, draft: string, signal?: AbortSignal): Promise<ProactiveDraftView> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}`, 'ProactiveDraftView', proof, 'GET', undefined, undefined, signal);
+export const saveProactiveDraft = (base: string, proof: SessionProof, draft: string, body: ProactiveDraftEdit, signal?: AbortSignal): Promise<ProactiveDraftView> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}`, 'ProactiveDraftView', proof, 'PUT', validateWire('ProactiveDraftEdit', body), undefined, signal);
+/** Sending a drafted reply: the first call shows its approval card (always); only the answer can send it. */
+export const askToSendProactiveDraft = (base: string, proof: SessionProof, draft: string, signal?: AbortSignal): Promise<ProactiveDraftView> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}/send`, 'ProactiveDraftView', proof, 'POST', undefined, undefined, signal);
+export const answerProactiveDraftSend = (base: string, proof: SessionProof, draft: string, body: ProactiveDraftSendAnswer, signal?: AbortSignal): Promise<ProactiveDraftSendOutcome> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}/send/answer`, 'ProactiveDraftSendOutcome', proof, 'POST', validateWire('ProactiveDraftSendAnswer', body), undefined, signal);
+export const getProactivePreview = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactivePreview> =>
+  jsonRequest(base, '/proactive/preview', 'ProactivePreview', proof, 'GET', undefined, undefined, signal);
+export const noteProactiveBoundary = (base: string, proof: SessionProof, body: ProactiveBoundary, signal?: AbortSignal): Promise<ProactiveBoundaryNoted> =>
+  jsonRequest(base, '/proactive/boundaries', 'ProactiveBoundaryNoted', proof, 'POST', validateWire('ProactiveBoundary', body), undefined, signal);
 /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */
 export const getRowBotSandboxes = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<RowBotSandboxPage> =>
   jsonRequest(base, '/row-bot-sandboxes', 'RowBotSandboxPage', proof, 'GET', undefined, undefined, signal);

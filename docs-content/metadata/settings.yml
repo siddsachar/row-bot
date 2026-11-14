@@ -17,6 +17,13 @@ pages:
     docs_route: /docs/settings/buddy
     screenshot_id: settings-buddy
     dependencies: Desktop overlay behaviour depends on native-window support.
+  proactive:
+    description: Choose how much Row-Bot brings up by itself (Off, Quiet, Balanced or
+      Eager), quiet hours, desktop context for timing, sources, the kinds of moments,
+      urgent kinds for chat apps, the end-of-day wrap, your rules and the Activity log.
+    docs_route: /docs/guides/proactive
+    security: Watching for changes happens on this computer; short summaries of what
+      changed go to the main model to decide what is worth a mention.
   models:
     description: Choose the main model and the models for Vision, Image and Video,
       keep your starred models, connect hosted, subscription, local and custom model

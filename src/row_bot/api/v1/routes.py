@@ -5885,6 +5885,42 @@ def create_router(
 
         return await respond(request, dto.ProactiveDraftView, await call(read_draft, _moment_id(draft_id)))
 
+    @router.put("/proactive/drafts/{draft_id}")
+    async def save_proactive_draft(request: Request, draft_id: str) -> JSONResponse:
+        """The person's edits to a drafted reply, saved in Row-Bot (never to the mail account)."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveDraftEdit, 64 * 1024)
+        from row_bot.application.client_proactive import save_draft
+
+        result = await call(save_draft, _moment_id(draft_id), body=body.body, to=body.to, subject=body.subject)
+        return await respond(request, dto.ProactiveDraftView, result)
+
+    @router.post("/proactive/drafts/{draft_id}/send")
+    async def send_proactive_draft(request: Request, draft_id: str) -> JSONResponse:
+        """Send a drafted reply: shows its approval card, under every approval level, and sends nothing yet."""
+        await session(request, lane="mutation")
+        from row_bot.application.client_proactive import ask_to_send
+
+        return await respond(request, dto.ProactiveDraftView, await call(ask_to_send, _moment_id(draft_id)))
+
+    @router.post("/proactive/drafts/{draft_id}/send/answer")
+    async def answer_proactive_draft_send(request: Request, draft_id: str) -> JSONResponse:
+        """The person's answer on that card: only their approval of exactly what it showed sends it."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveDraftSendAnswer, 1024)
+        from row_bot.application.client_proactive import answer_send
+
+        result = await call(answer_send, _moment_id(draft_id), binding=body.binding, approved=body.approved)
+        return await respond(request, dto.ProactiveDraftSendOutcome, result)
+
+    @router.get("/proactive/preview")
+    async def proactive_preview(request: Request) -> JSONResponse:
+        """What each level would have brought up today, from today's moments."""
+        await session(request)
+        from row_bot.application.client_proactive import read_preview
+
+        return await respond(request, dto.ProactivePreview, await call(read_preview))
+
     @router.post("/proactive/boundaries")
     async def proactive_boundary(request: Request) -> JSONResponse:
         """The app just opened: moments batched for a natural break may go out."""

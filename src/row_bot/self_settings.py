@@ -907,21 +907,25 @@ SETTINGS: tuple[Setting, ...] = (
             "'skill_name:on' (pinned for new chats) or 'skill_name:off'", _prepare_skill),
     Setting("tool_toggle", "Tools", "tools", "Tools", "built-in-tools", "preference",
             "'tool_name:on' or 'tool_name:off' ('mcp:on' or 'mcp:off' for the MCP client)", _prepare_tool_toggle),
-    # Proactive Row-Bot: no Settings row yet (Settings › Proactive comes with its client), so no link.
-    Setting("proactive_level", "Proactive level", "", "", "", "preference", "off, quiet, balanced or eager",
+    # Proactive Row-Bot: the rows of Settings › Proactive.
+    Setting("proactive_level", "Proactive level", "proactive", "Proactive", "level", "preference", "off, quiet, balanced or eager",
             _proactive("level"), _proactive_now("level")),
-    Setting("proactive_quiet_hours", "Quiet hours", "", "", "", "preference",
+    Setting("proactive_quiet_hours", "Quiet hours", "proactive", "Proactive", "quiet-hours", "preference",
             "'START-END' times, like '22:00-07:30'", _proactive("quiet_hours"), _proactive_now("quiet_hours")),
-    Setting("proactive_desktop_context", "Desktop context for timing", "", "", "", "preference", "'on' or 'off'",
+    Setting("proactive_desktop_context", "Desktop context for timing", "proactive", "Proactive", "desktop-context",
+            "preference", "'on' or 'off'",
             _proactive("desktop_context"), _proactive_now("desktop_context")),
-    Setting("proactive_kind", "Proactive", "", "", "", "preference",
+    Setting("proactive_kind", "What to bring up", "proactive", "Proactive", "kinds", "preference",
             f"'kind:on' or 'kind:off', a kind being {_PROACTIVE_KINDS}", _proactive("kind")),
-    Setting("proactive_source", "Proactive source", "", "", "", "preference",
+    Setting("proactive_source", "Sources", "proactive", "Proactive", "sources", "preference",
             "'source:on' or 'source:off', a source being mail, calendar, chats, memory, workflows or monitor",
             _proactive("source")),
-    Setting("proactive_urgent", "Urgent in chat apps", "", "", "", "preference",
+    Setting("proactive_urgent", "Urgent in chat apps", "proactive", "Proactive", "urgent", "preference",
             f"'kind:on' marks a kind urgent (only urgent kinds reach a chat app), 'kind:off' unmarks it; a kind "
             f"being {_PROACTIVE_KINDS}", _proactive("urgent")),
+    Setting("proactive_wrap", "End-of-day wrap", "proactive", "Proactive", "wrap", "preference",
+            "'on', 'off', or 'level' to follow the level (off at Quiet, on at Balanced and Eager)",
+            _proactive("wrap"), _proactive_now("wrap")),
 )
 BY_ID = {setting.id: setting for setting in SETTINGS}
 IDS = tuple(BY_ID)

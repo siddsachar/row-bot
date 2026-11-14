@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from row_bot.proactive.model import Desktop
-from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, candidate, start_day
+from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, balanced, candidate, start_day
 
 pytestmark = pytest.mark.subsystem
 
@@ -82,6 +82,7 @@ def test_never_about_rules_keep_a_candidate_out_before_triage(proactive, monkeyp
 
 
 def test_not_at_this_time_holds_a_kind_through_that_hour(proactive):
+    balanced(proactive)
     watcher = ScriptedWatcher()
     proactive.watchers.register(watcher)
     proactive.store.save_rule(proactive.feedback.check_rule({"type": "not_at_time", "kind": "follow_up",

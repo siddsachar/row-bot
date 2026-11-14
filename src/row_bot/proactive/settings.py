@@ -31,7 +31,7 @@ LEVEL_WORDS = {"off": "Off", "quiet": "Quiet", "balanced": "Balanced", "eager": 
 # What each level means, in the person's words (Settings shows it as a live example).
 LEVEL_EXAMPLES = {
     "off": "Row-Bot never starts anything by itself.",
-    "quiet": "Up to 3 things a day, only at natural breaks; anything urgent (a meeting in 10 minutes) comes first.",
+    "quiet": "Up to 3 a day: the morning brief and what's about to happen; the rest waits on Home.",
     "balanced": "Up to 6 things a day at natural breaks.",
     "eager": "Up to 12 things a day, as soon as there's a break.",
 }
@@ -74,6 +74,8 @@ DEFAULTS: dict[str, Any] = {
     # The end-of-day wrap: None follows the level (off at Quiet, on at Balanced and Eager); True or False is
     # the person's own choice, whatever the level.
     "wrap": None,
+    # The first-run introduction was answered or dismissed: it shows once per person, on any device.
+    "introduced": False,
 }
 WRAP_LEVELS = frozenset({"balanced", "eager"})
 
@@ -122,6 +124,7 @@ def _validated(data: dict[str, Any]) -> dict[str, Any]:
         raise SettingsError("The end-of-day wrap is on or off.")
     return {
         "wrap": wrap,
+        "introduced": bool(data.get("introduced")),
         "level": level, "quiet_start": start, "quiet_end": end, "day_end": _clock(data.get("day_end"), "Day end"),
         "sources": {source: bool(sources.get(source, True)) for source in SOURCES},
         "kinds": {kind: bool(kinds.get(kind, True)) for kind in KINDS},
@@ -185,6 +188,10 @@ def _value(name: str, settings: dict[str, Any]) -> tuple[str, str]:
         return span, span.replace("-", "–")
     if name == "desktop_context":
         return ("on", "On") if settings["desktop_context"] else ("off", "Off")
+    if name == "wrap":
+        if settings["wrap"] is None:
+            return "level", f"{'On' if wrap_on(settings) else 'Off'} (follows the level)"
+        return ("on", "On") if settings["wrap"] else ("off", "Off")
     raise KeyError(name)
 
 
@@ -226,6 +233,13 @@ def prepare_change(name: str, setting, value: str):
     elif name == "desktop_context":
         on = _on_off(text)
         changes, after = {"desktop_context": on}, Value("on" if on else "off", "On" if on else "Off")
+    elif name == "wrap":
+        if text.lower() == "level":  # Back to following the level (how it was before the person chose).
+            changes = {"wrap": None}
+            after = Value(*_value("wrap", {**settings, "wrap": None}))
+        else:
+            on = _on_off(text)
+            changes, after = {"wrap": on}, Value("on" if on else "off", "On" if on else "Off")
     else:
         names, words, field = {"kind": (KINDS, KIND_WORDS, "kinds"), "source": (SOURCES, SOURCE_WORDS, "sources"),
                                "urgent": (KINDS, KIND_WORDS, "urgent_kinds")}[name]

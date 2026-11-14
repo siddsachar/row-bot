@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
-from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, candidate, start_day
+from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, balanced, candidate, start_day
 
 pytestmark = pytest.mark.subsystem
 
@@ -47,6 +47,7 @@ def test_for_you_lists_open_moments_urgent_first_and_why_this_shows_the_evidence
 
 
 def test_feedback_settles_a_moment_once_and_less_like_this_writes_a_visible_rule(proactive, api):
+    balanced(proactive)
     client, headers = api
     [moment] = [item for item in _moments(proactive, candidate("mail:a")) if item["state"] == "shown"]
     url = f"/api/v1/proactive/moments/{moment['id']}/feedback"

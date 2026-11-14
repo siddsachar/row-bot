@@ -6,7 +6,11 @@
   carries on in the chat the moment came from, as a Row-Bot continuation note; acting on a "make it a
   workflow" offer with ``make_workflow`` drafts the workflow (off, unscheduled) and names it for the client
   to open for review.
-- ``list_drafts`` / ``read_draft``: what Row-Bot prepared (briefs, drafted replies), never sent.
+- ``list_drafts`` / ``read_draft``: what Row-Bot prepared (briefs, drafted replies), with who a reply goes
+  to; ``save_draft`` keeps the person's edits in Row-Bot. ``ask_to_send`` shows a reply's approval card
+  under every approval level (Row-Bot wrote it), and only ``answer_send`` with the person's approval of
+  exactly that card sends it (``proactive.send``).
+- ``read_preview``: what each level would have brought up today; each moment carries its For you group.
 - ``read_activity``: every proactive pass, silent ones too, and each moment's steps, newest first.
 - ``read_settings`` / ``update_settings``: the level, quiet hours, sources, kinds, desktop context, urgent
   kinds and the person's rules, each with its plain privacy line.
@@ -36,7 +40,52 @@ def _when(value: float) -> str:
     return datetime.fromtimestamp(value).astimezone().isoformat(timespec="seconds") if value else ""
 
 
-def moment_view(moment: dict[str, Any]) -> dict[str, Any]:
+NOW_WINDOW_SECONDS = 3600  # Within this of its time (or past it), a moment is "Now".
+_NOT_NOW_KEPT = 500
+
+
+def _event_start(moment: dict[str, Any]) -> float | None:
+    """The start of the meeting a moment is about, as it was seen (meeting prep, a moved meeting)."""
+    for item in moment["evidence"]:
+        seen = str(item.get("seen") or "")
+        if item.get("type") == "event" and seen.isdigit():
+            return float(seen)
+    return None
+
+
+def moment_group(moment: dict[str, Any], now: float, not_now: frozenset[str] = frozenset()) -> str:
+    """For you's group, decided here from what the moment is about, never from when it was shown (the morning
+    brief marks what it carries as shown, and that mustn't move them): "now" (within the hour, happening or
+    urgent), "later_today" (later today) or "ready" (no time of its own, another day, or put off with Not now).
+    """
+    if moment["kind"] == "brief":
+        return "now"
+    if moment["id"] in not_now:
+        return "ready"
+    start = _event_start(moment)
+    if moment["urgency"] == "urgent" and (start is None or start - now <= NOW_WINDOW_SECONDS):
+        return "now"
+    # A moment due when it was made has no time of its own (a follow-up): it's ready when the person is.
+    at = start if start is not None else (moment["due_at"] if moment["due_at"] - moment["created_at"] > 60 else None)
+    if at is None:
+        return "ready"
+    if at - now <= NOW_WINDOW_SECONDS:
+        return "now"
+    tomorrow = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() + 86400
+    return "later_today" if at < tomorrow else "ready"
+
+
+def _not_now() -> frozenset[str]:
+    from row_bot.proactive import store
+
+    return frozenset(store.get_state("not_now") or [])
+
+
+def moment_view(moment: dict[str, Any], *, now: float | None = None,
+                not_now: frozenset[str] | None = None) -> dict[str, Any]:
+    import time
+
+    now = time.time() if now is None else now
     return {
         "moment_id": moment["id"],
         "kind": moment["kind"],
@@ -53,6 +102,8 @@ def moment_view(moment: dict[str, Any]) -> dict[str, Any]:
                     for action in moment["actions"][:2]],
         "prepared_ref": moment["prepared_ref"][:64],
         "evidence_count": len(moment["evidence"]),
+        "group": moment_group(moment, now, _not_now() if not_now is None else not_now),
+        "starts_at": _when(_event_start(moment) or 0.0),
     }
 
 
@@ -68,7 +119,8 @@ def for_you() -> dict[str, Any]:
     items = store.list_moments(OPEN_STATES, limit=MAX_MOMENTS)
     items.sort(key=lambda moment: (moment["urgency"] != "urgent", moment["state"] != "shown",
                                    -moment["created_at"]))
-    return {"schema_version": 1, "items": [moment_view(moment) for moment in items]}
+    not_now = _not_now()
+    return {"schema_version": 1, "items": [moment_view(moment, not_now=not_now) for moment in items]}
 
 
 def read_moment(moment_id: str, *, conversation_id: str = "", workflow_id: str = "") -> dict[str, Any]:
@@ -132,6 +184,9 @@ def moment_feedback(moment_id: str, action: str, *, scope: str = "", action_id: 
         feedback.dismiss(moment_id, now=now)
     elif action == "not_now":
         feedback.not_now(moment_id, now=now)
+        # It waits under Ready when you are, whatever its new time (For you's group).
+        store.set_state("not_now", [*[item for item in store.get_state("not_now") or [] if item != moment_id],
+                                    moment_id][-_NOT_NOW_KEPT:])
     elif action == "less_like_this":
         feedback.less_like_this(moment_id, scope, now=now)
     else:
@@ -140,8 +195,83 @@ def moment_feedback(moment_id: str, action: str, *, scope: str = "", action_id: 
 
 
 def _draft_view(draft: dict[str, Any]) -> dict[str, Any]:
-    return {"draft_id": draft["id"], "moment_id": draft["moment_id"], "kind": draft["kind"],
-            "title": draft["title"][:200], "body": draft["body"][:20_000], "created_at": _when(draft["created_at"])}
+    """A draft as the person last saved it: who it replies to and in which thread, whether it can be sent (and
+    why not), and the approval card when sending it waits for their answer."""
+    from row_bot.proactive import send, store
+
+    moment = store.get_moment(draft["moment_id"]) if draft["moment_id"] else None
+    edit = store.draft_edit(draft["id"]) or {}
+    reply = send.reply_to(draft, moment) if draft["kind"] == "reply" else {}
+    asking = send.pending(draft["id"]) if draft["kind"] == "reply" else None
+    return {
+        "draft_id": draft["id"], "moment_id": draft["moment_id"], "kind": draft["kind"],
+        "title": draft["title"][:200], "body": send.body_of(draft)[:20_000], "created_at": _when(draft["created_at"]),
+        "reply_to": str(reply.get("to") or "")[:320], "subject": str(reply.get("subject") or "")[:300],
+        "thread": str(reply.get("thread") or "")[:300], "app": send.APPS.get(str(reply.get("source") or ""), ""),
+        "updated_at": _when(float(edit.get("updated_at") or 0)), "sent_at": _when(float(edit.get("sent_at") or 0)),
+        "send_blocked": send.why_not(draft, moment)[:200] if draft["kind"] == "reply" else "",
+        "send": ({key: str(asking.get(key) or "")[:20_000 if key == "text" else 300]
+                  for key in ("binding", "action", "destination", "account", "subject", "text", "reason")}
+                 | {"asked_at": _when(float(asking.get("asked_at") or 0))}) if asking else None,
+    }
+
+
+def _reply_draft(draft_id: str) -> dict[str, Any]:
+    from row_bot.proactive import store
+
+    draft = store.get_draft(draft_id)
+    if draft is None:
+        raise ClientPlatformError("not_found")
+    if draft["kind"] != "reply":
+        raise ClientPlatformError("invalid_command")  # A brief is for reading.
+    return draft
+
+
+def save_draft(draft_id: str, *, body: str, to: str | None = None, subject: str | None = None) -> dict[str, Any]:
+    """The person's edits to a drafted reply, saved in Row-Bot (never to the mail account). A card shown for
+    other words no longer stands: sending asks again."""
+    import time
+
+    from row_bot.proactive import send, store
+
+    draft = _reply_draft(draft_id)
+    moment = store.get_moment(draft["moment_id"]) if draft["moment_id"] else None
+    if (store.draft_edit(draft_id) or {}).get("sent_at"):
+        raise ClientPlatformError("revision_conflict")  # Sent: it can't change any more.
+    current = send.reply_to(draft, moment)
+    store.save_draft_edit(draft_id, to=(current["to"] if to is None else to).strip()[:320],
+                          subject=(current["subject"] if subject is None else subject).strip()[:300],
+                          body=body[:20_000], now=time.time())
+    send.forget(draft_id)
+    return read_draft(draft_id)
+
+
+def ask_to_send(draft_id: str) -> dict[str, Any]:
+    """Send a drafted reply: shows its approval card and sends nothing, under every approval level (Row-Bot
+    wrote it, so only the person sends it)."""
+    import time
+
+    from row_bot.proactive import send, store
+
+    draft = _reply_draft(draft_id)
+    moment = store.get_moment(draft["moment_id"]) if draft["moment_id"] else None
+    try:
+        send.ask(draft, moment, now=time.time())
+    except send.SendError as error:
+        raise ClientPlatformError(error.code) from None
+    return read_draft(draft_id)
+
+
+def answer_send(draft_id: str, *, binding: str, approved: bool) -> dict[str, Any]:
+    """The person's answer on a drafted reply's card: only their approval of exactly that card sends it."""
+    import time
+
+    from row_bot.proactive import send, store
+
+    draft = _reply_draft(draft_id)
+    moment = store.get_moment(draft["moment_id"]) if draft["moment_id"] else None
+    outcome, words = send.answer(draft, moment, binding=binding, approved=approved, now=time.time())
+    return {"schema_version": 1, "outcome": outcome, "words": words[:300], "draft": read_draft(draft_id)}
 
 
 def list_drafts() -> dict[str, Any]:
@@ -171,12 +301,38 @@ def read_activity(*, before: int = 0, limit: int = 100) -> dict[str, Any]:
             "next_before": int(entries[-1]["id"]) if more and entries else None}
 
 
+COUNT_DAYS = 30
+
+
+def connected_sources() -> dict[str, bool]:
+    """Which sources Row-Bot can read now: mail and the calendar need one of the person's apps on and signed
+    in; chats, memory, workflows and Monitor are Row-Bot's own."""
+    from row_bot.proactive import sources
+
+    def ready(items: list[Any]) -> bool:
+        for item in items:
+            try:
+                if item.available():
+                    return True
+            except Exception:  # An app whose sign-in can't be read counts as not connected.
+                continue
+        return False
+
+    return {"mail": ready(sources.mail_sources()), "calendar": ready(sources.calendar_sources()),
+            "chats": True, "memory": True, "workflows": True, "monitor": True}
+
+
 def read_settings() -> dict[str, Any]:
+    import time
+
     from row_bot.proactive import feedback, store
     from row_bot.proactive import settings as proactive
     from row_bot.proactive.model import KIND_WORDS, KINDS
 
     saved = proactive.load()
+    connected = connected_sources()
+    counts = store.kind_counts(time.time() - COUNT_DAYS * 86400)
+    none = {"shown": 0, "acted": 0, "dismissed": 0, "ignored": 0}
     return {
         "schema_version": 1,
         "level": saved["level"],
@@ -189,12 +345,15 @@ def read_settings() -> dict[str, Any]:
         "desktop_context": saved["desktop_context"],
         "desktop_context_privacy": proactive.PRIVACY["desktop_context"],
         "sources": [{"id": source, "label": proactive.SOURCE_WORDS[source], "on": saved["sources"][source],
-                     "privacy": proactive.PRIVACY[source]} for source in proactive.SOURCES],
+                     "privacy": proactive.PRIVACY[source], "connected": connected[source]}
+                    for source in proactive.SOURCES],
         "kinds": [{"id": kind, "label": KIND_WORDS[kind], "on": saved["kinds"][kind],
                    "urgent": kind in saved["urgent_kinds"],
-                   "quieted": bool(store.kind_stats(kind)["quieted_at"])} for kind in KINDS],
+                   "quieted": bool(store.kind_stats(kind)["quieted_at"]),
+                   "last_30_days": counts.get(kind, none)} for kind in KINDS],
         "channel": saved["channel"],
         "wrap": proactive.wrap_on(saved),
+        "introduced": saved["introduced"],
         "rules": [{"rule_id": rule["id"], "type": rule["type"], "kind": rule["kind"], "topic": rule["topic"],
                    "hour": rule["hour"], "words": feedback.rule_words(rule)} for rule in store.rules()],
         "privacy": PRIVACY_LINE,
@@ -222,6 +381,16 @@ def save_rule(rule: dict[str, Any], *, rule_id: str = "") -> dict[str, Any]:
     existing = store.get_rule(rule_id) if rule_id else None
     store.save_rule({**checked, "created_at": existing["created_at"] if existing else 0}, now=time.time())
     return read_settings()
+
+
+def read_preview() -> dict[str, Any]:
+    """What each level would have brought up today, from today's real moments ("Today at Quiet you'd have
+    seen…"); ``example`` when nothing was checked yet today."""
+    import time
+
+    from row_bot.proactive import preview
+
+    return {"schema_version": 1, **preview.preview(time.time())}
 
 
 def delete_rule(rule_id: str) -> dict[str, Any]:

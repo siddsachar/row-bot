@@ -77,6 +77,7 @@ def proactive(tmp_path, monkeypatch, reload_for_data_dir):
     model = ScriptedModel()
     monkeypatch.setattr(triage, "_call", model)
     sent: list[tuple[str, str]] = []
+    real_send = deliver.send
     monkeypatch.setattr(deliver, "send", lambda surface, moment, chosen: sent.append((surface, moment["id"])) or True)
     monkeypatch.setattr(deliver, "buddy_on", lambda: True)
     monkeypatch.setattr(deliver, "push_ready", lambda: False)
@@ -84,6 +85,7 @@ def proactive(tmp_path, monkeypatch, reload_for_data_dir):
     prepared: list[tuple[str, str]] = []
     monkeypatch.setattr(prepare, "queue", lambda moment_id, untrusted="": prepared.append((moment_id, untrusted)))
     return SimpleNamespace(store=store, settings=settings, engine=engine, feedback=feedback, timing=timing,
+                           real_send=real_send,
                            watchers=watchers, deliver=deliver, model=model, sent=sent, prepared=prepared,
                            tasks=tasks, day=day, day_runs=day_runs, calendars=calendars, mail=mail)
 
@@ -120,6 +122,12 @@ class ScriptedWatcher:
 
     def recheck(self, moment: dict[str, Any], now: float) -> bool | None:
         return moment["dedupe_key"] not in self.stale
+
+
+def balanced(proactive) -> None:
+    """Balanced: moments reach a surface at natural breaks. (Quiet, the default, brings up only the day's brief
+    and what's about to happen; the rest waits in For you.)"""
+    proactive.settings.save({"level": "balanced"})
 
 
 def candidate(key: str = "mail:m1", *, kind: str = "follow_up", title: str = "Ana hasn't replied about the deck",

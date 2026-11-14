@@ -101,11 +101,16 @@ def decide(moment: dict[str, Any], *, at: datetime, desktop: Desktop, settings: 
             return Decision("hold", f"Your rule: no {KIND_WORDS[kind].lower()} around {at.hour}:00.")
     if now < moment["due_at"]:  # Even an urgent one: a meeting brief prepared overnight waits for its meeting.
         return Decision("hold", "Not due yet.")
+    cap = DAILY_CAP[level]
     if moment["urgency"] == "urgent":
+        if level == "quiet" and shown_today >= cap:  # Quiet means at most 3 a day, urgent ones included.
+            return Decision("hold", f"Today's {cap} are used ({LEVEL_WORDS[level]}).")
         return Decision("deliver", "Urgent.", ("It's urgent, so it didn't wait for a break.",))
+    if level == "quiet" and kind != "brief":
+        # Quiet brings up only the day's brief and what's about to happen; the rest waits in For you.
+        return Decision("hold", "Quiet: it waits in For you.")
     if boundary is None:
         return Decision("hold", "Waiting for a natural break.")
-    cap = DAILY_CAP[level]
     if shown_today >= cap:
         return Decision("hold", f"Today's {cap} are used ({LEVEL_WORDS[level]}).")
     if kind_shown_today and any(rule["type"] == "fewer" and rule["kind"] == kind for rule in rules):

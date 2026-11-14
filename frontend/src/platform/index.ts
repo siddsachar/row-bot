@@ -11,6 +11,7 @@ export type {
   BuddyTarget,
   CapabilityResult,
   ClientPlatform,
+  MainWindowTarget,
   MediaTransport,
   NativeConnection,
   PlatformInfo,
@@ -21,7 +22,7 @@ export type {
 export { createBrowserPlatform } from './browser';
 export { pywebviewHost } from './host';
 export { createPyWebViewPlatform } from './native';
-export { nativeConversationId } from './types';
+export { mainWindowTarget, nativeConversationId } from './types';
 
 declare global {
   interface Window {

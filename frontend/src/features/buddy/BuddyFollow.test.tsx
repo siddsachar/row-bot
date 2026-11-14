@@ -92,3 +92,26 @@ it('opens a conversation the desktop Buddy asks for, ignoring malformed ids', ()
   });
   expect(navigate.mock.calls).toEqual([['/conversations/c1']]);
 });
+
+it('opens the Proactive place the desktop pet asks for, and nothing else', () => {
+  navigate.mockClear();
+  render(<OpenConversationRequests />);
+  act(() => {
+    for (const detail of [
+      'for-you',
+      'drafts',
+      'draft:0123456789abcdef',
+      'why:0123456789abcdef',
+      'settings',
+      'why:../x',
+      { target: 'for-you' },
+    ])
+      window.dispatchEvent(new CustomEvent('row-bot-open-target', { detail }));
+  });
+  expect(navigate.mock.calls).toEqual([
+    ['/?tab=overview#for-you'],
+    ['/?tab=overview&draft=all'],
+    ['/?tab=overview&draft=0123456789abcdef'],
+    ['/?tab=overview&why=0123456789abcdef'],
+  ]);
+});

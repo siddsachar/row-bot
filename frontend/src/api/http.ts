@@ -427,6 +427,73 @@ export class HttpTransport implements ClientTransport {
   stopWait(waitId: string) {
     return wire.stopWait(this.base, this.session(), waitId);
   }
+  proactiveMoments(signal?: AbortSignal) {
+    return wire.getProactiveMoments(this.base, this.session(), signal);
+  }
+  proactiveMoment(momentId: string, signal?: AbortSignal) {
+    return wire.getProactiveMoment(this.base, this.session(), momentId, signal);
+  }
+  proactiveFeedback(momentId: string, feedback: wire.ProactiveFeedback) {
+    return wire.sendProactiveFeedback(
+      this.base,
+      this.session(),
+      momentId,
+      feedback,
+    );
+  }
+  proactiveActivity(before?: number, limit?: number, signal?: AbortSignal) {
+    return wire.getProactiveActivity(
+      this.base,
+      this.session(),
+      before,
+      limit,
+      signal,
+    );
+  }
+  proactiveSettings(signal?: AbortSignal) {
+    return wire.getProactiveSettings(this.base, this.session(), signal);
+  }
+  changeProactiveSettings(change: wire.ProactiveSettingsChange) {
+    return wire.changeProactiveSettings(this.base, this.session(), change);
+  }
+  addProactiveRule(rule: wire.ProactiveRuleWrite) {
+    return wire.addProactiveRule(this.base, this.session(), rule);
+  }
+  changeProactiveRule(ruleId: string, rule: wire.ProactiveRuleWrite) {
+    return wire.changeProactiveRule(this.base, this.session(), ruleId, rule);
+  }
+  deleteProactiveRule(ruleId: string) {
+    return wire.deleteProactiveRule(this.base, this.session(), ruleId);
+  }
+  proactiveDrafts(signal?: AbortSignal) {
+    return wire.getProactiveDrafts(this.base, this.session(), signal);
+  }
+  proactiveDraft(draftId: string, signal?: AbortSignal) {
+    return wire.getProactiveDraft(this.base, this.session(), draftId, signal);
+  }
+  saveProactiveDraft(draftId: string, edit: wire.ProactiveDraftEdit) {
+    return wire.saveProactiveDraft(this.base, this.session(), draftId, edit);
+  }
+  askToSendProactiveDraft(draftId: string) {
+    return wire.askToSendProactiveDraft(this.base, this.session(), draftId);
+  }
+  answerProactiveDraftSend(
+    draftId: string,
+    answer: wire.ProactiveDraftSendAnswer,
+  ) {
+    return wire.answerProactiveDraftSend(
+      this.base,
+      this.session(),
+      draftId,
+      answer,
+    );
+  }
+  proactivePreview(signal?: AbortSignal) {
+    return wire.getProactivePreview(this.base, this.session(), signal);
+  }
+  noteProactiveBoundary(boundary: wire.ProactiveBoundary) {
+    return wire.noteProactiveBoundary(this.base, this.session(), boundary);
+  }
   rowBotSandboxes(signal?: AbortSignal) {
     return wire.getRowBotSandboxes(this.base, this.session(), signal);
   }

@@ -728,7 +728,8 @@ def test_desktop_buddy_bridge_is_bound_to_its_document_and_its_operations() -> N
         buddy_placement=lambda action, x, y: calls.append(("placement", action)) or {
             "placement": "desktop", "visible": True},
         read_buddy_target=lambda: {"conversationId": "conversation-1", "revision": 4},
-        show_main_window=lambda conversation: calls.append(("main", conversation)) or True,
+        show_main_window=lambda conversation, target=None: calls.append(
+            ("main", conversation) if target is None else ("main", conversation, target)) or True,
         allowed=frozenset({"buddy_placement", "buddy_follow", "main_window"}),
     )
     bridge, state = _buddy_bridge("http://localhost:8080/app-v2/buddy-overlay", driver)
@@ -746,11 +747,18 @@ def test_desktop_buddy_bridge_is_bound_to_its_document_and_its_operations() -> N
     assert bridge.native_client_dispatch(proof, "main_window", {"conversationId": None})["status"] == "ok"
     for payload in ({"conversationId": "a b"}, {"conversationId": 1}, {}, {"conversationId": None, "x": 1}):
         assert bridge.native_client_dispatch(proof, "main_window", payload)["status"] == "unavailable"
+    # A Proactive place (For you, Drafts, a draft, a moment's Why this?) instead of a conversation.
+    assert bridge.native_client_dispatch(proof, "main_window", {"conversationId": None, "target": "why:0123456789abcdef"})[
+        "status"] == "ok"
+    for payload in ({"conversationId": None, "target": "settings"}, {"conversationId": "c1", "target": "for-you"},
+                    {"target": "for-you"}, {"conversationId": None, "target": 1}):
+        assert bridge.native_client_dispatch(proof, "main_window", payload)["status"] == "unavailable"
     for payload in ({"action": "ready"}, {"action": "hide"}):
         assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "ok"
     for payload in ({"action": "ready", "x": 1}, {"action": "collapse"}, {"action": "tear_off", "x": True, "y": 1}):
         assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "unavailable"
-    assert calls == [("main", None), ("placement", "ready"), ("placement", "hide")]
+    assert calls == [("main", None), ("main", None, "why:0123456789abcdef"), ("placement", "ready"),
+                     ("placement", "hide")]
     # Any other /app-v2 document in this window has no bridge at all.
     state["url"] = "http://localhost:8080/app-v2/"
     assert bridge.native_client_dispatch(proof, "buddy_follow", {})["status"] == "unavailable"

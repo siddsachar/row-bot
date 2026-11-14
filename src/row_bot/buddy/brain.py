@@ -150,6 +150,24 @@ def _approval_key_values(payload: dict[str, Any], owner_id: str = "") -> set[str
     return {key for key in keys if key}
 
 
+_WORKFLOW_EVENTS = frozenset({BuddyEventType.WORKFLOW_STARTED, BuddyEventType.WORKFLOW_STEP,
+                              BuddyEventType.WORKFLOW_DONE, BuddyEventType.WORKFLOW_ERROR,
+                              BuddyEventType.WORKFLOW_CANCELLED})
+
+
+def _proactive_run(event_type: BuddyEventType, payload: dict[str, Any]) -> bool:
+    """A run of Proactive Row-Bot's own morning brief or end-of-day wrap: Buddy doesn't wear "Workflow running"
+    for it (the brief reaches the person as a moment, on its own surface)."""
+    if event_type not in _WORKFLOW_EVENTS:
+        return False
+    try:
+        from row_bot.proactive import day
+
+        return bool(day.which(str(payload.get("task_id") or "")))
+    except Exception:
+        return False
+
+
 def _is_durable_approval_activity(active: _Activity) -> bool:
     payload = active.payload
     if active.source in {"tasks", "tasks.reconcile"}:
@@ -246,6 +264,9 @@ class BuddyBrain:
                 payload.setdefault("owner_id", activity.owner_id)
         else:
             if event.id <= self._last_event_id:
+                return self._state
+            if _proactive_run(event.type, event.payload):
+                self._last_event_id = event.id
                 return self._state
             event_type = event.type
             event_id = event.id
@@ -438,6 +459,8 @@ class BuddyBrain:
             if active.reconciled:
                 workflow_owners.pop(owner_id, None)
         for thread_id, info in running.items():
+            if _proactive_run(BuddyEventType.WORKFLOW_STARTED, info):
+                continue
             owner_id = str(info.get("run_id") or thread_id)
             workflow_owners[owner_id] = _Activity(
                 kind="workflow",

@@ -2845,6 +2845,51 @@ export class ClientController {
     this.query(() => this.transport.waits?.(signal));
   stopWait = (waitId: string) =>
     this.query(() => this.transport.stopWait?.(waitId));
+  /** Proactive Row-Bot (see `features/proactive/proactive-state.ts`). */
+  proactiveMoments = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveMoments?.(signal));
+  proactiveMoment = (momentId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveMoment?.(momentId, signal));
+  proactiveFeedback = (
+    momentId: string,
+    feedback: import('./types').ProactiveFeedback,
+  ) => this.query(() => this.transport.proactiveFeedback?.(momentId, feedback));
+  proactiveActivity = (before?: number, limit?: number, signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveActivity?.(before, limit, signal));
+  proactiveSettings = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveSettings?.(signal));
+  changeProactiveSettings = (
+    change: import('./types').ProactiveSettingsChange,
+  ) => this.query(() => this.transport.changeProactiveSettings?.(change));
+  addProactiveRule = (rule: import('./types').ProactiveRuleWrite) =>
+    this.query(() => this.transport.addProactiveRule?.(rule));
+  changeProactiveRule = (
+    ruleId: string,
+    rule: import('./types').ProactiveRuleWrite,
+  ) => this.query(() => this.transport.changeProactiveRule?.(ruleId, rule));
+  deleteProactiveRule = (ruleId: string) =>
+    this.query(() => this.transport.deleteProactiveRule?.(ruleId));
+  proactiveDrafts = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveDrafts?.(signal));
+  proactiveDraft = (draftId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveDraft?.(draftId, signal));
+  saveProactiveDraft = (
+    draftId: string,
+    edit: import('./types').ProactiveDraftEdit,
+  ) => this.query(() => this.transport.saveProactiveDraft?.(draftId, edit));
+  askToSendProactiveDraft = (draftId: string) =>
+    this.query(() => this.transport.askToSendProactiveDraft?.(draftId));
+  answerProactiveDraftSend = (
+    draftId: string,
+    answer: import('./types').ProactiveDraftSendAnswer,
+  ) =>
+    this.query(() =>
+      this.transport.answerProactiveDraftSend?.(draftId, answer),
+    );
+  proactivePreview = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactivePreview?.(signal));
+  noteProactiveBoundary = (boundary: import('./types').ProactiveBoundary) =>
+    this.query(() => this.transport.noteProactiveBoundary?.(boundary));
   /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */
   rowBotSandboxes = (signal?: AbortSignal) =>
     this.query(() => this.transport.rowBotSandboxes?.(signal));
