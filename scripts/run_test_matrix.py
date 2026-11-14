@@ -79,6 +79,7 @@ BROWSER_SMOKE_SPECS = (
     "overlays",
     "unified-lifecycle",
     "conversation-first",
+    "self-system",
     "settings-providers",
     "unified-restart",
     "buddy-overlay",

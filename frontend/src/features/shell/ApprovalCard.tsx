@@ -616,17 +616,17 @@ export default function ApprovalCard({
   if (change || setup?.kind === 'tool') {
     const turnOn = setup?.kind === 'tool' ? setup.label : '';
     const title = turnOn ? `Turn on ${turnOn}?` : `Change ${change?.label}?`;
-    const reason =
-      view?.reason ||
-      hint?.reason ||
-      (turnOn ? `Row-Bot needs ${turnOn} for this.` : '');
+    // A change's reason is the change itself, shown above in words; only Turn on says why.
+    const reason = turnOn
+      ? view?.reason || hint?.reason || `Row-Bot needs ${turnOn} for this.`
+      : '';
     const settled = !view || busy || Boolean(resolution);
     return (
       <aside
         className="approval-card"
         data-kind="setting"
         data-layout={phone ? 'phone' : undefined}
-        aria-label={title}
+        aria-label={turnOn ? `Turn on ${turnOn}` : `Change ${change?.label}`}
       >
         <span className="approval-card-icon" aria-hidden>
           {turnOn ? <Power /> : <Settings2 />}

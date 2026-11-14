@@ -413,7 +413,7 @@ it('never traps the person: Set up later and the custom endpoint link', () => {
   show();
   expect(
     screen.getByRole('link', { name: 'Other (custom endpoint)' }),
-  ).toHaveAttribute('href', '/settings/providers?add=custom-endpoint');
+  ).toHaveAttribute('href', '/settings/models?add=custom-endpoint');
   fireEvent.click(screen.getByRole('button', { name: 'Set up later' }));
   expect(sessionStorage.getItem(SETUP_LATER_KEY)).toBe('1');
   expect(location()).toBe('/');

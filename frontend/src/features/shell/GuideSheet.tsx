@@ -5,7 +5,6 @@ import { clientError } from '../../api/errors';
 import { useOptionalRuntime, useRuntime } from '../../runtime';
 import { useOptionalOverlay } from '../../ui/overlays';
 import { Hint } from '../../ui/primitives';
-import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
 import SafeMarkdown from './chat-parity-markdown';
 
 const DOCS_SITE = 'https://row-bot.ai';
@@ -113,7 +112,6 @@ function GuideBody({ route, anchor }: { route: string; anchor: string }) {
 export function GuideLink({ route, label }: { route: string; label: string }) {
   const runtime = useOptionalRuntime();
   const overlay = useOptionalOverlay();
-  const phone = useMedia(PHONE_LAYOUT);
   const [path, anchor = ''] = route.split('#', 2);
   if (!runtime || !overlay)
     return (
@@ -134,7 +132,7 @@ export function GuideLink({ route, label }: { route: string; label: string }) {
         className="guide-chip"
         onClick={() =>
           overlay.open({
-            kind: phone ? 'sheet' : 'drawer',
+            kind: 'sheet',
             key: `guide:${route}`,
             className: 'guide-overlay',
             title: label,

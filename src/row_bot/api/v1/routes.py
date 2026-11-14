@@ -11279,6 +11279,7 @@ def create_router(
                 "memory_text",
                 "folder",
                 "x_post",
+                "setting_change",
                 "policy_revision",
             )
             if k in view

@@ -2222,7 +2222,7 @@ export function VoiceSnapshotPanel({
         <SettingsGroup
           title="Voice models"
           meta={
-            <Link className="settings-link" to="/settings/providers">
+            <Link className="settings-link" to="/settings/models">
               Open Providers
             </Link>
           }

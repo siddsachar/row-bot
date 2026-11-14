@@ -4744,3 +4744,138 @@ button.attachment-tile-face:hover {
   height: 14px;
   flex: none;
 }
+
+/* -------------------------------------------- Row-Bot's own places (self) */
+
+/* A Settings row or page, or one of Row-Bot's guides, linked in a message:
+   a chip with the row's own name that opens it in place. */
+.settings-chip,
+.guide-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 22px;
+  margin: 0 2px;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-link);
+  font: inherit;
+  font-size: var(--text-13);
+  line-height: 18px;
+  text-decoration: none;
+  vertical-align: baseline;
+  cursor: pointer;
+}
+.message-text a.settings-chip,
+.message-text a.guide-chip {
+  color: var(--text-link);
+  text-decoration: none;
+}
+.settings-chip:hover,
+.guide-chip:hover {
+  border-color: var(--border-subtle);
+  background: var(--accent-subtle);
+}
+.settings-chip:focus-visible,
+.guide-chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.settings-chip > svg,
+.guide-chip > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.settings-chip > span,
+.guide-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  .settings-chip,
+  .guide-chip {
+    min-height: 32px;
+    padding-inline: 10px 12px;
+  }
+}
+
+/* A setting Row-Bot would change: what it is now, and what it becomes. */
+.approval-card-change {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 4px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.approval-card-before {
+  color: var(--text-secondary);
+}
+.approval-card-after {
+  font-weight: var(--weight-semibold);
+}
+.approval-card[data-kind='setting'] .approval-card-actions {
+  align-items: center;
+}
+.approval-card[data-kind='setting'][data-layout='phone']
+  .approval-card-actions {
+  flex-wrap: nowrap;
+  width: 100%;
+}
+.approval-card[data-kind='setting'][data-layout='phone']
+  .approval-card-actions
+  > .button.primary {
+  flex: 1;
+}
+
+/* A setting Row-Bot changed, with Undo and its row: two icons that stay on
+   the card's row, as a page card's do, on a phone too. */
+.transcript-card[data-kind='setting'] .transcript-card-text strong {
+  color: var(--text-primary);
+}
+@container transcript (max-width: 520px) {
+  .transcript-card[data-kind='setting'] {
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+  }
+  .transcript-card[data-kind='setting'] .transcript-card-actions {
+    grid-column: auto;
+  }
+}
+
+/* One of Row-Bot's guides in its sheet, scrolled to the cited section. */
+.guide-sheet {
+  display: grid;
+  gap: 4px;
+}
+.guide-sheet-tools {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.guide-sheet-description,
+.guide-sheet-note {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.guide-sheet-section {
+  margin: 0 -8px;
+  padding: 0 8px;
+  border-radius: var(--radius-control, 8px);
+  scroll-margin-top: 8px;
+}
+/* The cited section flashes as a row Settings jumps to does (settings-hit). */
+.guide-sheet-section[data-highlighted='true'] {
+  animation: settings-hit 2400ms var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .guide-sheet-section[data-highlighted='true'] {
+    animation: none;
+    outline: 2px solid var(--accent-solid);
+    outline-offset: 2px;
+  }
+}
