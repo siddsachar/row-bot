@@ -132,7 +132,7 @@ def test_a_fractional_interval_is_kept_exactly(owner, schedule, seconds):
     ) == (last + timedelta(seconds=seconds)).astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
 
 
-@pytest.mark.parametrize("schedule", ["interval_minutes:0.5", "interval:0.01", "interval_minutes:0", "interval:0"])
+@pytest.mark.parametrize("schedule", ["interval_minutes:0.5", "interval:0.01"])
 def test_a_schedule_saved_below_a_minute_runs_once_a_minute_and_keeps_its_words(
         owner, fields, schedule, caplog):
     task_id = create(replace(fields, schedule="daily:09:00", enabled=True)).task.id
@@ -155,6 +155,23 @@ def test_a_schedule_saved_below_a_minute_runs_once_a_minute_and_keeps_its_words(
         tzinfo=None).isoformat(timespec="seconds")
     assert owner.missed_run_time(task, NOW - timedelta(hours=1), NOW + timedelta(minutes=5)) == (
         last + timedelta(minutes=5)).astimezone()
+
+
+@pytest.mark.parametrize("schedule", ["interval_minutes:0", "interval:0"])
+def test_a_schedule_saved_at_0_still_never_runs(owner, fields, schedule):
+    # It has never run; an update must not start it running every minute and spending by surprise.
+    task_id = create(replace(fields, schedule="daily:09:00", enabled=True)).task.id
+    _save_legacy(owner, task_id, schedule)
+    task = owner.get_task(task_id)
+
+    assert owner._build_trigger(task) is None
+    last = (NOW - timedelta(hours=1)).astimezone().replace(tzinfo=None).isoformat()
+    assert owner.estimate_next_run({**task, "last_run": last}, NOW) is None
+    assert owner.missed_run_time({**task, "last_run": last}, NOW - timedelta(hours=2), NOW) is None
+    assert owner.get_task(task_id)["schedule"] == schedule
+    # And it can't be saved at 0 again.
+    with pytest.raises(owner.TaskMutationError, match="once a minute"):
+        owner.update_task(task_id, schedule=schedule)
 
 
 def test_a_legacy_schedule_below_a_minute_can_still_be_opened_and_fixed(owner, fields):

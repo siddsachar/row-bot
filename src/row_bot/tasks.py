@@ -3743,10 +3743,11 @@ def _saved_interval(sched: Mapping[str, Any]) -> timedelta | None:
 
 
 def _run_interval(sched: Mapping[str, Any]) -> timedelta | None:
-    """The gap the scheduler keeps between runs: a schedule saved below a minute (or at 0) before
-    the minimum existed runs once a minute, and its saved words are left as they are."""
+    """The gap the scheduler keeps between runs: a schedule saved below a minute before the minimum
+    existed runs once a minute, and its saved words are left as they are. One saved at 0 has never
+    run and still doesn't (None), so an update never starts spending on it by surprise."""
     gap = _saved_interval(sched)
-    return None if gap is None else max(gap, MIN_SCHEDULE_INTERVAL)
+    return None if not gap else max(gap, MIN_SCHEDULE_INTERVAL)
 
 
 def check_schedule(schedule: str | None, task_id: str = "") -> None:
@@ -3851,7 +3852,7 @@ def _build_trigger(task: dict, *, now: datetime | None = None):
         if gap is None:
             return None
         saved = _saved_interval(sched)
-        if saved is not None and saved < MIN_SCHEDULE_INTERVAL:
+        if saved < MIN_SCHEDULE_INTERVAL:
             key = (str(task.get("id") or ""), str(task.get("schedule") or ""))
             if key not in _SHORT_INTERVALS_LOGGED:
                 _SHORT_INTERVALS_LOGGED.add(key)
