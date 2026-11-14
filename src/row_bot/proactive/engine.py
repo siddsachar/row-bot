@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 30
 BRIEF_EXPIRES_SECONDS = 6 * 3600
+SILENCED_KEPT = 2000  # Changes triage kept silent: never asked about again.
 _TICK_LOCK = threading.Lock()
 
 
@@ -59,7 +60,8 @@ def _open_boundary(found: list[str], now: float) -> str | None:
     return None
 
 
-def _triage(candidates: list[Candidate], settings: dict[str, Any], now: float) -> list[tuple[Candidate, str, str]]:
+def _triage(candidates: list[Candidate], settings: dict[str, Any],
+            now: float) -> list[tuple[Candidate, str, str]] | None:
     """(candidate, title, body) for each candidate worth a moment: one pass on the main model, silent by
     default."""
     from row_bot.proactive import triage
@@ -67,7 +69,7 @@ def _triage(candidates: list[Candidate], settings: dict[str, Any], now: float) -
     recent = [moment["title"] for moment in store.list_moments(since=now - 3 * 86400, limit=10)]
     rules = [feedback.rule_words(rule) for rule in store.rules()]
     kept, words = triage.decide(candidates, level=settings["level"], rules=rules, recent=recent)
-    store.log("pass", words, now=now, detail={"changes": len(candidates), "kept": len(kept)})
+    store.log("pass", words, now=now, detail={"changes": len(candidates), "kept": -1 if kept is None else len(kept)})
     return kept
 
 
@@ -83,10 +85,12 @@ def _gather(candidates: list[Candidate], settings: dict[str, Any], at: datetime)
     """Candidates through the person's choices and rules, then triage; the moments kept."""
     now = at.timestamp()
     rules = store.rules()
+    silenced = list(store.get_state("silenced") or [])
     fresh: list[Candidate] = []
     for candidate in candidates:
-        if not settings["kinds"].get(candidate.kind, False) or store.seen_key(candidate.key):
-            continue
+        if (not settings["kinds"].get(candidate.kind, False) or candidate.key in silenced
+                or store.seen_key(candidate.key)):
+            continue  # Off, already a moment, or triage already said it isn't worth one.
         reason = feedback.blocked(candidate, rules, today_start=timing.day_start(at))
         if reason:
             store.log("rule", f"Left out “{candidate.title}”: {reason}.", now=now,
@@ -95,8 +99,14 @@ def _gather(candidates: list[Candidate], settings: dict[str, Any], at: datetime)
         fresh.append(candidate)
     if not fresh:
         return []
+    chosen = _triage(fresh, settings, now)
+    if chosen is None:
+        return []  # Nothing was decided: nothing is shown, and nothing is remembered as silenced.
+    kept_keys = {candidate.key for candidate, _title, _body in chosen}
+    silenced.extend(candidate.key for candidate in fresh if candidate.key not in kept_keys)
+    store.set_state("silenced", silenced[-SILENCED_KEPT:])
     kept = []
-    for candidate, title, body in _triage(fresh, settings, now):
+    for candidate, title, body in chosen:
         moment = store.add_moment(candidate, title=title, body=body, now=now)
         if moment is not None:
             store.log("moment", f"New: “{title}” ({KIND_WORDS[candidate.kind]}).", now=now, moment_id=moment["id"],

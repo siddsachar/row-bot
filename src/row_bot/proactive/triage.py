@@ -81,14 +81,15 @@ def _clean(text: object, limit: int) -> str:
     return words if len(words) <= limit else words[: limit - 1].rstrip() + "…"
 
 
-def parse(text: str, candidates: list[Candidate]) -> list[tuple[Candidate, str, str]]:
-    """The kept changes as (candidate, title, body); anything the model didn't clearly keep is silent."""
+def parse(text: str, candidates: list[Candidate]) -> list[tuple[Candidate, str, str]] | None:
+    """The kept changes as (candidate, title, body); anything the model didn't clearly keep is silent.
+    None when the answer isn't the schema at all."""
     from row_bot.providers.background import parse_json_object
 
     parsed = parse_json_object(str(text or ""))
     decisions = parsed.get("decisions") if isinstance(parsed, dict) else None
     if not isinstance(decisions, list):
-        return []
+        return None
     by_id = {f"c{index}": candidate for index, candidate in enumerate(candidates, 1)}
     kept: list[tuple[Candidate, str, str]] = []
     for decision in decisions:
@@ -103,17 +104,21 @@ def parse(text: str, candidates: list[Candidate]) -> list[tuple[Candidate, str, 
 
 
 def decide(candidates: list[Candidate], *, level: str, rules: list[str], recent: list[str],
-           call: Callable[[list[dict[str, str]]], str] | None = None) -> tuple[list[tuple[Candidate, str, str]], str]:
-    """(kept changes, what happened in words for the Activity log). Never raises: trouble is silence."""
+           call: Callable[[list[dict[str, str]]], str] | None = None
+           ) -> tuple[list[tuple[Candidate, str, str]] | None, str]:
+    """(kept changes, what happened in words for the Activity log). Never raises: trouble is silence. The
+    changes are None when nothing was decided (no model, no answer, no readable answer)."""
     prompt = messages(candidates, level=level, rules=rules, recent=recent)
     try:
         text = (call or _call)(prompt)
     except LookupError:
-        return [], "No main model is chosen, so it stayed silent."
+        return None, "No main model is chosen, so it stayed silent."
     except Exception as exc:
         logger.info("Proactive triage failed (%s); staying silent", type(exc).__name__)
         logger.debug("Proactive triage failure", exc_info=True)
-        return [], "The main model couldn't be reached, so it stayed silent."
+        return None, "The main model couldn't be reached, so it stayed silent."
     kept = parse(text, candidates)
+    if kept is None:
+        return None, "The main model's answer was unclear, so it stayed silent."
     silent = len(candidates) - len(kept)
     return kept, f"Triage on your main model: {len(kept)} worth a mention, {silent} silent."

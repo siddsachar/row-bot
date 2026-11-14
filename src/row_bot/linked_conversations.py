@@ -159,7 +159,7 @@ def resolve(target: str, *, exclude: str = "") -> str:
     threads._ensure_thread_db()
     with closing(sqlite3.connect(threads.DB_PATH)) as conn:
         rows = conn.execute("SELECT thread_id FROM thread_meta WHERE (thread_id = ? OR lower(name) = lower(?)) "
-                            "AND COALESCE(thread_type, '') != 'agent_child'", (given, given)).fetchall()
+                            "AND COALESCE(thread_type, '') NOT IN ('agent_child', 'proactive')", (given, given)).fetchall()
     found = [str(row[0]) for row in rows]
     if given in found:
         return given
@@ -208,7 +208,7 @@ def _near_names(given: str) -> list[str]:
 
     with closing(sqlite3.connect(threads.DB_PATH)) as conn:
         names = [str(row[0]) for row in conn.execute(
-            "SELECT name FROM thread_meta WHERE COALESCE(thread_type, '') != 'agent_child' "
+            "SELECT name FROM thread_meta WHERE COALESCE(thread_type, '') NOT IN ('agent_child', 'proactive') "
             "AND COALESCE(name, '') != '' ORDER BY updated_at DESC LIMIT 500")]
     names += [str(task["name"]) for task in tasks_db.list_tasks() if not task.get("notify_only")]
     by_bare = {_bare(name): name for name in reversed(names)}

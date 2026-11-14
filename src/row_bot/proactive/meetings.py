@@ -21,9 +21,10 @@ LEAD_SECONDS = 15 * 60
 AHEAD_SECONDS = 24 * 3600
 
 
-def _clock(value: float) -> str:
+def _clock(value: float, now: float) -> str:
     moment = datetime.fromtimestamp(value)
-    return moment.strftime("%H:%M") if moment.date() == datetime.now().date() else moment.strftime("%a %H:%M")
+    same_day = moment.date() == datetime.fromtimestamp(now).date()
+    return moment.strftime("%H:%M") if same_day else moment.strftime("%a %H:%M")
 
 
 class CalendarWatcher(Watcher):
@@ -59,16 +60,16 @@ class CalendarWatcher(Watcher):
                     continue
                 if event_id in current:
                     if current[event_id]["start"] != before["start"]:
-                        found.append(self._moved(event_id, before, current[event_id]["start"]))
+                        found.append(self._moved(event_id, before, current[event_id]["start"], now))
                     continue
                 source = next((item for item in ready if item.name == before["source"]), None)
                 if source is None:
                     continue
                 event = source.event(event_id)
                 if event is None or event.cancelled:
-                    found.append(self._cancelled(event_id, before))
+                    found.append(self._cancelled(event_id, before, now))
                 elif event.start != before["start"]:
-                    found.append(self._moved(event_id, before, event.start))
+                    found.append(self._moved(event_id, before, event.start, now))
         return found, {"events": current}
 
     @staticmethod
@@ -78,7 +79,7 @@ class CalendarWatcher(Watcher):
         return Candidate(
             kind="meeting_prep", key=f"meeting:{event.id}:{int(event.start)}",
             title=f"{event.title or 'A meeting'} in {minutes} minutes",
-            summary=(f"A meeting starts at {_clock(event.start)} with {people} other "
+            summary=(f"A meeting starts at {_clock(event.start, now)} with {people} other "
                      f"{'person' if people == 1 else 'people'}{' and files' if event.has_files else ''}."),
             evidence=(Evidence("event", event.id, event.title, source, seen=str(int(event.start))),),
             topic=event.title, urgency="urgent", expires_at=event.start + 5 * 60,
@@ -86,20 +87,20 @@ class CalendarWatcher(Watcher):
             actions=({"id": "open_brief", "label": "Open brief"},))
 
     @staticmethod
-    def _moved(event_id: str, before: dict[str, Any], start: float) -> Candidate:
+    def _moved(event_id: str, before: dict[str, Any], start: float, now: float) -> Candidate:
         return Candidate(
-            kind="change", key=f"moved:{event_id}:{int(start)}", title=f"“{before['title']}” moved to {_clock(start)}",
-            summary=f"A meeting with {before['people']} others moved from {_clock(before['start'])} to {_clock(start)}.",
+            kind="change", key=f"moved:{event_id}:{int(start)}", title=f"“{before['title']}” moved to {_clock(start, now)}",
+            summary=f"A meeting with {before['people']} others moved from {_clock(before['start'], now)} to {_clock(start, now)}.",
             evidence=(Evidence("event", event_id, before["title"], before["source"], seen=str(int(start))),),
             topic=before["title"], expires_at=start, untrusted=f"Event title: {before['title']}",
             actions=({"id": "open_source", "label": "Open calendar"},))
 
     @staticmethod
-    def _cancelled(event_id: str, before: dict[str, Any]) -> Candidate:
+    def _cancelled(event_id: str, before: dict[str, Any], now: float) -> Candidate:
         return Candidate(
             kind="change", key=f"cancelled:{event_id}:{int(before['start'])}",
-            title=f"“{before['title']}” at {_clock(before['start'])} was cancelled",
-            summary=f"A meeting with {before['people']} others at {_clock(before['start'])} was cancelled.",
+            title=f"“{before['title']}” at {_clock(before['start'], now)} was cancelled",
+            summary=f"A meeting with {before['people']} others at {_clock(before['start'], now)} was cancelled.",
             evidence=(Evidence("event", event_id, before["title"], before["source"], seen="cancelled"),),
             topic=before["title"], expires_at=before["start"], untrusted=f"Event title: {before['title']}",
             actions=({"id": "open_source", "label": "Open calendar"},))

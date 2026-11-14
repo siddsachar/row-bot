@@ -1,6 +1,8 @@
-"""Proactive Row-Bot's own data folder per test, a fake clock, a fake desktop and scripted watchers."""
+"""Proactive Row-Bot's own data folder per test, a fake clock, a fake desktop, scripted watchers, a scripted
+main model for triage and recorded surfaces."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import SimpleNamespace
@@ -14,15 +16,43 @@ AT_DESK = Desktop(idle_seconds=40, locked=False, focus=False, mic_in_use=False, 
                   app_kind="editor")
 
 
+class ScriptedModel:
+    """The main model as triage calls it: keeps every change in its own words unless told otherwise."""
+
+    def __init__(self) -> None:
+        self.prompts: list[list[dict]] = []
+        self.answer: Any = None  # A JSON string, or a function of the case; None keeps everything.
+
+    def __call__(self, prompt: list[dict]) -> str:
+        self.prompts.append(prompt)
+        case = json.loads(prompt[1]["content"])
+        if callable(self.answer):
+            return self.answer(case)
+        if self.answer is not None:
+            return self.answer
+        return json.dumps({"decisions": [{"id": change["id"], "keep": True, "title": change["suggested_title"],
+                                          "body": change["what_changed"]} for change in case["changes"]]})
+
+
 @pytest.fixture
 def proactive(tmp_path, monkeypatch, reload_for_data_dir):
-    """The proactive modules bound to this test's data folder, with no watchers registered."""
+    """The proactive modules bound to this test's data folder, with no watchers registered, a scripted main
+    model, Buddy on, no phone or chat app, surfaces recorded in ``sent`` and preparations in ``prepared``."""
     store, settings = reload_for_data_dir(tmp_path, "row_bot.proactive.store", "row_bot.proactive.settings")
-    from row_bot.proactive import engine, feedback, timing, watchers
+    from row_bot.proactive import deliver, engine, feedback, prepare, timing, triage, watchers
 
     monkeypatch.setattr(watchers, "_WATCHERS", {})
+    model = ScriptedModel()
+    monkeypatch.setattr(triage, "_call", model)
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(deliver, "send", lambda surface, moment, chosen: sent.append((surface, moment["id"])) or True)
+    monkeypatch.setattr(deliver, "buddy_on", lambda: True)
+    monkeypatch.setattr(deliver, "push_ready", lambda: False)
+    monkeypatch.setattr(deliver, "channel_ready", lambda chosen: False)
+    prepared: list[tuple[str, str]] = []
+    monkeypatch.setattr(prepare, "queue", lambda moment_id, untrusted="": prepared.append((moment_id, untrusted)))
     return SimpleNamespace(store=store, settings=settings, engine=engine, feedback=feedback, timing=timing,
-                           watchers=watchers)
+                           watchers=watchers, deliver=deliver, model=model, sent=sent, prepared=prepared)
 
 
 def start_day(proactive, day: str = "2026-11-16") -> None:
