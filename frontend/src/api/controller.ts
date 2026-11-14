@@ -2873,6 +2873,19 @@ export class ClientController {
     this.query(() => this.transport.proactiveDrafts?.(signal));
   proactiveDraft = (draftId: string, signal?: AbortSignal) =>
     this.query(() => this.transport.proactiveDraft?.(draftId, signal));
+  saveProactiveDraft = (
+    draftId: string,
+    edit: import('./types').ProactiveDraftEdit,
+  ) => this.query(() => this.transport.saveProactiveDraft?.(draftId, edit));
+  askToSendProactiveDraft = (draftId: string) =>
+    this.query(() => this.transport.askToSendProactiveDraft?.(draftId));
+  answerProactiveDraftSend = (
+    draftId: string,
+    answer: import('./types').ProactiveDraftSendAnswer,
+  ) =>
+    this.query(() => this.transport.answerProactiveDraftSend?.(draftId, answer));
+  proactivePreview = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactivePreview?.(signal));
   noteProactiveBoundary = (boundary: import('./types').ProactiveBoundary) =>
     this.query(() => this.transport.noteProactiveBoundary?.(boundary));
   /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */

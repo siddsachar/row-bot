@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from row_bot.proactive.model import Desktop
-from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, candidate, start_day
+from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, balanced, candidate, start_day
 
 pytestmark = pytest.mark.subsystem
 
@@ -23,26 +23,42 @@ def _five_kinds(watcher: ScriptedWatcher) -> None:
                        candidate("event:e", kind="meeting_prep", topic="Design review")]
 
 
-def test_quiet_shows_at_most_three_a_day_one_per_break_tick_and_the_rest_wait(proactive):
+def test_quiet_brings_up_only_what_is_about_to_happen_three_a_day_and_the_rest_waits_for_the_brief(proactive):
+    watcher = ScriptedWatcher()
+    proactive.watchers.register(watcher)
+    start_day(proactive)
+    _five_kinds(watcher)
+    watcher.pending += [candidate(f"event:soon{n}", kind="meeting_prep", urgency="urgent", topic=f"Call {n}")
+                        for n in range(4)]
+    proactive.engine.note_boundary("app_open", now=at("2026-11-16 09:00"))
+
+    for second in (0, 30, 60):
+        proactive.engine.tick(at("2026-11-16 09:00") + second, desktop=AT_DESK)
+
+    states = _states(proactive)
+    shown = {key for key, state in states.items() if state == "shown"}
+    assert len(shown) == 3 and all(key.startswith("event:soon") for key in shown), "imminent only, at most three"
+    waited = {key for key, state in states.items() if state == "pending" and not key.startswith("event:soon")}
+    assert waited == {"mail:a", "date:b", "change:c", "ask:d", "event:e"}, "the rest waits in For you"
+    # Tomorrow's first break brings what waited, in the morning brief.
+    assert proactive.engine.tick(at("2026-11-17 08:00"), desktop=AT_DESK)["sent"]
+    carried = {moment["dedupe_key"] for moment in proactive.store.list_moments() if moment["surface"] == "brief"}
+    assert carried == waited and _states(proactive)["brief:2026-11-17"] == "shown"
+
+
+def test_balanced_brings_up_one_at_a_time_at_a_break(proactive):
+    balanced(proactive)
     watcher = ScriptedWatcher()
     proactive.watchers.register(watcher)
     start_day(proactive)
     _five_kinds(watcher)
     proactive.engine.note_boundary("app_open", now=at("2026-11-16 09:00"))
 
-    sent = [proactive.engine.tick(at(f"2026-11-16 09:00:{second:02d}"), desktop=AT_DESK)["sent"]
-            for second in (0, 30)]
-    sent += [proactive.engine.tick(at(f"2026-11-16 09:01:{second:02d}"), desktop=AT_DESK)["sent"]
-             for second in (0, 30)]
+    sent = [proactive.engine.tick(at("2026-11-16 09:00") + second, desktop=AT_DESK)["sent"]
+            for second in (0, 30, 60, 90, 120)]
 
-    assert [len(batch) for batch in sent] == [1, 1, 1, 0], "one at a time, and Quiet stops at three"
-    states = _states(proactive)
-    assert sorted(states.values()).count("shown") == 3 and sorted(states.values()).count("pending") == 2
-    # Tomorrow's first break brings what waited, in the morning brief.
-    waited = {key for key, state in states.items() if state == "pending"}
-    assert proactive.engine.tick(at("2026-11-17 08:00"), desktop=AT_DESK)["sent"]
-    carried = {moment["dedupe_key"] for moment in proactive.store.list_moments() if moment["surface"] == "brief"}
-    assert carried == waited and _states(proactive)["brief:2026-11-17"] == "shown"
+    assert [len(batch) for batch in sent] == [1, 1, 1, 1, 1], "one at a time, one per tick"
+    assert set(_states(proactive).values()) == {"shown"}
 
 
 def test_nothing_reaches_the_person_in_quiet_hours_even_when_urgent(proactive):
@@ -76,6 +92,7 @@ def test_never_while_typing_on_a_call_or_in_focus_not_even_urgent(proactive, des
 
 
 def test_ending_a_call_is_a_break_and_the_batched_moment_goes_then(proactive):
+    balanced(proactive)
     watcher = ScriptedWatcher()
     proactive.watchers.register(watcher)
     on_call = Desktop(idle_seconds=40, locked=False, mic_in_use=True, camera_in_use=False, app_kind="meeting")
@@ -92,6 +109,7 @@ def test_ending_a_call_is_a_break_and_the_batched_moment_goes_then(proactive):
 
 
 def test_a_normal_moment_waits_for_a_break_and_an_urgent_one_does_not(proactive):
+    balanced(proactive)
     watcher = ScriptedWatcher()
     proactive.watchers.register(watcher)
     proactive.engine.tick(at("2026-11-16 09:00"), desktop=AT_DESK)  # The day's first break passes, empty.
@@ -108,6 +126,7 @@ def test_a_normal_moment_waits_for_a_break_and_an_urgent_one_does_not(proactive)
 
 
 def test_a_second_moment_of_the_same_kind_waits_out_its_cooldown(proactive):
+    balanced(proactive)
     watcher = ScriptedWatcher()
     proactive.watchers.register(watcher)
     start_day(proactive)
@@ -116,7 +135,7 @@ def test_a_second_moment_of_the_same_kind_waits_out_its_cooldown(proactive):
 
     proactive.engine.tick(at("2026-11-16 09:00"), desktop=AT_DESK)
     proactive.engine.tick(at("2026-11-16 09:00:30"), desktop=AT_DESK)
-    assert sorted(_states(proactive).values()) == ["pending", "shown"], "Quiet: one follow-up per four hours"
+    assert sorted(_states(proactive).values()) == ["pending", "shown"], "Balanced: one follow-up per two hours"
 
     proactive.engine.note_boundary("app_open", now=at("2026-11-16 13:30"))
     assert proactive.engine.tick(at("2026-11-16 13:30:10"), desktop=AT_DESK)["sent"]

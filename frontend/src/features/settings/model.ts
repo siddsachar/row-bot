@@ -395,6 +395,12 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'proactive',
+    anchor: 'wrap',
+    label: 'End-of-day wrap',
+    keywords: 'evening summary done moved tomorrow day end',
+  },
+  {
+    leaf: 'proactive',
     anchor: 'urgent',
     label: 'Urgent in chat apps',
     keywords: 'telegram slack discord away channel',

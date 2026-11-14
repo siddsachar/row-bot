@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "at": {
+      "maxLength": 40,
+      "title": "At",
+      "type": "string"
+    },
+    "in_brief": {
+      "title": "In Brief",
+      "type": "boolean"
+    },
+    "kind": {
+      "enum": [
+        "follow_up",
+        "meeting_prep",
+        "brief",
+        "date",
+        "change",
+        "workflow_offer"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "moment_id": {
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Moment Id",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "title": "Title",
+      "type": "string"
+    },
+    "where": {
+      "enum": [
+        "buddy",
+        "home"
+      ],
+      "title": "Where",
+      "type": "string"
+    }
+  },
+  "required": [
+    "moment_id",
+    "kind",
+    "title",
+    "at",
+    "where",
+    "in_brief"
+  ],
+  "title": "ProactivePreviewItem",
+  "type": "object"
+}

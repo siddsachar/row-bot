@@ -276,6 +276,20 @@ def test_show_main_restores_the_window_and_asks_it_to_open_a_conversation() -> N
     assert host.show_main("conversation-2") is False
 
 
+def test_show_main_can_open_a_proactive_place_and_nothing_else() -> None:
+    harness = Harness()
+    host = harness.host
+    for target in ("for-you", "drafts", "draft:0123456789abcdef", "why:0123456789abcdef"):
+        assert host.show_main(None, target) is True
+    assert harness.main.scripts == [
+        "window.dispatchEvent(new CustomEvent('row-bot-open-target', { detail: \"" + target + "\" }));"
+        for target in ("for-you", "drafts", "draft:0123456789abcdef", "why:0123456789abcdef")]
+    for bad in ("settings", "why:../../x", "draft:XYZ", "for-you\"); alert(1); (\"", 7):
+        assert host.show_main(None, bad) is False
+    assert host.show_main("conversation-2", "for-you") is False, "a conversation or a place, never both"
+    assert len(harness.main.scripts) == 4
+
+
 @pytest.mark.parametrize("role,allowed", [
     ("main", {"status", "tear_off", "dock"}),
     ("buddy", {"status", "dock", "hide", "ready"}),

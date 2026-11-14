@@ -471,6 +471,26 @@ export class HttpTransport implements ClientTransport {
   proactiveDraft(draftId: string, signal?: AbortSignal) {
     return wire.getProactiveDraft(this.base, this.session(), draftId, signal);
   }
+  saveProactiveDraft(draftId: string, edit: wire.ProactiveDraftEdit) {
+    return wire.saveProactiveDraft(this.base, this.session(), draftId, edit);
+  }
+  askToSendProactiveDraft(draftId: string) {
+    return wire.askToSendProactiveDraft(this.base, this.session(), draftId);
+  }
+  answerProactiveDraftSend(
+    draftId: string,
+    answer: wire.ProactiveDraftSendAnswer,
+  ) {
+    return wire.answerProactiveDraftSend(
+      this.base,
+      this.session(),
+      draftId,
+      answer,
+    );
+  }
+  proactivePreview(signal?: AbortSignal) {
+    return wire.getProactivePreview(this.base, this.session(), signal);
+  }
   noteProactiveBoundary(boundary: wire.ProactiveBoundary) {
     return wire.noteProactiveBoundary(this.base, this.session(), boundary);
   }

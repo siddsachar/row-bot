@@ -1,6 +1,11 @@
 {
   "additionalProperties": false,
   "properties": {
+    "connected": {
+      "default": true,
+      "title": "Connected",
+      "type": "boolean"
+    },
     "id": {
       "enum": [
         "mail",

@@ -373,6 +373,62 @@ def draft_threads() -> set[str]:
     return {str(row[0]) for row in rows}
 
 
+# --- The person's edits to a drafted reply, and its sending ------------------------------------------------
+#
+# Kept beside the draft Row-Bot wrote (which stays as it was): who it goes to, its subject and text as the
+# person last saved them, and when it was sent (only ever after the person approved it on its card).
+
+_EDIT_COLUMNS = ("draft_id", "to_addr", "subject", "body", "updated_at", "sent_at")
+_EDITS_SCHEMA = ("CREATE TABLE IF NOT EXISTS draft_edits (draft_id TEXT PRIMARY KEY, to_addr TEXT NOT NULL "
+                 "DEFAULT '', subject TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', updated_at REAL NOT "
+                 "NULL DEFAULT 0, sent_at REAL NOT NULL DEFAULT 0)")
+
+
+def draft_edit(draft_id: str) -> dict[str, Any] | None:
+    """The person's saved edits to a draft (and when it was sent), or None when it is as Row-Bot wrote it."""
+    with closing(_conn()) as conn:
+        conn.execute(_EDITS_SCHEMA)
+        row = conn.execute(f"SELECT {', '.join(_EDIT_COLUMNS)} FROM draft_edits WHERE draft_id = ?",
+                           (draft_id,)).fetchone()
+    return dict(zip(_EDIT_COLUMNS, row)) if row else None
+
+
+def save_draft_edit(draft_id: str, *, to: str, subject: str, body: str, now: float) -> dict[str, Any]:
+    with closing(_conn()) as conn, conn:
+        conn.execute(_EDITS_SCHEMA)
+        conn.execute("INSERT INTO draft_edits (draft_id, to_addr, subject, body, updated_at) VALUES (?, ?, ?, ?, ?) "
+                     "ON CONFLICT(draft_id) DO UPDATE SET to_addr = excluded.to_addr, subject = excluded.subject, "
+                     "body = excluded.body, updated_at = excluded.updated_at", (draft_id, to, subject, body, now))
+    _publish()
+    return draft_edit(draft_id) or {}
+
+
+def mark_draft_sent(draft_id: str, *, now: float) -> None:
+    with closing(_conn()) as conn, conn:
+        conn.execute(_EDITS_SCHEMA)
+        conn.execute("INSERT INTO draft_edits (draft_id, sent_at) VALUES (?, ?) ON CONFLICT(draft_id) DO UPDATE SET "
+                     "sent_at = excluded.sent_at", (draft_id, now))
+    _publish()
+
+
+# --- The last 30 days, per kind ----------------------------------------------------------------------------
+
+def kind_counts(since: float) -> dict[str, dict[str, int]]:
+    """Per kind since *since*: how many reached a surface (shown), and how many the person acted on,
+    dismissed or left alone (ignored). The person's own numbers, kept here and never sent anywhere."""
+    counts: dict[str, dict[str, int]] = {}
+    with closing(_conn()) as conn:
+        for kind, shown in conn.execute("SELECT kind, COUNT(*) FROM moments WHERE shown_at >= ? AND surface "
+                                        "NOT IN ('', 'brief') GROUP BY kind", (since,)):
+            counts.setdefault(kind, {})["shown"] = int(shown)
+        for kind, state, number in conn.execute(
+                "SELECT kind, state, COUNT(*) FROM moments WHERE ended_at >= ? AND state IN ('acted', 'dismissed', "
+                "'ignored') GROUP BY kind, state", (since,)):
+            counts.setdefault(kind, {})[state] = int(number)
+    return {kind: {key: values.get(key, 0) for key in ("shown", "acted", "dismissed", "ignored")}
+            for kind, values in counts.items()}
+
+
 # --- Per-kind counts ---------------------------------------------------------------------------------------
 
 _STAT_COLUMNS = ("kind", "shown", "acted", "dismissed", "ignored", "ignored_streak", "quieted_at")

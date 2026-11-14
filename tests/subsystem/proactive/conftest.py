@@ -122,6 +122,12 @@ class ScriptedWatcher:
         return moment["dedupe_key"] not in self.stale
 
 
+def balanced(proactive) -> None:
+    """Balanced: moments reach a surface at natural breaks. (Quiet, the default, brings up only the day's brief
+    and what's about to happen; the rest waits in For you.)"""
+    proactive.settings.save({"level": "balanced"})
+
+
 def candidate(key: str = "mail:m1", *, kind: str = "follow_up", title: str = "Ana hasn't replied about the deck",
               topic: str = "ana@example.com", urgency: str = "normal", due_at: float | None = None,
               expires_at: float | None = None, summary: str = "", untrusted: str = "", evidence=None):

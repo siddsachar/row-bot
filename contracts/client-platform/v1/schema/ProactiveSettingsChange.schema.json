@@ -54,6 +54,18 @@
       "default": null,
       "title": "Follow Up Days"
     },
+    "introduced": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Introduced"
+    },
     "kinds": {
       "anyOf": [
         {

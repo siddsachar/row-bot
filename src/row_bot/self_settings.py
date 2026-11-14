@@ -894,6 +894,9 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("proactive_urgent", "Urgent in chat apps", "proactive", "Proactive", "urgent", "preference",
             f"'kind:on' marks a kind urgent (only urgent kinds reach a chat app), 'kind:off' unmarks it; a kind "
             f"being {_PROACTIVE_KINDS}", _proactive("urgent")),
+    Setting("proactive_wrap", "End-of-day wrap", "proactive", "Proactive", "wrap", "preference",
+            "'on', 'off', or 'level' to follow the level (off at Quiet, on at Balanced and Eager)",
+            _proactive("wrap"), _proactive_now("wrap")),
 )
 BY_ID = {setting.id: setting for setting in SETTINGS}
 IDS = tuple(BY_ID)

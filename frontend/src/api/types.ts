@@ -1111,6 +1111,17 @@ export interface ClientTransport {
     draftId: string,
     signal?: AbortSignal,
   ): Promise<Wire.ProactiveDraftView>;
+  saveProactiveDraft?(
+    draftId: string,
+    edit: Wire.ProactiveDraftEdit,
+  ): Promise<Wire.ProactiveDraftView>;
+  /** Shows the draft's approval card (always); nothing is sent. */
+  askToSendProactiveDraft?(draftId: string): Promise<Wire.ProactiveDraftView>;
+  answerProactiveDraftSend?(
+    draftId: string,
+    answer: Wire.ProactiveDraftSendAnswer,
+  ): Promise<Wire.ProactiveDraftSendOutcome>;
+  proactivePreview?(signal?: AbortSignal): Promise<Wire.ProactivePreview>;
   noteProactiveBoundary?(
     boundary: Wire.ProactiveBoundary,
   ): Promise<Wire.ProactiveBoundaryNoted>;
