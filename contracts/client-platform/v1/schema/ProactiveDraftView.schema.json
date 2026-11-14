@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "description": "Something Row-Bot prepared for a moment (a meeting brief, a drafted reply): saved, never sent.",
+  "properties": {
+    "body": {
+      "maxLength": 20000,
+      "title": "Body",
+      "type": "string"
+    },
+    "created_at": {
+      "maxLength": 40,
+      "title": "Created At",
+      "type": "string"
+    },
+    "draft_id": {
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Draft Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "brief",
+        "reply"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "moment_id": {
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Moment Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 200,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "draft_id",
+    "moment_id",
+    "kind",
+    "title",
+    "body",
+    "created_at"
+  ],
+  "title": "ProactiveDraftView",
+  "type": "object"
+}

@@ -96,6 +96,13 @@ def notify(
         logger.debug("In-app notice failed (non-fatal)", exc_info=True)
 
 
+def desktop_alert(title: str, message: str) -> None:
+    """Only a desktop notification: no in-app notice, no Buddy event, no sound. Proactive Row-Bot's one
+    surface for an urgent moment, so the same moment never also arrives elsewhere."""
+    if desktop_enabled():
+        _desktop_notify(title, message)
+
+
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
 def _desktop_notify(title: str, message: str) -> None:

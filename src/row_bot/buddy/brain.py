@@ -51,6 +51,8 @@ _EVENT_REACTIONS: dict[BuddyEventType, tuple[BuddyMood, str, int, int, int, str]
     BuddyEventType.LEARNING_TRAINING: (BuddyMood.FOCUSED, "step_check", 58, 40, 0,
                                        "Learning: training your personal model"),
     BuddyEventType.NOTIFICATION: (BuddyMood.EXCITED, "ping", 80, 35, 36, "Notification"),
+    # Proactive Row-Bot: a calm glance, not an alarm.
+    BuddyEventType.PROACTIVE_MOMENT: (BuddyMood.CURIOUS, "ping", 74, 30, 20, "Something for you"),
     BuddyEventType.VOICE_LISTENING: (BuddyMood.CURIOUS, "listen", 78, 62, 8, "Listening"),
     BuddyEventType.IDLE: (BuddyMood.CURIOUS, "idle_breathe", 64, 20, 0, "Idle"),
 }

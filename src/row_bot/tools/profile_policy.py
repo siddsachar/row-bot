@@ -53,6 +53,18 @@ _RETRIEVAL_PARENTS = {
     "wolfram_alpha",
 }
 _BRIDGE_READS = {"tool_search", "skill_search", "skill_load"}
+# The read halves of the mail and calendar tools: a proactive preparation (a meeting brief, a drafted
+# reply) may read the person's mail and events, and nothing else they offer.
+_MAIL_CALENDAR_READS = {
+    "gmail": {"search_gmail", "get_gmail_message", "get_gmail_thread"},
+    "calendar": {"search_events", "get_current_datetime"},
+    "outlook_mail": {"outlook_search_mail", "outlook_read_mail"},
+    "outlook_calendar": {"outlook_list_events", "outlook_find_free_times"},
+}
+READ_ONLY_SURFACE_REFUSAL = (
+    "BLOCKED: This is Row-Bot's background preparation, which only reads: this action can't run here. "
+    "Don't try another way; write what you would suggest instead."
+)
 
 
 _RUN_PARAMETERS = frozenset({"callbacks", "run_manager"})
@@ -132,6 +144,16 @@ def action_effect(
     if name in _READ_OPERATIONS.get(parent, ()):
         return "read_only"
     return "unknown"
+
+
+def read_only_refusal(name: str, arguments: dict | None, *, source: str, parent: str) -> str | None:
+    """A runtime that only reads (Proactive Row-Bot's background preparation): refuse anything but a
+    reviewed read, before any approval. Unknown is refused."""
+    if action_effect(name, arguments, source=source, parent=parent) == "read_only":
+        return None
+    if source == "core" and arguments is not None and name in _MAIL_CALENDAR_READS.get(parent, ()):
+        return None
+    return READ_ONLY_SURFACE_REFUSAL
 
 
 def dispatch_refusal(

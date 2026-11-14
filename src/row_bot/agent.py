@@ -5976,6 +5976,14 @@ def _bind_profile_tool(tool: Any, *, source: str, parent: str,
             out_of_turn = _turn_scope_refusal(tool.name, source=source, parent=parent)
             if out_of_turn is not None:
                 return out_of_turn
+            if _current_runtime_surface_var.get("") == "proactive":
+                # Proactive Row-Bot's background preparation only reads, whatever the approval level.
+                from row_bot.tools.profile_policy import read_only_refusal
+
+                read_only = read_only_refusal(tool.name, call_arguments(argument_function or function, args, kwargs),
+                                              source=source, parent=parent)
+                if read_only is not None:
+                    return read_only
             profile = _dispatch_profile_snapshot()
             allowlist = (_current_tool_allowlist_var.get(())
                          if _current_tool_allowlist_active_var.get(False) else None)

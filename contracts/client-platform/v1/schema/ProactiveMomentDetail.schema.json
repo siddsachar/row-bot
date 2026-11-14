@@ -245,6 +245,11 @@
   "additionalProperties": false,
   "description": "\"Why this?\": a moment with its evidence, why it got through, and its history.",
   "properties": {
+    "conversation_id": {
+      "maxLength": 256,
+      "title": "Conversation Id",
+      "type": "string"
+    },
     "evidence": {
       "items": {
         "$ref": "#/$defs/ProactiveEvidence"
@@ -287,6 +292,7 @@
   "required": [
     "schema_version",
     "moment",
+    "conversation_id",
     "summary",
     "evidence",
     "why",

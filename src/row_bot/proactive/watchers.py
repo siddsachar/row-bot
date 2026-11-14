@@ -57,6 +57,18 @@ def get(name: str) -> Watcher | None:
     return _WATCHERS.get(name)
 
 
+def register_defaults() -> None:
+    """The built-in watchers: follow-ups (mail, chats), the calendar, dates in memory, workflows, sign-ins."""
+    from row_bot.proactive.changes import SignInWatcher, WorkflowWatcher
+    from row_bot.proactive.dates import DatesWatcher
+    from row_bot.proactive.follow_ups import ChatsWatcher, MailWatcher
+    from row_bot.proactive.meetings import CalendarWatcher
+
+    for watcher in (MailWatcher(), ChatsWatcher(), CalendarWatcher(), DatesWatcher(), WorkflowWatcher(),
+                    SignInWatcher()):
+        register(watcher)
+
+
 def run_due(now: float, settings: dict[str, Any]) -> tuple[list[Candidate], list[str], list[str]]:
     """Run every watcher that is due, on, and connected; (candidates, watchers that ran, skipped ones)."""
     candidates: list[Candidate] = []

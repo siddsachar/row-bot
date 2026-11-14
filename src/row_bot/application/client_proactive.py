@@ -2,7 +2,9 @@
 
 - ``for_you``: the open moments, urgent first: what Home's For you and Buddy show.
 - ``read_moment``: one moment with its evidence, why it got through and its history ("Why this?").
-- ``moment_feedback``: act / dismiss / not now / less like this.
+- ``moment_feedback``: act / dismiss / not now / less like this. Acting with ``continue_in_chat``
+  carries on in the chat the moment came from, as a Row-Bot continuation note.
+- ``list_drafts`` / ``read_draft``: what Row-Bot prepared (briefs, drafted replies), never sent.
 - ``read_activity``: every proactive pass, silent ones too, and each moment's steps, newest first.
 - ``read_settings`` / ``update_settings``: the level, quiet hours, sources, kinds, desktop context, urgent
   kinds and the person's rules, each with its plain privacy line.
@@ -67,7 +69,7 @@ def for_you() -> dict[str, Any]:
     return {"schema_version": 1, "items": [moment_view(moment) for moment in items]}
 
 
-def read_moment(moment_id: str) -> dict[str, Any]:
+def read_moment(moment_id: str, *, conversation_id: str = "") -> dict[str, Any]:
     from row_bot.proactive import store
 
     moment = store.get_moment(moment_id)
@@ -76,6 +78,7 @@ def read_moment(moment_id: str) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "moment": moment_view(moment),
+        "conversation_id": conversation_id,
         "summary": moment["summary"][:2000],
         "evidence": [{key: str(item.get(key) or "")[:300] for key in ("type", "id", "label", "source")}
                      for item in moment["evidence"][:20]],
@@ -84,13 +87,38 @@ def read_moment(moment_id: str) -> dict[str, Any]:
     }
 
 
+def _carry_on(moment: dict[str, Any]) -> str:
+    """The person chose to carry on in the chat a moment came from: Row-Bot starts that turn, shown there as a
+    continuation note (never as the person's message). Anything with a side effect in it still asks."""
+    from row_bot.application import conversation_followups as followups
+    from row_bot.application.client_platform import client_platform_service as service
+
+    conversation = next((item["id"] for item in reversed(moment["evidence"])
+                         if item["type"] in ("conversation", "ask")), "")
+    if not conversation:
+        raise ClientPlatformError("invalid_command")
+    service._metadata(conversation)  # Gone: not_found.
+    prompt = ("This is Row-Bot, not the person: the person chose to carry on with something Row-Bot noticed.\n"
+              f"{moment['title']}. {moment['summary']}\n\nHelp them with it now. Anything that sends, books, buys "
+              "or changes something still goes through their approval as usual.")
+    receipt = followups.start(service, conversation, followups.Followup(
+        kind="proactive", prompt=prompt, note=f"Following up: {moment['title']}"[:160]))
+    if receipt is None:
+        raise ClientPlatformError("generation_active")
+    return conversation
+
+
 def moment_feedback(moment_id: str, action: str, *, scope: str = "", action_id: str = "") -> dict[str, Any]:
     import time
 
-    from row_bot.proactive import feedback
+    from row_bot.proactive import feedback, store
 
     now = time.time()
+    conversation_id = ""
     if action == "act":
+        moment = store.get_moment(moment_id)
+        if action_id == "continue_in_chat" and moment is not None and moment["state"] in ("pending", "shown"):
+            conversation_id = _carry_on(moment)
         feedback.act(moment_id, now=now, action_id=action_id)
     elif action == "dismiss":
         feedback.dismiss(moment_id, now=now)
@@ -100,7 +128,28 @@ def moment_feedback(moment_id: str, action: str, *, scope: str = "", action_id: 
         feedback.less_like_this(moment_id, scope, now=now)
     else:
         raise ClientPlatformError("invalid_command")
-    return read_moment(moment_id)
+    return read_moment(moment_id, conversation_id=conversation_id)
+
+
+def _draft_view(draft: dict[str, Any]) -> dict[str, Any]:
+    return {"draft_id": draft["id"], "moment_id": draft["moment_id"], "kind": draft["kind"],
+            "title": draft["title"][:200], "body": draft["body"][:20_000], "created_at": _when(draft["created_at"])}
+
+
+def list_drafts() -> dict[str, Any]:
+    """Drafts: what Row-Bot prepared (meeting briefs, drafted replies), newest first. None was sent."""
+    from row_bot.proactive import store
+
+    return {"schema_version": 1, "items": [_draft_view(draft) for draft in store.drafts(limit=100)]}
+
+
+def read_draft(draft_id: str) -> dict[str, Any]:
+    from row_bot.proactive import store
+
+    draft = store.get_draft(draft_id)
+    if draft is None:
+        raise ClientPlatformError("not_found")
+    return {"schema_version": 1, **_draft_view(draft)}
 
 
 def read_activity(*, before: int = 0, limit: int = 100) -> dict[str, Any]:
