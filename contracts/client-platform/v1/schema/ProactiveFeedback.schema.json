@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "description": "What the person did with a moment. ``less_like_this`` names its scope; ``act`` may name the action.",
+  "properties": {
+    "action": {
+      "enum": [
+        "act",
+        "dismiss",
+        "not_now",
+        "less_like_this"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "action_id": {
+      "default": "",
+      "maxLength": 40,
+      "pattern": "^[a-z_]*$",
+      "title": "Action Id",
+      "type": "string"
+    },
+    "scope": {
+      "default": "",
+      "enum": [
+        "",
+        "topic",
+        "kind",
+        "time"
+      ],
+      "title": "Scope",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "title": "ProactiveFeedback",
+  "type": "object"
+}

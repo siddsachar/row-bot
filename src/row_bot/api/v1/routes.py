@@ -5782,6 +5782,103 @@ def create_router(
             raise ProtocolError("wait_unavailable", 404)
         return await respond(request, dto.WaitPage, await call(_wait_page))
 
+    # --- Proactive Row-Bot (5.3.4): For you, "Why this?", feedback, the Activity log and settings ---------
+
+    def _moment_id(moment_id: str) -> str:
+        if len(moment_id) != 16 or any(char not in "0123456789abcdef" for char in moment_id):
+            raise ProtocolError("not_found", 404)
+        return moment_id
+
+    def _rule_id(rule_id: str) -> str:
+        if len(rule_id) != 12 or any(char not in "0123456789abcdef" for char in rule_id):
+            raise ProtocolError("not_found", 404)
+        return rule_id
+
+    @router.get("/proactive/moments")
+    async def proactive_moments(request: Request) -> JSONResponse:
+        """For you: the open moments, urgent first."""
+        await session(request)
+        from row_bot.application.client_proactive import for_you
+
+        return await respond(request, dto.ProactiveMomentPage, await call(for_you))
+
+    @router.get("/proactive/moments/{moment_id}")
+    async def proactive_moment(request: Request, moment_id: str) -> JSONResponse:
+        """"Why this?": the moment's evidence, why it got through, and its history."""
+        await session(request)
+        from row_bot.application.client_proactive import read_moment
+
+        return await respond(request, dto.ProactiveMomentDetail, await call(read_moment, _moment_id(moment_id)))
+
+    @router.post("/proactive/moments/{moment_id}/feedback")
+    async def proactive_moment_feedback(request: Request, moment_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveFeedback, 1024)
+        from row_bot.application.client_proactive import moment_feedback
+
+        result = await call(moment_feedback, _moment_id(moment_id), body.action, scope=body.scope,
+                            action_id=body.action_id)
+        return await respond(request, dto.ProactiveMomentDetail, result)
+
+    @router.get("/proactive/activity")
+    async def proactive_activity(request: Request, before: int = 0, limit: int = 100) -> JSONResponse:
+        """Every proactive pass, silent ones too, and each moment's steps, newest first."""
+        await session(request)
+        if before < 0 or not 1 <= limit <= 200:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_proactive import read_activity
+
+        return await respond(request, dto.ProactiveActivityPage, await call(read_activity, before=before, limit=limit))
+
+    @router.get("/proactive/settings")
+    async def proactive_settings(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_proactive import read_settings
+
+        return await respond(request, dto.ProactiveSettingsView, await call(read_settings))
+
+    @router.put("/proactive/settings")
+    async def update_proactive_settings(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveSettingsChange, 4 * 1024)
+        from row_bot.application.client_proactive import update_settings
+
+        changes = body.model_dump(exclude_none=True)
+        return await respond(request, dto.ProactiveSettingsView, await call(update_settings, changes))
+
+    @router.post("/proactive/rules")
+    async def create_proactive_rule(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveRuleWrite, 1024)
+        from row_bot.application.client_proactive import save_rule
+
+        return await respond(request, dto.ProactiveSettingsView, await call(save_rule, body.model_dump()))
+
+    @router.put("/proactive/rules/{rule_id}")
+    async def update_proactive_rule(request: Request, rule_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveRuleWrite, 1024)
+        from row_bot.application.client_proactive import save_rule
+
+        result = await call(save_rule, body.model_dump(), rule_id=_rule_id(rule_id))
+        return await respond(request, dto.ProactiveSettingsView, result)
+
+    @router.delete("/proactive/rules/{rule_id}")
+    async def delete_proactive_rule(request: Request, rule_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_proactive import delete_rule
+
+        return await respond(request, dto.ProactiveSettingsView, await call(delete_rule, _rule_id(rule_id)))
+
+    @router.post("/proactive/boundaries")
+    async def proactive_boundary(request: Request) -> JSONResponse:
+        """The app just opened: moments batched for a natural break may go out."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveBoundary, 256)
+        from row_bot.application.client_proactive import note_boundary
+
+        return await respond(request, dto.ProactiveBoundaryNoted, await call(note_boundary, body.kind))
+
     @router.get("/row-bot-sandboxes")
     async def row_bot_sandboxes(request: Request) -> JSONResponse:
         await session(request)
