@@ -518,6 +518,7 @@ _STATUS.update(
         (
             "invalid_task_fields",
             "invalid_task_schedule",
+            "task_schedule_too_often",
             "task_time_passed",
             "invalid_task_identity",
             "invalid_task_revision",

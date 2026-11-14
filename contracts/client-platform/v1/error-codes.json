@@ -671,6 +671,7 @@
     "task_run_not_found": 404,
     "task_run_unconfirmed": 409,
     "task_saved_read_unconfirmed": 503,
+    "task_schedule_too_often": 422,
     "task_schedule_unconfirmed": 503,
     "task_settings_folder_unavailable": 409,
     "task_settings_model_unavailable": 409,

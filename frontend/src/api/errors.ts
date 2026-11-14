@@ -1336,6 +1336,10 @@ const CATALOG: Record<string, Entry> = {
     "This workflow has settings this editor can't change.",
     'review',
   ],
+  task_schedule_too_often: [
+    'Workflows run at most once a minute; choose 1 minute or more.',
+    'review',
+  ],
   task_time_passed: [
     'That time has passed. Pick a later time, or switch the workflow off.',
     'review',

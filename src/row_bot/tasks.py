@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import pathlib
 import re
@@ -1258,6 +1259,7 @@ def create_task(
         raise ValueError("timezone must be an IANA zone such as Europe/London.")
     if missed_runs not in MISSED_RUN_RULES:
         raise ValueError("missed_runs must be 'skip' or 'run_once'.")
+    check_schedule(schedule, task_id or "")
 
     # ── delay_minutes → at conversion ────────────────────────────────
     if delay_minutes is not None:
@@ -1624,6 +1626,8 @@ def update_task(
         steps = kwargs.pop("steps") or []
         if steps:
             kwargs["prompts"] = messages_from_steps(steps)
+    if "schedule" in kwargs:
+        check_schedule(kwargs["schedule"], task_id)
 
     if "delivery_channel" in kwargs or "delivery_target" in kwargs:
         # Merge with existing values to get full picture
@@ -3706,6 +3710,58 @@ def _parse_schedule(schedule: str | None) -> dict | None:
     return None
 
 
+# Workflows run at most once a minute. A one-off time or a quick timer (``at``, ``delay_minutes``)
+# fires once, so it may be any number of seconds away; the minimum is for repeating schedules.
+MIN_SCHEDULE_INTERVAL = timedelta(minutes=1)
+SCHEDULE_TOO_OFTEN = "Workflows run at most once a minute; choose 1 minute or more."
+_SHORT_INTERVALS_LOGGED: set[tuple[str, str]] = set()
+
+
+class ScheduleTooOftenError(TaskMutationError):
+    """A repeating schedule more often than once a minute; its text says what to choose instead."""
+
+    def __init__(self, task_id: str = ""):
+        super().__init__("task_schedule_too_often", task_id)
+        self.args = (SCHEDULE_TOO_OFTEN,)
+
+
+def _saved_interval(sched: Mapping[str, Any]) -> timedelta | None:
+    """The gap an ``interval`` / ``interval_minutes`` schedule names, as saved (None for any other
+    kind, or an amount that is negative, not a number or too large to be a time)."""
+    if sched["kind"] == "interval":
+        amount, unit = sched["hours"], "hours"
+    elif sched["kind"] == "interval_minutes":
+        amount, unit = sched["minutes"], "minutes"
+    else:
+        return None
+    if not math.isfinite(amount) or amount < 0:
+        return None
+    try:
+        return timedelta(**{unit: amount})
+    except OverflowError:
+        return None
+
+
+def _run_interval(sched: Mapping[str, Any]) -> timedelta | None:
+    """The gap the scheduler keeps between runs: a schedule saved below a minute (or at 0) before
+    the minimum existed runs once a minute, and its saved words are left as they are."""
+    gap = _saved_interval(sched)
+    return None if gap is None else max(gap, MIN_SCHEDULE_INTERVAL)
+
+
+def check_schedule(schedule: str | None, task_id: str = "") -> None:
+    """Refuse a repeating schedule that would run more often than once a minute.
+
+    Every path that saves a workflow's schedule calls this: the editor and the API
+    (``application.task_controls``), the agent's ``task_create`` / ``task_update``, templates and
+    drafts (all through ``create_task`` / ``update_task``).
+    """
+    sched = _parse_schedule(schedule)
+    gap = _saved_interval(sched) if sched else None
+    if gap is not None and gap < MIN_SCHEDULE_INTERVAL:
+        raise ScheduleTooOftenError(task_id)
+
+
 _DAY_MAP = {
     "mon": 0, "tue": 1, "wed": 2, "thu": 3,
     "fri": 4, "sat": 5, "sun": 6,
@@ -3788,20 +3844,20 @@ def _build_trigger(task: dict, *, now: datetime | None = None):
     if not sched:
         return None
 
-    kind = sched["kind"]
-    if kind == "interval":
+    if sched["kind"] in ("interval", "interval_minutes"):
         from apscheduler.triggers.interval import IntervalTrigger
-        hours = sched["hours"]
-        if hours <= 0:
-            return None
-        return IntervalTrigger(hours=hours)
 
-    elif kind == "interval_minutes":
-        from apscheduler.triggers.interval import IntervalTrigger
-        minutes = sched["minutes"]
-        if minutes <= 0:
+        gap = _run_interval(sched)
+        if gap is None:
             return None
-        return IntervalTrigger(minutes=int(minutes))
+        saved = _saved_interval(sched)
+        if saved is not None and saved < MIN_SCHEDULE_INTERVAL:
+            key = (str(task.get("id") or ""), str(task.get("schedule") or ""))
+            if key not in _SHORT_INTERVALS_LOGGED:
+                _SHORT_INTERVALS_LOGGED.add(key)
+                logger.warning("Workflow %s is saved as %r, more often than once a minute; it runs once a minute",
+                               key[0] or "(unsaved)", key[1])
+        return IntervalTrigger(seconds=gap.total_seconds())
     return _schedule_trigger(sched, tz)
 
 
@@ -3842,13 +3898,9 @@ def estimate_next_run(task: Mapping[str, Any], now: datetime | None = None) -> s
         return None
     kind = sched["kind"]
     if kind in ("interval", "interval_minutes"):
-        delta = (
-            timedelta(hours=sched["hours"])
-            if kind == "interval"
-            else timedelta(minutes=int(sched["minutes"]))
-        )
+        delta = _run_interval(sched)
         last = _saved_instant(task.get("last_run"))
-        if delta <= timedelta(0) or last is None:
+        if delta is None or last is None:
             return None
         upcoming = last + delta
         if upcoming <= now:
@@ -4122,8 +4174,8 @@ def missed_run_time(task: Mapping[str, Any], since: datetime, now: datetime) -> 
     after = max(since, last) if last else since
     kind = sched["kind"]
     if kind in ("interval", "interval_minutes"):
-        delta = timedelta(hours=sched["hours"]) if kind == "interval" else timedelta(minutes=int(sched["minutes"]))
-        if last is None or delta <= timedelta(0) or now - last < delta:
+        delta = _run_interval(sched)
+        if last is None or delta is None or now - last < delta:
             return None
         due = last + delta * int((now - last) / delta)
         return due if due > after else None
