@@ -122,7 +122,8 @@ def test_system_diagnosis_runs_only_on_an_explicit_request_from_any_device(tmp_p
     assert result.json() == {"schema_version": 1, "hourly_network_checks": True, "checks": [
         {"id": "ollama", "name": "Ollama", "status": "warn", "detail": "Server offline",
          "checked_at": 1.0, "settings_tab": "Models", "network": True, "stale": True,
-         "fix": {"kind": "check_again", "href": "/settings/providers", "target": None, "name": "Ollama"}},
+         "fix": {"kind": "check_again", "href": "/settings/models#providers-local", "target": None,
+                 "name": "Ollama"}},
         {"id": "disk", "name": "Disk", "status": "ok", "detail": "40.0 GB free",
          "checked_at": 1.0, "settings_tab": "System", "network": False, "stale": True, "fix": None},
     ]}
