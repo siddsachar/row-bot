@@ -86,7 +86,10 @@ def cells(queue: str) -> list[Cell]:
     return found
 
 
-def command(cell: Cell, root: Path, eval_profile: str, booking: str) -> list[str]:
+def command(cell: Cell, root: Path, eval_profile: str, booking: str, night: str = "") -> list[str]:
+    """A cell's run. ``night`` replaces a local model's cut-off (``05:00``: no night pause, for a night the person's
+    Row-Bot stays closed and no other lane has the card)."""
+
     folder = root / cell.name
     model = MODELS[cell.model]
     found = [sys.executable, "-m", "tests.e2e.learning.stale_skills.run", "--arm", cell.arm, "--person", cell.person,
@@ -94,7 +97,7 @@ def command(cell: Cell, root: Path, eval_profile: str, booking: str) -> list[str
              "--days", str(world.DAYS), "--phrasing", "main", "--sim-date", "--blind", "--eval-profile", eval_profile,
              "--cap-tokens", str(CAPS[model["lane"]])]
     if model["lane"] == "local":
-        found += ["--local-model", model["local"], "--no-new-day-from", model["cutoff"],
+        found += ["--local-model", model["local"], "--no-new-day-from", night or model["cutoff"],
                   "--block-minutes", str(BLOCK_MINUTES), "--priority-lanes", "lane-C"]
         if booking:
             found += ["--gpu-booking", booking]
@@ -323,7 +326,8 @@ def run_cell(cell: Cell, args: argparse.Namespace, status: Status) -> str:
         with (folder / "log.txt").open("a", encoding="utf-8") as log:
             log.write(f"\n--- grid start {entry['starts']} {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             log.flush()
-            code = subprocess.call(command(cell, root, args.eval_profile, args.gpu_booking), cwd=str(CHECKOUT),
+            code = subprocess.call(command(cell, root, args.eval_profile, args.gpu_booking, args.no_new_day_from),
+                                   cwd=str(CHECKOUT),
                                    env=env, stdout=log, stderr=subprocess.STDOUT)
         unload(cell)
         now = progress(folder)
@@ -373,6 +377,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", default="", help="comma-separated cell names (default: the whole queue)")
     parser.add_argument("--name", default="", help="this supervisor's status name (several may share a queue: "
                         "each cell is locked by the one running it)")
+    parser.add_argument("--no-new-day-from", default="", help="HH:MM for every local cell instead of its model's "
+                        "cut-off (05:00: no night pause, only when the person's Row-Bot is closed for the night)")
     args = parser.parse_args(argv)
     if args.queue == "main":
         args.gpu_booking = ""  # see the module's docstring

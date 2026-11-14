@@ -348,6 +348,8 @@ def test_the_quiet_hours_stop_new_days_before_00_40():
     assert run.quiet_soon(datetime(2026, 10, 26, 0, 10), start=(23, 50))
     assert run.quiet_soon(datetime(2026, 10, 25, 23, 40), start=(23, 50)) is None
     assert run.quiet_soon(datetime(2026, 10, 26, 12, 0), start=(23, 50)) is None
+    # A cut-off of 05:00 leaves no night pause at all (a night the person's Row-Bot stays closed).
+    assert all(run.quiet_soon(datetime(2026, 10, 26, hour, 30), start=(5, 0)) is None for hour in range(24))
 
 
 def test_phase_3s_grid_is_the_pre_registered_one(tmp_path):
@@ -371,6 +373,10 @@ def test_phase_3s_grid_is_the_pre_registered_one(tmp_path):
     local = grid.command(grid.cells("local")[0], tmp_path, "profile", "booking.txt")
     assert "--blind" in main and "--blind" in local
     assert "--gpu-booking" not in main and local[local.index("--gpu-booking") + 1] == "booking.txt"
+    # A local cell keeps its model's night cut-off unless the queue is told otherwise for a night.
+    night = grid.command(grid.cells("local")[0], tmp_path, "profile", "booking.txt", "05:00")
+    assert local[local.index("--no-new-day-from") + 1] == grid.MODELS["q9b"]["cutoff"]
+    assert night[night.index("--no-new-day-from") + 1] == "05:00"
     assert grid.progress(tmp_path / "nothing") == {"days": 0, "steps": 0, "tokens": 0, "gpu_seconds": 0.0,
                                                    "finished": False}
 
