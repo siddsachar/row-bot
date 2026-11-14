@@ -167,8 +167,12 @@ def _git_commit() -> str:
 
 
 def run_worker(run_dir: Path, spec: dict[str, Any], *, timeout_min: float = TASK_TIMEOUT_MIN) -> int:
-    """One task in a worker process; returns its exit code."""
-    stem = spec["task_id"].replace(":", "_").replace("/", "_")
+    """One task in a worker process; returns its exit code. Every attempt gets a new, empty scratch
+    folder: a task resumed after a stop or a crash starts its memory from nothing, never on top of a
+    half-ingested one."""
+    task_stem = spec["task_id"].replace(":", "_").replace("/", "_")
+    attempt = 1 + sum(1 for item in (run_dir / "data").glob(f"{task_stem}-*")) if (run_dir / "data").is_dir() else 1
+    stem = f"{task_stem}-{attempt}"
     data_dir, workspace = run_dir / "data" / stem, run_dir / "workspace" / stem
     for folder in (data_dir, workspace, run_dir / "specs", run_dir / "logs"):
         folder.mkdir(parents=True, exist_ok=True)
@@ -242,7 +246,7 @@ def run(args: argparse.Namespace) -> int:
         spec = {"kind": "memory", "task_id": task.task_id, "benchmark": task.benchmark, "task": task.to_dict(),
                 "config": asdict(config), "caps": _caps_spec(caps), "usage_book": str(usage_book_path()),
                 "dream": bool(args.dream), "question_template": args.question_template, "record": record}
-        expect = f"{max(10, figures['windows'] + figures['questions']) } min"
+        expect = f"{max(10, figures['windows'] + figures['questions'])} min"
         code = _book_and_run(run_dir, spec, provider, f"{args.benchmark} {task.task_id}", expect)
         print(f"{task.task_id}: exit {code}")
         if code in (75, 76, 77):
@@ -332,7 +336,8 @@ def build_scores(run_dir: Path) -> dict[str, Any]:
     published = f"model:{protocol.get('published_judge', '')}"
     scores = [{**scoring.accuracy(judgments, key=key, judge=name), "published_judge": name == published}
               for name in judges for key in keys]
-    trajectories = read_jsonl(run_dir / "trajectories.jsonl")
+    # The newest attempt of each task (a resumed task's earlier attempt is in the file too).
+    trajectories = list({item.task_id: item for item in read_jsonl(run_dir / "trajectories.jsonl")}.values())
     ingest_steps = [step for item in trajectories for step in item.steps if step.kind in {"ingest", "dream"}]
     turn_steps = [step for item in trajectories for step in item.steps if step.kind == "turn"]
 
@@ -366,6 +371,9 @@ def build_scores(run_dir: Path) -> dict[str, Any]:
                       "seconds": _spread([step.seconds for step in turn_steps]), **tokens(turn_steps),
                       "tokens_per_question": _spread([float(sum(int(call.input_tokens or 0) + int(call.output_tokens
                                                      or 0) for call in step.calls)) for step in turn_steps])},
+        # Every judge attempt judged other answers, so all of them count.
+        "judging": {"judgments": len(judgments), **tokens([step for item in read_jsonl(run_dir / "trajectories.jsonl")
+                                                           for step in item.steps if step.kind == "judge"])},
     }
 
 
@@ -397,7 +405,10 @@ def render_report(scores: Mapping[str, Any]) -> str:
               f"output tokens; {ingest['memories_saved']} memories saved; ${ingest['cost_usd']:.4f}.",
               f"Questions: {asked['asked']} asked ({asked['not_done']} not finished); seconds {asked['seconds']}; "
               f"tokens per question {asked['tokens_per_question']}; {asked['input_tokens']:,} input + "
-              f"{asked['output_tokens']:,} output tokens; ${asked['cost_usd']:.4f}."]
+              f"{asked['output_tokens']:,} output tokens; ${asked['cost_usd']:.4f}.",
+              f"Judging: {scores['judging']['judgments']} judgments; {scores['judging']['calls']} calls, "
+              f"{scores['judging']['input_tokens']:,} input + {scores['judging']['output_tokens']:,} output tokens; "
+              f"${scores['judging']['cost_usd']:.4f}."]
     for item in scores["tasks"]["other"]:
         lines.append(f"- task {item['task_id']}: {item['status']} ({item['reason']})")
     return "\n".join(lines) + "\n"

@@ -426,6 +426,9 @@ def test_the_report_gives_both_keys_tokens_and_time_from_a_run_folder(tmp_path) 
         Step(kind="turn", name="q1", seconds=6.0,
              calls=[CallEntry("codex", "gpt-6.1-sol", input_tokens=20_000, output_tokens=200, cost_usd=0.0)]),
     ]
+    stopped = Trajectory("locomo_0_a", "locomo", config={"kind": "memory"}, status="stopped",
+                         steps=[Step(kind="turn", name="q1", seconds=1.0)])
+    append_jsonl(run_dir / "trajectories.jsonl", stopped)  # an earlier attempt: the newest one counts
     append_jsonl(run_dir / "trajectories.jsonl", trajectory)
     with (run_dir / "judgments.jsonl").open("w", encoding="utf-8") as handle:
         for key, correct in (("original", False), ("audited", True)):
@@ -436,8 +439,25 @@ def test_the_report_gives_both_keys_tokens_and_time_from_a_run_folder(tmp_path) 
         ("original", 0.0, False), ("audited", 1.0, False)]
     assert scores["ingestion"]["input_tokens"] == 4_000 and scores["ingestion"]["memories_saved"] == 3
     assert scores["questions"]["tokens_per_question"]["mean"] == 20_200.0
+    assert scores["questions"]["asked"] == 1 and scores["tasks"]["other"] == []
     report = (run_dir / "report.md").read_text(encoding="utf-8")
     assert "(self-run)" in report and "no (diagnostic)" in report
+
+
+def test_each_attempt_at_a_task_gets_a_fresh_scratch_folder(tmp_path, monkeypatch) -> None:
+    started: list[dict[str, str]] = []
+
+    def fake_run(argv, *, env, **_kwargs):
+        started.append(env)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(orchestrate.subprocess, "run", fake_run)
+    spec = {"kind": "memory", "task_id": "locomo_0_a"}
+    assert orchestrate.run_worker(tmp_path, spec) == 0 and orchestrate.run_worker(tmp_path, spec) == 0
+    folders = [Path(env["ROW_BOT_DATA_DIR"]).name for env in started]
+    assert folders == ["locomo_0_a-1", "locomo_0_a-2"]
+    assert all(env["ROW_BOT_INSTALL_COUNT"] == "0" and "ROW_BOT_LEARNING_PREVIEW" not in env for env in started)
+    assert json.loads((tmp_path / "specs" / "locomo_0_a-2.json").read_text(encoding="utf-8"))["run_dir"] == str(tmp_path)
 
 
 # ── The call gate and turns ─────────────────────────────────────────────────
