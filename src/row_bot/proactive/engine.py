@@ -68,7 +68,7 @@ def _triage(candidates: list[Candidate], settings: dict[str, Any],
 
     recent = [moment["title"] for moment in store.list_moments(since=now - 3 * 86400, limit=10)]
     rules = [feedback.rule_words(rule) for rule in store.rules()]
-    kept, words = triage.decide(candidates, level=settings["level"], rules=rules, recent=recent)
+    kept, words = triage.decide(candidates, level=settings["level"], rules=rules, recent=recent, now=now)
     store.log("pass", words, now=now, detail={"changes": len(candidates), "kept": -1 if kept is None else len(kept)})
     return kept
 
@@ -117,6 +117,11 @@ def _gather(candidates: list[Candidate], settings: dict[str, Any], at: datetime)
     return kept
 
 
+# The watchers' sources in the activity log's words.
+SOURCE_WORDS = {"chats": "chats", "dates": "dates", "workflows": "workflows", "sign_ins": "sign-ins",
+                "mail": "mail", "calendar": "calendar"}
+
+
 def _passes(candidates: list[Candidate], ran: list[str], skipped: list[str], kept: list[dict[str, Any]],
             now: float) -> None:
     if not ran and not skipped:
@@ -125,9 +130,12 @@ def _passes(candidates: list[Candidate], ran: list[str], skipped: list[str], kep
         words = "nothing new"
     else:
         words = f"{len(candidates)} change{'s' if len(candidates) != 1 else ''}, {len(kept)} worth a mention"
-    checked = ", ".join(ran) or "nothing"
-    store.log("pass", f"Checked {checked}: {words}." + (f" Skipped (not connected): {', '.join(skipped)}."
-                                                         if skipped else ""), now=now,
+    named = [SOURCE_WORDS.get(name, name.replace("_", " ")) for name in ran]
+    unconnected = [SOURCE_WORDS.get(name, name.replace("_", " ")) for name in skipped]
+    summary = (f"Checked {', '.join(named)}: {words}." if named else "")
+    if unconnected:
+        summary += (" " if summary else "") + f"Skipped (not connected): {', '.join(unconnected)}."
+    store.log("pass", summary, now=now,
               detail={"ran": ran, "skipped": skipped, "changes": len(candidates), "moments": len(kept)})
 
 

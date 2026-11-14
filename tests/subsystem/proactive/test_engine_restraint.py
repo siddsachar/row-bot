@@ -28,7 +28,7 @@ def test_silent_when_nothing_changed_but_the_pass_is_logged(proactive, monkeypat
     assert first["ran"] == ["fake_mail"] and first["candidates"] == 0
     assert watcher.scans == 2 and proactive.store.list_moments() == []
     passes = [entry["summary"] for entry in proactive.store.activity() if entry["summary"].startswith("Checked")]
-    assert passes == ["Checked fake_mail: nothing new."] * 2
+    assert passes == ["Checked fake mail: nothing new."] * 2
 
 
 def test_a_source_that_isnt_connected_or_is_off_is_skipped_and_says_so(proactive):
@@ -41,7 +41,7 @@ def test_a_source_that_isnt_connected_or_is_off_is_skipped_and_says_so(proactive
     result = proactive.engine.tick(at("2026-11-16 09:00"), desktop=AT_DESK)
 
     assert result["ran"] == [] and watcher.scans == 0 and calendar.scans == 0
-    assert "Checked nothing: nothing new. Skipped (not connected): fake_mail." in [
+    assert "Skipped (not connected): fake mail." in [
         entry["summary"] for entry in proactive.store.activity()]
 
 

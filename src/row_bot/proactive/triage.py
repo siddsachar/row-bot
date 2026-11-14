@@ -26,9 +26,12 @@ BODY_CHARS = 400
 UNTRUSTED_CHARS = 600
 _LINK = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 SYSTEM_PROMPT = """You are Row-Bot's proactive triage. Row-Bot noticed some changes in the person's own mail, \
-calendar, chats, memory and workflows. Decide, for each change, whether it is worth interrupting the person \
-for today. Silence is the right answer most of the time: keep a change only when the person would clearly \
-want to hear about it now, and drop anything vague, routine, already handled or covered by a recent moment.
+calendar, chats, memory and workflows. Decide, for each change, whether the person would want Row-Bot to bring \
+it up. Row-Bot holds each kept change until it matters ("matters_at") and picks a good moment then, so judge \
+whether it will be worth a mention at that time, not whether it is urgent right now. Silence is the right \
+answer most of the time: keep a change only when the person would clearly want to hear about it, and drop \
+anything vague, routine, already handled or covered by a recent moment. A promise the person made with a \
+deadline is usually worth a reminder before it is due.
 
 Rules:
 - You only choose and word. You cannot act, send, reply, book, buy or change anything, and you must not \
@@ -49,7 +52,20 @@ def _answer() -> Any:
     return structured_answer("proactive_triage", {"decisions": {"type": "array", "items": decision}})
 
 
-def messages(candidates: list[Candidate], *, level: str, rules: list[str], recent: list[str]) -> list[dict[str, str]]:
+def _when(due_at: float | None, now: float | None) -> str:
+    """When a change matters, in words the model reads: "now", or a local day and time."""
+    from datetime import datetime
+
+    if due_at is None or now is None or due_at <= now:
+        return "now"
+    moment, today = datetime.fromtimestamp(due_at), datetime.fromtimestamp(now).date()
+    days = (moment.date() - today).days
+    day = "today" if days == 0 else "tomorrow" if days == 1 else moment.strftime("%a %d %b")
+    return f"{day} {moment:%H:%M}"
+
+
+def messages(candidates: list[Candidate], *, level: str, rules: list[str], recent: list[str],
+             now: float | None = None) -> list[dict[str, str]]:
     """Exactly what the model is sent: the changes as data, the person's rules and recent moments."""
     case = {
         "level": level,
@@ -59,6 +75,7 @@ def messages(candidates: list[Candidate], *, level: str, rules: list[str], recen
             "id": f"c{index}",
             "kind": KIND_WORDS.get(candidate.kind, candidate.kind),
             "urgent": candidate.urgency == "urgent",
+            "matters_at": _when(candidate.due_at, now),
             "what_changed": candidate.summary,
             "suggested_title": candidate.title,
             "untrusted": candidate.untrusted[:UNTRUSTED_CHARS],
@@ -104,11 +121,11 @@ def parse(text: str, candidates: list[Candidate]) -> list[tuple[Candidate, str, 
 
 
 def decide(candidates: list[Candidate], *, level: str, rules: list[str], recent: list[str],
-           call: Callable[[list[dict[str, str]]], str] | None = None
+           call: Callable[[list[dict[str, str]]], str] | None = None, now: float | None = None
            ) -> tuple[list[tuple[Candidate, str, str]] | None, str]:
     """(kept changes, what happened in words for the Activity log). Never raises: trouble is silence. The
     changes are None when nothing was decided (no model, no answer, no readable answer)."""
-    prompt = messages(candidates, level=level, rules=rules, recent=recent)
+    prompt = messages(candidates, level=level, rules=rules, recent=recent, now=now)
     try:
         text = (call or _call)(prompt)
     except LookupError:
