@@ -430,6 +430,30 @@ def _task_update(
         return f"Error updating task: {exc}"
 
 
+def _report_back(task: dict, thread_id: str) -> bool:
+    """The chat that started a run hears back once when that run ends, even if it ends first (F3)."""
+    from row_bot import waits
+    from row_bot.linked_conversations import LinkError, origin
+
+    try:
+        here = origin().conversation_id
+    except LinkError:
+        return False
+    if here == thread_id or tasks_db.active_run_for_conversation(here) is not None:
+        return False  # Its own conversation, or a workflow's run: runs carry on by themselves.
+    history = tasks_db.get_run_history(str(task["id"]), limit=1)
+    if not history:
+        return False
+    try:
+        waits.create(here, "conversation", f"{task['name']} finishes its run",
+                     spec={"conversation_id": thread_id, "name": task["name"], "run_id": history[0]["id"],
+                           "then": "Tell the person in a few lines how the run went and what it produced."},
+                     hours=waits.MAX_HOURS)
+    except waits.WaitError:
+        return False
+    return True
+
+
 def _task_run_now(task_id: str) -> str:
     """Trigger immediate execution of an existing task."""
     from row_bot.tools import registry as tool_registry
@@ -442,10 +466,11 @@ def _task_run_now(task_id: str) -> str:
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     tasks_db.run_task_background(task_id, thread_id, enabled, trigger="Run now")
 
-    return (
-        f"Task '{task['icon']} {task['name']}' started in its own conversation.\n"
-        f"task_list(include_history=true) shows how it ended and what it posted or sent."
-    )
+    started = f"Task '{task['icon']} {task['name']}' started in its own conversation.\n"
+    if not task.get("notify_only") and _report_back(task, thread_id):
+        return started + ("This chat hears back by itself when the run ends: end this turn now, without "
+                          "checking on it or setting a wait.")
+    return started + "task_list(include_history=true) shows how it ended and what it posted or sent."
 
 
 # ── Tool class ───────────────────────────────────────────────────────────────
