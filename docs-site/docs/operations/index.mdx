@@ -39,7 +39,20 @@ To restore a hand-made copy, restore related databases and files as one set whil
 
 ## Import From Another Assistant
 
-**Settings › Data › Import from another assistant** scans Hermes Agent or OpenClaw data on this computer and lets you choose what to bring in: memories, persona and skills, and, only if you tick it, API keys and tokens. Nothing is written until you confirm the preview. First launch offers it when it finds one of them. The same page's danger zone holds irreversible clean-up, such as removing tracker data.
+**Settings › Data › Import from another assistant** scans Hermes Agent (`~/.hermes`, or `%LOCALAPPDATA%\hermes` on Windows) or OpenClaw data on this computer and lists what it found and where each item goes. Nothing is written until you confirm. What you already have is never replaced unless you turn on **Replace what you already have**, and then a backup is kept first. First launch offers it when it finds one of them.
+
+- **Memories** (Hermes's `memories/MEMORY.md` and `USER.md`; OpenClaw's `MEMORY.md`, `USER.md` and daily notes) open in **Import memories** for you to check. Nothing is saved to memory until you import them there.
+- **Persona** (`SOUL.md`) becomes the personality in **Settings › Preferences**, shortened to fit.
+- **Agent instructions** (`AGENTS.md`) become a skill, *Instructions from Hermes* (or OpenClaw), which nothing uses until you choose it.
+- **Skills** are copied to **Settings › Skills**.
+- **MCP servers** are added to **Settings › Apps**, turned off. Their setting values, such as keys in `env` or headers, aren't copied: fill them in, check the server, then turn it on. A server with the same name as one of yours is left alone.
+- **Main model** is set when its provider is one Row-Bot has, such as OpenAI, Anthropic, OpenRouter, Google, xAI or Ollama. Others, such as Nous Portal models, are listed as not brought over.
+- **Model servers** (Hermes's custom providers) become **Custom endpoints**, unless you have one with the same name.
+- **API keys and tokens** come over only if you tick **Include API keys and tokens**, into the system keychain.
+
+Memories and MCP servers come over only into the data folder this Row-Bot uses, so leave **Target folder** empty for them. Hermes's sessions, logs, cron jobs, plugins and state are copied into the import's report for you to look at, not imported. OpenClaw's channels and its approval, tool, hook and cron settings are listed for you to set up by hand.
+
+The same page's danger zone holds irreversible clean-up, such as removing tracker data.
 
 ## Sandboxes
 

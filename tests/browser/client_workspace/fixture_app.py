@@ -7670,6 +7670,29 @@ def mi_seed(x_fixture_token: str = Header(default="")) -> dict:
     return {"ok": True}
 
 
+# Settings › Data › Import from another assistant: a synthetic Hermes home (the migration's own test
+# fixture, with a Nous model Row-Bot doesn't connect to), outside the data folder. The spec types its
+# folder into Source folder; nothing is read from a real Hermes.
+@app.post("/__hm_fixture/seed")
+def hm_seed(x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    import shutil
+    from row_bot.data_paths import get_row_bot_data_dir
+    if get_row_bot_data_dir(create=False).resolve() != predecessor.DATA.resolve():
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    from row_bot.application import memory_import
+    from row_bot.migration.fixtures import create_realistic_hermes_home
+
+    memory_import.close_batches()
+    home = predecessor.DATA.parent / "hermes-fixture" / ".hermes"
+    shutil.rmtree(home.parent, ignore_errors=True)
+    create_realistic_hermes_home(home)
+    config = home / "config.yaml"
+    config.write_text(config.read_text(encoding="utf-8").replace(
+        "  provider: openai\n  model: gpt-5.4", "  provider: nous\n  model: Hermes-4-405B", 1), encoding="utf-8")
+    return {"source": str(home)}
+
+
 # Knowledge › Review memory: synthetic memories shaped like a long-used profile's (test data, a replaced
 # preference, a run of appended sentences on the person's record, a long workflow register, a lesson), two
 # that read alike, and the person's default chat model answered by the Python tests' deterministic fake.

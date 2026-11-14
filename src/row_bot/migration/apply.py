@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from row_bot.migration import stores
 from row_bot.migration.core import (
     MigrationAction,
     MigrationCategory,
@@ -27,6 +29,9 @@ class MigrationApplyOptions:
     require_backup: bool = True
     allow_without_backup: bool = False
     overwrite: bool = False
+    # Memory files go to Import memories to be reviewed: given the files, this opens a batch with
+    # them and returns ``{"batch_id", "found"}``. Without it, memory items are not applied.
+    stage_memories: Callable[[list[Path]], dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +44,7 @@ class MigrationApplyResult:
     started_at: str = ""
     finished_at: str = ""
     backup_manifest: tuple[dict[str, str], ...] = field(default_factory=tuple)
+    memory_review: dict[str, Any] | None = None
 
     @property
     def summary(self) -> PlanSummary:
@@ -57,6 +63,7 @@ class MigrationApplyResult:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "backup_manifest": backup_manifest,
+            "memory_review": dict(self.memory_review) if self.memory_review else None,
             "items": [item.to_dict(redact=redact) for item in self.items],
         }
 
@@ -87,6 +94,7 @@ def apply_migration_plan(
     warnings = list(plan.warnings)
 
     _write_json(report_dir / "plan.json", plan.to_dict(redact=True))
+    memories: list[MigrationItem] = []
     for item in plan.items:
         if item.is_archive_only:
             result_items.append(_archive_to_report(item, report_dir))
@@ -96,6 +104,9 @@ def apply_migration_plan(
             continue
         if item.status == MigrationStatus.CONFLICT and not opts.overwrite:
             result_items.append(item.with_status(MigrationStatus.BLOCKED, "target conflict requires overwrite"))
+            continue
+        if item.details.get("store") == stores.MEMORY_REVIEW:
+            memories.append(item)  # staged together once the rest is applied
             continue
         try:
             backups = _apply_item(
@@ -112,6 +123,10 @@ def apply_migration_plan(
             result_items.append(_replace_item(item, status=MigrationStatus.MIGRATED, reason="applied", details=details))
         except Exception as exc:
             result_items.append(item.with_status(MigrationStatus.ERROR, str(exc)))
+    memory_review = None
+    if memories:
+        staged, memory_review = _stage_memories(memories, plan.source.root, target_root, opts.stage_memories)
+        result_items.extend(staged)
 
     finished_at = _timestamp()
     result = MigrationApplyResult(
@@ -123,6 +138,7 @@ def apply_migration_plan(
         started_at=started_at,
         finished_at=finished_at,
         backup_manifest=tuple(backup_manifest),
+        memory_review=memory_review,
     )
     _write_json(report_dir / "result.json", result.to_dict(redact=True))
     _write_json(report_dir / "backup_manifest.json", {"entries": backup_manifest})
@@ -140,12 +156,11 @@ def _apply_item(
 ) -> list[dict[str, str]]:
     if item.category == MigrationCategory.API_KEYS:
         return _apply_secret_item(item, target_root, backup_dir, overwrite=overwrite, backed_up_targets=backed_up_targets)
+    store = item.details.get("store")
+    if store is not None:
+        return _apply_store_item(item, str(store), target_root, backup_dir, backed_up_targets=backed_up_targets)
     if item.action == MigrationAction.COPY:
         return _copy_file_item(item, target_root, backup_dir, overwrite=overwrite, backed_up_targets=backed_up_targets)
-    if item.action == MigrationAction.APPEND:
-        return _append_item(item, target_root, backup_dir, backed_up_targets=backed_up_targets)
-    if item.action in {MigrationAction.CREATE, MigrationAction.UPDATE}:
-        return _write_json_item(item, target_root, backup_dir, overwrite=overwrite, backed_up_targets=backed_up_targets)
     raise ValueError(f"unsupported migration action for apply: {item.action.value}")
 
 
@@ -167,48 +182,60 @@ def _copy_file_item(
     return backups
 
 
-def _append_item(
+def _apply_store_item(
     item: MigrationItem,
+    store: str,
     target_root: Path,
     backup_dir: Path | None,
     *,
     backed_up_targets: set[Path],
 ) -> list[dict[str, str]]:
-    source = _require_source(item)
-    target, _fragment = _target_file_and_fragment(item)
-    backups = _backup_existing(target, backup_dir, target_root, backed_up_targets)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    chunks = _append_chunks(source)
-    with target.open("a", encoding="utf-8") as handle:
-        for label, content in chunks:
-            handle.write(f"\n\n<!-- Imported from {item.id}: {label} -->\n\n")
-            handle.write(content.rstrip())
-            handle.write("\n")
-    return backups
-
-
-def _write_json_item(
-    item: MigrationItem,
-    target_root: Path,
-    backup_dir: Path | None,
-    *,
-    overwrite: bool,
-    backed_up_targets: set[Path],
-) -> list[dict[str, str]]:
+    """Write one item into the Row-Bot store it names, backing up that store's file first."""
     target, fragment = _target_file_and_fragment(item)
-    if target.exists() and item.status == MigrationStatus.CONFLICT and not overwrite:
-        raise FileExistsError(str(target))
     backups = _backup_existing(target, backup_dir, target_root, backed_up_targets)
-    data = _read_json_object(target)
-    value = _json_value_for_item(item)
-    if fragment:
-        data[fragment] = value
-    elif isinstance(value, dict):
-        data.update(value)
+    details = item.details
+    if store == stores.PERSONALITY:
+        stores.write_personality(target_root, str(details["personality"]))
+    elif store == stores.INSTRUCTIONS_SKILL:
+        source = _require_source(item)
+        text = stores.instructions_skill(source.read_text(encoding="utf-8-sig"), str(details["app"]),
+                                         str(details["app_label"]), source.name)
+        if not text:
+            raise ValueError("the instructions file is empty now")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    elif store == stores.MCP_SERVER:
+        stores.add_mcp_server(target_root, fragment, dict(details["server"]))
+    elif store == stores.DEFAULT_MODEL:
+        stores.write_default_model(target_root, str(details["model"]))
+    elif store == stores.CUSTOM_ENDPOINT:
+        stores.add_custom_endpoint(target_root, dict(details["endpoint"]))
     else:
-        data[item.id] = value
-    _write_json(target, data)
+        raise ValueError(f"unsupported migration store: {store}")
     return backups
+
+
+def _stage_memories(
+    items: list[MigrationItem],
+    source_root: Path,
+    target_root: Path,
+    stage: Callable[[list[Path]], dict[str, Any]] | None,
+) -> tuple[list[MigrationItem], dict[str, Any] | None]:
+    """Every chosen memory file in one Import memories batch, to be reviewed there."""
+    try:
+        if stage is None or not stores.is_live_data_dir(target_root):
+            raise ValueError("Memories are reviewed only into this Row-Bot's own memory.")
+        files = [source_root / relative for item in items for relative in item.details.get("files", [])]
+        for path in files:
+            if not path.resolve().is_relative_to(source_root.resolve()) or not path.is_file():
+                raise FileNotFoundError(path.name)
+        staged = stage(files)
+        review = {"batch_id": str(staged["batch_id"]), "found": int(staged["found"])}
+    except Exception as exc:
+        return [item.with_status(MigrationStatus.ERROR, str(exc) or exc.__class__.__name__) for item in items], None
+    reason = "ready to review in Import memories"
+    return [_replace_item(item, status=MigrationStatus.MIGRATED, reason=reason,
+                          details={**item.details, "review_batch": review["batch_id"]}) for item in items], review
 
 
 def _apply_secret_item(
@@ -255,27 +282,6 @@ def _should_apply(item: MigrationItem, *, overwrite: bool) -> bool:
     if item.status in {MigrationStatus.PLANNED, MigrationStatus.SENSITIVE}:
         return True
     return overwrite and item.status == MigrationStatus.CONFLICT
-
-
-def _json_value_for_item(item: MigrationItem) -> Any:
-    if item.category == MigrationCategory.MODEL:
-        return {"model": item.details.get("model"), "fallbacks": item.details.get("fallbacks", [])}
-    if item.category == MigrationCategory.MCP:
-        return {"enabled": False, **dict(item.details.get("server") or {})}
-    return dict(item.details)
-
-
-def _append_chunks(source: Path) -> list[tuple[str, str]]:
-    if source.is_file():
-        return [(source.name, source.read_text(encoding="utf-8"))]
-    if source.is_dir():
-        chunks = []
-        for child in sorted(source.glob("*.md")):
-            if child.is_file():
-                chunks.append((child.name, child.read_text(encoding="utf-8")))
-        if chunks:
-            return chunks
-    raise FileNotFoundError(str(source))
 
 
 def _copy_archive_path(source: Path, target: Path) -> None:
@@ -374,16 +380,6 @@ def _target_file_and_fragment(item: MigrationItem) -> tuple[Path, str]:
     raw = str(item.target)
     file_part, fragment = raw.split("#", 1) if "#" in raw else (raw, "")
     return Path(file_part), fragment
-
-
-def _read_json_object(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def _parse_env(path: Path) -> dict[str, str]:

@@ -1,13 +1,21 @@
-"""Dry-run migration planners for supported source providers."""
+"""Dry-run migration planners for supported source providers.
+
+Each planned item names the Row-Bot store it lands in (``details["store"]``, see
+:mod:`row_bot.migration.stores`) or is a skill or key copied as before. What can't be
+brought over safely is listed for manual review with the reason, never written to a
+side file nothing reads.
+"""
 
 from __future__ import annotations
 
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from row_bot.migration import stores
 from row_bot.migration.core import (
     ConflictPolicy,
     MigrationAction,
@@ -31,6 +39,22 @@ except Exception:  # pragma: no cover - optional parser, planner falls back to f
 
 DEFAULT_TARGET_ROOT = Path.home() / ".row-bot" / "migration-preview"
 _SAFE_NAME_RE = re.compile(r"[^a-z0-9_.-]+")
+# Import memories takes 20 files at a time; MEMORY.md and USER.md come first.
+_DAILY_NOTES_KEPT = 18
+_ELSEWHERE = "Leave Target folder empty to bring them into this Row-Bot."
+
+
+@dataclass(frozen=True)
+class _App:
+    provider: MigrationProvider
+    label: str
+    source_root: Path
+    target: Path
+    live: bool  # the target is the data folder this Row-Bot runs on
+
+    @property
+    def id(self) -> str:
+        return self.provider.value
 
 
 def build_migration_plan(
@@ -62,70 +86,26 @@ def build_hermes_plan(
     if not scan.source.found:
         return _empty_for_missing(scan.source, "Hermes state was not found; nothing was planned.")
 
+    app = _App(MigrationProvider.HERMES, "Hermes", scan.source.root, target, stores.is_live_data_dir(target))
     warnings: list[str] = list(scan.source.warnings)
-    config_path = scan.source.root / "config.yaml"
+    config_path = app.source_root / "config.yaml"
     config = _parse_yaml_object(config_path, warnings, "Hermes config.yaml")
+    servers = _hermes_model_servers(config)
     items: list[MigrationItem] = []
 
-    model_ref = _resolve_hermes_model_ref(config)
-    if model_ref:
-        items.append(
-            _planned_item(
-                id="model:default",
-                category=MigrationCategory.MODEL,
-                action=MigrationAction.UPDATE,
-                source=config_path,
-                target=target / "config" / "models.json#default",
-                label="Default model",
-                details={"model": model_ref, "source_key": "config.yaml:model"},
-            )
-        )
-
-    provider_ids = _hermes_provider_ids(config, model_ref)
-    if provider_ids:
-        items.append(
-            _planned_item(
-                id="settings:model-providers",
-                category=MigrationCategory.SETTINGS,
-                action=MigrationAction.UPDATE,
-                source=config_path,
-                target=target / "config" / "providers.json",
-                label="Model providers",
-                details={"providers": provider_ids},
-                sensitivity=MigrationSensitivity.SENSITIVE,
-            )
-        )
-
+    items.extend(_model_items(app, config_path, _hermes_model(config), servers))
+    items.extend(_model_server_items(app, config_path, servers))
     for server_name, server_config in _record_items(_child_record(config, "mcp_servers")):
-        items.append(
-            _disabled_mcp_item(
-                provider=MigrationProvider.HERMES,
-                name=server_name,
-                source=config_path,
-                target_root=target,
-                details={"server": _redaction_safe_mcp(server_config), "enabled": False},
-            )
-        )
-
-    items.extend(
-        _file_items(
-            scan.source.root,
-            target,
-            provider=MigrationProvider.HERMES,
-            mappings=(
-                ("SOUL.md", MigrationCategory.IDENTITY, MigrationAction.COPY, target / "identity" / "SOUL.md", "Persona"),
-                ("AGENTS.md", MigrationCategory.IDENTITY, MigrationAction.COPY, target / "identity" / "AGENTS.md", "Agent instructions"),
-                ("memories/MEMORY.md", MigrationCategory.MEMORIES, MigrationAction.APPEND, target / "memory" / "MEMORY.md", "Memory"),
-                ("memories/USER.md", MigrationCategory.MEMORIES, MigrationAction.APPEND, target / "memory" / "USER.md", "User profile"),
-            ),
-        )
-    )
-    items.extend(_skill_items(scan.source.root / "skills", target / "skills", MigrationProvider.HERMES))
-    items.extend(_secret_items(scan.source.root / ".env", target, include_secrets=include_secrets))
+        items.append(_mcp_item(app, server_name, server_config, config_path))
+    items.extend(_personality_items(app, "SOUL.md"))
+    items.extend(_instructions_items(app, "AGENTS.md"))
+    items.extend(_memory_items(app, (
+        ("memories/MEMORY.md", "Memories from MEMORY.md"),
+        ("memories/USER.md", "About you, from USER.md"),
+    )))
+    items.extend(_skill_items(app.source_root / "skills", target / "skills", MigrationProvider.HERMES))
+    items.extend(_secret_items(app.source_root / ".env", target, include_secrets=include_secrets))
     items.extend(_archive_items(scan, target / "archive" / MigrationProvider.HERMES.value))
-
-    if not include_secrets and any(item.category == MigrationCategory.API_KEYS for item in items):
-        warnings.append("Secrets were detected but skipped. Re-run with include_secrets=True after explicit user consent.")
 
     return _plan_from_items(scan, items, warnings, target, include_secrets)
 
@@ -141,50 +121,17 @@ def build_openclaw_plan(
     if not scan.source.found:
         return _empty_for_missing(scan.source, "OpenClaw state was not found; nothing was planned.")
 
+    app = _App(MigrationProvider.OPENCLAW, "OpenClaw", scan.source.root, target, stores.is_live_data_dir(target))
     warnings: list[str] = list(scan.source.warnings)
-    config_path = scan.source.root / "openclaw.json"
+    config_path = app.source_root / "openclaw.json"
     config = _parse_json_object(config_path, warnings, "OpenClaw openclaw.json")
+    servers = _openclaw_model_servers(config)
     items: list[MigrationItem] = []
 
-    model_ref = _resolve_openclaw_model_ref(config)
-    if model_ref:
-        items.append(
-            _planned_item(
-                id="model:default",
-                category=MigrationCategory.MODEL,
-                action=MigrationAction.UPDATE,
-                source=config_path,
-                target=target / "config" / "models.json#default",
-                label="Default model",
-                details={"model": model_ref, "fallbacks": _openclaw_model_fallbacks(config)},
-            )
-        )
-
-    provider_ids = sorted(_child_record(_child_record(config, "models"), "providers"))
-    if provider_ids:
-        items.append(
-            _planned_item(
-                id="settings:model-providers",
-                category=MigrationCategory.SETTINGS,
-                action=MigrationAction.UPDATE,
-                source=config_path,
-                target=target / "config" / "providers.json",
-                label="Model providers",
-                details={"providers": provider_ids},
-                sensitivity=MigrationSensitivity.SENSITIVE,
-            )
-        )
-
+    items.extend(_model_items(app, config_path, _openclaw_model(config), servers))
+    items.extend(_model_server_items(app, config_path, servers))
     for server_name, server_config in _record_items(_child_record(_child_record(config, "mcp"), "servers")):
-        items.append(
-            _disabled_mcp_item(
-                provider=MigrationProvider.OPENCLAW,
-                name=server_name,
-                source=config_path,
-                target_root=target,
-                details={"server": _redaction_safe_mcp(server_config), "enabled": False},
-            )
-        )
+        items.append(_mcp_item(app, server_name, server_config, config_path))
 
     for channel_name, channel_config in _record_items(_child_record(config, "channels")):
         items.append(
@@ -200,23 +147,16 @@ def build_openclaw_plan(
             )
         )
 
-    items.extend(
-        _file_items(
-            scan.source.root,
-            target,
-            provider=MigrationProvider.OPENCLAW,
-            mappings=(
-                ("workspace/SOUL.md", MigrationCategory.IDENTITY, MigrationAction.COPY, target / "identity" / "SOUL.md", "Persona"),
-                ("workspace/AGENTS.md", MigrationCategory.IDENTITY, MigrationAction.COPY, target / "identity" / "AGENTS.md", "Agent instructions"),
-                ("workspace/MEMORY.md", MigrationCategory.MEMORIES, MigrationAction.APPEND, target / "memory" / "MEMORY.md", "Memory"),
-                ("workspace/USER.md", MigrationCategory.MEMORIES, MigrationAction.APPEND, target / "memory" / "USER.md", "User profile"),
-            ),
-        )
-    )
-    items.extend(_daily_memory_item(scan.source.root / "workspace" / "memory", target / "memory" / "daily-memory.md"))
-    items.extend(_skill_items(scan.source.root / "workspace" / "skills", target / "skills", MigrationProvider.OPENCLAW))
-    items.extend(_skill_items(scan.source.root / "skills", target / "skills", MigrationProvider.OPENCLAW, prefix="shared-skill"))
-    items.extend(_secret_items(scan.source.root / ".env", target, include_secrets=include_secrets))
+    items.extend(_personality_items(app, "workspace/SOUL.md"))
+    items.extend(_instructions_items(app, "workspace/AGENTS.md"))
+    items.extend(_memory_items(app, (
+        ("workspace/MEMORY.md", "Memories from MEMORY.md"),
+        ("workspace/USER.md", "About you, from USER.md"),
+    )))
+    items.extend(_daily_notes_items(app, "workspace/memory"))
+    items.extend(_skill_items(app.source_root / "workspace" / "skills", target / "skills", MigrationProvider.OPENCLAW))
+    items.extend(_skill_items(app.source_root / "skills", target / "skills", MigrationProvider.OPENCLAW, prefix="shared-skill"))
+    items.extend(_secret_items(app.source_root / ".env", target, include_secrets=include_secrets))
 
     for section in ("approvals", "browser", "tools", "cron", "hooks", "memory"):
         if section in config:
@@ -234,9 +174,6 @@ def build_openclaw_plan(
             )
 
     items.extend(_archive_items(scan, target / "archive" / MigrationProvider.OPENCLAW.value))
-
-    if not include_secrets and any(item.category == MigrationCategory.API_KEYS for item in items):
-        warnings.append("Secrets were detected but skipped. Re-run with include_secrets=True after explicit user consent.")
 
     return _plan_from_items(scan, items, warnings, target, include_secrets)
 
@@ -257,10 +194,8 @@ def _plan_from_items(
     target_root: Path,
     include_secrets: bool,
 ) -> MigrationPlan:
-    if any(item.is_archive_only for item in items):
-        warnings.append("Archive-only state will be copied to a migration report later, not imported live.")
     if any(item.status == MigrationStatus.CONFLICT for item in items):
-        warnings.append("Conflicting target files were found. Resolve or choose an overwrite policy before apply.")
+        warnings.append("Some items would replace what you already have. Turn on Replace what you already have to bring them over.")
     return MigrationPlan(
         source=scan.source,
         items=tuple(items),
@@ -287,7 +222,7 @@ def _planned_item(
     sensitivity: MigrationSensitivity = MigrationSensitivity.NORMAL,
     selected: bool = True,
 ) -> MigrationItem:
-    status = _target_status(action, target)
+    status = _target_status(target)
     return MigrationItem(
         id=id,
         category=category,
@@ -301,6 +236,40 @@ def _planned_item(
         sensitivity=sensitivity,
         conflict_policy=ConflictPolicy.REFUSE,
         selected=selected and status != MigrationStatus.CONFLICT,
+    )
+
+
+def _store_item(
+    *,
+    id: str,
+    category: MigrationCategory,
+    action: MigrationAction,
+    status: MigrationStatus,
+    source: Path,
+    target: Path | str,
+    label: str,
+    reason: str,
+    store: str,
+    details: dict[str, Any] | None = None,
+    sensitivity: MigrationSensitivity = MigrationSensitivity.NORMAL,
+    selected: bool = True,
+    requires_confirmation: bool = False,
+) -> MigrationItem:
+    """An item that lands in one of Row-Bot's own stores; only a planned one starts ticked."""
+    return MigrationItem(
+        id=id,
+        category=category,
+        action=action,
+        status=status,
+        source=source,
+        target=target,
+        label=label,
+        reason=reason,
+        details={**(details or {}), "store": store, "place": stores.PLACES[store]},
+        sensitivity=sensitivity,
+        conflict_policy=ConflictPolicy.REFUSE,
+        selected=selected and status == MigrationStatus.PLANNED,
+        requires_confirmation=requires_confirmation,
     )
 
 
@@ -331,74 +300,249 @@ def _manual_review_item(
     )
 
 
-def _disabled_mcp_item(
-    *,
-    provider: MigrationProvider,
-    name: str,
-    source: Path,
-    target_root: Path,
-    details: dict[str, Any],
-) -> MigrationItem:
-    return MigrationItem(
-        id=make_item_id(MigrationCategory.MCP, name),
-        category=MigrationCategory.MCP,
-        action=MigrationAction.CREATE,
-        status=_target_status(MigrationAction.CREATE, target_root / f"config/mcp_servers.json#{name}"),
-        source=source,
-        target=target_root / f"config/mcp_servers.json#{name}",
-        label=f"MCP server: {name}",
-        reason=f"Imported {provider.value} MCP servers stay disabled until reviewed.",
-        details=details,
-        sensitivity=MigrationSensitivity.SENSITIVE,
-        selected=False,
-        requires_confirmation=True,
-    )
+def _not_brought_over(id: str, category: MigrationCategory, source: Path, label: str, reason: str) -> MigrationItem:
+    return _manual_review_item(id=id, category=category, source=source, target=None, label=label, reason=reason,
+                               details={}, sensitivity=MigrationSensitivity.NORMAL)
 
 
-def _file_items(
-    source_root: Path,
-    target_root: Path,
-    *,
-    provider: MigrationProvider,
-    mappings: tuple[tuple[str, MigrationCategory, MigrationAction, Path, str], ...],
+# Default model and model servers ----------------------------------------------------------
+
+def _model_items(
+    app: _App,
+    config_path: Path,
+    model: tuple[str | None, str] | None,
+    servers: list[tuple[str, dict[str, Any]]],
 ) -> list[MigrationItem]:
+    if model is None:
+        return []
+    provider_name, model_id = model
+    shown = f"{provider_name} › {model_id}" if provider_name else model_id
+    label = f"Default model: {shown}"
+    provider_id = stores.row_bot_provider(provider_name)
+    names = {name.lower(): name for name, _record in servers}
+    if provider_id is None and provider_name and provider_name.lower() in names:
+        provider_id = stores.endpoint_provider(names[provider_name.lower()])
+    if provider_id is None:
+        why = (f"Row-Bot doesn't connect to {provider_name}" if provider_name
+               else "it doesn't say which provider it uses")
+        return [_not_brought_over("model:default", MigrationCategory.MODEL, config_path, label,
+                                  f"Not brought over: {why}. Choose a model in "
+                                  f"{stores.PLACES[stores.DEFAULT_MODEL]}.")]
+    reference = stores.model_reference(provider_id, model_id)
+    current = stores.current_default_model(app.target)
+    if current == reference:
+        status, reason = MigrationStatus.SKIPPED, "Already your main model."
+    elif current:
+        status, reason = MigrationStatus.CONFLICT, "Replaces your current main model (a backup is kept first)."
+    else:
+        status, reason = MigrationStatus.PLANNED, "Becomes the main model for new chats once its provider is connected."
+    return [_store_item(id="model:default", category=MigrationCategory.MODEL, action=MigrationAction.UPDATE,
+                        status=status, source=config_path, target=app.target / "model_settings.json#model",
+                        label=label, reason=reason, store=stores.DEFAULT_MODEL, details={"model": reference})]
+
+
+def _model_server_items(app: _App, config_path: Path, servers: list[tuple[str, dict[str, Any]]]) -> list[MigrationItem]:
+    existing = stores.custom_endpoint_ids(app.target)
     items: list[MigrationItem] = []
-    for relative_path, category, action, target, label in mappings:
-        source = source_root / relative_path
-        if not source.is_file():
+    for name, record in servers:
+        endpoint_id = stores.endpoint_id(name)
+        item_id = make_item_id("providers", endpoint_id)
+        label = f"Model server: {name}"
+        address = stores.endpoint_address(record.get("base_url") or record.get("baseUrl") or record.get("url"))
+        if address is None:
+            items.append(_not_brought_over(item_id, MigrationCategory.MODEL, config_path, label,
+                                           "Not brought over: its address isn't one Row-Bot can save. Add it in "
+                                           f"{stores.PLACES[stores.CUSTOM_ENDPOINT]}."))
             continue
-        items.append(
-            _planned_item(
-                id=make_item_id(category, relative_path),
-                category=category,
-                action=action,
-                source=source,
-                target=target,
-                label=f"{provider.value.title()} {label}",
-                details={"relative_path": relative_path.replace("\\", "/")},
-            )
-        )
+        url, local = address
+        needs_key = any(record.get(key) for key in ("api_key", "api_key_env", "apiKey", "key_env"))
+        if endpoint_id in existing:
+            status, reason = MigrationStatus.SKIPPED, "A custom endpoint with this name is already set up; yours stays as it is."
+        else:
+            status = MigrationStatus.PLANNED
+            reason = (f"Added as a custom endpoint at {url}{' (this computer)' if local else ''}. "
+                      "Row-Bot contacts it only when you use it.")
+            if needs_key:
+                reason += " Add its key there; keys come over only with Include API keys."
+        items.append(_store_item(
+            id=item_id, category=MigrationCategory.MODEL, action=MigrationAction.CREATE, status=status,
+            source=config_path, target=app.target / f"providers.json#{endpoint_id}", label=label, reason=reason,
+            store=stores.CUSTOM_ENDPOINT, sensitivity=MigrationSensitivity.SENSITIVE,
+            details={"endpoint": {"id": endpoint_id, "name": name, "base_url": url, "auth_required": needs_key,
+                                  "execution_location": "local" if local else "remote"}},
+        ))
     return items
 
 
-def _daily_memory_item(source_dir: Path, target_dir: Path) -> list[MigrationItem]:
-    if not source_dir.is_dir():
-        return []
-    files = sorted(path.name for path in source_dir.glob("*.md") if path.is_file())
-    if not files:
-        return []
-    return [
-        MigrationItem(
-            id="memories:daily-memory",
-            category=MigrationCategory.MEMORIES,
-            action=MigrationAction.APPEND,
-            source=source_dir,
-            target=target_dir,
-            label="Daily memory files",
-            details={"files": files, "count": len(files)},
-        )
-    ]
+def _hermes_model(config: Mapping[str, Any]) -> tuple[str | None, str] | None:
+    model = config.get("model")
+    record = _as_record(model)
+    if isinstance(model, str) and model.strip():
+        model_id, provider = model.strip(), _string(config.get("provider"))
+    else:
+        model_id = _string(record.get("default")) or _string(record.get("model"))
+        provider = _string(record.get("provider")) or _string(config.get("provider"))
+        if not model_id:
+            model_id = _string(config.get("default_model")) or _string(config.get("model_name"))
+    return _split_model(provider, model_id)
 
+
+def _openclaw_model(config: Mapping[str, Any]) -> tuple[str | None, str] | None:
+    defaults = _child_record(_child_record(config, "agents"), "defaults")
+    model = defaults.get("model") or config.get("model")
+    if isinstance(model, str):
+        return _split_model(None, _string(model))
+    record = _as_record(model)
+    return _split_model(None, _string(record.get("primary")) or _string(record.get("default")) or _string(record.get("model")))
+
+
+def _split_model(provider: str | None, model_id: str | None) -> tuple[str | None, str] | None:
+    """``(provider, model)``; a model written ``provider/model`` names its provider first."""
+    if not model_id:
+        return None
+    if not provider and "/" in model_id:
+        provider, model_id = model_id.split("/", 1)
+    return provider, model_id
+
+
+def _hermes_model_servers(config: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Hermes's own model servers: ``custom_providers``, and ``providers`` Row-Bot has no provider for."""
+    servers: dict[str, dict[str, Any]] = {}
+    for name, record in _record_items(_child_record(config, "providers")):
+        if stores.row_bot_provider(name) is None and isinstance(record, Mapping):
+            servers.setdefault(str(name), dict(record))
+    custom = config.get("custom_providers")
+    for entry in custom if isinstance(custom, list) else []:
+        record = _as_record(entry)
+        name = _string(record.get("name")) or _string(record.get("id"))
+        if name:
+            servers.setdefault(name, record)
+    return sorted(servers.items())
+
+
+def _openclaw_model_servers(config: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    providers = _child_record(_child_record(config, "models"), "providers")
+    return [(str(name), dict(record)) for name, record in _record_items(providers)
+            if stores.row_bot_provider(name) is None and isinstance(record, Mapping)]
+
+
+# MCP servers ---------------------------------------------------------------------------------
+
+def _mcp_item(app: _App, name: str, raw: Any, config_path: Path) -> MigrationItem:
+    item_id = make_item_id(MigrationCategory.MCP, name)
+    label = f"MCP server: {name}"
+    server, needs = stores.mcp_server(raw)
+    if server is None:
+        return _not_brought_over(item_id, MigrationCategory.MCP, config_path, label,
+                                 "Not brought over: it has no command or address Row-Bot can run.")
+    if not app.live:
+        return _not_brought_over(item_id, MigrationCategory.MCP, config_path, label,
+                                 f"MCP servers are added only to this Row-Bot's own data folder. {_ELSEWHERE}")
+    if name in stores.mcp_server_names(app.target):
+        status, reason = MigrationStatus.SKIPPED, f"An app named {name} is already set up; it stays as it is."
+    else:
+        status = MigrationStatus.PLANNED
+        reason = f"Added turned off. Check it in {stores.PLACES[stores.MCP_SERVER]}, then turn it on."
+        if needs:
+            reason += f" Fill in {', '.join(needs)} there first; their values aren't copied."
+    return _store_item(
+        id=item_id, category=MigrationCategory.MCP, action=MigrationAction.CREATE, status=status,
+        source=config_path, target=app.target / f"mcp_servers.json#{name}", label=label, reason=reason,
+        store=stores.MCP_SERVER, details={"server": server, "needs": needs},
+        sensitivity=MigrationSensitivity.SENSITIVE, selected=False, requires_confirmation=True,
+    )
+
+
+# Persona and agent instructions --------------------------------------------------------------
+
+def _personality_items(app: _App, relative: str) -> list[MigrationItem]:
+    path = app.source_root / relative
+    if not path.is_file():
+        return []
+    label = f"Personality from {path.name}"
+    text, shortened = stores.personality_from(_read_text(path))
+    if not text:
+        return [_not_brought_over("identity:personality", MigrationCategory.IDENTITY, path, label,
+                                  f"Not brought over: {path.name} has no lines Row-Bot can use as a personality.")]
+    current = stores.current_personality(app.target)
+    quoted = f"“{text}”" + (" (shortened to fit)" if shortened else "")
+    if current == text:
+        status, reason = MigrationStatus.SKIPPED, "Already your personality."
+    elif current:
+        status, reason = MigrationStatus.CONFLICT, f"Replaces your current personality with {quoted}"
+    else:
+        status, reason = MigrationStatus.PLANNED, f"Becomes Row-Bot's personality: {quoted}"
+    return [_store_item(id="identity:personality", category=MigrationCategory.IDENTITY, action=MigrationAction.UPDATE,
+                        status=status, source=path, target=app.target / "user_config.json#identity.personality",
+                        label=label, reason=reason, store=stores.PERSONALITY, details={"personality": text})]
+
+
+def _instructions_items(app: _App, relative: str) -> list[MigrationItem]:
+    path = app.source_root / relative
+    if not path.is_file() or not stores.instructions_skill(_read_text(path), app.id, app.label, path.name):
+        return []
+    name = stores.instructions_skill_name(app.id)
+    target = app.target / "skills" / name / "SKILL.md"
+    exists = target.exists()
+    return [_store_item(
+        id=make_item_id(MigrationCategory.SKILLS, name), category=MigrationCategory.SKILLS,
+        action=MigrationAction.CREATE, status=MigrationStatus.CONFLICT if exists else MigrationStatus.PLANNED,
+        source=path, target=target, label=f"{path.name} as a skill: Instructions from {app.label}",
+        reason=("A skill with this name already exists." if exists else
+                "A skill you use when you choose; it isn't pinned, so chats don't follow it on their own."),
+        store=stores.INSTRUCTIONS_SKILL, details={"skill": name, "app": app.id, "app_label": app.label},
+    )]
+
+
+# Memories ------------------------------------------------------------------------------------
+
+def _memory_item(app: _App, item_id: str, source: Path, files: list[Path], label: str) -> MigrationItem | None:
+    try:
+        count = stores.count_memories(files)
+    except Exception:
+        count = 0
+    if count == 0:
+        return None
+    if not app.live:
+        return _not_brought_over(item_id, MigrationCategory.MEMORIES, source, label,
+                                 f"Memories are reviewed into this Row-Bot's own memory. {_ELSEWHERE}")
+    entries = f"{count} {'entry' if count == 1 else 'entries'}"
+    return _store_item(
+        id=item_id, category=MigrationCategory.MEMORIES, action=MigrationAction.CREATE, status=MigrationStatus.PLANNED,
+        source=source, target=app.target / "memory_import",
+        label=f"{label}: {entries}, you'll review them before they're saved",
+        reason=f"They open in {stores.PLACES[stores.MEMORY_REVIEW]} to check; nothing is saved to memory until you do.",
+        store=stores.MEMORY_REVIEW,
+        details={"files": [str(path.relative_to(app.source_root)).replace("\\", "/") for path in files], "count": count},
+    )
+
+
+def _memory_items(app: _App, mappings: tuple[tuple[str, str], ...]) -> list[MigrationItem]:
+    items = []
+    for relative, label in mappings:
+        path = app.source_root / relative
+        if path.is_file():
+            item = _memory_item(app, make_item_id(MigrationCategory.MEMORIES, path.name), path, [path], label)
+            if item is not None:
+                items.append(item)
+    return items
+
+
+def _daily_notes_items(app: _App, relative: str) -> list[MigrationItem]:
+    folder = app.source_root / relative
+    if not folder.is_dir():
+        return []
+    notes = sorted((path for path in folder.glob("*.md") if path.is_file()), key=lambda path: path.name)
+    if not notes:
+        return []
+    kept = notes[-_DAILY_NOTES_KEPT:]
+    label = (f"Daily notes (the newest {len(kept)} of {len(notes)})" if len(kept) < len(notes)
+             else f"Daily notes ({len(notes)} {'file' if len(notes) == 1 else 'files'})")
+    item = _memory_item(app, "memories:daily-notes", folder, kept, label)
+    return [item] if item is not None else []
+
+
+# Skills, keys and archives ------------------------------------------------------------------------
 
 def _skill_items(source_dir: Path, target_dir: Path, provider: MigrationProvider, *, prefix: str = "skill") -> list[MigrationItem]:
     if not source_dir.is_dir():
@@ -469,13 +613,18 @@ def _archive_items(scan: MigrationScan, archive_root: Path) -> list[MigrationIte
     return items
 
 
-def _target_status(action: MigrationAction, target: str | Path | None) -> MigrationStatus:
-    if action == MigrationAction.APPEND:
-        return MigrationStatus.PLANNED
+def _target_status(target: str | Path | None) -> MigrationStatus:
     if target is None:
         return MigrationStatus.PLANNED
     target_path = Path(str(target).split("#", 1)[0])
     return MigrationStatus.CONFLICT if target_path.exists() else MigrationStatus.PLANNED
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError):
+        return ""
 
 
 def _parse_json_object(path: Path, warnings: list[str], label: str) -> dict[str, Any]:
@@ -500,53 +649,6 @@ def _parse_yaml_object(path: Path, warnings: list[str], label: str) -> dict[str,
     return data if isinstance(data, dict) else {}
 
 
-def _resolve_hermes_model_ref(config: Mapping[str, Any]) -> str | None:
-    model = config.get("model")
-    if isinstance(model, str) and model.strip():
-        provider = _string(config.get("provider"))
-        return _join_provider_model(provider, model.strip())
-    model_record = _as_record(model)
-    raw_model = _string(model_record.get("default")) or _string(model_record.get("model"))
-    provider = _string(model_record.get("provider"))
-    if raw_model:
-        return _join_provider_model(provider, raw_model)
-    root_model = _string(config.get("default_model")) or _string(config.get("model_name"))
-    root_provider = _string(config.get("provider"))
-    return _join_provider_model(root_provider, root_model) if root_model else None
-
-
-def _resolve_openclaw_model_ref(config: Mapping[str, Any]) -> str | None:
-    defaults = _child_record(_child_record(config, "agents"), "defaults")
-    model = defaults.get("model") or config.get("model")
-    if isinstance(model, str) and model.strip():
-        return model.strip()
-    model_record = _as_record(model)
-    return _string(model_record.get("primary")) or _string(model_record.get("default")) or _string(model_record.get("model"))
-
-
-def _openclaw_model_fallbacks(config: Mapping[str, Any]) -> list[str]:
-    defaults = _child_record(_child_record(config, "agents"), "defaults")
-    model_record = _as_record(defaults.get("model") or config.get("model"))
-    fallbacks = model_record.get("fallbacks")
-    if not isinstance(fallbacks, list):
-        return []
-    return [entry for entry in fallbacks if isinstance(entry, str) and entry.strip()]
-
-
-def _hermes_provider_ids(config: Mapping[str, Any], model_ref: str | None) -> list[str]:
-    ids = set(_child_record(config, "providers"))
-    custom_providers = config.get("custom_providers")
-    if isinstance(custom_providers, list):
-        for entry in custom_providers:
-            record = _as_record(entry)
-            provider_id = _string(record.get("name")) or _string(record.get("id"))
-            if provider_id:
-                ids.add(provider_id)
-    if model_ref and "/" in model_ref:
-        ids.add(model_ref.split("/", 1)[0])
-    return sorted(ids)
-
-
 def _record_items(value: Mapping[str, Any]) -> list[tuple[str, Any]]:
     return sorted(value.items(), key=lambda item: item[0])
 
@@ -561,21 +663,6 @@ def _as_record(value: Any) -> dict[str, Any]:
 
 def _string(value: Any) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
-
-
-def _join_provider_model(provider: str | None, model: str) -> str:
-    return f"{provider}/{model}" if provider and "/" not in model else model
-
-
-def _redaction_safe_mcp(value: Any) -> dict[str, Any]:
-    record = _as_record(value)
-    safe: dict[str, Any] = {}
-    for key, raw_value in record.items():
-        if key in {"env", "headers"} and isinstance(raw_value, Mapping):
-            safe[key] = sorted(str(entry_key) for entry_key in raw_value)
-        else:
-            safe[key] = raw_value
-    return safe
 
 
 def _env_keys(path: Path) -> list[str]:
