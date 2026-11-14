@@ -441,7 +441,7 @@ def evaluate_agent_readiness(
     credential_status = "configured" if configured else "missing"
     if not configured:
         errors.append("provider credentials or runtime are not configured")
-        actions.append("Connect this provider in Settings -> Providers.")
+        actions.append("Connect this provider in Settings › Models.")
 
     ready = not errors
     return AgentReadinessResult(
@@ -583,7 +583,7 @@ def evaluate_chat_readiness(
     credential_status = "configured" if configured else "missing"
     if not configured:
         errors.append("provider credentials or runtime are not configured")
-        actions.append("Connect this provider in Settings -> Providers.")
+        actions.append("Connect this provider in Settings › Models.")
 
     ready = not errors
     return ChatReadinessResult(

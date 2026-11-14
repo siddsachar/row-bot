@@ -73,6 +73,10 @@ An approval card offers **Details**, **Deny** and **Approve** (⌘/Ctrl+Enter), 
 - **Allow in this chat**: approves this, and later actions of the same kind in this conversation, without asking again (commands count by what they do, so allowing `npm test` doesn't allow `git push`). It ends when the conversation is deleted or Row-Bot restarts. Sending, posting, sharing, deleting, paying, pushing or opening a pull request, reading Row-Bot's private data, high-risk app actions and anything only you can approve always ask.
 - **Use Auto in this chat** (under **Ask**): approves this and switches the chat to reviewed **Auto**.
 
+### Settings Row-Bot Changes
+
+A setting Row-Bot would change, such as the Dream Cycle hours or turning on a tool, asks on a card that shows what it is now and what it becomes, with **Show in Settings**. Under **Auto**, turning on Shell, file tools, Browser, Computer use or MCP apps always asks you. After the change, its card offers **Undo**. See [Ask Row-Bot About Row-Bot](/docs/chat/about-row-bot).
+
 ### Files Outside The Workspace
 
 Row-Bot's file tools work in the workspace folder. Give a full path elsewhere on this computer, such as `D:\Videos\trip.mp4`, and they ask first by the approval level, the card saying **Outside the workspace** and naming the paths. Row-Bot's own data folder is never read or changed this way. The video and picture tools take such a path too and read the file where it is, asking the same way; saving an edit and sending a file use the workspace, so Row-Bot copies a file in or out first (which asks).

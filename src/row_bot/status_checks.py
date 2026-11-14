@@ -237,10 +237,10 @@ def check_cloud_api() -> CheckResult:
     try:
         from row_bot.models import is_cloud_available
         if is_cloud_available():
-            return CheckResult("Cloud API", "ok", "Keys configured", settings_tab="Providers")
-        return CheckResult("Cloud API", "inactive", "No API keys", settings_tab="Providers")
+            return CheckResult("Cloud API", "ok", "Keys configured", settings_tab="Models")
+        return CheckResult("Cloud API", "inactive", "No API keys", settings_tab="Models")
     except Exception as exc:
-        return CheckResult("Cloud API", "error", str(exc), settings_tab="Providers")
+        return CheckResult("Cloud API", "error", str(exc), settings_tab="Models")
 
 
 def check_telegram() -> CheckResult:
@@ -248,12 +248,12 @@ def check_telegram() -> CheckResult:
     try:
         from row_bot.channels.telegram import is_configured, is_running
         if not is_configured():
-            return CheckResult("Telegram", "inactive", "Not configured", settings_tab="Channels")
+            return CheckResult("Telegram", "inactive", "Not configured", settings_tab="Apps")
         if is_running():
-            return CheckResult("Telegram", "ok", "Running", settings_tab="Channels")
-        return CheckResult("Telegram", "warn", "Stopped", settings_tab="Channels")
+            return CheckResult("Telegram", "ok", "Running", settings_tab="Apps")
+        return CheckResult("Telegram", "warn", "Stopped", settings_tab="Apps")
     except Exception as exc:
-        return CheckResult("Telegram", "error", str(exc), settings_tab="Channels")
+        return CheckResult("Telegram", "error", str(exc), settings_tab="Apps")
 
 
 def check_channels() -> list[CheckResult]:
@@ -266,7 +266,7 @@ def check_channels() -> list[CheckResult]:
             try:
                 if not ch.is_configured():
                     results.append(CheckResult(ch.display_name, "inactive",
-                                               "Not configured", settings_tab="Channels"))
+                                               "Not configured", settings_tab="Apps"))
                 elif ch.is_running():
                     problem = getattr(ch, "reachability_problem", None)
                     problem = problem() if callable(problem) else None
@@ -274,20 +274,20 @@ def check_channels() -> list[CheckResult]:
                         # Running, but not reachable: never "OK" (B106).
                         results.append(CheckResult(ch.display_name, "warn",
                                                    f"Running. {problem}",
-                                                   settings_tab="Channels"))
+                                                   settings_tab="Apps"))
                     else:
                         results.append(CheckResult(ch.display_name, "ok",
-                                                   "Running", settings_tab="Channels"))
+                                                   "Running", settings_tab="Apps"))
                 elif ch_config.get(ch.name, "auto_start", False) is True:
                     results.append(CheckResult(ch.display_name, "warn",
-                                               "Stopped", settings_tab="Channels"))
+                                               "Stopped", settings_tab="Apps"))
                 else:
                     # Set up but not set to start: off by choice, not a problem (B293).
                     results.append(CheckResult(ch.display_name, "inactive",
-                                               "Off", settings_tab="Channels"))
+                                               "Off", settings_tab="Apps"))
             except Exception as exc:
                 results.append(CheckResult(ch.display_name, "error",
-                                           str(exc), settings_tab="Channels"))
+                                           str(exc), settings_tab="Apps"))
     except Exception:
         pass
     return results
@@ -308,11 +308,11 @@ def check_tunnel() -> CheckResult | list[CheckResult]:
         # The manager reports what this process is doing, including a start
         # that failed, never "Ready" while a wanted tunnel is down (B106).
         status_code, detail = tunnel_manager.status()
-        return CheckResult("Tunnel", status_code, detail, settings_tab="Access")
+        return CheckResult("Tunnel", status_code, detail, settings_tab="Devices & remote access")
     except Exception as exc:
         from row_bot.tunnel import describe_tunnel_error
         return CheckResult("Tunnel", "error", describe_tunnel_error(exc),
-                           settings_tab="Access")
+                           settings_tab="Devices & remote access")
 
 
 def check_gmail_oauth() -> CheckResult:
@@ -320,19 +320,19 @@ def check_gmail_oauth() -> CheckResult:
     try:
         from row_bot.tools import registry
         if not registry.is_enabled("gmail"):
-            return CheckResult("Gmail OAuth", "inactive", "Tool disabled", settings_tab="Accounts")
+            return CheckResult("Gmail OAuth", "inactive", "Tool disabled", settings_tab="Apps")
         tool = registry.get_tool("gmail")
         if tool is None or not tool.is_authenticated():
-            return CheckResult("Gmail OAuth", "inactive", "Not authenticated", settings_tab="Accounts")
+            return CheckResult("Gmail OAuth", "inactive", "Not authenticated", settings_tab="Apps")
         status, detail = tool.check_token_health()
         if status in ("valid", "refreshed"):
             label = "Valid" if status == "valid" else "Refreshed"
-            return CheckResult("Gmail OAuth", "ok", label, settings_tab="Accounts")
+            return CheckResult("Gmail OAuth", "ok", label, settings_tab="Apps")
         if status == "expired":
-            return CheckResult("Gmail OAuth", "warn", "Token expired", settings_tab="Accounts")
-        return CheckResult("Gmail OAuth", "error", detail, settings_tab="Accounts")
+            return CheckResult("Gmail OAuth", "warn", "Token expired", settings_tab="Apps")
+        return CheckResult("Gmail OAuth", "error", detail, settings_tab="Apps")
     except Exception as exc:
-        return CheckResult("Gmail OAuth", "error", str(exc), settings_tab="Accounts")
+        return CheckResult("Gmail OAuth", "error", str(exc), settings_tab="Apps")
 
 
 def check_calendar_oauth() -> CheckResult:
@@ -340,19 +340,19 @@ def check_calendar_oauth() -> CheckResult:
     try:
         from row_bot.tools import registry
         if not registry.is_enabled("calendar"):
-            return CheckResult("Calendar OAuth", "inactive", "Tool disabled", settings_tab="Accounts")
+            return CheckResult("Calendar OAuth", "inactive", "Tool disabled", settings_tab="Apps")
         tool = registry.get_tool("calendar")
         if tool is None or not tool.is_authenticated():
-            return CheckResult("Calendar OAuth", "inactive", "Not authenticated", settings_tab="Accounts")
+            return CheckResult("Calendar OAuth", "inactive", "Not authenticated", settings_tab="Apps")
         status, detail = tool.check_token_health()
         if status in ("valid", "refreshed"):
             label = "Valid" if status == "valid" else "Refreshed"
-            return CheckResult("Calendar OAuth", "ok", label, settings_tab="Accounts")
+            return CheckResult("Calendar OAuth", "ok", label, settings_tab="Apps")
         if status == "expired":
-            return CheckResult("Calendar OAuth", "warn", "Token expired", settings_tab="Accounts")
-        return CheckResult("Calendar OAuth", "error", detail, settings_tab="Accounts")
+            return CheckResult("Calendar OAuth", "warn", "Token expired", settings_tab="Apps")
+        return CheckResult("Calendar OAuth", "error", detail, settings_tab="Apps")
     except Exception as exc:
-        return CheckResult("Calendar OAuth", "error", str(exc), settings_tab="Accounts")
+        return CheckResult("Calendar OAuth", "error", str(exc), settings_tab="Apps")
 
 
 def check_x_oauth() -> CheckResult:
@@ -360,19 +360,19 @@ def check_x_oauth() -> CheckResult:
     try:
         from row_bot.tools import registry
         if not registry.is_enabled("x"):
-            return CheckResult("X OAuth", "inactive", "Tool disabled", settings_tab="Accounts")
+            return CheckResult("X OAuth", "inactive", "Tool disabled", settings_tab="Apps")
         tool = registry.get_tool("x")
         if tool is None or not tool.is_authenticated():
-            return CheckResult("X OAuth", "inactive", "Not authenticated", settings_tab="Accounts")
+            return CheckResult("X OAuth", "inactive", "Not authenticated", settings_tab="Apps")
         status, detail = tool.check_token_health()
         if status in ("valid", "refreshed"):
             label = "Valid" if status == "valid" else "Refreshed"
-            return CheckResult("X OAuth", "ok", label, settings_tab="Accounts")
+            return CheckResult("X OAuth", "ok", label, settings_tab="Apps")
         if status == "expired":
-            return CheckResult("X OAuth", "warn", "Token expired", settings_tab="Accounts")
-        return CheckResult("X OAuth", "error", detail, settings_tab="Accounts")
+            return CheckResult("X OAuth", "warn", "Token expired", settings_tab="Apps")
+        return CheckResult("X OAuth", "error", detail, settings_tab="Apps")
     except Exception as exc:
-        return CheckResult("X OAuth", "error", str(exc), settings_tab="Accounts")
+        return CheckResult("X OAuth", "error", str(exc), settings_tab="Apps")
 
 
 def check_github_oauth() -> CheckResult:
@@ -388,28 +388,28 @@ def check_github_oauth() -> CheckResult:
             quota = f" - {rate.remaining}/{rate.limit}{reset}"
         if status.connected:
             user = f" as {status.user}" if status.user else ""
-            return CheckResult("GitHub", "ok", f"Connected{user}{quota}", settings_tab="Accounts")
+            return CheckResult("GitHub", "ok", f"Connected{user}{quota}", settings_tab="Apps")
         if status.state == github_account.GITHUB_STATE_ANONYMOUS:
             anon = status.anonymous_rate_limit or status.rate_limit
             detail = "Anonymous public access"
             if anon and anon.limit:
                 detail += f" - {anon.remaining}/{anon.limit}"
-            return CheckResult("GitHub", "inactive", detail, settings_tab="Accounts")
+            return CheckResult("GitHub", "inactive", detail, settings_tab="Apps")
         if status.state == github_account.GITHUB_STATE_INVALID_TOKEN:
-            return CheckResult("GitHub", "error", status.settings_message or "Reconnect GitHub", settings_tab="Accounts")
+            return CheckResult("GitHub", "error", status.settings_message or "Reconnect GitHub", settings_tab="Apps")
         if status.state in {
             github_account.GITHUB_STATE_RATE_LIMITED,
             github_account.GITHUB_STATE_SECONDARY_LIMITED,
         }:
             detail = status.settings_message or status.message or "GitHub rate limited"
-            return CheckResult("GitHub", "warn", detail, settings_tab="Accounts")
+            return CheckResult("GitHub", "warn", detail, settings_tab="Apps")
         if status.state == github_account.GITHUB_STATE_NOT_CONFIGURED:
-            return CheckResult("GitHub", "inactive", "Not connected", settings_tab="Accounts")
+            return CheckResult("GitHub", "inactive", "Not connected", settings_tab="Apps")
         if status.state == github_account.GITHUB_STATE_CONFIGURED_UNCHECKED:
-            return CheckResult("GitHub", "warn", "Credential discovered, not verified", settings_tab="Accounts")
-        return CheckResult("GitHub", "warn", status.settings_message or status.message or "Unable to check GitHub", settings_tab="Accounts")
+            return CheckResult("GitHub", "warn", "Credential discovered, not verified", settings_tab="Apps")
+        return CheckResult("GitHub", "warn", status.settings_message or status.message or "Unable to check GitHub", settings_tab="Apps")
     except Exception as exc:
-        return CheckResult("GitHub", "error", str(exc), settings_tab="Accounts")
+        return CheckResult("GitHub", "error", str(exc), settings_tab="Apps")
 
 
 def check_task_scheduler() -> CheckResult:
@@ -450,18 +450,18 @@ def check_memory_extraction() -> CheckResult:
                     return CheckResult(
                         "Knowledge", "ok",
                         f"Last: {dt.strftime('%b %d, %I:%M %p')}",
-                        settings_tab="Knowledge",
+                        settings_tab="Memory",
                     )
                 return CheckResult(
                     "Knowledge", "warn",
                     f"Overdue — last: {dt.strftime('%b %d')}",
-                    settings_tab="Knowledge",
+                    settings_tab="Memory",
                 )
             except (ValueError, TypeError):
-                return CheckResult("Knowledge", "ok", f"Last: {last}", settings_tab="Knowledge")
-        return CheckResult("Knowledge", "ok", "Not yet run", settings_tab="Knowledge")
+                return CheckResult("Knowledge", "ok", f"Last: {last}", settings_tab="Memory")
+        return CheckResult("Knowledge", "ok", "Not yet run", settings_tab="Memory")
     except Exception as exc:
-        return CheckResult("Knowledge", "error", str(exc), settings_tab="Knowledge")
+        return CheckResult("Knowledge", "error", str(exc), settings_tab="Memory")
 
 
 def check_disk_space() -> CheckResult:
@@ -502,9 +502,9 @@ def check_faiss_index() -> CheckResult:
         index_file = vector_dir / "index.faiss"
         map_file = vector_dir / "id_map.json"
         if not vector_dir.exists():
-            return CheckResult("FAISS Index", "ok", "Not yet created", settings_tab="Knowledge")
+            return CheckResult("FAISS Index", "ok", "Not yet created", settings_tab="Memory")
         if not index_file.exists():
-            return CheckResult("FAISS Index", "ok", "Empty index", settings_tab="Knowledge")
+            return CheckResult("FAISS Index", "ok", "Empty index", settings_tab="Memory")
         size_kb = index_file.stat().st_size / 1024
         entities = 0
         if map_file.exists():
@@ -516,10 +516,10 @@ def check_faiss_index() -> CheckResult:
         return CheckResult(
             "FAISS Index", "ok",
             f"{entities} vectors · {size_kb:.0f} KB",
-            settings_tab="Knowledge",
+            settings_tab="Memory",
         )
     except Exception as exc:
-        return CheckResult("FAISS Index", "error", str(exc), settings_tab="Knowledge")
+        return CheckResult("FAISS Index", "error", str(exc), settings_tab="Memory")
 
 
 def check_dream_cycle() -> CheckResult:
@@ -566,7 +566,7 @@ def check_wiki_vault() -> CheckResult:
     try:
         from row_bot.wiki_vault import is_enabled, get_vault_stats, check_vault_sync
         if not is_enabled():
-            return CheckResult("Wiki Vault", "inactive", "Disabled", settings_tab="Knowledge")
+            return CheckResult("Wiki Vault", "inactive", "Disabled", settings_tab="Memory")
         stats = get_vault_stats()
         articles = stats.get("articles", 0)
         # Check for out-of-sync vault files
@@ -579,15 +579,15 @@ def check_wiki_vault() -> CheckResult:
             return CheckResult(
                 "Wiki Vault", "warn",
                 f"{articles} article{'s' if articles != 1 else ''} · {count} edited in vault",
-                settings_tab="Knowledge",
+                settings_tab="Memory",
             )
         return CheckResult(
             "Wiki Vault", "ok",
             f"{articles} article{'s' if articles != 1 else ''}",
-            settings_tab="Knowledge",
+            settings_tab="Memory",
         )
     except Exception as exc:
-        return CheckResult("Wiki Vault", "error", str(exc), settings_tab="Knowledge")
+        return CheckResult("Wiki Vault", "error", str(exc), settings_tab="Memory")
 
 
 def check_document_store() -> CheckResult:
@@ -822,21 +822,21 @@ def check_mcp() -> CheckResult:
         from row_bot.mcp_client.runtime import get_status_summary
         status = get_status_summary()
         if not status.get("sdk_available"):
-            return CheckResult("MCP", "warn", "SDK missing", settings_tab="MCP")
+            return CheckResult("MCP", "warn", "SDK missing", settings_tab="Apps")
         server_count = int(status.get("server_count") or 0)
         enabled_servers = int(status.get("enabled_server_count") or 0)
         connected = int(status.get("connected_server_count") or 0)
         enabled_tools = int(status.get("enabled_tool_count") or 0)
         if not status.get("enabled"):
-            return CheckResult("MCP", "inactive", f"Disabled · {server_count} servers", settings_tab="MCP")
+            return CheckResult("MCP", "inactive", f"Disabled · {server_count} servers", settings_tab="Apps")
         if enabled_servers and connected < enabled_servers:
-            return CheckResult("MCP", "warn", f"{connected}/{enabled_servers} connected · {enabled_tools} tools", settings_tab="MCP")
+            return CheckResult("MCP", "warn", f"{connected}/{enabled_servers} connected · {enabled_tools} tools", settings_tab="Apps")
         detail = f"{connected} connected · {enabled_tools} tools"
         if not server_count:
             detail = "No servers configured"
-        return CheckResult("MCP", "ok", detail, settings_tab="MCP")
+        return CheckResult("MCP", "ok", detail, settings_tab="Apps")
     except Exception as exc:
-        return CheckResult("MCP", "error", str(exc), settings_tab="MCP")
+        return CheckResult("MCP", "error", str(exc), settings_tab="Apps")
 
 
 def check_plugins() -> CheckResult:
@@ -855,17 +855,17 @@ def check_plugins() -> CheckResult:
             detail = f"{enabled} enabled · {failed} failed"
             if stale:
                 detail += f" · {stale} stale"
-            return CheckResult("Plugins", "warn", detail, settings_tab="Plugins")
+            return CheckResult("Plugins", "warn", detail, settings_tab="Apps")
         if stale and not manifests:
-            return CheckResult("Plugins", "warn", f"{stale} stale legacy moved aside", settings_tab="Plugins")
+            return CheckResult("Plugins", "warn", f"{stale} stale legacy moved aside", settings_tab="Apps")
         if not total:
-            return CheckResult("Plugins", "inactive", "No plugins installed", settings_tab="Plugins")
+            return CheckResult("Plugins", "inactive", "No plugins installed", settings_tab="Apps")
         detail = f"{enabled} / {len(manifests)} enabled"
         if stale:
             detail += f" · {stale} stale moved aside"
-        return CheckResult("Plugins", "ok", detail, settings_tab="Plugins")
+        return CheckResult("Plugins", "ok", detail, settings_tab="Apps")
     except Exception as exc:
-        return CheckResult("Plugins", "error", str(exc), settings_tab="Plugins")
+        return CheckResult("Plugins", "error", str(exc), settings_tab="Apps")
 
 
 # ═════════════════════════════════════════════════════════════════════════════

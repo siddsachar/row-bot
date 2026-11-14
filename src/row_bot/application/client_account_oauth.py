@@ -123,7 +123,7 @@ def sign_in_route(account: str, device: Device) -> dict[str, str | None]:
 
 
 def sign_in_routes(device: Device) -> dict[str, dict[str, str | None]]:
-    """Each account's sign-in route for this device (Settings › Accounts)."""
+    """Each account's sign-in route for this device (Settings › Apps)."""
     return {account: sign_in_route(account, device) for account in _NAMES}
 
 
@@ -671,7 +671,7 @@ def execute_account_auth(
             phase, message = "completed", "Local account tokens removed. Provider authorization may still exist."
         else:
             validate()
-            # Each check remembers its verdict for Settings › Accounts.
+            # Each check remembers its verdict for Settings › Apps.
             if account == "google":
                 statuses = [account_tokens.check_google()[0]]  # Gmail and Calendar share one sign-in.
             elif account == "microsoft":

@@ -934,10 +934,10 @@ def _custom_tool_builder_disabled_response(
     if not _looks_like_custom_tool_creation_request(user_input):
         return None
     return (
-        "Custom Tool Builder is off in Settings -> Tools, so I can't "
+        "Custom Tool Builder is off in Settings › Tools, so I can't "
         "create a Custom Tool from chat right now. I also won't use read_url or "
         "shell commands as a workaround for this workflow. Turn on Custom Tool "
-        "Builder, or add the tool in Settings -> Tools -> Custom tools."
+        "Builder, or add the tool in Settings › Tools › Custom tools."
     )
 
 def _content_to_str(content) -> str:
@@ -1129,7 +1129,7 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
         hint = f" The provider says: {wait.group(0).strip()}." if wait else ""
         return "⚠️ Rate limit reached — please wait a moment and try again." + hint
     if "invalid_api_key" in s or "incorrect api key" in s or "authentication" in s or "unauthorized" in s:
-        return "⚠️ Authentication failed — please verify your API key in Settings → Providers."
+        return "⚠️ Authentication failed — please verify your API key in Settings › Models."
     if "billing" in s:
         return "⚠️ Billing limit reached — please review your plan at the provider dashboard."
     if "context_length_exceeded" in s or "context length" in s or "maximum context" in s:
@@ -1143,7 +1143,7 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     if "timeout" in s or "timed out" in s:
         return "⚠️ Request timed out — please try again."
     if _tool_support_error(s) or ("tool" in s and "status code: 400" in s):
-        return f"⚠️ {_model_label_for_error(model_name)} does not support tool calling — switch to a compatible model in Settings → Models."
+        return f"⚠️ {_model_label_for_error(model_name)} does not support tool calling — switch to a compatible model in Settings › Models."
     # Fallback — expose the raw error so nothing is silently swallowed
     return f"⚠️ API error: {exc_str}"
 
@@ -9153,7 +9153,7 @@ def _stream_graph(agent, input_data, config: dict,
                 exc_info=True,
             )
             yield ("error", f"{_model_label_for_error()} does not support tool calling. "
-                   "Please switch to a compatible model in Settings → Models.")
+                   "Please switch to a compatible model in Settings › Models.")
             return
         else:
             logger.error(

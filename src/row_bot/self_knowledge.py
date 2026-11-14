@@ -188,7 +188,7 @@ def get_dynamic_state() -> str:
         if info is not None:
             parts.append(
                 f"- Update available: v{info.version} ({info.channel} channel) — "
-                f"the user can install via Settings → Updates "
+                f"the user can install via Settings › Updates "
                 f"or by asking you to run row_bot_install_update."
             )
     except Exception:

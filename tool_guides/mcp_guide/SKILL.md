@@ -14,6 +14,6 @@ MCP EXTERNAL TOOLS:
 - Use an MCP tool when the user asks for that external service/server, when the MCP server provides a capability Row-Bot does not own, or when the user explicitly asks to use the MCP version.
 - External memory MCPs are separate stores. Do not treat them as Row-Bot Memory unless the user explicitly asks to use that external memory server.
 - Destructive MCP tools are approval-gated. If a tool is blocked or requires approval in a background workflow, do not retry it repeatedly; explain what was skipped and why.
-- If an MCP tool reports a server, timeout, dependency, or connection error, summarize the problem and suggest checking Settings -> MCP diagnostics, server status, command/URL, required environment variables, and whether the `mcp` Python package is installed.
+- If an MCP tool reports a server, timeout, dependency, or connection error, summarize the problem and suggest checking Settings › Apps diagnostics, server status, command/URL, required environment variables, and whether the `mcp` Python package is installed.
 - Marketplace-imported MCP servers are disabled until reviewed and tested. Recommended starters are setup recipes, not Row-Bot security audits; do not assume a listing is trusted simply because it is searchable.
 - The MCP parent tool toggle is synchronized with the global MCP client switch. To disable all MCP tools from chat, use Row-Bot Status `row_bot_update_setting` with `setting='tool_toggle'` and `value='mcp:off'`; this preserves server settings but stops MCP sessions and removes MCP tools until re-enabled.

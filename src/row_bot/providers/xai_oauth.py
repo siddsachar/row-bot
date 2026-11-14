@@ -595,10 +595,10 @@ def refresh_xai_oauth_token(
     lowered = safe_body.lower()
     if status_code in {400, 401} or "invalid_grant" in lowered:
         _mark_xai_oauth_requires_reconnect(
-            "xAI OAuth sign-in expired or was revoked. Reconnect xAI Grok in Settings -> Providers."
+            "xAI OAuth sign-in expired or was revoked. Reconnect xAI Grok in Settings › Models."
         )
         raise XAIOAuthError(
-            "xAI OAuth sign-in expired or was revoked. Reconnect xAI Grok in Settings -> Providers.",
+            "xAI OAuth sign-in expired or was revoked. Reconnect xAI Grok in Settings › Models.",
             status_code=status_code,
             kind="reconnect_required",
         )
@@ -795,7 +795,7 @@ def check_xai_oauth_token_health(
     if not credentials.access_token and not credentials.refresh_token:
         return XAIOAuthTokenHealth(
             "missing",
-            "xAI Grok needs to be connected in Settings -> Providers before OAuth models can run.",
+            "xAI Grok needs to be connected in Settings › Models before OAuth models can run.",
             credentials,
         )
 
@@ -832,13 +832,13 @@ def check_xai_oauth_token_health(
     if not credentials.access_token:
         return XAIOAuthTokenHealth(
             "missing",
-            "xAI OAuth access token is missing and no refresh was possible. Reconnect xAI Grok in Settings -> Providers.",
+            "xAI OAuth access token is missing and no refresh was possible. Reconnect xAI Grok in Settings › Models.",
             credentials,
         )
     if _expires_soon(credentials.expires_at, skew_seconds=0):
         return XAIOAuthTokenHealth(
             "expired",
-            "xAI OAuth token is expired and no refresh token is available. Reconnect xAI Grok in Settings -> Providers.",
+            "xAI OAuth token is expired and no refresh token is available. Reconnect xAI Grok in Settings › Models.",
             credentials,
         )
     return XAIOAuthTokenHealth("valid", "xAI OAuth token is valid.", credentials)
@@ -848,7 +848,7 @@ def xai_oauth_reconnect_message(detail: str = "") -> str:
     suffix = f" {detail}" if detail else ""
     return (
         "xAI Grok needs to be reconnected before using this OAuth model. "
-        "Open Settings -> Providers -> xAI Grok, reconnect, then try again."
+        "Open Settings › Models › xAI Grok, reconnect, then try again."
         f"{suffix}"
     )
 
@@ -857,7 +857,7 @@ def xai_oauth_entitlement_message(detail: str = "") -> str:
     suffix = f" {detail}" if detail else ""
     return (
         "xAI Grok is connected, but this account is not authorized for the selected xAI OAuth model. "
-        "Use an eligible xAI account or configure the separate xAI API key provider in Settings -> Providers."
+        "Use an eligible xAI account or configure the separate xAI API key provider in Settings › Models."
         f"{suffix}"
     )
 
@@ -1505,7 +1505,7 @@ def _resolve_xai_oauth_client_id(value: str | None = None, *, require: bool) -> 
     override_value = xai_oauth_saved_client_id_override()
     if override_value:
         if not _is_placeholder_xai_oauth_client_id(override_value):
-            return override_value, "override", "xAI OAuth client ID is using a saved override from Settings -> Providers."
+            return override_value, "override", "xAI OAuth client ID is using a saved override from Settings › Models."
         invalid_source = invalid_source or "provider_config"
 
     default_value = xai_oauth_default_client_id()
@@ -1546,7 +1546,7 @@ def _is_placeholder_xai_oauth_client_id(value: str) -> bool:
 def _xai_oauth_missing_client_id_detail(reason: str = "") -> str:
     prefix = f"{reason} " if reason else ""
     return (
-        f"{prefix}Set an OAuth client ID override in Settings -> Providers -> xAI Grok, "
+        f"{prefix}Set an OAuth client ID override in Settings › Models › xAI Grok, "
         "then start xAI Grok sign-in again."
     )
 

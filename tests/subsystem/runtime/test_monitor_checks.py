@@ -94,6 +94,19 @@ def test_kept_results_survive_a_restart_and_go_stale_on_their_own_schedule(profi
     assert _by_id(restarted.read_system_health(now=T0_S + 60)) == _by_id(client_diagnosis.read_system_health(now=T0_S + 60))
 
 
+def test_a_result_kept_before_settings_renamed_its_page_opens_the_page_by_todays_name(profile):
+    # An hourly connection check kept by an older version names "Accounts", now part of Apps.
+    (profile / "system_health.json").write_text(json.dumps({"checks": {"github": {
+        "name": "GitHub", "status": "warn", "detail": "Token expired", "checked_at": T0_S,
+        "settings_tab": "Accounts", "network": True,
+    }}}), encoding="utf-8")
+
+    github = _by_id(client_diagnosis.read_system_health(now=T0_S + 60))["github"]
+
+    assert github["settings_tab"] == "Apps"
+    assert github["fix"]["href"].startswith("/settings/apps")
+
+
 def test_a_newer_result_replaces_the_kept_one_and_diagnosis_drops_checks_that_are_gone(profile, monkeypatch):
     monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (
         _fixed("Disk", "ok", "40.0 GB free", T0_S), _fixed("Telegram", "warn", "Stopped", T0_S, "Channels"),

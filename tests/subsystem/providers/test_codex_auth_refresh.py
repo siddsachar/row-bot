@@ -105,7 +105,7 @@ def test_codex_token_health_missing_refresh_requires_reconnect(monkeypatch):
 
     assert health.status == "missing"
     assert not health.runnable
-    assert "Settings -> Providers" in health.detail
+    assert "Settings › Models" in health.detail
 
 
 def test_codex_token_health_revoked_refresh_requires_reconnect(monkeypatch):

@@ -7,7 +7,7 @@ Generated videos are saved to the per-thread media directory and rendered
 inline in the desktop chat via an HTML5 video player.  Channel adapters
 attach the saved MP4 as a file.
 
-The user picks a provider+model combination in Settings → Models (e.g.
+The user picks a provider+model combination in Settings › Models (e.g.
 ``google/veo-3.1-generate-preview`` or ``xai/grok-imagine-video``). The
 choices are the video models each connected provider's own model list offers,
 so new models appear without a Row-Bot change.
@@ -250,7 +250,7 @@ def _get_google_client():
     if not api_key:
         raise RuntimeError(
             "No Google API key configured. "
-            "Please add your Google API key in Settings → Providers."
+            "Please add your Google API key in Settings › Models."
         )
     from google import genai
     return genai.Client(api_key=api_key)
@@ -263,7 +263,7 @@ def _get_xai_key() -> str:
     if not api_key:
         raise RuntimeError(
             "No xAI API key configured. "
-            "Please add your xAI API key in Settings → Providers."
+            "Please add your xAI API key in Settings › Models."
         )
     return api_key
 

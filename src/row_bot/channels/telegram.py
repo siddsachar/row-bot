@@ -7,7 +7,7 @@ Setup:
     1. Message @BotFather on Telegram → /newbot → copy the **Bot Token**
     2. Message @userinfobot (or send /start to your bot, check logs)
        to get your **Telegram User ID**
-    3. Enter both in Settings → Channels
+    3. Enter both in Settings › Apps
 
 Required keys (stored via api_keys):
     TELEGRAM_BOT_TOKEN   – Bot token from @BotFather
@@ -1002,7 +1002,7 @@ async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not _is_authorised(update):
         await update.message.reply_text(
             f"⛔ Unauthorised. Your user ID is {update.effective_user.id}. "
-            f"Add this ID in {APP_DISPLAY_NAME} → Settings → Channels to authorise."
+            f"Add this ID in {APP_DISPLAY_NAME} → Settings › Apps to authorise."
         )
         return
     await _send_html(

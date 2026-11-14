@@ -30,6 +30,7 @@ const sidebars: SidebarsConfig = {
         'chat/model-picker',
         'chat/reasoning-controls',
         'chat/tools-approvals-and-terminal',
+        'chat/about-row-bot',
         'guides/progressive-tools-and-skills',
         'profiles-goals-agents/index',
         'guides/workflows',
