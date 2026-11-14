@@ -155,7 +155,8 @@ def _runtime_context() -> dict:
     return dict(context) if isinstance(context, dict) else {}
 
 
-def _chat_model_words(ref: str) -> str:
+def chat_model_words(ref: str) -> str:
+    """A Brain model as the person knows it: its pinned name and its ref."""
     if not ref:
         return "not chosen"
     from row_bot.providers.selection import pinned_model_choice_summaries
@@ -190,7 +191,7 @@ def _main_model_now() -> Value:
     from row_bot.models import get_current_model
 
     ref = get_current_model() or ""
-    return Value(ref, _chat_model_words(ref))
+    return Value(ref, chat_model_words(ref))
 
 
 def _prepare_default_model(setting: Setting, value: str, *, legacy: bool = False) -> Change:
@@ -204,7 +205,7 @@ def _prepare_default_model(setting: Setting, value: str, *, legacy: bool = False
         _clear_agent_cache()
         return f"{'Active model' if legacy else 'Global default model'} changed to: {ref}"
 
-    return _change(setting, _main_model_now(), Value(ref, _chat_model_words(ref)), apply,
+    return _change(setting, _main_model_now(), Value(ref, chat_model_words(ref)), apply,
                    title="Change the main model",
                    cancelled="Model change cancelled." if legacy else "Default model change cancelled.")
 
@@ -220,7 +221,7 @@ def _chat_model_now() -> Value:
     ref = _get_thread_model_override(thread_id) if thread_id else ""
     if not ref:
         return Value("default", f"the main model, {_main_model_now().words}")
-    return Value(ref, _chat_model_words(ref))
+    return Value(ref, chat_model_words(ref))
 
 
 def _prepare_thread_model(setting: Setting, value: str) -> Change:
@@ -242,7 +243,7 @@ def _prepare_thread_model(setting: Setting, value: str) -> Change:
             return f"Thread model override cleared; using global default: {get_current_model()}"
         return f"Thread model override changed to: {ref}"
 
-    after = Value("default", "the main model") if clear else Value(ref, _chat_model_words(ref))
+    after = Value("default", "the main model") if clear else Value(ref, chat_model_words(ref))
     return _change(setting, _chat_model_now(), after, apply, title="Change this chat's model",
                    cancelled="Thread model change cancelled.")
 
@@ -895,25 +896,32 @@ def approve(change: Change) -> str | None:
     return refusal if refusal.startswith("BLOCKED") else change.cancelled
 
 
+_UNDO_KEYS = ("setting", "value", "now")
+_UNDO_WORDS = ("label", "where", "href", "before", "after")
+
+
 def undo_line(change: Change) -> str:
-    """The call that puts the setting back, for the person's Undo and for Row-Bot."""
+    """The call that puts the setting back, with the change in words: for Row-Bot, and for the step's card
+    and its Undo button."""
     if change.before is None:
         return ""
     return UNDO_PREFIX + json.dumps({"setting": change.setting, "value": change.before.canonical,
-                                     "now": change.after.canonical}, ensure_ascii=False)
+                                     "now": change.after.canonical, "label": change.label, "where": change.where,
+                                     "href": change.href, "before": change.before.words,
+                                     "after": change.after.words}, ensure_ascii=False)
 
 
 def parse_undo(result: str) -> dict[str, str] | None:
-    """The undo a saved change's result ends with: {setting, value, now}, or None."""
+    """The undo a saved change's result ends with ({setting, value, now} and its words), or None."""
     for line in reversed(str(result or "").splitlines()):
         if line.startswith(UNDO_PREFIX):
             try:
                 found = json.loads(line[len(UNDO_PREFIX):])
             except ValueError:
                 return None
-            if isinstance(found, dict) and all(isinstance(found.get(key), str) for key in ("setting", "value", "now")):
-                return {key: found[key] for key in ("setting", "value", "now")}
-            return None
+            if not isinstance(found, dict) or not all(isinstance(found.get(key), str) for key in _UNDO_KEYS):
+                return None
+            return {key: str(found.get(key) or "") for key in (*_UNDO_KEYS, *_UNDO_WORDS)}
     return None
 
 
@@ -955,18 +963,26 @@ def change(setting_id: str, value: str) -> str:
     return refusal if refusal is not None else save(proposed)
 
 
-def undo(setting_id: str, value: str, now: str) -> str:
-    """The person's Undo: put *value* back if the setting still holds *now* (their own action, no card)."""
+def undo(setting_id: str, value: str, now: str) -> tuple[str, str]:
+    """The person's Undo: put *value* back if the setting still holds *now* (their own action, no card).
+
+    (status, words): "undone", "changed_since" or "unavailable".
+    """
     setting = BY_ID.get(setting_id)
     if setting is None:
-        return "That change can't be undone here."
+        return "unavailable", "That change can't be undone here."
     try:
         proposed = setting.prepare(setting, value)
     except SettingRefused as exc:
-        return f"Couldn't undo: {exc}"
+        return "unavailable", f"Couldn't undo: {exc}"
     if proposed.before is None or proposed.before.canonical != now:
-        return f"{proposed.label} has changed since, so it wasn't undone. Change it in Settings."
-    return save(proposed)
+        return "changed_since", f"{proposed.label} has changed since, so it wasn't undone. Change it in Settings."
+    try:
+        proposed.apply()
+    except Exception as exc:
+        logger.warning("Undoing %s failed", setting_id, exc_info=True)
+        return "unavailable", f"Couldn't undo {proposed.label}: {exc}"
+    return "undone", f"Undone: {proposed.label} is back to {proposed.after.words}."
 
 
 def turn_on(name: str, label: str, why: str) -> bool:
