@@ -77,6 +77,7 @@ def proactive(tmp_path, monkeypatch, reload_for_data_dir):
     model = ScriptedModel()
     monkeypatch.setattr(triage, "_call", model)
     sent: list[tuple[str, str]] = []
+    real_send = deliver.send
     monkeypatch.setattr(deliver, "send", lambda surface, moment, chosen: sent.append((surface, moment["id"])) or True)
     monkeypatch.setattr(deliver, "buddy_on", lambda: True)
     monkeypatch.setattr(deliver, "push_ready", lambda: False)
@@ -84,6 +85,7 @@ def proactive(tmp_path, monkeypatch, reload_for_data_dir):
     prepared: list[tuple[str, str]] = []
     monkeypatch.setattr(prepare, "queue", lambda moment_id, untrusted="": prepared.append((moment_id, untrusted)))
     return SimpleNamespace(store=store, settings=settings, engine=engine, feedback=feedback, timing=timing,
+                           real_send=real_send,
                            watchers=watchers, deliver=deliver, model=model, sent=sent, prepared=prepared,
                            tasks=tasks, day=day, day_runs=day_runs, calendars=calendars, mail=mail)
 

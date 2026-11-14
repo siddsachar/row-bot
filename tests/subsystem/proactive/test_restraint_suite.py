@@ -225,6 +225,39 @@ def test_a_normal_moment_while_away_goes_to_the_phone_not_a_chat_app(proactive, 
     assert [surface for surface, _moment in proactive.sent] == ["push"]
 
 
+@pytest.mark.parametrize("desktop,pushed", [
+    (Desktop(idle_seconds=600, locked=True), True),
+    (Desktop(idle_seconds=900, locked=False), True),
+    (AT_DESK, False),
+])
+def test_a_phone_push_says_the_moments_title_and_line_only_when_the_desktop_is_idle_or_locked(
+        proactive, monkeypatch, desktop, pushed):
+    import row_bot.access.push as push
+
+    notices: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(push, "notify_soon", lambda title, body="", *, conversation_id="": notices.append(
+        (title, body, conversation_id)))
+    monkeypatch.setattr(proactive.deliver, "send", proactive.real_send)
+    monkeypatch.setattr(proactive.deliver, "buddy_on", lambda: False)
+    monkeypatch.setattr(proactive.deliver, "push_ready", lambda: True)
+    monkeypatch.setattr(proactive.deliver, "desktop_alert", lambda *args: None, raising=False)
+    import row_bot.notifications as notifications
+    monkeypatch.setattr(notifications, "desktop_alert", lambda *args, **kwargs: None)
+    calendar = FakeCalendar()
+    proactive.watchers.register(CalendarWatcher([calendar]))
+    start_day(proactive)
+    calendar.add(meeting("ev1", at("2026-11-16 10:12")))
+
+    proactive.engine.tick(at("2026-11-16 10:00"), desktop=desktop)
+
+    [moment] = proactive.store.list_moments()
+    if pushed:
+        assert notices == [(moment["title"], moment["body"].splitlines()[0], "")]
+        assert moment["surface"] == "push"
+    else:
+        assert notices == [] and moment["surface"] == "desktop", "at the desk it never goes to the phone"
+
+
 def test_triage_that_stays_silent_makes_no_moment_but_the_pass_is_logged(proactive):
     mail = FakeMail(sent=[thread("t1", at("2026-11-12 09:00"))])
     proactive.watchers.register(MailWatcher([mail]))
