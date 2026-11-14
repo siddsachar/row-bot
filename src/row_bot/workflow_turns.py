@@ -100,8 +100,9 @@ def with_notes(task: Mapping[str, Any], prompt: str, *, held: list[dict[str, str
     *held*: the messages other conversations left for this run, already taken; None takes them here.
     """
     task_id = str(task["id"])
-    # A one-off runs once: no notes for a next run, and nothing to say about them (U21).
-    once = bool(task.get("at")) and not task.get("schedule")
+    # A one-off runs once: no notes for a next run, and nothing to say about them (U21). A run that only
+    # reads (the morning brief, the end-of-day wrap) couldn't keep them.
+    once = (bool(task.get("at")) and not task.get("schedule")) or surface(task) != "normal_chat"
     kept = "" if once else notes(task_id)
     lead = ("" if once else f"Notes this workflow kept from its earlier runs:\n{kept}" if kept
             else "This workflow has no notes from earlier runs yet.")
@@ -127,6 +128,14 @@ def _take_held(task: Mapping[str, Any]) -> list[dict[str, str]]:
     from row_bot.linked_conversations import take_held
 
     return take_held(conversation)
+
+
+def surface(task: Mapping[str, Any]) -> str:
+    """The runtime surface a run's turns take: "proactive" (reads only) for Proactive Row-Bot's morning brief
+    and end-of-day wrap, however they were started; a chat's own otherwise."""
+    from row_bot.proactive import day as proactive_day
+
+    return "proactive" if proactive_day.which(str(task.get("id") or "")) else "normal_chat"
 
 
 def messages(task: Mapping[str, Any]) -> list[str]:
@@ -167,7 +176,8 @@ def _send(task: Mapping[str, Any], thread_id: str, run_id: str, index: int, *, t
     followup = followups.Followup(kind=KIND, prompt=prompt, note=_note(task, index, len(sent), trigger),
                                   held=tuple(held))
     try:
-        receipt = followups.start(_service(), thread_id, followup, model_ref=str(task.get("model_override") or ""))
+        receipt = followups.start(_service(), thread_id, followup, model_ref=str(task.get("model_override") or ""),
+                                  runtime_surface=surface(task))
     except Exception:  # The turn's worker could not start (the app is closing, or no thread was free).
         logger.warning("Workflow run %s could not start its turn", run_id, exc_info=True)
         receipt = None
@@ -314,7 +324,8 @@ def _finish(run: Mapping[str, Any], task: Mapping[str, Any] | None, status: str,
         _service().conversation_changed(thread_id, reread=True)  # Its chat says why under the run's line.
     if task is None:
         return
-    tasks.after_run_finished(dict(task), run_id, thread_id, status, notice, delivery_status, delivery_detail)
+    tasks.after_run_finished(dict(task), run_id, thread_id, status, notice, delivery_status, delivery_detail,
+                             reply=reply)
 
 
 def outcome(status: str, notice: str, done: list[Mapping[str, Any]]) -> str:

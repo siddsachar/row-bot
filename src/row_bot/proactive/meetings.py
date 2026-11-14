@@ -86,6 +86,17 @@ class CalendarWatcher(Watcher):
             untrusted=f"Event title: {event.title}\nAttendees: {', '.join(event.attendees[:10])}",
             actions=({"id": "open_brief", "label": "Open brief"},))
 
+    def upcoming(self, start: float, end: float) -> list[tuple[Candidate, str]]:
+        """Meetings with people or files between *start* and *end*, as the prep moment each will become (same
+        dedupe key) and its title: Dream Cycle prepares their briefs ahead."""
+        found = []
+        for source in self._ready():
+            for event in source.events(start, end):
+                if not event.cancelled and (event.attendees or event.has_files):
+                    candidate = self._prep(source.name, event, event.start - LEAD_SECONDS)
+                    found.append((candidate, f"{event.title or 'A meeting'} at {_clock(event.start, event.start)}"))
+        return found
+
     @staticmethod
     def _moved(event_id: str, before: dict[str, Any], start: float, now: float) -> Candidate:
         return Candidate(

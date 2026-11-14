@@ -3,7 +3,9 @@
 - ``for_you``: the open moments, urgent first: what Home's For you and Buddy show.
 - ``read_moment``: one moment with its evidence, why it got through and its history ("Why this?").
 - ``moment_feedback``: act / dismiss / not now / less like this. Acting with ``continue_in_chat``
-  carries on in the chat the moment came from, as a Row-Bot continuation note.
+  carries on in the chat the moment came from, as a Row-Bot continuation note; acting on a "make it a
+  workflow" offer with ``make_workflow`` drafts the workflow (off, unscheduled) and names it for the client
+  to open for review.
 - ``list_drafts`` / ``read_draft``: what Row-Bot prepared (briefs, drafted replies), never sent.
 - ``read_activity``: every proactive pass, silent ones too, and each moment's steps, newest first.
 - ``read_settings`` / ``update_settings``: the level, quiet hours, sources, kinds, desktop context, urgent
@@ -69,7 +71,7 @@ def for_you() -> dict[str, Any]:
     return {"schema_version": 1, "items": [moment_view(moment) for moment in items]}
 
 
-def read_moment(moment_id: str, *, conversation_id: str = "") -> dict[str, Any]:
+def read_moment(moment_id: str, *, conversation_id: str = "", workflow_id: str = "") -> dict[str, Any]:
     from row_bot.proactive import store
 
     moment = store.get_moment(moment_id)
@@ -79,6 +81,7 @@ def read_moment(moment_id: str, *, conversation_id: str = "") -> dict[str, Any]:
         "schema_version": 1,
         "moment": moment_view(moment),
         "conversation_id": conversation_id,
+        "workflow_id": workflow_id,
         "summary": moment["summary"][:2000],
         "evidence": [{key: str(item.get(key) or "")[:300] for key in ("type", "id", "label", "source")}
                      for item in moment["evidence"][:20]],
@@ -114,11 +117,16 @@ def moment_feedback(moment_id: str, action: str, *, scope: str = "", action_id: 
     from row_bot.proactive import feedback, store
 
     now = time.time()
-    conversation_id = ""
+    conversation_id = workflow_id = ""
     if action == "act":
         moment = store.get_moment(moment_id)
-        if action_id == "continue_in_chat" and moment is not None and moment["state"] in ("pending", "shown"):
+        open_moment = moment is not None and moment["state"] in ("pending", "shown")
+        if action_id == "continue_in_chat" and open_moment:
             conversation_id = _carry_on(moment)
+        elif action_id == "make_workflow" and open_moment and moment["kind"] == "workflow_offer":
+            from row_bot.proactive import offers
+
+            workflow_id = offers.make_workflow(moment, now=now)
         feedback.act(moment_id, now=now, action_id=action_id)
     elif action == "dismiss":
         feedback.dismiss(moment_id, now=now)
@@ -128,7 +136,7 @@ def moment_feedback(moment_id: str, action: str, *, scope: str = "", action_id: 
         feedback.less_like_this(moment_id, scope, now=now)
     else:
         raise ClientPlatformError("invalid_command")
-    return read_moment(moment_id, conversation_id=conversation_id)
+    return read_moment(moment_id, conversation_id=conversation_id, workflow_id=workflow_id)
 
 
 def _draft_view(draft: dict[str, Any]) -> dict[str, Any]:
@@ -186,6 +194,7 @@ def read_settings() -> dict[str, Any]:
                    "urgent": kind in saved["urgent_kinds"],
                    "quieted": bool(store.kind_stats(kind)["quieted_at"])} for kind in KINDS],
         "channel": saved["channel"],
+        "wrap": proactive.wrap_on(saved),
         "rules": [{"rule_id": rule["id"], "type": rule["type"], "kind": rule["kind"], "topic": rule["topic"],
                    "hour": rule["hour"], "words": feedback.rule_words(rule)} for rule in store.rules()],
         "privacy": PRIVACY_LINE,

@@ -117,8 +117,9 @@ def test_the_first_break_of_the_day_gathers_what_waits_into_one_brief(proactive)
 
     brief = next(moment for moment in proactive.store.list_moments() if moment["kind"] == "brief")
     assert morning["sent"] == [brief["id"]], "the brief goes out, not each thing on its own"
-    assert brief["body"].splitlines() == ["- Ana hasn't replied about the deck", "- Mum's birthday is Thursday",
-                                          "That's everything for today."]
+    # The brief's workflow ran on what waited (the scripted run replies with its message).
+    assert "Waiting for you:\n- Ana hasn't replied about the deck\n- Mum's birthday is Thursday\n" in brief["body"]
+    assert brief["body"].endswith("\n\nThat's everything for today.")
     carried = [moment for moment in proactive.store.list_moments() if moment["kind"] != "brief"]
     assert {moment["surface"] for moment in carried} == {"brief"}
     assert proactive.store.shown_since(at("2026-11-16 00:00")) == 1, "the brief counts once against the budget"
@@ -126,10 +127,11 @@ def test_the_first_break_of_the_day_gathers_what_waits_into_one_brief(proactive)
     proactive.engine.note_boundary("app_open", now=at("2026-11-16 12:00"))
     proactive.engine.tick(at("2026-11-16 12:00:05"), desktop=AT_DESK)
     assert sum(moment["kind"] == "brief" for moment in proactive.store.list_moments()) == 1
+    assert len(proactive.day_runs.messages) == 1, "its workflow ran once"
 
 
-def test_no_brief_when_nothing_waits(proactive):
+def test_no_brief_when_there_is_nothing_for_today(proactive):
     proactive.engine.tick(at("2026-11-16 08:10"), desktop=AT_DESK)
 
-    assert proactive.store.list_moments() == []
-    assert proactive.store.activity()[0]["summary"] == "Morning brief: nothing waiting, so no brief."
+    assert proactive.store.list_moments() == [] and proactive.day_runs.messages == []
+    assert proactive.store.activity()[0]["summary"] == "Morning brief: nothing for today, so none."

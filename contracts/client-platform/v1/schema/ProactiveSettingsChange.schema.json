@@ -173,6 +173,18 @@
       ],
       "default": null,
       "title": "Urgent Kinds"
+    },
+    "wrap": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Wrap"
     }
   },
   "title": "ProactiveSettingsChange",

@@ -101,10 +101,32 @@ def test_settings_read_and_change_with_their_privacy_lines(proactive, api):
     assert (body["level"], body["quiet_start"], body["desktop_context"]) == ("balanced", "21:30", False)
     kinds = {kind["id"]: kind for kind in body["kinds"]}
     assert not kinds["date"]["on"] and kinds["follow_up"]["on"] and kinds["meeting_prep"]["urgent"]
+    assert read["wrap"] is False and body["wrap"] is True, "the end-of-day wrap follows the level"
+    chosen = client.put("/api/v1/proactive/settings", headers=headers, json={"wrap": False}).json()
+    assert chosen["wrap"] is False and chosen["level"] == "balanced", "until the person chooses"
 
     same = client.put("/api/v1/proactive/settings", headers=headers, json={"quiet_start": "07:30"})
     assert same.status_code == 422, "quiet hours that start and end together say nothing"
     assert client.put("/api/v1/proactive/settings", headers=headers, json={"level": "loud"}).status_code == 422
+
+
+def test_making_a_workflow_from_an_offer_names_the_draft_to_open(proactive, api):
+    from row_bot.proactive.model import Evidence
+
+    client, headers = api
+    [offer] = _moments(proactive, candidate(
+        "offer:news", kind="workflow_offer", title="Make this a workflow?", topic="headlines news summarise",
+        evidence=(Evidence("ask", "chat-a", "", "chats"),
+                  Evidence("ask", "chat-b", "Summarise the news headlines", "chats", seen="headlines news summarise"))))
+
+    acted = client.post(f"/api/v1/proactive/moments/{offer['id']}/feedback",
+                        json={"action": "act", "action_id": "make_workflow"}, headers=headers)
+
+    assert acted.status_code == 200, acted.text
+    workflow = proactive.tasks.get_task(acted.json()["workflow_id"])
+    assert workflow["prompts"] == ["Summarise the news headlines"] and not workflow["enabled"]
+    other = client.get(f"/api/v1/proactive/moments/{offer['id']}", headers=headers).json()
+    assert other["workflow_id"] == "" and other["conversation_id"] == ""
 
 
 def test_opening_the_app_is_a_break(proactive, api):
