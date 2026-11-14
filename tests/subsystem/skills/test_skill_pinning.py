@@ -23,19 +23,42 @@ def _reload_status_tool_module(reload_for_data_dir):
     return status_tool
 
 
-def test_default_pin_is_persisted_and_enabled(tmp_path, reload_for_data_dir):
+def test_nothing_is_pinned_by_default_and_check_ins_stays_available(tmp_path, reload_for_data_dir):
     skills, _activation, _threads, _tasks = _reload_skill_pinning_modules(tmp_path, reload_for_data_dir)
 
     skills.load_skills()
 
     assert skills.is_enabled("proactive_agent") is True
-    assert skills.is_pinned("proactive_agent") is True
-    assert skills.get_default_active_skill_names("chat") == ["proactive_agent"]
-    assert skills.get_default_active_skill_names("task") == ["proactive_agent"]
-
+    assert skills.is_pinned("proactive_agent") is False
+    assert skills.get_default_active_skill_names("chat") == []
     saved = json.loads((tmp_path / "skills_config.json").read_text(encoding="utf-8"))
-    assert saved["pinned"] == ["proactive_agent"]
-    assert saved[skills.SKILL_PINS_CONFIG_KEY] is True
+    assert saved["pinned"] == []
+
+
+def test_check_ins_is_unpinned_once_where_it_was_a_default(tmp_path, reload_for_data_dir):
+    """5.3.4: unpinned everywhere once; a conversation where the person turned it on keeps it."""
+    (tmp_path / "skills_config.json").write_text(json.dumps({
+        "skills": {"proactive_agent": True, "meeting_notes": True},
+        "pinned": ["proactive_agent", "meeting_notes"],
+        "skill_pins_v1_applied": True,
+    }), encoding="utf-8")
+    skills, activation, threads, _tasks = _reload_skill_pinning_modules(tmp_path, reload_for_data_dir)
+    store = activation._load_store()
+    store["threads"]["seeded-chat"] = {"pinned": ["proactive_agent", "meeting_notes"],
+                                       "default_seeded": ["proactive_agent", "meeting_notes"]}
+    store["threads"]["chosen-chat"] = {"pinned": ["proactive_agent"], "default_seeded": []}
+    activation._save_store(store)
+
+    skills.load_skills()
+
+    assert skills.get_pinned_skill_names() == ["meeting_notes"]
+    assert skills.is_enabled("proactive_agent") is True
+    assert activation._load_store()["threads"]["seeded-chat"]["pinned"] == ["meeting_notes"]
+    assert activation._load_store()["threads"]["chosen-chat"]["pinned"] == ["proactive_agent"]
+    # Once: pinning it again afterwards sticks.
+    skills.set_pinned("proactive_agent", True)
+    skills.load_skills()
+    assert skills.is_pinned("proactive_agent") is True
 
 
 def test_pin_auto_enables_and_disabling_clears_pin(tmp_path, reload_for_data_dir):
@@ -76,16 +99,17 @@ def test_new_threads_snapshot_pins_without_retroactive_resolution(tmp_path, relo
     )
     assert activation.resolve_active_skill_names(legacy_id) == []
 
+    skills.set_pinned("brain_dump", True)
     new_id = threads.create_thread("New thread", thread_id="new-thread")
-    assert activation.resolve_active_skill_names(new_id) == ["proactive_agent"]
+    assert activation.resolve_active_skill_names(new_id) == ["brain_dump"]
 
     skills.set_pinned("meeting_notes", True)
-    assert activation.resolve_active_skill_names(new_id) == ["proactive_agent"]
+    assert activation.resolve_active_skill_names(new_id) == ["brain_dump"]
     assert activation.resolve_active_skill_names(legacy_id) == []
 
     activation.reset_thread(new_id)
     assert activation.resolve_active_skill_names(new_id) == [
-        "proactive_agent",
+        "brain_dump",
         "meeting_notes",
     ]
 
@@ -122,22 +146,12 @@ def test_surface_defaults_are_additive_for_designer_and_developer(tmp_path, relo
     skills, _activation, _threads, _tasks = _reload_skill_pinning_modules(tmp_path, reload_for_data_dir)
     skills.load_skills()
 
-    assert skills.get_default_active_skill_names("designer") == [
-        "proactive_agent",
-        "design_creator",
-    ]
-    assert skills.get_default_active_skill_names("developer") == ["proactive_agent"]
+    assert skills.get_default_active_skill_names("designer") == ["design_creator"]
+    assert skills.get_default_active_skill_names("developer") == []
 
     skills.set_pinned("meeting_notes", True)
-    assert skills.get_default_active_skill_names("designer") == [
-        "proactive_agent",
-        "meeting_notes",
-        "design_creator",
-    ]
-    assert skills.get_default_active_skill_names("developer") == [
-        "proactive_agent",
-        "meeting_notes",
-    ]
+    assert skills.get_default_active_skill_names("designer") == ["meeting_notes", "design_creator"]
+    assert skills.get_default_active_skill_names("developer") == ["meeting_notes"]
 
 
 def test_custom_tool_builder_uses_tool_guide_not_manual_skill(tmp_path, reload_for_data_dir):
@@ -191,11 +205,10 @@ def test_row_bot_status_skill_query_reports_pins_and_surface_defaults(tmp_path, 
     assert "**Skill Library**" in block
     assert "available" in block
     assert "pinned" in block
-    assert "Default chat skills: Proactive Agent" in block
-    assert "Default task skills: Proactive Agent" in block
-    assert "Default developer skills: Proactive Agent" in block
-    assert "Default designer skills: Proactive Agent, Design Creator" in block
-    assert "Proactive Agent: Available (Pinned default)" in block
+    assert "Default chat skills: None" in block
+    assert "Default developer skills: None" in block
+    assert "Default designer skills: Design Creator" in block
+    assert "Check-ins: Available" in block
     assert "Design Creator: Available (Designer default)" in block
     assert "Tool guides are separate tool instructions" in block
 
@@ -219,7 +232,7 @@ def test_row_bot_status_tool_can_pin_and_unpin_skills(tmp_path, monkeypatch, rel
     assert skills.is_pinned("meeting_notes") is True
 
     query_result = query_tool.invoke({"category": "skills"})
-    assert "Default chat skills: Proactive Agent, Meeting Notes" in query_result
+    assert "Default chat skills: Meeting Notes" in query_result
     assert "Meeting Notes: Available (Pinned default)" in query_result
 
     unpin_result = update_tool.invoke({"setting": "skill_pin", "value": "meeting_notes:off"})
