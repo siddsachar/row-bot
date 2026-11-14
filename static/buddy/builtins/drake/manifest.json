@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "drake",
+  "name": "Buddy Drake",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact baby dragon desktop companion: soft teal scales, small rounded wings with sunset-orange membranes, a stubby tail, a tiny cream belly, big friendly golden eyes, playful posture, storybook-warm accents, cute not scary.",
+  "patches": "patches.png"
+}

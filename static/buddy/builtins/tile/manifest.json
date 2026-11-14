@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "tile",
+  "name": "Buddy Tile",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact Row-Bot desktop companion whose head is a rounded slate-blue square tile with a soft bevel, two glowing cyan eyes on a dark glass face, thin glowing cyan circuit traces running down its small rounded body to tiny round nodes, polished 3D, calm and capable.",
+  "patches": "patches.png"
+}

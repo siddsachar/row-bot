@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "brew",
+  "name": "Buddy Brew",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact cafe barista desktop companion: a rounded ceramic teacup-shaped hood in warm latte cream, a cocoa-brown apron, a tiny curl of steam above its head, warm hazel eyes, welcoming posture, cozy coffee-shop accents.",
+  "patches": "patches.png"
+}

@@ -387,7 +387,7 @@ def test_buddy_config_round_trips_to_temp_data_dir(monkeypatch, tmp_path):
     assert saved["placement"] == "desktop"
     assert loaded["placement"] == "desktop"
     assert loaded["visible"] is True
-    assert loaded["pack_id"] == "glyph"
+    assert loaded["pack_id"] == "tile"
 
 
 def test_buddy_config_loads_utf8_bom_file(monkeypatch, tmp_path):
@@ -436,7 +436,9 @@ def test_builtin_buddy_pack_contract_is_explicit():
     import json
     from row_bot.buddy.assets import list_buddy_packs, load_buddy_pack
 
-    expected_pack_ids = {"ember", "glyph", "lumen", "orbit", "pixel", "sprout"}
+    expected_pack_ids = {"ember", "glyph", "lumen", "orbit", "pixel", "sprout", "tile", "trace", "oar",
+                         "halo", "servo", "hover", "woolly", "facet", "glaze", "mosaic", "tide", "brew",
+                         "cog", "drake"}
     assert expected_pack_ids.issubset({pack.id for pack in list_buddy_packs()})
     for pack_id in sorted(expected_pack_ids):
         pack = load_buddy_pack(pack_id, strict=True)

@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "woolly",
+  "name": "Buddy Woolly",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact knitted plush desktop companion: a soft cream wool body with visible knit stitches, a little sage-green knitted beanie, embroidered dark eyes and a stitched smile, felt patches, cozy handmade toy look.",
+  "patches": "patches.png"
+}
