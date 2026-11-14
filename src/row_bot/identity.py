@@ -19,7 +19,7 @@ _DATA_DIR = get_row_bot_data_dir()
 _USER_CONFIG_PATH = _DATA_DIR / "user_config.json"
 
 _DEFAULT_NAME = APP_DISPLAY_NAME
-_PERSONALITY_MAX_LEN = 200
+PERSONALITY_MAX_LEN = 200  # characters (Settings also caps it at 200 bytes)
 
 # Patterns that look like prompt-injection attempts
 _INJECTION_PATTERNS = [
@@ -37,8 +37,8 @@ _INJECTION_PATTERNS = [
 def sanitize_personality(text: str) -> str:
     """Sanitize personality text: trim, enforce length, strip injection patterns."""
     text = text.strip()
-    if len(text) > _PERSONALITY_MAX_LEN:
-        text = text[:_PERSONALITY_MAX_LEN].rstrip()
+    if len(text) > PERSONALITY_MAX_LEN:
+        text = text[:PERSONALITY_MAX_LEN].rstrip()
     for pat in _INJECTION_PATTERNS:
         text = pat.sub("", text)
     # Collapse double spaces left by removals

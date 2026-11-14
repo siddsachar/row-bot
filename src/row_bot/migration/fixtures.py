@@ -190,9 +190,9 @@ def create_realistic_openclaw_home(root: str | Path) -> Path:
     _write_skill(workspace / "skills" / "daily-briefing", "daily-briefing", "Prepare a morning operating brief.")
     _write_skill(workspace / "skills" / "deep-research", "deep-research", "Research a topic with sources and tradeoffs.")
     _write_skill(home / "skills" / "triage-inbox", "triage-inbox", "Cluster inbound messages into decisions and tasks.")
-    _write(workspace / "memory" / "2026-02.md", "# February Memory\n\n- OpenClaw gateway stabilized after Telegram setup.\n")
-    _write(workspace / "memory" / "2026-03.md", "# March Memory\n\n- Added Linear and filesystem MCP servers.\n")
-    _write(workspace / "memory" / "2026-04.md", "# April Memory\n\n- Preparing migration to Row-Bot.\n")
+    _write(workspace / "memory" / "2026-02-27.md", "# February Memory\n\n- OpenClaw gateway stabilized after Telegram setup.\n")
+    _write(workspace / "memory" / "2026-03-19.md", "# March Memory\n\n- Added Linear and filesystem MCP servers.\n")
+    _write(workspace / "memory" / "2026-04-11.md", "# April Memory\n\n- Preparing migration to Row-Bot.\n")
     _write(
         home / "exec-approvals.json",
         _json({"agents": {"*": {"allowlist": [{"pattern": "git status"}, {"pattern": "python -m unittest *"}]}}}),

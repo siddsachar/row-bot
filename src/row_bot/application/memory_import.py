@@ -392,6 +392,46 @@ def add_text(session_id: str, batch_id: str, text: str) -> dict:
         return _view(batch)
 
 
+def stage_local(session_id: str, paths: list[Path]) -> dict:
+    """Another assistant's memory files on this computer (chosen in Settings › Data's import), copied
+    into a new batch and scanned now, so the person reviews them here like any export.
+
+    Nothing is saved to memory before Apply, and the batch keeps its own copies: the other app's
+    folder is only read.
+    """
+    from row_bot.memory_import.agents import MAX_MEMORY_FILE_BYTES
+
+    if not paths or len(paths) > FILES_PER_BATCH:
+        raise ClientPlatformError("import_too_many_files" if paths else "invalid_command")
+    for path in paths:
+        if path.is_symlink() or not path.is_file():
+            raise ClientPlatformError("invalid_command")
+        if path.stat().st_size > MAX_MEMORY_FILE_BYTES:
+            raise ClientPlatformError("import_file_too_large")
+    view = begin(session_id)
+    with _LOCK:
+        batch = _batch(session_id, view["batch_id"])
+        try:
+            for path in paths:
+                file_id = uuid4().hex
+                place = batch.folder / "files" / file_id
+                place.mkdir(parents=True, mode=0o700)
+                copy = place / _safe_name(path.name)
+                shutil.copyfile(path, copy)
+                size = copy.stat().st_size
+                batch.files[file_id] = _File(file_id, path.name, size, copy, received=size)
+            scans = _scans(batch)
+            for found in scans:
+                _merge(batch, found)
+            batch.scans = scans
+            batch.scanned = True
+            _write_json(batch.folder / "candidates.json", list(batch.candidates.values()))
+        except BaseException:
+            _retire(batch)
+            raise
+        return _view(batch)
+
+
 def _forget_scan(batch: _Batch) -> None:
     """What was found no longer matches the files: scan again."""
     batch.scanned = False

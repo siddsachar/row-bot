@@ -2460,6 +2460,11 @@ class MigrationFailedItem(WireModel):
     reason: str = Field(max_length=512)
 
 
+class MigrationMemoryReview(WireModel):
+    batch_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    found: int = Field(ge=0, le=5000)
+
+
 class MigrationApplyReceipt(WireModel):
     schema_version: Literal[1]
     command_id: UUID
@@ -2470,6 +2475,8 @@ class MigrationApplyReceipt(WireModel):
         max_length=64
     )
     failed_items: list[MigrationFailedItem] = Field(max_length=4096)
+    # The memories brought over, waiting in Import memories for the person to review.
+    memory_review: MigrationMemoryReview | None = None
 
 
 class OnboardingStep(WireModel):

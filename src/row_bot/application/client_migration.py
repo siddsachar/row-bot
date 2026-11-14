@@ -38,7 +38,7 @@ def _interrupted_receipt(command_id: str) -> dict[str, Any]:
         "schema_version": 1, "command_id": command_id, "status": "interrupted",
         "summary": dict.fromkeys(("total", "selected", "ready", "migrated", "conflicts", "sensitive", "archive_only", "skipped", "blocked", "errors"), 0),
         "report": "", "warnings": ["The migration was interrupted. Inspect the target and backups, then scan again."],
-        "failed_items": [],
+        "failed_items": [], "memory_review": None,
     }
 
 
@@ -81,28 +81,34 @@ def _finish_journal(command_id: str, plan_id: str, digest: str, receipt: dict[st
     os.replace(temporary, path)
 
 
-_USUAL_FOLDERS = {"hermes": (".hermes",), "openclaw": (".openclaw", ".clawdbot", ".moltbot")}
+_OPENCLAW_FOLDERS = (".openclaw", ".clawdbot", ".moltbot")
 
 
-def _usual_folder(provider: str) -> Path | None:
-    """The old app's folder in its usual place, when it really is that app."""
+def _usual_place(provider: str) -> tuple[Path, str] | None:
+    """The old app's folder in its usual place, when it really is that app, with that place in words."""
     from row_bot.migration import detection
 
-    looks = detection._looks_like_hermes if provider == "hermes" else detection._looks_like_openclaw
-    for name in _USUAL_FOLDERS[provider]:
+    if provider == "hermes":
+        return detection.find_hermes_home()
+    for name in _OPENCLAW_FOLDERS:
         folder = Path.home() / name
-        if folder.is_dir() and not folder.is_symlink() and looks(folder):
-            return folder
+        if folder.is_dir() and not folder.is_symlink() and detection._looks_like_openclaw(folder):
+            return folder, f"~/{name}"
     return None
 
 
+def _usual_folder(provider: str) -> Path | None:
+    found = _usual_place(provider)
+    return found[0] if found else None
+
+
 def detect_sources() -> dict[str, Any]:
-    """Which old apps are in their usual folders (a home-relative place only)."""
+    """Which old apps are in their usual folders (the place in words only, never the path)."""
     sources = []
     for provider, label in (("hermes", "Hermes Agent"), ("openclaw", "OpenClaw")):
-        folder = _usual_folder(provider)
-        sources.append({"provider": provider, "label": label, "found": folder is not None,
-                        "place": f"~/{folder.name}" if folder is not None else None})
+        found = _usual_place(provider)
+        sources.append({"provider": provider, "label": label, "found": found is not None,
+                        "place": found[1] if found is not None else None})
     return {"sources": sources}
 
 
@@ -183,7 +189,7 @@ def _preview(plan_id: str, plan: MigrationPlan, target_root: Path, revision: str
                 "status": item.status.value,
                 "label": item.label[:256],
                 "reason": _safe_note(item.reason, plan.source.root, target_root),
-                "target": _target_label(item.target, target_root)[:256],
+                "target": str(item.details.get("place") or _target_label(item.target, target_root))[:256],
                 "sensitivity": item.sensitivity.value,
                 "selected": item.selected,
                 "requires_confirmation": item.requires_confirmation,
@@ -342,9 +348,15 @@ def apply_selected_migration(
             if journal.get("plan_id") != plan_id or journal.get("review_digest") != digest:
                 raise ClientPlatformError("migration_command_conflict")
             return journal["receipt"]
+        from row_bot.application import memory_import
+
         result = apply_migration_plan(
             plan,
-            MigrationApplyOptions(require_backup=True, overwrite=overwrite),
+            MigrationApplyOptions(
+                require_backup=True, overwrite=overwrite,
+                # Memories wait in Import memories for this owner to review.
+                stage_memories=lambda files: memory_import.stage_local(owner_id, files),
+            ),
         )
         report_root = saved["target"]
         report = ""
@@ -365,6 +377,7 @@ def apply_selected_migration(
                  "reason": _safe_note(item.reason, saved["source"], saved["target"])}
                 for item in result.items if item.status in {MigrationStatus.ERROR, MigrationStatus.BLOCKED}
             ][:4096],
+            "memory_review": result.memory_review,
         }
         with _LOCK:
             if len(_RECEIPTS) >= 32:

@@ -6,6 +6,8 @@ import type {
   MigrationApplyReviewRequest,
   MigrationPreview,
 } from '../../api/types';
+import { OverlayProvider } from '../../ui/overlays';
+import type { MemoryImportIO } from '../knowledge/memory-import-io';
 import { MigrationControls } from './MigrationControls';
 
 const summary = {
@@ -296,4 +298,96 @@ it('Browse picks the folder once; a rescan with other choices reuses that previe
     ),
   ).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Browse…' })).toBeNull();
+});
+
+it('the memories brought over wait for the person to review them in Import memories', async () => {
+  const batch = 'c'.repeat(32);
+  const base = owners();
+  const importIO = {
+    sources: vi.fn(async () => ({
+      sources: [],
+      prompt: '',
+      continue_prompt: '',
+      file_max_bytes: 1,
+      conversation_limit: 0,
+      character_limit: 0,
+      model: null,
+      recent: [],
+    })),
+    begin: vi.fn(),
+    batch: vi.fn(async () => ({
+      batch_id: batch,
+      status: 'open' as const,
+      files: [],
+      texts: 0,
+      job: null,
+      scanned: true,
+      found: 1,
+      sources: [
+        { source: 'hermes', label: 'Hermes Agent', facts: 1, conversations: 0 },
+      ],
+      warnings: [],
+      skipped: [],
+      skipped_count: 0,
+      conversations: {
+        available: 0,
+        limit: 0,
+        character_limit: 400000,
+        ran: false,
+        read: 0,
+        characters: 0,
+        found: 0,
+      },
+    })),
+    discard: vi.fn(async () => ({ cancelled: true as const })),
+    candidates: vi.fn(async () => ({
+      batch_id: batch,
+      items: [
+        {
+          candidate_id: '0'.repeat(20),
+          text: 'Prefers local-first tools',
+          category: 'preference',
+          source: 'hermes',
+          source_label: 'Hermes Agent: its notes',
+          origin: 'export' as const,
+        },
+      ],
+    })),
+  } as unknown as MemoryImportIO;
+  const owner = {
+    ...base,
+    importIO,
+    apply: vi.fn(async (body: MigrationApplyCommand) => ({
+      ...(await base.apply(body)),
+      memory_review: { batch_id: batch, found: 6 },
+    })),
+  };
+  render(
+    <OverlayProvider>
+      <MigrationControls owner={owner} />
+    </OverlayProvider>,
+  );
+  fireEvent.change(screen.getByLabelText('Source folder'), {
+    target: { value: 'C:\\fixture\\hermes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Scan folders' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Apply selected items' }),
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Confirm import' }),
+  );
+  expect(
+    await screen.findByText(
+      '6 memories are ready to review. Nothing is saved to memory until you check them.',
+    ),
+  ).toBeVisible();
+  expect(importIO.batch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Review memories' }));
+  expect(
+    await screen.findByRole('dialog', { name: 'Import memories' }),
+  ).toBeVisible();
+  expect(await screen.findByText('Prefers local-first tools')).toBeVisible();
+  expect(importIO.batch).toHaveBeenCalledWith(batch);
+  expect(importIO.begin).not.toHaveBeenCalled();
 });

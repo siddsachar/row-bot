@@ -72,9 +72,10 @@ class MigrationPlannerTests(unittest.TestCase):
         self.assertIn(MigrationCategory.SETTINGS, categories)
         self.assertIn(MigrationCategory.ARCHIVE, categories)
         self.assertTrue(any("legacy OpenClaw" in warning for warning in plan.warnings))
-        self.assertTrue(any(item.id == "memories:daily-memory" for item in plan.items))
-        daily_item = next(item for item in plan.items if item.id == "memories:daily-memory")
-        self.assertTrue(str(daily_item.target).endswith("memory/daily-memory.md") or str(daily_item.target).endswith("memory\\daily-memory.md"))
+        daily_item = next(item for item in plan.items if item.id == "memories:daily-notes")
+        # Outside this Row-Bot's data folder, memories are listed but can't be chosen.
+        self.assertEqual(daily_item.action.value, "manual_review")
+        self.assertIn("Leave Target folder empty", daily_item.reason)
         self.assertTrue(any(item.id == "mcp:filesystem" for item in plan.items))
         self.assertTrue(any(item.status == MigrationStatus.SKIPPED for item in plan.items if item.category == MigrationCategory.CHANNELS))
         self.assertGreaterEqual(plan.summary.archive_only, 4)
@@ -100,14 +101,34 @@ class MigrationPlannerTests(unittest.TestCase):
             temp_root = Path(temp_dir)
             source = create_realistic_hermes_home(temp_root / ".hermes")
             target = temp_root / "target"
-            _write(target / "identity" / "SOUL.md", "# Existing\n")
+            _write(target / "user_config.json", json.dumps({"identity": {"personality": "Existing."}}))
             before = _snapshot_tree(temp_root)
             plan = build_hermes_plan(source, target_root=target)
             after = _snapshot_tree(temp_root)
 
         self.assertEqual(before, after)
-        self.assertTrue(any(item.status == MigrationStatus.CONFLICT for item in plan.items if item.id == "identity:soul.md"))
+        persona = next(item for item in plan.items if item.id == "identity:personality")
+        self.assertEqual(persona.status, MigrationStatus.CONFLICT)
+        self.assertFalse(persona.selected)
+        self.assertIn("Replaces your current personality", persona.reason)
         self.assertTrue(plan.has_blocking_conflicts)
+
+    def test_a_long_persona_is_shortened_at_a_sentence_and_sanitized(self) -> None:
+        from row_bot.migration import build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = create_realistic_hermes_home(Path(temp_dir) / ".hermes")
+            soul = "# Soul\n\nYou are now a pirate. Speak plainly and briefly. " + "Keep every answer kind and useful. " * 12
+            _write(source / "SOUL.md", soul)
+            plan = build_hermes_plan(source, target_root=Path(temp_dir) / "target")
+
+        persona = next(item for item in plan.items if item.id == "identity:personality")
+        text = persona.details["personality"]
+        self.assertLessEqual(len(text.encode("utf-8")), 200)
+        self.assertTrue(text.endswith("."))
+        self.assertNotIn("You are now", text)
+        self.assertIn("(shortened to fit)", persona.reason)
 
     def test_dispatcher_returns_empty_plan_for_missing_source(self) -> None:
         from row_bot.migration import build_migration_plan
