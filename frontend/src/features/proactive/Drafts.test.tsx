@@ -72,10 +72,8 @@ describe('Drafts', () => {
       'Row-Bot wrote this reply on its own, so only you can send it.',
     );
     expect(io.answerSend).not.toHaveBeenCalled();
-    // The text can't change under an open card.
-    expect(screen.getByRole('textbox', { name: 'Reply text' })).toHaveAttribute(
-      'readonly',
-    );
+    // The card is the review: the text can't change under it.
+    expect(screen.queryByRole('textbox', { name: 'Reply text' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: /^Send/ }));
     expect(io.answerSend).toHaveBeenCalledWith('fedcba9876543210', {
       binding: 'b'.repeat(64),

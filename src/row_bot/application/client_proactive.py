@@ -6,7 +6,11 @@
   carries on in the chat the moment came from, as a Row-Bot continuation note; acting on a "make it a
   workflow" offer with ``make_workflow`` drafts the workflow (off, unscheduled) and names it for the client
   to open for review.
-- ``list_drafts`` / ``read_draft``: what Row-Bot prepared (briefs, drafted replies), never sent.
+- ``list_drafts`` / ``read_draft``: what Row-Bot prepared (briefs, drafted replies), with who a reply goes
+  to; ``save_draft`` keeps the person's edits in Row-Bot. ``ask_to_send`` shows a reply's approval card
+  under every approval level (Row-Bot wrote it), and only ``answer_send`` with the person's approval of
+  exactly that card sends it (``proactive.send``).
+- ``read_preview``: what each level would have brought up today; each moment carries its For you group.
 - ``read_activity``: every proactive pass, silent ones too, and each moment's steps, newest first.
 - ``read_settings`` / ``update_settings``: the level, quiet hours, sources, kinds, desktop context, urgent
   kinds and the person's rules, each with its plain privacy line.

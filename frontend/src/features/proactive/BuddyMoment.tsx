@@ -3,6 +3,7 @@ import { LayoutList, MoreHorizontal } from 'lucide-react';
 import type { ProactiveMomentView } from '../../api/types';
 import { parseTimestamp } from '../../ui/format';
 import { Button, IconButton, Menu, type MenuAction } from '../../ui/primitives';
+import { introduced } from './ProactiveIntro';
 import { lessOptions, lessProblem } from './WhyThis';
 import type { LessScope } from './moment-actions';
 import type { ProactiveView } from './proactive-state';
@@ -182,7 +183,12 @@ export function useBuddyMoment(view: ProactiveView) {
         at(left.shown_at) - at(right.shown_at),
     );
   const key = waiting.map((moment) => moment.moment_id).join(' ');
-  const blocked = now - lastKey < TYPING_QUIET_MS || overlayOpen();
+  // While the first-run introduction waits for an answer, Buddy only glances.
+  const introducing = Boolean(
+    view.settings && view.settings.introduced === false && !introduced(),
+  );
+  const blocked =
+    introducing || now - lastKey < TYPING_QUIET_MS || overlayOpen();
   useEffect(() => {
     if (bubble || !waiting.length) return;
     if (blocked) {
@@ -213,13 +219,21 @@ export function useBuddyMoment(view: ProactiveView) {
   useEffect(() => {
     if (gone) setBubble(null);
   }, [gone]);
+  const ids =
+    bubble?.kind === 'one'
+      ? [bubble.moment.moment_id]
+      : (bubble?.moments.map((item) => item.moment_id) ?? []);
   // A dialog opened over the page while a bubble shows: the bubble steps
-  // aside at once (it never covers a dialog) and its moment stays in For you.
-  const showing = Boolean(bubble);
+  // aside at once (it never covers a dialog), as if it had faded: its moment
+  // stays in For you, and Buddy keeps the glance.
+  const showingIds = ids.join(' ');
   useEffect(() => {
-    if (!showing || typeof MutationObserver === 'undefined') return;
+    if (!showingIds || typeof MutationObserver === 'undefined') return;
     const check = () => {
-      if (overlayOpen()) setBubble(null);
+      if (!overlayOpen()) return;
+      markSeen(showingIds.split(' '));
+      setBubble(null);
+      setHeld(false);
     };
     check();
     const observer = new MutationObserver(check);
@@ -230,11 +244,7 @@ export function useBuddyMoment(view: ProactiveView) {
       attributeFilter: ['data-state', 'aria-modal'],
     });
     return () => observer.disconnect();
-  }, [showing]);
-  const ids =
-    bubble?.kind === 'one'
-      ? [bubble.moment.moment_id]
-      : (bubble?.moments.map((item) => item.moment_id) ?? []);
+  }, [showingIds]);
   const close = () => {
     if (!bubble) return;
     markSeen(ids);

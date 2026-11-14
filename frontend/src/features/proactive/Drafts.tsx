@@ -261,40 +261,47 @@ export function DraftView({
       </header>
       {reply ? (
         <>
-          <div className="proactive-draft-fields">
-            <label htmlFor={`${id}-to`}>To</label>
-            <Input
-              id={`${id}-to`}
-              type="email"
-              value={to}
-              readOnly={sent || Boolean(card)}
-              placeholder="name@example.com"
-              onChange={(event) => edit(() => setTo(event.target.value))}
-            />
-            <label htmlFor={`${id}-subject`}>Subject</label>
-            <Input
-              id={`${id}-subject`}
-              value={subject}
-              readOnly={sent || Boolean(card)}
-              onChange={(event) => edit(() => setSubject(event.target.value))}
-            />
-          </div>
-          <label className="visually-hidden" htmlFor={`${id}-body`}>
-            Reply text
-          </label>
-          <textarea
-            id={`${id}-body`}
-            className="input proactive-draft-body"
-            value={body}
-            rows={10}
-            readOnly={sent || Boolean(card)}
-            onChange={(event) => edit(() => setBody(event.target.value))}
-            onBlur={() => {
-              if (dirty) void save();
-            }}
-          />
-          {card && !sent && (
+          {card && !sent ? (
+            // The card is the review: exactly what goes, to whom. Don't send
+            // brings the editor back.
             <DraftSendCard card={card} busy={busy} onAnswer={answer} />
+          ) : (
+            <>
+              <div className="proactive-draft-fields">
+                <label htmlFor={`${id}-to`}>To</label>
+                <Input
+                  id={`${id}-to`}
+                  type="email"
+                  value={to}
+                  readOnly={sent}
+                  placeholder="name@example.com"
+                  onChange={(event) => edit(() => setTo(event.target.value))}
+                />
+                <label htmlFor={`${id}-subject`}>Subject</label>
+                <Input
+                  id={`${id}-subject`}
+                  value={subject}
+                  readOnly={sent}
+                  onChange={(event) =>
+                    edit(() => setSubject(event.target.value))
+                  }
+                />
+              </div>
+              <label className="visually-hidden" htmlFor={`${id}-body`}>
+                Reply text
+              </label>
+              <textarea
+                id={`${id}-body`}
+                className="input proactive-draft-body"
+                value={body}
+                rows={10}
+                readOnly={sent}
+                onChange={(event) => edit(() => setBody(event.target.value))}
+                onBlur={() => {
+                  if (dirty) void save();
+                }}
+              />
+            </>
           )}
           {problem && (
             <p className="proactive-error" role="alert">

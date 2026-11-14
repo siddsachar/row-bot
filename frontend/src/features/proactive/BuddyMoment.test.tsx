@@ -13,7 +13,7 @@ import type { BuddySnapshot } from '../shell/BuddyControls';
 import { resetBuddyMoments, showWhatBuddyHas } from './BuddyMoment';
 import { provideProactive } from './proactive-state';
 import { SidebarMoment } from './SidebarMoment';
-import { fakeIO, moment } from './test-data';
+import { fakeIO, moment, settings } from './test-data';
 
 const snapshot = {
   schema_version: 1,
@@ -239,6 +239,21 @@ describe('Buddy’s proactive states', () => {
       await screen.findByRole('dialog', { name: /No reply/ }),
     ).toBeVisible();
     expect(showWhatBuddyHas([moment()])).toBe(false);
+  });
+
+  it('only glances while the first-run introduction waits for an answer', async () => {
+    window.localStorage.removeItem('row-bot:proactive-introduced:v1');
+    const io = fakeIO({
+      moments: [delivered()],
+      settings: settings({ introduced: false }),
+    });
+    provideProactive(io);
+    renderBuddy();
+    await waitFor(() => expect(io.settings).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows nothing outside the app', () => {
