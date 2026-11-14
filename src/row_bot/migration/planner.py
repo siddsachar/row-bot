@@ -107,9 +107,6 @@ def build_hermes_plan(
     items.extend(_secret_items(app.source_root / ".env", target, include_secrets=include_secrets))
     items.extend(_archive_items(scan, target / "archive" / MigrationProvider.HERMES.value))
 
-    if not include_secrets and any(item.category == MigrationCategory.API_KEYS for item in items):
-        warnings.append("Secrets were detected but skipped. Re-run with include_secrets=True after explicit user consent.")
-
     return _plan_from_items(scan, items, warnings, target, include_secrets)
 
 
@@ -178,9 +175,6 @@ def build_openclaw_plan(
 
     items.extend(_archive_items(scan, target / "archive" / MigrationProvider.OPENCLAW.value))
 
-    if not include_secrets and any(item.category == MigrationCategory.API_KEYS for item in items):
-        warnings.append("Secrets were detected but skipped. Re-run with include_secrets=True after explicit user consent.")
-
     return _plan_from_items(scan, items, warnings, target, include_secrets)
 
 
@@ -200,10 +194,8 @@ def _plan_from_items(
     target_root: Path,
     include_secrets: bool,
 ) -> MigrationPlan:
-    if any(item.is_archive_only for item in items):
-        warnings.append("Archive-only state will be copied to a migration report later, not imported live.")
     if any(item.status == MigrationStatus.CONFLICT for item in items):
-        warnings.append("Some items would replace what you already have. Tick Overwrite to replace them (a backup is kept first).")
+        warnings.append("Some items would replace what you already have. Turn on Replace what you already have to bring them over.")
     return MigrationPlan(
         source=scan.source,
         items=tuple(items),
@@ -331,9 +323,10 @@ def _model_items(
     if provider_id is None and provider_name and provider_name.lower() in names:
         provider_id = stores.endpoint_provider(names[provider_name.lower()])
     if provider_id is None:
-        missing = f"a {provider_name} provider" if provider_name else "a provider for it"
+        why = (f"Row-Bot doesn't connect to {provider_name}" if provider_name
+               else "it doesn't say which provider it uses")
         return [_not_brought_over("model:default", MigrationCategory.MODEL, config_path, label,
-                                  f"Not brought over: Row-Bot has no {missing}. Choose a model in "
+                                  f"Not brought over: {why}. Choose a model in "
                                   f"{stores.PLACES[stores.DEFAULT_MODEL]}.")]
     reference = stores.model_reference(provider_id, model_id)
     current = stores.current_default_model(app.target)
@@ -357,7 +350,7 @@ def _model_server_items(app: _App, config_path: Path, servers: list[tuple[str, d
         label = f"Model server: {name}"
         address = stores.endpoint_address(record.get("base_url") or record.get("baseUrl") or record.get("url"))
         if address is None:
-            items.append(_not_brought_over(item_id, MigrationCategory.SETTINGS, config_path, label,
+            items.append(_not_brought_over(item_id, MigrationCategory.MODEL, config_path, label,
                                            "Not brought over: its address isn't one Row-Bot can save. Add it in "
                                            f"{stores.PLACES[stores.CUSTOM_ENDPOINT]}."))
             continue
@@ -372,7 +365,7 @@ def _model_server_items(app: _App, config_path: Path, servers: list[tuple[str, d
             if needs_key:
                 reason += " Add its key there; keys come over only with Include API keys."
         items.append(_store_item(
-            id=item_id, category=MigrationCategory.SETTINGS, action=MigrationAction.CREATE, status=status,
+            id=item_id, category=MigrationCategory.MODEL, action=MigrationAction.CREATE, status=status,
             source=config_path, target=app.target / f"providers.json#{endpoint_id}", label=label, reason=reason,
             store=stores.CUSTOM_ENDPOINT, sensitivity=MigrationSensitivity.SENSITIVE,
             details={"endpoint": {"id": endpoint_id, "name": name, "base_url": url, "auth_required": needs_key,

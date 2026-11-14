@@ -163,6 +163,8 @@ def test_the_default_model_and_providers_merge_without_clobbering(tmp_path, prof
     preview, receipt = _import(source, choose=lambda item: item["id"] in {"model:default", "providers:local-llm"})
     assert receipt["status"] == "completed", receipt
     assert saved_model_settings.read_saved_model_settings()[0]["model"] == "model:openai:gpt-5.4"
+    # The address is shown to the person before it is saved.
+    assert "http://127.0.0.1:11434/v1" in _item(preview, "providers:local-llm")["reason"]
     (endpoint,) = custom.list_custom_endpoints()
     assert (endpoint["id"], endpoint["base_url"]) == ("local-llm", "http://127.0.0.1:11434/v1")
 

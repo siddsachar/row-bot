@@ -16,7 +16,7 @@ from row_bot.migration import (
     MigrationApplyOptions, MigrationPlan, MigrationStatus,
     apply_migration_plan, build_migration_plan,
 )
-from row_bot.migration.redaction import redact_value
+from row_bot.migration.redaction import REDACTED, redact_value
 
 _LOCK = RLock()
 _PLANS: dict[str, dict[str, Any]] = {}
@@ -165,10 +165,17 @@ def _target_label(target: str | Path | None, root: Path) -> str:
 
 
 def _safe_note(value: str, source: Path, target: Path) -> str:
+    """A note for the page: no folder paths, and every word that looks like a key masked (the rest of
+    the sentence stays readable)."""
     text = str(value)
     for root in (source, target):
         text = text.replace(str(root), "[folder]")
-    return str(redact_value(text))[:512]
+    words, masked, hide_next = text.split(" "), [], False
+    for word in words:
+        hidden = hide_next or redact_value(word) == REDACTED
+        masked.append(REDACTED if hidden else word)
+        hide_next = word.lower() in {"bearer", "basic"}
+    return " ".join(masked)[:512]
 
 
 def _preview(plan_id: str, plan: MigrationPlan, target_root: Path, revision: str) -> dict[str, Any]:

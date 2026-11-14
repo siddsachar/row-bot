@@ -444,9 +444,9 @@ export function MigrationControls({
             </p>
           ))}
           <div className="check-field">
-            <span>Overwrite conflicting target files (with backup)</span>
+            <span>Replace what you already have (a backup is kept first)</span>
             <Toggle
-              label="Overwrite conflicting target files"
+              label="Replace what you already have"
               checked={overwrite}
               onChange={(event) => {
                 setOverwrite(event.target.checked);
@@ -549,7 +549,7 @@ export function MigrationControls({
             </p>
           ) : (
             <p>
-              {receipt.summary.migrated} imported; {receipt.summary.errors}{' '}
+              {receipt.summary.migrated} brought over; {receipt.summary.errors}{' '}
               errors. Report: {receipt.report || 'unavailable'}.
             </p>
           )}

@@ -406,9 +406,9 @@ def _warnings_for_scan(root: Path, entries: list[MigrationScanEntry]) -> tuple[s
     if not root.exists():
         warnings.append("source directory does not exist")
     if any(entry.sensitivity == MigrationSensitivity.SECRET for entry in entries):
-        warnings.append("secrets detected; import must be opt-in")
+        warnings.append("API keys and tokens were found. They come over only if you turn on Include API keys and tokens.")
     if any(entry.archive_only for entry in entries):
-        warnings.append("archive-only state detected for manual review")
+        warnings.append("Sessions, logs and other app state are copied into the import's report for you to look at, not imported.")
     return tuple(warnings)
 
 

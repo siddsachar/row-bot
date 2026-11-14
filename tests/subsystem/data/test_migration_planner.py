@@ -36,7 +36,7 @@ class MigrationPlannerTests(unittest.TestCase):
         mcp_items = [item for item in plan.items if item.category == MigrationCategory.MCP]
         self.assertTrue(mcp_items)
         self.assertTrue(all(not item.selected for item in mcp_items))
-        self.assertIn("Secrets were detected but skipped", "\n".join(plan.warnings))
+        self.assertIn("They come over only if you turn on Include API keys and tokens", "\n".join(plan.warnings))
 
         raw_text = json.dumps(plan.to_dict())
         self.assertNotIn("sk-hermes-three-month-user", raw_text)
