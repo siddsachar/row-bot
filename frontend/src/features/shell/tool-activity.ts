@@ -515,7 +515,7 @@ const SETTING_NAMES: Record<string, string> = {
   tool_toggle: 'Tools',
   image_gen_model: 'Image model',
   video_gen_model: 'Video model',
-  self_improvement: 'Learning',
+  self_improvement: 'Learn new skills',
 };
 
 export function keyArgument(safeInput: string | undefined): string {
