@@ -2272,6 +2272,11 @@ const CATALOG: Record<string, Entry> = {
     'review',
     IMAGE_MODEL,
   ],
+  buddy_image_model_unsupported: [
+    "Buddy can't paint with this image model. Choose a GPT Image, Nano Banana or Grok image model.",
+    'review',
+    IMAGE_MODEL,
+  ],
   buddy_media_capability_unavailable: [
     'Generating a Buddy needs an image model. Choose one first.',
     'review',

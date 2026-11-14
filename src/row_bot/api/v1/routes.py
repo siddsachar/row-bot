@@ -866,6 +866,7 @@ _STATUS.update(
             "buddy_tool_policy_denied",
             "buddy_media_capability_unavailable",
             "buddy_image_model_cannot_edit",
+            "buddy_image_model_unsupported",
             "buddy_data_policy_denied",
             "hatch_source_changed",
             "hatch_job_unavailable",
@@ -1249,6 +1250,8 @@ def problem(exc: Exception) -> JSONResponse:
         code = str(exc)
     # Only codes are public. Never interpolate exceptions or validator input.
     if code not in _KNOWN_CODES and code not in _STATUS:
+        # The code alone, never the message: it names the missing mapping.
+        logger.warning("Unmapped error code %r from %s", code, type(exc).__name__)
         code = "dependency_unavailable"
     status = getattr(
         exc,

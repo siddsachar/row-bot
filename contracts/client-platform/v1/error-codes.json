@@ -55,6 +55,7 @@
     "buddy_cursor_changed": 409,
     "buddy_data_policy_denied": 409,
     "buddy_image_model_cannot_edit": 409,
+    "buddy_image_model_unsupported": 409,
     "buddy_media_capability_unavailable": 409,
     "buddy_outcome_uncertain": 409,
     "buddy_pack_limit": 413,
