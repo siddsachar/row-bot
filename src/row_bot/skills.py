@@ -56,7 +56,11 @@ TOOL_GUIDES_DIR = tool_guides_dir()
 CONFIG_PATH = DATA_DIR / "skills_config.json"
 BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY = "bundled_manual_defaults_v2_applied"
 SKILL_PINS_CONFIG_KEY = "skill_pins_v1_applied"
-DEFAULT_PINNED_SKILL_NAMES = ("proactive_agent",)
+# 5.3.4: nothing is pinned by default. "Check-ins" (proactive_agent, pinned since 5.0) made Row-Bot stop to
+# check in, ask scoping questions and re-confirm sends, against "end only when done" and the person's
+# approval level; it was unpinned once everywhere it was pinned and stays available to pin.
+CHECK_INS_UNPINNED_CONFIG_KEY = "check_ins_unpinned_v1"
+CHECK_INS_SKILL_NAME = "proactive_agent"
 
 # ── Data Model ───────────────────────────────────────────────────────────────
 
@@ -332,7 +336,7 @@ def load_skills():
     if not isinstance(saved_pinned, list):
         saved_pinned = []
     migrate_bundled_manual_defaults = not bool(config.get(BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY))
-    migrate_skill_pins = not bool(config.get(SKILL_PINS_CONFIG_KEY))
+    unpin_check_ins = not bool(config.get(CHECK_INS_UNPINNED_CONFIG_KEY))
 
     # Merge saved state with discovered skills
     new_enabled: dict[str, bool] = {}
@@ -353,13 +357,12 @@ def load_skills():
     }
     new_pinned = [
         name for name in _ordered_unique(saved_pinned)
-        if name in manual_names
+        if name in manual_names and not (unpin_check_ins and name == CHECK_INS_SKILL_NAME)
     ]
-    if migrate_skill_pins:
-        for name in DEFAULT_PINNED_SKILL_NAMES:
-            skill = _skills_cache.get(name)
-            if skill and not is_tool_guide(skill) and name not in new_pinned:
-                new_pinned.append(name)
+    if unpin_check_ins and not is_docs_real_data_capture():
+        from row_bot.skills_activation import retire_default_seeded_skill
+
+        retire_default_seeded_skill(CHECK_INS_SKILL_NAME)
 
     for name in new_pinned:
         _enabled[name] = True
@@ -373,6 +376,7 @@ def load_skills():
         _save_config({
             BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True,
             SKILL_PINS_CONFIG_KEY: True,
+            CHECK_INS_UNPINNED_CONFIG_KEY: True,
         })
 
     manual_count = sum(1 for skill in _skills_cache.values() if not skill.tools)
@@ -987,8 +991,8 @@ def _read_client_skills_uncached() -> dict:
             True if not config.get(BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY) and _is_bundled_manual_skill(skill)
             else saved.get(name, skill.enabled_by_default))
     pinned = [name for name in _ordered_unique(config.get('pinned', [])) if name in found and not is_tool_guide(found[name]['skill'])]
-    if not config.get(SKILL_PINS_CONFIG_KEY):
-        pinned = _ordered_unique([*pinned, *(name for name in DEFAULT_PINNED_SKILL_NAMES if name in found)])
+    if not config.get(CHECK_INS_UNPINNED_CONFIG_KEY):  # Read as load_skills will write it (5.3.4).
+        pinned = [name for name in pinned if name != CHECK_INS_SKILL_NAME]
     for name in pinned:
         enabled[name] = True
     revision = hashlib.sha256(json.dumps([config_file[1:3], proofs], sort_keys=True).encode()).hexdigest()
