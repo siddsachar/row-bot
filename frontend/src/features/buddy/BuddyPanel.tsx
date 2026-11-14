@@ -235,6 +235,36 @@ export function createBuddyPanelSession(
           const version = viewVersion;
           const abort = new AbortController();
           observation = abort;
+          // A running Hatch is followed too: its progress, then the new look once
+          // it ends, without asking for a refresh (F8).
+          const hatching =
+            state.result && running(state.result)
+              ? attempts.get(state.result.command_id)
+              : undefined;
+          if (hatching) {
+            void owned(() => transport.receipt(hatching.command.command_id))
+              .then(async (receipt) => {
+                if (
+                  abort.signal.aborted ||
+                  state.busy ||
+                  version !== viewVersion
+                )
+                  return;
+                accept(hatching, receipt);
+                if (receipt.hatch && !running(receipt.hatch)) await load();
+              })
+              .catch(() => {
+                if (!abort.signal.aborted && !state.revoked)
+                  emit({
+                    statusError:
+                      'Buddy status could not be refreshed. Reload the saved view.',
+                  });
+              })
+              .finally(() => {
+                if (observation === abort) observation = null;
+              });
+            return;
+          }
           void owned(() => transport.snapshot(abort.signal))
             .then(async (snapshot) => {
               if (abort.signal.aborted) return;

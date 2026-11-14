@@ -46,10 +46,18 @@ def _hatch_pack_name(prompt: str, draft_id: str) -> str:
     named = re.search(r"\bnamed\s+([A-Za-z0-9_-]+)", first_line, flags=re.IGNORECASE)
     if named:
         return named.group(1).replace("_", " ").replace("-", " ").title()
-    words = first_line.split()
+    # The thing described, not "Generated A cute tiny…": the words before "with", "for" and
+    # the like, without the article, ending on the noun ("A small round otter with a scarf"
+    # is "Small round otter").
+    head = re.split(r"\s+(?:with|for|that|who|which|and|in|on|wearing|holding)\s+|[,.;:(]",
+                    first_line, maxsplit=1, flags=re.IGNORECASE)[0]
+    words = [word for word in head.split() if word]
+    if words and words[0].lower() in {"a", "an", "the"}:
+        words = words[1:]
     if words:
-        return "Generated " + " ".join(words[:4]).strip(" .,;:")
-    return f"Generated {draft_id}"
+        named = " ".join(words[-3:])
+        return named[:1].upper() + named[1:]
+    return "New look"
 
 
 def start_hatch_generation_job(
