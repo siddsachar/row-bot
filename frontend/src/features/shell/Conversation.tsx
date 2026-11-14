@@ -3781,7 +3781,7 @@ export default function Conversation({
                         Use this computer
                       </Button>
                     )}
-                    <Button onClick={() => navigate('/settings/providers')}>
+                    <Button onClick={() => navigate('/settings/models')}>
                       Sign in with a plan
                     </Button>
                     <Button
@@ -4046,7 +4046,9 @@ export default function Conversation({
                         <button
                           type="button"
                           className="composer-vision-choose"
-                          onClick={() => navigate('/settings/models#vision')}
+                          onClick={() =>
+                            navigate('/settings/models#vision-model')
+                          }
                         >
                           Choose a vision model
                         </button>

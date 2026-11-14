@@ -345,6 +345,17 @@
           "title": "Scope",
           "type": "string"
         },
+        "setting_change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingChange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "setup": {
           "anyOf": [
             {
@@ -2513,6 +2524,49 @@
       "title": "ResourceChangedEvent",
       "type": "object"
     },
+    "SettingChange": {
+      "additionalProperties": false,
+      "description": "A change to one of Row-Bot's settings, in words: the row's name, where it is, what it was and becomes.",
+      "properties": {
+        "after": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Before",
+          "type": "string"
+        },
+        "href": {
+          "default": "",
+          "maxLength": 200,
+          "pattern": "^(/settings/[A-Za-z0-9/?=&#._:-]{0,189})?$",
+          "title": "Href",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "where": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "after"
+      ],
+      "title": "SettingChange",
+      "type": "object"
+    },
     "Snapshot": {
       "additionalProperties": false,
       "properties": {
@@ -3311,7 +3365,8 @@
             "page",
             "request_corrected",
             "linked_conversation",
-            "video_project"
+            "video_project",
+            "setting_change"
           ],
           "title": "Kind",
           "type": "string"
@@ -3403,6 +3458,17 @@
           ],
           "title": "Resource Kind",
           "type": "string"
+        },
+        "setting_change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingChange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "settings_page": {
           "default": "",

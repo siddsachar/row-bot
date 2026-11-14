@@ -2864,6 +2864,63 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "self guide fixture" in text:
+        # Row-Bot Self: a how-to answered from the guides (steps, Settings chips, a citation) after a setting
+        # change it made, whose result ends with its Undo line (the step's card offers Undo).
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "self-guide")
+        thread = call["conversation_id"]
+        identity = f"self-guide:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        result_id = fixture_id(identity + ":result")
+        args = {"setting": "dream_window", "value": "2-6"}
+        content = ("Approval: asked; approved by you\nDream cycle window set to 2:00–6:00.\n"
+                   'Undo: row_bot_update_setting {"setting": "dream_window", "value": "1-5", "now": "2-6", '
+                   '"label": "Dream Cycle", "where": "Settings › Preferences › Dream Cycle", '
+                   '"href": "/settings/preferences#dream-cycle", "before": "1:00–5:00", "after": "2:00–6:00"}')
+        try:
+            # The change itself, saved as Settings saves it, so the card's Undo puts it back for real.
+            from row_bot.application.settings_commands import apply_settings_change
+            apply_settings_change("preferences", "dream_cycle.window_start", 2)
+            apply_settings_change("preferences", "dream_cycle.window_end", 6)
+            append_checkpoint_messages(thread, [
+                AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                          tool_calls=[{"id": tool_id, "name": "row_bot_update_setting", "args": args}]),
+                ToolMessage(id=result_id, tool_call_id=tool_id, name="row_bot_update_setting", content=content)])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": "row_bot_update_setting",
+                                "args": args}
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "row_bot_update_setting",
+                                "args": args, "content": content}
+            final = ("Done: the Dream Cycle now runs from 2:00 to 6:00. To change it yourself:\n\n"
+                     "1. Open [Dream Cycle](/settings/preferences#dream-cycle).\n"
+                     "2. Set the start and end hours.\n\n"
+                     "From the guide: [Settings: Preferences › Overnight Tidy-Up]"
+                     "(/docs/settings/preferences#overnight-tidy-up)")
+            yield from _natural_final(call, thread, final, "self-guide")
+        finally:
+            call["quiesced"] = True
+        return
+    if "self change fixture" in text:
+        # Row-Bot Self: a setting change waiting on its card, in words, with its row.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "self-change")
+        thread = call["conversation_id"]
+        identity = f"self-change:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        args = {"setting": "dream_window", "value": "2-6"}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "row_bot_update_setting", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "row_bot_update_setting", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "row_bot_update_setting", "label": "Change the Dream Cycle hours",
+                                 "description": "Dream Cycle: 1:00–5:00 → 2:00–6:00", "args": args,
+                                 "change": {"label": "Dream Cycle", "where": "Settings › Preferences › Dream Cycle",
+                                            "href": "/settings/preferences#dream-cycle", "before": "1:00–5:00",
+                                            "after": "2:00–6:00", "tier": "preference"}}]
+        finally:
+            call["quiesced"] = True
+        return
     if "setup fixture" in text:
         # The work needs a tool that is off: the setting tool asks through the
         # standard approval, shown as a "Turn on" card (decision 12).

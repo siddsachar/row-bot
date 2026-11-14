@@ -724,3 +724,25 @@ body:has(.phone-tabs) .pwa-status {
   border: 0;
   overflow: hidden;
 }
+
+/* A guide Row-Bot cited: a bottom sheet on a phone, a side sheet elsewhere. */
+@media (max-width: 767px) {
+  /* Its title and description clear the sheet's drag handle. */
+  .dialog.sheet.guide-overlay > .dialog-header {
+    padding-top: 16px;
+  }
+}
+@media (min-width: 768px) {
+  .dialog.sheet.guide-overlay {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    transform: none;
+    width: min(440px, 100vw);
+    height: 100dvh;
+    max-height: 100%;
+    border-radius: var(--radius-dialog) 0 0 var(--radius-dialog);
+    animation: drawer-in-right var(--motion-panel) var(--ease-out);
+  }
+}
