@@ -71,7 +71,18 @@ DEFAULTS: dict[str, Any] = {
     "urgent_kinds": [],
     "channel": "",
     "follow_up_days": FOLLOW_UP_DAYS,
+    # The end-of-day wrap: None follows the level (off at Quiet, on at Balanced and Eager); True or False is
+    # the person's own choice, whatever the level.
+    "wrap": None,
 }
+WRAP_LEVELS = frozenset({"balanced", "eager"})
+
+
+def wrap_on(settings: dict[str, Any]) -> bool:
+    """Whether the end-of-day wrap comes today."""
+    if settings["level"] == "off":
+        return False
+    return settings["wrap"] if settings["wrap"] is not None else settings["level"] in WRAP_LEVELS
 _TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 
@@ -106,7 +117,11 @@ def _validated(data: dict[str, Any]) -> dict[str, Any]:
     start, end = _clock(data.get("quiet_start"), "Quiet hours start"), _clock(data.get("quiet_end"), "Quiet hours end")
     if start == end:
         raise SettingsError("Quiet hours start and end at different times.")
+    wrap = data.get("wrap")
+    if wrap is not None and not isinstance(wrap, bool):
+        raise SettingsError("The end-of-day wrap is on or off.")
     return {
+        "wrap": wrap,
         "level": level, "quiet_start": start, "quiet_end": end, "day_end": _clock(data.get("day_end"), "Day end"),
         "sources": {source: bool(sources.get(source, True)) for source in SOURCES},
         "kinds": {kind: bool(kinds.get(kind, True)) for kind in KINDS},
@@ -151,6 +166,12 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
 
         for kind in turned_on:  # Turning a kind back on is the person saying they want it: it speaks again.
             store.set_quieted(kind, 0.0)
+    wanted = (["brief"] if "brief" in turned_on else []) + (["wrap"] if result["wrap"] and not current["wrap"] else [])
+    if wanted:
+        from row_bot.proactive import day
+
+        for which in wanted:  # Its workflow was deleted: asking for it again brings it back.
+            day.forget_deleted(which)
     return result
 
 

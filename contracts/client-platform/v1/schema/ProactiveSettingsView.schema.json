@@ -262,6 +262,11 @@
       "maxItems": 6,
       "title": "Sources",
       "type": "array"
+    },
+    "wrap": {
+      "default": false,
+      "title": "Wrap",
+      "type": "boolean"
     }
   },
   "required": [

@@ -840,6 +840,11 @@ def _project_ids() -> set[str]:
 
 
 def _historical_agent_child(row: tuple, *, now: datetime) -> bool:
+    return _untouched_since(row, now - AGENT_CHILD_ORPHAN_GRACE)
+
+
+def _untouched_since(row: tuple, cutoff: datetime) -> bool:
+    """Created and last updated before *cutoff* (a ``_list_threads`` row); False when it can't be told."""
     timestamps = [str(row[index] or "") for index in (2, 3) if len(row) > index]
     parsed: list[datetime] = []
     for value in timestamps:
@@ -847,12 +852,49 @@ def _historical_agent_child(row: tuple, *, now: datetime) -> bool:
             continue
         try:
             candidate = datetime.fromisoformat(value)
-            if candidate.tzinfo is not None and now.tzinfo is None:
+            if candidate.tzinfo is not None and cutoff.tzinfo is None:
                 candidate = candidate.replace(tzinfo=None)
             parsed.append(candidate)
         except (TypeError, ValueError):
             return False
-    return bool(parsed) and max(parsed) <= now - AGENT_CHILD_ORPHAN_GRACE
+    return bool(parsed) and max(parsed) <= cutoff
+
+
+def _sweep_proactive_threads(rows: list[tuple], *, now: datetime) -> dict[str, int]:
+    """Proactive Row-Bot's hidden preparation threads (``thread_type`` "proactive").
+
+    Their drafts go first (``proactive.store.prune_drafts``: a week after the moment settled, or after an
+    overnight draft no moment came for); then a thread no draft links to any more, untouched for that long,
+    is deleted. A thread a draft still links to is never deleted, and nothing is when the drafts can't be read.
+    """
+    candidates = [str(row[0]) for row in rows if len(row) > 6 and str(row[6] or "") == "proactive"]
+    stats = {"proactive_candidates": len(candidates), "proactive_deleted": 0, "proactive_failures": 0}
+    if not candidates:
+        return stats
+    from row_bot.proactive import store
+
+    if not store.exists():
+        return stats
+    try:
+        store.prune_drafts(now.timestamp())
+        linked = store.draft_threads()
+    except sqlite3.Error:
+        logger.info("Proactive drafts are unavailable; keeping its preparation threads", exc_info=True)
+        return stats
+    cutoff = now - timedelta(days=store.DRAFTS_KEPT_DAYS)
+    by_id = {str(row[0]): row for row in rows}
+    for thread_id in candidates:
+        if thread_id in linked or not _untouched_since(by_id[thread_id], cutoff) \
+                or _thread_has_active_producer(thread_id):
+            continue
+        try:
+            result = delete_thread(thread_id)
+            stats["proactive_deleted"] += int(bool(result.deleted))
+            stats["proactive_failures"] += int(bool(result.warnings))
+        except Exception:
+            stats["proactive_failures"] += 1
+            logger.warning("Could not remove a Proactive preparation thread %s", thread_id, exc_info=True)
+    return stats
 
 
 def _agent_child_ownership_states(
@@ -1139,6 +1181,7 @@ def sweep_orphaned_thread_artifacts(
             now=maintenance_now,
         )
     )
+    stats.update(_sweep_proactive_threads(thread_rows, now=maintenance_now))
 
     if threads._MEDIA_DIR.exists():  # noqa: SLF001
         for child in list(threads._MEDIA_DIR.iterdir()):  # noqa: SLF001

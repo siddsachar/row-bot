@@ -287,6 +287,12 @@
       "maxItems": 8,
       "title": "Why",
       "type": "array"
+    },
+    "workflow_id": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Workflow Id",
+      "type": "string"
     }
   },
   "required": [

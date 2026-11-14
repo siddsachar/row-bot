@@ -1615,7 +1615,10 @@ class ClientPlatformService:
             if frozen_context is not None
             else runtime_surface
         )
-        if effective_surface not in {"normal_chat", "remote_client"}:
+        # "proactive": the morning brief's and end-of-day wrap's workflow turns, which only read. The server
+        # starts those itself; no route takes a surface from a client.
+        if effective_surface not in {"normal_chat", "remote_client"} and not (
+                effective_surface == "proactive" and followup is not None):
             raise ClientPlatformError("invalid_command")
         config = {"configurable": {"thread_id": conversation_id, "runtime_surface": effective_surface,
                   "runtime_mode": runtime_mode, "generation_id": generation_id,

@@ -5956,6 +5956,9 @@ class ProactiveMomentDetail(WireModel):
     moment: ProactiveMomentView
     # The chat an ``act`` with ``continue_in_chat`` carried on in (open it); "" otherwise.
     conversation_id: str = Field(max_length=256)
+    # The draft workflow an ``act`` with ``make_workflow`` made (open it for review: it is off and
+    # unscheduled); "" otherwise.
+    workflow_id: str = Field(default="", max_length=64)
     summary: str = Field(max_length=2000)
     evidence: list[ProactiveEvidence] = Field(max_length=20)
     why: list[Annotated[str, Field(max_length=300)]] = Field(max_length=8)
@@ -6025,6 +6028,8 @@ class ProactiveSettingsView(WireModel):
     kinds: list[ProactiveKindView] = Field(max_length=6)
     # The chat app urgent kinds may reach when the person is away ("" none).
     channel: str = Field(max_length=64)
+    # The end-of-day wrap comes at day_end (off at Quiet, on at Balanced and Eager until the person chooses).
+    wrap: bool = False
     rules: list[ProactiveRuleView] = Field(max_length=200)
     privacy: str = Field(max_length=600)
 
@@ -6042,6 +6047,8 @@ class ProactiveSettingsChange(WireModel):
     kinds: dict[ProactiveKind, bool] | None = Field(default=None, max_length=6)
     urgent_kinds: list[ProactiveKind] | None = Field(default=None, max_length=6)
     channel: str | None = Field(default=None, max_length=64)
+    # The person's own choice for the end-of-day wrap, whatever the level.
+    wrap: bool | None = None
 
 
 class ProactiveRuleWrite(WireModel):

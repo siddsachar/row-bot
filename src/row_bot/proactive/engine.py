@@ -8,7 +8,8 @@ Each tick:
    main model keeps what is worth a moment (``triage``), and each pass is logged even when it found
    nothing (silence is the usual result). A moment that wants preparing (a meeting brief, a drafted
    reply) gets it in the background, read-only (``prepare``);
-4. on the first break of the day, gathers what waits into the morning brief;
+4. on the first break of the day, runs the morning brief's workflow on what waits (its reply becomes the
+   brief, which carries them), and at the day's end the end-of-day wrap's when it is on (``day``);
 5. sends the pending moments the budget allows (``timing.decide``), one at a time, each re-checked live
    just before (stale ones are dropped) and put on exactly one surface (``deliver``).
 
@@ -30,7 +31,6 @@ from row_bot.proactive.model import KIND_WORDS, UNKNOWN, Candidate, Desktop
 logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 30
-BRIEF_EXPIRES_SECONDS = 6 * 3600
 SILENCED_KEPT = 2000  # Changes triage kept silent: never asked about again.
 _TICK_LOCK = threading.Lock()
 
@@ -73,11 +73,12 @@ def _triage(candidates: list[Candidate], settings: dict[str, Any],
     return kept
 
 
-def _prepare(moment: dict[str, Any], untrusted: str) -> None:
-    """Start the read-only preparation a moment wants (a meeting brief, a drafted reply), in the background."""
+def _prepare(moment: dict[str, Any], untrusted: str, now: float) -> None:
+    """The read-only preparation a moment wants (a meeting brief, a drafted reply): what Dream Cycle prepared
+    for it overnight, or a fresh one in the background."""
     from row_bot.proactive import prepare
 
-    if prepare.wants(moment):
+    if prepare.wants(moment) and not prepare.attach_ahead(moment, now=now):
         prepare.queue(moment["id"], untrusted)
 
 
@@ -112,7 +113,7 @@ def _gather(candidates: list[Candidate], settings: dict[str, Any], at: datetime)
             store.log("moment", f"New: “{title}” ({KIND_WORDS[candidate.kind]}).", now=now, moment_id=moment["id"],
                       detail={"watcher": candidate.watcher})
             kept.append(moment)
-            _prepare(moment, candidate.untrusted)
+            _prepare(moment, candidate.untrusted, now)
     return kept
 
 
@@ -130,31 +131,12 @@ def _passes(candidates: list[Candidate], ran: list[str], skipped: list[str], kep
               detail={"ran": ran, "skipped": skipped, "changes": len(candidates), "moments": len(kept)})
 
 
-def _brief(boundary: str | None, at: datetime, settings: dict[str, Any]) -> None:
-    """The first break of the day gathers what waits into one brief (nothing waits: no brief)."""
-    today = at.date().isoformat()
-    if (boundary not in timing.DAY_OPENERS or store.get_state("brief_day") == today
-            or not settings["kinds"].get("brief")):
-        return
-    store.set_state("brief_day", today)
-    now = at.timestamp()
-    waiting = [moment for moment in store.list_moments(("pending",), since=timing.day_start(at) - 86400)
-               if moment["kind"] != "brief" and moment["urgency"] != "urgent"]
-    if not waiting:
-        store.log("pass", "Morning brief: nothing waiting, so no brief.", now=now)
-        return
-    lines = [f"- {moment['title']}" for moment in reversed(waiting)]
-    body = "\n".join([*lines, "That's everything for today."])
-    candidate = Candidate(
-        kind="brief", key=f"brief:{today}", title=f"Your day: {len(waiting)} thing{'s' if len(waiting) != 1 else ''}",
-        summary=body, evidence=(), watcher="brief", expires_at=now + BRIEF_EXPIRES_SECONDS,
-        actions=({"id": "open_for_you", "label": "Open For you"},))
-    moment = store.add_moment(candidate, title=candidate.title, body=body, now=now)
-    if moment is None:
-        return
-    for item in waiting:  # The brief carries them: each stays in For you, none comes again on its own.
-        store.move(item["id"], "shown", from_states=("pending",), now=now, surface="brief", shown_at=now)
-    store.log("moment", f"Morning brief with {len(waiting)} waiting.", now=now, moment_id=moment["id"])
+def _day(found: list[str], boundary: str | None, at: datetime, settings: dict[str, Any]) -> None:
+    """The morning brief at the day's first break, the end-of-day wrap at its end (``day``)."""
+    from row_bot.proactive import day
+
+    day.morning(boundary, at, settings)
+    day.evening(found, at, settings)
 
 
 def _recheck(moment: dict[str, Any], now: float) -> bool | None:
@@ -186,8 +168,9 @@ def _send(boundary: str | None, at: datetime, desktop: Desktop, settings: dict[s
     now = at.timestamp()
     rules = store.rules()
     pending = store.list_moments(("pending",), limit=200)
-    pending.sort(key=lambda moment: (moment["urgency"] != "urgent", -feedback.weight(moment["kind"]),
-                                     moment["created_at"]))
+    # Urgent first, then the day's brief or wrap (it lists what waits), then by how welcome each kind is.
+    pending.sort(key=lambda moment: (moment["urgency"] != "urgent", moment["kind"] != "brief",
+                                     -feedback.weight(moment["kind"]), moment["created_at"]))
     sent: list[dict[str, Any]] = []
     for moment in pending:
         today = timing.day_start(at)
@@ -248,7 +231,7 @@ def tick(now: float | None = None, *, desktop: Desktop | None = None) -> dict[st
         candidates, ran, skipped = watchers.run_due(now, settings)
         kept = _gather(candidates, settings, at) if candidates else []
         _passes(candidates, ran, skipped, kept, now)
-        _brief(boundary, at, settings)
+        _day(found, boundary, at, settings)
         sent = _send(boundary, at, desktop, settings)
         return {"boundaries": found, "boundary": boundary, "ran": ran, "candidates": len(candidates),
                 "moments": [moment["id"] for moment in kept], "sent": [moment["id"] for moment in sent]}

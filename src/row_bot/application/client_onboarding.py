@@ -25,12 +25,17 @@ _FIELDS = (
 )
 _RECEIPTS = "react_onboarding_receipts"
 _STARTER_WORKFLOW_NAMES = (
-    "Daily Operating Brief",
+    "Morning brief",
     "Document Decision Brief",
     "Launch Content Pack",
     "Research Pipeline With Review",
     "Opportunity Monitor",
 )
+# Proactive Row-Bot runs these itself (the morning brief and end-of-day wrap): a run isn't the person's.
+_PROACTIVE_WORKFLOW_NAMES = ("Morning brief", "End-of-day wrap")
+# Shipped by Row-Bot, not set up by the person: the starters, Proactive's, and the starter the Morning
+# brief replaced (older installs keep it).
+_SHIPPED_WORKFLOW_NAMES = frozenset((*_STARTER_WORKFLOW_NAMES, *_PROACTIVE_WORKFLOW_NAMES, "Daily Operating Brief"))
 
 
 def _path() -> Path:
@@ -146,7 +151,7 @@ def _own_workflow() -> bool:
     except sqlite3.Error:
         return False
     return any(
-        name not in _STARTER_WORKFLOW_NAMES or enabled or last_run
+        name not in _SHIPPED_WORKFLOW_NAMES or enabled or (last_run and name not in _PROACTIVE_WORKFLOW_NAMES)
         for name, enabled, last_run in rows
     )
 
