@@ -1102,6 +1102,82 @@ def _edit_image(
     return result
 
 
+# ── Paid calls go through the approval gate ──────────────────────────────
+# Only the agent's tools ask here: Buddy's hatch and Designer call the functions above directly.
+
+
+def paid_generation_check(tool: str, surface: str, selection: str, what: str, prompt: str) -> tuple[str | None, str]:
+    """(refusal, approval line) for one picture or video the agent makes on *selection* ("provider/model").
+
+    Only a call its provider charges for needs approval (``bills_per_call``), by the level: Ask
+    asks the person, Auto the reviewer, Hands-off allows it, Block refuses it. Pictures a plan
+    includes, free models and models on this computer run as they always have, with no line.
+    *what* says what the call makes, e.g. "make a picture".
+    """
+    from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META, bills_per_call
+    from row_bot.tools.approval_gate import approval_check
+
+    if not bills_per_call(surface, selection):
+        return None, ""
+    provider_id, _, model = selection.partition("/")
+    label = (IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META)[provider_id]["label"]
+    brief = " ".join(str(prompt or "").split())
+    brief = brief if len(brief) <= 300 else brief[:299].rstrip() + "…"
+    return approval_check(
+        {"tool": tool, "label": f"{what[:1].upper()}{what[1:]} on {label}",
+         "question": f"{what[:1].upper()}{what[1:]} on {label}? It costs money on your {label} account.",
+         "description": (f"Row-Bot will {what} with {model} on {label}: \"{brief}\". {label} charges your "
+                         "API key for each one, so this costs money."),
+         "risk_class": "medium",
+         "args": {"prompt": brief, "model": model, "provider": label}},
+        risks=(f"costs money: {label} charges the person's API key for it",),
+        blocked_message=(f"BLOCKED: this would {what} on {label}, which costs money and needs approval, but this "
+                         "chat is on Block. Ask the person to change the approval level, or to choose a model "
+                         "their plan includes in Settings › Models."),
+        cancelled_message=f"The person didn't allow it; nothing was made and nothing was charged on {label}.",
+    )
+
+
+def _led(line: str, result: str) -> str:
+    from row_bot.tools.approval_gate import with_approval
+
+    return with_approval(line, result) if line else result
+
+
+def _selection() -> str:
+    """The chosen image model as "provider/model" (a bare legacy name is OpenAI's)."""
+    selection = _get_configured_selection()
+    return "/".join(_parse_model_config(selection)) if selection else ""
+
+
+def _cannot_edit(selection: str) -> bool:
+    """The chosen model makes new pictures only, so an edit says so without a request."""
+    from row_bot.providers.media import IMAGE_PROVIDER_META
+
+    provider_id, _, model = selection.partition("/")
+    return _is_imagen(model) or (provider_id in IMAGE_PROVIDER_META and _route(provider_id) in _NEW_IMAGES_ONLY)
+
+
+def _generate_image_tool(prompt: str, size: str = "auto", quality: str = "auto") -> str:
+    refusal, line = paid_generation_check("generate_image", "image", _selection(), "make a picture", prompt)
+    return refusal or _led(line, _generate_image(prompt, size=size, quality=quality))
+
+
+def _edit_image_tool(prompt: str, image_source: str = "last", size: str = "auto", quality: str = "auto") -> str:
+    from row_bot.providers.media import bills_per_call
+
+    selection, line = _selection(), ""
+    if bills_per_call("image", selection) and not _cannot_edit(selection):
+        try:
+            _resolve_image_source(image_source)  # Nothing to approve when there is no picture to edit.
+        except ValueError as e:
+            return str(e)
+        refusal, line = paid_generation_check("edit_image", "image", selection, "edit a picture", prompt)
+        if refusal:
+            return refusal
+    return _led(line, _edit_image(prompt, image_source=image_source, size=size, quality=quality))
+
+
 # ── Pydantic input schemas ───────────────────────────────────────────────
 
 class _GenerateImageInput(BaseModel):
@@ -1198,7 +1274,7 @@ class ImageGenTool(BaseTool):
     def as_langchain_tools(self) -> list:
         return [
             StructuredTool.from_function(
-                func=_generate_image,
+                func=_generate_image_tool,
                 name="generate_image",
                 description=(
                     "Generate an image from a text description. Use this "
@@ -1210,7 +1286,7 @@ class ImageGenTool(BaseTool):
                 args_schema=_GenerateImageInput,
             ),
             StructuredTool.from_function(
-                func=_edit_image,
+                func=_edit_image_tool,
                 name="edit_image",
                 description=(
                     "Edit or modify an existing image using a text prompt. "
