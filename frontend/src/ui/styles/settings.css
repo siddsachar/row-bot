@@ -1602,9 +1602,17 @@
   background: var(--surface-hover);
 }
 .settings-provider-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
   color: var(--text-muted);
   font-size: var(--text-13);
+}
+.settings-provider-empty p {
+  flex-basis: 100%;
+  margin: 0;
 }
 @media (max-width: 560px) {
   .settings-provider-tiles {

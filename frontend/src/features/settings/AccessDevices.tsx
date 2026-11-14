@@ -63,6 +63,19 @@ function isPhone(device: AccessDevice) {
  * Signing out ends every session of that device at once; it needs a new code
  * to come back. Signed-out devices are not listed.
  */
+/**
+ * Still signed in: not signed out, and a session left that hasn't run out. A
+ * temporary browser's 12 hours ending signs it out (F7).
+ */
+function signedIn(device: AccessDevice) {
+  if (device.revoked_at) return false;
+  if (device.sessions.length === 0) return true;
+  return device.sessions.some(
+    (session) =>
+      !session.revoked_at && Date.parse(session.expires_at) > Date.now(),
+  );
+}
+
 export default function AccessDevices({
   client = accessClient,
   reloadKey = 0,
@@ -128,7 +141,7 @@ export default function AccessDevices({
     });
   }
 
-  const listed = devices?.filter((device) => !device.revoked_at) ?? [];
+  const listed = devices?.filter(signedIn) ?? [];
   return (
     <section
       className="settings-section-flat access-devices"

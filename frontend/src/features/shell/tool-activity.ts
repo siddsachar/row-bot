@@ -498,6 +498,26 @@ function clip(value: string, limit = 140): string {
 }
 
 /** The one argument worth showing inline, from the bounded public input. */
+/** The settings Row-Bot may change, in words: a step names one, never its ID (F5). */
+const SETTING_NAMES: Record<string, string> = {
+  thread_model: "This chat's model",
+  default_model: 'Default model',
+  vision_model: 'Vision model',
+  name: 'Name',
+  personality: 'Personality',
+  context_size: 'Context size',
+  cloud_context_size: 'Cloud context size',
+  dream_cycle: 'Dream Cycle',
+  dream_window: 'Dream Cycle hours',
+  run_dream_cycle: 'Dream Cycle',
+  skill_toggle: 'Skills',
+  skill_pin: 'Skills',
+  tool_toggle: 'Tools',
+  image_gen_model: 'Image model',
+  video_gen_model: 'Video model',
+  self_improvement: 'Learning',
+};
+
 export function keyArgument(safeInput: string | undefined): string {
   const source = (safeInput ?? '').trim();
   if (!source) return '';
@@ -510,6 +530,8 @@ export function keyArgument(safeInput: string | undefined): string {
   if (typeof parsed === 'string') return clip(compactUrl(parsed));
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
   const record = parsed as Record<string, unknown>;
+  if (typeof record.setting === 'string' && record.setting)
+    return SETTING_NAMES[record.setting] ?? record.setting.replace(/_/g, ' ');
   for (const key of KEY_ARGUMENTS) {
     const value = record[key];
     if (typeof value === 'string' && value.trim())

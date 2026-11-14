@@ -346,6 +346,23 @@ def test_not_now_on_a_tool_toggle_is_final_for_the_turn(monkeypatch):
     assert "chose Not now" in answer and "Don't ask again" in answer
 
 
+@pytest.mark.parametrize(
+    ("tool", "page"), [("image_gen", "Settings › Models"), ("web_search", "Settings › Tools")]
+)
+def test_the_turn_on_card_names_the_page_where_the_tool_is_switched_off(monkeypatch, tool, page):
+    import langgraph.types
+    from row_bot.tools import registry
+    from row_bot.tools import row_bot_status_tool
+    from row_bot.tools.row_bot_status_tool import _update_setting
+
+    requests = []
+    monkeypatch.setattr(row_bot_status_tool, "_resolve_tool_name", lambda name: (tool, "The tool", []))
+    monkeypatch.setattr(registry, "is_enabled", lambda name: False)
+    monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: requests.append(payload) or False)
+    _update_setting("tool_toggle", f"{tool}:on")
+    assert requests[0]["description"].endswith(f"turn it off again in {page}.")
+
+
 def test_a_tool_turned_on_mid_turn_carries_on_by_itself_in_the_next_turn(monkeypatch):
     """The turn's tools were fixed when it began; the person shouldn't have to say "Create it now" (T7)."""
     import langgraph.types

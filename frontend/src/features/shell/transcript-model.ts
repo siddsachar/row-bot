@@ -133,7 +133,8 @@ export function tracedMedia(groups: TranscriptTraceGroup[]): GeneratedMedia[] {
         media.push({
           reference: value.media_ref,
           mime: value.mime_type,
-          caption: prompt(item.safe_input),
+          // The prompt the server kept names the picture and its download (T9).
+          caption: value.prompt || prompt(item.safe_input),
           // A picture of Row-Bot's browser (F4), or the contact sheet Row-Bot
           // looked at (F5): not something generated.
           ...(item.canonical_name === 'Browser Screenshot'
@@ -745,7 +746,12 @@ export function liveMedia(
     const reference = record.event.payload.media_ref;
     if (settled.has(reference) || seen.has(reference)) continue;
     seen.add(reference);
-    media.push({ reference, mime: record.event.payload.mime_type });
+    const caption = record.event.payload.prompt;
+    media.push({
+      reference,
+      mime: record.event.payload.mime_type,
+      ...(caption ? { caption } : {}),
+    });
   }
   return media;
 }

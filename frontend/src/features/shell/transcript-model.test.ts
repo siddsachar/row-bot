@@ -9,8 +9,10 @@ import {
   keepUnchanged,
   liveMedia,
   liveTurn,
+  tracedMedia,
   type TranscriptItem,
 } from './transcript-model';
+import { defaultDownloadName } from './MediaPreview';
 import { cardKey } from './TranscriptCards';
 
 /*
@@ -194,6 +196,45 @@ describe('a turn of several steps', () => {
         ),
       ).map((media) => media.reference),
     ).toEqual(['loose']);
+  });
+
+  it('names a picture from the prompt it was made from, live and after a reload (T9)', () => {
+    const run = threeSteps();
+    run.activity.push(
+      record('media.available', {
+        media_ref: 'named',
+        mime_type: 'image/png',
+        prompt: 'A lighthouse at dawn',
+      }),
+    );
+    const live = liveMedia(run.activity, new Set()).find(
+      (media) => media.reference === 'named',
+    );
+    expect(live?.caption).toBe('A lighthouse at dawn');
+    expect(defaultDownloadName('image/png', live?.caption)).toBe(
+      'a-lighthouse-at-dawn.png',
+    );
+    // The image tool's arguments aren't kept, so the prompt comes with the picture.
+    const settled = tracedMedia([
+      {
+        items: [
+          {
+            canonical_name: 'generate_image',
+            safe_input: '{}',
+            specialization: {
+              media: [
+                {
+                  media_ref: 'named',
+                  mime_type: 'image/png',
+                  prompt: 'A lighthouse at dawn',
+                },
+              ],
+            },
+          },
+        ],
+      } as unknown as TranscriptTraceGroup,
+    ]);
+    expect(settled[0].caption).toBe('A lighthouse at dawn');
   });
 
   it('reads the same after a reload as it did live', () => {

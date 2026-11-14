@@ -2122,12 +2122,14 @@ def _update_setting(setting: str, value: str) -> str:
             "args": {"setting": "tool_toggle", "value": canonical_value},
         }
         if on:
-            # Shown as a "Turn on …" card in the conversation (decision 12).
+            # Shown as a "Turn on …" card in the conversation (decision 12). Pictures and
+            # videos are switched on and off beside their models (F5).
+            page = "Models" if resolved_name in {"image_gen", "video_gen"} else "Tools"
             request.update({
                 "label": f"Turn on {resolved_label}",
                 "description": (
                     f"Row-Bot needs {resolved_label} for this. You can turn it off again in "
-                    "Settings › Tools."
+                    f"Settings › {page}."
                 ),
                 "setup": {"kind": "tool", "label": resolved_label},
             })

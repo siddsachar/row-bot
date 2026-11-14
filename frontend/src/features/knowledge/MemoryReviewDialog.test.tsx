@@ -251,6 +251,8 @@ describe('MemoryReviewDialog', () => {
     expect(
       await screen.findByRole('heading', { name: 'Review undone' }),
     ).toBeVisible();
+    // Said once: no second "undone" notice above the done step.
+    expect(screen.getAllByText(/undone/i)).toHaveLength(1);
     expect(io.undo).toHaveBeenCalledWith(RUN, expect.any(String));
   });
 

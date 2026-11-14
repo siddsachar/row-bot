@@ -230,6 +230,9 @@ describe('tool activity', () => {
       'src/app.ts',
     );
     expect(keyArgument('{"limit": 3, "offset": 1}')).toBe('');
+    // A setting is named in words, not by its ID (F5).
+    expect(keyArgument('{"setting": "tool_toggle"}')).toBe('Tools');
+    expect(keyArgument('{"setting": "image_gen_model"}')).toBe('Image model');
     expect(keyArgument('plain bounded input')).toBe('plain bounded input');
     expect(keyArgument(`"${'x'.repeat(300)}"`)).toHaveLength(140);
     expect(keyArgument(undefined)).toBe('');
