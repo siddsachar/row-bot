@@ -633,14 +633,26 @@ def _mobile_access(root: Path) -> dict[str, Any]:
                     "active_devices": 0,
                     "active_sessions": 0,
                 }
+            # Counted as Settings › Devices lists them: still signed in (a session not
+            # signed out or run out), and never this computer's own windows (F7).
+            from datetime import datetime, timezone
+
+            from row_bot.access.service import THIS_COMPUTER_ROUTE
+
+            live = (
+                "FROM access_sessions s JOIN access_devices d ON d.id = s.device_id "
+                "WHERE s.revoked_at IS NULL AND d.revoked_at IS NULL "
+                "AND COALESCE(d.access_route, '') != ? AND s.expires_at > ?"
+            )
+            now = datetime.now(timezone.utc).isoformat()
             devices = int(
                 connection.execute(
-                    "SELECT COUNT(*) FROM access_devices WHERE revoked_at IS NULL"
+                    f"SELECT COUNT(DISTINCT d.id) {live}", (THIS_COMPUTER_ROUTE, now)
                 ).fetchone()[0]
             )
             sessions = int(
                 connection.execute(
-                    "SELECT COUNT(*) FROM access_sessions WHERE revoked_at IS NULL"
+                    f"SELECT COUNT(*) {live}", (THIS_COMPUTER_ROUTE, now)
                 ).fetchone()[0]
             )
         finally:
