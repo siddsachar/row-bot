@@ -92,6 +92,7 @@ import {
 import { clientError } from '../../api/errors';
 import Navigation, { NavigationRail } from './Navigation';
 import PhoneTabBar, { phoneTabFor } from './PhoneTabBar';
+import { MomentStrip } from '../proactive/MomentStrip';
 import { installEdgeSwipe } from './edge-swipe';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
@@ -2238,6 +2239,8 @@ export default function Workspace() {
             {sideVisible && dock(sidePanels, 'side')}
           </Panel>
         </Group>
+        {/* Proactive below 1024px: a moment Buddy delivers, above the tab bar. */}
+        <MomentStrip hidden={Boolean(conversationId)} />
         {phoneTab && <PhoneTabBar current={phoneTab} />}
         {conversationId &&
           railPanels.length > 0 &&

@@ -1,0 +1,722 @@
+/* Proactive Row-Bot: Buddy's glance and bubble, the moment strip, Home ›
+   For you, "Why this?", Drafts and Settings › Proactive. Tokens only. */
+
+/* ---------------------------------------------------------------- glance */
+
+/* A rigged Buddy says it with its body alone. A still, a sprite pack or
+   reduced motion shows one quiet accent dot instead (no pulse, no count). */
+.buddy-avatar-frame[data-proactive='glance']:not([data-media='living'])::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  right: 8%;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent-solid);
+}
+@media (prefers-reduced-motion: reduce) {
+  .buddy-avatar-frame[data-proactive='glance']::after {
+    content: '';
+    position: absolute;
+    top: 6%;
+    right: 8%;
+    width: 9px;
+    height: 9px;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--accent-solid);
+  }
+}
+@media (forced-colors: active) {
+  .buddy-avatar-frame[data-proactive='glance']::after {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+}
+
+/* ---------------------------------------------------------------- bubble */
+
+.proactive-bubble-anchor {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 0;
+}
+.proactive-bubble-popover {
+  width: min(320px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-overlay);
+  animation: proactive-rise var(--motion-panel) var(--ease-out);
+}
+.proactive-bubble-arrow {
+  fill: var(--surface-overlay);
+}
+@keyframes proactive-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.proactive-bubble {
+  display: grid;
+  gap: 10px;
+  transition: opacity 400ms var(--ease-out);
+}
+.proactive-bubble[data-fading='true'],
+.proactive-strip[data-fading='true'] {
+  opacity: 0;
+}
+.proactive-bubble-line {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  line-height: 21px;
+  font-weight: var(--weight-medium);
+}
+.proactive-bubble-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  padding-top: 3px;
+}
+.proactive-bubble-actions,
+.proactive-strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.proactive-bubble-actions .button.small,
+.proactive-strip-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.proactive-bubble-less {
+  display: grid;
+  gap: 10px;
+}
+.proactive-bubble-less .proactive-bubble-line {
+  grid-template-columns: 1fr;
+}
+.proactive-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.proactive-chip {
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+.proactive-chip:hover,
+.proactive-chip:focus-visible {
+  background: var(--surface-hover);
+}
+@media (pointer: coarse) {
+  .proactive-chip {
+    min-height: 44px;
+  }
+}
+
+/* --------------------------------------------------------- moment strip */
+
+.proactive-strip {
+  position: fixed;
+  z-index: 40;
+  left: 50%;
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 10px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-overlay);
+  transform: translateX(-50%);
+  transition: opacity 400ms var(--ease-out);
+  animation: proactive-rise var(--motion-panel) var(--ease-out);
+}
+@media (min-width: 768px) {
+  .proactive-strip {
+    bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+}
+.proactive-strip-actions .button {
+  min-height: 44px;
+}
+
+/* --------------------------------------------------------------- For you */
+
+.proactive-group + .proactive-group,
+.proactive-brief + .proactive-group,
+.proactive-intro + .proactive-group,
+.proactive-intro + .proactive-brief {
+  margin-top: 10px;
+}
+.proactive-group-title {
+  margin: 0 0 2px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.proactive-moment .overview-row-time {
+  font-variant-numeric: tabular-nums;
+}
+@media (hover: hover) and (pointer: fine) {
+  .proactive-row-actions {
+    opacity: 0;
+    transition: opacity var(--motion-popover) var(--ease-out);
+  }
+  .proactive-moment:hover .proactive-row-actions,
+  .proactive-moment:focus-within .proactive-row-actions,
+  .proactive-group:first-of-type
+    .proactive-moment:first-child
+    .proactive-row-actions,
+  .proactive-row-actions:has([data-state='open']) {
+    opacity: 1;
+  }
+}
+.proactive-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.proactive-closing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.proactive-footer {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.proactive-brief {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
+}
+.proactive-brief-head {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.proactive-brief-head h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+.proactive-brief-lines {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 40px;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.proactive-brief-end {
+  margin: 0;
+  padding-left: 40px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.proactive-intro {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+.proactive-intro p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.proactive-intro-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.proactive-intro-head h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.proactive-intro .proactive-level-line {
+  color: var(--text-primary);
+}
+.proactive-intro-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.proactive-privacy {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+.proactive-privacy svg {
+  flex: none;
+  margin-top: 2px;
+}
+.proactive-privacy-row {
+  margin: 0;
+  padding: 10px 16px;
+}
+
+/* ------------------------------------------------------------ Why this? */
+
+@media (min-width: 768px) {
+  .dialog.sheet.proactive-side-sheet {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    transform: none;
+    width: min(440px, 100vw);
+    height: 100dvh;
+    max-height: 100%;
+    border-radius: var(--radius-dialog) 0 0 var(--radius-dialog);
+    animation: drawer-in-right var(--motion-panel) var(--ease-out);
+  }
+}
+.proactive-why {
+  display: grid;
+  gap: 18px;
+}
+.proactive-why section {
+  display: grid;
+  gap: 8px;
+}
+.proactive-why-summary {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  line-height: 21px;
+}
+.proactive-why-head {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.proactive-evidence {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.proactive-evidence li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+.proactive-evidence-icon {
+  color: var(--text-secondary);
+  padding-top: 2px;
+}
+.proactive-evidence-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.proactive-evidence-source {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.proactive-evidence-label {
+  padding: 6px 10px;
+  border-left: 2px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  overflow-wrap: anywhere;
+}
+.proactive-why-lines,
+.proactive-history {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.proactive-history li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.proactive-history-time {
+  flex: none;
+  color: var(--text-muted);
+}
+.proactive-prepared {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+}
+.proactive-prepared > span {
+  flex: 1;
+}
+.proactive-trust,
+.proactive-recheck {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.proactive-sheet-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+}
+.proactive-less fieldset {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.proactive-less legend {
+  margin-bottom: 6px;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+.proactive-less-option {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 160px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: var(--text-13);
+}
+.proactive-less-label {
+  color: var(--text-primary);
+}
+.proactive-less-help {
+  color: var(--text-muted);
+}
+@media (max-width: 767px) {
+  .proactive-less-option {
+    grid-template-columns: 20px minmax(0, 1fr);
+    min-height: 44px;
+  }
+  .proactive-less-help {
+    grid-column: 2;
+  }
+}
+.proactive-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-link);
+  font: inherit;
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+.proactive-text-link:hover {
+  text-decoration: underline;
+}
+.proactive-error {
+  margin: 0;
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+}
+.proactive-quiet-line {
+  margin: 0;
+  padding: 10px 16px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+
+/* ---------------------------------------------------------------- Drafts */
+
+.proactive-drafts {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.proactive-draft-row {
+  width: 100%;
+  margin: 0;
+  padding: 8px 6px;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+.proactive-draft {
+  display: grid;
+  gap: 12px;
+}
+.proactive-draft-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.proactive-draft-heading h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.proactive-draft-heading p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.proactive-draft-body {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  font: inherit;
+  line-height: 21px;
+}
+.proactive-draft-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.proactive-draft-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.proactive-draft-text {
+  margin: 0;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+.proactive-draft .proactive-brief-lines {
+  padding-left: 0;
+}
+
+/* -------------------------------------------------- Settings › Proactive */
+
+.proactive-settings {
+  display: grid;
+  gap: 24px;
+}
+.proactive-settings-rest {
+  display: grid;
+  gap: 24px;
+}
+.proactive-settings-rest[data-off='true'] .settings-group-surface {
+  opacity: 0.7;
+}
+.proactive-example {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-hairline);
+}
+.proactive-example-head {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+.proactive-example ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.proactive-example li {
+  display: grid;
+  grid-template-columns: 20px 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.proactive-example-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.proactive-example-where {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+@media (max-width: 767px) {
+  .proactive-example li {
+    grid-template-columns: 20px 44px minmax(0, 1fr);
+  }
+  .proactive-example-where {
+    grid-column: 3;
+  }
+}
+.proactive-hours {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+.proactive-hours select {
+  width: auto;
+  min-width: 96px;
+}
+.proactive-urgent-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.proactive-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+}
+.proactive-rules,
+.proactive-activity {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.proactive-rules li,
+.proactive-activity li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 16px;
+  font-size: var(--text-13);
+}
+.proactive-rules li + li,
+.proactive-activity li + li {
+  border-top: 1px solid var(--border-hairline);
+}
+.proactive-rule-icon {
+  color: var(--text-secondary);
+}
+.proactive-rule-words {
+  color: var(--text-primary);
+}
+.proactive-rule-editor {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 2 / -1;
+  align-items: center;
+  gap: 8px;
+}
+.proactive-rule-editor .input,
+.proactive-rule-editor select {
+  width: auto;
+  min-width: 140px;
+}
+.proactive-activity li {
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+}
+.proactive-activity li[data-kind='pass'] .proactive-activity-text {
+  color: var(--text-muted);
+}
+.proactive-activity-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.proactive-activity-text {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.proactive-activity-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.proactive-activity-day h4 {
+  margin: 0;
+  padding: 10px 16px 2px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+.proactive-footnote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+/* The desktop pet's moment bubble: smaller than its chat bubble. */
+.buddy-bubble[data-variant='moment'] {
+  width: 300px;
+  height: auto;
+  padding: 12px;
+}
+@media (forced-colors: active) {
+  .proactive-bubble-popover,
+  .proactive-strip {
+    border-color: CanvasText;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .proactive-bubble-popover,
+  .proactive-strip {
+    animation: none;
+  }
+  .proactive-bubble,
+  .proactive-strip {
+    transition: none;
+  }
+}

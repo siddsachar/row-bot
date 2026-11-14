@@ -903,6 +903,31 @@ export const getWaits = (base: string, proof: SessionProof, signal?: AbortSignal
   jsonRequest(base, '/waits', 'WaitPage', proof, 'GET', undefined, undefined, signal);
 export const stopWait = (base: string, proof: SessionProof, wait: string, signal?: AbortSignal): Promise<WaitPage> =>
   jsonRequest(base, `/waits/${id(wait)}/stop`, 'WaitPage', proof, 'POST', undefined, undefined, signal);
+/** Proactive Row-Bot: For you, "Why this?", feedback, the Activity log, settings, rules and drafts. */
+export const getProactiveMoments = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveMomentPage> =>
+  jsonRequest(base, '/proactive/moments', 'ProactiveMomentPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveMoment = (base: string, proof: SessionProof, moment: string, signal?: AbortSignal): Promise<ProactiveMomentDetail> =>
+  jsonRequest(base, `/proactive/moments/${id(moment)}`, 'ProactiveMomentDetail', proof, 'GET', undefined, undefined, signal);
+export const sendProactiveFeedback = (base: string, proof: SessionProof, moment: string, body: ProactiveFeedback, signal?: AbortSignal): Promise<ProactiveMomentDetail> =>
+  jsonRequest(base, `/proactive/moments/${id(moment)}/feedback`, 'ProactiveMomentDetail', proof, 'POST', validateWire('ProactiveFeedback', body), undefined, signal);
+export const getProactiveActivity = (base: string, proof: SessionProof, before?: number, limit?: number, signal?: AbortSignal): Promise<ProactiveActivityPage> =>
+  jsonRequest(base, '/proactive/activity' + query({before, limit}), 'ProactiveActivityPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/settings', 'ProactiveSettingsView', proof, 'GET', undefined, undefined, signal);
+export const changeProactiveSettings = (base: string, proof: SessionProof, body: ProactiveSettingsChange, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/settings', 'ProactiveSettingsView', proof, 'PUT', validateWire('ProactiveSettingsChange', body), undefined, signal);
+export const addProactiveRule = (base: string, proof: SessionProof, body: ProactiveRuleWrite, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/rules', 'ProactiveSettingsView', proof, 'POST', validateWire('ProactiveRuleWrite', body), undefined, signal);
+export const changeProactiveRule = (base: string, proof: SessionProof, rule: string, body: ProactiveRuleWrite, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, `/proactive/rules/${id(rule)}`, 'ProactiveSettingsView', proof, 'PUT', validateWire('ProactiveRuleWrite', body), undefined, signal);
+export const deleteProactiveRule = (base: string, proof: SessionProof, rule: string, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, `/proactive/rules/${id(rule)}`, 'ProactiveSettingsView', proof, 'DELETE', undefined, undefined, signal);
+export const getProactiveDrafts = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveDraftPage> =>
+  jsonRequest(base, '/proactive/drafts', 'ProactiveDraftPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveDraft = (base: string, proof: SessionProof, draft: string, signal?: AbortSignal): Promise<ProactiveDraftView> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}`, 'ProactiveDraftView', proof, 'GET', undefined, undefined, signal);
+export const noteProactiveBoundary = (base: string, proof: SessionProof, body: ProactiveBoundary, signal?: AbortSignal): Promise<ProactiveBoundaryNoted> =>
+  jsonRequest(base, '/proactive/boundaries', 'ProactiveBoundaryNoted', proof, 'POST', validateWire('ProactiveBoundary', body), undefined, signal);
 /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */
 export const getRowBotSandboxes = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<RowBotSandboxPage> =>
   jsonRequest(base, '/row-bot-sandboxes', 'RowBotSandboxPage', proof, 'GET', undefined, undefined, signal);

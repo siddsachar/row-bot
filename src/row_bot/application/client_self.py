@@ -20,7 +20,8 @@ SETTING_TOOL = "row_bot_update_setting"
 DOCS_SITE = "https://row-bot.ai"
 # Settings pages by id, in the page names Settings shows (frontend/src/features/settings/model.ts).
 SETTINGS_PAGES = {
-    "preferences": "Preferences", "appearance": "Appearance", "buddy": "Buddy", "models": "Models",
+    "preferences": "Preferences", "appearance": "Appearance", "buddy": "Buddy", "proactive": "Proactive",
+    "models": "Models",
     "voice": "Voice", "knowledge": "Memory", "documents": "Documents", "tracker": "Tracker", "tools": "Tools",
     "skills": "Skills", "apps": "Apps", "system": "System", "access": "Devices & remote access",
     "updates": "Updates", "data": "Data",

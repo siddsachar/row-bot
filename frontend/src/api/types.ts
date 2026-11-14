@@ -1079,6 +1079,41 @@ export interface ClientTransport {
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;
   stopWait?(waitId: string): Promise<Wire.WaitPage>;
+  /** Proactive Row-Bot: moments, "Why this?", feedback, Activity, settings, rules, drafts. */
+  proactiveMoments?(signal?: AbortSignal): Promise<Wire.ProactiveMomentPage>;
+  proactiveMoment?(
+    momentId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveMomentDetail>;
+  proactiveFeedback?(
+    momentId: string,
+    feedback: Wire.ProactiveFeedback,
+  ): Promise<Wire.ProactiveMomentDetail>;
+  proactiveActivity?(
+    before?: number,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveActivityPage>;
+  proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
+  changeProactiveSettings?(
+    change: Wire.ProactiveSettingsChange,
+  ): Promise<Wire.ProactiveSettingsView>;
+  addProactiveRule?(
+    rule: Wire.ProactiveRuleWrite,
+  ): Promise<Wire.ProactiveSettingsView>;
+  changeProactiveRule?(
+    ruleId: string,
+    rule: Wire.ProactiveRuleWrite,
+  ): Promise<Wire.ProactiveSettingsView>;
+  deleteProactiveRule?(ruleId: string): Promise<Wire.ProactiveSettingsView>;
+  proactiveDrafts?(signal?: AbortSignal): Promise<Wire.ProactiveDraftPage>;
+  proactiveDraft?(
+    draftId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveDraftView>;
+  noteProactiveBoundary?(
+    boundary: Wire.ProactiveBoundary,
+  ): Promise<Wire.ProactiveBoundaryNoted>;
   /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */
   rowBotSandboxes?(signal?: AbortSignal): Promise<Wire.RowBotSandboxPage>;
   createRowBotSandbox?(

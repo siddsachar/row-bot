@@ -168,6 +168,16 @@ const MODES: Record<string, Mode> = {
     loop: { gesture: 'stepNod', every: [1.4, 2.4] },
     fps: 30,
   },
+  // Proactive: something for you. A calm, held offer (one perk, then only
+  // breathing, blinks and a slight head tilt), never a repeated demand.
+  glance: {
+    gaze: 'viewer',
+    enter: 'perk',
+    expression: { happy: 0.18, surprised: 0.12 },
+    headTilt: 0.07,
+    limbs: 0.12,
+    fidgets: true,
+  },
   listen: {
     gaze: 'viewer',
     enter: 'perk',

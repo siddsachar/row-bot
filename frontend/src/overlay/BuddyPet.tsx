@@ -57,6 +57,8 @@ export function BuddyPet({
   onOpenMain,
   onDock,
   onHide,
+  glance = false,
+  moment,
   children,
 }: {
   platform: ClientPlatform;
@@ -68,11 +70,20 @@ export function BuddyPet({
   onOpenMain(): void;
   onDock(): void;
   onHide(): void;
+  /** Proactive: something waits for the person (Buddy's glance). */
+  glance?: boolean;
+  /**
+   * Proactive: a moment Buddy delivers, in its own smaller bubble. It never
+   * takes over the chat bubble: while that is open, Buddy only glances.
+   */
+  moment?: ReactNode;
   /** The bubble's content: the Buddy card. */
   children: ReactNode;
 }) {
   const handle = useRef<LivingBuddyHandle | null>(null);
   const bubble = useRef<HTMLElement>(null);
+  const momentBubble = useRef<HTMLElement>(null);
+  const showMoment = !open && Boolean(moment);
   const menu = useRef<HTMLElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [geometry, setGeometry] = useState<Geometry>({
@@ -81,7 +92,7 @@ export function BuddyPet({
     petY: 0,
   });
   const [cursor, setCursor] = useState<BuddyPetState['cursor']>(null);
-  const expanded = open || menuOpen;
+  const expanded = open || menuOpen || showMoment;
 
   // The window grows for the bubble or menu (toward the side with room) and shrinks back.
   useEffect(() => {
@@ -128,7 +139,11 @@ export function BuddyPet({
         number,
       ],
       cells: handle.current?.mask() ?? FULL_MASK,
-      bubble: open ? rect(bubble.current) : null,
+      bubble: open
+        ? rect(bubble.current)
+        : showMoment
+          ? rect(momentBubble.current)
+          : null,
       menu: menuOpen ? rect(menu.current) : null,
     };
     const key = JSON.stringify(payload);
@@ -262,9 +277,28 @@ export function BuddyPet({
             framing="pet"
             cursor={cursor}
             handle={handle}
+            glance={glance}
           />
         )}
       </div>
+      {showMoment && (
+        <section
+          ref={momentBubble}
+          className="buddy-bubble"
+          data-variant="moment"
+          aria-label="Something for you"
+          data-side={geometry.side}
+          style={{
+            left:
+              geometry.side === 'right'
+                ? bubbleLeft
+                : Math.max(0, geometry.petX - 308),
+            top: Math.max(0, geometry.petY + 24),
+          }}
+        >
+          {moment}
+        </section>
+      )}
       {open && (
         <section
           ref={bubble}
