@@ -20,7 +20,7 @@ talk it into approving:
 - the action: its name, the readable summary the approval card shows, the app,
   and the risk flags the code already worked out.
 
-It fails safe: an error, a timeout (10 s), a refusal, an answer it can't read,
+It fails safe: an error, a timeout (30 s), a refusal, an answer it can't read,
 no request to compare with or no model means the person is asked.
 """
 
