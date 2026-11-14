@@ -1,0 +1,196 @@
+"""Pictures and videos a provider charges for go through the approval gate (fake HTTP, fake reviewer only).
+
+Only a call billed per call asks: a provider on an API key, or a paid OpenRouter model. A plan's own
+pictures (ChatGPT, Grok) and free models run as they always have.
+"""
+from __future__ import annotations
+
+import base64
+import json
+from types import SimpleNamespace
+
+import pytest
+
+pytestmark = pytest.mark.subsystem
+
+PNG = base64.b64encode(b"\x89PNG\r\n\x1a\nsynthetic").decode("ascii")
+
+
+class _Response:
+    def __init__(self, payload=None, *, content=b""):
+        self._payload = payload if payload is not None else {}
+        self.status_code = 200
+        self.content = content
+        self.text = str(payload)
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        pass
+
+
+@pytest.fixture
+def media(monkeypatch):
+    """The agent's image and video tools on a chosen model, a fake key, fake HTTP and a fake approval card."""
+    import httpx
+
+    import row_bot.api_keys as api_keys
+    from row_bot.tools import approval_gate, image_gen_tool, video_gen_tool
+
+    state = SimpleNamespace(image="", video="", mode="approve", answer=True, asked=[], calls=[], videos=[],
+                            image_tool=image_gen_tool)
+
+    def answer(method, url, **kwargs):
+        state.calls.append((method, url))
+        if method == "POST" and url.endswith("/images"):
+            return _Response({"data": [{"b64_json": PNG}]})
+        if method == "POST" and url.endswith("/videos"):
+            return _Response({"id": "vid-1"})
+        if method == "GET" and url.endswith("/videos/vid-1"):
+            return _Response({"status": "completed"})
+        if method == "GET" and url.endswith("/content?index=0"):
+            return _Response(content=b"mp4-bytes")
+        raise AssertionError(f"unexpected {method} {url}")
+
+    monkeypatch.setattr(httpx, "get", lambda url, **kwargs: answer("GET", url, **kwargs))
+    monkeypatch.setattr(httpx, "request", lambda method, url, **kwargs: answer(method, url, **kwargs))
+    monkeypatch.setattr(api_keys, "get_key", lambda env: f"synthetic-{env.lower()}")
+    monkeypatch.setattr(image_gen_tool.registry, "get_tool_config",
+                        lambda tool, *args: state.image if tool == "image_gen" else state.video)
+    monkeypatch.setattr(image_gen_tool, "_image_cache", {})
+    monkeypatch.setattr(image_gen_tool, "_last_generated_image", None)
+    monkeypatch.setattr(image_gen_tool, "_save_image_to_disk", lambda *args, **kwargs: None)
+    monkeypatch.setattr(video_gen_tool, "_save_video_to_disk", lambda data, *args: state.videos.append(data) or None)
+    monkeypatch.setattr(video_gen_tool.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: state.mode)
+    monkeypatch.setattr(approval_gate, "_interrupt", lambda payload: state.asked.append(payload) or state.answer)
+    tools = {tool.name: tool for owner in (image_gen_tool.ImageGenTool(), video_gen_tool.VideoGenTool())
+             for tool in owner.as_langchain_tools()}
+    state.call = lambda name, **args: tools[name].invoke(args)
+    return state
+
+
+def test_an_api_key_picture_under_ask_asks_and_a_denial_makes_nothing(media):
+    media.image = "openrouter/bytedance-seed/seedream-4.5"
+    media.answer = False
+
+    result = media.call("generate_image", prompt="a lighthouse at dawn")
+
+    [card] = media.asked
+    assert card["tool"] == "generate_image"
+    assert card["question"] == "Make a picture on OpenRouter? It costs money on your OpenRouter account."
+    assert "bytedance-seed/seedream-4.5" in card["description"] and "a lighthouse at dawn" in card["description"]
+    assert result.startswith("Approval: asked; denied by you")
+    assert "nothing was made and nothing was charged" in result
+    assert media.calls == []
+    assert media.image_tool.get_and_clear_last_image() is None
+
+
+def test_an_approved_picture_under_ask_is_made(media):
+    media.image = "openrouter/bytedance-seed/seedream-4.5"
+
+    result = media.call("generate_image", prompt="a lighthouse at dawn")
+
+    assert len(media.asked) == 1
+    assert result.splitlines()[0] == "Approval: asked; approved by you"
+    assert result.splitlines()[1].startswith("Image generated successfully.")
+    assert media.image_tool.get_and_clear_last_image() == PNG
+
+
+def test_auto_approves_a_picture_the_person_asked_for_and_it_is_made(media, monkeypatch):
+    """The reviewer sees only the person's own words and the card: a picture they asked for is approved."""
+    from row_bot import approval_review
+
+    media.image = "openrouter/bytedance-seed/seedream-4.5"
+    media.mode = "auto"
+    seen = []
+
+    def reviewer(messages, _runtime):
+        case = json.loads(messages[1]["content"])
+        seen.append(case)
+        asked_for_one = any("draw" in text.casefold() for text in case["person_asked"])
+        costs = "costs money" in case["action"]["details"] and case["action"]["risk_flags"]
+        if asked_for_one and costs and case["action"]["tool"] == "generate_image":
+            return '{"decision": "approve", "reason": "You asked for this picture."}'
+        return '{"decision": "ask", "reason": "Not what you asked for."}'
+
+    monkeypatch.setattr(approval_review, "current_request",
+                        lambda _runtime=None: approval_review.ReviewRequest(messages=("Draw me a lighthouse at dawn",)))
+    monkeypatch.setattr(approval_review, "_model_ref", lambda _runtime: "model:openai:gpt-test")
+    monkeypatch.setattr(approval_review, "_call_reviewer", reviewer)
+
+    result = media.call("generate_image", prompt="a lighthouse at dawn, watercolour")
+
+    assert media.asked == []
+    assert len(seen) == 1 and "draw me a lighthouse at dawn" in seen[0]["person_asked"][0].casefold()
+    assert result.splitlines()[0] == "Approval: approved by the reviewer: You asked for this picture"
+    assert media.image_tool.get_and_clear_last_image() == PNG
+
+
+@pytest.mark.parametrize("selection", ["codex/gpt-image-2", "openrouter/some-lab/image-model:free"])
+def test_a_picture_a_plan_includes_or_a_free_model_never_asks(media, monkeypatch, selection):
+    media.image = selection
+    media.answer = False
+    made = []
+    monkeypatch.setitem(media.image_tool._DIRECT_IMAGE, "codex",
+                        lambda *args: made.append(args) or PNG)
+
+    result = media.call("generate_image", prompt="a lighthouse")
+
+    assert media.asked == []
+    assert result.startswith("Image generated successfully.")
+    assert (made if selection.startswith("codex/") else media.calls)
+
+
+def test_hands_off_makes_a_paid_picture_without_asking(media):
+    media.image = "openrouter/bytedance-seed/seedream-4.5"
+    media.mode = "full"
+
+    result = media.call("generate_image", prompt="a lighthouse")
+
+    assert media.asked == []
+    assert result.splitlines()[0] == "Approval: allowed by Hands-off"
+    assert media.image_tool.get_and_clear_last_image() == PNG
+
+
+def test_block_refuses_a_paid_picture(media):
+    media.image = "openrouter/bytedance-seed/seedream-4.5"
+    media.mode = "block"
+
+    result = media.call("generate_image", prompt="a lighthouse")
+
+    assert result.startswith("BLOCKED: this would make a picture on OpenRouter, which costs money")
+    assert media.asked == [] and media.calls == []
+
+
+def test_a_paid_edit_with_no_picture_to_edit_says_so_without_asking(media):
+    media.image = "openrouter/bytedance-seed/seedream-4.5"
+
+    result = media.call("edit_image", prompt="make it night", image_source="missing-photo.png")
+
+    assert result.startswith("Could not find image 'missing-photo.png'")
+    assert media.asked == [] and media.calls == []
+
+
+def test_a_paid_video_under_ask_asks_and_a_denial_makes_nothing(media):
+    media.video = "openrouter/google/veo-3.1"
+    media.answer = False
+
+    result = media.call("generate_video", prompt="waves at dusk", duration_seconds=8, resolution="720p")
+
+    [card] = media.asked
+    assert card["tool"] == "generate_video"
+    assert card["question"] == "Make a video (8 seconds, 720p) on OpenRouter? It costs money on your OpenRouter account."
+    assert result.startswith("Approval: asked; denied by you")
+    assert media.calls == [] and media.videos == []
+
+
+def test_an_approved_video_under_ask_is_made(media):
+    media.video = "openrouter/google/veo-3.1"
+
+    result = media.call("generate_video", prompt="waves at dusk")
+
+    assert len(media.asked) == 1
+    assert result.splitlines()[0] == "Approval: asked; approved by you"
+    assert media.videos == [b"mp4-bytes"]
