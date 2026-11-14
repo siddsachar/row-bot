@@ -41,7 +41,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "NativeTerminalOpenRequest", "NativeTerminalExternalRequest", "NativeTerminalView", "NativeTerminalInput",
     "NativeTerminalResize",
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
-    "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
+    "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "SettingChangeUndoRequest", "SettingChangeUndoResult", "GuidePageView", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState", "ClaudeSignInOpenRequest", "ClaudeSignInView", "ClaudeSignInOutput", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "TrackerEntryPage", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
@@ -547,6 +547,8 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/workspace", None, "ConversationWorkspace"),
     ("post", "/conversations/{conversation_id}/composer/query", "ConversationComposerQuery", "ConversationComposer"),
     ("post", "/conversations/{conversation_id}/composer/command", "SlashCommandRead", "SlashCommandResult"),
+    ("post", "/conversations/{conversation_id}/setting-changes/undo", "SettingChangeUndoRequest", "SettingChangeUndoResult"),
+    ("get", "/guides/page", None, "GuidePageView"),
     ("get", "/conversations/{conversation_id}/open", None, "ConversationOpenView"),
     ("get", "/conversations/{conversation_id}/delegated", None, "DelegatedActivityView"),
     ("get", "/conversations/{conversation_id}/delegated/{run_id}", None, "DelegatedRun"),
@@ -769,6 +771,10 @@ export const queryComposer = (base: string, proof: SessionProof, conversation: s
   jsonRequest(base, `/conversations/${id(conversation)}/composer/query`, 'ConversationComposer', proof, 'POST', body, undefined, signal);
 export const readComposerCommand = (base: string, proof: SessionProof, conversation: string, body: SlashCommandRead, signal?: AbortSignal): Promise<SlashCommandResult> =>
   jsonRequest(base, `/conversations/${id(conversation)}/composer/command`, 'SlashCommandResult', proof, 'POST', body, undefined, signal);
+export const undoSettingChange = (base: string, proof: SessionProof, conversation: string, body: SettingChangeUndoRequest, signal?: AbortSignal): Promise<SettingChangeUndoResult> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/setting-changes/undo`, 'SettingChangeUndoResult', proof, 'POST', validateWire<SettingChangeUndoRequest>('SettingChangeUndoRequest', body), undefined, signal);
+export const getGuidePage = (base: string, proof: SessionProof, route: string, signal?: AbortSignal): Promise<GuidePageView> =>
+  jsonRequest(base, '/guides/page' + query({route}), 'GuidePageView', proof, 'GET', undefined, undefined, signal);
 export const openConversation = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationOpenView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/open`, 'ConversationOpenView', proof, 'GET', undefined, undefined, signal);
 export const getDraft = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<DraftView> =>
@@ -2110,6 +2116,8 @@ def outputs() -> dict[Path, str]:
             query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 5000})]
         elif suffix == "/monitor/logs":
             query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 200})]
+        elif suffix == "/guides/page":
+            query_parameters = [("route", True, {"type": "string", "minLength": 1, "maxLength": 256})]
         elif "/content/" in suffix:
             query_parameters = [("limit_bytes", False, {"type": "integer", "minimum": 1, "maximum": 65536}),
                                 ("cursor", False, {"type": "string", "maxLength": 2048})]

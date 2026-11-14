@@ -1890,6 +1890,22 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  undoSettingChange(
+    conversation: string,
+    body: wire.SettingChangeUndoRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.undoSettingChange(
+      this.base,
+      this.session(),
+      conversation,
+      body,
+      signal,
+    );
+  }
+  guidePage(route: string, signal?: AbortSignal) {
+    return wire.getGuidePage(this.base, this.session(), route, signal);
+  }
   draft(conversation: string, signal?: AbortSignal) {
     return wire.getDraft(this.base, this.session(), conversation, signal);
   }

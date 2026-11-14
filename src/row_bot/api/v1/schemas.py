@@ -8331,6 +8331,17 @@ class ApprovalSetup(WireModel):
     folders: list[ApprovalFolderChoice] = Field(default_factory=list, max_length=8)
 
 
+class SettingChange(WireModel):
+    """A change to one of Row-Bot's settings, in words: the row's name, where it is, what it was and becomes."""
+
+    label: str = Field(min_length=1, max_length=120)
+    where: str = Field(default="", max_length=200)
+    # The row in the app ("/settings/preferences#dream-cycle"); "" when it has no row (a chat's own model).
+    href: str = Field(default="", max_length=200, pattern=r"^(/settings/[A-Za-z0-9/?=&#._:-]{0,189})?$")
+    before: str = Field(default="", max_length=240)
+    after: str = Field(min_length=1, max_length=240)
+
+
 class ApprovalQuestionOption(WireModel):
     """One option of a question card; the recommended one carries its own tag."""
 
@@ -8406,6 +8417,8 @@ class ApprovalRequired(WireModel):
     memory_text: str = Field(default="", max_length=4096)
     # The folder a command runs in, by its name only, never its path (U7).
     folder: str = Field(default="", max_length=120)
+    # A change to one of Row-Bot's settings: its card shows it in words, with its row.
+    setting_change: SettingChange | None = None
 
 
 class GenerationError(WireModel):
@@ -8962,6 +8975,8 @@ class TraceSpecialization(WireModel):
         "linked_conversation",
         # A video project a video step made or changed (5.3.1 B3): its card opens the Video panel.
         "video_project",
+        # A setting Row-Bot changed: its card shows what changed and offers Undo.
+        "setting_change",
     ]
     skill_id: str = Field(default="", max_length=180)
     display_name: str = Field(default="", max_length=180)
@@ -9003,6 +9018,8 @@ class TraceSpecialization(WireModel):
     link_id: str = Field(default="", max_length=32, pattern=r"^([0-9a-f]{32})?$")
     # video_project (5.3.1 B3): the card re-reads the project by this id and opens it in the Video panel.
     project_id: str = Field(default="", max_length=32, pattern=r"^(vid-[0-9a-f]{8})?$")
+    # setting_change: what changed, in words, and its row; Undo sends the step's result message id.
+    setting_change: SettingChange | None = None
 
 
 class TranscriptTraceItem(WireModel):
@@ -9660,6 +9677,35 @@ class ConversationComposerQuery(WireModel):
     draft: str = Field(default="", max_length=16000)
     command_query: str = Field(default="", max_length=180)
     command_limit: int = Field(default=50, ge=1, le=256)
+
+
+class SettingChangeUndoRequest(WireModel):
+    """Undo on a setting step: the step's result message, read again by the server."""
+
+    message_id: str = Field(min_length=1, max_length=256)
+
+
+class SettingChangeUndoResult(WireModel):
+    status: Literal["undone", "changed_since", "unavailable"]
+    message: str = Field(max_length=512)
+
+
+class GuideSectionRef(WireModel):
+    anchor: str = Field(min_length=1, max_length=200)
+    heading: str = Field(max_length=200)
+
+
+class GuidePageView(WireModel):
+    """One of Row-Bot's guides, read from the copy this install ships (offline)."""
+
+    schema_version: Literal[1]
+    route: str = Field(min_length=1, max_length=256, pattern=r"^/docs/[A-Za-z0-9/_-]{0,250}$")
+    title: str = Field(max_length=200)
+    description: str = Field(max_length=1024)
+    markdown: str = Field(max_length=200_000)
+    # The same page on the docs site, opened only when the person asks.
+    web_url: str = Field(max_length=300, pattern=r"^https://row-bot\.ai/docs/[A-Za-z0-9/_-]{0,250}$")
+    sections: list[GuideSectionRef] = Field(max_length=200)
 
 
 class SlashCommandRead(WireModel):
