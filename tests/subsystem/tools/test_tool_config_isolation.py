@@ -112,6 +112,7 @@ def test_shell_workspace_root_falls_back_to_developer_thread(tmp_path, monkeypat
     threads = importlib.reload(threads)
     storage = importlib.reload(storage)
     monkeypatch.setattr(shell_tool.registry, "get_tool", lambda name: None)
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path / "workspace"))
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -124,7 +125,9 @@ def test_shell_workspace_root_falls_back_to_developer_thread(tmp_path, monkeypat
 
     tool = shell_tool.ShellTool()
     assert tool._get_workspace_root(thread_id) == str(repo.resolve())
-    assert tool._get_workspace_root("") is None
+    # Any other conversation starts in the workspace (the default one here: nothing chosen), never home.
+    assert tool._get_workspace_root("") == str(tmp_path / "workspace")
+    assert (tmp_path / "workspace").is_dir()
 
 
 def test_shell_run_command_uses_runnable_config_developer_workspace(tmp_path, monkeypatch):
