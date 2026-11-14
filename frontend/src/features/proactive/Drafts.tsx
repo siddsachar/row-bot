@@ -1,48 +1,222 @@
-import { useEffect, useId, useState } from 'react';
-import { ChevronLeft, Copy, FileText, PenLine, Send } from 'lucide-react';
-import type { ProactiveDraftView } from '../../api/types';
+import { useEffect, useId, useRef, useState } from 'react';
+import {
+  Check,
+  ChevronLeft,
+  Copy,
+  FileText,
+  PenLine,
+  Send,
+  ShieldCheck,
+} from 'lucide-react';
+import type {
+  ProactiveDraftSendCard,
+  ProactiveDraftView,
+} from '../../api/types';
 import { clientError } from '../../api/errors';
 import { copyText } from '../../platform/clipboard';
-import { Button, IconButton, Skeleton } from '../../ui/primitives';
+import { Button, IconButton, Input, Kbd, Skeleton } from '../../ui/primitives';
 import { Drawer, ModalTask, useNotify } from '../../ui/overlays';
 import { When } from '../../ui/When';
+import { parseTimestamp } from '../../ui/format';
 import { useMedia } from '../../ui/use-media';
-
-const WIDE_LAYOUT = '(min-width: 1024px)';
 import { useProactive, type ProactiveStore } from './proactive-state';
 import { briefLines } from './words';
 
-/** Edits to a drafted reply, kept while the app is open (drafts are never saved back or sent). */
-const edits = new Map<string, string>();
+const WIDE_LAYOUT = '(min-width: 1024px)';
+/** Edits wait this long after the last keystroke, then save to Row-Bot. */
+export const SAVE_AFTER_MS = 700;
 
-/** The words a new chat starts with, waiting in its composer: the person sends it. */
-export function sendRequest(draft: ProactiveDraftView, body: string): string {
-  return `Please send this reply (“${draft.title}”):\n\n${body}`;
+/** "10:04" in this device's clock. */
+function clock(value: string): string {
+  const date = parseTimestamp(value);
+  return date
+    ? date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+    : '';
+}
+
+/** "Re: Q3 numbers — to priya@example.com": what a reply is, and who it goes to. */
+export function draftHeading(draft: ProactiveDraftView): string {
+  if (draft.kind !== 'reply') return draft.title;
+  const subject = draft.subject || draft.title;
+  return draft.reply_to ? `${subject} — to ${draft.reply_to}` : subject;
 }
 
 /**
- * One drafted reply or prepared brief. A reply can be edited here; it is
- * saved, never sent. "Send from a chat" opens a new chat with it waiting in
- * the composer, so sending is the person's own message, under their
- * approval level, like any other.
+ * The approval card for sending a reply Row-Bot drafted. It always shows,
+ * whatever the approval level (Row-Bot wrote the words, so only the person
+ * sends them): where it goes, the subject and the full text, then Send or
+ * Don't send. Ctrl/⌘ Enter sends from inside the card.
+ */
+export function DraftSendCard({
+  card,
+  busy,
+  onAnswer,
+}: {
+  card: ProactiveDraftSendCard;
+  busy: boolean;
+  onAnswer(approved: boolean): void;
+}) {
+  return (
+    <aside
+      className="approval-card proactive-send-card"
+      data-kind="send"
+      aria-label={`Approval required: send this reply to ${card.destination}`}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault();
+          if (!busy) onAnswer(true);
+        }
+      }}
+    >
+      <span className="approval-card-icon" aria-hidden>
+        <ShieldCheck />
+      </span>
+      <div className="approval-card-context">
+        <strong>Send this reply?</strong>
+        <span className="approval-card-meta">
+          {card.account} · to {card.destination}
+        </span>
+        {card.subject && (
+          <span className="proactive-send-subject">{card.subject}</span>
+        )}
+        <blockquote className="approval-card-memory proactive-send-text">
+          {card.text}
+        </blockquote>
+        <small className="approval-card-meta">{card.reason}</small>
+      </div>
+      <div className="approval-card-actions">
+        <Button disabled={busy} onClick={() => onAnswer(false)}>
+          Don’t send
+        </Button>
+        <Button
+          variant="primary"
+          disabled={busy}
+          aria-keyshortcuts="Control+Enter Meta+Enter"
+          onClick={() => onAnswer(true)}
+          data-initial-focus
+        >
+          <Send size={15} aria-hidden /> Send
+          <span aria-hidden className="approval-card-kbd">
+            <Kbd keys="Mod+Enter" />
+          </span>
+        </Button>
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * One drafted reply or prepared brief. A reply says who it goes to and which
+ * thread it answers; its recipient, subject and text are edited here and saved
+ * to Row-Bot as you type (never to the mail account). Send… shows the
+ * approval card in place; only approving that card sends it.
  */
 export function DraftView({
+  store,
   draft,
   onBack,
-  onSendFromChat,
 }: {
+  store: ProactiveStore;
   draft: ProactiveDraftView;
   onBack?: () => void;
-  /** Absent where no chat can be started (then only Copy). */
-  onSendFromChat?: (text: string) => void;
 }) {
   const notify = useNotify();
   const id = useId();
-  const [body, setBody] = useState(
-    () => edits.get(draft.draft_id) ?? draft.body,
-  );
-  const [saved, setSaved] = useState<Date | null>(null);
   const reply = draft.kind === 'reply';
+  const [to, setTo] = useState(draft.reply_to ?? '');
+  const [subject, setSubject] = useState(draft.subject ?? '');
+  const [body, setBody] = useState(draft.body);
+  const [saved, setSaved] = useState(draft.updated_at ?? '');
+  const [dirty, setDirty] = useState(false);
+  const [card, setCard] = useState<ProactiveDraftSendCard | null>(
+    draft.send ?? null,
+  );
+  const [blocked, setBlocked] = useState(draft.send_blocked ?? '');
+  const [sentAt, setSentAt] = useState(draft.sent_at ?? '');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState('');
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef({ to, subject, body });
+  latest.current = { to, subject, body };
+  const sent = Boolean(sentAt);
+
+  async function save(): Promise<boolean> {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    try {
+      const next = await store.io.saveDraft(draft.draft_id, latest.current);
+      store.draftChanged(next);
+      setSaved(next.updated_at ?? '');
+      setBlocked(next.send_blocked ?? '');
+      setCard(next.send ?? null);
+      setDirty(false);
+      return true;
+    } catch (cause) {
+      setProblem(clientError(cause).message);
+      return false;
+    }
+  }
+  useEffect(
+    () => () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+        // Leaving with an edit not yet saved: save it now.
+        void store.io
+          .saveDraft(draft.draft_id, latest.current)
+          .then((next) => store.draftChanged(next))
+          .catch(() => undefined);
+      }
+    },
+    [store, draft.draft_id],
+  );
+  const edit = (apply: () => void) => {
+    apply();
+    setDirty(true);
+    setProblem('');
+    setCard(null);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void save(), SAVE_AFTER_MS);
+  };
+
+  async function askToSend() {
+    setBusy(true);
+    setProblem('');
+    try {
+      if (dirty && !(await save())) return;
+      const next = await store.io.askToSend(draft.draft_id);
+      store.draftChanged(next);
+      setCard(next.send ?? null);
+      setBlocked(next.send_blocked ?? '');
+    } catch (cause) {
+      setProblem(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answer(approved: boolean) {
+    if (!card) return;
+    setBusy(true);
+    setProblem('');
+    try {
+      const result = await store.io.answerSend(draft.draft_id, {
+        binding: card.binding,
+        approved,
+      });
+      store.draftChanged(result.draft);
+      setCard(result.draft.send ?? null);
+      setBlocked(result.draft.send_blocked ?? '');
+      if (result.outcome === 'sent') {
+        setSentAt(result.draft.sent_at ?? '');
+        notify(result.words);
+      } else if (result.outcome !== 'denied') setProblem(result.words);
+    } catch (cause) {
+      setProblem(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const lines = reply ? [] : briefLines(draft.body);
   return (
     <article className="proactive-draft" aria-labelledby={`${id}-title`}>
@@ -53,10 +227,19 @@ export function DraftView({
           </IconButton>
         )}
         <div className="proactive-draft-heading">
-          <h3 id={`${id}-title`}>{draft.title}</h3>
+          <h3 id={`${id}-title`}>
+            {reply ? subject || draft.title : draft.title}
+          </h3>
           <p>
-            {reply ? 'Reply drafted, not sent' : 'Prepared brief'} ·{' '}
-            <When value={draft.created_at} fallback="" />
+            {reply
+              ? [
+                  draft.thread ? `Reply in “${draft.thread}”` : 'Reply',
+                  draft.app,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : 'Prepared brief'}{' '}
+            · <When value={draft.created_at} fallback="" />
           </p>
         </div>
         <div className="proactive-draft-actions">
@@ -78,6 +261,24 @@ export function DraftView({
       </header>
       {reply ? (
         <>
+          <div className="proactive-draft-fields">
+            <label htmlFor={`${id}-to`}>To</label>
+            <Input
+              id={`${id}-to`}
+              type="email"
+              value={to}
+              readOnly={sent || Boolean(card)}
+              placeholder="name@example.com"
+              onChange={(event) => edit(() => setTo(event.target.value))}
+            />
+            <label htmlFor={`${id}-subject`}>Subject</label>
+            <Input
+              id={`${id}-subject`}
+              value={subject}
+              readOnly={sent || Boolean(card)}
+              onChange={(event) => edit(() => setSubject(event.target.value))}
+            />
+          </div>
           <label className="visually-hidden" htmlFor={`${id}-body`}>
             Reply text
           </label>
@@ -86,28 +287,48 @@ export function DraftView({
             className="input proactive-draft-body"
             value={body}
             rows={10}
-            onChange={(event) => {
-              setBody(event.target.value);
-              edits.set(draft.draft_id, event.target.value);
-              setSaved(new Date());
+            readOnly={sent || Boolean(card)}
+            onChange={(event) => edit(() => setBody(event.target.value))}
+            onBlur={() => {
+              if (dirty) void save();
             }}
           />
-          <div className="proactive-draft-foot">
-            <p className="proactive-draft-note">
-              {saved
-                ? `Saved ${saved.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
-                : 'Nothing is sent until you approve it.'}
+          {card && !sent && (
+            <DraftSendCard card={card} busy={busy} onAnswer={answer} />
+          )}
+          {problem && (
+            <p className="proactive-error" role="alert">
+              {problem}
             </p>
-            {onSendFromChat && (
+          )}
+          <div className="proactive-draft-foot">
+            <p className="proactive-draft-note" role="status">
+              {sent ? (
+                <>
+                  <Check size={14} aria-hidden /> Sent {clock(sentAt)}
+                </>
+              ) : dirty ? (
+                'Saving…'
+              ) : saved ? (
+                `Saved ${clock(saved)}`
+              ) : (
+                'Nothing is sent until you approve it.'
+              )}
+            </p>
+            {!sent && !card && (
               <Button
                 variant="primary"
                 className="small"
-                onClick={() => onSendFromChat(sendRequest(draft, body))}
+                disabled={busy || Boolean(blocked && !dirty)}
+                onClick={() => void askToSend()}
               >
                 <Send size={15} aria-hidden /> Send…
               </Button>
             )}
           </div>
+          {!sent && !card && blocked && !dirty && (
+            <p className="proactive-draft-blocked">{blocked}</p>
+          )}
         </>
       ) : lines.length ? (
         <ul className="proactive-brief-lines">
@@ -122,17 +343,15 @@ export function DraftView({
   );
 }
 
-/** Drafted replies and prepared briefs, newest first; one opens to read and edit. */
+/** Drafted replies and prepared briefs, newest first; one opens to read, edit and send. */
 export function DraftsList({
   store,
   openId,
   onOpen,
-  onSendFromChat,
 }: {
   store: ProactiveStore;
   openId: string | null;
   onOpen(draftId: string | null): void;
-  onSendFromChat?: (text: string) => void;
 }) {
   const { view } = useProactive(store.io);
   const [single, setSingle] = useState<ProactiveDraftView | null>(null);
@@ -166,9 +385,9 @@ export function DraftsList({
     ) : open ? (
       <DraftView
         key={open.draft_id}
+        store={store}
         draft={open}
         onBack={() => onOpen(null)}
-        onSendFromChat={onSendFromChat}
       />
     ) : (
       <Skeleton label="Opening the draft" />
@@ -202,10 +421,14 @@ export function DraftsList({
               )}
             </span>
             <span className="overview-row-text">
-              <span className="overview-row-title">{draft.title}</span>
+              <span className="overview-row-title">{draftHeading(draft)}</span>
               <span className="overview-row-meta">
-                {draft.kind === 'reply' ? 'Reply' : 'Brief'} ·{' '}
-                <When value={draft.created_at} fallback="" />
+                {draft.kind !== 'reply'
+                  ? 'Brief'
+                  : draft.sent_at
+                    ? 'Sent'
+                    : 'Reply, not sent'}{' '}
+                · <When value={draft.created_at} fallback="" />
               </span>
             </span>
           </button>
@@ -228,29 +451,16 @@ export function DraftsDrawer({
   draftId,
   onOpenDraft,
   onClose,
-  onSendFromChat,
 }: {
   store: ProactiveStore;
   open: boolean;
   draftId: string | null;
   onOpenDraft(draftId: string | null): void;
   onClose(): void;
-  onSendFromChat?: (text: string) => void;
 }) {
   const wide = useMedia(WIDE_LAYOUT);
   const list = open && (
-    <DraftsList
-      store={store}
-      openId={draftId}
-      onOpen={onOpenDraft}
-      onSendFromChat={
-        onSendFromChat &&
-        ((text) => {
-          onClose();
-          onSendFromChat(text);
-        })
-      }
-    />
+    <DraftsList store={store} openId={draftId} onOpen={onOpenDraft} />
   );
   return wide ? (
     <Drawer

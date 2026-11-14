@@ -8,13 +8,16 @@ import {
   Pencil,
   Smartphone,
   Smile,
+  Sunset,
   Trash2,
   UserRoundX,
   X,
 } from 'lucide-react';
 import type {
   ProactiveActivityEntry,
+  ProactiveKindView,
   ProactiveMomentView,
+  ProactivePreview,
   ProactiveRuleView,
   ProactiveRuleWrite,
   ProactiveSettingsChange,
@@ -101,19 +104,65 @@ const WHERE: Record<
   phone: { icon: <Smartphone size={15} aria-hidden />, words: 'Your phone' },
 };
 
-/** "An example day at Balanced": what each level would bring up, and where. */
-function LevelExample({ level }: { level: ProactiveLevel }) {
-  const day = EXAMPLE_DAY[level];
+type PreviewRow = {
+  key: string;
+  time: string;
+  line: string;
+  where: 'bubble' | 'home' | 'phone';
+  inBrief?: boolean;
+};
+
+/** "10:04" in this device's clock. */
+function clockOf(value: string): string {
+  return (
+    parseTimestamp(value)?.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    }) ?? ''
+  );
+}
+
+/**
+ * "Today at Quiet you'd have seen": what the level brings up, and where, from
+ * today's real moments (the server runs them through each level's budget).
+ * Before anything was checked today, an example day instead.
+ */
+function LevelPreview({
+  level,
+  preview,
+}: {
+  level: ProactiveLevel;
+  preview: ProactivePreview | null;
+}) {
   const name = level[0].toUpperCase() + level.slice(1);
+  const today = preview && !preview.example ? preview : null;
+  const rows: PreviewRow[] = today
+    ? (today.levels.find((item) => item.level === level)?.items ?? []).map(
+        (item) => ({
+          key: item.moment_id,
+          time: item.at ? clockOf(item.at) : '',
+          line: item.title,
+          where: item.where === 'buddy' ? 'bubble' : 'home',
+          inBrief: item.in_brief,
+        }),
+      )
+    : EXAMPLE_DAY[level].map((row) => ({
+        ...row,
+        key: `${row.time}${row.line}`,
+      }));
   return (
     <div className="proactive-example" aria-live="polite">
       <p className="proactive-example-head">
-        {level === 'off' ? 'At Off' : `An example day at ${name}`}
+        {level === 'off'
+          ? 'At Off'
+          : today
+            ? `Today at ${name} you’d have seen`
+            : `An example day at ${name}`}
       </p>
-      {day.length ? (
+      {level !== 'off' && rows.length ? (
         <ul>
-          {day.map((row) => (
-            <li key={`${row.time}${row.line}`}>
+          {rows.map((row) => (
+            <li key={row.key}>
               <span className="proactive-example-icon">
                 {WHERE[row.where].icon}
               </span>
@@ -121,17 +170,34 @@ function LevelExample({ level }: { level: ProactiveLevel }) {
               <span className="proactive-example-line">{row.line}</span>
               <span className="proactive-example-where">
                 {WHERE[row.where].words}
+                {row.inBrief ? ' (in the brief)' : ''}
               </span>
             </li>
           ))}
         </ul>
       ) : (
         <p className="proactive-quiet-line">
-          Nothing. Row-Bot wouldn’t check anything. Home shows Today as before.
+          {level === 'off'
+            ? 'Nothing. Row-Bot wouldn’t check anything. Home shows Today as before.'
+            : 'Nothing came up today.'}
         </p>
       )}
     </div>
   );
+}
+
+/** "Last 30 days: 9 shown · 7 opened", only once a kind has been shown. */
+export function kindCountWords(kind: ProactiveKindView): string {
+  const counts = kind.last_30_days;
+  if (!counts?.shown) return '';
+  return [
+    `${counts.shown} shown`,
+    counts.acted && `${counts.acted} opened`,
+    counts.dismissed && `${counts.dismissed} dismissed`,
+    counts.ignored && `${counts.ignored} left alone`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function ruleIcon(rule: ProactiveRuleView) {
@@ -426,6 +492,19 @@ export default function ProactiveSettings({ io }: { io?: ProactiveIO | null }) {
   const notify = useNotify();
   const [editing, setEditing] = useState('');
   const [channels, setChannels] = useState<TaskDeliveryChannel[]>([]);
+  const [preview, setPreview] = useState<ProactivePreview | null>(null);
+  // Today's preview follows today's moments: read again whenever they change.
+  const momentsRead = view.moments;
+  useEffect(() => {
+    const request = new AbortController();
+    store?.io
+      .preview(request.signal)
+      .then((value) => {
+        if (!request.signal.aborted) setPreview(value);
+      })
+      .catch(() => undefined);
+    return () => request.abort();
+  }, [store, momentsRead]);
   useEffect(() => {
     let active = true;
     store?.io
@@ -523,7 +602,7 @@ export default function ProactiveSettings({ io }: { io?: ProactiveIO | null }) {
             />
           }
         >
-          <LevelExample level={settings.level} />
+          <LevelPreview level={settings.level} preview={preview} />
         </SettingsItem>
       </SettingsGroup>
       <div
@@ -571,27 +650,29 @@ export default function ProactiveSettings({ io }: { io?: ProactiveIO | null }) {
         <SettingsGroup
           title="Sources"
           anchor="sources"
-          note="What Row-Bot may look at. Unconnected apps are skipped."
+          note="Sources come from apps you’ve connected."
         >
-          {settings.sources.map((source) => (
-            <SettingsItem
-              key={source.id}
-              label={source.label}
-              help={source.privacy}
-              layout="inline"
-              control={
-                <Toggle
-                  label={source.label}
-                  checked={source.on}
-                  onChange={(event) =>
-                    void change({
-                      sources: { [source.id]: event.target.checked },
-                    })
-                  }
-                />
-              }
-            />
-          ))}
+          {settings.sources
+            .filter((source) => source.connected !== false)
+            .map((source) => (
+              <SettingsItem
+                key={source.id}
+                label={source.label}
+                help={source.privacy}
+                layout="inline"
+                control={
+                  <Toggle
+                    label={source.label}
+                    checked={source.on}
+                    onChange={(event) =>
+                      void change({
+                        sources: { [source.id]: event.target.checked },
+                      })
+                    }
+                  />
+                }
+              />
+            ))}
           <p className="proactive-privacy proactive-privacy-row">
             {PRIVACY_LINE}
           </p>
@@ -605,7 +686,7 @@ export default function ProactiveSettings({ io }: { io?: ProactiveIO | null }) {
               label={kind.label}
               layout="inline"
               status={
-                kind.quieted && (
+                kind.quieted ? (
                   <StatusLine
                     tone="neutral"
                     action={
@@ -633,7 +714,11 @@ export default function ProactiveSettings({ io }: { io?: ProactiveIO | null }) {
                   >
                     Quieted: you left the last few alone
                   </StatusLine>
-                )
+                ) : kindCountWords(kind) ? (
+                  <StatusLine tone="neutral">
+                    Last 30 days: {kindCountWords(kind)}
+                  </StatusLine>
+                ) : null
               }
               control={
                 <Toggle
@@ -646,6 +731,29 @@ export default function ProactiveSettings({ io }: { io?: ProactiveIO | null }) {
               }
             />
           ))}
+          <SettingsItem
+            anchor="wrap"
+            icon={<Sunset size={16} aria-hidden />}
+            tone="neutral"
+            label="End-of-day wrap"
+            help={`At ${settings.day_end}: what got done and what moved to tomorrow. Off at Quiet, on at Balanced and Eager, unless you choose.`}
+            layout="inline"
+            control={
+              <Toggle
+                label="End-of-day wrap"
+                checked={Boolean(settings.wrap)}
+                onChange={(event) =>
+                  void change(
+                    { wrap: event.target.checked },
+                    event.target.checked
+                      ? 'End-of-day wrap is on'
+                      : 'End-of-day wrap is off',
+                    { wrap: Boolean(settings.wrap) },
+                  )
+                }
+              />
+            }
+          />
         </SettingsGroup>
         <SettingsGroup title="Away from your desk" anchor="urgent">
           <SettingsItem

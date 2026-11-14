@@ -26,6 +26,88 @@ describe('Settings › Proactive', () => {
     expect(screen.getByText(/Buddy speaks at good moments/)).toBeVisible();
   });
 
+  it("shows what each level would have brought up today, from today's moments", async () => {
+    const item = (
+      moment_id: string,
+      title: string,
+      where: 'buddy' | 'home',
+      in_brief = false,
+    ) => ({
+      moment_id,
+      kind: 'follow_up' as const,
+      title,
+      at: where === 'buddy' ? new Date(2026, 10, 16, 9, 50).toISOString() : '',
+      where,
+      in_brief,
+    });
+    const io = fakeIO({
+      preview: {
+        schema_version: 1,
+        example: false,
+        levels: [
+          { level: 'off', items: [] },
+          {
+            level: 'quiet',
+            items: [
+              item('0000000000000001', 'Design review brief', 'buddy'),
+              item('0000000000000002', 'Priya hasn’t replied', 'home', true),
+            ],
+          },
+          {
+            level: 'balanced',
+            items: [
+              item('0000000000000001', 'Design review brief', 'buddy'),
+              item('0000000000000002', 'Priya hasn’t replied', 'buddy'),
+            ],
+          },
+          { level: 'eager', items: [] },
+        ],
+      },
+    });
+    show(io);
+    expect(
+      await screen.findByText('Today at Quiet you’d have seen'),
+    ).toBeVisible();
+    expect(screen.getByText('Home only (in the brief)')).toBeVisible();
+    expect(screen.queryByText(/An example day/)).toBeNull();
+    await userEvent.click(screen.getByRole('radio', { name: 'Balanced' }));
+    expect(
+      await screen.findByText('Today at Balanced you’d have seen'),
+    ).toBeVisible();
+    expect(screen.getAllByText('Buddy’s bubble')).toHaveLength(2);
+  });
+
+  it('lists only connected sources, each kind’s last 30 days, and the end-of-day wrap', async () => {
+    const base = settings();
+    const io = fakeIO({
+      settings: settings({
+        sources: [
+          { ...base.sources[0], connected: true },
+          { ...base.sources[1], connected: false },
+        ],
+        kinds: base.kinds.map((kind) =>
+          kind.id === 'follow_up'
+            ? {
+                ...kind,
+                last_30_days: { shown: 9, acted: 7, dismissed: 1, ignored: 0 },
+              }
+            : kind,
+        ),
+        wrap: false,
+      }),
+    });
+    show(io);
+    expect(await screen.findByRole('switch', { name: 'Mail' })).toBeVisible();
+    expect(screen.queryByRole('switch', { name: 'Calendar' })).toBeNull();
+    expect(
+      screen.getByText('Last 30 days: 9 shown · 7 opened · 1 dismissed'),
+    ).toBeVisible();
+    await userEvent.click(
+      screen.getByRole('switch', { name: 'End-of-day wrap' }),
+    );
+    expect(io.changeSettings).toHaveBeenCalledWith({ wrap: true });
+  });
+
   it('turns a source off, and brings a quieted kind back', async () => {
     const io = fakeIO();
     show(io);

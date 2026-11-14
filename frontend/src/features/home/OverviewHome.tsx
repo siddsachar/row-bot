@@ -79,7 +79,8 @@ import FixAction, { RunAgain } from './FixAction';
 import MemoryNoticeActions from './MemoryNotice';
 import { useWaits } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
-import { useProactiveOn } from '../proactive/proactive-state';
+import { useProactive, useProactiveOn } from '../proactive/proactive-state';
+import { forYouLead } from '../proactive/words';
 
 export type OverviewHomeProps = {
   conversations: readonly ConversationView[];
@@ -901,6 +902,12 @@ export default function OverviewHome({
     });
   // Proactive on: For you takes Today's place (and its rows).
   const proactiveOn = useProactiveOn();
+  const { view: proactive } = useProactive();
+  // What waits For you leads Home's sentence when nothing needs the person.
+  const forYouLine =
+    proactiveOn && proactive.moments
+      ? forYouLead(proactive.moments, now, relativeTime)
+      : '';
   const unread = [
     tasksFailed && 'workflows',
     healthFailed && 'health checks',
@@ -948,13 +955,15 @@ export default function OverviewHome({
   // One sentence: the most important thing.
   const lead = attention
     ? `${plural(attention, 'thing')} ${attention === 1 ? 'needs' : 'need'} you.`
-    : readingNeeds || (loadTasks && tasks === null && !tasksFailed)
-      ? ''
-      : next
-        ? `Next: ${next.name} ${relativeTime(next.next_run, now)}.`
-        : waits.length
-          ? `Waiting for ${plural(waits.length, 'thing')}.`
-          : 'All quiet.';
+    : forYouLine
+      ? forYouLine
+      : readingNeeds || (loadTasks && tasks === null && !tasksFailed)
+        ? ''
+        : next
+          ? `Next: ${next.name} ${relativeTime(next.next_run, now)}.`
+          : waits.length
+            ? `Waiting for ${plural(waits.length, 'thing')}.`
+            : 'All quiet.';
 
   const quickStarts = [
     onNewResource && (

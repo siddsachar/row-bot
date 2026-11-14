@@ -50,12 +50,37 @@ describe('Why this?', () => {
       ),
     ).toBeVisible();
     expect(saw.querySelector('img')).toBeNull();
-    expect(within(saw).getByText('Gmail · Email')).toBeVisible();
+    // Each source says itself once ("Gmail", never "Gmail · Email").
+    expect(within(saw).getByText('Gmail')).toBeVisible();
     const why = screen.getByRole('region', { name: 'Why now' });
     expect(within(why).getByText('Quiet: 1 of 3 today.')).toBeVisible();
     expect(
       screen.getByText('Row-Bot only read. Nothing was sent or changed.'),
     ).toBeVisible();
+  });
+
+  it('says the moment once: a summary that only repeats its line is left out', async () => {
+    const io = fakeIO({ moments: [moment()] });
+    io.moment.mockResolvedValueOnce(
+      detail(moment(), {
+        summary: 'No reply from Priya Shah · Q3 numbers.',
+        evidence: [
+          {
+            type: 'memory',
+            id: 'm2',
+            label: 'Priya owns Q3.',
+            source: 'memory',
+          },
+        ],
+      }),
+    );
+    show(io);
+    const saw = await screen.findByRole('region', { name: 'What Row-Bot saw' });
+    expect(
+      screen.queryByText('No reply from Priya Shah · Q3 numbers.'),
+    ).toBeNull();
+    expect(within(saw).getByText('Memory')).toBeVisible();
+    expect(within(saw).queryByText(/Memory · Memory/)).toBeNull();
   });
 
   it('Less like this shows each rule before it exists, then saves the chosen one', async () => {

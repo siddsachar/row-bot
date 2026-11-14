@@ -121,6 +121,14 @@ export type BuddyTarget = { conversationId: string | null; revision: number };
 export const nativeConversationId = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9:_.-]{1,256}$/.test(value);
 
+/** A Proactive place the desktop Buddy may open in the main window (the host's `MAIN_TARGET`). */
+export type MainWindowTarget =
+  'for-you' | 'drafts' | `draft:${string}` | `why:${string}`;
+
+export const mainWindowTarget = (value: unknown): value is MainWindowTarget =>
+  typeof value === 'string' &&
+  /^(?:for-you|drafts|draft:[0-9a-f]{16}|why:[0-9a-f]{16})$/.test(value);
+
 export interface ClientPlatform {
   discover(): Promise<CapabilityResult<PlatformInfo>>;
   /**
@@ -140,9 +148,13 @@ export interface ClientPlatform {
   readBuddyTarget(): Promise<CapabilityResult<BuddyTarget>>;
   /** Desktop Buddy: its own pet window (layout, hit mask, drags, state). */
   buddyPet(request: BuddyPetRequest): Promise<CapabilityResult<BuddyPetAnswer>>;
-  /** Desktop Buddy: bring the main window forward on a conversation. */
+  /**
+   * Desktop Buddy: bring the main window forward on a conversation, or on a
+   * Proactive place (`target`: For you, Drafts, a draft or a moment's Why this).
+   */
   showMainWindow(
     conversationId: string | null,
+    target?: MainWindowTarget,
   ): Promise<CapabilityResult<null>>;
   /**
    * Frameless windows: move this window's top-left corner to a screen point

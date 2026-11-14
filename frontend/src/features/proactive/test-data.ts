@@ -3,6 +3,7 @@ import type {
   ProactiveDraftView,
   ProactiveMomentDetail,
   ProactiveMomentView,
+  ProactivePreview,
   ProactiveSettingsView,
 } from '../../api/types';
 import type { ProactiveIO } from './proactive-state';
@@ -117,6 +118,14 @@ export function draft(
     title: 'Re: Q3 numbers',
     body: 'Hi Priya, just checking on the Q3 numbers.',
     created_at: iso(new Date()),
+    reply_to: 'priya@example.com',
+    subject: 'Re: Q3 numbers',
+    thread: 'Q3 numbers',
+    app: 'Gmail',
+    updated_at: '',
+    sent_at: '',
+    send_blocked: '',
+    send: null,
     ...fields,
   };
 }
@@ -127,6 +136,7 @@ export function fakeIO(
     moments?: ProactiveMomentView[];
     settings?: ProactiveSettingsView;
     drafts?: ProactiveDraftView[];
+    preview?: ProactivePreview;
   } = {},
 ) {
   let current = settings(state.settings);
@@ -215,7 +225,66 @@ export function fakeIO(
       schema_version: 1 as const,
       items: state.drafts ?? [],
     })),
-    draft: vi.fn(async (id: string) => draft({ draft_id: id })),
+    draft: vi.fn(async (id: string) =>
+      draft({
+        ...(state.drafts ?? []).find((item) => item.draft_id === id),
+        draft_id: id,
+      }),
+    ),
+    saveDraft: vi.fn(
+      async (
+        id: string,
+        edit: { body: string; to?: string | null; subject?: string | null },
+      ) =>
+        draft({
+          ...(state.drafts ?? []).find((item) => item.draft_id === id),
+          draft_id: id,
+          body: edit.body,
+          reply_to: edit.to ?? undefined,
+          subject: edit.subject ?? undefined,
+          updated_at: iso(new Date()),
+        }),
+    ),
+    askToSend: vi.fn(async (id: string) => {
+      const found =
+        (state.drafts ?? []).find((item) => item.draft_id === id) ?? draft();
+      return {
+        ...found,
+        send: {
+          binding: 'b'.repeat(64),
+          action: 'Send this reply',
+          destination: found.reply_to ?? '',
+          account: 'Gmail',
+          subject: found.subject ?? '',
+          text: found.body,
+          reason:
+            'Row-Bot wrote this reply on its own, so only you can send it.',
+          asked_at: iso(new Date()),
+        },
+      };
+    }),
+    answerSend: vi.fn(async (id: string, answer: { approved: boolean }) => {
+      const found =
+        (state.drafts ?? []).find((item) => item.draft_id === id) ?? draft();
+      return {
+        schema_version: 1 as const,
+        outcome: answer.approved ? ('sent' as const) : ('denied' as const),
+        words: answer.approved ? `Sent to ${found.reply_to}` : 'Not sent.',
+        draft: {
+          ...found,
+          send: null,
+          sent_at: answer.approved ? iso(new Date()) : '',
+        },
+      };
+    }),
+    preview: vi.fn(
+      async () =>
+        state.preview ?? {
+          schema_version: 1 as const,
+          example: true,
+          levels: [],
+        },
+    ),
     boundary: vi.fn(async () => ({
       schema_version: 1 as const,
       noted: 'app_open' as const,

@@ -58,6 +58,22 @@ function evidenceIcon(type: ProactiveEvidence['type']) {
   }
 }
 
+/** Where a piece of evidence came from, in one word: "Gmail", "Memory", "Your chats". */
+export function evidenceSource(item: ProactiveEvidence): string {
+  if (item.source) return SOURCE_WORDS[item.source] ?? item.source;
+  return EVIDENCE_WORDS[item.type] ?? 'Row-Bot';
+}
+
+/** The same words, whatever the case, spacing or punctuation. */
+function sameWords(left: string, right: string): boolean {
+  const plain = (text: string) =>
+    text
+      .toLocaleLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
+  return plain(left) === plain(right);
+}
+
 /** The three ways "Less like this" can go, each with the rule it writes. */
 export function lessOptions(
   moment: ProactiveMomentView,
@@ -218,12 +234,15 @@ export function WhyThisBody({
     );
   if (!detail) return <Skeleton label="Reading why" />;
   const live = isLive(detail.moment, new Date());
+  // The sheet's subtitle is the moment's line already: a summary that only
+  // says it again is left out.
+  const summary = sameWords(detail.summary, detail.moment.title)
+    ? ''
+    : detail.summary;
   const prepared = detail.moment.prepared_ref;
   return (
     <div className="proactive-why">
-      {detail.summary && (
-        <p className="proactive-why-summary">{detail.summary}</p>
-      )}
+      {summary && <p className="proactive-why-summary">{summary}</p>}
       {detail.evidence.length > 0 && (
         <section aria-labelledby={`why-saw-${momentId}`}>
           <h3 id={`why-saw-${momentId}`} className="proactive-why-head">
@@ -237,14 +256,7 @@ export function WhyThisBody({
                 </span>
                 <span className="proactive-evidence-text">
                   <span className="proactive-evidence-source">
-                    {[
-                      item.source
-                        ? (SOURCE_WORDS[item.source] ?? item.source)
-                        : 'Row-Bot',
-                      EVIDENCE_WORDS[item.type] ?? 'Source',
-                    ]
-                      .filter((word, index, all) => all.indexOf(word) === index)
-                      .join(' · ')}
+                    {evidenceSource(item)}
                   </span>
                   <q className="proactive-evidence-label">{item.label}</q>
                 </span>

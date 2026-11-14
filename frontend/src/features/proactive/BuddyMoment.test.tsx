@@ -10,7 +10,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BuddyCard } from '../buddy/BuddyCard';
 import type { BuddySnapshot } from '../shell/BuddyControls';
-import { resetBuddyMoments } from './BuddyMoment';
+import { resetBuddyMoments, showWhatBuddyHas } from './BuddyMoment';
 import { provideProactive } from './proactive-state';
 import { SidebarMoment } from './SidebarMoment';
 import { fakeIO, moment } from './test-data';
@@ -198,6 +198,47 @@ describe('Buddy’s proactive states', () => {
       await Promise.resolve();
     });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('steps aside at once when a dialog opens over the page; the moment stays', async () => {
+    const io = fakeIO({ moments: [delivered()] });
+    provideProactive(io);
+    renderBuddy();
+    expect(
+      await screen.findByRole('dialog', { name: /No reply/ }),
+    ).toBeVisible();
+    const sheet = document.createElement('div');
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    document.body.append(sheet);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: /No reply/ }),
+      ).not.toBeInTheDocument(),
+    );
+    sheet.remove();
+    expect(io.feedback).not.toHaveBeenCalled();
+  });
+
+  it('Show what Buddy has brings the last bubble back while its moment is open', async () => {
+    const old = delivered({
+      shown_at: new Date(Date.now() - 40 * 60_000).toISOString(),
+    });
+    const io = fakeIO({ moments: [old] });
+    provideProactive(io);
+    renderBuddy();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Delivered 40 minutes ago: no bubble by itself.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    act(() => {
+      expect(showWhatBuddyHas([old])).toBe(true);
+    });
+    expect(
+      await screen.findByRole('dialog', { name: /No reply/ }),
+    ).toBeVisible();
+    expect(showWhatBuddyHas([moment()])).toBe(false);
   });
 
   it('shows nothing outside the app', () => {

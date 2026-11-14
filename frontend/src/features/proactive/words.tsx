@@ -65,6 +65,8 @@ export function actionIcon(id: string, size = 16): ReactNode {
       return <FileText size={size} aria-hidden />;
     case 'continue_in_chat':
       return <MessageSquare size={size} aria-hidden />;
+    case 'make_workflow':
+      return <Workflow size={size} aria-hidden />;
     case 'open_fix':
       return <Wrench size={size} aria-hidden />;
     case 'open_for_you':
@@ -81,6 +83,41 @@ export function preparedWords(moment: ProactiveMomentView): string {
     return 'Reply drafted, not sent';
   if (moment.kind === 'brief') return '';
   return 'Brief ready';
+}
+
+/** "a meeting in 10 minutes": what's next in Now, for Home's lead line. */
+const SOON_WORDS: Partial<Record<MomentKind, string>> = {
+  meeting_prep: 'meeting',
+  change: 'change',
+};
+
+/**
+ * Home's one sentence when moments wait: "2 things for you · meeting in 10
+ * minutes." Counts the live moments (the brief carries its own), and names
+ * the soonest thing in Now when it has a time. "" when nothing waits.
+ */
+export function forYouLead(
+  moments: readonly ProactiveMomentView[],
+  now: Date,
+  relative: (date: Date, now: Date) => string,
+): string {
+  const live = moments.filter(
+    (moment) => moment.kind !== 'brief' && isLive(moment, now),
+  );
+  if (!live.length)
+    return currentBrief(moments, now) ? 'Your morning brief is ready.' : '';
+  const soon = live
+    .filter((moment) => moment.group === 'now' && SOON_WORDS[moment.kind])
+    .map((moment) => ({ moment, at: parseTimestamp(moment.starts_at ?? '') }))
+    .filter(
+      (item): item is { moment: ProactiveMomentView; at: Date } =>
+        Boolean(item.at) && item.at!.getTime() > now.getTime(),
+    )
+    .sort((left, right) => left.at.getTime() - right.at.getTime())[0];
+  const count = `${live.length} ${live.length === 1 ? 'thing' : 'things'} for you`;
+  return soon
+    ? `${count} · ${SOON_WORDS[soon.moment.kind]} ${relative(soon.at, now)}.`
+    : `${count}.`;
 }
 
 /** Where a piece of evidence came from, in words. */
@@ -122,10 +159,22 @@ export type MomentGroup = {
 /** Within this of its time (or past it), a moment is "Now". */
 const NOW_WINDOW_MS = 60 * 60_000;
 
+const SERVER_GROUPS: Record<
+  NonNullable<ProactiveMomentView['group']>,
+  MomentGroup['id']
+> = { now: 'now', later_today: 'later', ready: 'ready' };
+
+/** When the thing a moment is about happens (a meeting's start), else its due time. */
+export function momentTime(moment: ProactiveMomentView): Date | null {
+  return parseTimestamp(moment.starts_at || moment.due_at);
+}
+
 /**
  * For you's groups, in order: Now (urgent, due within the hour or past
  * due), Later today (due later today), Ready when you are (no time, or another
- * day). The morning brief is its own card, outside the groups.
+ * day). The server decides each moment's group (so the morning brief's
+ * carried items never jump); an older server's moments are grouped here. The
+ * morning brief is its own card, outside the groups.
  */
 export function groupMoments(
   moments: readonly ProactiveMomentView[],
@@ -141,6 +190,12 @@ export function groupMoments(
   midnight.setHours(24, 0, 0, 0);
   for (const moment of moments) {
     if (moment.kind === 'brief' || !isLive(moment, now)) continue;
+    if (moment.group) {
+      groups
+        .find((group) => group.id === SERVER_GROUPS[moment.group!])!
+        .moments.push(moment);
+      continue;
+    }
     // A moment due when it was made has no time of its own (a follow-up).
     const made = parseTimestamp(moment.created_at)?.getTime() ?? 0;
     const dueAt = parseTimestamp(moment.due_at);
@@ -155,7 +210,7 @@ export function groupMoments(
     else ready.moments.push(moment);
   }
   const at = (moment: ProactiveMomentView) =>
-    parseTimestamp(moment.due_at)?.getTime() ?? Infinity;
+    momentTime(moment)?.getTime() ?? Infinity;
   present.moments.sort(
     (left, right) =>
       Number(right.urgency === 'urgent') - Number(left.urgency === 'urgent') ||

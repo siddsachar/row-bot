@@ -1,8 +1,9 @@
 import { useMemo, type ReactNode } from 'react';
 import type { ClientController } from '../../api/controller';
-import type { ClientPlatform } from '../../platform';
+import type { ClientPlatform, MainWindowTarget } from '../../platform';
 import { MomentBubble, useBuddyMoment } from './BuddyMoment';
 import {
+  FOR_YOU_PATH,
   momentMenu,
   performMoment,
   useLessLikeThis,
@@ -12,8 +13,9 @@ import { proactiveIO, useProactive } from './proactive-state';
 
 /**
  * The desktop pet's Proactive: Buddy's glance and its smaller moment
- * bubble. Every action brings the main window forward (at the chat, for
- * Continue in chat); the rest of the moment waits in For you there.
+ * bubble. Every action brings the main window forward on its place: the
+ * chat (Continue in chat), the draft or brief, For you, or the moment's Why
+ * this; the rest of the moment waits in For you there.
  */
 export function usePetMoment(
   controller: ClientController,
@@ -32,11 +34,15 @@ export function usePetMoment(
   const less = useLessLikeThis(store);
   const main = (conversation: string | null = null) =>
     void platform.showMainWindow(conversation);
+  // The main window comes forward on the place itself: For you, a draft, or
+  // the moment's Why this (anywhere else, on Home).
+  const open = (target: MainWindowTarget) =>
+    void platform.showMainWindow(null, target);
   const go: MomentGo = {
     conversation: (id) => main(id),
-    path: () => main(),
-    draft: () => main(),
-    why: () => main(),
+    path: (to) => (to === FOR_YOU_PATH ? open('for-you') : main()),
+    draft: (id) => open(`draft:${id}`),
+    why: (item) => open(`why:${item.moment_id}`),
   };
   const current = bubble.bubble;
   const moment =
@@ -58,7 +64,7 @@ export function usePetMoment(
                 less: () => undefined,
                 why: () => {
                   bubble.close();
-                  main();
+                  open(`why:${current.moment.moment_id}`);
                 },
               })
             : [
@@ -82,7 +88,7 @@ export function usePetMoment(
         }}
         onOpenForYou={() => {
           bubble.close();
-          main();
+          open('for-you');
         }}
         onLess={less}
       />

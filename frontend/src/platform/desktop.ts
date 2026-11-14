@@ -346,8 +346,8 @@ export function createDesktopPlatform(
       run((platform) => platform.readBuddyTarget(), 'background'),
     buddyPet: (request) =>
       run((platform) => platform.buddyPet(request), 'background'),
-    showMainWindow: (conversationId) =>
-      run((platform) => platform.showMainWindow(conversationId)),
+    showMainWindow: (conversationId, target) =>
+      run((platform) => platform.showMainWindow(conversationId, target)),
     moveWindow: (x, y) => native?.moveWindow(x, y) ?? false,
     openTerminal: (conversationId) =>
       run((platform) => platform.openTerminal(conversationId)),

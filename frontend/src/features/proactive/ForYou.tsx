@@ -2,14 +2,13 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { ProactiveMomentView } from '../../api/types';
-import { parseTimestamp, relativeTime } from '../../ui/format';
+import { relativeTime } from '../../ui/format';
 import {
   IconButton,
   Menu,
   Skeleton,
   type MenuAction,
 } from '../../ui/primitives';
-import { useWorkspaceActions } from '../shell/workspace-actions';
 import { useMomentActions } from './moment-actions';
 import { introduced, ProactiveIntro } from './ProactiveIntro';
 import { useMinute, useProactive, type ProactiveIO } from './proactive-state';
@@ -19,13 +18,14 @@ import {
   briefLines,
   currentBrief,
   groupMoments,
+  momentTime,
   preparedWords,
 } from './words';
 import './proactive.css';
 
-/** "in 8 minutes", or how long it has waited. */
+/** "in 8 minutes" (to the meeting, or when it's due), or how long it has waited. */
 function timeWords(moment: ProactiveMomentView, now: Date): string {
-  const due = parseTimestamp(moment.due_at);
+  const due = momentTime(moment);
   if (due && due.getTime() > now.getTime()) return relativeTime(due, now);
   const at = moment.shown_at || moment.created_at;
   return at ? relativeTime(at, now) : '';
@@ -35,6 +35,8 @@ function timeWords(moment: ProactiveMomentView, now: Date): string {
  * One moment as a Home row: its kind's tile, the line, what was prepared
  * and the time. The row does the primary action (or explains itself); the
  * actions and "…" (Not now, Less like this, Why this?, Done) sit beside it.
+ * On a narrow Home the time and what was prepared go under the title, and
+ * the actions under them, so the title keeps the row's width.
  */
 export function MomentRow({
   moment,
@@ -77,9 +79,21 @@ export function MomentRow({
         </span>
         <span className="overview-row-text">
           <span className="overview-row-title">{moment.title}</span>
-          {prepared && <span className="overview-row-meta">{prepared}</span>}
+          {(prepared || time) && (
+            <span className="overview-row-meta">
+              {prepared}
+              {time && (
+                <span className="proactive-moment-when" aria-hidden>
+                  {prepared ? ' · ' : ''}
+                  {time}
+                </span>
+              )}
+            </span>
+          )}
         </span>
-        <span className="overview-row-time">{time}</span>
+        <span className="overview-row-time" aria-hidden>
+          {time}
+        </span>
         <ChevronRight className="overview-row-chevron" size={15} aria-hidden />
       </button>
       <div className="overview-row-actions proactive-row-actions">
@@ -134,26 +148,47 @@ export default function ForYou({
   const { store, view } = useProactive(io);
   const now = useMinute(fixedNow);
   const navigate = useNavigate();
-  const workspace = useWorkspaceActions();
   const [search, setSearch] = useSearchParams();
-  const [intro, setIntro] = useState(() => !introduced());
+  const [dismissedIntro, setDismissedIntro] = useState(false);
   const actions = useMomentActions(store, {
     navigate: (to) => navigate(to),
-    newChat: workspace?.newChat,
   });
   useEffect(() => store?.watchDrafts(), [store]);
-  // A draft opened from Buddy's bubble or strip lands here (`?draft=`).
+  // A draft or a moment's Why this, opened from Buddy's bubble, the strip or
+  // the desktop pet, lands here (`?draft=`, `?why=`).
   const draftParam = search.get('draft');
+  const whyParam = search.get('why');
   const openDrafts = actions.drafts;
+  const openWhy = actions.why;
   useEffect(() => {
-    if (!draftParam || !store) return;
-    openDrafts(draftParam === 'all' ? null : draftParam);
+    if ((!draftParam && !whyParam) || !store) return;
+    if (draftParam) openDrafts(draftParam === 'all' ? null : draftParam);
+    if (whyParam) {
+      const listed = store
+        .getView()
+        .moments?.find((moment) => moment.moment_id === whyParam);
+      if (listed) openWhy(listed);
+      else
+        void store.io
+          .moment(whyParam)
+          .then((detail) => openWhy(detail.moment))
+          .catch(() => undefined);
+    }
     const next = new URLSearchParams(search);
     next.delete('draft');
+    next.delete('why');
     setSearch(next, { replace: true });
-    // Only a new ?draft= opens the drawer.
+    // Only a new ?draft= or ?why= opens a sheet.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftParam, store]);
+  }, [draftParam, whyParam, store]);
+  const serverIntroduced = view.settings?.introduced;
+  useEffect(() => {
+    // Answered on this device before the server kept it: tell the server once.
+    if (store && serverIntroduced === false && introduced())
+      void store
+        .settingsChanged(() => store.io.changeSettings({ introduced: true }))
+        .catch(() => undefined);
+  }, [store, serverIntroduced]);
   const style = { '--overview-order': order } as CSSProperties;
   if (!store || view.unavailable) return <>{actions.sheets}</>;
   if (!view.settings || !view.moments)
@@ -177,6 +212,8 @@ export default function ForYou({
       </section>
     );
   const settings = view.settings;
+  // Once per person: the server keeps whether it was answered (any device).
+  const intro = !dismissedIntro && !settings.introduced && !introduced();
   if (settings.level === 'off' && !intro) return <>{actions.sheets}</>;
   const brief = currentBrief(view.moments, now);
   const groups = groupMoments(view.moments, now).map((group) => ({
@@ -224,7 +261,7 @@ export default function ForYou({
         <ProactiveIntro
           store={store}
           settings={settings}
-          onDone={() => setIntro(false)}
+          onDone={() => setDismissedIntro(true)}
         />
       )}
       {brief && (

@@ -93,6 +93,8 @@ import { clientError } from '../../api/errors';
 import Navigation, { NavigationRail } from './Navigation';
 import PhoneTabBar, { phoneTabFor } from './PhoneTabBar';
 import { MomentStrip } from '../proactive/MomentStrip';
+import { proactivePaletteCommands } from '../proactive/palette';
+import { useProactive, useProactiveOn } from '../proactive/proactive-state';
 import { installEdgeSwipe } from './edge-swipe';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
@@ -376,6 +378,8 @@ export default function Workspace() {
   };
   const { controller, goalProfileOwner } = useRuntime();
   const overlay = useOverlay();
+  const proactiveOn = useProactiveOn();
+  const { store: proactive } = useProactive();
   const paletteSequence = useRef(0);
   const agentProfiles = useRef(new Map<string, ProfileSummary>());
   const location = useLocation();
@@ -965,6 +969,9 @@ export default function Workspace() {
         icon: <HomeIcon size={16} />,
         run: () => go('/'),
       },
+      ...(proactiveOn
+        ? proactivePaletteCommands(proactive, go, () => overlay.close())
+        : []),
       {
         id: 'library',
         label: 'Conversation library',

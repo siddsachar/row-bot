@@ -5,8 +5,12 @@ import { fallbackDue, type LiveUpdates } from '../../api/live-updates';
 import type {
   ProactiveActivityPage,
   ProactiveBoundaryNoted,
+  ProactiveDraftEdit,
   ProactiveDraftPage,
+  ProactiveDraftSendAnswer,
+  ProactiveDraftSendOutcome,
   ProactiveDraftView,
+  ProactivePreview,
   ProactiveFeedback,
   ProactiveMomentDetail,
   ProactiveMomentPage,
@@ -44,6 +48,20 @@ export type ProactiveIO = {
   deleteRule(ruleId: string): Promise<ProactiveSettingsView>;
   drafts(signal?: AbortSignal): Promise<ProactiveDraftPage>;
   draft(draftId: string, signal?: AbortSignal): Promise<ProactiveDraftView>;
+  /** The person's edits to a drafted reply, saved in Row-Bot (never to the mail account). */
+  saveDraft(
+    draftId: string,
+    edit: ProactiveDraftEdit,
+  ): Promise<ProactiveDraftView>;
+  /** Shows the draft's approval card (always, whatever the approval level); sends nothing. */
+  askToSend(draftId: string): Promise<ProactiveDraftView>;
+  /** The person's answer on that card: only an approval of exactly it sends. */
+  answerSend(
+    draftId: string,
+    answer: ProactiveDraftSendAnswer,
+  ): Promise<ProactiveDraftSendOutcome>;
+  /** What each level would have brought up today. */
+  preview(signal?: AbortSignal): Promise<ProactivePreview>;
   boundary(): Promise<ProactiveBoundaryNoted>;
   /** Chat apps set up to deliver (Telegram, Slack…): where urgent kinds may go. */
   channels?(signal?: AbortSignal): Promise<TaskDeliveryChannel[]>;
@@ -69,6 +87,11 @@ export function proactiveIO(controller: ClientController): ProactiveIO {
       deleteRule: (id) => controller.deleteProactiveRule(id),
       drafts: (signal) => controller.proactiveDrafts(signal),
       draft: (id, signal) => controller.proactiveDraft(id, signal),
+      saveDraft: (id, edit) => controller.saveProactiveDraft(id, edit),
+      askToSend: (id) => controller.askToSendProactiveDraft(id),
+      answerSend: (id, answer) =>
+        controller.answerProactiveDraftSend(id, answer),
+      preview: (signal) => controller.proactivePreview(signal),
       boundary: () => controller.noteProactiveBoundary({ kind: 'app_open' }),
       channels: async (signal) =>
         (await controller.taskDeliveryDefaults(signal)).channels,
@@ -249,6 +272,17 @@ export class ProactiveStore {
             item.moment_id === moment.moment_id ? moment : item,
           )
         : moments.filter((item) => item.moment_id !== moment.moment_id),
+    });
+  }
+
+  /** A draft as the server last answered (saved, asked to send, sent): every surface shows it. */
+  draftChanged(draft: ProactiveDraftView) {
+    const drafts = this.view.drafts;
+    if (!drafts) return;
+    this.set({
+      drafts: drafts.map((item) =>
+        item.draft_id === draft.draft_id ? draft : item,
+      ),
     });
   }
 

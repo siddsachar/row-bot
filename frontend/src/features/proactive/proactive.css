@@ -698,6 +698,67 @@
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+/* A moment's time: the right column on a wide Home; under the title, with
+   what was prepared, on a narrow one, where the actions take their own line
+   so the title keeps the row's width. */
+.proactive-moment-when {
+  display: none;
+}
+@container home (max-width: 640px) {
+  .proactive-moment .overview-row-button {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .proactive-moment .overview-row-time,
+  .proactive-moment .overview-row-chevron {
+    display: none;
+  }
+  .proactive-moment-when {
+    display: inline;
+  }
+  .proactive-moment .proactive-row-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+    margin-top: -6px;
+  }
+}
+
+/* Drafts: who a reply goes to and its subject, then the text; the card for
+   sending it sits right under the text. */
+.proactive-draft-fields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+}
+.proactive-draft-fields label {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.proactive-draft-blocked {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  text-align: end;
+}
+.proactive-draft-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.proactive-send-card {
+  margin: 0;
+}
+.proactive-send-subject {
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+.proactive-send-text {
+  max-height: 12lh;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 /* The desktop pet's moment bubble: smaller than its chat bubble. */
 .buddy-bubble[data-variant='moment'] {
   width: 300px;

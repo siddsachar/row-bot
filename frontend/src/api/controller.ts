@@ -2883,7 +2883,9 @@ export class ClientController {
     draftId: string,
     answer: import('./types').ProactiveDraftSendAnswer,
   ) =>
-    this.query(() => this.transport.answerProactiveDraftSend?.(draftId, answer));
+    this.query(() =>
+      this.transport.answerProactiveDraftSend?.(draftId, answer),
+    );
   proactivePreview = (signal?: AbortSignal) =>
     this.query(() => this.transport.proactivePreview?.(signal));
   noteProactiveBoundary = (boundary: import('./types').ProactiveBoundary) =>

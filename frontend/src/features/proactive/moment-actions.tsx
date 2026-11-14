@@ -26,6 +26,11 @@ export type MomentGo = {
   why(moment: ProactiveMomentView): void;
 };
 
+/** A workflow's page in the app (a draft "make it a workflow" made opens there for review). */
+export function workflowPath(workflowId: string): string {
+  return `/?tab=workflows&workflow=${encodeURIComponent(workflowId)}`;
+}
+
 /** Where `open_source` goes: the first piece of evidence with a place in the app. */
 export function sourcePath(detail: ProactiveMomentDetail): string | null {
   for (const item of detail.evidence) {
@@ -42,8 +47,9 @@ export const FOR_YOU_PATH = '/?tab=overview#for-you';
 
 /**
  * Do one of a moment's actions. The client performs the navigation, then
- * reports `act` with that action's id; only `continue_in_chat` does
- * something on the server, which names the chat to open.
+ * reports `act` with that action's id; only `continue_in_chat` and
+ * `make_workflow` do something on the server, which names the chat or the
+ * draft workflow to open.
  */
 export async function performMoment(
   store: ProactiveStore,
@@ -57,6 +63,12 @@ export async function performMoment(
     case 'continue_in_chat': {
       const detail = await act();
       if (detail.conversation_id) go.conversation(detail.conversation_id);
+      return;
+    }
+    case 'make_workflow': {
+      // The server drafts the workflow (off, unscheduled); it opens for review.
+      const detail = await act();
+      if (detail.workflow_id) go.path(workflowPath(detail.workflow_id));
       return;
     }
     case 'open_draft':
@@ -187,18 +199,15 @@ type Sheet =
 
 /**
  * A surface's moment actions with their sheets ("Why this?" and Drafts).
- * `navigate` goes to an in-app path; `newChat` starts a chat with text
- * waiting in its composer (where one can be started).
+ * `navigate` goes to an in-app path.
  */
 export function useMomentActions(
   store: ProactiveStore | null,
   {
     navigate,
-    newChat,
     draftsInPlace = true,
   }: {
     navigate(to: string): void;
-    newChat?: (text: string) => void;
     /** False where drafts open on Home instead (the sidebar). */
     draftsInPlace?: boolean;
   },
@@ -272,7 +281,6 @@ export function useMomentActions(
           draftId={sheet?.kind === 'drafts' ? sheet.draftId : null}
           onOpenDraft={(draftId) => setSheet({ kind: 'drafts', draftId })}
           onClose={() => setSheet(null)}
-          onSendFromChat={newChat}
         />
       </>
     ),

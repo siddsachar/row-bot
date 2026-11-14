@@ -60,6 +60,10 @@ export function ProactiveIntro({
   const done = () => {
     markIntroduced();
     onDone();
+    // Once per person: every device of theirs skips it from now on.
+    void store
+      .settingsChanged(() => store.io.changeSettings({ introduced: true }))
+      .catch(() => undefined);
   };
   return (
     <div

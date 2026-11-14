@@ -37,11 +37,15 @@ function watchTyping() {
   );
 }
 
-/** A dialog, sheet or palette is open: a bubble waits (it never covers one). */
-function overlayOpen(): boolean {
+/** A dialog, sheet, drawer or palette is open: a bubble waits, and one already showing steps aside (it never covers one). */
+export function overlayOpen(): boolean {
   return (
     typeof document !== 'undefined' &&
-    Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))
+    Boolean(
+      document.querySelector(
+        '[role="dialog"]:not(.proactive-bubble-popover):not(.proactive-bubble):not(.proactive-strip), [role="alertdialog"]',
+      ),
+    )
   );
 }
 
@@ -56,8 +60,15 @@ function readSeen(): Set<string> {
   }
 }
 const seen = typeof window === 'undefined' ? new Set<string>() : readSeen();
+/** Moments the person asked to see again (the palette): no freshness limit. */
+const asked = new Set<string>();
+const SHOW_AGAIN = 'row-bot-proactive-show-again';
+
 function markSeen(ids: string[]) {
-  ids.forEach((id) => seen.add(id));
+  ids.forEach((id) => {
+    seen.add(id);
+    asked.delete(id);
+  });
   try {
     window.sessionStorage.setItem(
       SEEN_KEY,
@@ -71,7 +82,34 @@ function markSeen(ids: string[]) {
 /** Test seam: forget which bubbles were seen and when keys were pressed. */
 export function resetBuddyMoments() {
   seen.clear();
+  asked.clear();
   lastKey = 0;
+}
+
+/**
+ * "Show what Buddy has for you": the last moment Buddy brought up opens its
+ * bubble again while it is still open. False when there is none (the caller
+ * opens For you instead).
+ */
+export function showWhatBuddyHas(
+  moments: readonly ProactiveMomentView[],
+  now = Date.now(),
+): boolean {
+  const clock = new Date(now);
+  const last = moments
+    .filter(
+      (moment) =>
+        moment.surface === 'buddy' &&
+        moment.state === 'shown' &&
+        isLive(moment, clock),
+    )
+    .sort((left, right) => at(right.shown_at) - at(left.shown_at))[0];
+  if (!last) return false;
+  seen.delete(last.moment_id);
+  asked.add(last.moment_id);
+  if (typeof window !== 'undefined')
+    window.dispatchEvent(new Event(SHOW_AGAIN));
+  return true;
 }
 
 const at = (value: string) => parseTimestamp(value)?.getTime() ?? 0;
@@ -122,6 +160,11 @@ export function useBuddyMoment(view: ProactiveView) {
   const [held, setHeld] = useState(false);
   const [bubble, setBubble] = useState<Bubble | null>(null);
   useEffect(watchTyping, []);
+  useEffect(() => {
+    const again = () => tick((n) => n + 1);
+    window.addEventListener(SHOW_AGAIN, again);
+    return () => window.removeEventListener(SHOW_AGAIN, again);
+  }, []);
   const waiting = moments
     .filter(
       (moment) =>
@@ -129,7 +172,8 @@ export function useBuddyMoment(view: ProactiveView) {
         moment.state === 'shown' &&
         isLive(moment, clock) &&
         !seen.has(moment.moment_id) &&
-        now - at(moment.shown_at) < BUBBLE_FRESH_MS,
+        (asked.has(moment.moment_id) ||
+          now - at(moment.shown_at) < BUBBLE_FRESH_MS),
     )
     .sort(
       (left, right) =>
@@ -169,6 +213,24 @@ export function useBuddyMoment(view: ProactiveView) {
   useEffect(() => {
     if (gone) setBubble(null);
   }, [gone]);
+  // A dialog opened over the page while a bubble shows: the bubble steps
+  // aside at once (it never covers a dialog) and its moment stays in For you.
+  const showing = Boolean(bubble);
+  useEffect(() => {
+    if (!showing || typeof MutationObserver === 'undefined') return;
+    const check = () => {
+      if (overlayOpen()) setBubble(null);
+    };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-state', 'aria-modal'],
+    });
+    return () => observer.disconnect();
+  }, [showing]);
   const ids =
     bubble?.kind === 'one'
       ? [bubble.moment.moment_id]

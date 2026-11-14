@@ -140,6 +140,76 @@ describe('Home › For you', () => {
     expect(container.querySelector('#for-you')).not.toBeInTheDocument();
   });
 
+  it('keeps each moment in the group the server decided, whatever its times say', async () => {
+    show(
+      fakeIO({
+        moments: [
+          // Carried in the brief and due later today: the server says Later today.
+          moment({
+            moment_id: '0000000000000004',
+            title: 'Send Ana the deck',
+            surface: '',
+            due_at: at(9, 45),
+            group: 'later_today',
+          }),
+          moment({
+            moment_id: '0000000000000005',
+            kind: 'meeting_prep',
+            title: 'Design review',
+            urgency: 'urgent',
+            starts_at: at(9, 40),
+            group: 'now',
+            actions: [{ id: 'open_brief', label: 'Open brief' }],
+          }),
+        ],
+      }),
+    );
+    const later = await screen.findByRole('group', { name: 'Later today' });
+    expect(within(later).getByText('Send Ana the deck')).toBeVisible();
+    const soon = screen.getByRole('group', { name: 'Now' });
+    // The meeting's own start is its time: "in 10 minutes", in the row and,
+    // for a narrow Home, under the title with what was prepared.
+    const row = within(soon).getByRole('button', { name: /^Design review. / });
+    expect(row).toHaveAccessibleName(/in 10 min/);
+    expect(row.querySelector('.overview-row-meta')).toHaveTextContent(
+      /Brief ready · in 10 min/,
+    );
+  });
+
+  it('introduces itself once per person: the server remembers, on any device', async () => {
+    window.localStorage.removeItem('row-bot:proactive-introduced:v1');
+    const io = fakeIO({
+      moments: [],
+      settings: settings({ introduced: true }),
+    });
+    show(io);
+    await waitFor(() => expect(io.settings).toHaveBeenCalled());
+    expect(
+      screen.queryByRole('region', { name: 'Row-Bot can speak first' }),
+    ).not.toBeInTheDocument();
+
+    const fresh = fakeIO({ moments: [] });
+    window.localStorage.removeItem('row-bot:proactive-introduced:v1');
+    const { unmount } = show(fresh);
+    const intro = await screen.findByRole('region', {
+      name: 'Row-Bot can speak first',
+    });
+    await userEvent.click(within(intro).getByRole('button', { name: 'Done' }));
+    expect(fresh.changeSettings).toHaveBeenCalledWith({ introduced: true });
+    unmount();
+  });
+
+  it('tells the server when the introduction was answered here before it kept that', async () => {
+    const io = fakeIO({
+      moments: [],
+      settings: settings({ introduced: false }),
+    });
+    show(io);
+    await waitFor(() =>
+      expect(io.changeSettings).toHaveBeenCalledWith({ introduced: true }),
+    );
+  });
+
   it('introduces itself once, with the level and the privacy line', async () => {
     window.localStorage.removeItem('row-bot:proactive-introduced:v1');
     const io = fakeIO({ moments: [] });
