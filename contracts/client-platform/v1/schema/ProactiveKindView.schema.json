@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "enum": [
+        "follow_up",
+        "meeting_prep",
+        "brief",
+        "date",
+        "change",
+        "workflow_offer"
+      ],
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 60,
+      "title": "Label",
+      "type": "string"
+    },
+    "on": {
+      "title": "On",
+      "type": "boolean"
+    },
+    "quieted": {
+      "title": "Quieted",
+      "type": "boolean"
+    },
+    "urgent": {
+      "title": "Urgent",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "on",
+    "urgent",
+    "quieted"
+  ],
+  "title": "ProactiveKindView",
+  "type": "object"
+}

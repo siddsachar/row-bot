@@ -5884,6 +5884,182 @@ class WaitPage(WireModel):
     items: list[WaitView] = Field(max_length=500)
 
 
+# --- Proactive Row-Bot (5.3.4) ------------------------------------------------------------------------------
+
+ProactiveKind = Literal["follow_up", "meeting_prep", "brief", "date", "change", "workflow_offer"]
+ProactiveSource = Literal["mail", "calendar", "chats", "memory", "workflows", "monitor"]
+ProactiveLevel = Literal["off", "quiet", "balanced", "eager"]
+ProactiveRuleType = Literal["never_about", "fewer", "not_at_time"]
+ProactiveClock = Annotated[str, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
+ProactiveMomentId = Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")]
+ProactiveTime = Annotated[str, Field(max_length=40)]
+
+
+class ProactiveAction(WireModel):
+    """One of a moment's (at most two) actions: the client performs it, then reports it with ``act``."""
+
+    id: str = Field(min_length=1, max_length=40, pattern=r"^[a-z_]+$")
+    label: str = Field(min_length=1, max_length=60)
+
+
+class ProactiveMomentView(WireModel):
+    """One thing worth the person's attention (a moment), as For you and Buddy show it."""
+
+    moment_id: ProactiveMomentId
+    kind: ProactiveKind
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(max_length=4000)
+    urgency: Literal["normal", "urgent"]
+    state: Literal["pending", "shown", "acted", "dismissed", "ignored", "expired", "dropped_stale"]
+    # Where it went: "" not yet, "brief" carried by the morning brief, or the one surface it fired on.
+    surface: Literal["", "for_you", "brief", "buddy", "notice", "desktop", "push", "channel"]
+    created_at: ProactiveTime
+    due_at: ProactiveTime
+    expires_at: ProactiveTime
+    shown_at: ProactiveTime
+    actions: list[ProactiveAction] = Field(max_length=2)
+    # What Row-Bot prepared for it (a brief or a drafted reply), "" when nothing.
+    prepared_ref: str = Field(max_length=64)
+    evidence_count: int = Field(ge=0, le=20)
+
+
+class ProactiveMomentPage(WireModel):
+    """For you: the open moments, urgent first."""
+
+    schema_version: Literal[1]
+    items: list[ProactiveMomentView] = Field(max_length=200)
+
+
+class ProactiveEvidence(WireModel):
+    """A source a moment rests on: an event, a message, a memory, a conversation, a workflow run, a check."""
+
+    type: Literal["event", "message", "thread", "memory", "conversation", "workflow_run", "check", "ask"]
+    id: str = Field(max_length=300)
+    label: str = Field(max_length=300)
+    source: str = Field(max_length=300)
+
+
+class ProactiveActivityEntry(WireModel):
+    """One line of the Activity log: a pass (silent ones too), a moment's step, a rule or a kind going quiet."""
+
+    entry_id: int = Field(ge=1, le=9007199254740991)
+    at: ProactiveTime
+    kind: Literal["pass", "moment", "rule", "quiet"]
+    summary: str = Field(max_length=500)
+    moment_id: str = Field(max_length=16, pattern=r"^([0-9a-f]{16})?$")
+
+
+class ProactiveMomentDetail(WireModel):
+    """"Why this?": a moment with its evidence, why it got through, and its history."""
+
+    schema_version: Literal[1]
+    moment: ProactiveMomentView
+    summary: str = Field(max_length=2000)
+    evidence: list[ProactiveEvidence] = Field(max_length=20)
+    why: list[Annotated[str, Field(max_length=300)]] = Field(max_length=8)
+    history: list[ProactiveActivityEntry] = Field(max_length=50)
+
+
+class ProactiveFeedback(WireModel):
+    """What the person did with a moment. ``less_like_this`` names its scope; ``act`` may name the action."""
+
+    action: Literal["act", "dismiss", "not_now", "less_like_this"]
+    scope: Literal["", "topic", "kind", "time"] = ""
+    action_id: str = Field(default="", max_length=40, pattern=r"^[a-z_]*$")
+
+
+class ProactiveActivityPage(WireModel):
+    schema_version: Literal[1]
+    items: list[ProactiveActivityEntry] = Field(max_length=200)
+    # Pass as ``before`` for the next (older) page; null at the end.
+    next_before: int | None = Field(ge=1, le=9007199254740991)
+
+
+class ProactiveLevelView(WireModel):
+    id: ProactiveLevel
+    label: str = Field(max_length=40)
+    example: str = Field(max_length=300)
+
+
+class ProactiveSourceView(WireModel):
+    id: ProactiveSource
+    label: str = Field(max_length=60)
+    on: bool
+    privacy: str = Field(max_length=400)
+
+
+class ProactiveKindView(WireModel):
+    id: ProactiveKind
+    label: str = Field(max_length=60)
+    on: bool
+    # May reach a chat app when the person is away.
+    urgent: bool
+    # Went quiet after being ignored; turning it on again lets it speak.
+    quieted: bool
+
+
+class ProactiveRuleView(WireModel):
+    rule_id: str = Field(pattern=r"^[0-9a-f]{12}$")
+    type: ProactiveRuleType
+    kind: Literal["", "follow_up", "meeting_prep", "brief", "date", "change", "workflow_offer"]
+    topic: str = Field(max_length=120)
+    hour: int = Field(ge=-1, le=23)
+    words: str = Field(max_length=200)
+
+
+class ProactiveSettingsView(WireModel):
+    """Settings › Proactive: the person's choices, each source's privacy line, and their rules."""
+
+    schema_version: Literal[1]
+    level: ProactiveLevel
+    levels: list[ProactiveLevelView] = Field(max_length=4)
+    quiet_start: ProactiveClock
+    quiet_end: ProactiveClock
+    day_end: ProactiveClock
+    follow_up_days: int = Field(ge=1, le=30)
+    desktop_context: bool
+    desktop_context_privacy: str = Field(max_length=400)
+    sources: list[ProactiveSourceView] = Field(max_length=6)
+    kinds: list[ProactiveKindView] = Field(max_length=6)
+    # The chat app urgent kinds may reach when the person is away ("" none).
+    channel: str = Field(max_length=64)
+    rules: list[ProactiveRuleView] = Field(max_length=200)
+    privacy: str = Field(max_length=600)
+
+
+class ProactiveSettingsChange(WireModel):
+    """A change to some of the choices; what is left out stays as it is."""
+
+    level: ProactiveLevel | None = None
+    quiet_start: ProactiveClock | None = None
+    quiet_end: ProactiveClock | None = None
+    day_end: ProactiveClock | None = None
+    follow_up_days: int | None = Field(default=None, ge=1, le=30)
+    desktop_context: bool | None = None
+    sources: dict[ProactiveSource, bool] | None = Field(default=None, max_length=6)
+    kinds: dict[ProactiveKind, bool] | None = Field(default=None, max_length=6)
+    urgent_kinds: list[ProactiveKind] | None = Field(default=None, max_length=6)
+    channel: str | None = Field(default=None, max_length=64)
+
+
+class ProactiveRuleWrite(WireModel):
+    type: ProactiveRuleType
+    kind: Literal["", "follow_up", "meeting_prep", "brief", "date", "change", "workflow_offer"] = ""
+    topic: str = Field(default="", max_length=120)
+    hour: int = Field(default=-1, ge=-1, le=23)
+
+
+class ProactiveBoundary(WireModel):
+    """The client says the app just opened: a natural break for moments that wait for one."""
+
+    kind: Literal["app_open"]
+
+
+class ProactiveBoundaryNoted(WireModel):
+    schema_version: Literal[1]
+    noted: Literal["app_open"]
+
+
 class RowBotSandboxCreate(WireModel):
     name: str = Field(default="", max_length=60)
     pack: SandboxPack = "empty"

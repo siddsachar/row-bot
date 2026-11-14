@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "ProactiveAction": {
+      "additionalProperties": false,
+      "description": "One of a moment's (at most two) actions: the client performs it, then reports it with ``act``.",
+      "properties": {
+        "id": {
+          "maxLength": 40,
+          "minLength": 1,
+          "pattern": "^[a-z_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "ProactiveAction",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One thing worth the person's attention (a moment), as For you and Buddy show it.",
+  "properties": {
+    "actions": {
+      "items": {
+        "$ref": "#/$defs/ProactiveAction"
+      },
+      "maxItems": 2,
+      "title": "Actions",
+      "type": "array"
+    },
+    "body": {
+      "maxLength": 4000,
+      "title": "Body",
+      "type": "string"
+    },
+    "created_at": {
+      "maxLength": 40,
+      "title": "Created At",
+      "type": "string"
+    },
+    "due_at": {
+      "maxLength": 40,
+      "title": "Due At",
+      "type": "string"
+    },
+    "evidence_count": {
+      "maximum": 20,
+      "minimum": 0,
+      "title": "Evidence Count",
+      "type": "integer"
+    },
+    "expires_at": {
+      "maxLength": 40,
+      "title": "Expires At",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "follow_up",
+        "meeting_prep",
+        "brief",
+        "date",
+        "change",
+        "workflow_offer"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "moment_id": {
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Moment Id",
+      "type": "string"
+    },
+    "prepared_ref": {
+      "maxLength": 64,
+      "title": "Prepared Ref",
+      "type": "string"
+    },
+    "shown_at": {
+      "maxLength": 40,
+      "title": "Shown At",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "pending",
+        "shown",
+        "acted",
+        "dismissed",
+        "ignored",
+        "expired",
+        "dropped_stale"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "surface": {
+      "enum": [
+        "",
+        "for_you",
+        "brief",
+        "buddy",
+        "notice",
+        "desktop",
+        "push",
+        "channel"
+      ],
+      "title": "Surface",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "urgency": {
+      "enum": [
+        "normal",
+        "urgent"
+      ],
+      "title": "Urgency",
+      "type": "string"
+    }
+  },
+  "required": [
+    "moment_id",
+    "kind",
+    "title",
+    "body",
+    "urgency",
+    "state",
+    "surface",
+    "created_at",
+    "due_at",
+    "expires_at",
+    "shown_at",
+    "actions",
+    "prepared_ref",
+    "evidence_count"
+  ],
+  "title": "ProactiveMomentView",
+  "type": "object"
+}

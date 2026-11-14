@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "description": "One of a moment's (at most two) actions: the client performs it, then reports it with ``act``.",
+  "properties": {
+    "id": {
+      "maxLength": 40,
+      "minLength": 1,
+      "pattern": "^[a-z_]+$",
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 60,
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "label"
+  ],
+  "title": "ProactiveAction",
+  "type": "object"
+}

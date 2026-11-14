@@ -1,0 +1,285 @@
+{
+  "$defs": {
+    "ProactiveKindView": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "enum": [
+            "follow_up",
+            "meeting_prep",
+            "brief",
+            "date",
+            "change",
+            "workflow_offer"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 60,
+          "title": "Label",
+          "type": "string"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        },
+        "quieted": {
+          "title": "Quieted",
+          "type": "boolean"
+        },
+        "urgent": {
+          "title": "Urgent",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "on",
+        "urgent",
+        "quieted"
+      ],
+      "title": "ProactiveKindView",
+      "type": "object"
+    },
+    "ProactiveLevelView": {
+      "additionalProperties": false,
+      "properties": {
+        "example": {
+          "maxLength": 300,
+          "title": "Example",
+          "type": "string"
+        },
+        "id": {
+          "enum": [
+            "off",
+            "quiet",
+            "balanced",
+            "eager"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 40,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "example"
+      ],
+      "title": "ProactiveLevelView",
+      "type": "object"
+    },
+    "ProactiveRuleView": {
+      "additionalProperties": false,
+      "properties": {
+        "hour": {
+          "maximum": 23,
+          "minimum": -1,
+          "title": "Hour",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "",
+            "follow_up",
+            "meeting_prep",
+            "brief",
+            "date",
+            "change",
+            "workflow_offer"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "rule_id": {
+          "pattern": "^[0-9a-f]{12}$",
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "topic": {
+          "maxLength": 120,
+          "title": "Topic",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "never_about",
+            "fewer",
+            "not_at_time"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "words": {
+          "maxLength": 200,
+          "title": "Words",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "type",
+        "kind",
+        "topic",
+        "hour",
+        "words"
+      ],
+      "title": "ProactiveRuleView",
+      "type": "object"
+    },
+    "ProactiveSourceView": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "enum": [
+            "mail",
+            "calendar",
+            "chats",
+            "memory",
+            "workflows",
+            "monitor"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 60,
+          "title": "Label",
+          "type": "string"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        },
+        "privacy": {
+          "maxLength": 400,
+          "title": "Privacy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "on",
+        "privacy"
+      ],
+      "title": "ProactiveSourceView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Settings \u203a Proactive: the person's choices, each source's privacy line, and their rules.",
+  "properties": {
+    "channel": {
+      "maxLength": 64,
+      "title": "Channel",
+      "type": "string"
+    },
+    "day_end": {
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "title": "Day End",
+      "type": "string"
+    },
+    "desktop_context": {
+      "title": "Desktop Context",
+      "type": "boolean"
+    },
+    "desktop_context_privacy": {
+      "maxLength": 400,
+      "title": "Desktop Context Privacy",
+      "type": "string"
+    },
+    "follow_up_days": {
+      "maximum": 30,
+      "minimum": 1,
+      "title": "Follow Up Days",
+      "type": "integer"
+    },
+    "kinds": {
+      "items": {
+        "$ref": "#/$defs/ProactiveKindView"
+      },
+      "maxItems": 6,
+      "title": "Kinds",
+      "type": "array"
+    },
+    "level": {
+      "enum": [
+        "off",
+        "quiet",
+        "balanced",
+        "eager"
+      ],
+      "title": "Level",
+      "type": "string"
+    },
+    "levels": {
+      "items": {
+        "$ref": "#/$defs/ProactiveLevelView"
+      },
+      "maxItems": 4,
+      "title": "Levels",
+      "type": "array"
+    },
+    "privacy": {
+      "maxLength": 600,
+      "title": "Privacy",
+      "type": "string"
+    },
+    "quiet_end": {
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "title": "Quiet End",
+      "type": "string"
+    },
+    "quiet_start": {
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "title": "Quiet Start",
+      "type": "string"
+    },
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/ProactiveRuleView"
+      },
+      "maxItems": 200,
+      "title": "Rules",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/ProactiveSourceView"
+      },
+      "maxItems": 6,
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "level",
+    "levels",
+    "quiet_start",
+    "quiet_end",
+    "day_end",
+    "follow_up_days",
+    "desktop_context",
+    "desktop_context_privacy",
+    "sources",
+    "kinds",
+    "channel",
+    "rules",
+    "privacy"
+  ],
+  "title": "ProactiveSettingsView",
+  "type": "object"
+}

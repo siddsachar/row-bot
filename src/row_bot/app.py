@@ -1140,6 +1140,13 @@ async def _run_startup_sequence():
     except Exception as exc:
         logger.warning("Could not schedule waits: %s", exc)
     try:
+        from row_bot.proactive import engine as proactive_engine
+        from row_bot.tasks import _get_scheduler
+        with _startup_phase("proactive_scheduler"):
+            proactive_engine.schedule(_get_scheduler())
+    except Exception as exc:
+        logger.warning("Could not schedule Proactive Row-Bot: %s", exc)
+    try:
         from row_bot.providers import claude_update
         from row_bot.tasks import _get_scheduler
         with _startup_phase("claude_code_update_scheduler"):
