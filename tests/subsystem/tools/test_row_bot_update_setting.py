@@ -112,7 +112,10 @@ def test_ask_shows_the_change_in_words_with_its_row_then_saves_it_with_its_undo(
     assert card["args"] == {"setting": "dream_window", "value": "2-6"}
     assert (_dream(profile)["window_start"], _dream(profile)["window_end"]) == (2, 6)
     assert answer.splitlines()[0] == "Dream cycle window set to 2:00–6:00."
-    assert self_settings.parse_undo(answer) == {"setting": "dream_window", "value": "1-5", "now": "2-6"}
+    assert self_settings.parse_undo(answer) == {
+        "setting": "dream_window", "value": "1-5", "now": "2-6", "label": "Dream Cycle",
+        "where": "Settings › Preferences › Dream Cycle", "href": "/settings/preferences#dream-cycle",
+        "before": "1:00–5:00", "after": "2:00–6:00"}
 
 
 def test_a_change_the_person_declines_is_not_saved(profile, level, person):
@@ -244,7 +247,7 @@ def test_the_persons_undo_restores_the_old_value(profile, level, person):
 
     result = self_settings.undo(undo["setting"], undo["value"], undo["now"])
 
-    assert result.splitlines()[0] == "Dream cycle window set to 1:00–5:00."
+    assert result == ("undone", "Undone: Dream Cycle is back to 1:00–5:00.")
     assert (_dream(profile)["window_start"], _dream(profile)["window_end"]) == (1, 5)
     assert person["cards"] == []  # The person pressed Undo: nothing to approve.
 
@@ -255,7 +258,7 @@ def test_undo_leaves_a_setting_changed_since_alone(profile, level, person):
 
     result = self_settings.undo(undo["setting"], undo["value"], undo["now"])
 
-    assert result == "Dream Cycle has changed since, so it wasn't undone. Change it in Settings."
+    assert result == ("changed_since", "Dream Cycle has changed since, so it wasn't undone. Change it in Settings.")
     assert (_dream(profile)["window_start"], _dream(profile)["window_end"]) == (3, 7)
 
 
