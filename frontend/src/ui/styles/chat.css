@@ -4749,14 +4749,13 @@ button.attachment-tile-face:hover {
 
 /* A Settings row or page, or one of Row-Bot's guides, linked in a message:
    a chip with the row's own name that opens it in place. */
-.settings-chip,
+.settings-link-chip,
 .guide-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   max-width: 100%;
   min-height: 22px;
-  margin: 0 2px;
   padding: 1px 8px 1px 6px;
   border: 1px solid var(--border-hairline);
   border-radius: 999px;
@@ -4769,34 +4768,34 @@ button.attachment-tile-face:hover {
   vertical-align: baseline;
   cursor: pointer;
 }
-.message-text a.settings-chip,
+.message-text a.settings-link-chip,
 .message-text a.guide-chip {
   color: var(--text-link);
   text-decoration: none;
 }
-.settings-chip:hover,
+.settings-link-chip:hover,
 .guide-chip:hover {
   border-color: var(--border-subtle);
   background: var(--accent-subtle);
 }
-.settings-chip:focus-visible,
+.settings-link-chip:focus-visible,
 .guide-chip:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
-.settings-chip > svg,
+.settings-link-chip > svg,
 .guide-chip > svg {
   flex: none;
   color: var(--text-muted);
 }
-.settings-chip > span,
+.settings-link-chip > span,
 .guide-chip > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 @media (pointer: coarse) {
-  .settings-chip,
+  .settings-link-chip,
   .guide-chip {
     min-height: 32px;
     padding-inline: 10px 12px;
@@ -4864,9 +4863,8 @@ button.attachment-tile-face:hover {
 }
 .guide-sheet-section {
   margin: 0 -8px;
-  padding: 0 8px;
+  padding: 6px 8px 0;
   border-radius: var(--radius-control, 8px);
-  scroll-margin-top: 8px;
 }
 /* The cited section flashes as a row Settings jumps to does (settings-hit). */
 .guide-sheet-section[data-highlighted='true'] {

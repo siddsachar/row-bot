@@ -726,6 +726,12 @@ body:has(.phone-tabs) .pwa-status {
 }
 
 /* A guide Row-Bot cited: a bottom sheet on a phone, a side sheet elsewhere. */
+@media (max-width: 767px) {
+  /* Its title and description clear the sheet's drag handle. */
+  .dialog.sheet.guide-overlay > .dialog-header {
+    padding-top: 16px;
+  }
+}
 @media (min-width: 768px) {
   .dialog.sheet.guide-overlay {
     top: 0;

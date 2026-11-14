@@ -78,7 +78,7 @@ function Citation({ number, href }: { number: string; href: string }) {
 function SettingsChip({ to, label }: SettingsLink) {
   return (
     <Hint label="Open in Settings">
-      <AppLink className="settings-chip" to={to}>
+      <AppLink className="settings-link-chip" to={to}>
         <Settings size={12} aria-hidden />
         <span>{label}</span>
       </AppLink>
@@ -104,7 +104,7 @@ function inAppLink(label: string, target: string, key: number): ReactNode {
     return <GuideLink key={key} route={target} label={label} />;
   if (/^\/\?tab=[a-z-]+(&[A-Za-z0-9=&_-]*)?$/.test(target))
     return (
-      <AppLink key={key} className="settings-chip" to={target}>
+      <AppLink key={key} className="settings-link-chip" to={target}>
         <span>{label}</span>
       </AppLink>
     );
