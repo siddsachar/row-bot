@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS kind_stats (
     dismissed INTEGER NOT NULL DEFAULT 0, ignored INTEGER NOT NULL DEFAULT 0,
     ignored_streak INTEGER NOT NULL DEFAULT 0, quieted_at REAL NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS drafts (
+    id TEXT PRIMARY KEY, moment_id TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
+    thread_id TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL);
 """
 
 
@@ -275,6 +278,34 @@ def delete_rule(rule_id: str) -> bool:
         deleted = conn.execute("DELETE FROM rules WHERE id = ?", (rule_id,)).rowcount
     _publish()
     return bool(deleted)
+
+
+# --- Prepared work: briefs and drafted replies, saved here and never sent ---------------------------------
+
+_DRAFT_COLUMNS = ("id", "moment_id", "kind", "title", "body", "thread_id", "created_at")
+
+
+def add_draft(moment_id: str, kind: str, title: str, body: str, *, thread_id: str, now: float) -> dict[str, Any]:
+    record = {"id": uuid.uuid4().hex[:16], "moment_id": moment_id, "kind": kind, "title": title, "body": body,
+              "thread_id": thread_id, "created_at": now}
+    with closing(_conn()) as conn, conn:
+        conn.execute(f"INSERT INTO drafts ({', '.join(_DRAFT_COLUMNS)}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     tuple(record[key] for key in _DRAFT_COLUMNS))
+    _publish()
+    return record
+
+
+def get_draft(draft_id: str) -> dict[str, Any] | None:
+    with closing(_conn()) as conn:
+        row = conn.execute(f"SELECT {', '.join(_DRAFT_COLUMNS)} FROM drafts WHERE id = ?", (draft_id,)).fetchone()
+    return dict(zip(_DRAFT_COLUMNS, row)) if row else None
+
+
+def drafts(limit: int = 100) -> list[dict[str, Any]]:
+    with closing(_conn()) as conn:
+        rows = conn.execute(f"SELECT {', '.join(_DRAFT_COLUMNS)} FROM drafts ORDER BY created_at DESC, rowid DESC "
+                            "LIMIT ?", (limit,)).fetchall()
+    return [dict(zip(_DRAFT_COLUMNS, row)) for row in rows]
 
 
 # --- Per-kind counts ---------------------------------------------------------------------------------------

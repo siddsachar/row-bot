@@ -2540,6 +2540,12 @@ def after_run_finished(task: dict, run_id: str, thread_id: str, status: str, not
     if delivery_status == "delivery_failed":
         notify(title="Delivery failed", message=f"{task['name']} — {delivery_detail}", sound="timer",
                toast_type="warning", source="workflow")
+    try:
+        from row_bot.proactive.changes import workflow_finished
+
+        workflow_finished(task, run_id, status, notice)
+    except Exception:
+        logger.debug("Proactive Row-Bot couldn't note the run", exc_info=True)
     if task.get("delete_after_run") and status != "stopped":
         delete_task(task["id"], keep_conversations=True)
 

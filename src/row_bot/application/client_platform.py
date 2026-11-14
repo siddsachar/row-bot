@@ -830,7 +830,9 @@ class ClientPlatformService:
             rows = conn.execute(
                 "SELECT thread_id,CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END AS pinned,"
                 "COALESCE(updated_at,'') AS recent FROM thread_meta "
-                + "WHERE COALESCE(deleted_at,'')='' AND (" + _LIST_GROUPS[group] + ") "
+                # Proactive Row-Bot's own preparation threads are never the person's conversations.
+                + "WHERE COALESCE(deleted_at,'')='' AND COALESCE(thread_type,'')<>'proactive' AND ("
+                + _LIST_GROUPS[group] + ") "
                 + ("AND (CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END,COALESCE(updated_at,''),thread_id)"
                    "<(:pinned,:recent,:thread_id) " if after else "")
                 + "ORDER BY pinned DESC,recent DESC,thread_id DESC LIMIT :limit",

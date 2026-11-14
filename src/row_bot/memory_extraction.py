@@ -815,7 +815,7 @@ _NEW_LABEL = "[New since then]"
 # Conversations where no person states facts about themselves: workflow runs,
 # delegated Agents' threads and Row-Bot's own temporary threads.
 _WORKFLOW_NAME_PREFIX = "⚡"
-_SKIPPED_THREAD_TYPES = frozenset({"agent_child"})
+_SKIPPED_THREAD_TYPES = frozenset({"agent_child", "proactive"})
 _INTERNAL_THREAD_PREFIXES = ("orchestration-synthesis:",)
 
 

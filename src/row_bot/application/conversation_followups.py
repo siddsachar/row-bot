@@ -55,7 +55,8 @@ def _about(seconds: float) -> str:
         count, unit = math.ceil(seconds / 3600), "hour"
     return f"{count} {unit}{'' if count == 1 else 's'}"
 
-FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on"]
+# "proactive": the person acted on a Proactive Row-Bot moment that carries on in this chat.
+FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on", "proactive"]
 
 # A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
 # "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.

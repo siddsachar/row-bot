@@ -5954,6 +5954,8 @@ class ProactiveMomentDetail(WireModel):
 
     schema_version: Literal[1]
     moment: ProactiveMomentView
+    # The chat an ``act`` with ``continue_in_chat`` carried on in (open it); "" otherwise.
+    conversation_id: str = Field(max_length=256)
     summary: str = Field(max_length=2000)
     evidence: list[ProactiveEvidence] = Field(max_length=20)
     why: list[Annotated[str, Field(max_length=300)]] = Field(max_length=8)
@@ -6047,6 +6049,23 @@ class ProactiveRuleWrite(WireModel):
     kind: Literal["", "follow_up", "meeting_prep", "brief", "date", "change", "workflow_offer"] = ""
     topic: str = Field(default="", max_length=120)
     hour: int = Field(default=-1, ge=-1, le=23)
+
+
+class ProactiveDraftView(WireModel):
+    """Something Row-Bot prepared for a moment (a meeting brief, a drafted reply): saved, never sent."""
+
+    schema_version: Literal[1] = 1
+    draft_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    moment_id: ProactiveMomentId
+    kind: Literal["brief", "reply"]
+    title: str = Field(max_length=200)
+    body: str = Field(max_length=20_000)
+    created_at: ProactiveTime
+
+
+class ProactiveDraftPage(WireModel):
+    schema_version: Literal[1]
+    items: list[ProactiveDraftView] = Field(max_length=100)
 
 
 class ProactiveBoundary(WireModel):

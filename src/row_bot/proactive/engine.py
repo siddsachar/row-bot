@@ -4,10 +4,13 @@ Each tick:
 
 1. settles moments that ran out (``feedback.sweep``);
 2. reads the desktop's state (when its switch is on) and notes the breaks since the last tick;
-3. runs the watchers that are due; what they found passes the person's rules and becomes moments, and the
-   pass is logged even when it found nothing (silence is the usual result);
+3. runs the watchers that are due; what they found passes the person's rules, then one triage pass on the
+   main model keeps what is worth a moment (``triage``), and each pass is logged even when it found
+   nothing (silence is the usual result). A moment that wants preparing (a meeting brief, a drafted
+   reply) gets it in the background, read-only (``prepare``);
 4. on the first break of the day, gathers what waits into the morning brief;
-5. sends the pending moments the budget allows (``timing.decide``), one at a time.
+5. sends the pending moments the budget allows (``timing.decide``), one at a time, each re-checked live
+   just before (stale ones are dropped) and put on exactly one surface (``deliver``).
 
 Nothing runs while the level is Off, beyond settling what ran out.
 """
@@ -17,7 +20,7 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from row_bot.proactive import feedback, store, watchers
 from row_bot.proactive import settings as proactive_settings
@@ -28,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 30
 BRIEF_EXPIRES_SECONDS = 6 * 3600
+SILENCED_KEPT = 2000  # Changes triage kept silent: never asked about again.
 _TICK_LOCK = threading.Lock()
 
 
@@ -56,19 +60,37 @@ def _open_boundary(found: list[str], now: float) -> str | None:
     return None
 
 
-def _triage(candidates: list[Candidate], settings: dict[str, Any], now: float) -> list[tuple[Candidate, str, str]]:
-    """(candidate, title, body) for each candidate worth a moment; the watcher's own words for now."""
-    return [(candidate, candidate.title, candidate.summary) for candidate in candidates]
+def _triage(candidates: list[Candidate], settings: dict[str, Any],
+            now: float) -> list[tuple[Candidate, str, str]] | None:
+    """(candidate, title, body) for each candidate worth a moment: one pass on the main model, silent by
+    default."""
+    from row_bot.proactive import triage
+
+    recent = [moment["title"] for moment in store.list_moments(since=now - 3 * 86400, limit=10)]
+    rules = [feedback.rule_words(rule) for rule in store.rules()]
+    kept, words = triage.decide(candidates, level=settings["level"], rules=rules, recent=recent)
+    store.log("pass", words, now=now, detail={"changes": len(candidates), "kept": -1 if kept is None else len(kept)})
+    return kept
+
+
+def _prepare(moment: dict[str, Any], untrusted: str) -> None:
+    """Start the read-only preparation a moment wants (a meeting brief, a drafted reply), in the background."""
+    from row_bot.proactive import prepare
+
+    if prepare.wants(moment):
+        prepare.queue(moment["id"], untrusted)
 
 
 def _gather(candidates: list[Candidate], settings: dict[str, Any], at: datetime) -> list[dict[str, Any]]:
     """Candidates through the person's choices and rules, then triage; the moments kept."""
     now = at.timestamp()
     rules = store.rules()
+    silenced = list(store.get_state("silenced") or [])
     fresh: list[Candidate] = []
     for candidate in candidates:
-        if not settings["kinds"].get(candidate.kind, False) or store.seen_key(candidate.key):
-            continue
+        if (not settings["kinds"].get(candidate.kind, False) or candidate.key in silenced
+                or store.seen_key(candidate.key)):
+            continue  # Off, already a moment, or triage already said it isn't worth one.
         reason = feedback.blocked(candidate, rules, today_start=timing.day_start(at))
         if reason:
             store.log("rule", f"Left out “{candidate.title}”: {reason}.", now=now,
@@ -77,13 +99,20 @@ def _gather(candidates: list[Candidate], settings: dict[str, Any], at: datetime)
         fresh.append(candidate)
     if not fresh:
         return []
+    chosen = _triage(fresh, settings, now)
+    if chosen is None:
+        return []  # Nothing was decided: nothing is shown, and nothing is remembered as silenced.
+    kept_keys = {candidate.key for candidate, _title, _body in chosen}
+    silenced.extend(candidate.key for candidate in fresh if candidate.key not in kept_keys)
+    store.set_state("silenced", silenced[-SILENCED_KEPT:])
     kept = []
-    for candidate, title, body in _triage(fresh, settings, now):
+    for candidate, title, body in chosen:
         moment = store.add_moment(candidate, title=title, body=body, now=now)
         if moment is not None:
             store.log("moment", f"New: “{title}” ({KIND_WORDS[candidate.kind]}).", now=now, moment_id=moment["id"],
                       detail={"watcher": candidate.watcher})
             kept.append(moment)
+            _prepare(moment, candidate.untrusted)
     return kept
 
 
@@ -128,13 +157,32 @@ def _brief(boundary: str | None, at: datetime, settings: dict[str, Any]) -> None
     store.log("moment", f"Morning brief with {len(waiting)} waiting.", now=now, moment_id=moment["id"])
 
 
-def _surface(moment: dict[str, Any], desktop: Desktop, settings: dict[str, Any], now: float) -> str:
-    """Where a moment goes. The surfaces come later; until then it shows in For you."""
-    return "for_you"
+def _recheck(moment: dict[str, Any], now: float) -> bool | None:
+    """Its watcher's live check of the evidence, just before it is shown (True when no watcher owns it)."""
+    watcher = watchers.get(moment["watcher"])
+    if watcher is None:
+        return True
+    try:
+        return watcher.recheck(moment, now)
+    except Exception:
+        logger.info("Re-checking a %s moment failed; it waits", moment["kind"], exc_info=True)
+        return None
 
 
-def _send(boundary: str | None, at: datetime, desktop: Desktop, settings: dict[str, Any],
-          surface: Callable[[dict[str, Any], Desktop, dict[str, Any], float], str]) -> list[dict[str, Any]]:
+def _pick(moment: dict[str, Any], desktop: Desktop, settings: dict[str, Any]) -> str:
+    from row_bot.proactive import deliver
+
+    return deliver.pick(moment, desktop, settings, buddy=deliver.buddy_on(), push=deliver.push_ready(),
+                        channel=deliver.channel_ready(settings))
+
+
+def _put(surface: str, moment: dict[str, Any], settings: dict[str, Any]) -> bool:
+    from row_bot.proactive import deliver
+
+    return deliver.send(surface, moment, settings)
+
+
+def _send(boundary: str | None, at: datetime, desktop: Desktop, settings: dict[str, Any]) -> list[dict[str, Any]]:
     now = at.timestamp()
     rules = store.rules()
     pending = store.list_moments(("pending",), limit=200)
@@ -157,15 +205,28 @@ def _send(boundary: str | None, at: datetime, desktop: Desktop, settings: dict[s
             continue
         if sent and moment["urgency"] != "urgent":
             continue  # One at a time at a break: the next one goes on the next tick.
-        place = surface(moment, desktop, settings, now)
+        place = _pick(moment, desktop, settings)
         if not place:
+            continue  # Away, and nothing reaches them there: it waits until they're back.
+        fresh = _recheck(moment, now)
+        if fresh is None:
             continue
-        if store.move(moment["id"], "shown", from_states=("pending",), now=now, surface=place, shown_at=now,
-                      why=list(decision.why)):
-            store.count(moment["kind"], "shown", now=now)
-            store.log("moment", f"Shown: “{moment['title']}” ({place}). {decision.reason}", now=now,
-                      moment_id=moment["id"], detail={"surface": place, "why": list(decision.why)})
-            sent.append(moment)
+        if not fresh:
+            if store.move(moment["id"], "dropped_stale", from_states=("pending",), now=now):
+                store.log("moment", f"Dropped “{moment['title']}”: it no longer holds.", now=now,
+                          moment_id=moment["id"])
+            continue
+        # Claimed for one surface first, so no other tick or surface can show it too.
+        if not store.move(moment["id"], "shown", from_states=("pending",), now=now, surface=place, shown_at=now,
+                          why=list(decision.why)):
+            continue
+        if not _put(place, moment, settings):
+            store.move(moment["id"], "pending", from_states=("shown",), now=now, surface="", shown_at=0.0, why=[])
+            continue
+        store.count(moment["kind"], "shown", now=now)
+        store.log("moment", f"Shown: “{moment['title']}” ({place}). {decision.reason}", now=now,
+                  moment_id=moment["id"], detail={"surface": place, "why": list(decision.why)})
+        sent.append(moment)
     return sent
 
 
@@ -188,7 +249,7 @@ def tick(now: float | None = None, *, desktop: Desktop | None = None) -> dict[st
         kept = _gather(candidates, settings, at) if candidates else []
         _passes(candidates, ran, skipped, kept, now)
         _brief(boundary, at, settings)
-        sent = _send(boundary, at, desktop, settings, _surface)
+        sent = _send(boundary, at, desktop, settings)
         return {"boundaries": found, "boundary": boundary, "ran": ran, "candidates": len(candidates),
                 "moments": [moment["id"] for moment in kept], "sent": [moment["id"] for moment in sent]}
     finally:
@@ -203,7 +264,8 @@ def _tick_quietly() -> None:
 
 
 def schedule(scheduler: Any) -> None:
-    """At start-up: opening Row-Bot is a break, and the tick runs every 30 seconds."""
+    """At start-up: the built-in watchers, opening Row-Bot is a break, and the tick runs every 30 seconds."""
+    watchers.register_defaults()
     note_boundary("app_open")
     scheduler.add_job(_tick_quietly, trigger="interval", seconds=TICK_SECONDS, id="row-bot-proactive",
                       replace_existing=True, coalesce=True, max_instances=1)

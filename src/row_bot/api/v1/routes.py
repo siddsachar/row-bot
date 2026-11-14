@@ -5870,6 +5870,21 @@ def create_router(
 
         return await respond(request, dto.ProactiveSettingsView, await call(delete_rule, _rule_id(rule_id)))
 
+    @router.get("/proactive/drafts")
+    async def proactive_drafts(request: Request) -> JSONResponse:
+        """Drafts: what Row-Bot prepared (meeting briefs, drafted replies), newest first. None was sent."""
+        await session(request)
+        from row_bot.application.client_proactive import list_drafts
+
+        return await respond(request, dto.ProactiveDraftPage, await call(list_drafts))
+
+    @router.get("/proactive/drafts/{draft_id}")
+    async def proactive_draft(request: Request, draft_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_proactive import read_draft
+
+        return await respond(request, dto.ProactiveDraftView, await call(read_draft, _moment_id(draft_id)))
+
     @router.post("/proactive/boundaries")
     async def proactive_boundary(request: Request) -> JSONResponse:
         """The app just opened: moments batched for a natural break may go out."""

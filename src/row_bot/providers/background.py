@@ -10,7 +10,8 @@ None of them is the person's answer, so each one runs
   contradiction, condition, verifier). On local Ollama that means it never
   loads a different model in the middle of a turn (F13);
 - on the **default chat model** when it runs unattended (extraction, Dream,
-  Learning's ``learning_*`` calls, which may instead name the model they test);
+  Proactive Row-Bot's triage, Learning's ``learning_*`` calls, which may instead
+  name the model they test);
 - at the **lowest reasoning effort** the provider supports, with no setting:
   Anthropic ``effort: low`` without turning thinking on (Claude 5 models think
   adaptively anyway, Opus 4.x without thinking stays without); OpenAI, Gemini,
@@ -59,7 +60,7 @@ from row_bot.providers.selection import parse_model_ref
 logger = logging.getLogger(__name__)
 
 # Unattended jobs use the default chat model; every other call belongs to a thread.
-UNATTENDED_PURPOSES = frozenset({"extraction", "dream"})
+UNATTENDED_PURPOSES = frozenset({"extraction", "dream", "proactive"})
 # Learning's own calls (E13): the default chat model at the lowest effort (D1), unless the
 # call names the model under test (an evaluation arm or a personal-model version). They
 # never belong to a conversation, so the running turn's model is never borrowed.
@@ -83,6 +84,8 @@ ANSWER_TOKENS: dict[str, int] = {
     # Up to eight decisions, each with at most one rewritten memory (memory_reconcile).
     "memory_reconcile": 2048,
     "dream": 1536,
+    # Proactive triage: keep or silent, a title and a short body for each change in a batch.
+    "proactive": 1536,
 }
 # Room for reasoning that still runs at the lowest effort (it counts against the
 # output cap on every provider), or that Row-Bot cannot see is off.
