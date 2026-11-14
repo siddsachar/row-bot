@@ -80,7 +80,7 @@ def test_the_activity_log_pages_newest_first_and_includes_silent_passes(proactiv
     rest = client.get(f"/api/v1/proactive/activity?limit=3&before={first['next_before']}", headers=headers).json()
 
     summaries = [item["summary"] for item in first["items"] + rest["items"]]
-    assert summaries == ["Checked fake_mail: nothing new."] * 5
+    assert summaries == ["Checked fake mail: nothing new."] * 5
     assert rest["next_before"] is None
 
 
