@@ -263,6 +263,7 @@ export default function ForYou({
         <div
           key={group.id}
           className="proactive-group"
+          data-group={group.id}
           role="group"
           aria-labelledby={`for-you-${group.id}`}
         >

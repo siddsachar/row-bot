@@ -505,11 +505,6 @@ export default function ProactiveSettings({ io }: { io?: ProactiveIO | null }) {
         <SettingsItem
           label="Proactive level"
           help={LEVEL_LINES[settings.level].line}
-          status={
-            LEVEL_LINES[settings.level].daily && (
-              <StatusLine>{LEVEL_LINES[settings.level].daily}</StatusLine>
-            )
-          }
           bind={false}
           layout="stacked"
           control={

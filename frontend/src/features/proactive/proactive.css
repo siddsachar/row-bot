@@ -190,7 +190,7 @@
   }
   .proactive-moment:hover .proactive-row-actions,
   .proactive-moment:focus-within .proactive-row-actions,
-  .proactive-group:first-of-type
+  .proactive-group[data-group='now']
     .proactive-moment:first-child
     .proactive-row-actions,
   .proactive-row-actions:has([data-state='open']) {

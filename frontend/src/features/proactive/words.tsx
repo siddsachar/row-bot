@@ -141,7 +141,10 @@ export function groupMoments(
   midnight.setHours(24, 0, 0, 0);
   for (const moment of moments) {
     if (moment.kind === 'brief' || !isLive(moment, now)) continue;
-    const due = parseTimestamp(moment.due_at);
+    // A moment due when it was made has no time of its own (a follow-up).
+    const made = parseTimestamp(moment.created_at)?.getTime() ?? 0;
+    const dueAt = parseTimestamp(moment.due_at);
+    const due = dueAt && dueAt.getTime() - made > 60_000 ? dueAt : null;
     if (
       moment.urgency === 'urgent' ||
       (due && due.getTime() - now.getTime() <= NOW_WINDOW_MS)

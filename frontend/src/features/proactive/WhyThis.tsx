@@ -237,11 +237,14 @@ export function WhyThisBody({
                 </span>
                 <span className="proactive-evidence-text">
                   <span className="proactive-evidence-source">
-                    {item.source
-                      ? (SOURCE_WORDS[item.source] ?? item.source)
-                      : 'Row-Bot'}
-                    {' · '}
-                    {EVIDENCE_WORDS[item.type] ?? 'Source'}
+                    {[
+                      item.source
+                        ? (SOURCE_WORDS[item.source] ?? item.source)
+                        : 'Row-Bot',
+                      EVIDENCE_WORDS[item.type] ?? 'Source',
+                    ]
+                      .filter((word, index, all) => all.indexOf(word) === index)
+                      .join(' · ')}
                   </span>
                   <q className="proactive-evidence-label">{item.label}</q>
                 </span>
