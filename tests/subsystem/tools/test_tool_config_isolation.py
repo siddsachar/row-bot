@@ -85,6 +85,7 @@ def test_filesystem_empty_workspace_defaults_to_row_bot_documents(tmp_path, monk
     home.mkdir()
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.delenv("ROW_BOT_WORKSPACE", raising=False)  # the home folder's default workspace
 
     import row_bot.tools.filesystem_tool as filesystem_tool
 
