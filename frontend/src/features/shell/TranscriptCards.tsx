@@ -4,17 +4,23 @@ import {
   Link2,
   MessageCircleQuestion,
   Palette,
+  Settings2,
+  SquareArrowOutUpRight,
+  Undo2,
 } from 'lucide-react';
 import type {
   EventRecord,
   ResourceView,
+  SettingChange,
   TraceAppRef,
   TraceQuestionAnswer,
   TranscriptTraceGroup,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Disclosure, Input } from '../../ui/primitives';
+import { AppLink } from '../../ui/app-link';
+import { Button, Disclosure, Hint, IconButton, Input } from '../../ui/primitives';
+import { useOptionalRuntime } from '../../runtime';
 import ChatConnect from '../apps/ChatConnect';
 import AppViewFrame from '../apps/AppViewFrame';
 import { ProcessCard } from './BackgroundProcess';
@@ -78,6 +84,13 @@ export type TranscriptCard =
   | { kind: 'video_project'; projectId: string }
   /** A conversation this one started or proposed, followed by its link (5.3.1 C). */
   | { kind: 'linked'; linkId: string; title: string }
+  /** A setting Row-Bot changed, with Undo (its result message) and its row. */
+  | {
+      kind: 'setting';
+      callId: string;
+      messageId: string;
+      change: SettingChange;
+    }
   /** Row-Bot's question, answered (or skipped), collapsed to what was chosen (N4). */
   | {
       kind: 'answer';
@@ -90,8 +103,19 @@ type Specialization = NonNullable<
   TranscriptTraceGroup['items'][number]['specialization']
 >;
 
-export function cardOf(value: Specialization | null | undefined, callId = '') {
+export function cardOf(
+  value: Specialization | null | undefined,
+  callId = '',
+  messageId = '',
+) {
   if (!value) return null;
+  if (value.kind === 'setting_change' && value.setting_change)
+    return {
+      kind: 'setting',
+      callId,
+      messageId,
+      change: value.setting_change,
+    } satisfies TranscriptCard;
   if (
     value.kind === 'question_answered' &&
     (value.outcome === 'answered' ||
@@ -177,6 +201,7 @@ export function cardOf(value: Specialization | null | undefined, callId = '') {
 }
 
 export function cardKey(card: TranscriptCard) {
+  if (card.kind === 'setting') return `setting:${card.callId}`;
   return card.kind === 'resource'
     ? `resource:${card.bindingId}`
     : card.kind === 'apps'
@@ -214,7 +239,7 @@ export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
       const card: TranscriptCard | null =
         item.app?.view && item.status === 'succeeded'
           ? { kind: 'view', callId: item.call_id, app: item.app }
-          : cardOf(item.specialization, item.call_id);
+          : cardOf(item.specialization, item.call_id, item.result_message_id);
       if (!card || seen.has(cardKey(card))) continue;
       seen.add(cardKey(card));
       cards.push(card);
@@ -422,6 +447,113 @@ function ResourceCard({
   );
 }
 
+type UndoState = 'idle' | 'busy' | 'undone' | 'changed_since' | 'unavailable';
+
+/**
+ * A setting Row-Bot changed: what it is now, Undo (the person's own action:
+ * nothing is asked, and it refuses if the setting changed since), and its row
+ * in Settings.
+ */
+function SettingCard({
+  card,
+  conversation,
+}: {
+  card: Extract<TranscriptCard, { kind: 'setting' }>;
+  conversation?: string | null;
+}) {
+  const runtime = useOptionalRuntime();
+  const [state, setState] = useState<UndoState>('idle');
+  const [note, setNote] = useState('');
+  const { label, before, after, href } = card.change;
+  const turnedOn = before === 'Off' && after === 'On';
+  async function undo() {
+    if (!runtime || !conversation || !card.messageId || state === 'busy')
+      return;
+    setState('busy');
+    setNote('');
+    try {
+      const result = await runtime.controller.undoSettingChange(
+        conversation,
+        card.messageId,
+      );
+      setState(result?.status ?? 'unavailable');
+      if (result && result.status !== 'undone') setNote(result.message);
+    } catch (cause) {
+      setState('idle');
+      setNote(clientError(cause).message);
+    }
+  }
+  const canUndo =
+    Boolean(before && card.messageId && conversation && runtime) &&
+    state !== 'undone';
+  return (
+    <div
+      className="transcript-card"
+      data-kind="setting"
+      role="group"
+      aria-label={state === 'undone' ? `Undone: ${label}` : `Changed ${label}`}
+    >
+      <Settings2 className="transcript-card-icon" aria-hidden />
+      <div className="transcript-card-text">
+        <span>
+          {state === 'undone' ? (
+            <>
+              Undone: <strong>{label}</strong> is back to {before}
+            </>
+          ) : turnedOn ? (
+            <>
+              Turned on <strong>{label}</strong>
+            </>
+          ) : (
+            <>
+              Changed <strong>{label}</strong> to {after}
+            </>
+          )}
+        </span>
+      </div>
+      <div className="transcript-card-actions">
+        {canUndo && (
+          <IconButton
+            size="sm"
+            label={
+              state === 'changed_since'
+                ? 'Changed since: open Settings to change it'
+                : turnedOn
+                  ? 'Turn it off again'
+                  : `Undo: back to ${before}`
+            }
+            disabled={
+              state === 'busy' ||
+              state === 'changed_since' ||
+              state === 'unavailable'
+            }
+            aria-busy={state === 'busy' || undefined}
+            onClick={() => void undo()}
+          >
+            <Undo2 size={15} aria-hidden />
+          </IconButton>
+        )}
+        {href && (
+          <Hint label="Show in Settings">
+            <AppLink
+              className="button ghost icon-button icon-action icon-action-sm"
+              to={href}
+              aria-label="Show in Settings"
+            >
+              <SquareArrowOutUpRight size={15} aria-hidden />
+            </AppLink>
+          </Hint>
+        )}
+      </div>
+      {note && (
+        <p role="status" className="transcript-card-error">
+          {note}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ConnectCard({
   card,
 }: {
@@ -584,6 +716,8 @@ function CardView({
     <SandboxPrepareOffer conversationId={conversation} reason={card.reason} />
   ) : card.kind === 'answer' ? (
     <AnsweredCard card={card} />
+  ) : card.kind === 'setting' ? (
+    <SettingCard card={card} conversation={conversation} />
   ) : card.kind === 'page' ? (
     <PageCard pageId={card.pageId} conversationId={conversation} />
   ) : card.kind === 'video_project' ? (

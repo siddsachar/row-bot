@@ -9558,6 +9558,8 @@ class ApprovalView(WireModel):
     folder: str = Field(default="", max_length=120)
     # A post, reply, quote or delete on X (N7): exactly what goes out, and as which account.
     x_post: XPostApproval | None = None
+    # A change to one of Row-Bot's settings: its card shows it in words, with its row.
+    setting_change: SettingChange | None = None
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 

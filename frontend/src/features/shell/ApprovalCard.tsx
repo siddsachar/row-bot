@@ -4,17 +4,22 @@ import {
   HatGlasses,
   Pencil,
   Power,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
+  SquareArrowOutUpRight,
+  X,
 } from 'lucide-react';
 import type {
   ApprovalAnswer,
   ApprovalQuestion,
   ApprovalSetup,
   ApprovalView,
+  SettingChange,
   XPostEdit,
 } from '../../api/types';
+import { AppLink } from '../../ui/app-link';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
@@ -57,6 +62,7 @@ type Hint_ = {
   reason?: string;
   risk_class?: string;
   setup?: ApprovalSetup | null;
+  setting_change?: SettingChange | null;
   reviewer_reason?: string;
   question?: string;
   questions?: ApprovalQuestion[];
@@ -604,39 +610,74 @@ export default function ApprovalCard({
         )}
       </aside>
     );
-  if (setup)
+  // A setting Row-Bot would change, or a tool it would turn on: the change in
+  // words with its row, one primary button, and icons for Settings and Not now.
+  const change = view?.setting_change ?? hint?.setting_change ?? null;
+  if (change || setup?.kind === 'tool') {
+    const turnOn = setup?.kind === 'tool' ? setup.label : '';
+    const title = turnOn ? `Turn on ${turnOn}?` : `Change ${change?.label}?`;
+    const reason =
+      view?.reason ||
+      hint?.reason ||
+      (turnOn ? `Row-Bot needs ${turnOn} for this.` : '');
+    const settled = !view || busy || Boolean(resolution);
     return (
       <aside
         className="approval-card"
-        data-kind="setup"
-        aria-label={`Turn on ${setup.label}`}
+        data-kind="setting"
+        data-layout={phone ? 'phone' : undefined}
+        aria-label={title}
       >
         <span className="approval-card-icon" aria-hidden>
-          <Power />
+          {turnOn ? <Power /> : <Settings2 />}
         </span>
         <div className="approval-card-context">
-          <strong>Turn on {setup.label}?</strong>
-          <span className="approval-card-reason">
-            {view?.reason ||
-              hint?.reason ||
-              `Row-Bot needs ${setup.label} for this.`}
-          </span>
+          <strong>{title}</strong>
+          {change && !turnOn && (
+            <span className="approval-card-change">
+              {change.before && (
+                <>
+                  <span className="approval-card-before">{change.before}</span>
+                  <span aria-label="becomes"> → </span>
+                </>
+              )}
+              <span className="approval-card-after">{change.after}</span>
+            </span>
+          )}
+          {reason && <span className="approval-card-reason">{reason}</span>}
+          <ReviewerNote
+            reason={view?.reviewer_reason || hint?.reviewer_reason}
+          />
         </div>
         <div className="approval-card-actions">
-          <Button
-            disabled={!view || busy || Boolean(resolution)}
+          {change?.href && (
+            <Hint label="Show in Settings">
+              <AppLink
+                className="button ghost icon-button icon-action"
+                to={change.href}
+                aria-label="Show in Settings"
+              >
+                <SquareArrowOutUpRight size={16} aria-hidden />
+              </AppLink>
+            </Hint>
+          )}
+          <IconButton
+            label="Not now"
+            disabled={settled}
             onClick={() => void resolve('reject')}
           >
-            Not now
-          </Button>
+            <X size={16} aria-hidden />
+          </IconButton>
           <Button
             variant="primary"
-            aria-keyshortcuts="Control+Enter Meta+Enter"
-            disabled={!view || busy || Boolean(resolution)}
+            aria-keyshortcuts={
+              shortcut ? 'Control+Enter Meta+Enter' : undefined
+            }
+            disabled={settled}
             onClick={() => void resolve('approve')}
           >
-            Turn on
-            {keyboard && (
+            {turnOn ? 'Turn on' : 'Change'}
+            {keyboard && shortcut && (
               <span aria-hidden className="approval-card-kbd">
                 <Kbd keys="Mod+Enter" />
               </span>
@@ -645,9 +686,13 @@ export default function ApprovalCard({
         </div>
         {resolution && (
           <p role="status" className="approval-card-status">
-            {resolution === 'Approval submitted.'
-              ? `Turning on ${setup.label}…`
-              : `${setup.label} stays off.`}
+            {resolution !== 'Approval submitted.'
+              ? turnOn
+                ? `${turnOn} stays off.`
+                : `${change?.label} stays as it was.`
+              : turnOn
+                ? `Turning on ${turnOn}…`
+                : `Changing ${change?.label}…`}
           </p>
         )}
         {error && (
@@ -657,6 +702,7 @@ export default function ApprovalCard({
         )}
       </aside>
     );
+  }
   return (
     <aside
       className="approval-card"

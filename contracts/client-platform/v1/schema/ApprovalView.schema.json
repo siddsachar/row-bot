@@ -138,6 +138,49 @@
       "title": "ApprovalSetup",
       "type": "object"
     },
+    "SettingChange": {
+      "additionalProperties": false,
+      "description": "A change to one of Row-Bot's settings, in words: the row's name, where it is, what it was and becomes.",
+      "properties": {
+        "after": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Before",
+          "type": "string"
+        },
+        "href": {
+          "default": "",
+          "maxLength": 200,
+          "pattern": "^(/settings/[A-Za-z0-9/?=&#._:-]{0,189})?$",
+          "title": "Href",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "where": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "after"
+      ],
+      "title": "SettingChange",
+      "type": "object"
+    },
     "TraceAppRef": {
       "additionalProperties": false,
       "description": "An app a Connect card offers, or the app behind a step or approval: its catalog id, name and logo,\nre-read from local data, and for a step the tool's readable title in that app (\"Delete page\").",
@@ -475,6 +518,17 @@
       "maxLength": 1024,
       "title": "Scope",
       "type": "string"
+    },
+    "setting_change": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SettingChange"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "setup": {
       "anyOf": [
