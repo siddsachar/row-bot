@@ -52,6 +52,8 @@ def env(tmp_path, monkeypatch):
         ("xai_oauth", "grok-imagine-video"),
         ("xai_oauth", "grok-imagine-image"),
         ("google", "imagen-4.0-generate-001"),
+        ("codex", "gpt-image-2"),
+        ("openrouter", "google/gemini-2.5-flash-image"),
     ]
     cloud_cache = {
         f"model:{provider}:{model}": model_info_to_cache_entry(model_info_from_metadata(provider, model))
@@ -319,7 +321,6 @@ assert not {'row_bot.tools', 'row_bot.tools.registry', 'row_bot.tools.image_gen_
     [
         "gpt-image-1",
         "model:openai:gpt-image-1",
-        "foreign/model",
         "openai/",
         "openai/model\n",
     ],
@@ -367,3 +368,84 @@ def test_an_image_model_that_cannot_edit_is_refused_before_any_effect(env):
             env.policy.capture_provider_policy(action)
     assert env.policy.capture_provider_policy("still")["image_model"] is None
     assert not env.calls
+
+
+def _codex_signed_in(env, monkeypatch, *, plan="plus"):
+    from row_bot.providers import auth_store, codex
+
+    env.values["image_gen"] = "codex/gpt-image-2"
+    env.providers["providers"]["codex"] = {
+        "auth_method": "oauth_device",
+        "source": "oauth_device",
+        "configured": True,
+        "health": "connected",
+        "account_id_hash": "synthetic-hash",
+        "plan_type": plan,
+        "expires_at": "2099-01-01T00:00:00Z",
+    }
+    credentials = SimpleNamespace(
+        access_token="synthetic-access",
+        refresh_token="synthetic-refresh",
+        account_id="synthetic-account",
+        plan_type=plan,
+    )
+    monkeypatch.setattr(
+        auth_store,
+        "read_provider_oauth_bundle_snapshot",
+        lambda provider: ({}, deepcopy(env.providers["providers"][provider]), "rev"),
+    )
+
+    def read(*, refresh_if_needed, _snapshot):
+        assert refresh_if_needed is False
+        return credentials
+
+    monkeypatch.setattr(codex, "codex_runtime_credentials", read)
+    monkeypatch.setattr(
+        codex, "refresh_codex_token", lambda *a, **k: pytest.fail("unexpected refresh")
+    )
+    return credentials
+
+
+def test_a_chatgpt_image_model_paints_buddy_bound_to_the_signed_in_account(
+    env, monkeypatch
+):
+    credentials = _codex_signed_in(env, monkeypatch)
+    captured = env.policy.capture_provider_policy("full")
+    assert captured["image_model"] == "codex/gpt-image-2"
+    assert credentials.access_token not in json.dumps(captured)
+    auth = env.policy.validate_provider("image", captured["image_model"], captured)
+    assert auth.provider == "codex"
+    assert auth.base_url == "https://chatgpt.com/backend-api/codex"
+    # The token renews while the Hatch paints; the approval still holds.
+    credentials.access_token = "renewed-access"
+    env.providers["providers"]["codex"]["expires_at"] = "2099-02-01T00:00:00Z"
+    env.policy.validate_provider("image", captured["image_model"], captured)
+    # Another ChatGPT account signed in meanwhile does not.
+    credentials.account_id = "replacement-account"
+    with pytest.raises(ValueError, match="buddy_policy_changed"):
+        env.policy.validate_provider("image", captured["image_model"], captured)
+
+
+@pytest.mark.parametrize("plan", ["free", "FREE"])
+def test_a_chatgpt_plan_without_images_is_refused_before_any_effect(
+    env, monkeypatch, plan
+):
+    _codex_signed_in(env, monkeypatch, plan=plan)
+    with pytest.raises(ValueError, match="buddy_account_unavailable"):
+        env.policy.capture_provider_policy("full")
+
+
+def test_chatgpt_images_follow_the_api_key_only_data_policy(env, monkeypatch):
+    _codex_signed_in(env, monkeypatch)
+    env.context["data_policy"] = "allow_api_key"
+    with pytest.raises(ValueError, match="buddy_data_policy_denied"):
+        env.policy.capture_provider_policy("full")
+
+
+@pytest.mark.parametrize(
+    "selection", ["openrouter/google/gemini-2.5-flash-image", "foreign/model"]
+)
+def test_an_image_provider_buddy_cannot_paint_with_says_so(env, selection):
+    env.values["image_gen"] = selection
+    with pytest.raises(ValueError, match="buddy_image_model_unsupported"):
+        env.policy.capture_provider_policy("full")

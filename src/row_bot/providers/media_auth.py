@@ -56,6 +56,12 @@ def validate_auth(auth: CapturedMediaAuth, selection: str) -> None:
         allowed = (
             auth.base_url.rstrip("/") == "https://generativelanguage.googleapis.com"
         )
+    elif auth.provider == "codex":
+        from row_bot.providers.transports.codex_responses import (
+            CODEX_RESPONSES_BASE_URL,
+        )
+
+        allowed = auth.base_url.rstrip("/") == CODEX_RESPONSES_BASE_URL
     else:
         allowed = auth.provider in {"xai", "xai_oauth"} and (
             parsed.hostname == "x.ai" or (parsed.hostname or "").endswith(".x.ai")

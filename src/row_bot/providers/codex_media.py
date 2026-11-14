@@ -74,9 +74,15 @@ def _post(path: str, body: dict[str, Any], http_client: Any | None) -> Any:
 
 
 def _headers() -> dict[str, str]:
+    from row_bot.providers.media_auth import current_media_auth
+
     credentials = codex_auth.codex_runtime_credentials(refresh_if_needed=True)
     if not credentials.access_token or not credentials.account_id:
         raise RuntimeError(codex_auth.codex_reconnect_message())
+    # A Buddy Hatch was approved for one ChatGPT account (its captured credential).
+    captured = current_media_auth("codex")
+    if captured is not None and captured.credential != credentials.account_id:
+        raise ValueError("media_auth_unavailable")
     return {
         "Authorization": f"Bearer {credentials.access_token}",
         "ChatGPT-Account-ID": credentials.account_id,

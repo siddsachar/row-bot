@@ -89,6 +89,24 @@ def test_a_chatgpt_plan_edits_the_last_image(chatgpt_images, monkeypatch):
     assert call.json["images"][0]["image_url"].startswith("data:image/png;base64,")
 
 
+def test_a_buddy_hatch_paints_only_on_the_chatgpt_account_it_was_approved_for(chatgpt_images):
+    from row_bot.providers.codex_media import codex_image
+    from row_bot.providers.media_auth import CapturedMediaAuth, media_auth_scope
+
+    base = "https://chatgpt.com/backend-api/codex"
+    source = "data:image/png;base64," + PNG
+    chatgpt_images.client.responses.append(_Response({"data": [{"b64_json": PNG}]}))
+    approved = CapturedMediaAuth("codex/gpt-image-2", "codex", "synthetic-account", "approval", base)
+    with media_auth_scope(approved, selection="codex/gpt-image-2", validate=lambda: None):
+        assert codex_image("gpt-image-2", "wave hello", source=source) == PNG
+
+    other = CapturedMediaAuth("codex/gpt-image-2", "codex", "another-account", "approval", base)
+    with media_auth_scope(other, selection="codex/gpt-image-2", validate=lambda: None):
+        with pytest.raises(ValueError, match="media_auth_unavailable"):
+            codex_image("gpt-image-2", "wave hello", source=source)
+    assert len(chatgpt_images.client.calls) == 1
+
+
 def test_a_reached_plan_limit_says_so_and_when_it_resets(chatgpt_images):
     chatgpt_images.client.responses.append(_Response(
         {"error": {"type": "usage_limit_reached", "message": "limit", "resets_at": 1_800_000_000}}, status_code=429))

@@ -76,11 +76,12 @@ def _media_state(surface: str, context: dict) -> tuple[str, dict]:
     ):
         raise ClientPlatformError("invalid_media_selection")
     if provider not in (
-        {"openai", "google", "xai", "xai_oauth"}
+        {"openai", "google", "xai", "xai_oauth", "codex"}
         if surface == "image"
         else {"google", "xai", "xai_oauth"}
     ):
-        raise ClientPlatformError("invalid_media_selection")
+        # A well-formed choice of a provider Buddy can't paint with yet.
+        raise ClientPlatformError("buddy_image_model_unsupported")
     # Explicit stored changes must not silently use a stale process registry.
     path = registry._config_path()
     if path.exists():
@@ -141,7 +142,10 @@ def _media_state(surface: str, context: dict) -> tuple[str, dict]:
     if entry is None:
         raise ClientPlatformError("buddy_media_capability_unavailable")
     policy = context.get("data_policy")
-    if policy == "local_only" or policy == "allow_api_key" and provider == "xai_oauth":
+    if policy == "local_only" or policy == "allow_api_key" and provider in {
+        "xai_oauth",
+        "codex",
+    }:
         raise ClientPlatformError("buddy_data_policy_denied")
     return selection, {
         "tool": parent,
@@ -200,6 +204,37 @@ def _account_auth(selection: str) -> CapturedMediaAuth:
             "bundle": captured[1],
             "base_url": base_url,
         }
+        entry = before
+    elif provider == "codex":
+        from row_bot.providers import codex
+        from row_bot.providers.codex_media import NO_IMAGES_PLANS
+        from row_bot.providers.transports.codex_responses import (
+            CODEX_RESPONSES_BASE_URL,
+        )
+
+        captured = auth_store.read_provider_oauth_bundle_snapshot(provider)
+        if captured[1] != before:
+            raise ClientPlatformError("buddy_policy_changed")
+        credentials = codex.codex_runtime_credentials(
+            refresh_if_needed=False, _snapshot=captured
+        )
+        if (
+            not (credentials.access_token or credentials.refresh_token)
+            or not credentials.account_id
+            or (credentials.plan_type or "").lower() in NO_IMAGES_PLANS
+            or before.get("health") in {"missing_auth", "disabled"}
+        ):
+            raise ClientPlatformError("buddy_account_unavailable")
+        # The ChatGPT access token renews about hourly and a Hatch paints for minutes,
+        # so the approval binds the account, not one token generation: the image
+        # request renews the token itself and refuses any other account.
+        base_url = CODEX_RESPONSES_BASE_URL
+        selected = credentials.account_id
+        identity = {"account": credentials.account_id, "base_url": base_url}
+        entry = {
+            name: before.get(name)
+            for name in ("auth_method", "source", "account_id_hash", "plan_type")
+        }
     else:
         selected = auth_store.get_provider_secret(provider)
         if not selected or len(selected) > 16384:
@@ -210,6 +245,7 @@ def _account_auth(selection: str) -> CapturedMediaAuth:
             "google": "https://generativelanguage.googleapis.com",
             "xai": "https://api.x.ai/v1",
         }[provider]
+        entry = before
     after = load_provider_config(strict=True).get("providers", {}).get(provider, {})
     if before != after:
         raise ClientPlatformError("buddy_policy_changed")
@@ -217,7 +253,7 @@ def _account_auth(selection: str) -> CapturedMediaAuth:
         _bounded(
             {
                 "provider": provider,
-                "entry": before,
+                "entry": entry,
                 "identity": identity,
                 "organization": organization,
                 "project": project,
