@@ -1446,3 +1446,93 @@ def test_a_freeze_that_serves_no_arm_says_why_in_its_report(profile, folders, ca
     found = written["exploratory_27b"]
     assert (found["state"], found["reason"]) == ("not_run", "no_starting_model")
     assert found["serve_failures"] == {"start27": "probe_failed"}
+
+
+def _finished_run(fake: _Exploratory, repo: str = "ada/row-bot-personal-0123456789ab") -> tuple[str, str]:
+    """A 27B run that already finished on Hugging Face (its job, logs and model repository), as the v2 freeze's
+    third run left it on 14 Nov."""
+
+    fake.hub.create_private_repo(repo, "model")
+    remote = fake.hub.run_job(image="row-bot", command=[], env={}, secrets={}, flavor="a100-large",
+                              timeout_seconds=36_000, labels={"row-bot-job": "job_gone"})
+    fake.hub.finish(remote.id, output_repo=repo, base=True, running_seconds=5_400)
+    fake.hub.calls.clear()
+    return remote.id, repo
+
+
+def test_a_finished_27b_run_is_downloaded_measured_and_deleted_without_uploading(profile, folders, capsys, chats):
+    scratch, out = folders
+    rows, validation = _trained_on_the_profiles_rows(profile, chats)
+    before = _hashes(profile)
+    fake = _Exploratory()
+    remote_id, repo = _finished_run(fake)
+
+    code = report.main(["--exploratory-27b", "--as-of", "2030-01-01", "--hugging-face-run", remote_id,
+                        "--output-repo", repo, "--profile", str(profile), "--scratch", str(scratch), "--out", str(out),
+                        "--yes"], hooks=_exploratory_hooks(fake, "download", chats))
+
+    printed = capsys.readouterr()
+    assert code == 0, printed.out
+    written = _written(out)
+    report.validate(written, report.EXPLORATORY_REPORT)
+    assert fake.asked and "download" in fake.asked[0]  # asked even with --yes
+    found = written["exploratory_27b"]
+    assert (found["state"], found["reason"], found["model"]) == ("run", None, "qwen3.8-27b")
+    assert found["rows"] == {"examples": rows, "validation": validation, "matched": True} and found["upload_bytes"] > 0
+    assert (found["uploads_deleted"], found["minutes"], found["cost_usd"]) == (True, 90, 3.75)  # 90 min at $2.50/h
+    assert set(found["arms"]) == {"start27", "personal27", "personal"}
+    assert not {"upload", "run_job", "create_private_repo"} & set(fake.hub.calls)  # nothing uploaded or trained
+    assert fake.hub.deleted == [repo] and not fake.hub.repos
+    assert remote_id not in printed.out + json.dumps(written)
+    assert _hashes(profile) == before
+
+
+def test_a_run_that_isnt_finished_is_left_as_it_is(profile, folders, chats):
+    scratch, out = folders
+    _trained_on_the_profiles_rows(profile, chats)
+    fake = _Exploratory()
+    repo = "ada/row-bot-personal-0123456789ab"
+    fake.hub.create_private_repo(repo, "model")
+    remote = fake.hub.run_job(image="row-bot", command=[], env={}, secrets={}, flavor="a100-large",
+                              timeout_seconds=36_000, labels={"row-bot-job": "job_gone"})
+
+    code = report.main(["--exploratory-27b", "--as-of", "2030-01-01", "--hugging-face-run", remote.id,
+                        "--output-repo", repo, "--profile", str(profile), "--scratch", str(scratch), "--out", str(out),
+                        "--yes"], hooks=_exploratory_hooks(fake, "download", chats))
+
+    assert code == 0
+    found = _written(out)["exploratory_27b"]
+    assert (found["state"], found["reason"]) == ("not_run", "remote_error")
+    assert fake.asked == [] and repo in fake.hub.repos and not fake.hub.deleted
+
+
+def test_a_sign_in_that_lapses_while_the_run_trains_ends_the_wait_and_keeps_its_files(profile, folders, chats):
+    """14 Nov: the v2 freeze's third run lost its Hugging Face sign-in during its nine-hour evaluation and then
+    waited for its 27B for good, printing nothing."""
+
+    scratch, out = folders
+    _trained_on_the_profiles_rows(profile, chats)
+    fake = _Exploratory()
+    hooks = _exploratory_hooks(fake, "upload", chats)
+    hooks.sleep = lambda _seconds: fake.trainer.sign_in().sign_out()  # the run never finishes; the sign-in goes
+
+    code = report.main(["--freeze", "--as-of", "2030-01-01", "--hugging-face-27b", "--profile", str(profile),
+                        "--scratch", str(scratch), "--out", str(out), "--yes"], hooks=hooks)
+
+    assert code == 0
+    found = _written(out)["exploratory_27b"]
+    assert (found["state"], found["reason"]) == ("not_run", "signed_out")
+    assert fake.hub.repos and not fake.hub.deleted  # nothing deletes the run's files without the sign-in
+
+
+def test_the_exploratory_mode_needs_the_run_and_its_repository(profile, folders, capsys):
+    scratch, out = folders
+    for extra in ([], ["--hugging-face-run", "abc123def456"], ["--output-repo", "ada/row-bot-personal-0123"],
+                  ["--hugging-face-run", "abc123def456", "--output-repo", "ada/someone-elses-model"]):
+        with pytest.raises(SystemExit):
+            report.main(["--exploratory-27b", "--as-of", "2030-01-01", *extra, "--profile", str(profile),
+                         "--scratch", str(scratch), "--out", str(out)])
+    assert "--exploratory-27b needs" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        report.main(["--freeze", "--as-of", "2030-01-01", "--output-repo", "ada/row-bot-personal-0123",
+                     "--profile", str(profile), "--scratch", str(scratch), "--out", str(out)])

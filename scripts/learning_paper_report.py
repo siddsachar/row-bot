@@ -90,6 +90,11 @@ CLOUD_CAP = 5_000_000
 #: participant types to agree to the upload.
 EXPLORATORY_MODEL = "qwen3.8-27b"
 UPLOAD_WORD = "upload"
+#: ``--exploratory-27b``: the typed agreement to download a finished run and then delete its repository.
+DOWNLOAD_WORD = "download"
+#: A Hugging Face job id and a run's own model repository (the product names it ``row-bot-personal-<job>``).
+HF_JOB_ID = re.compile(r"^[0-9A-Za-z]{6,64}$")
+HF_RUN_REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}/row-bot-personal-[0-9a-z]{1,12}$")
 #: A10's three local arms run model by model (``evaluation.freeze_check(order=...)``); the results are the same.
 EXPLORATORY_ORDER = "model"
 #: The v1 freeze (§10: Mon 2 Nov 2026, 23:59 local): v2's H1 and H2 use only real work captured after its end (A12).
@@ -610,6 +615,19 @@ H3 = Obj({
                                              "accepted": COUNT, "better": COUNT, "tokens": COUNT,
                                              "yield": YIELD}), 20)})),
 })
+# A10: reported apart, exploratory, outside the confirmatory family and without Holm.
+EXPLORATORY_SECTION = Obj({
+    "state": enum("not_requested", "not_run", "run"), "reason": Maybe(EXPLORATORY_REASONS),
+    "model": enum(EXPLORATORY_MODEL), "recipe": Maybe(Text(pattern=re.compile(r"^hf-[0-9a-z]+-v\d+$"))),
+    "rows": Obj({"examples": COUNT, "validation": COUNT, "matched": BOOL}),
+    "upload_bytes": COUNT, "cost_usd": Maybe(HOURS), "minutes": Maybe(COUNT), "uploads_deleted": Maybe(BOOL),
+    "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT),
+    "arms": Map(EXPLORATORY_ARMS, Obj({"tokens": COUNT, "cloud_tokens": COUNT, "seconds": HOURS, "ran": COUNT,
+                                       "cached": COUNT, "identical": Obj({"problems": COUNT, "identical": COUNT}),
+                                       "splits": Map(SPLITS, ARM_SPLIT)})),
+    "contrasts": Map(EXPLORATORY_CONTRASTS, Map(SPLITS, SPLIT_ANALYSIS)),
+    "serve_failures": Map(enum("start27", "personal27", "start", "personal"), SERVE_FAILURE),
+}, optional=frozenset({"serve_failures"}))
 FREEZE = Obj({
     "format": enum(FORMAT), "schema_version": Num(integer=True, low=SCHEMA_VERSION, high=SCHEMA_VERSION),
     "mode": enum("freeze"), "run": RUN,
@@ -642,19 +660,7 @@ FREEZE = Obj({
     "hypotheses": Obj({"H1": HYPOTHESIS, "H2": HYPOTHESIS, "H3": H3}),
     "holm": Obj({"family": Seq(enum(*FAMILIES["v2"]), 3), "alpha": SHARE, "untested_enter_as": SHARE,
                  "adjusted": Map(enum(*FAMILIES["v2"]), Maybe(SHARE))}),
-    # A10: reported apart, exploratory, outside the confirmatory family and without Holm.
-    "exploratory_27b": Obj({
-        "state": enum("not_requested", "not_run", "run"), "reason": Maybe(EXPLORATORY_REASONS),
-        "model": enum(EXPLORATORY_MODEL), "recipe": Maybe(Text(pattern=re.compile(r"^hf-[0-9a-z]+-v\d+$"))),
-        "rows": Obj({"examples": COUNT, "validation": COUNT, "matched": BOOL}),
-        "upload_bytes": COUNT, "cost_usd": Maybe(HOURS), "minutes": Maybe(COUNT), "uploads_deleted": Maybe(BOOL),
-        "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT),
-        "arms": Map(EXPLORATORY_ARMS, Obj({"tokens": COUNT, "cloud_tokens": COUNT, "seconds": HOURS, "ran": COUNT,
-                                           "cached": COUNT, "identical": Obj({"problems": COUNT, "identical": COUNT}),
-                                           "splits": Map(SPLITS, ARM_SPLIT)})),
-        "contrasts": Map(EXPLORATORY_CONTRASTS, Map(SPLITS, SPLIT_ANALYSIS)),
-        "serve_failures": Map(enum("start27", "personal27", "start", "personal"), SERVE_FAILURE),
-    }, optional=frozenset({"serve_failures"})),
+    "exploratory_27b": EXPLORATORY_SECTION,
     # A12 2 and 4c (secondary): the gap closed on real work, and the judged long answers' calibration and counts.
     "gap_closed": Map(enum("real_uncorrected", "real_corrected"), GAP),
     "judged_long_answers": JUDGED,
@@ -674,7 +680,18 @@ THINKING = Obj({
                 Obj({"seconds_per_task": Map(enum("visible", "hidden"), HOURS), "tokens": COUNT})),
     "thinking_on_vs_off": Map(THINKING_MODELS, Map(enum("visible", "hidden", "combined"), THINKING_PART)),
 })
-SCHEMAS = {"health": HEALTH, "freeze": FREEZE, "thinking": THINKING}
+# A10 from a run already finished on Hugging Face (``--exploratory-27b``, 14 Nov): its own report, the same section.
+EXPLORATORY_REPORT = Obj({
+    "format": enum(FORMAT), "schema_version": Num(integer=True, low=SCHEMA_VERSION, high=SCHEMA_VERSION),
+    "mode": enum("exploratory"), "run": RUN,
+    "design": Obj({"as_of": Text(pattern=DAY), "paper": enum("v1", "v2"), "since": Text(pattern=DAY),
+                   "metric_version": COUNT, "repeats": COUNT, "task_tokens": COUNT, "container": BOOL,
+                   "hours": HOURS,
+                   "vault_refresh": Obj({"considered": COUNT, "added": COUNT, "retired": COUNT, "held": COUNT})},
+                  optional=frozenset({"since"})),
+    "exploratory_27b": EXPLORATORY_SECTION,
+})
+SCHEMAS = {"health": HEALTH, "freeze": FREEZE, "thinking": THINKING, "exploratory": EXPLORATORY_REPORT}
 
 
 # ── 4. Small helpers over the copy (it is the only data folder Row-Bot sees) ──
@@ -1271,6 +1288,86 @@ def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Ho
     return found
 
 
+def attach_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Hooks, remote_id: str,
+                       output_repo: str, rows: tuple[list[Any], list[Any], bool, str | None] | None = None
+                       ) -> Exploratory:
+    """A10 from a run already finished on Hugging Face (14 Nov: the v2 freeze's third run trained the 27B,
+    then lost its sign-in while it waited). The newest version's rows are rebuilt and checked as for an upload,
+    the run is checked finished with its files there, the participant types ``download``, and the product's
+    own path then downloads, makes ready and (after) deletes it (:func:`finish_exploratory`). Nothing is
+    uploaded or trained; a run that isn't finished is left as it is."""
+
+    from row_bot.application.settings_commands import write_learning_settings
+    from row_bot.learning.remote import training as remote_training
+    from row_bot.learning.remote.hub import HubError
+    from row_bot.learning.training import dataset as dataset_module
+    from row_bot.learning.training import jobs as jobs_module
+    from row_bot.learning.training import recipes
+
+    found = Exploratory(state="not_run")
+    if newest is None:
+        return found.fail("no_version")
+    train, validation, matched, reason = rows if rows is not None else rows_for_upload(copy, newest,
+                                                                                      lookup=hooks.lookup)
+    found.examples, found.validation, found.matched = len(train), len(validation), matched
+    if not matched:
+        return found.fail(reason or "rows_not_reproducible")
+    recipe = recipes.load("hf-27b")
+    found.recipe = recipe.name
+    write_learning_settings({"hugging_face.model": EXPLORATORY_MODEL})
+    trainer = (hooks.hugging_face or _hugging_face_trainer)(copy)
+    found.trainer = trainer
+    remote_training.configure(trainer)  # the release maker downloads the version's file through this one
+    if trainer.choice() is None or trainer.choice().id != EXPLORATORY_MODEL:
+        return found.fail("no_model")
+    hub = trainer.hub()
+    try:
+        remote = hub.job(remote_id)
+        done = any(event["type"] == "done"
+                   for event in remote_training.parse_lines(hub.log_lines(remote_id, tail=400)))
+        outputs = json.loads(hub.read_text(output_repo, "model", "outputs.json"))
+    except (HubError, ValueError) as error:
+        return found.fail("signed_out" if getattr(error, "code", None) == "signed_out" else "remote_error")
+    if remote.stage != "COMPLETED" or not done or not isinstance(outputs, dict):
+        return found.fail("remote_error")
+    size = sum(int(item.get("size") or 0) for item in outputs.get("files") or [] if isinstance(item, dict))
+    say()
+    say("The exploratory 27B (A10), from the run that already finished on Hugging Face:")
+    say(f"  It downloads that run's model ({size / 1e9:.1f} GB), makes it ready as Row-Bot does, measures it on")
+    say(f"  the same hidden problems with your newest local personal model (v{int(newest['version'])}), then")
+    say("  deletes the run's model repository on Hugging Face. Nothing is uploaded or trained.")
+    try:
+        answer = hooks.ask(f"Type {DOWNLOAD_WORD} to go on (anything else: not run): ")
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() != DOWNLOAD_WORD:
+        return found.fail("declined")
+    steps = recipe.steps_for(len(train))
+    job = trainer.jobs.plan(steps_total=steps, checkpoint_every=recipe.checkpoint_interval(steps),
+                            recipe=recipe.spec(None), dataset={"id": "ds_exploratory", "examples": len(train)},
+                            backend="hugging_face")
+    data = jobs_module.run_dir(job.id, copy) / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    for name, items in ((dataset_module.EXAMPLES_FILE, train), (dataset_module.VALIDATION_FILE, validation)):
+        (data / name).write_text("".join(json.dumps(item.row, ensure_ascii=False, sort_keys=True) + "\n"
+                                         for item in items), encoding="utf-8")
+    examples, upload_bytes = trainer._upload_size(job)  # noqa: SLF001 - the bytes the run was given
+    found.upload_bytes = int(upload_bytes)
+    quote = trainer.quote(examples=examples, upload_bytes=upload_bytes, steps=steps)
+    # The run as the product records one it submitted; the uploaded rows' repository is already gone.
+    remote_training.write_record(remote_training.RunRecord(
+        job_id=job.id, phase="running", namespace=output_repo.split("/")[0], output_repo=output_repo,
+        remote_id=remote_id, flavor=quote.flavor, price_per_hour=quote.price_per_hour, model_id=quote.model_id,
+        quantization=quote.quantization, timeout_seconds=quote.timeout_seconds, steps_total=steps,
+        base_gguf=True, submit_started_at=time.time()), copy)
+    trainer.jobs.move(job.id, "preparing", reason="train_now", trigger="train_now", steps_done=0,
+                      expect=("planned",))
+    trainer.jobs.move(job.id, "running", reason="found", remote_request_id=remote_id, started_at=time.time())
+    found.job_id = job.id
+    say("Checked: the run is finished and its files are there. Downloading ...")
+    return found
+
+
 def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: Hooks, client: Any,
                        budget: Any, meter: Any, packs: Sequence[str], verifiers: Any, repeats: int,
                        container: bool, since: float | None = None) -> Exploratory:
@@ -1286,11 +1383,22 @@ def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: H
     trainer, job_id = found.trainer, found.job_id
     if trainer is None or job_id is None:
         return found
+    polls = 0
     while True:
         trainer.tick()
         job = trainer.jobs.get(job_id)
         if job is None or job.state in ("evaluating", "failed", "stopped"):
             break
+        if not trainer.signed_in():
+            # 14 Nov: the sign-in lapsed while the evaluation ran, and this wait went on for good, silently.
+            # The run's repositories stay on Hugging Face (nothing deletes them without the sign-in).
+            found.section.update(_cost(remote_training.read_record(job_id, copy)))
+            return found.fail("signed_out")
+        polls += 1
+        if polls % 10 == 0:
+            phase = str(getattr(remote_training.read_record(job_id, copy), "phase", "") or "")
+            say(f"  Waiting for the run on Hugging Face ({phase if re.match(r'^[a-z_]{1,32}$', phase) else '?'}, "
+                f"{round(polls * POLL_SECONDS / 60)} min) ...")
         hooks.sleep(POLL_SECONDS)
     record = remote_training.read_record(job_id, copy)
     if job is None or job.state != "evaluating":
@@ -1376,6 +1484,46 @@ def exploratory_section(found: Exploratory) -> dict[str, Any]:
         "contrasts": {name: {split: _split(part) for split, part in value.items()}
                       for name, value in (result.get("contrasts") or {}).items()},
         **({"serve_failures": found.section["serve_failures"]} if found.section.get("serve_failures") else {}),
+    }
+
+
+def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str, output_repo: str,
+                       paper: str = "v1", repeats: int = 3, cap_tokens: int = CLOUD_CAP) -> dict[str, Any]:
+    """``--exploratory-27b``: A10 alone, from a run already finished on Hugging Face, on the same hidden problems
+    (in v2 the same window) the freeze used; reported apart, as in the freeze report."""
+
+    from row_bot.learning import evaluation
+    from row_bot.learning.packs import PACKS
+    from row_bot.learning.spending import TokenMeter
+    from row_bot.learning.store import LearningStore
+
+    started = time.monotonic()
+    store = LearningStore(copy)
+    candidates = [row for row in _versions(copy) if not row["pilot"] and row["_ready_once"]
+                  and row["_gguf"] is not None and Path(row["_gguf"]).is_file()]
+    newest = max(candidates, key=lambda row: row["version"]) if candidates else None
+    # As in the freeze: the rows are rebuilt before the vault takes anything new.
+    rows = rows_for_upload(copy, newest, lookup=hooks.lookup) if newest is not None else None
+    refreshed = evaluation.refresh_audit(store=store, asked_by="the paper's exploratory 27B (A10)")
+    since = _end_of_day(V1_FREEZE) if paper == "v2" else None
+    container = bool((hooks.container or _container)())
+    packs = [pack for pack in PACKS if container or pack != "small_coding"]
+    verifiers = None if container else ["answer", "json_answer", "file", "app_state"]
+    found = attach_exploratory(copy, newest, hooks=hooks, remote_id=remote_id, output_repo=output_repo, rows=rows)
+    if found.job_id is not None:
+        found.section["_newest"] = newest
+        finish_exploratory(copy, found, as_of=_end_of_day(as_of), hooks=hooks, client=hooks.client,
+                           budget=evaluation.Budget(task_tokens=150_000), meter=TokenMeter(cap_tokens), packs=packs,
+                           verifiers=verifiers, repeats=repeats, container=container, since=since)
+    return {
+        "format": FORMAT, "schema_version": SCHEMA_VERSION, "mode": "exploratory",
+        "design": {"as_of": as_of.isoformat(), "paper": paper,
+                   **({"since": V1_FREEZE.isoformat()} if since is not None else {}),
+                   "metric_version": evaluation.METRIC_VERSION, "repeats": repeats, "task_tokens": 150_000,
+                   "container": container, "hours": round((time.monotonic() - started) / 3600, 3),
+                   "vault_refresh": {key: int(refreshed.get(key, 0)) for key in ("considered", "added", "retired",
+                                                                                  "held")}},
+        "exploratory_27b": exploratory_section(found),
     }
 
 
@@ -2018,7 +2166,14 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     mode.add_argument("--health", action="store_true", help="counts and errors only (any time)")
     mode.add_argument("--freeze", action="store_true", help="the pre-registered freeze evaluation (§7)")
     mode.add_argument("--thinking", action="store_true", help="O97's thinking recheck (the L2w ablation)")
+    mode.add_argument("--exploratory-27b", action="store_true",
+                      help="A10 alone, from a 27B run already finished on Hugging Face (--hugging-face-run, "
+                           "--output-repo): downloaded, measured on the freeze's problems, then deleted there")
     parser.add_argument("--as-of", help="--freeze: the freeze date, YYYY-MM-DD (problems up to the end of that day)")
+    parser.add_argument("--hugging-face-run", metavar="JOB_ID",
+                        help="--exploratory-27b: the finished run's Hugging Face job id (from its page)")
+    parser.add_argument("--output-repo", metavar="ACCOUNT/row-bot-personal-...",
+                        help="--exploratory-27b: the finished run's own model repository")
     parser.add_argument("--profile", required=True, help="the Row-Bot profile folder (read only, never written)")
     parser.add_argument("--scratch", required=True, help="where the copy goes (outside the profile and the checkout)")
     parser.add_argument("--out", required=True, help="where the JSON goes")
@@ -2061,13 +2216,22 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                      "profile's ChatGPT sign-in, never yours)")
     if args.eval_profile and not cloud:
         parser.error("--eval-profile goes with --main-reference, --h2, --h3-final or --judge-long-answers")
-    if args.freeze:
+    if args.freeze or args.exploratory_27b:
         try:
             args.as_of_date = date.fromisoformat(str(args.as_of or ""))
         except ValueError:
-            parser.error("--freeze needs --as-of YYYY-MM-DD")
+            parser.error("--freeze and --exploratory-27b need --as-of YYYY-MM-DD")
     elif args.as_of:
-        parser.error("--as-of goes with --freeze")
+        parser.error("--as-of goes with --freeze or --exploratory-27b")
+    if args.exploratory_27b:
+        if not HF_JOB_ID.match(str(args.hugging_face_run or "")):
+            parser.error("--exploratory-27b needs --hugging-face-run JOB_ID (the finished run's job id)")
+        if not HF_RUN_REPO.match(str(args.output_repo or "")):
+            parser.error("--exploratory-27b needs --output-repo ACCOUNT/row-bot-personal-... (the run's own)")
+        if cloud:
+            parser.error("--exploratory-27b uses no cloud model: leave out --eval-profile and the cloud parts")
+    elif args.hugging_face_run or args.output_repo:
+        parser.error("--hugging-face-run and --output-repo go with --exploratory-27b")
     for flag, given in (("--hugging-face-27b", args.hugging_face_27b), ("--judge-long-answers", args.judge_long_answers),
                         ("--local-reference", args.local_reference)):
         if given and not args.freeze:
@@ -2085,7 +2249,8 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None, *, hooks: Hooks | None = None) -> int:
     args = parse(argv)
     hooks = hooks or Hooks()
-    mode = "health" if args.health else "freeze" if args.freeze else "thinking"
+    mode = ("health" if args.health else "freeze" if args.freeze else "exploratory" if args.exploratory_27b
+            else "thinking")
     profile, scratch, out = Path(args.profile).resolve(), Path(args.scratch).resolve(), Path(args.out).resolve()
     started = time.monotonic()
     say("Row-Bot Learning: the paper's report")
@@ -2206,6 +2371,11 @@ def _run_mode(mode: str, copy: Path, target: Path, args: argparse.Namespace, hoo
         return health_report(copy)
     if not learning.read_settings(copy).enabled:
         raise _ModeFailed("Learning is off in this profile")
+    if mode == "exploratory":
+        say("Running the exploratory 27B from the run that already finished on Hugging Face ...")
+        return exploratory_report(copy, args.as_of_date, hooks=hooks, remote_id=str(args.hugging_face_run),
+                                  output_repo=str(args.output_repo), paper=str(args.paper),
+                                  cap_tokens=int(args.cloud_cap))
     window = (f"after {V1_FREEZE.isoformat()} (the v1 freeze) and up to {args.as_of_date.isoformat()}"
               if args.paper == "v2" else f"up to {args.as_of_date.isoformat()}")
     say(f"Running the freeze evaluation on every hidden problem {window} ...")
