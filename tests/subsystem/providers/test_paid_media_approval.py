@@ -186,6 +186,65 @@ def test_a_paid_video_under_ask_asks_and_a_denial_makes_nothing(media):
     assert media.calls == [] and media.videos == []
 
 
+@pytest.fixture
+def design(media, monkeypatch):
+    """An open design whose agent tools are bound, with nothing written to disk."""
+    from row_bot.designer import tool as designer_tool
+    from row_bot.designer.state import DesignerPage, DesignerProject
+
+    project = DesignerProject(id="design-1", name="Launch", pages=[DesignerPage(title="Cover", html="<h1>Hi</h1>")])
+    monkeypatch.setattr(designer_tool, "get_active_project", lambda: project)
+    monkeypatch.setattr(designer_tool, "_pre_mutate", lambda *args, **kwargs: None)
+    monkeypatch.setattr(designer_tool, "save_project", lambda project: None)
+    monkeypatch.setattr(designer_tool, "_build_asset_fragment",
+                        lambda project, *, data, **kwargs: (f"<img data-bytes='{len(data)}'>", "asset-1"))
+    tools = {tool.name: tool for tool in designer_tool.DesignerTool().as_langchain_tools()}
+    media.design = project
+    media.call_design = lambda name, **args: tools[name].invoke(args)
+    return media
+
+
+def test_a_designer_picture_under_ask_asks_and_a_denial_changes_nothing(design):
+    design.image = "openrouter/bytedance-seed/seedream-4.5"
+    design.answer = False
+
+    result = design.call_design("designer_generate_image", prompt="a rocket on a launch pad")
+
+    [card] = design.asked
+    assert card["tool"] == "designer_generate_image"
+    assert card["question"] == ("Make a picture for this design on OpenRouter? "
+                                "It costs money on your OpenRouter account.")
+    assert result.startswith("Approval: asked; denied by you")
+    assert design.calls == [] and design.design.pages[0].html == "<h1>Hi</h1>"
+
+
+def test_auto_approves_a_designer_picture_the_person_asked_for_and_it_is_placed(design, monkeypatch):
+    from row_bot import approval_review
+
+    design.image = "openrouter/bytedance-seed/seedream-4.5"
+    design.mode = "auto"
+    seen = []
+
+    def reviewer(messages, _runtime):
+        case = json.loads(messages[1]["content"])
+        seen.append(case)
+        if "costs money" in case["action"]["details"] and "picture" in case["person_asked"][0]:
+            return '{"decision": "approve", "reason": "You asked for a picture on the cover."}'
+        return '{"decision": "ask", "reason": "Not what you asked for."}'
+
+    monkeypatch.setattr(approval_review, "current_request", lambda _runtime=None: approval_review.ReviewRequest(
+        messages=("Put a picture of a rocket on the cover",)))
+    monkeypatch.setattr(approval_review, "_model_ref", lambda _runtime: "model:openai:gpt-test")
+    monkeypatch.setattr(approval_review, "_call_reviewer", reviewer)
+
+    result = design.call_design("designer_generate_image", prompt="a rocket on a launch pad")
+
+    assert design.asked == [] and len(seen) == 1
+    assert seen[0]["action"]["tool"] == "designer_generate_image"
+    assert result.splitlines()[0] == "Approval: approved by the reviewer: You asked for a picture on the cover"
+    assert "Generated AI image" in result and "data-bytes=" in design.design.pages[0].html
+
+
 def test_an_approved_video_under_ask_is_made(media):
     media.video = "openrouter/google/veo-3.1"
 
