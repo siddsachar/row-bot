@@ -70,23 +70,22 @@ def create_realistic_hermes_home(root: str | Path) -> Path:
         home / "AGENTS.md",
         "# Hermes Agent Instructions\n\nUse the project workspace, keep changelogs current, and ask before destructive shell operations.\n",
     )
+    # Hermes separates entries with a section sign on its own line, with no other markup.
     _write(
         home / "memories" / "MEMORY.md",
-        "\n".join(
+        "\n§\n".join(
             [
-                "# Long-term Memory",
-                "",
-                "- 2026-02-12: User started weekly research briefs for AI infra vendors.",
-                "- 2026-03-04: User prefers local-first tools unless cloud is explicitly faster.",
-                "- 2026-03-27: Project Atlas uses Linear labels: research, blocked, shipped.",
-                "- 2026-04-16: Keep meeting summaries under 12 bullets with owners and dates.",
-                "",
+                "User started weekly research briefs for AI infra vendors.",
+                "User prefers local-first tools unless cloud is explicitly faster.",
+                "Project Atlas uses Linear labels: research, blocked, shipped.",
+                "Keep meeting summaries under 12 bullets with owners and dates.",
             ]
-        ),
+        )
+        + "\n",
     )
     _write(
         home / "memories" / "USER.md",
-        "# User Profile\n\nBuilder, prefers robust defaults, uses Windows desktop and a local Ollama fallback.\n",
+        "Builder who prefers robust defaults.\n§\nUses a Windows desktop and a local Ollama fallback.\n",
     )
     _write_skill(home / "skills" / "ship-it", "ship-it", "Turn a rough implementation into a release-ready change.")
     _write_skill(home / "skills" / "meeting-notes", "meeting-notes", "Extract decisions, owners, and follow-up tasks.")
