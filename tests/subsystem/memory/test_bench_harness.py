@@ -14,20 +14,27 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import scipy.stats  # noqa: F401 - imported once, at collection: BEAM's event ordering uses its Kendall tau
 from langchain_core.messages import AIMessage
 
 import row_bot.agent as agent  # once, at collection: the turn test drives and patches it
 from tests.e2e.bench import booking, netguard, orchestrate
 from tests.e2e.bench.ledger import BudgetStop, CallEntry, CostLedger, LedgerCaps, UsageBook, totals
+from tests.e2e.bench.memory import full_context, v2_metrics
 from tests.e2e.bench.memory import judge as scoring
 from tests.e2e.bench.memory.datasets import (
     MemoryTask,
     Question,
+    Session,
+    Turn,
+    audit_review,
+    beam_tasks,
     locomo_tasks,
     longmemeval_tasks,
+    longmemeval_v2_tasks,
     parse_longmemeval_date,
 )
-from tests.e2e.bench.memory.protocols import ProtocolError, load_locomo, load_longmemeval
+from tests.e2e.bench.memory.protocols import ProtocolError, load as load_protocol, load_locomo, load_longmemeval
 from tests.e2e.bench.runtime import BenchConfig, BenchEnvironmentError, check_environment, child_env
 from tests.e2e.bench.trajectory import Step, Trajectory, append_jsonl, read_jsonl, to_atif
 from tests.e2e.live_eval.pricing import Rates
@@ -69,16 +76,13 @@ def test_a_paid_call_needs_a_rate_and_room_under_both_caps(tmp_path) -> None:
         later.check("openai", "gpt-4o-mini", 400_000, 0)
 
 
-def test_plan_calls_cost_nothing_and_stop_at_the_day_cap(tmp_path) -> None:
-    ledger = _ledger(tmp_path, plan_day_tokens=10_000)
-    ledger.check("codex", "gpt-6.1-sol", 5_000, 1_000)
+def test_plan_calls_cost_nothing_are_never_capped_and_are_counted_per_day(tmp_path) -> None:
+    ledger = _ledger(tmp_path)
+    ledger.check("codex", "gpt-6.1-sol", 50_000_000, 1_000)  # no plan cap (the owner's choice)
     entry = ledger.record(CallEntry("codex", "gpt-6.1-sol", input_tokens=6_000, output_tokens=1_000))
     assert (entry.billing, entry.cost_usd) == ("plan", 0.0)
-    with pytest.raises(BudgetStop, match="plan day cap"):
-        ledger.check("codex", "gpt-6.1-sol", 2_500, 1_000)
-    tomorrow = CostLedger(LedgerCaps(plan_day_tokens=10_000),
-                          UsageBook(tmp_path / "book.json", today=lambda: "2026-11-15"))
-    tomorrow.check("codex", "gpt-6.1-sol", 5_000, 1_000)  # a new day starts at zero
+    assert ledger.book.plan_today() == 7_000 and ledger.book.paid_total() == 0.0
+    assert UsageBook(tmp_path / "book.json", today=lambda: "2026-11-15").plan_today() == 0
     rows = [json.loads(line) for line in (tmp_path / "ledger.jsonl").read_text(encoding="utf-8").splitlines()]
     assert rows[0]["billing"] == "plan" and rows[0]["input_tokens"] == 6_000
     assert totals(ledger.entries)["plan"]["input_tokens"] == 6_000
@@ -86,8 +90,8 @@ def test_plan_calls_cost_nothing_and_stop_at_the_day_cap(tmp_path) -> None:
 
 def test_caps_come_from_the_environment_and_default_to_no_paid_calls() -> None:
     assert LedgerCaps.from_env({}).max_usd == 0.0
-    caps = LedgerCaps.from_env({"ROW_BOT_BENCH_MAX_USD": "12.5", "ROW_BOT_BENCH_PLAN_DAY_TOKENS": "500000"})
-    assert (caps.max_usd, caps.plan_day_tokens) == (12.5, 500_000)
+    caps = LedgerCaps.from_env({"ROW_BOT_BENCH_MAX_USD": "12.5", "ROW_BOT_BENCH_PROJECT_USD": "50"})
+    assert (caps.max_usd, caps.project_usd) == (12.5, 50.0)
     with pytest.raises(ValueError):
         LedgerCaps.from_env({"ROW_BOT_BENCH_MAX_USD": "-1"})
 
@@ -364,12 +368,264 @@ def test_the_second_judge_runs_on_a_fixed_subset_and_reports_agreement() -> None
     assert len(scoring.subset(ids, 10)) == 10
     judgments = []
     for index, question_id in enumerate(ids[:10]):
-        judgments.append(scoring.Judgment(question_id, "original", "A", 0, index < 6))
-        judgments.append(scoring.Judgment(question_id, "original", "B", 0, index < 4 or index == 9))
+        judgments.append(scoring.Judgment(question_id, "original", "A", 0, float(index < 6)))
+        judgments.append(scoring.Judgment(question_id, "original", "B", 0, 0.5 if index < 4 or index == 9 else 0.0))
     result = scoring.sensitivity(judgments, key="original", primary="A", secondary="B")
     assert result["questions"] == 10 and result["agreement"] == 0.7
     assert (result["primary_accuracy"], result["secondary_accuracy"]) == (0.6, 0.5)
     assert result["cohen_kappa"] == pytest.approx(0.4, abs=1e-4)
+
+
+def test_the_audit_review_lists_every_answer_the_audited_key_changes(tmp_path) -> None:
+    data, key = _locomo_file(tmp_path)
+    (row,) = audit_review(data, key)  # the citation-only entry changes no answer
+    assert (row["question_id"], row["original"], row["audited"], row["error_type"]) == (
+        "locomo_0_qa1", "A cat", "A dog", "HALLUCINATION")
+    assert row["reviewed"] is None
+
+
+# ── BEAM ────────────────────────────────────────────────────────────────────
+
+
+def _beam_chats(tmp_path: Path) -> Path:
+    root = tmp_path / "chats" / "1M"
+    folder = root / "1"
+    (folder / "probing_questions").mkdir(parents=True)
+    chat = [
+        {"batch_number": 1, "time_anchor": None, "turns": [[
+            {"role": "user", "id": 0, "time_anchor": "March-01-2024", "content": "I started a translation API."},
+            {"role": "assistant", "id": 1, "content": "Here is how to call it."}]]},
+        {"batch_number": 2, "time_anchor": None, "turns": [[
+            {"role": "user", "id": 2, "time_anchor": "March-12-2024", "content": "Now I cache its results."},
+            {"role": "assistant", "id": 3, "content": "Good idea."}]]},
+    ]
+    probing = {
+        "event_ordering": [{"question": "In what order did I work on these?", "answer": "API, then cache",
+                            "rubric": ["translation API", "caching", "deployment"]}],
+        "information_extraction": [{"question": "What did I build first?", "answer": "A translation API",
+                                    "rubric": ["translation API", "error handling"]},
+                                   {"question": "Second?", "answer": "x", "rubric": ["y"]}],
+    }
+    (folder / "chat.json").write_text(json.dumps(chat), encoding="utf-8")
+    (folder / "probing_questions" / "probing_questions.json").write_text(json.dumps(probing), encoding="utf-8")
+    return root
+
+
+BEAM_PROMPTS = 'other = 1\nunified_llm_judge_base_prompt = """Rubric item: <rubric_item>\nResponse: <llm_response>\n' \
+               'Reply as JSON {"score": 1.0 or 0.5 or 0.0, "reason": "..."}"""\n'
+BEAM_METRICS = '''
+def llm_equivalence(first_paragraph, second_paragraph, llm):
+    system_msg = {"role": "system", "content": """Reply YES or NO."""}
+    user_msg = {"role": "user", "content": f"""First: {first_paragraph} \\n Second: {second_paragraph}"""}
+    raise SystemExit("never run")
+'''
+
+
+def test_beam_reads_each_conversations_dated_batches_and_rubric_questions(tmp_path) -> None:
+    (task,) = beam_tasks(_beam_chats(tmp_path), questions_per_category=1)
+    assert [(session.session_id, session.when) for session in task.sessions] == [
+        ("batch_1", datetime(2024, 3, 1, 9)), ("batch_2", datetime(2024, 3, 12, 9))]
+    assert [turn.role for turn in task.sessions[0].turns] == ["user", "assistant"]
+    assert task.ask_at == datetime(2024, 3, 13, 9)
+    assert [(item.question_id, item.category) for item in task.questions] == [
+        ("beam_1_event_ordering_0", "event_ordering"), ("beam_1_information_extraction_0", "information_extraction")]
+    assert task.questions[1].rubric == ["translation API", "error handling"]
+
+
+def test_the_beam_judge_scores_rubric_items_and_orders_events_by_kendall_tau(tmp_path) -> None:
+    (tmp_path / "prompts.py").write_text(BEAM_PROMPTS, encoding="utf-8")
+    (tmp_path / "compute_metrics.py").write_text(BEAM_METRICS, encoding="utf-8")
+    protocol = load_protocol("beam-1m", f"{tmp_path / 'prompts.py'},{tmp_path / 'compute_metrics.py'}")
+    assert protocol.headline == "categories" and protocol.published_judge == "openai:gpt-4.1-mini"
+    task = beam_tasks(_beam_chats(tmp_path))[0]
+    ordering, extraction = task.questions[0], task.questions[1]
+
+    def judge(messages):
+        if messages[0][0] == "system":  # the equivalence check
+            first, second = (part.split(":", 1)[1].strip() for part in messages[1][1].split("\n"))
+            return "YES" if first == second else "NO"
+        item = messages[0][1].split("Rubric item: ", 1)[1].split("\n", 1)[0]
+        return '{"score": 1.0, "reason": "ok"}' if item == "translation API" else '```json\n{"score": 0.5}\n```'
+
+    verdict = protocol.judge(extraction, "I built a translation API.", "", judge)
+    assert verdict.score == 0.75 and verdict.detail["rubric_scores"] == [1.0, 0.5]
+    ordered = protocol.judge(ordering, "caching\ntranslation API\ndeployment", "", judge)
+    assert ordered.detail["f1"] == 1.0  # every line matched one rubric event
+    assert ordered.score == pytest.approx(2 / 3)  # tau-b 1/3 for one swapped pair, normalised
+    assert ordered.detail["llm_judge_score"] == pytest.approx((1.0 + 0.5 + 0.5) / 3)
+
+
+# ── LongMemEval-V2 ──────────────────────────────────────────────────────────
+
+
+def _v2_root(tmp_path: Path) -> Path:
+    root = tmp_path / "lme-v2"
+    root.mkdir()
+    questions = [
+        {"id": "w1", "domain": "web", "question_type": "static-environment", "question": "Which filters? \\boxed{}",
+         "image": None, "answer": "Incident Mobile, Incident Portal",
+         "eval_function": "norm_phrase_set_match|lower=true|strip_punct=true|separators=,;|require_non_empty=true"},
+        {"id": "w2", "domain": "web", "question_type": "static-environment-abs", "question": "Why is X red?",
+         "image": "question_screenshots/w2.png", "answer": "X is never red.", "eval_function": "llm_abstention_checker"},
+        {"id": "e1", "domain": "enterprise", "question_type": "procedure", "question": "Pick one.", "image": None,
+         "answer": "B", "eval_function": "mc_choice_match"},
+    ]
+    (root / "questions.jsonl").write_text("\n".join(json.dumps(item) for item in questions), encoding="utf-8")
+    (root / "haystacks").mkdir()
+    (root / "haystacks" / "lme_v2_small.json").write_text(json.dumps(
+        {"w1": ["t2", "t1"], "w2": ["t2", "t1"], "e1": ["t3"]}), encoding="utf-8")
+    trajectories = [{"id": f"t{index}", "domain": "web" if index < 3 else "enterprise", "goal": f"goal {index}",
+                     "outcome": "success", "start_url": "https://shop.test/",
+                     "states": [{"state_index": 0, "step": 0, "url": "https://shop.test/", "action": None,
+                                 "thought": "", "accessibility_tree": f"RootWebArea 'page {index}'"},
+                                {"state_index": 1, "step": 1, "url": "https://shop.test/b", "action": "click('7')",
+                                 "thought": "open it", "accessibility_tree": "[7] button 'Filters'"}]}
+                    for index in (1, 2, 3, 4)]
+    (root / "trajectories.jsonl").write_text("\n".join(json.dumps(item) for item in trajectories), encoding="utf-8")
+    return root
+
+
+V2_METRICS = '''
+_ABSTENTION_JUDGE_SYSTEM_PROMPT = ("You grade flawed-premise answers. " "Be strict.")
+_GOTCHAS_JUDGE_SYSTEM_PROMPT = "You grade gotchas."
+def _build_abstention_judge_messages(*, question_text, reference_answer, model_full_response, model_final_answer):
+    user_prompt = (
+        "Q:\\n" f"{question_text}\\n" "Ref:\\n" f"{reference_answer}\\n" "Full:\\n" f"{model_full_response}\\n"
+        "Final:\\n" f"{model_final_answer}\\n" 'Output JSON only: {"label": 0 or 1, "reason": "..."}'
+    )
+def _build_gotchas_judge_messages(*, question_text, reference_answer, model_full_response, model_final_answer):
+    user_prompt = (f"{question_text}|{reference_answer}|{model_full_response}|{model_final_answer}")
+def norm_phrase_set_match(): pass
+def norm_phrase_set_match_ordered(): pass
+def mc_choice_match(): pass
+def mc_choice_set_match(): pass
+def extract_boxed_answer(): pass
+def normalize_phrase(): pass
+def split_phrases(): pass
+raise SystemExit("never run")
+'''
+
+
+def test_longmemeval_v2_reads_one_task_per_haystack_with_trajectories_as_conversations(tmp_path) -> None:
+    web, enterprise = longmemeval_v2_tasks(_v2_root(tmp_path))
+    assert (web.task_id, enterprise.task_id) == ("lmev2_small_web", "lmev2_small_enterprise")
+    assert [session.session_id for session in web.sessions] == ["t2", "t1"]  # haystack order
+    assert [item.question_id for item in web.questions] == ["w1", "w2"]
+    assert web.questions[1].abstention and web.questions[1].image == "question_screenshots/w2.png"
+    turns = web.sessions[0].turns
+    assert turns[0].role == "user" and turns[0].text.startswith("Task: goal 2")
+    assert "Action: click('7')" in turns[2].text and "[7] button 'Filters'" in turns[2].text
+    assert turns[-1].text == "Outcome: success"
+    assert [session.session_id for session in enterprise.sessions] == ["t3"]
+
+
+def test_the_longmemeval_v2_scorers_match_the_published_ones(tmp_path) -> None:
+    (tmp_path / "qa_eval_metrics.py").write_text(V2_METRICS, encoding="utf-8")
+    protocol = load_protocol("longmemeval-v2", tmp_path / "qa_eval_metrics.py")
+    web, enterprise = longmemeval_v2_tasks(_v2_root(tmp_path))
+    phrase, abstain, choice = web.questions[0], web.questions[1], enterprise.questions[0]
+    never = lambda _messages: pytest.fail("a deterministic scorer called the judge")  # noqa: E731
+    assert protocol.judge(phrase, "It shows \\boxed{incident-portal; Incident Mobile}", phrase.answer, never).score == 1.0
+    assert protocol.judge(phrase, "\\boxed{Incident Mobile}", phrase.answer, never).score == 0.0
+    assert protocol.judge(phrase, "\\boxed{UNKNOWN}", phrase.answer, never).detail["unknown"]
+    assert protocol.judge(choice, "I'd say \\boxed{Option B.}", "B", never).score == 1.0
+    seen: list[list[tuple[str, str]]] = []
+
+    def judge(messages):
+        seen.append(messages)
+        return '```\n{"label": 1, "reason": "names the flaw"}\n```'
+
+    verdict = protocol.judge(abstain, "The premise is wrong: \\boxed{X is never red}", abstain.answer, judge)
+    assert verdict.score == 1.0
+    assert seen[0][0] == ("system", "You grade flawed-premise answers. Be strict.")
+    assert "Final:\nX is never red\n" in seen[0][1][1] and '{"label": 0 or 1' in seen[0][1][1]
+    assert protocol.judge(abstain, "no idea", abstain.answer, lambda _m: "no verdict").score is None
+    assert v2_metrics.norm_phrase_set_match_ordered("reports then problems", "Reports;Problems", separators=";")
+    assert not v2_metrics.norm_phrase_set_match_ordered("problems then reports", "Reports;Problems", separators=";")
+    assert v2_metrics.mc_choice_set_match("Answer: A and C", "C, A")
+    assert v2_metrics.extract_boxed_answer("a \\boxed{x} b \\boxed{{y}}") == "{y}"
+    assert v2_metrics.parse_spec("norm_phrase_set_match|lower=true|separators=,;")[1] == {
+        "lower": True, "separators": [",", ";"]}
+
+
+# ── The full-context baseline ───────────────────────────────────────────────
+
+
+class _CharTokens:
+    """A tokenizer double: one token per character (the real one is tiktoken's o200k_base)."""
+
+    def encode(self, text, disallowed_special=()):
+        return list(text)
+
+    def decode(self, tokens):
+        return "".join(tokens)
+
+
+def _history_task(benchmark: str) -> MemoryTask:
+    sessions = [Session(f"s{index}", datetime(2023, 5, index, 10), [Turn("user", f"fact {index} " + "x" * 80)])
+                for index in (1, 2, 3)]
+    return MemoryTask("t", benchmark, sessions, [Question("q1", "What was fact 3?", "3", "multi-session")],
+                      ask_at=datetime(2023, 6, 1, 9))
+
+
+def test_the_full_context_history_is_cut_by_each_benchmarks_own_rule(monkeypatch) -> None:
+    monkeypatch.setattr(full_context, "_encoding", lambda: _CharTokens())
+    text, info = full_context.build_history(_history_task("locomo"), 100_000)
+    assert not info["truncated"] and text.count("### Session") == 3 and "user: fact 1" in text
+    latest, info = full_context.build_history(_history_task("beam-1m"), 260)
+    assert info["truncated"] and info["kept_sessions"] == 2 and "fact 1" not in latest and "fact 3" in latest
+    earliest, info = full_context.build_history(_history_task("longmemeval-v2"), 260)
+    assert info["kept_sessions"] == 2 and "fact 1" in earliest and "fact 3" not in earliest
+    prefix, info = full_context.build_history(_history_task("longmemeval-s"), 150)
+    assert len(prefix) == 150 and prefix.startswith("### Session 1") and info["kept_tokens"] == 150
+
+
+def test_the_full_context_baseline_asks_the_same_model_with_the_history_and_no_memory(monkeypatch) -> None:
+    monkeypatch.setattr(full_context, "_encoding", lambda: _CharTokens())
+    prompts: list[str] = []
+
+    def call(prompt: str) -> str:
+        prompts.append(prompt)
+        return "Fact 3."
+
+    runtime = SimpleNamespace(drain_calls=lambda step, phase="": [])
+    (step,) = full_context.ask(runtime, _history_task("longmemeval-s"), call, context_tokens=200_000)
+    assert step.answer == "Fact 3." and step.metrics["mode"] == "full-context" and not step.metrics["truncated"]
+    assert step.metrics["template_sha256"] == full_context.TEMPLATE_SHA256
+    assert prompts[0].endswith("Current date: Thursday, 01 June 2023, 09:00\nQuestion: What was fact 3?")
+    assert prompts[0].index("fact 1") < prompts[0].index("fact 3")
+
+    def limited(_prompt: str) -> str:
+        raise RuntimeError("429 Too Many Requests: usage limit")
+
+    from tests.e2e.bench.runtime import ProviderLimit
+
+    with pytest.raises(ProviderLimit):
+        full_context.ask(runtime, _history_task("longmemeval-s"), limited, context_tokens=200_000)
+
+
+def test_the_local_model_is_the_stock_qwen_and_its_digest_is_recorded() -> None:
+    from tests.e2e.bench.runtime import LOCAL_MODEL, ollama_identity
+
+    calls: list[str] = []
+
+    class Ollama:
+        def get(self, url):
+            calls.append(url)
+            return SimpleNamespace(json=lambda: {"models": [
+                {"name": "ofix-personal-27b:latest", "digest": "f" * 64},
+                {"name": LOCAL_MODEL, "model": LOCAL_MODEL, "digest": "a" * 64, "size": 17_000_000_000}]})
+
+        def post(self, url, json):
+            calls.append(f"{url} {json['model']}")
+            return SimpleNamespace(json=lambda: {"details": {"family": "qwen3", "parameter_size": "27B",
+                                                             "quantization_level": "Q4_K_M", "format": "gguf"}})
+
+    found = ollama_identity(LOCAL_MODEL, host="127.0.0.1:11434", client=Ollama())
+    assert (found["tag"], found["digest"], found["parameter_size"]) == (LOCAL_MODEL, "a" * 64, "27B")
+    assert calls == ["http://127.0.0.1:11434/api/tags", f"http://127.0.0.1:11434/api/show {LOCAL_MODEL}"]
+    with pytest.raises(BenchEnvironmentError, match="stock weights"):
+        ollama_identity("ofix-personal-27b", client=Ollama())
 
 
 # ── Worker environment and lanes ────────────────────────────────────────────
@@ -397,14 +653,11 @@ def test_lanes_need_a_paid_cap_an_eval_profile_and_a_booking_file(tmp_path) -> N
     assert orchestrate.lane_problem("openai", LedgerCaps(max_usd=5), {}) == ""
     assert "ROW_BOT_LIVE_EVAL_CODEX_PROFILE" in orchestrate.lane_problem("codex", caps, {})
     assert "ROW_BOT_BENCH_BOOKING_FILE" in orchestrate.lane_problem("ollama", caps, {})
-    assert orchestrate.lane_problem("ollama", caps, {"ROW_BOT_BENCH_BOOKING_FILE": str(tmp_path / "b.txt")}) == ""
-    assert orchestrate.split_ref("ollama:qwen3.6:27b") == ("ollama", "qwen3.6:27b")
-    book = UsageBook(tmp_path / "book.json", today=lambda: "2026-11-14")
-    book.add(plan_tokens=1_500_000)
-    figures = {"ingest_tokens": 200_000, "question_tokens": 400_000}
-    assert "resume tomorrow" in orchestrate.plan_room_problem("codex", caps, figures, book)
-    assert orchestrate.plan_room_problem("codex", caps, {"ingest_tokens": 1, "question_tokens": 1}, book) == ""
-    assert orchestrate.plan_room_problem("ollama", caps, figures, book) == ""
+    booked = {"ROW_BOT_BENCH_BOOKING_FILE": str(tmp_path / "b.txt")}
+    assert orchestrate.lane_problem("ollama", caps, booked, model="qwen3.8:27b") == ""
+    for other in ("ofix-personal-27b", "row-bot-personal-v3", "gpt-oss:20b", "qwen3.6:27b"):
+        assert "stock weights" in orchestrate.lane_problem("ollama", caps, booked, model=other)
+    assert orchestrate.split_ref("ollama:qwen3.8:27b") == ("ollama", "qwen3.8:27b")
     assert orchestrate.main(["run", "--benchmark", "locomo", "--data", "x", "--protocol", "y",
                              "--model", "codex:auto"]) == 2  # ROW_BOT_BENCH is not set
 
@@ -431,8 +684,8 @@ def test_the_report_gives_both_keys_tokens_and_time_from_a_run_folder(tmp_path) 
     append_jsonl(run_dir / "trajectories.jsonl", stopped)  # an earlier attempt: the newest one counts
     append_jsonl(run_dir / "trajectories.jsonl", trajectory)
     with (run_dir / "judgments.jsonl").open("w", encoding="utf-8") as handle:
-        for key, correct in (("original", False), ("audited", True)):
-            handle.write(json.dumps(vars(scoring.Judgment("q1", key, "model:codex:gpt-6.1-sol", 0, correct,
+        for key, score in (("original", 0.0), ("audited", 1.0)):
+            handle.write(json.dumps(vars(scoring.Judgment("q1", key, "model:codex:gpt-6.1-sol", 0, score,
                                                           category="temporal"))) + "\n")
     scores = orchestrate.write_report(run_dir)
     assert [(item["key"], item["accuracy"], item["published_judge"]) for item in scores["scores"]] == [
@@ -440,8 +693,10 @@ def test_the_report_gives_both_keys_tokens_and_time_from_a_run_folder(tmp_path) 
     assert scores["ingestion"]["input_tokens"] == 4_000 and scores["ingestion"]["memories_saved"] == 3
     assert scores["questions"]["tokens_per_question"]["mean"] == 20_200.0
     assert scores["questions"]["asked"] == 1 and scores["tasks"]["other"] == []
+    assert any(row["system"] == "Mem0" and row["source"].startswith("https://") for row in scores["published"])
     report = (run_dir / "report.md").read_text(encoding="utf-8")
-    assert "(self-run)" in report and "no (diagnostic)" in report
+    assert "self-run, gpt-6.1-sol" in report and "not the published judge" in report
+    assert "context, not head-to-head" in report
 
 
 def test_each_attempt_at_a_task_gets_a_fresh_scratch_folder(tmp_path, monkeypatch) -> None:

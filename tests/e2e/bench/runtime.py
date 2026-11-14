@@ -44,8 +44,35 @@ _TOOL_ARGS = 400
 PROVIDER_LIMIT_MARKERS = ("rate limit", "rate_limit", "usage limit", "usage_limit", "429", "too many requests")
 
 
+#: The one local model every benchmark run uses (the owner's instruction, 14 Nov 2026): the stock Ollama
+#: library weights, never a personal fine-tune (``ofix-personal-*``, ``row-bot-personal-*``) or gpt-oss:20b.
+LOCAL_MODEL = "qwen3.8:27b"
+
+
 class BenchEnvironmentError(RuntimeError):
     """The worker's environment is not a safe benchmark environment."""
+
+
+def ollama_identity(model: str, *, host: str = "", client: Any = None) -> dict[str, Any]:
+    """The local model's exact tag, digest and details, as Ollama reports them (``/api/tags`` and
+    ``/api/show``, the calls behind ``ollama list`` and ``ollama show``). Neither loads the model."""
+    import httpx
+
+    if model != LOCAL_MODEL:
+        raise BenchEnvironmentError(f"the local model is {LOCAL_MODEL} (stock weights) only, not {model!r}")
+    base = host or os.environ.get("OLLAMA_HOST", "") or "127.0.0.1:11434"
+    base = base if base.startswith("http") else f"http://{base.replace('0.0.0.0', '127.0.0.1')}"
+    http = client or httpx.Client(timeout=20)
+    tags = http.get(f"{base}/api/tags").json().get("models") or []
+    entry = next((item for item in tags if model in {item.get("name"), item.get("model")}), None)
+    if entry is None:
+        raise BenchEnvironmentError(f"{model} is not installed in Ollama (ollama pull {model})")
+    shown = http.post(f"{base}/api/show", json={"model": model}).json()
+    details = shown.get("details") or {}
+    return {"tag": str(entry.get("name") or model), "digest": str(entry.get("digest") or ""),
+            "size": entry.get("size"), "modified_at": entry.get("modified_at"),
+            "family": details.get("family"), "parameter_size": details.get("parameter_size"),
+            "quantization_level": details.get("quantization_level"), "format": details.get("format")}
 
 
 class ProviderLimit(RuntimeError):
@@ -241,6 +268,7 @@ class BenchRuntime:
     notes: list[str] = field(default_factory=list)
     policy: netguard.NetworkPolicy = field(default_factory=netguard.NetworkPolicy)
     sign_in: SignIn | None = None
+    local_model: dict[str, Any] = field(default_factory=dict)
     _undo: list[Callable[[], None]] = field(default_factory=list)
     _seen_row: int = 0
 
@@ -279,6 +307,7 @@ class BenchRuntime:
         if self.config.provider == "ollama":
             from tests.e2e.live_eval.runner import refresh_local_catalog
 
+            self.local_model = ollama_identity(self.config.model)
             self.notes.append(refresh_local_catalog())
         else:
             try:

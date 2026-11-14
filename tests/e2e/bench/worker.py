@@ -51,30 +51,60 @@ def _log_to(path: str) -> None:
 
 
 def _judge_call(runtime: Any, model_ref: str, protocol: Any) -> Any:
-    """The judge as one Row-Bot model call: the protocol's temperature and token limit where the
-    provider takes them (the ChatGPT lane's reasoning models do not; the report says so)."""
+    """The judge as one Row-Bot model call. The protocol's temperature and token limit apply only when
+    the judge is the published model itself; any other judge (GPT-6.1 Sol on the plan, a thinking local
+    model, which a 10-token limit would silence) runs with Row-Bot's own settings, and the run says so."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
     from row_bot import models
     from row_bot.providers.usage_ledger import with_usage_purpose
 
     llm = models.get_llm_for(model_ref)
-    if runtime.config.provider != "codex":
-        settings: dict[str, Any] = {"temperature": protocol.temperature}
+    if model_ref == f"model:{protocol.published_judge}":
+        settings: dict[str, Any] = {} if protocol.temperature is None else {"temperature": protocol.temperature}
         if protocol.max_tokens:
             settings["max_tokens"] = protocol.max_tokens
         llm = llm.bind(**settings)
     runnable = with_usage_purpose(llm, "judge")
 
     def call(messages: list[tuple[str, str]]) -> str:
-        reply = runnable.invoke([SystemMessage(content=text) if role == "system" else HumanMessage(content=text)
-                                 for role, text in messages])
-        content = getattr(reply, "content", reply)
-        if isinstance(content, list):
-            content = "".join(str(part.get("text") or "") if isinstance(part, dict) else str(part) for part in content)
-        return str(content or "")
+        return _text(runnable.invoke([SystemMessage(content=text) if role == "system" else HumanMessage(content=text)
+                                      for role, text in messages]))
 
     return call
+
+
+def _context_window(model_ref: str) -> int:
+    """The reader's context window from Row-Bot's catalog; the run refuses to guess one."""
+    from row_bot import models
+
+    size = models.get_model_max_context(model_ref)
+    if not size:
+        raise RuntimeError(f"no context window for {model_ref} in the catalog; pass --context-tokens")
+    return int(size)
+
+
+def _prompt_call(model_ref: str, purpose: str) -> Any:
+    """One prompt in, the reply text out, through Row-Bot's own model for *model_ref* (its reasoning
+    setting as Row-Bot ships it, no tools, no memory)."""
+    from langchain_core.messages import HumanMessage
+
+    from row_bot import models
+    from row_bot.providers.usage_ledger import with_usage_purpose
+
+    runnable = with_usage_purpose(models.get_llm_for(model_ref), purpose)
+
+    def call(prompt: str) -> str:
+        return _text(runnable.invoke([HumanMessage(content=prompt)]))
+
+    return call
+
+
+def _text(reply: Any) -> str:
+    content = getattr(reply, "content", reply)
+    if isinstance(content, list):
+        content = "".join(str(part.get("text") or "") if isinstance(part, dict) else str(part) for part in content)
+    return str(content or "")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,8 +137,10 @@ def main(argv: list[str] | None = None) -> int:
     code = 0
     try:
         runtime.setup()
-        trajectory.config = {**config.to_dict(), "kind": spec["kind"], "caps": asdict(caps),
+        trajectory.config = {**config.to_dict(), "kind": spec["kind"], "mode": spec.get("mode") or "memory",
+                             "dream": bool(spec.get("dream")), "caps": asdict(caps),
                              "network": runtime.policy.to_dict(), "setup_notes": runtime.notes,
+                             **({"local_model": runtime.local_model} if runtime.local_model else {}),
                              **spec.get("record", {})}
         if spec["kind"] == "memory":
             code = _memory(spec, runtime, trajectory, run_dir, redact)
@@ -150,6 +182,15 @@ def _memory(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, 
             output_tokens=sum(int(call.output_tokens or 0) for call in step.calls), task_id=task.task_id))], redact)
 
     try:
+        if spec.get("mode") == "full-context":
+            from .memory import full_context
+
+            context = int(spec.get("context_tokens") or 0) or _context_window(runtime.config.model_ref)
+            trajectory.config["context_tokens"] = context
+            trajectory.config["full_context_template_sha256"] = full_context.TEMPLATE_SHA256
+            full_context.ask(runtime, task, _prompt_call(runtime.config.model_ref, "full_context"),
+                             context_tokens=context, stop=stop, on_step=answered)
+            return 0
         adapter.ingest(runtime, task, stop=stop, on_step=trajectory.steps.append)
         if spec.get("dream"):
             trajectory.steps.append(adapter.dream(runtime, task))
@@ -172,6 +213,9 @@ def _judge(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, r
     answers = [scoring.Answer(**item) for item in spec["answers"]]
     call = _judge_call(runtime, runtime.config.model_ref, protocol)
     judge_ref = runtime.config.model_ref
+    trajectory.config["judge_settings"] = ("the protocol's" if judge_ref == f"model:{protocol.published_judge}"
+                                           else "Row-Bot's own (the judge is not the published model)")
+    trajectory.config["protocol"] = protocol.describe()
     for answer in answers:
         if (run_dir / "STOP").exists():
             trajectory.status, trajectory.reason = "stopped", f"stopped before judging {answer.question_id}"
@@ -181,7 +225,7 @@ def _judge(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, r
         found = scoring.judge_answers([answer], questions, protocol, call, judge=judge_ref,
                                       keys=spec["keys"], runs=int(spec.get("runs") or 1))
         step.seconds = round(time.monotonic() - started, 3)
-        step.metrics = {"verdicts": {f"{item.key}#{item.run}": item.correct for item in found}}
+        step.metrics = {"scores": {f"{item.key}#{item.run}": item.score for item in found}}
         runtime.drain_calls(step, phase="judge")
         trajectory.steps.append(step)
         _append(run_dir / "judgments.jsonl", scoring.to_dicts(found), redact)

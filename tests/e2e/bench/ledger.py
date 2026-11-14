@@ -2,9 +2,8 @@
 
 Three kinds of call, by provider:
 
-- **plan**: the ChatGPT subscription (``codex``) through the eval profile. Costs $0, but
-  its tokens count against a per-day cap (``ROW_BOT_BENCH_PLAN_DAY_TOKENS``, default
-  2,000,000) so benchmark batches never squeeze the owner's everyday use.
+- **plan**: the ChatGPT subscription (``codex``) through the eval profile. Costs $0 and has
+  no cap (the owner's choice, 14 Nov 2026); its tokens are counted per day for the report.
 - **local**: Ollama and other local servers. Costs $0; still counted.
 - **api**: every other provider. Priced from the provider's own figure or the rates file
   (``ROW_BOT_LIVE_EVAL_RATES``, never guessed) and held by the paid cap
@@ -16,6 +15,9 @@ recorded after it ends. The usage book (``ROW_BOT_BENCH_USAGE_BOOK``, default
 ``.tmp/bench/usage-book.json``) carries the project's paid total and the plan's
 tokens per day across runs, so the project cap (``ROW_BOT_BENCH_PROJECT_USD``,
 default $100) holds over every run, not just one.
+
+The eval profile is still booked before each use (``booking``): that protects another
+lane's sign-in, not a quota.
 """
 from __future__ import annotations
 
@@ -33,11 +35,9 @@ from tests.e2e.live_eval.pricing import CallTokens, Rates, price_call, rates_for
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAX_USD_ENV = "ROW_BOT_BENCH_MAX_USD"
 PROJECT_USD_ENV = "ROW_BOT_BENCH_PROJECT_USD"
-PLAN_DAY_TOKENS_ENV = "ROW_BOT_BENCH_PLAN_DAY_TOKENS"
 USAGE_BOOK_ENV = "ROW_BOT_BENCH_USAGE_BOOK"
 DEFAULT_MAX_USD = 0.0
 DEFAULT_PROJECT_USD = 100.0
-DEFAULT_PLAN_DAY_TOKENS = 2_000_000
 
 PLAN = "plan"
 LOCAL = "local"
@@ -47,7 +47,7 @@ LOCAL_PROVIDERS = frozenset({"ollama", "llama_cpp", "lmstudio", "vllm"})
 
 
 class BudgetStop(RuntimeError):
-    """Raised before a call that would pass the paid cap or the plan's day cap."""
+    """Raised before a paid call that would pass the paid cap."""
 
 
 def billing_for(provider: str) -> str:
@@ -74,11 +74,10 @@ def _number(raw: str | None, default: float, name: str, *, allow_zero: bool) -> 
 
 @dataclass(frozen=True)
 class LedgerCaps:
-    """The run's paid cap (USD), the project's paid cap (USD) and the plan's tokens per day."""
+    """The run's paid cap (USD) and the project's paid cap (USD). Plan and local calls have no cap."""
 
     max_usd: float = DEFAULT_MAX_USD
     project_usd: float = DEFAULT_PROJECT_USD
-    plan_day_tokens: int = DEFAULT_PLAN_DAY_TOKENS
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> LedgerCaps:
@@ -86,13 +85,11 @@ class LedgerCaps:
         return cls(
             max_usd=_number(source.get(MAX_USD_ENV), DEFAULT_MAX_USD, MAX_USD_ENV, allow_zero=True),
             project_usd=_number(source.get(PROJECT_USD_ENV), DEFAULT_PROJECT_USD, PROJECT_USD_ENV, allow_zero=True),
-            plan_day_tokens=int(_number(source.get(PLAN_DAY_TOKENS_ENV), DEFAULT_PLAN_DAY_TOKENS,
-                                        PLAN_DAY_TOKENS_ENV, allow_zero=False)),
         )
 
     def describe(self) -> str:
         paid = "no paid calls" if self.max_usd <= 0 else f"${self.max_usd:.2f} paid this run"
-        return f"{paid} (project cap ${self.project_usd:.2f}); plan {self.plan_day_tokens:,} tokens per day"
+        return f"{paid} (project cap ${self.project_usd:.2f}); plan and local calls counted, not capped"
 
 
 def usage_book_path(env: Mapping[str, str] | None = None) -> Path:
@@ -225,16 +222,8 @@ class CostLedger:
 
     def check(self, provider: str, model: str, input_tokens: int, output_tokens: int) -> None:
         """Raise :class:`BudgetStop` when this call, estimated high, would pass a cap."""
-        billing = billing_for(provider)
-        if billing == LOCAL:
-            return
-        estimate = max(0, int(input_tokens)) + max(0, int(output_tokens))
-        if billing == PLAN:
-            used = self.book.plan_today()
-            if used + estimate > self.caps.plan_day_tokens:
-                self._refuse(f"plan day cap: {used:,} used today + {estimate:,} estimated "
-                             f"> {self.caps.plan_day_tokens:,}")
-            return
+        if billing_for(provider) in (LOCAL, PLAN):
+            return  # free; counted when recorded
         room = self.paid_room()
         if room <= 0:
             self._refuse(f"paid cap: ${room:.4f} left (run cap ${self.caps.max_usd:.2f}, "
