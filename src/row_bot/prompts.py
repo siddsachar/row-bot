@@ -54,7 +54,7 @@ _ABILITIES_GUIDELINES = (
     "- A request made here is done here, however big: start another conversation only when the person\n"
     "  asks for one.\n"
     "- Something that should keep running, such as a local file server or a watcher: start_process.\n"
-    "  The shell and processes start in the person's workspace folder; never guess its path.\n"
+    "  The shell and processes start in the folder the turn context names; never guess its path.\n"
     "- Repeating or timed work, a reminder, or 'keep me on track': create or offer a task. For a long\n"
     "  aim (a race, an exam), a plan page and a weekly check-in task.\n\n"
 )

@@ -31,6 +31,20 @@ def default_workspace_root() -> Path:
     return Path(configured).expanduser() if configured else Path.home() / "Documents" / DEFAULT_WORKSPACE_DIR_NAME
 
 
+def display_path(path: Path | str) -> str:
+    """*path* as the model is told it: ``~/…`` under the home folder, so the account name isn't sent with it.
+
+    A folder elsewhere (``D:\\Work``) is the person's own choice and is shown as it is. The file tools and both
+    shells expand ``~``.
+    """
+    folder = Path(path).expanduser()
+    home = Path.home()
+    if not folder.is_relative_to(home):
+        return str(folder)
+    relative = folder.relative_to(home).as_posix()
+    return "~" if relative == "." else f"~/{relative}"
+
+
 def private_data_dirs() -> list[Path]:
     """Row-Bot's data folder, and the server secrets folder when one is in use (a self-hosted install's keys);
     in a sandbox (5.3.1 B4), the real data folder it was started from too."""

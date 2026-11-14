@@ -5,6 +5,7 @@ import hashlib
 import inspect
 import json
 import math
+import os
 import threading
 import time
 import re
@@ -1395,8 +1396,36 @@ def _setup_guidance(tool_names: list[str]) -> str:
     return (" " + " ".join(parts)) if parts else ""
 
 
+def _code_folder() -> str:
+    """The code folder bound to this conversation, where its shell starts, or ''."""
+    try:
+        from row_bot.developer import tool_context
+        from row_bot.developer.storage import get_workspace
+
+        thread_id = _current_thread_id_var.get("")
+        workspace_id = tool_context.get_workspace_id() or tool_context.infer_workspace_id_from_thread(thread_id)
+        workspace = get_workspace(workspace_id) if workspace_id else None
+    except Exception:
+        logger.debug("Code folder for the turn context skipped (non-fatal)", exc_info=True)
+        return ""
+    return workspace.path if workspace and workspace.path and os.path.isdir(workspace.path) else ""
+
+
+def _workspace_line() -> str:
+    """Where the file tools and the shell start, ``~/…`` under the home folder so the account name isn't sent."""
+    from row_bot.data_paths import default_workspace_root, display_path
+
+    configured = str(tool_registry.get_tool_config("filesystem", "workspace_root", "") or "")
+    workspace = display_path(configured if configured and os.path.isdir(configured) else default_workspace_root())
+    code_folder = _code_folder()
+    if code_folder:
+        return (f"Code folder: {display_path(code_folder)} (the shell and Developer tools start here). "
+                f"Workspace folder for other files: {workspace}.")
+    return f"Workspace folder: {workspace}. File tools and the shell start here; relative paths are inside it."
+
+
 def _runtime_turn_fields(tool_names: list[str]) -> list:
-    """The runtime-mode values of the turn context: approval mode, tool groups, what is off."""
+    """The runtime-mode values of the turn context: approval mode, workspace folder, tool groups, what is off."""
     from row_bot.turn_context import ContextField
 
     # What this turn leaves out: the conversation binds the same tools every turn (so its prompt
@@ -1433,6 +1462,7 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
     fields = [
         # In the person's words (Ask, Auto, Hands-off, Block), so Row-Bot never says "full mode" (G10).
         ContextField("approval", f"Approval level for this chat: {approval_label(get_approval_mode())}."),
+        ContextField("workspace", _workspace_line()),
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
     ]

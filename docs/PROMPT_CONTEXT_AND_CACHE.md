@@ -75,7 +75,8 @@ text is a `<row_bot_turn_context>…</row_bot_turn_context>` block:
   reject two user messages in a row. A context that follows anything else
   (an event, a tool result) is a user message of its own.
 - **What.** The current date and time (minute resolution, with the UTC offset
-  and the time in UTC), the approval mode, the tool groups available, what
+  and the time in UTC), the approval mode, the workspace folder (and a bound
+  code folder; `~/…` under the home folder), the tool groups available, what
   this turn leaves out (`NOT IN THIS TURN`, see Tool set), tools and apps that
   are off, Row-Bot's live state (model, providers, channels, MCP,
   Designer, Dream Cycle, update), the active Designer project's values (name,
