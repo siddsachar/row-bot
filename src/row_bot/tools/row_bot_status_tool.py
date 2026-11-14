@@ -61,7 +61,7 @@ def _pinned_choice_status_lines(
 
     lines = ["", f"**{heading}**"]
     if not choices:
-        lines.append("- None pinned. Pin choices in Settings -> Models.")
+        lines.append("- None pinned. Pin choices in Settings › Models.")
         return lines
 
     active = [choice for choice in choices if choice.get("active") is not False]
@@ -1150,7 +1150,7 @@ def _query_image_gen() -> str:
         lines = [
             "**Image Generation**",
             f"- Tool: {'enabled' if is_enabled('image_gen') else 'disabled'}",
-            f"- Model: {selection or 'not chosen (choose one in Settings → Models)'}",
+            f"- Model: {selection or 'not chosen (choose one in Settings › Models)'}",
         ]
         lines.extend(_pinned_choice_status_lines(
             "image",
@@ -1172,7 +1172,7 @@ def _query_video_gen() -> str:
         lines = [
             "**Video Generation**",
             f"- Tool: {'enabled' if is_enabled('video_gen') else 'disabled'}",
-            f"- Model: {selection or 'not chosen (choose one in Settings → Models)'}",
+            f"- Model: {selection or 'not chosen (choose one in Settings › Models)'}",
         ]
         lines.extend(_pinned_choice_status_lines(
             "video",

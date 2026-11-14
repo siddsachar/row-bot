@@ -786,7 +786,7 @@ def test_github_browse_reports_rate_limit_as_source_status(monkeypatch):
 
     assert result.status == "error"
     assert "rate limit" in result.message.lower()
-    assert "Settings -> Accounts" in result.message
+    assert "Settings › Apps" in result.message
 
 
 def _quiet_github(monkeypatch, fetch_json) -> list:

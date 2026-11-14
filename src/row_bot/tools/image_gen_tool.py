@@ -5,7 +5,7 @@ The agent calls ``generate_image`` to create images from text prompts, or
 a file path).  Generated images are rendered inline in the chat via the
 ``captured_images`` pipeline (same as vision / browser screenshots).
 
-The user picks a provider+model combination in Settings → Models (e.g.
+The user picks a provider+model combination in Settings › Models (e.g.
 ``google/gemini-3.1-flash-image-preview``). The choices are the image models
 each connected provider's own model list offers, so new models appear without
 a Row-Bot change.
@@ -264,14 +264,14 @@ def _get_client() -> tuple:
     if not meta:
         raise RuntimeError(
             f"Unknown image generation provider '{provider}'. "
-            "Please select a valid model in Settings → Models."
+            "Please select a valid model in Settings › Models."
         )
 
     api_key = media_api_key(provider)
     if not api_key:
         raise RuntimeError(
             f"No API key for {meta['label']}. "
-            f"Please add your {meta['label']} API key in Settings → Models."
+            f"Please add your {meta['label']} API key in Settings › Models."
         )
 
     if provider == "google":

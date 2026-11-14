@@ -144,9 +144,9 @@ def describe_tunnel_error(error: object) -> str:
                 "then try again.")
     if any(code in lowered for code in ("err_ngrok_105", "err_ngrok_107", "err_ngrok_4018")) \
             or "authtoken" in lowered and ("invalid" in lowered or "not valid" in lowered):
-        return "ngrok didn't accept the saved authtoken. Replace it in Settings › Access › Tunnel."
+        return "ngrok didn't accept the saved authtoken. Replace it in Settings › Devices & remote access › Tunnel."
     if "not_set" in lowered or "ngrok_authtoken not set" in lowered:
-        return "No ngrok authtoken is saved. Add one in Settings › Access › Tunnel."
+        return "No ngrok authtoken is saved. Add one in Settings › Devices & remote access › Tunnel."
     if "pyngrok is not installed" in lowered:
         return "The tunnel support isn't installed in this copy of Row-Bot."
     if "err_ngrok_334" in lowered or "already online" in lowered:
@@ -184,7 +184,7 @@ def ngrok_configuration_status() -> tuple[str, str]:
             return (
                 "error",
                 "ngrok authtoken metadata exists, but the keyring secret is unreadable. "
-                "Clear and re-save the authtoken in Settings > System > Tunnel Settings.",
+                "Clear and re-save the authtoken in Settings › System > Tunnel Settings.",
             )
     except Exception as exc:
         log.debug("Unable to inspect NGROK_AUTHTOKEN status: %s", exc)
@@ -299,7 +299,7 @@ class NgrokProvider(TunnelProvider):
         if not token:
             raise TunnelError(
                 "NGROK_AUTHTOKEN not set — configure it in "
-                "Settings → System → Tunnel Settings"
+                "Settings › System › Tunnel Settings"
             )
 
         try:

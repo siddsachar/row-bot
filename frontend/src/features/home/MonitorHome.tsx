@@ -244,23 +244,20 @@ const TILES: {
   },
 ];
 
+/** A check's Settings page by the page's own name (its settings_tab). */
 const SETTINGS_ROUTES: Record<string, string> = {
+  Preferences: 'preferences',
+  Buddy: 'buddy',
   Models: 'models',
-  Providers: 'models',
   Voice: 'voice',
-  Channels: 'apps',
-  Accounts: 'apps',
-  MCP: 'apps',
-  Plugins: 'apps',
-  Skills: 'skills',
-  Tools: 'tools',
-  Knowledge: 'knowledge',
+  Memory: 'knowledge',
   Documents: 'documents',
   Tracker: 'tracker',
-  Buddy: 'buddy',
-  Preferences: 'preferences',
+  Tools: 'tools',
+  Skills: 'skills',
+  Apps: 'apps',
   System: 'system',
-  Access: 'access',
+  'Devices & remote access': 'access',
 };
 
 function settingsLabel(route: string) {

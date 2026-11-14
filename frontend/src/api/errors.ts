@@ -943,7 +943,7 @@ const CATALOG: Record<string, Entry> = {
     CUSTOM_ENDPOINTS,
   ],
   provider_recovery_unavailable: [
-    "The provider's settings can't be repaired automatically. Check them in Providers.",
+    "The provider's settings can't be repaired automatically. Check them in Settings › Models.",
     'review',
     PROVIDERS,
   ],
@@ -1035,7 +1035,7 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   subscription_reference_changed: [
-    'The subscription account changed. Refresh Providers, then try again.',
+    'The subscription account changed. Refresh them in Settings › Models, then try again.',
     'retry',
     PROVIDERS,
   ],

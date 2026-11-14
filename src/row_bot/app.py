@@ -466,7 +466,7 @@ def _check_oauth_tokens(at_startup: bool = False) -> list[str]:
                 label = "token healthy" if status == "valid" else "token refreshed"
                 _safe_console_print(f"[oauth] ✅ {display} {label}")
             elif status == "expired":
-                msg = f"⚠️ {display} token expired — re-authenticate in Settings → Accounts"
+                msg = f"⚠️ {display} token expired — re-authenticate in Settings › Apps"
                 warnings.append(msg)
                 _safe_console_print(f"[oauth] {msg}")
             elif status == "error":

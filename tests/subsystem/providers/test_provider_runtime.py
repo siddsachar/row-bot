@@ -627,7 +627,7 @@ def test_ollama_cloud_401_has_actionable_message():
         model.invoke([HumanMessage(content="Hi")])
     except RuntimeError as exc:
         assert "Ollama Cloud rejected the API key" in str(exc)
-        assert "Settings -> Providers" in str(exc)
+        assert "Settings › Models" in str(exc)
     else:
         raise AssertionError("Expected Ollama Cloud 401 to raise")
 

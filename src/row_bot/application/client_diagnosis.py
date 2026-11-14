@@ -80,7 +80,14 @@ _PLACES: dict[str, tuple[str, str]] = {
     "plugins": ("/settings/apps", "Apps"),
     "tools": ("/settings/tools#built-in-tools", "Tools"),
 }
-# A sign-in Row-Bot can renew from its own row on Settings › Accounts.
+# Settings pages by the name a check gives them (status_checks' settings_tab), as Settings names them.
+_PAGE_IDS = {
+    "Preferences": "preferences", "Appearance": "appearance", "Buddy": "buddy", "Models": "models",
+    "Voice": "voice", "Memory": "knowledge", "Documents": "documents", "Tracker": "tracker", "Tools": "tools",
+    "Skills": "skills", "Apps": "apps", "System": "system", "Devices & remote access": "access",
+    "Updates": "updates", "Data": "data",
+}
+# A sign-in Row-Bot can renew from its own row on Settings › Apps.
 _ACCOUNTS = {"gmail-oauth": ("google", "Google"), "calendar-oauth": ("google", "Google"), "x-oauth": ("x", "X")}
 # Nothing in Row-Bot fixes these; once they are fixed outside it, check again.
 _CHECK_AGAIN = {"ollama": "/settings/models#providers-local", "network": None, "disk": None, "threads-db": None}
@@ -247,9 +254,9 @@ def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None
     if check_id in _CHECK_AGAIN:
         return _fix("check_again", _CHECK_AGAIN[check_id], name)
     # A check this table doesn't know yet: its settings page, else check again.
-    tab = entry["settings_tab"].lower()
-    if re.fullmatch(r"[a-z]{2,32}", tab):
-        return _fix("open", f"/settings/{tab}", entry["settings_tab"])
+    page = _PAGE_IDS.get(entry["settings_tab"])
+    if page:
+        return _fix("open", f"/settings/{page}", entry["settings_tab"])
     return _fix("check_again", None, name)
 
 

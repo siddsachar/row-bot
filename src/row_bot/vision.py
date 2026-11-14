@@ -535,7 +535,7 @@ class VisionService:
         tool can say so before it gathers any pictures.
         """
         if not self._enabled:
-            return "Vision is disabled. Enable it in Settings → Models."
+            return "Vision is disabled. Enable it in Settings › Models."
         model = self.effective_model(chat_model)
         if not model:
             return "No model is chosen yet, so Row-Bot can't look at images. Choose a model, then try again."
@@ -549,7 +549,7 @@ class VisionService:
             reason = str(compatibility.get("reason") or "not marked as image-capable")
             return (
                 "The selected Vision model is no longer marked as image-capable. "
-                f"Choose a Vision-capable model in Settings -> Models. ({reason})"
+                f"Choose a Vision-capable model in Settings › Models. ({reason})"
             )
         return ""
 

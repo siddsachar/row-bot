@@ -1,6 +1,6 @@
 """A plugin's local self-test: the setup it still needs and its declared checks.
 
-Used by Settings › Plugins' "Test" (``application/plugin_commands``) and
+Used by Settings › Apps' "Test" (``application/plugin_commands``) and
 ``row-bot plugins doctor`` (``plugins/devtools``). Nothing here loads or runs
 the plugin.
 """

@@ -54,4 +54,4 @@ BROWSER AUTOMATION (Row-Bot's browser):
   chat. It records only Row-Bot's browser and stops by itself after
   max_minutes. To record the whole screen use computer_record;
   if Computer use isn't available, tell them recording the screen needs it
-  (Settings > System > Browser and computer use).
+  (Settings › System > Browser and computer use).

@@ -3,7 +3,7 @@
 Provides the agent with a ``run_command`` tool that executes shell commands
 on the user's machine.  Working directory is tracked across calls within
 the same thread (conversation).  The workspace folder is shared with the
-Filesystem tool (configured once in Settings → System Access).
+Filesystem tool (configured once in Settings › Devices & remote access).
 
 Safety
 ------
@@ -373,7 +373,7 @@ _HOME_REFERENCES = re.compile(r"(\$env:userprofile|\$env:home|%userprofile%|\$\{
 _DATA_DIR_SEGMENT = re.compile(r"(^|[\s\"'=:])" + re.escape(DEFAULT_DATA_DIR_NAME.lower()) + r"($|[/\s\"'*])")
 PRIVATE_DATA_REFUSAL = (
     "BLOCKED: this command reads Row-Bot's private data folder (conversations, settings, keys), which agents "
-    "can't read. The person can allow it, with approval each time, in Settings > System > Advanced. Connected "
+    "can't read. The person can allow it, with approval each time, in Settings › System > Advanced. Connected "
     "MCP servers are used through their tools, never through their configuration files."
 )
 
