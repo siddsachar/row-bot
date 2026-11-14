@@ -185,6 +185,8 @@ class FakeDocker:
             return SimpleNamespace(returncode=0 if args[-1] in self.containers else 1, stdout="", stderr="")
         if args[0] == "rm" and self.rm_works:
             self.containers.discard(args[-1])
+        if args[0] == "run":
+            self.containers.add(args[args.index("--name") + 1])
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     def start(self, job, argv, folder, name):
@@ -216,7 +218,9 @@ class FakeDocker:
         record.done.set()
 
     def network_changes(self) -> list[list[str]]:
-        return [call for call in self.calls if call[:1] == ["network"] or (call[:1] == ["run"] and "none" in call)]
+        """Calls that would change the sandbox's own container's network."""
+        return [call for call in self.calls if (call[:1] == ["network"] and "row-bot-dev-main" in call)
+                or (call[:1] == ["run"] and "none" in call)]
 
 
 @pytest.fixture
@@ -242,9 +246,13 @@ def sandbox(tmp_path, monkeypatch, reload_for_data_dir):
     def mode(value: str) -> None:
         monkeypatch.setattr(developer_tool, "_active_approval_mode", lambda: value)
 
+    from row_bot.developer import sandbox_egress
+
     yield SimpleNamespace(storage=storage, workspace=storage.get_workspace(workspace.id), thread_id=thread_id,
                           docker=docker, module=sandbox_prepare, tool=developer_tool, approvals=approvals,
-                          answer=answer, mode=mode, sandbox_runtime=sandbox_runtime)
+                          answer=answer, mode=mode, sandbox_runtime=sandbox_runtime,
+                          gate=sandbox_egress.gate_name(workspace.id),
+                          gate_network=sandbox_egress.network_name(workspace.id))
     tool_context.reset_context(tokens)
 
 
@@ -256,6 +264,9 @@ def _network_off_again(env, job) -> None:
     assert env.storage.get_workspace(env.workspace.id).sandbox_network == "off"
     assert env.docker.network_changes() == []
     assert "row-bot-dev-main" in env.docker.containers
+    # The network gate the install went through goes too: no networked sandbox needs it.
+    assert env.gate not in env.docker.containers
+    assert ["network", "rm", env.gate_network] in env.docker.calls
     view = env.module.view(job)
     assert view["network"] == "off" and view["network_off_at"]
 
@@ -269,7 +280,14 @@ def test_a_prepared_sandbox_installs_with_the_network_on_only_for_the_install(sa
     (run,) = env.docker.runs
     # Its own short-lived container, on the sandbox's copy, with the packages where the sandbox sees them.
     assert run[:3] == ["docker", "run", "--rm"]
-    assert "--network" not in run
+    # Its network is the gate's: the public internet only, never this computer (sandbox_egress).
+    assert run[run.index("--network") + 1] == env.gate_network
+    assert f"HTTPS_PROXY=http://{env.gate}:3128" in run
+    assert run[run.index("--cap-drop") + 1] == "NET_RAW"
+    created = env.docker.calls.index(next(call for call in env.docker.calls if call[:2] == ["network", "create"]))
+    gate_started = env.docker.calls.index(next(call for call in env.docker.calls
+                                               if call[:2] == ["run", "-d"] and env.gate in call))
+    assert created < gate_started < env.docker.calls.index(run[1:])
     assert run[run.index("-v") + 1].endswith(":/workspace")
     assert "PYTHONUSERBASE=/workspace/.row-bot-sandbox/python" in run
     assert run[-4:-1] == [IMAGE, "/bin/sh", "-lc"]
