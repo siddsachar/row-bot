@@ -34,13 +34,45 @@ class ScriptedModel:
                                           "body": change["what_changed"]} for change in case["changes"]]})
 
 
+class DayRuns:
+    """The morning brief's and end-of-day wrap's workflow runs, finished at once: each run's message as the
+    workflow expands it, and the reply its conversation gets (the message itself, unless a test sets
+    ``reply``, a string or a function of the message)."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self.reply: Any = None
+        self.status = "completed"
+
+    def __call__(self, task: dict, trigger: str) -> None:
+        from row_bot import tasks, workflow_turns
+        from row_bot.proactive import day, store
+
+        message = tasks.expand_template_vars(workflow_turns.messages(task)[0], task_id=task["id"])
+        self.messages.append(message)
+        name = day.which(task["id"])
+        reply = self.reply(message) if callable(self.reply) else message if self.reply is None else self.reply
+        day.finished(tasks.get_task(task["id"]), f"run-{name}-{len(self.messages)}", self.status, reply, "",
+                     now=store.get_state("day_runs")[name]["started"])
+
+
 @pytest.fixture
 def proactive(tmp_path, monkeypatch, reload_for_data_dir):
     """The proactive modules bound to this test's data folder, with no watchers registered, a scripted main
-    model, Buddy on, no phone or chat app, surfaces recorded in ``sent`` and preparations in ``prepared``."""
-    store, settings = reload_for_data_dir(tmp_path, "row_bot.proactive.store", "row_bot.proactive.settings")
-    from row_bot.proactive import deliver, engine, feedback, prepare, timing, triage, watchers
+    model, Buddy on, no phone or chat app, surfaces recorded in ``sent`` and preparations in ``prepared``;
+    no calendar or mail connected unless a test adds them (``calendars``, ``mail``); the brief's workflow runs
+    in ``day_runs``."""
+    store, settings, tasks = reload_for_data_dir(tmp_path, "row_bot.proactive.store", "row_bot.proactive.settings",
+                                                 "row_bot.tasks")
+    from row_bot.proactive import day, deliver, engine, feedback, prepare, sources, timing, triage, watchers
 
+    calendars: list = []
+    mail: list = []
+    monkeypatch.setattr(sources, "calendar_sources", lambda: calendars)
+    monkeypatch.setattr(sources, "mail_sources", lambda: mail)
+    day_runs = DayRuns()
+    monkeypatch.setattr(day, "start_run", day_runs)
+    monkeypatch.setattr(day, "_GATHERED", {})
     monkeypatch.setattr(watchers, "_WATCHERS", {})
     model = ScriptedModel()
     monkeypatch.setattr(triage, "_call", model)
@@ -52,7 +84,8 @@ def proactive(tmp_path, monkeypatch, reload_for_data_dir):
     prepared: list[tuple[str, str]] = []
     monkeypatch.setattr(prepare, "queue", lambda moment_id, untrusted="": prepared.append((moment_id, untrusted)))
     return SimpleNamespace(store=store, settings=settings, engine=engine, feedback=feedback, timing=timing,
-                           watchers=watchers, deliver=deliver, model=model, sent=sent, prepared=prepared)
+                           watchers=watchers, deliver=deliver, model=model, sent=sent, prepared=prepared,
+                           tasks=tasks, day=day, day_runs=day_runs, calendars=calendars, mail=mail)
 
 
 def start_day(proactive, day: str = "2026-11-16") -> None:

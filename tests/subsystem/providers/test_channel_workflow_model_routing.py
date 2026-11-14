@@ -258,7 +258,7 @@ def test_phase4_a_workflow_turn_runs_on_its_own_model_never_the_default(tmp_path
 
     started = []
     monkeypatch.setattr(conversation_followups, "start",
-                        lambda _service, conversation_id, followup, *, model_ref="": started.append(
+                        lambda _service, conversation_id, followup, *, model_ref="", **_: started.append(
                             (conversation_id, followup.prompt, model_ref)) or None)
 
     tasks.run_task_background(task_id, thread_id, [])

@@ -52,7 +52,7 @@ def test_the_same_ask_in_three_chats_is_offered_once_and_never_again(proactive):
     chats.say("chat-c", asks[2])
     proactive.engine.tick(at("2026-11-16 10:00"), desktop=AT_DESK)
     [offer] = proactive.store.list_moments()
-    assert offer["kind"] == "workflow_offer" and [action["id"] for action in offer["actions"]] == ["continue_in_chat"]
+    assert offer["kind"] == "workflow_offer" and [action["id"] for action in offer["actions"]] == ["make_workflow"]
     proactive.feedback.dismiss(offer["id"], now=at("2026-11-16 10:05"))
 
     chats.say("chat-d", asks[0])

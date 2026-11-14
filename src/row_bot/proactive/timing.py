@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from row_bot.proactive.model import AWAY_IDLE_SECONDS, KIND_WORDS, TYPING_IDLE_SECONDS, Desktop
-from row_bot.proactive.settings import COOLDOWN_SECONDS, DAILY_CAP, LEVEL_WORDS
+from row_bot.proactive.settings import COOLDOWN_SECONDS, DAILY_CAP, LEVEL_WORDS, wrap_on
 
 BOUNDARY_WINDOW_SECONDS = 120  # A break stays open this long: moments batched for it go out in it.
 RETURNED_IDLE_SECONDS = 60  # Input this recent after being away means the person is back.
@@ -82,7 +82,9 @@ def decide(moment: dict[str, Any], *, at: datetime, desktop: Desktop, settings: 
         return Decision("expire", "It ran out before a good moment came.")
     if level == "off":
         return Decision("hold", "Proactive is off.")
-    if not settings["kinds"].get(kind, False):
+    if moment["watcher"] == "wrap" and not wrap_on(settings):
+        return Decision("hold", "The end-of-day wrap is off.")
+    if moment["watcher"] != "wrap" and not settings["kinds"].get(kind, False):
         return Decision("hold", f"{KIND_WORDS[kind]} are off.")
     if quieted:
         return Decision("hold", f"{KIND_WORDS[kind]} went quiet after being ignored.")
@@ -97,10 +99,10 @@ def decide(moment: dict[str, Any], *, at: datetime, desktop: Desktop, settings: 
     for rule in rules:
         if rule["type"] == "not_at_time" and rule["kind"] == kind and rule["hour"] == at.hour:
             return Decision("hold", f"Your rule: no {KIND_WORDS[kind].lower()} around {at.hour}:00.")
+    if now < moment["due_at"]:  # Even an urgent one: a meeting brief prepared overnight waits for its meeting.
+        return Decision("hold", "Not due yet.")
     if moment["urgency"] == "urgent":
         return Decision("deliver", "Urgent.", ("It's urgent, so it didn't wait for a break.",))
-    if now < moment["due_at"]:
-        return Decision("hold", "Not due yet.")
     if boundary is None:
         return Decision("hold", "Waiting for a natural break.")
     cap = DAILY_CAP[level]

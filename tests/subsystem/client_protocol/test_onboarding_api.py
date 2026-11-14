@@ -114,7 +114,7 @@ def test_setup_counts_only_what_the_person_did(tmp_path, reload_for_data_dir):
     # Developer tools Row-Bot ships with are not something they set up.
     assert client_onboarding.read_onboarding()["completed_steps"] == ["models"]
 
-    starter = next(task for task in tasks.list_tasks() if task["name"] == "Daily Operating Brief")
+    starter = next(task for task in tasks.list_tasks() if task["name"] == "Morning brief")
     tasks.update_task(starter["id"], enabled=True)
     assert "workflows" in client_onboarding.read_onboarding()["completed_steps"]
     tasks.update_task(starter["id"], enabled=False)
