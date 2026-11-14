@@ -392,6 +392,15 @@ export default function ProviderStatus({
       : waiting(item.id).length > 0 ||
         (item.id === 'local' && localServers.length > 0),
   );
+  // The other tabs a search matches on: the search reads the whole gallery (F6).
+  const elsewhere = (id: string) =>
+    find.trim()
+      ? tabs.filter(
+          (item) =>
+            item.id !== id &&
+            (found(item.id).length > 0 || foundServers(item.id).length > 0),
+        )
+      : [];
   const galleryTab = tabs.some((item) => item.id === tab)
     ? tab
     : (tabs[0]?.id ?? '');
@@ -696,9 +705,19 @@ export default function ProviderStatus({
                     </li>
                   </ul>
                 ) : !found(item.id).length && !foundServers(item.id).length ? (
-                  <p className="settings-provider-empty">
-                    No provider here matches “{find.trim()}”.
-                  </p>
+                  <div className="settings-provider-empty">
+                    <p>No provider here matches “{find.trim()}”.</p>
+                    {elsewhere(item.id).map((other) => (
+                      <Button
+                        key={other.id}
+                        variant="ghost"
+                        onClick={() => setTab(other.id)}
+                      >
+                        <Search size={14} aria-hidden />
+                        Show matches in {other.label}
+                      </Button>
+                    ))}
+                  </div>
                 ) : (
                   <ul className="settings-provider-options">
                     {foundServers(item.id).map((server) => (

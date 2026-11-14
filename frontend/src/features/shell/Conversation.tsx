@@ -3707,6 +3707,7 @@ export default function Conversation({
                               key={media.reference}
                               reference={media.reference}
                               mime={media.mime}
+                              caption={media.caption}
                             />
                           ))}
                         </div>

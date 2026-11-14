@@ -322,6 +322,43 @@ it('Find a provider narrows the gallery, and says when nothing matches', async (
   expect(gallery).toHaveTextContent(
     'No provider here matches “nothing like it”.',
   );
+  expect(
+    within(gallery).queryByRole('button', { name: /Show matches/ }),
+  ).toBeNull();
+});
+
+it('Find a provider points to the tab where the provider is (F6)', async () => {
+  render(
+    <ProviderStatus
+      load={async () => ({
+        schema_version: 1,
+        providers: [
+          card,
+          unconnected('mistral', 'Mistral'),
+          { ...unconnected('codex', 'ChatGPT'), group: 'subscription' },
+        ],
+      })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  const gallery = await openGallery('API key');
+  fireEvent.change(
+    within(gallery).getByRole('searchbox', { name: 'Find a provider' }),
+    { target: { value: 'chat' } },
+  );
+  expect(gallery).toHaveTextContent('No provider here matches “chat”.');
+  fireEvent.click(
+    within(gallery).getByRole('button', {
+      name: 'Show matches in Subscription',
+    }),
+  );
+  expect(
+    within(gallery).getByRole('tab', { name: 'Subscription' }),
+  ).toHaveAttribute('aria-selected', 'true');
+  expect(
+    within(gallery).getByRole('button', { name: /ChatGPT/ }),
+  ).toBeVisible();
 });
 
 it('Add a provider › Your server opens the custom endpoint dialog', async () => {

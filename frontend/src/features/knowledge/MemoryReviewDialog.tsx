@@ -344,7 +344,8 @@ function ReviewFlow({
             {error}
           </ErrorState>
         )}
-        {notice && (
+        {/* The done step says "Review undone" itself. */}
+        {notice && step !== 'done' && (
           <p role="status" className="memory-import-notice">
             {notice}
           </p>
