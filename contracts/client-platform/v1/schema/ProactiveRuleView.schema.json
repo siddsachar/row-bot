@@ -1,0 +1,58 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "hour": {
+      "maximum": 23,
+      "minimum": -1,
+      "title": "Hour",
+      "type": "integer"
+    },
+    "kind": {
+      "enum": [
+        "",
+        "follow_up",
+        "meeting_prep",
+        "brief",
+        "date",
+        "change",
+        "workflow_offer"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "rule_id": {
+      "pattern": "^[0-9a-f]{12}$",
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "topic": {
+      "maxLength": 120,
+      "title": "Topic",
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "never_about",
+        "fewer",
+        "not_at_time"
+      ],
+      "title": "Type",
+      "type": "string"
+    },
+    "words": {
+      "maxLength": 200,
+      "title": "Words",
+      "type": "string"
+    }
+  },
+  "required": [
+    "rule_id",
+    "type",
+    "kind",
+    "topic",
+    "hour",
+    "words"
+  ],
+  "title": "ProactiveRuleView",
+  "type": "object"
+}

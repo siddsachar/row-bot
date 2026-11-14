@@ -1,0 +1,180 @@
+{
+  "additionalProperties": false,
+  "description": "A change to some of the choices; what is left out stays as it is.",
+  "properties": {
+    "channel": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Channel"
+    },
+    "day_end": {
+      "anyOf": [
+        {
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Day End"
+    },
+    "desktop_context": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Desktop Context"
+    },
+    "follow_up_days": {
+      "anyOf": [
+        {
+          "maximum": 30,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Follow Up Days"
+    },
+    "kinds": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "maxProperties": 6,
+          "propertyNames": {
+            "enum": [
+              "follow_up",
+              "meeting_prep",
+              "brief",
+              "date",
+              "change",
+              "workflow_offer"
+            ]
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kinds"
+    },
+    "level": {
+      "anyOf": [
+        {
+          "enum": [
+            "off",
+            "quiet",
+            "balanced",
+            "eager"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Level"
+    },
+    "quiet_end": {
+      "anyOf": [
+        {
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quiet End"
+    },
+    "quiet_start": {
+      "anyOf": [
+        {
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quiet Start"
+    },
+    "sources": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "maxProperties": 6,
+          "propertyNames": {
+            "enum": [
+              "mail",
+              "calendar",
+              "chats",
+              "memory",
+              "workflows",
+              "monitor"
+            ]
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sources"
+    },
+    "urgent_kinds": {
+      "anyOf": [
+        {
+          "items": {
+            "enum": [
+              "follow_up",
+              "meeting_prep",
+              "brief",
+              "date",
+              "change",
+              "workflow_offer"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Urgent Kinds"
+    }
+  },
+  "title": "ProactiveSettingsChange",
+  "type": "object"
+}

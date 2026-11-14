@@ -70,6 +70,9 @@ Priorities, in order:
 - `src/row_bot/designer/`: Designer Studio state, export, templates, rendering,
   previews, thumbnails, and AI content.
 - `src/row_bot/plugins/`, `skills_hub/`, `skills.py`: plugin and skill systems.
+- `src/row_bot/proactive/`: Proactive Row-Bot: watchers, the moment store
+  (`proactive.db`), the attention budget and timing, desktop context, feedback
+  rules and the Activity log; its client API is `application/client_proactive.py`.
 - `src/row_bot/learning/`: Learning (preview): the switch (`is_enabled`), versioned
   records, the `learning.db` store and blobs, scope (what may be recorded), capture
   (the seams' queue and writer, with redaction), the past-chat import, evaluation
@@ -193,6 +196,8 @@ jobs with `ROW_BOT_TEST_SHARD=k/N`.
 - Apps & Skills (catalogs, plans, access, the safe fetcher, apps in chats):
   `tests/subsystem/integrations/`.
 - Agents, approvals, goals: `tests/subsystem/agents/`.
+- Proactive Row-Bot (watchers, budget, timing, the restraint suite):
+  `tests/subsystem/proactive/`.
 - Workflows/tasks/approvals: `tests/subsystem/workflows/`.
 - Memory, knowledge graph, wiki vault, documents, Dream Cycle:
   `tests/subsystem/knowledge_graph/`, `tests/subsystem/dream_cycle/`,

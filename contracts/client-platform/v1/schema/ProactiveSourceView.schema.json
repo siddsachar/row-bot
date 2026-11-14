@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "enum": [
+        "mail",
+        "calendar",
+        "chats",
+        "memory",
+        "workflows",
+        "monitor"
+      ],
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 60,
+      "title": "Label",
+      "type": "string"
+    },
+    "on": {
+      "title": "On",
+      "type": "boolean"
+    },
+    "privacy": {
+      "maxLength": 400,
+      "title": "Privacy",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "on",
+    "privacy"
+  ],
+  "title": "ProactiveSourceView",
+  "type": "object"
+}
