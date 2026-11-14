@@ -335,10 +335,10 @@ def test_not_now_on_a_tool_toggle_is_final_for_the_turn(monkeypatch):
     """The model asked again by another route after Not now (B161)."""
     import langgraph.types
     from row_bot.tools import registry
-    from row_bot.tools import row_bot_status_tool
+    from row_bot import self_settings
     from row_bot.tools.row_bot_status_tool import _update_setting
 
-    monkeypatch.setattr(row_bot_status_tool, "_resolve_tool_name", lambda name: ("developer", "Developer", []))
+    monkeypatch.setattr(self_settings, "resolve_tool_name", lambda name: ("developer", "Developer", []))
     monkeypatch.setattr(registry, "is_enabled", lambda name: False)
     monkeypatch.setattr(registry, "set_enabled", lambda name, on: pytest.fail("a declined tool was turned on"))
     monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: False)
@@ -352,11 +352,11 @@ def test_not_now_on_a_tool_toggle_is_final_for_the_turn(monkeypatch):
 def test_the_turn_on_card_names_the_page_where_the_tool_is_switched_off(monkeypatch, tool, page):
     import langgraph.types
     from row_bot.tools import registry
-    from row_bot.tools import row_bot_status_tool
+    from row_bot import self_settings
     from row_bot.tools.row_bot_status_tool import _update_setting
 
     requests = []
-    monkeypatch.setattr(row_bot_status_tool, "_resolve_tool_name", lambda name: (tool, "The tool", []))
+    monkeypatch.setattr(self_settings, "resolve_tool_name", lambda name: (tool, "The tool", []))
     monkeypatch.setattr(registry, "is_enabled", lambda name: False)
     monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: requests.append(payload) or False)
     _update_setting("tool_toggle", f"{tool}:on")
@@ -368,11 +368,11 @@ def test_a_tool_turned_on_mid_turn_carries_on_by_itself_in_the_next_turn(monkeyp
     import langgraph.types
     from row_bot.application import conversation_followups
     from row_bot.tools import registry
-    from row_bot.tools import row_bot_status_tool
+    from row_bot import self_settings
     from row_bot.tools.row_bot_status_tool import _update_setting
 
     state = {"on": False}
-    monkeypatch.setattr(row_bot_status_tool, "_resolve_tool_name", lambda name: ("image_gen", "Image Generation", []))
+    monkeypatch.setattr(self_settings, "resolve_tool_name", lambda name: ("image_gen", "Image Generation", []))
     monkeypatch.setattr(registry, "is_enabled", lambda name: state["on"])
     monkeypatch.setattr(registry, "set_enabled", lambda name, on: state.update(on=on))
     monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: True)

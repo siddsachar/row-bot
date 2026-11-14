@@ -11,12 +11,11 @@ import logging
 from typing import Optional
 
 from row_bot.identity import get_identity_config, get_assistant_name, _DEFAULT_NAME  # get_assistant_name re-exported for convenience
-from row_bot.brand import DEFAULT_DATA_DIR_NAME, DEFAULT_WORKSPACE_DIR_NAME
 
 logger = logging.getLogger(__name__)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# STATIC: What I Am (sent with every chat, so short; the feature list is on demand)
+# STATIC: What I Am (sent with every chat, so short; features and how-tos are in the guides)
 # ═════════════════════════════════════════════════════════════════════════════
 
 _ABOUT_ROW_BOT_INTRO = (
@@ -28,8 +27,9 @@ _ABOUT_ROW_BOT_INTRO = (
 )
 
 _ABOUT_ROW_BOT_OUTRO = (
-    "For what you can do and how a feature is set up, use row_bot_status with category\n"
-    "'features'; for live configuration, its other categories. Don't guess.\n"
+    "For how to do something in Row-Bot or where a setting is, search your guides with\n"
+    "row_bot_docs and answer from them in steps, each setting linked. For live state\n"
+    "(model, settings, what needs attention), use row_bot_status. Don't guess.\n"
 )
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -79,238 +79,12 @@ SKILL_CREATION_GUIDANCE = (
     "- Keep instructions concise — the body is injected into the system prompt.\n"
 )
 
-# ═════════════════════════════════════════════════════════════════════════════
-# FEATURE MANIFEST — structured data for accurate self-referencing
-# ═════════════════════════════════════════════════════════════════════════════
-
-FEATURE_MANIFEST: list[dict[str, str]] = [
-    {
-        "feature": "Web Search",
-        "keywords": "search, web, internet, google, news, current events",
-        "description": "Search the web via Tavily or DuckDuckGo for real-time information.",
-        "configure": "Settings → Tools (Search and knowledge tools) to choose a provider and set API keys.",
-    },
-    {
-        "feature": "Knowledge Graph",
-        "keywords": "memory, remember, know, knowledge, graph, entities, relationships",
-        "description": "Personal knowledge graph storing memories about people, preferences, facts, events, places, and projects with automatic relationship linking.",
-        "configure": "Home → Knowledge to browse, search, edit and review memories; Settings → Memory for memory and wiki vault settings.",
-    },
-    {
-        "feature": "Task Automation",
-        "keywords": "tasks, schedule, reminders, automation, cron, recurring, daily briefing",
-        "description": "Schedule reminders, recurring jobs, monitoring tasks, and multi-step pipelines with 7 trigger types.",
-        "configure": "Home → Workflows, or ask the assistant to create a workflow.",
-    },
-    {
-        "feature": "Voice Input & TTS",
-        "keywords": "voice, speech, whisper, talk, speak, listen, microphone, tts",
-        "description": "Hands-free voice input via Whisper STT and text-to-speech output with multiple voice options.",
-        "configure": "Settings → Voice to choose Whisper model size and TTS voice.",
-    },
-    {
-        "feature": "Browser Automation",
-        "keywords": "browser, web, click, navigate, fill form, scrape, playwright, chromium",
-        "description": "Visible Chromium browser automation — navigate, click, fill forms, extract data. Logins persist across sessions.",
-        "configure": "Settings → System → Browser and Computer Use to enable Browser and explicitly install its runtime if needed.",
-    },
-    {
-        "feature": "Computer use",
-        "keywords": "computer use, desktop, native app, calculator, notepad, textedit, os dialog, stop bar",
-        "description": "Opt-in: Row-Bot works in an app on this computer with the real mouse and keyboard while you watch, through Cua Driver. A bar on screen shows it; Esc or Stop ends it, and using the mouse yourself pauses it. It asks before the first use of each app in a chat and before paying, sending, deleting or changing settings, and never types passwords.",
-        "configure": "Settings → System → Browser and computer use. Review the Cua Driver notice, then install the reviewed driver.",
-    },
-    {
-        "feature": "Gmail & Calendar",
-        "keywords": "email, gmail, calendar, google, events, send email, draft",
-        "description": "Read, draft, and send emails. Create and manage Google Calendar events.",
-        "configure": "Settings → Accounts to connect your Google account.",
-    },
-    {
-        "feature": "Outlook mail & calendar",
-        "keywords": "outlook, microsoft, office 365, microsoft 365, exchange, hotmail, email, calendar, invitations",
-        "description": "Search, read, draft, file and send Outlook email, and manage the Outlook calendar, through the "
-                       "person's own Microsoft app (no client secret). Sending, replying, forwarding, deleting and "
-                       "invitations always ask first. Sign in on this computer, or from a phone with a code.",
-        "configure": "Settings → Apps → Outlook: register an app in Microsoft Entra as the guide shows, paste its "
-                     "client ID, then sign in.",
-    },
-    {
-        "feature": "Shell Access",
-        "keywords": "shell, terminal, command, script, run, execute, pip, git",
-        "description": "Run shell commands on the user's machine. Dangerous commands require approval.",
-        "configure": "Settings → System to enable/disable shell access.",
-    },
-    {
-        "feature": "Document Library",
-        "keywords": "documents, pdf, upload, files, knowledge base, attachments",
-        "description": "Upload PDFs and text files as a persistent knowledge base. Drag-and-drop or use the paperclip button.",
-        "configure": "Settings → Documents to manage uploaded files.",
-    },
-    {
-        "feature": "Multi-Channel Messaging",
-        "keywords": "telegram, discord, slack, whatsapp, sms, channels, messaging",
-        "description": "Access the assistant via Telegram, Discord, Slack, WhatsApp, or SMS in addition to the web UI.",
-        "configure": "Settings → Channels to set up messaging integrations.",
-    },
-    {
-        "feature": "Habit & Health Tracker",
-        "keywords": "tracker, habits, medication, symptoms, exercise, streak, health, logging",
-        "description": "Log medications, symptoms, exercise, or any recurring activity. Streak analysis, trend charts, and CSV export.",
-        "configure": "Settings → Tracker to view logged data and charts.",
-    },
-    {
-        "feature": "Skills System",
-        "keywords": "skills, instruction packs, deep research, daily briefing, humanizer",
-        "description": "Bundled instruction packs that shape behavior — Deep Research, Daily Briefing, Humanizer, and more. Users can create custom skills.",
-        "configure": "Settings → Skills to enable/disable skill packs.",
-    },
-    {
-        "feature": "Vision & Image Analysis",
-        "keywords": "vision, image, picture, photo, screenshot, analyze image, see",
-        "description": "Analyze images using vision-capable models. Describe, extract text, or answer questions about images.",
-        "configure": "Settings → Models to select a vision model.",
-    },
-    {
-        "feature": "File Operations",
-        "keywords": "files, workspace, read, write, create, export, pdf, csv, excel",
-        "description": f"Read, write, and organize files in the workspace folder (~/Documents/{DEFAULT_WORKSPACE_DIR_NAME} unless the person chose another).",
-        "configure": "Settings → System to configure workspace path.",
-    },
-    {
-        "feature": "YouTube Integration",
-        "keywords": "youtube, video, transcript, watch, search videos",
-        "description": "Search YouTube videos and fetch full transcripts for content analysis.",
-        "configure": "Enabled by default. No configuration needed.",
-    },
-    {
-        "feature": "Charts & Visualization",
-        "keywords": "chart, graph, plot, visualize, data, bar chart, line chart",
-        "description": "Generate charts and data visualizations from conversations or data files.",
-        "configure": "Enabled by default. No configuration needed.",
-    },
-    {
-        "feature": "Plugin System",
-        "keywords": "plugins, extensions, community, marketplace, install plugin",
-        "description": "Community plugin system for extending capabilities. Browse and install from the marketplace.",
-        "configure": "Settings → Plugins to manage installed plugins.",
-    },
-    {
-        "feature": "MCP Client",
-        "keywords": "mcp, model context protocol, external tools, tool server, marketplace, registry",
-        "description": "Connect external Model Context Protocol servers as native dynamic tools with global kill switch, per-server enablement, per-tool toggles, approval gates for destructive tools, recommended starter recipes, overlap/risk labels, marketplace browse/import, diagnostics, and isolated failure handling.",
-        "configure": "Settings → MCP to add, test, import, browse, enable, and troubleshoot MCP servers.",
-    },
-    {
-        "feature": "Dream Cycle",
-        "keywords": "dream, nightly, memory refinement, consolidation, background processing",
-        "description": "Nightly 5-phase memory refinement process that consolidates, deduplicates, enriches the knowledge graph, and generates automated insights.",
-        "configure": "Runs automatically. No configuration needed.",
-    },
-    {
-        "feature": "Insights Engine",
-        "keywords": "insights, self-improvement, analysis, suggestions, error patterns, skill proposals",
-        "description": "Automated system analysis during the dream cycle. Generates actionable insights about error patterns, skill proposals, tool configuration, knowledge quality, usage patterns, and system health.",
-        "configure": "Home → Insights. Dismiss, pin, investigate, or apply suggested changes.",
-    },
-    {
-        "feature": "Conversation History",
-        "keywords": "history, past conversations, search chat, threads, previous",
-        "description": "Full conversation history with search. Find past discussions and continue previous threads.",
-        "configure": "The sidebar lists conversations by date with a type filter; search them with the command palette (Ctrl/Cmd+K), or ask to search past conversations.",
-    },
-    {
-        "feature": "Image Generation",
-        "keywords": "image, generate, create image, dall-e, picture, illustration, edit image",
-        "description": "Generate and edit images using DALL-E or compatible models. Requires a cloud provider with image generation support.",
-        "configure": "Requires an OpenAI or OpenRouter API key. Enabled automatically when a cloud provider is configured.",
-    },
-    {
-        "feature": "X / Twitter",
-        "keywords": "x, twitter, tweet, post, social media, engage, timeline",
-        "description": "Read your X/Twitter timeline, post tweets, and engage with content.",
-        "configure": "Settings → Accounts to connect X; the X tool is in Settings → Tools.",
-    },
-    {
-        "feature": "Designs",
-        "keywords": "designer, design, slides, presentation, deck, document, one-pager, report, marketing, landing page, hero page, wireframe, mockup, app mockup, prototype, click-through, storyboard, shot list, layout, brand, export, pptx, pdf, html, png, publish link, share link, chart, ai image, ai video, refine text",
-        "description": "Create multi-page visual designs across five modes — slide decks, documents, scrollable landing pages, interactive app/UI mockups (phone or desktop), and video storyboards. Live HTML preview, brand theming, AI image and video generation, copy refinement, charts, brand-lint, and export to PDF/HTML/PNG/PPTX. Landing pages and app mockups can be published as interactive click-through bundles via shareable links.",
-        "configure": "Ask the assistant to create a design (deck, document, landing page, app mockup or storyboard); it opens in the conversation's Design panel. The sidebar's Designs filter lists conversations with designs.",
-    },
-    {
-        "feature": "Wiki Vault",
-        "keywords": "wiki, obsidian, vault, notes, markdown, personal wiki",
-        "description": "Obsidian-compatible personal wiki auto-generated from the knowledge graph. Read, search, and export conversations as wiki pages.",
-        "configure": "Enabled by default. Access via the wiki tool.",
-    },
-    {
-        "feature": "ArXiv Search",
-        "keywords": "arxiv, research, papers, academic, scientific, publications",
-        "description": "Search and retrieve academic papers from arXiv.",
-        "configure": "Enabled by default. No configuration needed.",
-    },
-    {
-        "feature": "Wikipedia",
-        "keywords": "wikipedia, encyclopedia, wiki lookup, reference",
-        "description": "Search and read Wikipedia articles for factual reference.",
-        "configure": "Enabled by default. No configuration needed.",
-    },
-]
-
-
-def _build_capabilities_text_from_manifest() -> str:
-    """Render the capability bullets from the structured feature manifest."""
-    lines = ["Core capabilities:"]
-    for entry in FEATURE_MANIFEST:
-        feature = (entry.get("feature", "") or "").strip()
-        description = " ".join((entry.get("description", "") or "").split())
-        if feature and description:
-            lines.append(f"- {feature}: {description}")
-        elif feature:
-            lines.append(f"- {feature}")
-    return "\n".join(lines)
-
-
 def _build_about_row_bot() -> str:
-    """Build the static self-knowledge description; the feature list is row_bot_status 'features'."""
+    """Build the static self-knowledge description; features and how-tos are in Row-Bot's own guides."""
     return "\n".join([_ABOUT_ROW_BOT_INTRO.rstrip(), _ABOUT_ROW_BOT_OUTRO.rstrip()]) + "\n"
 
 
-def features_text() -> str:
-    """Row-Bot's features and how each is set up, for row_bot_status 'features'."""
-    lines = [f"**Row-Bot features** (data in ~/{DEFAULT_DATA_DIR_NAME}/ unless the person moved it)"]
-    for entry in FEATURE_MANIFEST:
-        feature = (entry.get("feature", "") or "").strip()
-        description = " ".join((entry.get("description", "") or "").split())
-        configure = " ".join((entry.get("configure", "") or "").split())
-        if not feature:
-            continue
-        line = f"- {feature}: {description}" if description else f"- {feature}"
-        if configure:
-            line += f" Setup: {configure}"
-        lines.append(line)
-    return "\n".join(lines)
-
-
 ABOUT_ROW_BOT = _build_about_row_bot()
-
-
-def lookup_features(query: str) -> list[dict[str, str]]:
-    """Find features matching a query string (case-insensitive keyword match).
-
-    Useful for the agent to find relevant features when composing social
-    media posts or answering user questions about capabilities.
-    """
-    query_lower = query.lower()
-    query_words = set(query_lower.split())
-    results = []
-    for entry in FEATURE_MANIFEST:
-        keywords = set(entry["keywords"].lower().split(", "))
-        # Match if any query word appears in keywords or feature name
-        feature_lower = entry["feature"].lower()
-        if (query_words & keywords) or any(w in feature_lower for w in query_words):
-            results.append(entry)
-    return results
 
 
 def build_identity_line() -> str:
@@ -428,15 +202,11 @@ def get_dynamic_state() -> str:
 
 def build_static_self_knowledge_block() -> str:
     """Return Row-Bot self-knowledge that is stable across normal turns."""
+    from row_bot.identity import is_self_improvement_enabled
+
     sections = [ABOUT_ROW_BOT]
-
-    try:
-        from row_bot.identity import is_self_improvement_enabled
-        if is_self_improvement_enabled():
-            sections.append(SKILL_CREATION_GUIDANCE)
-    except Exception:
-        sections.append(SKILL_CREATION_GUIDANCE)  # safe fallback: include
-
+    if is_self_improvement_enabled():
+        sections.append(SKILL_CREATION_GUIDANCE)
     return "\n".join(sections)
 
 

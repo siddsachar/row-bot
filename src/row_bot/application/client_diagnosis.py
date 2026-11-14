@@ -46,7 +46,7 @@ _MAX_CHECKS = 64
 _STATUSES = {"ok", "warn", "error", "inactive"}
 _ID = re.compile(r"[a-z0-9][a-z0-9:-]{0,63}")
 # The attention indicator reads these areas from their own, finer readers.
-_ATTENTION_ELSEWHERE = ("tunnel", "mcp", "plugins", "channel:")
+ATTENTION_ELSEWHERE = ("tunnel", "mcp", "plugins", "channel:")
 # What a check says stays readable ("Token expired"); a credential's value, a
 # long opaque string and a private path are never kept.
 _CREDENTIAL = re.compile(
@@ -412,5 +412,5 @@ def attention_problems() -> list[dict[str, str]]:
             "fix": check["fix"],
         }
         for check in read_system_health()["checks"]
-        if check["status"] == "error" and not check["id"].startswith(_ATTENTION_ELSEWHERE)
+        if check["status"] == "error" and not check["id"].startswith(ATTENTION_ELSEWHERE)
     ]

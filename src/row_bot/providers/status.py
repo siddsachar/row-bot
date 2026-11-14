@@ -230,7 +230,9 @@ def _sign_in_problem(provider_id: str, name: str, status: str, detail: str) -> d
 
 
 def summarize_providers() -> str:
-    lines = ["**Providers**"]
+    """Each provider's connection, with a sign-in that needs the person and where to fix it (G5)."""
+    lines = ["**Providers** (connections and sign-ins; key values are never shown)"]
+    needs_sign_in = {problem["provider_id"]: problem for problem in sign_in_problems()}
     for card in provider_status_cards():
         state = "configured" if card["configured"] else "not set"
         source = f" ({card['source']})" if card.get("source") else ""
@@ -269,6 +271,9 @@ def summarize_providers() -> str:
                     extra = f"; {', '.join(details)}"
             except Exception:
                 extra = ""
+        problem = needs_sign_in.get(provider_id)
+        if problem is not None:
+            extra += f"; {problem['detail']} Fix: [{problem['name']}](/settings/models?provider={provider_id})"
         lines.append(f"- {card['display_name']}: {state}{source}{count}{extra}")
     from row_bot.providers.model_visibility import read_model_visibility
 
