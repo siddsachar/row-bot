@@ -83,7 +83,7 @@ _PLACES: dict[str, tuple[str, str]] = {
 # A sign-in Row-Bot can renew from its own row on Settings › Accounts.
 _ACCOUNTS = {"gmail-oauth": ("google", "Google"), "calendar-oauth": ("google", "Google"), "x-oauth": ("x", "X")}
 # Nothing in Row-Bot fixes these; once they are fixed outside it, check again.
-_CHECK_AGAIN = {"ollama": "/settings/providers", "network": None, "disk": None, "threads-db": None}
+_CHECK_AGAIN = {"ollama": "/settings/models#providers-local", "network": None, "disk": None, "threads-db": None}
 
 _lock = threading.Lock()
 # The app's scheduler, once start-up has scheduled the checks.
@@ -208,6 +208,17 @@ def channel_id(slug: str) -> str:
     return slug
 
 
+def sign_in_provider(slug: str) -> tuple[str, str] | None:
+    """(provider id, short name) of the subscription a sign-in check names by its id's slug."""
+    from row_bot.providers.catalog import list_provider_definitions
+    from row_bot.providers.status import short_provider_name
+
+    for definition in list_provider_definitions():
+        if re.sub(r"[^a-z0-9]+", "-", definition.id.lower()).strip("-") == slug:
+            return definition.id, short_provider_name(definition.display_name)
+    return None
+
+
 def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None:
     """The one fix for a kept check that warns or fails (Phase 18), or None."""
     if entry["status"] not in {"warn", "error"}:
@@ -220,7 +231,13 @@ def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None
             return _fix("restart_channel", href, name, channel)
         return _fix("open", href, name)
     if check_id == "model":
-        return _fix("choose_model", "/settings/models#default-model", "Default model")
+        return _fix("choose_model", "/settings/models#default-model", "Main model")
+    if check_id.startswith("sign-in:"):
+        provider = sign_in_provider(check_id.removeprefix("sign-in:"))
+        if provider is not None:
+            # Signing in again is the person's own step, in that provider's row (G24).
+            return _fix("reconnect_account", f"/settings/models?provider={provider[0]}", provider[1], provider[0])
+        return _fix("open", "/settings/models#providers-subscription", "Subscriptions")
     if check_id in _ACCOUNTS:
         account, label = _ACCOUNTS[check_id]
         return _fix("reconnect_account", f"/settings/apps/{account}", label, account)

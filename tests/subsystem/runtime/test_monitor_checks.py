@@ -258,7 +258,7 @@ def test_each_kept_warning_or_error_carries_its_one_fix(profile, monkeypatch):
         "channel:slack": {"kind": "open", "href": "/settings/apps/slack", "target": None, "name": "Slack"},
         "channel:discord": None,
         "model": {"kind": "choose_model", "href": "/settings/models#default-model", "target": None,
-                  "name": "Default model"},
+                  "name": "Main model"},
         "tunnel": {"kind": "open", "href": "/settings/access#tunnel", "target": None, "name": "Public link"},
         "wiki-vault": {"kind": "open", "href": "/settings/knowledge#wiki-vault", "target": None,
                        "name": "Wiki vault"},
@@ -266,7 +266,8 @@ def test_each_kept_warning_or_error_carries_its_one_fix(profile, monkeypatch):
         "tools": None,
         "gmail-oauth": {"kind": "reconnect_account", "href": "/settings/apps/google", "target": "google",
                         "name": "Google"},
-        "ollama": {"kind": "check_again", "href": "/settings/providers", "target": None, "name": "Ollama"},
+        "ollama": {"kind": "check_again", "href": "/settings/models#providers-local", "target": None,
+                   "name": "Ollama"},
     }
 
 
@@ -292,3 +293,107 @@ def test_a_channel_that_isnt_set_to_start_is_off_not_a_health_warning(monkeypatc
     results = {result.name: (result.status, result.detail) for result in status_checks.check_channels()}
 
     assert results == {"WhatsApp": ("inactive", "Off"), "Telegram": ("warn", "Stopped")}
+
+
+def _subscriptions(monkeypatch, health: dict[str, str], *, claude_used: bool = False, claude_state: str = "ready"):
+    """Saved sign-ins read the way the check reads them: never renewed, Claude Code asked only once used."""
+    from row_bot.providers import claude_subscription
+    from row_bot.providers import status as provider_status
+
+    calls: list[tuple[str, bool]] = []
+
+    def status(provider_id, *, refresh_tokens=True):
+        calls.append((provider_id, refresh_tokens))
+        return {"token_health": health.get(provider_id, "missing")}
+
+    def claude_plan_status(**_kwargs):
+        assert claude_used, "Claude Code was asked though Claude was never used here"
+        return SimpleNamespace(state=claude_state)
+
+    monkeypatch.setattr(provider_status, "provider_status", status)
+    monkeypatch.setattr(claude_subscription, "signed_in_before", lambda: claude_used)
+    monkeypatch.setattr(claude_subscription, "claude_plan_status", claude_plan_status)
+    return calls
+
+
+def test_an_expired_subscription_sign_in_needs_the_person_and_opens_its_row(profile, monkeypatch):
+    """G24: an expired ChatGPT sign-in showed only once a chat failed on it."""
+    from row_bot.application import client_monitor
+
+    calls = _subscriptions(monkeypatch, {"codex": "expired", "xai_oauth": "missing"})
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_sign_ins,))
+    client_diagnosis.run_local_checks()
+
+    health = _by_id(client_diagnosis.read_system_health())
+    assert set(health) == {"sign-in:codex"}  # Never connected (Grok) and unused (Claude) say nothing.
+    assert health["sign-in:codex"]["status"] == "error"
+    assert health["sign-in:codex"]["detail"] == "Your ChatGPT sign-in has expired. Sign in again to use its models."
+    assert health["sign-in:codex"]["fix"] == {"kind": "reconnect_account", "href": "/settings/models?provider=codex",
+                                             "target": "codex", "name": "ChatGPT"}
+    assert calls and all(refresh is False for _provider, refresh in calls)
+
+    needs_you = {problem["id"]: problem for problem in client_monitor.read_attention(include_update=False)["problems"]}
+    assert needs_you["health:sign-in:codex"]["title"] == "ChatGPT sign-in needs attention"
+
+
+@pytest.mark.parametrize(("state", "status", "detail"), [
+    ("signed_out", "error", "Claude isn't signed in any more. Sign in again to use its models."),
+    ("too_old", "warn", "Claude Code needs an update before Claude's models can run."),
+])
+def test_claude_is_checked_once_it_was_used_here(monkeypatch, state, status, detail):
+    _subscriptions(monkeypatch, {}, claude_used=True, claude_state=state)
+
+    [result] = status_checks.check_sign_ins()
+
+    assert (result.name, result.status, result.detail) == ("Claude sign-in", status, detail)
+    assert result.metadata == {"provider_id": "claude_subscription"}
+
+
+def test_working_sign_ins_say_nothing(monkeypatch):
+    _subscriptions(monkeypatch, {"codex": "valid", "xai_oauth": "refresh_due"}, claude_used=True)
+
+    assert status_checks.check_sign_ins() == []
+
+
+def test_the_model_check_says_when_the_main_model_cant_use_tools_or_cant_run(monkeypatch):
+    """G25: "Model: OK" while the chosen model could only chat."""
+    from row_bot import models
+    from row_bot.providers import readiness, resolution
+
+    seen: list[bool] = []
+    verdict = {"mode": "chat_only", "reason": ""}
+
+    def evaluate(resolved, *, refresh_provider_status=True, **_kwargs):
+        seen.append(refresh_provider_status)
+        return SimpleNamespace(selected_mode=verdict["mode"], selection_reason=verdict["reason"])
+
+    monkeypatch.setattr(models, "get_current_model", lambda: "model:openai:gpt-test")
+    monkeypatch.setattr(resolution, "resolve_provider_config",
+                        lambda value, *args, **kwargs: SimpleNamespace(provider_id="openai"))
+    monkeypatch.setattr(readiness, "evaluate_runtime_readiness", evaluate)
+
+    chat_only = status_checks.check_active_model()
+    verdict.update(mode="blocked", reason="Sign in to OpenAI first.")
+    blocked = status_checks.check_active_model()
+    verdict.update(mode="agent")
+    ready = status_checks.check_active_model()
+
+    assert (chat_only.status, chat_only.detail) == ("warn", "model:openai:gpt-test can chat, but tools and actions are off.")
+    assert (blocked.status, blocked.detail) == ("error", "model:openai:gpt-test can't run: Sign in to OpenAI first.")
+    assert (ready.status, ready.detail) == ("ok", "model:openai:gpt-test")
+    assert seen == [False, False, False]  # Nothing renewed or probed by a local check.
+
+
+def test_a_model_on_this_computer_is_left_to_the_ollama_check(monkeypatch):
+    from row_bot import models
+    from row_bot.providers import readiness, resolution
+
+    monkeypatch.setattr(models, "get_current_model", lambda: "qwen3:8b")
+    monkeypatch.setattr(resolution, "resolve_provider_config",
+                        lambda value, *args, **kwargs: SimpleNamespace(provider_id="ollama"))
+    monkeypatch.setattr(readiness, "evaluate_runtime_readiness",
+                        lambda *args, **kwargs: pytest.fail("a local model was probed by a local check"))
+
+    result = status_checks.check_active_model()
+
+    assert (result.status, result.detail) == ("ok", "qwen3:8b")

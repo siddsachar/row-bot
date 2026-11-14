@@ -424,12 +424,13 @@ def claude_plan_provider_status(*, fresh: bool = False) -> dict[str, Any]:
         "plan_type": status.plan,
         "cli_installed": status.state != "not_installed",
         "cli_version": status.version,
-        "claude_plan": status.to_json(set_up_again=set_up_again, signed_in_before=_signed_in_before()),
+        "claude_plan": status.to_json(set_up_again=set_up_again, signed_in_before=signed_in_before()),
         "last_error": "" if status.ready else unavailable_message(status),
     }
 
 
-def _signed_in_before() -> bool:
+def signed_in_before() -> bool:
+    """Claude has been used here before (its models were listed once): a file read, no Claude Code run."""
     cache = _saved_entry().get("catalog_cache")
     return isinstance(cache, dict) and bool(cache.get("models"))
 
