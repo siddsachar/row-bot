@@ -4,7 +4,10 @@ Learning records only the owner's own work: their chats in Row-Bot (every
 signed-in device is the owner), their own direct chats on channels, and their
 workflows and goals. It never records a conversation someone else started or
 shares: a group chat, a Slack or Discord channel thread, or a direct chat with
-a paired person who is not the owner. Anything it can't classify is denied.
+a paired person who is not the owner. Nor Row-Bot's own background work (a
+``proactive`` thread: briefs and drafts it prepares from the person's mail,
+calendar and chats with no person in the turn). Anything it can't classify is
+denied.
 
 - :func:`decide` is the pure rule: facts plus settings in, allowed or denied with
   a reason code out. The source toggles (my chats; workflows and goals; the last
@@ -42,7 +45,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-Conversation = Literal["app", "channel", "workflow", "unknown"]
+Conversation = Literal["app", "channel", "workflow", "background", "unknown"]
 
 # Reason codes. Allowed:
 OWNER_CHAT = "owner_chat"
@@ -55,6 +58,7 @@ LEARNING_PAUSED = "learning_paused"
 CHAT_OPTED_OUT = "chat_opted_out"
 INCOGNITO_CHAT = "incognito_chat"
 UNKNOWN_SOURCE = "unknown_source"
+BACKGROUND_WORK = "background_work"
 SHARED_CONVERSATION = "shared_conversation"
 NOT_OWNER = "not_owner"
 OWNER_UNKNOWN = "owner_unknown"
@@ -63,6 +67,8 @@ WORKFLOWS_AND_GOALS_OFF = "workflows_and_goals_off"
 PAST_CHATS_OFF = "past_chats_off"
 
 _MAX_AGENT_DEPTH = 8
+# Threads Row-Bot runs on its own, with no person in the turn: never the owner's work.
+BACKGROUND_THREAD_TYPES = frozenset({"proactive"})
 # Channels whose configured owner id names the owner; a channel not listed
 # (a plugin channel, say) has no known owner, so its chats are denied.
 OWNER_SECRETS = {
@@ -123,6 +129,8 @@ def decide(facts: SourceFacts, settings: ScopeSettings, *, opted_out: bool = Fal
         return _deny(CHAT_OPTED_OUT)
     if facts.incognito:
         return _deny(INCOGNITO_CHAT)
+    if facts.conversation == "background":
+        return _deny(BACKGROUND_WORK)
     if facts.conversation not in ("app", "channel", "workflow"):
         return _deny(UNKNOWN_SOURCE)
     if facts.conversation == "channel":
@@ -306,6 +314,9 @@ def describe_thread(
         if not info.exists or info.thread_type == "agent_child":
             return SourceFacts("unknown", thread_id=clean, root_thread_id=current, goal=goal,
                                historical=historical)
+        if info.thread_type in BACKGROUND_THREAD_TYPES:
+            return SourceFacts("background", thread_id=clean, root_thread_id=current, goal=goal,
+                               historical=historical, incognito=incognito)
         if info.channel is not None:
             channel = info.channel
             with_owner = (
@@ -414,6 +425,8 @@ def set_chat_opt_out(thread_id: str, opted_out: bool, *, store: LearningStore | 
 
 
 __all__ = [
+    "BACKGROUND_THREAD_TYPES",
+    "BACKGROUND_WORK",
     "CHAT_OPTED_OUT",
     "GOAL",
     "INCOGNITO_CHAT",
