@@ -438,6 +438,21 @@ def test_row_bots_own_envelope_binds_its_core_groups_at_32k(data_dir):
     assert shape.envelope_for(200_000).profile == "full"
 
 
+def test_a_row_captured_with_an_earlier_self_knowledge_section_serves_without_it(data_dir):
+    # The full prompt's self-knowledge section changes between versions (its feature list went on 24 Oct, its
+    # skill guidance changes with "Save as a skill"); the small prompt the personal model serves never has it.
+    earlier = ("ABOUT YOU (SELF-KNOWLEDGE):\nYou are a personal AI agent that runs locally on the user's machine.\n"
+               "CAPABILITIES:\n- Designer Studio\n\nSKILL SELF-IMPROVEMENT:\n- Ask the user before creating: "
+               "'Would you like me to save this as a skill?'")
+    messages = [{"role": "user", "content": "Hi"}]
+
+    system, _, _, stats = shape.render(["You are Row-Bot.", earlier, PLATFORM], messages, [], shape.envelope_for(32_768))
+    kept = shape.render(["You are Row-Bot.", earlier, PLATFORM], messages, [], shape.envelope_for(65_536))[0]
+
+    assert system == ["You are Row-Bot.\n\n" + PLATFORM] and stats.system_changed
+    assert kept == ["You are Row-Bot.", earlier, PLATFORM]  # a 64K window still has it
+
+
 # ── Replay: a decision asked as the arm serves (O71, pre-registration §4) ───
 
 

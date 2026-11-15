@@ -90,6 +90,9 @@ class Envelope:
     guide_index: Callable[[Sequence[str], bool], str] = field(default=lambda groups, loadable: "", repr=False)
     # Texts the profile leaves out of the system prompt (the static self-knowledge block's parts).
     dropped_texts: tuple[str, ...] = ()
+    # How the system sections it leaves out begin, whatever their text was when the row was captured: the
+    # static self-knowledge block changes between versions.
+    dropped_headers: tuple[str, ...] = ()
     # Where a deferred tool comes from, for its search result ("core" when unknown).
     sources: Mapping[str, str] = field(default_factory=dict)
     # The group a deferred built-in tool belongs to (its record's parent).
@@ -247,10 +250,12 @@ def _build(serve_context: int) -> Envelope:
                    and str(item.instructions or "").strip())
     removed, follows = _difference(prompts.get_agent_system_prompt(), prompts.get_agent_system_prompt(small_context=True))
     dropped: list[str] = []
+    headers: tuple[str, ...] = ()
     try:
         from row_bot.self_knowledge import ABOUT_ROW_BOT, SKILL_CREATION_GUIDANCE
 
         dropped += [str(ABOUT_ROW_BOT).strip(), str(SKILL_CREATION_GUIDANCE).strip()]
+        headers = (str(ABOUT_ROW_BOT).strip().split("\n", 1)[0],)  # "ABOUT YOU (SELF-KNOWLEDGE):"
     except Exception:  # noqa: BLE001
         logger.debug("Learning couldn't read the self-knowledge block for the serving shape", exc_info=True)
 
@@ -262,6 +267,7 @@ def _build(serve_context: int) -> Envelope:
         root_removed=removed if profile == "small" else "", root_follows=follows if profile == "small" else "",
         root_guides=tuple(root_guides) if profile == "small" else (), guides=guides if profile == "small" else (),
         guide_index=index, dropped_texts=tuple(item for item in dropped if item) if profile == "small" else (),
+        dropped_headers=headers if profile == "small" else (),
         sources=_sources(), parents=parents,
     )
 
@@ -344,7 +350,8 @@ def _render_system(parts: list[str], envelope: Envelope, bound_names: set[str], 
     if envelope.profile != "small" or not parts:
         return parts
     text = "\n\n".join(part for part in parts if part)
-    out = text
+    # The full prompt's self-knowledge section goes whole, in whichever version the row was captured with.
+    out = "\n\n".join(part for part in parts if part and not part.lstrip().startswith(envelope.dropped_headers))
     # The root's own TASKS and MEMORY guidance (the copy followed by the root's last part) goes.
     marker = envelope.root_removed + envelope.root_follows
     root_changed = bool(envelope.root_removed and envelope.root_follows and marker in out)
