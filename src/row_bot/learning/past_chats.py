@@ -96,6 +96,9 @@ class PastChatSource(Protocol):
 
         ``(0, created_at)`` for a conversation created in the window."""
 
+    def fork_source(self, thread_id: str) -> str:
+        """The conversation a fork (Edit and resend, Fork from here) was copied from; "" for any other."""
+
 
 def _timestamp(value: Any) -> float | None:
     try:
@@ -126,6 +129,18 @@ class SavedChats:
         from row_bot.threads import get_latest_checkpoint_messages
 
         return list(get_latest_checkpoint_messages(thread_id))
+
+    def fork_source(self, thread_id: str) -> str:
+        import sqlite3
+        from contextlib import closing
+
+        from row_bot import threads
+
+        threads._ensure_thread_db()  # noqa: SLF001 - one read of thread_meta
+        with closing(sqlite3.connect(threads.DB_PATH)) as connection:
+            row = connection.execute("SELECT COALESCE(forked_from_id, '') FROM thread_meta WHERE thread_id = ?",
+                                     (thread_id,)).fetchone()
+        return str(row[0] or "") if row else ""
 
     @staticmethod
     def _checkpoint(thread_id: str, checkpoint_id: str) -> tuple[float | None, int]:
@@ -338,6 +353,28 @@ def _conversation_records(
     return records
 
 
+def _copied(source: PastChatSource, thread_id: str, messages: Sequence[Any]) -> int:
+    """How many of a fork's first messages are copies of the conversation it was forked from: those turns are
+    that conversation's, read with it (or, outside the window, not at all). A fork whose source is gone keeps
+    them: it holds the only copy."""
+
+    origin = source.fork_source(thread_id)
+    if not origin or origin == thread_id:
+        return 0
+    try:
+        theirs = {str(getattr(message, "id", "") or "") for message in source.messages(origin)}
+    except Exception:
+        logger.debug("Learning could not read a fork's source; its copied turns are read with it", exc_info=True)
+        return 0
+    theirs.discard("")
+    count = 0
+    for message in messages:
+        if str(getattr(message, "id", "") or "") not in theirs:
+            break
+        count += 1
+    return count
+
+
 def _plan(store: LearningStore, source: PastChatSource, now: float) -> Job:
     """The conversations to read and how long each was when the import began."""
 
@@ -345,8 +382,10 @@ def _plan(store: LearningStore, source: PastChatSource, now: float) -> Job:
     planned: list[list[Any]] = []
     for thread_id, created_at in source.conversations(since):
         try:
-            length = len(source.messages(thread_id))
+            messages = source.messages(thread_id)
+            length = len(messages)
             first, began = source.window_start(thread_id, since, float(created_at))
+            first = max(first, _copied(source, thread_id, messages))  # a fork's copied turns are its source's
             if first >= length:
                 continue  # nothing of it is from the last 30 days
             planned.append([thread_id, length, float(began), int(first)])
