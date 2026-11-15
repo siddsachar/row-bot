@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "example": {
+      "maxLength": 300,
+      "title": "Example",
+      "type": "string"
+    },
+    "id": {
+      "enum": [
+        "off",
+        "quiet",
+        "balanced",
+        "eager"
+      ],
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 40,
+      "title": "Label",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "example"
+  ],
+  "title": "ProactiveLevelView",
+  "type": "object"
+}

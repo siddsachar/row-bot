@@ -188,6 +188,39 @@ async function isPdf(blob: Blob) {
   return String.fromCharCode(...head) === '%PDF-';
 }
 
+const EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'audio/mpeg': 'mp3',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+  'audio/flac': 'flac',
+  'audio/aac': 'aac',
+  'application/pdf': 'pdf',
+};
+
+/**
+ * A saved file's name when its message gives none: the prompt (or label) in a
+ * few words, else what it is, with the extension its type needs.
+ */
+export function defaultDownloadName(mime: string, words?: string) {
+  const full = (words ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  // At most 48 characters, ending on a whole word.
+  const slug =
+    full.length <= 48 ? full : full.slice(0, 49).replace(/-[^-]*$/, '');
+  const kind = mime.split('/')[0];
+  const base =
+    slug || (['image', 'video', 'audio'].includes(kind) ? kind : 'file');
+  const extension = EXTENSIONS[mime];
+  return extension ? `${base}.${extension}` : base;
+}
+
 /**
  * Local media from the authenticated controller, embedded by type: images
  * with a full-size view, native audio/video players, an inline PDF viewer,
@@ -199,7 +232,7 @@ export const MediaPreview = memo(function MediaPreview({
   reference,
   mime,
   label,
-  downloadName = 'result',
+  downloadName: givenName,
   caption,
   size,
   fill = false,
@@ -214,6 +247,7 @@ export const MediaPreview = memo(function MediaPreview({
   /** Shown in the media viewer: as large as it fits, with its download below. */
   fill?: boolean;
 }) {
+  const downloadName = givenName || defaultDownloadName(mime, caption || label);
   const accessibleLabel = label || 'Generated result';
   const displayLabel = label || 'generated result';
   const { controller, platform } = useRuntime();

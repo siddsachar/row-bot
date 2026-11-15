@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta
 import importlib
 import json
@@ -944,6 +945,59 @@ def test_sqlite_compaction_is_thresholded_and_reclaims_file_space(tmp_path, monk
     assert db_path.stat().st_size < before
 
 
+def test_a_large_database_is_not_compacted_while_row_bot_runs(tmp_path, reload_for_data_dir) -> None:
+    """I29: compacting the owner's 3.5 GB threads.db held its write lock for ~85 s and stalled every chat."""
+    cleanup = _fresh_stack(tmp_path, reload_for_data_dir)["cleanup"]
+    db_path = tmp_path / "large.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute("CREATE TABLE payloads (value BLOB)")
+        conn.executemany("INSERT INTO payloads VALUES (?)", [(b"x" * 8192,) for _ in range(64)])
+        conn.commit()
+        conn.execute("DELETE FROM payloads")
+        conn.commit()
+    before = db_path.stat().st_size
+
+    result = cleanup.compact_sqlite_database(db_path, min_free_bytes=1, min_free_ratio=0.01, max_bytes=before - 1)
+
+    assert (result["compacted"], result["reason"]) == (False, "too_large_to_compact_while_running")
+    assert db_path.stat().st_size == before
+
+
+def test_chats_can_be_read_while_another_connection_holds_the_write_lock(tmp_path, reload_for_data_dir) -> None:
+    """I29: every chat read ran the schema set-up and its migration write, so while maintenance held the
+    write lock, listing chats failed "database is locked". Reading writes nothing now."""
+    threads = _fresh_stack(tmp_path, reload_for_data_dir)["threads"]
+    threads._save_thread_meta("kyoto", "Kyoto trip")
+    holder = sqlite3.connect(threads.DB_PATH, isolation_level=None)
+    try:
+        holder.execute("BEGIN IMMEDIATE")
+
+        assert [row[0] for row in threads._list_threads()] == ["kyoto"]
+        assert threads._thread_exists("kyoto") is True
+    finally:
+        holder.rollback()
+        holder.close()
+
+
+def test_trimming_the_write_ahead_log_cuts_it_to_nothing(tmp_path, reload_for_data_dir) -> None:
+    """I29: the owner's threads.db-wal had grown to 3.5 GB; maintenance now cuts it once its pages are copied."""
+    cleanup = _fresh_stack(tmp_path, reload_for_data_dir)["cleanup"]
+    db_path = tmp_path / "logged.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA wal_autocheckpoint=0")
+        conn.execute("CREATE TABLE payloads (value BLOB)")
+        conn.executemany("INSERT INTO payloads VALUES (?)", [(b"x" * 8192,) for _ in range(128)])
+        conn.commit()
+        wal = db_path.with_name(db_path.name + "-wal")
+        assert wal.stat().st_size > 1_000_000
+
+        assert cleanup.trim_sqlite_wal(db_path) is True
+
+        assert wal.stat().st_size == 0
+        assert conn.execute("SELECT COUNT(*) FROM payloads").fetchone()[0] == 128
+
+
 def test_start_up_removes_only_row_bots_own_temp_and_splash_leftovers(tmp_path) -> None:
     """B126: ~370 splash markers, ~100 skills-activation temp files and ~60
     tmp* files had piled up in the data folder. Only those exact patterns,
@@ -988,3 +1042,65 @@ def test_start_up_removes_only_row_bots_own_temp_and_splash_leftovers(tmp_path) 
     for name in kept:
         assert (data / name).exists(), name
     assert (data / "tmpabcdefgh").is_dir() and fresh.exists()
+
+def test_old_checkpoints_are_pruned_hourly_while_other_chats_run(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    """I32: workflows kept the app busy all day, the idle maintenance waited, and threads.db grew 16 GB in
+    four hours. The hourly prune runs busy or not, leaves every chat in use alone, and steps aside while
+    the idle maintenance runs."""
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
+    threads, cleanup, tasks = stack["threads"], stack["cleanup"], stack["tasks"]
+    old = "2000-01-01T00:00:00"
+    with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS checkpoints (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)")
+        conn.execute("CREATE TABLE IF NOT EXISTS writes (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)")
+        for thread in ("quiet", "running"):
+            conn.execute("INSERT INTO thread_meta (thread_id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                         (thread, thread, old, old))
+            for index in range(15):
+                conn.execute("INSERT INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id) VALUES (?, '', ?)",
+                             (thread, f"cp-{index:02d}"))
+    monkeypatch.setattr(tasks, "get_running_tasks", lambda: {"running": object()})
+
+    def kept(thread: str) -> int:
+        with closing(sqlite3.connect(threads.DB_PATH)) as conn:
+            return conn.execute("SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", (thread,)).fetchone()[0]
+
+    with cleanup._maintenance_lock:
+        assert cleanup.prune_checkpoints_while_busy() is None
+    assert kept("quiet") == 15
+
+    assert cleanup.prune_checkpoints_while_busy()["checkpoints"] == 15 - threads.CHECKPOINTS_KEPT
+    assert (kept("quiet"), kept("running")) == (threads.CHECKPOINTS_KEPT, 15)
+
+
+def test_compacting_the_chat_database_keeps_each_chats_newest_states_and_the_old_file(tmp_path) -> None:
+    """R13 (12 Nov): threads.db stopped growing with I32 but stayed 20 GB; the person may compact it once, with
+    Row-Bot closed, and the old file stays beside it until they delete it."""
+    from row_bot import chat_compact
+
+    database = tmp_path / "threads.db"
+    with closing(sqlite3.connect(database)) as conn, conn:
+        conn.execute("CREATE TABLE thread_meta (thread_id TEXT PRIMARY KEY, name TEXT)")
+        conn.execute("CREATE TABLE checkpoints (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT, checkpoint BLOB)")
+        conn.execute("CREATE TABLE writes (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)")
+        conn.execute("INSERT INTO thread_meta VALUES ('film', 'Launch film'), ('note', 'A note')")
+        for thread, count in (("film", 30), ("note", 2)):
+            for index in range(count):
+                conn.execute("INSERT INTO checkpoints VALUES (?, '', ?, ?)",
+                             (thread, f"cp-{index:02d}", b"history" * 20_000))
+                conn.execute("INSERT INTO writes VALUES (?, '', ?)", (thread, f"cp-{index:02d}"))
+
+    result = chat_compact.compact(database)
+
+    kept = tmp_path / ("threads.db" + chat_compact.KEPT_SUFFIX)
+    assert result["checkpoints"] == 30 - chat_compact.KEPT
+    assert result["after"] < result["before"] and kept.stat().st_size == result["before"]
+    with closing(sqlite3.connect(database)) as conn:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        newest = conn.execute("SELECT checkpoint_id FROM checkpoints WHERE thread_id = 'film' ORDER BY 1").fetchall()
+        assert [row[0] for row in newest] == ["cp-27", "cp-28", "cp-29"], "the newest states stay"
+        assert conn.execute("SELECT COUNT(*) FROM checkpoints WHERE thread_id = 'note'").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM writes").fetchone()[0] == chat_compact.KEPT + 2
+        assert conn.execute("SELECT COUNT(*) FROM thread_meta").fetchone()[0] == 2
+    with pytest.raises(RuntimeError, match="still there from the last time"):
+        chat_compact.compact(database)

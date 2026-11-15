@@ -146,7 +146,8 @@ def test_skills_keep_their_on_off_state_pins_and_source(v5):
     assert on & kept == {name for name in kept if saved[name]} and off & kept == {name for name in kept if not saved[name]}
     assert library.keys() - kept <= on  # Skills bundled since 5.0.0 (Making a page) start as they're shipped.
     assert not {name for name in library if name.endswith("_guide")}  # Tool guides follow their tools, as before.
-    assert skills.read_client_skills()["pinned"] == ["proactive_agent", "meeting_prep"]
+    # 5.3.4 unpinned Check-ins (proactive_agent) once everywhere; the person's own pins stay.
+    assert skills.read_client_skills()["pinned"] == ["meeting_prep"]
     # The skill added from a catalog keeps its source, its files and its update check.
     detail, _ = api.read_item(owner_id=OWNER, item_id="skill:pdf_toolkit")
     assert detail["entry"]["source"] == "github" and "update" in detail["about"]["actions"]

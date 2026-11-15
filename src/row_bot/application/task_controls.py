@@ -48,6 +48,8 @@ class TaskEditorSnapshot:
     approval_mode: str
     conversation_id: str | None
     legacy_delivery: bool
+    # "failures": Row-Bot switched it off after failed runs in a row (D5).
+    disabled_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -124,6 +126,10 @@ def _validate_fields(fields: TaskEditableFields, *, schedule: bool = True) -> No
             3 if kind == "daily" else 4
         ):
             raise TaskControlError("invalid_task_schedule")
+        try:
+            tasks.check_schedule(fields.schedule)
+        except tasks.ScheduleTooOftenError as exc:
+            raise TaskControlError(exc.code) from exc
         if kind in {"interval", "interval_minutes"}:
             amount = parsed["hours" if kind == "interval" else "minutes"]
             if not math.isfinite(amount) or amount <= 0 or (
@@ -154,6 +160,7 @@ def _snapshot(row: dict, revision: str) -> TaskEditorSnapshot:
         approval_mode=_approval_level(row.get("safety_mode")),
         conversation_id=row.get("persistent_thread_id"),
         legacy_delivery=bool(row.get("delivery_channel") or row.get("delivery_target")),
+        disabled_reason="failures" if row.get("disabled_reason") == "failures" else "",
     )
 
 

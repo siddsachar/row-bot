@@ -74,6 +74,17 @@ def test_a_voice_file_reads_the_whole_script_with_its_pronunciations(chat, voice
     assert _files(chat)["scene 1.wav"]["mime_type"] == "audio/wav"
 
 
+def test_the_voice_says_row_bot_and_version_numbers_as_people_do(chat, voice):
+    """R10 (12 Nov): narration read "Row-Bot" as "robot" and the owner heard 5.3.3 said wrong."""
+    from row_bot.tools.sound_tool import _speak
+
+    _speak("Row-Bot 5.3.3 is here, and v5.4.0 follows.", name="opening")
+    _speak("Row-Bot ships today.", name="custom", pronunciations={"Row-Bot": "Roe Bot"})
+
+    assert voice[0]["text"] == "Row Bot 5 point 3 point 3 is here, and 5 point 4 point 0 follows."
+    assert voice[1]["text"] == "Roe Bot ships today.", "the caller's pronunciation goes first"
+
+
 def test_a_voice_file_needs_a_known_voice(chat, voice):
     from row_bot.tools.sound_tool import _speak
 

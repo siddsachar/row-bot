@@ -133,7 +133,8 @@ export function tracedMedia(groups: TranscriptTraceGroup[]): GeneratedMedia[] {
         media.push({
           reference: value.media_ref,
           mime: value.mime_type,
-          caption: prompt(item.safe_input),
+          // The prompt the server kept names the picture and its download (T9).
+          caption: value.prompt || prompt(item.safe_input),
           // A picture of Row-Bot's browser (F4), or the contact sheet Row-Bot
           // looked at (F5): not something generated.
           ...(item.canonical_name === 'Browser Screenshot'
@@ -340,6 +341,7 @@ export type LiveTurn = {
 export function liveTurn(
   saved: readonly TranscriptRow[],
   activity: readonly EventRecord[],
+  turnRunning = false,
 ): LiveTurn {
   // Each step's latest event, in the order the steps began.
   const steps = new Map<string, { record: EventRecord; began: bigint }>();
@@ -378,6 +380,22 @@ export function liveTurn(
       )
       .map(([key]) => key),
   );
+  // A step saved while it ran whose live event the chat no longer holds
+  // still runs too: it stays on the live line, not under its words with
+  // "Thinking…" below (R15).
+  const turnStart = saved.map((row) => row.role).lastIndexOf('user');
+  const savedRunning = turnRunning
+    ? saved.slice(turnStart + 1).flatMap((row) =>
+        (row.traces ?? []).flatMap((group) => {
+          const items = group.items.filter(
+            (item) => item.status === 'pending' && !steps.has(item.call_id),
+          );
+          return items.length ? [withItems(group, items)] : [];
+        }),
+      )
+    : [];
+  for (const group of savedRunning)
+    for (const item of group.items) inFlight.add(item.call_id);
   const rows = withoutSteps(withLiveMedia(saved, made), inFlight);
   const settled = new Set(
     rows.flatMap((row) =>
@@ -386,8 +404,8 @@ export function liveTurn(
       ),
     ),
   );
-  const all: TranscriptTraceGroup[] = [];
-  const running: TranscriptTraceGroup[] = [];
+  const all: TranscriptTraceGroup[] = [...savedRunning];
+  const running: TranscriptTraceGroup[] = [...savedRunning];
   const placed = new Map<
     string,
     { groups: TranscriptTraceGroup[]; began: bigint }
@@ -728,7 +746,12 @@ export function liveMedia(
     const reference = record.event.payload.media_ref;
     if (settled.has(reference) || seen.has(reference)) continue;
     seen.add(reference);
-    media.push({ reference, mime: record.event.payload.mime_type });
+    const caption = record.event.payload.prompt;
+    media.push({
+      reference,
+      mime: record.event.payload.mime_type,
+      ...(caption ? { caption } : {}),
+    });
   }
   return media;
 }

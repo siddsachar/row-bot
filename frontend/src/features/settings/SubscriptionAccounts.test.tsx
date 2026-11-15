@@ -118,6 +118,33 @@ it('starts subscription sign-in from the compact row action and shows its flow',
   expect(steps).toHaveAttribute('target', '_blank');
 });
 
+it('starts again on the accounts as they are now when something saved them meanwhile', async () => {
+  const newer = { ...snapshot, revision: 'c'.repeat(64) };
+  const p = props({
+    compact: true,
+    initialProvider: 'codex',
+    initialAction: 'connect',
+    load: vi.fn().mockResolvedValueOnce(snapshot).mockResolvedValue(newer),
+  });
+  const review = vi.mocked(p.review);
+  const approve = review.getMockImplementation()!;
+  review.mockImplementation(async (intent) => {
+    // The accounts changed after the panel read them (a code ran out, a list refreshed).
+    if (intent.provider_revision === revision)
+      throw { code: 'revision_conflict' };
+    return approve(intent);
+  });
+  render(<SubscriptionAccounts {...p} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+
+  await waitFor(() => expect(p.apply).toHaveBeenCalledOnce());
+  expect(review.mock.calls.map(([intent]) => intent.provider_revision)).toEqual(
+    [revision, newer.revision],
+  );
+  expect(await screen.findByText('Waiting for you to sign in')).toBeVisible();
+  expect(screen.queryByText(/changed somewhere else/)).toBeNull();
+});
+
 it('follows a waiting ChatGPT sign-in, which the server checks itself, until it connects (B342)', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {

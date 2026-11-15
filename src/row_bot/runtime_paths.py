@@ -160,5 +160,10 @@ def tool_guides_dir() -> Path:
     return app_path("tool_guides")
 
 
+def guides_dir() -> Path:
+    """Row-Bot's own guides (the docs site's Markdown), shipped with every install."""
+    return app_path("docs-site", "docs")
+
+
 def app_icon_path() -> Path:
     return app_path("row-bot.ico")

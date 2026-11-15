@@ -93,7 +93,8 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
         .nth(0)
         .evaluate((element: HTMLAnchorElement) => element.click());
     });
-    expect(imageDownload.name).toBe('result');
+    // No prompt in the fixture: named for what it is, with its extension.
+    expect(imageDownload.name).toBe('image.png');
     expect(imageDownload.mimeType).toBe(FIXTURE_IMAGE.mime);
     expect(imageDownload.bytes).toHaveLength(FIXTURE_IMAGE.bytes);
     expect(digest(imageDownload.bytes)).toBe(FIXTURE_IMAGE.sha256);
@@ -229,7 +230,7 @@ test('Phase 4 generated image and video use the shared authenticated preview wit
         .nth(1)
         .evaluate((element: HTMLAnchorElement) => element.click()),
     );
-    expect(videoDownload.name).toBe('result');
+    expect(videoDownload.name).toBe('video.mp4');
     expect(videoDownload.mimeType).toBe(FIXTURE_VIDEO.mime);
     expect(videoDownload.bytes).toHaveLength(FIXTURE_VIDEO.bytes);
     expect(digest(videoDownload.bytes)).toBe(FIXTURE_VIDEO.sha256);

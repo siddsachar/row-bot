@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "halo",
+  "name": "Buddy Halo",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact premium consumer-electronics desktop companion: a seamless glossy white rounded body like a smart speaker, a soft glowing ring around a dark glass face with two bright eyes, minimal brushed-silver details, clean studio-product render.",
+  "patches": "patches.png"
+}

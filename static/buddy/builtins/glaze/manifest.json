@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "glaze",
+  "name": "Buddy Glaze",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact glazed porcelain desktop companion: a smooth glossy white ceramic body painted with delicate cobalt-blue floral patterns, a soft rounded shape, painted dark eyes with tiny highlights, a fine gold rim, elegant collectible figurine look.",
+  "patches": "patches.png"
+}

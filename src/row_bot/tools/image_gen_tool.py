@@ -5,7 +5,7 @@ The agent calls ``generate_image`` to create images from text prompts, or
 a file path).  Generated images are rendered inline in the chat via the
 ``captured_images`` pipeline (same as vision / browser screenshots).
 
-The user picks a provider+model combination in Settings → Models (e.g.
+The user picks a provider+model combination in Settings › Models (e.g.
 ``google/gemini-3.1-flash-image-preview``). The choices are the image models
 each connected provider's own model list offers, so new models appear without
 a Row-Bot change.
@@ -256,19 +256,22 @@ def _get_client() -> tuple:
 
         ctx = xai_media_auth_context(provider)
         return None, ctx.label, provider
+    if provider == "codex":
+        # The ChatGPT sign-in; the request itself says if it needs reconnecting.
+        return None, IMAGE_PROVIDER_META["codex"]["label"], provider
 
     meta = IMAGE_PROVIDER_META.get(provider)
     if not meta:
         raise RuntimeError(
             f"Unknown image generation provider '{provider}'. "
-            "Please select a valid model in Settings → Models."
+            "Please select a valid model in Settings › Models."
         )
 
     api_key = media_api_key(provider)
     if not api_key:
         raise RuntimeError(
             f"No API key for {meta['label']}. "
-            f"Please add your {meta['label']} API key in Settings → Models."
+            f"Please add your {meta['label']} API key in Settings › Models."
         )
 
     if provider == "google":
@@ -418,8 +421,16 @@ def _atlascloud_image(provider_id: str, model: str, prompt: str, size: str, qual
     raise RuntimeError(f"Atlas Cloud's image job {job_id} did not finish within {_DIRECT_TIMEOUT}s")
 
 
+def _codex_image(provider_id: str, model: str, prompt: str, size: str, quality: str, source: str) -> str:
+    from row_bot.providers.codex_media import codex_image
+
+    _validate_generation()
+    return codex_image(model, prompt, size=size, quality=quality, source=source)
+
+
 # The image routes with their own APIs (OpenAI, Google and xAI have theirs above).
 _DIRECT_IMAGE: dict[str, Callable[[str, str, str, str, str, str], str]] = {
+    "codex": _codex_image,
     "openrouter": _openrouter_image,
     "together": _together_image,
     "minimax": _minimax_image,
@@ -601,6 +612,38 @@ def _xai_parameter_options(value: Any) -> set[str]:
     return {str(item).strip().lower() for item in value if str(item).strip()}
 
 
+def _newest_chat_picture() -> bytes | None:
+    """The newest picture in this chat's files (generated, edited or attached)."""
+    from row_bot.application.attachments import AttachmentError, list_conversation_files
+    from row_bot.tool_outputs import current_thread_id
+
+    conversation = current_thread_id()
+    if not conversation:
+        return None
+    try:
+        files = list_conversation_files(conversation)
+    except AttachmentError:
+        return None
+    for item in files:  # Newest first.
+        if str(item.get("mime_type") or "").startswith("image/"):
+            return _chat_picture(str(item["name"]))
+    return None
+
+
+def _chat_picture(name: str) -> bytes | None:
+    from row_bot import media_sources
+    from row_bot.tool_outputs import current_thread_id
+
+    conversation = current_thread_id()
+    if not conversation:
+        return None
+    try:
+        found = media_sources.chat_file(conversation, name)
+        return found.read_bytes() if found is not None and found.kind == "image" else None
+    except media_sources.SourceError:
+        return None
+
+
 def _resolve_image_source(image_source: str) -> bytes:
     """Resolve an image_source string to raw bytes.
 
@@ -609,11 +652,14 @@ def _resolve_image_source(image_source: str) -> bytes:
       2. Key match in _image_cache → pasted/attached image
       3. File path on disk
     """
-    # "last" — use the last generated image
+    # "last" — the image this turn made, else the chat's newest picture (a later turn's "make it night").
     if image_source.strip().lower() == "last":
         last_b64 = _execution_image_cache().get("__last_generated__")
         if last_b64:
             return last_b64
+        newest = _newest_chat_picture()
+        if newest is not None:
+            return newest
         raise ValueError(
             "No previously generated image available. "
             "Generate an image first, then use edit_image with image_source='last'."
@@ -641,6 +687,11 @@ def _resolve_image_source(image_source: str) -> bytes:
             ws_path = Path(ws_root) / image_source
             if ws_path.exists() and ws_path.is_file():
                 return ws_path.read_bytes()
+
+    # A picture saved in this chat's files, by the name its result gave ("Saved in this chat's files as …").
+    named = _chat_picture(image_source)
+    if named is not None:
+        return named
 
     raise ValueError(
         f"Could not find image '{image_source}'. "
@@ -1051,6 +1102,82 @@ def _edit_image(
     return result
 
 
+# ── Paid calls go through the approval gate ──────────────────────────────
+# Only the agent's tools ask here: Buddy's hatch and Designer call the functions above directly.
+
+
+def paid_generation_check(tool: str, surface: str, selection: str, what: str, prompt: str) -> tuple[str | None, str]:
+    """(refusal, approval line) for one picture or video the agent makes on *selection* ("provider/model").
+
+    Only a call its provider charges for needs approval (``bills_per_call``), by the level: Ask
+    asks the person, Auto the reviewer, Hands-off allows it, Block refuses it. Pictures a plan
+    includes, free models and models on this computer run as they always have, with no line.
+    *what* says what the call makes, e.g. "make a picture".
+    """
+    from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META, bills_per_call
+    from row_bot.tools.approval_gate import approval_check
+
+    if not bills_per_call(surface, selection):
+        return None, ""
+    provider_id, _, model = selection.partition("/")
+    label = (IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META)[provider_id]["label"]
+    brief = " ".join(str(prompt or "").split())
+    brief = brief if len(brief) <= 300 else brief[:299].rstrip() + "…"
+    return approval_check(
+        {"tool": tool, "label": f"{what[:1].upper()}{what[1:]} on {label}",
+         "question": f"{what[:1].upper()}{what[1:]} on {label}? It costs money on your {label} account.",
+         "description": (f"Row-Bot will {what} with {model} on {label}: \"{brief}\". {label} charges your "
+                         "API key for each one, so this costs money."),
+         "risk_class": "medium",
+         "args": {"prompt": brief, "model": model, "provider": label}},
+        risks=(f"costs money: {label} charges the person's API key for it",),
+        blocked_message=(f"BLOCKED: this would {what} on {label}, which costs money and needs approval, but this "
+                         "chat is on Block. Ask the person to change the approval level, or to choose a model "
+                         "their plan includes in Settings › Models."),
+        cancelled_message=f"The person didn't allow it; nothing was made and nothing was charged on {label}.",
+    )
+
+
+def _led(line: str, result: str) -> str:
+    from row_bot.tools.approval_gate import with_approval
+
+    return with_approval(line, result) if line else result
+
+
+def _selection() -> str:
+    """The chosen image model as "provider/model" (a bare legacy name is OpenAI's)."""
+    selection = _get_configured_selection()
+    return "/".join(_parse_model_config(selection)) if selection else ""
+
+
+def _cannot_edit(selection: str) -> bool:
+    """The chosen model makes new pictures only, so an edit says so without a request."""
+    from row_bot.providers.media import IMAGE_PROVIDER_META
+
+    provider_id, _, model = selection.partition("/")
+    return _is_imagen(model) or (provider_id in IMAGE_PROVIDER_META and _route(provider_id) in _NEW_IMAGES_ONLY)
+
+
+def _generate_image_tool(prompt: str, size: str = "auto", quality: str = "auto") -> str:
+    refusal, line = paid_generation_check("generate_image", "image", _selection(), "make a picture", prompt)
+    return refusal or _led(line, _generate_image(prompt, size=size, quality=quality))
+
+
+def _edit_image_tool(prompt: str, image_source: str = "last", size: str = "auto", quality: str = "auto") -> str:
+    from row_bot.providers.media import bills_per_call
+
+    selection, line = _selection(), ""
+    if bills_per_call("image", selection) and not _cannot_edit(selection):
+        try:
+            _resolve_image_source(image_source)  # Nothing to approve when there is no picture to edit.
+        except ValueError as e:
+            return str(e)
+        refusal, line = paid_generation_check("edit_image", "image", selection, "edit a picture", prompt)
+        if refusal:
+            return refusal
+    return _led(line, _edit_image(prompt, image_source=image_source, size=size, quality=quality))
+
+
 # ── Pydantic input schemas ───────────────────────────────────────────────
 
 class _GenerateImageInput(BaseModel):
@@ -1147,7 +1274,7 @@ class ImageGenTool(BaseTool):
     def as_langchain_tools(self) -> list:
         return [
             StructuredTool.from_function(
-                func=_generate_image,
+                func=_generate_image_tool,
                 name="generate_image",
                 description=(
                     "Generate an image from a text description. Use this "
@@ -1159,7 +1286,7 @@ class ImageGenTool(BaseTool):
                 args_schema=_GenerateImageInput,
             ),
             StructuredTool.from_function(
-                func=_edit_image,
+                func=_edit_image_tool,
                 name="edit_image",
                 description=(
                     "Edit or modify an existing image using a text prompt. "

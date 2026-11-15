@@ -135,11 +135,14 @@ def test_a_merge_the_model_turned_down_waits_for_new_content(dream, monkeypatch)
     _threads, kg, dream_cycle, model = dream
     first = kg.save_entity("person", "Sam", "Sam plays chess.", source="test")
     second = kg.save_entity("person", "Sam", "Sam plays chess on Sundays.", source="test")
-    monkeypatch.setattr(kg, "semantic_search",
-                        lambda *_args, **_kwargs: [{**kg.get_entity(second["id"]), "score": 0.99}])
+    def search(_text, top_k, threshold, stats=None):
+        stats["mean"] = 0.45
+        return [{**kg.get_entity(entity["id"]), "score": 0.95} for entity in (first, second)]
+
+    monkeypatch.setattr(kg, "semantic_search", search)
 
     def candidates():
-        return dream_cycle._find_merge_candidates([kg.get_entity(first["id"])], 0.93)
+        return dream_cycle._find_pair_candidates(kg.list_entities(limit=100))
 
     model.description = '{"description": "Sam plays ch'  # cut short by the cap: not an answer
     [(entity_a, entity_b, _score)] = candidates()

@@ -853,8 +853,11 @@ describe('a schedule in its own timezone (N9)', () => {
     );
   });
 
-  it('starts a new schedule in the Row-Bot computer zone', () => {
-    setServerTimezone('America/New_York');
+  it("starts a new schedule in this device's zone, not the Row-Bot server's", () => {
+    // A hosted server runs on UTC; the person is where this browser is.
+    setServerTimezone(
+      ZONE === 'Pacific/Chatham' ? 'Asia/Tokyo' : 'Pacific/Chatham',
+    );
     const onChange = vi.fn();
     render(
       <ScheduleBuilder
@@ -869,7 +872,7 @@ describe('a schedule in its own timezone (N9)', () => {
     expect(onChange).toHaveBeenLastCalledWith({
       schedule: 'daily:09:00',
       at: null,
-      timezone: 'America/New_York',
+      timezone: ZONE,
     });
   });
 

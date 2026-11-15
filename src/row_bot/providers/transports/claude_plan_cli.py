@@ -511,6 +511,8 @@ class ClaudeTurnReader:
 
     names: dict[str, str] = field(default_factory=dict)
     model: str = ""
+    # The model as Row-Bot asked for it ("claude-opus-5-5[1m]"); ``model`` becomes the one Claude Code ran.
+    asked: str = ""
     stop_reason: str = ""
     usage: dict[str, int] = field(default_factory=dict)
     finished: bool = False
@@ -554,12 +556,26 @@ class ClaudeTurnReader:
             self.finished = True
             if not self.stop_reason and isinstance(event.get("stop_reason"), str):
                 self.stop_reason = event["stop_reason"]
+            self.remember_context(event.get("modelUsage"))
         elif kind == "system" and event.get("subtype") == "init":
             for server in event.get("mcp_servers") or []:
                 if isinstance(server, dict) and server.get("name") == TOOL_SERVER and server.get("status") == "failed":
                     from row_bot.providers.claude_subscription import ClaudePlanUnavailable
 
                     raise ClaudePlanUnavailable("Claude Code couldn't load Row-Bot's tools for this reply. Try again.")
+
+    def remember_context(self, usage: Any) -> None:
+        """The context window Claude Code reports for the model it ran becomes that model's size (I33)."""
+        asked = self.asked or self.model
+        ran = usage.get(self.model) or usage.get(asked.removesuffix("[1m]")) if isinstance(usage, dict) else None
+        window = ran.get("contextWindow") if isinstance(ran, dict) else None
+        if asked and type(window) is int and window > 0:
+            from row_bot.providers.claude_subscription import remember_context_window
+
+            try:
+                remember_context_window(asked, window)
+            except Exception:
+                logger.debug("Could not save the context window Claude Code reported", exc_info=True)
 
     def _stream_event(self, event: dict[str, Any]) -> Iterator[ChatGenerationChunk]:
         kind = event.get("type")
@@ -853,7 +869,7 @@ class ChatClaudePlan(BaseChatModel):
                 shutil.rmtree(folder, ignore_errors=True)
                 raise
         unregister = scope.register(run.stop, "claude_plan.stop") if scope is not None else None
-        reader = ClaudeTurnReader(names=names, model=self.model_name)
+        reader = ClaudeTurnReader(names=names, model=self.model_name, asked=self.model_name)
         kept = False
         try:
             yield from self._turn(run, None if claimed else frames, reader, run_manager, scope)
@@ -922,6 +938,7 @@ class ChatClaudePlan(BaseChatModel):
             try:
                 while (event := run.next_event(_RESULT_GRACE_SECONDS)) is not None:
                     if event.get("type") == "result":
+                        reader.remember_context(event.get("modelUsage"))
                         break
             except ClaudeCodeSilent:
                 pass

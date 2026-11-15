@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "description": "A pasted answer from the old assistant.",
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 1000000,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "client_session_id",
+    "text"
+  ],
+  "title": "MemoryImportText",
+  "type": "object"
+}

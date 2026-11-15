@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "export": {
+      "enum": [
+        "memories",
+        "history",
+        "none"
+      ],
+      "title": "Export",
+      "type": "string"
+    },
+    "how_to_get": {
+      "maxLength": 600,
+      "title": "How To Get",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 40,
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 80,
+      "title": "Name",
+      "type": "string"
+    },
+    "prompt_route": {
+      "title": "Prompt Route",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "export",
+    "prompt_route",
+    "how_to_get"
+  ],
+  "title": "MemoryImportSource",
+  "type": "object"
+}

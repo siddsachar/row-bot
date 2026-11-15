@@ -175,6 +175,7 @@ proto-plus==1.28.0
 protobuf==7.35.1
 proxy-tools==0.1.0
 psutil==7.2.2
+py-vapid==1.9.6
 pyasn1==0.6.5
 pyasn1-modules==0.4.2
 pycparser==3.0 ; implementation_name != 'PyPy'

@@ -1,6 +1,11 @@
 import * as Popover from '@radix-ui/react-popover';
-import type { ContextUsageView, ConversationTokenUsage } from '../../api/types';
-import { Hint } from '../../ui/primitives';
+import { useRef, type RefObject } from 'react';
+import type {
+  ContextBreakdown,
+  ContextUsageView,
+  ConversationTokenUsage,
+} from '../../api/types';
+import { Disclosure, Hint } from '../../ui/primitives';
 
 function tokens(value: number | null | undefined) {
   return value == null ? 'unknown' : value.toLocaleString('en-GB');
@@ -22,6 +27,7 @@ export function describeConversationUsage(
 ): {
   hint: string;
   detail: string;
+  cache: string | null;
 } | null {
   if (!usage || usage.calls <= 0) return null;
   const total = usage.input_tokens + usage.output_tokens;
@@ -29,16 +35,104 @@ export function describeConversationUsage(
     usage.cache_read_percent == null
       ? ''
       : `${usage.cache_read_percent}% from cache`;
+  const last = usage.last_cache_read_percent ?? null;
   const cost =
     usage.cost_usd == null
       ? ''
       : `$${usage.cost_usd.toFixed(usage.cost_usd > 0 && usage.cost_usd < 0.01 ? 4 : 2)}`;
   return {
     hint: `${compact.format(total)} tokens used${cache ? `, ${cache}` : ''}`,
+    // With the last request's share, the cache has its own line and the total leaves it out.
     detail: `This conversation: ${tokens(total)} tokens used${
-      cache ? `, ${usage.cache_read_percent}% of input read from cache` : ''
+      cache && last == null
+        ? `, ${usage.cache_read_percent}% of input read from cache`
+        : ''
     }${cost ? `. Cost reported by the provider: ${cost}` : ''}.`,
+    cache:
+      last == null
+        ? null
+        : `Cache: ${last}% of the last request came from the provider's cache${
+            cache
+              ? ` (${usage.cache_read_percent}% over this conversation)`
+              : ''
+          }.`,
   };
+}
+
+const PARTS = [
+  ['instructions', "Row-Bot's instructions"],
+  ['tools', 'Tools'],
+  ['skills', 'Skills and guides'],
+  ['memory', 'Memories'],
+  ['conversation', 'Conversation'],
+] as const;
+
+function share(value: number, total: number) {
+  const percent = (value / total) * 100;
+  return percent > 0 && percent < 1 ? '<1%' : `${Math.round(percent)}%`;
+}
+
+/**
+ * What fills the context after the last reply: Row-Bot's instructions, the
+ * tools, skills and guides, memories and the conversation, as a thin bar and
+ * one row each. Estimates, counted once a reply settles; empty parts are left
+ * out. A live count past that reply marks the parts "As of the last reply".
+ */
+export function ContextBreakdownSection({
+  breakdown,
+  estimated,
+}: {
+  breakdown: ContextBreakdown;
+  estimated: number | null | undefined;
+}) {
+  const parts = PARTS.map(([key, label]) => ({
+    key,
+    label: key === 'tools' ? `${label} (${breakdown.tool_count})` : label,
+    value: breakdown[key],
+  })).filter((part) => part.value > 0);
+  const total = parts.reduce((sum, part) => sum + part.value, 0);
+  if (total <= 0) return null;
+  const described = parts
+    .map((part) => `${part.label} ${share(part.value, total)}`)
+    .join(', ');
+  return (
+    <section className="context-breakdown" aria-label="What fills the context">
+      <div
+        className="context-breakdown-bar"
+        role="img"
+        aria-label={`What fills the context: ${described}`}
+      >
+        {parts.map((part) => (
+          <span
+            key={part.key}
+            data-part={part.key}
+            style={{ flexGrow: part.value }}
+          />
+        ))}
+      </div>
+      <ul className="context-breakdown-list">
+        {parts.map((part) => (
+          <li key={part.key}>
+            <span
+              className="context-breakdown-dot"
+              data-part={part.key}
+              aria-hidden
+            />
+            <span className="context-breakdown-label">{part.label}</span>
+            <span className="context-breakdown-tokens">
+              {tokens(part.value)}
+            </span>
+            <span className="context-breakdown-share">
+              {share(part.value, total)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {estimated != null && estimated !== total && (
+        <p className="context-breakdown-note">As of the last reply</p>
+      )}
+    </section>
+  );
 }
 
 const RADIUS = 7;
@@ -94,16 +188,7 @@ export function describeContextUsage(usage?: ContextUsageView | null): {
       threshold: 0,
       text: 'Context will appear after the next response',
     };
-  const used = usage.estimated_input_tokens ?? 0;
-  const usable = usage.usable_input_tokens ?? 0;
-  const percent = usable > 0 ? Math.min(100, (used / usable) * 100) : 0;
-  const threshold =
-    usable > 0 && usage.compact_at_tokens
-      ? Math.min(100, (usage.compact_at_tokens / usable) * 100)
-      : 0;
-  const percentLabel =
-    percent > 0 && percent < 1 ? '<1%' : `${Math.round(percent)}%`;
-  const stale = usage.freshness === 'stale' || usage.state === 'stale';
+  const { usable, percent, threshold, percentLabel, stale } = measure(usage);
   const text =
     usage.status === 'compacting'
       ? 'Compacting context…'
@@ -125,28 +210,12 @@ export default function ContextUsage({
   usage?: ContextUsageView | null;
 }) {
   if (!usage || usage.state === 'unknown') return null;
-  const used = usage.estimated_input_tokens ?? 0;
-  const usable = usage.usable_input_tokens ?? 0;
-  const percent = usable > 0 ? Math.min(100, (used / usable) * 100) : 0;
-  const threshold =
-    usable > 0 && usage.compact_at_tokens
-      ? Math.min(100, (usage.compact_at_tokens / usable) * 100)
-      : 0;
-  const percentLabel =
-    percent > 0 && percent < 1 ? '<1%' : `${Math.round(percent)}%`;
-  const stale = usage.freshness === 'stale' || usage.state === 'stale';
+  const { used, usable, percent, threshold, percentLabel, stale, label } =
+    measure(usage);
   const warning =
     usage.status === 'failed' ||
     usage.status === 'compacting' ||
     (threshold > 0 && percent >= threshold);
-  const label =
-    usage.status === 'compacting'
-      ? 'Compacting context…'
-      : usage.status === 'failed'
-        ? `Context ${percentLabel} · compaction failed`
-        : usable
-          ? `Context ${stale ? '~' : ''}${percentLabel}`
-          : 'Context unavailable';
   const spent = describeConversationUsage(usage.conversation_usage);
   const contextHint =
     usage.status === 'compacting'
@@ -155,14 +224,6 @@ export default function ContextUsage({
         ? `${stale ? '~' : ''}${percentLabel} of context${threshold ? ` · compacts at ${Math.round(threshold)}%` : ''}`
         : 'Context unavailable';
   const hint = spent ? `${contextHint} · ${spent.hint}` : contextHint;
-  const tooltip = [
-    `${stale ? 'Last measured: approximately' : 'Approximately'} ${tokens(used)} of ${tokens(usage.usable_input_tokens)} usable tokens.`,
-    usage.compact_at_tokens
-      ? `Automatic compaction starts around ${tokens(usage.compact_at_tokens)} tokens.`
-      : 'Automatic compaction threshold is unavailable.',
-    `Model window: ${tokens(usage.effective_limit_tokens ?? usage.native_window_tokens)} tokens.`,
-    `${usage.model_ref ?? 'Model unavailable'} · ${usage.scope === 'chat_only' ? 'Chat Only' : usage.scope === 'agent' ? 'Agent' : 'Unknown scope'}.`,
-  ].join(' ');
   return (
     <span
       className={`context-meter context-ring${warning ? ' is-warning' : ''}${stale ? ' is-stale' : ''}`}
@@ -199,22 +260,120 @@ export default function ContextUsage({
             collisionPadding={12}
             aria-label="Context usage details"
           >
-            <strong className="context-meter-title">{label}</strong>
-            <p>{tooltip}</p>
-            {spent && <p>{spent.detail}</p>}
-            {usage.last_confirmed_input_tokens != null && (
-              <p>
-                Last provider-confirmed input:{' '}
-                {tokens(usage.last_confirmed_input_tokens)} tokens.
-              </p>
-            )}
-            <p>
-              Capacity source state: {usage.capacity_state}. Freshness:{' '}
-              {usage.freshness}.
-            </p>
+            <ContextDetails usage={usage} />
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
     </span>
+  );
+}
+
+/**
+ * The same details for a one-line composer, where the ring is a row of the +
+ * menu: choosing it opens them over the + button once the menu has closed.
+ */
+export function ContextDetailsPopover({
+  usage,
+  open,
+  onOpenChange,
+  anchor,
+}: {
+  usage?: ContextUsageView | null;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  anchor: RefObject<HTMLElement | null>;
+}) {
+  const content = useRef<HTMLDivElement>(null);
+  if (!usage || usage.state === 'unknown') return null;
+  return (
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Anchor virtualRef={anchor} />
+      <Popover.Portal>
+        <Popover.Content
+          ref={content}
+          className="popover surface-effect context-meter-detail"
+          side="top"
+          align="start"
+          sideOffset={8}
+          collisionPadding={12}
+          aria-label="Context usage details"
+          // Focus the details themselves, not the first control in them (Details).
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            content.current?.focus();
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            anchor.current?.focus();
+          }}
+        >
+          <ContextDetails usage={usage} />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function measure(usage: ContextUsageView) {
+  const used = usage.estimated_input_tokens ?? 0;
+  const usable = usage.usable_input_tokens ?? 0;
+  const percent = usable > 0 ? Math.min(100, (used / usable) * 100) : 0;
+  const threshold =
+    usable > 0 && usage.compact_at_tokens
+      ? Math.min(100, (usage.compact_at_tokens / usable) * 100)
+      : 0;
+  const percentLabel =
+    percent > 0 && percent < 1 ? '<1%' : `${Math.round(percent)}%`;
+  const stale = usage.freshness === 'stale' || usage.state === 'stale';
+  const label =
+    usage.status === 'compacting'
+      ? 'Compacting context…'
+      : usage.status === 'failed'
+        ? `Context ${percentLabel} · compaction failed`
+        : usable
+          ? `Context ${stale ? '~' : ''}${percentLabel}`
+          : 'Context unavailable';
+  return { used, usable, percent, threshold, percentLabel, stale, label };
+}
+
+function ContextDetails({ usage }: { usage: ContextUsageView }) {
+  const { used, stale, label } = measure(usage);
+  const spent = describeConversationUsage(usage.conversation_usage);
+  const summary = [
+    `${stale ? 'Last measured: approximately' : 'Approximately'} ${tokens(used)} of ${tokens(usage.usable_input_tokens)} usable tokens.`,
+    usage.compact_at_tokens
+      ? `Automatic compaction starts around ${tokens(usage.compact_at_tokens)} tokens.`
+      : 'Automatic compaction threshold is unavailable.',
+  ].join(' ');
+  const model = [
+    `Model window: ${tokens(usage.effective_limit_tokens ?? usage.native_window_tokens)} tokens.`,
+    `${usage.model_ref ?? 'Model unavailable'} · ${usage.scope === 'chat_only' ? 'Chat Only' : usage.scope === 'agent' ? 'Agent' : 'Unknown scope'}.`,
+  ].join(' ');
+  return (
+    <>
+      <strong className="context-meter-title">{label}</strong>
+      <p>{summary}</p>
+      {usage.breakdown && (
+        <ContextBreakdownSection
+          breakdown={usage.breakdown}
+          estimated={usage.estimated_input_tokens}
+        />
+      )}
+      {spent?.cache && <p>{spent.cache}</p>}
+      {spent && <p>{spent.detail}</p>}
+      <Disclosure summary="Details" className="context-meter-more">
+        <p>{model}</p>
+        {usage.last_confirmed_input_tokens != null && (
+          <p>
+            Last provider-confirmed input:{' '}
+            {tokens(usage.last_confirmed_input_tokens)} tokens.
+          </p>
+        )}
+        <p>
+          Capacity source state: {usage.capacity_state}. Freshness:{' '}
+          {usage.freshness}.
+        </p>
+      </Disclosure>
+    </>
   );
 }

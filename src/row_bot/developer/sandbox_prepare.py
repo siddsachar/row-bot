@@ -10,6 +10,8 @@ that in one step the person agrees to first:
 - It turns the network on for the install only: the install runs in a separate, short-lived
   container of the same image with the network, sharing the sandbox's copy of the code folder.
   The sandbox's own container never gets the network, and its network setting never changes.
+  Like a networked sandbox, the install container reaches only the public internet, through the
+  sandbox's network gate (``sandbox_egress``): never this computer, the local network or metadata.
 - It turns the network off again in a ``finally``: the install container is removed whether the
   install worked, failed or was stopped, and the episode (when the network was on, when it was
   off again) is kept with the conversation. A container a crash left behind is removed on the
@@ -587,15 +589,20 @@ def start(workspace: Any, conversation_id: str, *, kind: Kind = "prepare", by: s
 
 
 def _install_argv(binary: str, job: SandboxJob, workspace: Any, shadow: Path) -> list[str]:
-    """One short-lived container of the sandbox's image, with the network, on the sandbox's copy."""
+    """One short-lived container of the sandbox's image, behind the network gate, on the sandbox's copy."""
     import os
+
+    from row_bot.developer import sandbox_egress
 
     args = [binary, "run", "--rm", "--name", job.container, "--label", f"row_bot.developer.prepare={job.job_id}",
             "--label", f"row_bot.developer.workspace_id={workspace.id}",
-            "-v", f"{shadow}:/workspace", "-w", "/workspace"]
+            "-v", f"{shadow}:/workspace", "-w", "/workspace", "--cap-drop", "NET_RAW",
+            *sandbox_egress.sandbox_network_args(workspace.id)]
     for name, value in _INSTALL_ENV.items():
         args.extend(["-e", f"{name}={value}"])
     for name in getattr(workspace, "sandbox_env_allowlist", []) or []:
+        if sandbox_egress.is_proxy_variable(name):
+            continue
         value = os.environ.get(name)
         if value is not None:
             args.extend(["-e", f"{name}={value}"])
@@ -624,8 +631,12 @@ def _failure_words(output: str) -> str:
 
 
 def _run(job: SandboxJob, workspace: Any, probe: Any) -> None:
-    from row_bot.developer import sandbox_runtime
+    from row_bot.developer import sandbox_egress, sandbox_runtime
 
+    def docker(*args: str, timeout: float = 30) -> subprocess.CompletedProcess:
+        return _docker(probe.binary, *args, timeout=timeout)
+
+    gate = False
     try:
         if not image_present(probe.binary, job.image):
             _set(job, status="pulling")
@@ -645,6 +656,9 @@ def _run(job: SandboxJob, workspace: Any, probe: Any) -> None:
         (shadow / PACKAGES_DIR).mkdir(parents=True, exist_ok=True)
         if job.stop_event.is_set():
             raise _Stopped()
+        # The install reaches the public internet through the sandbox's gate, never this computer.
+        gate = True
+        sandbox_egress.ensure_gate(docker, workspace.id, workspace_image=job.image, binary=probe.binary)
         _set(job, status="installing", network_on_at=time.time(), network_off_confirmed=False)
         code, output = _follow(job, _install_argv(probe.binary, job, workspace, shadow), shadow, "Prepare sandbox")
         if job.stop_event.is_set():
@@ -668,6 +682,9 @@ def _run(job: SandboxJob, workspace: Any, probe: Any) -> None:
                 _set(job, problem="not_finished",
                      detail="Row-Bot couldn't confirm the install container stopped. It tries again when it next "
                             "starts; you can also remove it in Docker.")
+        if gate and getattr(workspace, "sandbox_network", "off") == "off":
+            # No networked sandbox needs the gate: it goes with the install.
+            sandbox_egress.remove_gate(docker, workspace.id)
         if job.status in ACTIVE:
             status: Status = "stopped" if job.stop_event.is_set() else "failed" if job.problem else "ready"
             _set(job, status=status, ended_at=time.time())

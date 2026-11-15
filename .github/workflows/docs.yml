@@ -19,6 +19,8 @@ on:
       - "scripts/docs/**"
       - "scripts/smoke_docker_server.py"
       - "tests/docs/**"
+      # The Railway page's tests check its calls against the relay's allow-list.
+      - "services/railway-relay/src/**"
       - "scripts/marketing/**"
       - "tests/marketing/**"
       - "README.md"
@@ -33,6 +35,8 @@ on:
       - "scripts/docs/**"
       - "scripts/smoke_docker_server.py"
       - "tests/docs/**"
+      # The Railway page's tests check its calls against the relay's allow-list.
+      - "services/railway-relay/src/**"
       - "scripts/marketing/**"
       - "tests/marketing/**"
       - "README.md"

@@ -51,14 +51,16 @@ function shortPrompt(full: string) {
   return `${(space > SHORT / 2 ? cut.slice(0, space) : cut).replace(/[\s,.;:–-]+$/, '')}…`;
 }
 
-/** A picture's small server thumbnail; a video (which has none) a play mark. */
+/**
+ * A small server thumbnail: a picture's, or a video's frame half a second in
+ * (I20) under a play mark. Without one, the mark alone.
+ */
 function Thumb({ output }: { output: ConversationOutput }) {
   const { controller } = useRuntime();
   const [src, setSrc] = useState('');
   const video = output.mime.startsWith('video/');
   useEffect(() => {
     setSrc('');
-    if (video) return;
     const abort = new AbortController();
     let url = '';
     controller.attachmentThumbnail(output.reference, abort.signal).then(
@@ -73,17 +75,26 @@ function Thumb({ output }: { output: ConversationOutput }) {
       abort.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [controller, output.reference, video]);
-  if (src) return <img className="context-output-thumb" src={src} alt="" />;
+  }, [controller, output.reference]);
+  const play = video && (
+    <span className="context-output-play">
+      <Play size={14} fill="currentColor" />
+    </span>
+  );
+  if (src)
+    return (
+      <>
+        <img className="context-output-thumb" src={src} alt="" />
+        {play && (
+          <span className="context-output-poster-mark" aria-hidden>
+            {play}
+          </span>
+        )}
+      </>
+    );
   return (
     <span className="context-output-thumb context-output-glyph" aria-hidden>
-      {video ? (
-        <span className="context-output-play">
-          <Play size={14} fill="currentColor" />
-        </span>
-      ) : (
-        <ImageIcon size={20} />
-      )}
+      {play || <ImageIcon size={20} />}
     </span>
   );
 }

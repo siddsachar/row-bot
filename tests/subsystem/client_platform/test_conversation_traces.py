@@ -262,6 +262,7 @@ def test_skill_specialization_exposes_only_reviewed_bounded_metadata():
         "page_id": "",
         "link_id": "",
         "project_id": "",
+        "setting_change": None,
     }
     assert private not in repr(specialized)
 

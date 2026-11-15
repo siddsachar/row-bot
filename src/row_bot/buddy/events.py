@@ -38,6 +38,8 @@ class BuddyEventType(StrEnum):
     # Learning (preview): a personal model training in the background.
     LEARNING_TRAINING = "learning.training"
     NOTIFICATION = "notification"
+    # Proactive Row-Bot: a moment for the person (the "something for you" glance and bubble).
+    PROACTIVE_MOMENT = "proactive.moment"
     VOICE_LISTENING = "voice.listening"
     IDLE = "idle"
 

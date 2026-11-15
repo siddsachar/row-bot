@@ -24,6 +24,8 @@ import type { LiveFrame } from './types';
  *   stream to carry it (Home, a new chat).
  * - `learning`: Row-Bot Learning (preview): a version, a comparison, the
  *   vault, a setting or a personal model's use changed.
+ * - `proactive`: Proactive Row-Bot: a moment made, shown, settled or changed,
+ *   a rule, a draft or an Activity line.
  *
  * Subscribe with `controller.live.subscribe(topic, onChange)`, which returns
  * an unsubscribe, or in a component with `useLiveUpdate(topics, onChange)`
@@ -43,7 +45,8 @@ export type LiveTopic =
   | 'monitor'
   | 'models'
   | 'notices'
-  | 'learning';
+  | 'learning'
+  | 'proactive';
 
 /** How often a screen re-reads anyway, for when the live stream is unavailable. */
 export const LIVE_FALLBACK_MS = 60_000;

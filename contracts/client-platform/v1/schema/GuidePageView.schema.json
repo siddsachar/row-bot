@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "GuideSectionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Anchor",
+          "type": "string"
+        },
+        "heading": {
+          "maxLength": 200,
+          "title": "Heading",
+          "type": "string"
+        }
+      },
+      "required": [
+        "anchor",
+        "heading"
+      ],
+      "title": "GuideSectionRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One of Row-Bot's guides, read from the copy this install ships (offline).",
+  "properties": {
+    "description": {
+      "maxLength": 1024,
+      "title": "Description",
+      "type": "string"
+    },
+    "markdown": {
+      "maxLength": 200000,
+      "title": "Markdown",
+      "type": "string"
+    },
+    "route": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^/docs/[A-Za-z0-9/_-]{0,250}$",
+      "title": "Route",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/GuideSectionRef"
+      },
+      "maxItems": 200,
+      "title": "Sections",
+      "type": "array"
+    },
+    "title": {
+      "maxLength": 200,
+      "title": "Title",
+      "type": "string"
+    },
+    "web_url": {
+      "maxLength": 300,
+      "pattern": "^https://row-bot\\.ai/docs/[A-Za-z0-9/_-]{0,250}$",
+      "title": "Web Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "route",
+    "title",
+    "description",
+    "markdown",
+    "web_url",
+    "sections"
+  ],
+  "title": "GuidePageView",
+  "type": "object"
+}

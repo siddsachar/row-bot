@@ -147,9 +147,11 @@ def test_codex_provider_refresh_discovers_live_models(tmp_path, monkeypatch):
             "model:codex:gpt-5.6-sol",
             "model:codex:gpt-5.6-terra",
             "model:codex:gpt-5.6-luna",
+            # ChatGPT's list names chat models only; the plan makes images too.
+            "model:codex:gpt-image-2",
         }
         assert status["codex"]["status"] == "live"
-        assert status["codex"]["count"] == 3
+        assert status["codex"]["count"] == 4
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)

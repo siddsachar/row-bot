@@ -35,6 +35,20 @@ class AuthorizationDecision:
     reason: str
 
 
+# The app's name, icons and install screenshots, so a phone can install it: browsers
+# fetch the manifest and what it lists without the session cookie. The service worker
+# and the app itself stay behind it.
+APP_INSTALL_PATHS: frozenset[str] = frozenset(
+    {
+        "/app-v2/app.webmanifest",
+        "/app-v2/icon-192.png",
+        "/app-v2/icon-512.png",
+        "/app-v2/icon-maskable-192.png",
+        "/app-v2/icon-maskable-512.png",
+        "/app-v2/screenshot-phone.webp",
+        "/app-v2/screenshot-wide.webp",
+    }
+)
 PUBLIC_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/connect"),
@@ -53,17 +67,19 @@ PUBLIC_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/mobile/offline"),
         ("GET", "/mobile/service-worker.js"),
         ("GET", "/static/row_bot_glyph_256.png"),
+        *(("GET", path) for path in APP_INSTALL_PATHS),
     }
 )
 # Callers with no Row-Bot session that prove themselves to the route instead:
 # Twilio signs every inbound SMS, each plugin webhook handler checks its
 # service's own credentials, and an OAuth callback (MCP, Google, X) brings
-# the one-time state of the sign-in waiting for it. The plugin id and name
+# the one-time state of the sign-in waiting for it (OpenRouter's too). The plugin id and name
 # follow plugins.webhooks.
 OAUTH_CALLBACK_PATHS: tuple[str, ...] = (
     "/api/v1/settings/mcp/auth/callback",
     "/api/v1/accounts/google/auth/callback",
     "/api/v1/accounts/x/auth/callback",
+    "/api/v1/settings/providers/openrouter/sign-in/callback",
 )
 ROUTE_AUTHENTICATED_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {("POST", "/sms"), *(("GET", path) for path in OAUTH_CALLBACK_PATHS)}

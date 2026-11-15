@@ -101,14 +101,6 @@ _BUDDY_BUBBLE_OPTIONS = {
     "normal": "Normal",
     "chatty": "Chatty",
 }
-_BUDDY_REQUIRED_CLIPS = {
-    "idle",
-    "thinking",
-    "working",
-    "approval",
-    "success",
-    "error",
-}
 _LOCAL_EMBEDDING_OPTIONS = {
     "qwen3-0.6b": "Qwen3 0.6B",
     "nomic-v1.5": "Nomic Embed Text v1.5",
@@ -312,17 +304,20 @@ def _buddy_pack_rows(root: Path, selected_id: str) -> list[dict[str, Any]]:
     for pack_id, directory in sorted(pack_dirs.items()):
         manifest = _mapping(_read_json(directory / "manifest.json", default={}))
         runtime = _text(manifest.get("runtime"), 64)
-        if runtime not in {"rive", "generated_still", "generated_motion_pack"}:
+        if runtime not in {"living", "generated_still", "generated_motion_pack"}:
             runtime = (
-                "generated_motion_pack"
+                "living"
+                if manifest.get("rig") or (directory / "rig.json").is_file()
+                else "generated_motion_pack"
                 if isinstance(manifest.get("clips"), Mapping)
                 else "generated_still"
-                if pack_id.startswith("hatch-")
-                else "rive"
             )
         clips = _mapping(manifest.get("clips"))
         preview_name = _text(
-            manifest.get("preview") or manifest.get("preview_path") or "preview.png",
+            manifest.get("preview")
+            or manifest.get("preview_path")
+            or (manifest.get("art") if runtime == "living" else None)
+            or ("art.png" if runtime == "living" else "preview.png"),
             512,
         )
         preview_leaf = Path(preview_name)
@@ -336,15 +331,13 @@ def _buddy_pack_rows(root: Path, selected_id: str) -> list[dict[str, Any]]:
         preview_available = bool(preview and _local_path_is_file(str(preview)))
         status = "available"
         message = "Ready"
-        if (
-            runtime in {"generated_still", "generated_motion_pack"}
-            and not preview_available
+        if not preview_available:
+            status, message = "unavailable", "still image is missing or empty"
+        elif runtime == "living" and not all(
+            _local_path_is_file(str(directory / _text(manifest.get(key) or default, 512)))
+            for key, default in (("art", "art.png"), ("rig", "rig.json"))
         ):
-            status, message = "unavailable", "preview image is missing or empty"
-        if runtime == "generated_motion_pack" and not _BUDDY_REQUIRED_CLIPS.issubset(
-            clips
-        ):
-            status, message = "unavailable", "motion clips need attention"
+            status, message = "unavailable", "art or rig is missing"
         name = _text(manifest.get("name") or "Buddy", 256).strip()
         if name.casefold().startswith("buddy "):
             name = name[6:].strip()
@@ -383,7 +376,9 @@ def _buddy(root: Path) -> dict[str, Any]:
     bubbles = _text(config.get("bubble_verbosity") or "normal", 32)
     if bubbles not in _BUDDY_BUBBLE_OPTIONS:
         bubbles = "normal"
-    pack_id = _text(config.get("pack_id") or "glyph", 128)
+    from row_bot.buddy.config import DEFAULT_PACK_ID
+
+    pack_id = _text(config.get("pack_id") or DEFAULT_PACK_ID, 128)
     packs = _buddy_pack_rows(root, pack_id)
     if packs and not any(item["selected"] for item in packs):
         pack_id = packs[0]["pack_id"]
@@ -640,14 +635,26 @@ def _mobile_access(root: Path) -> dict[str, Any]:
                     "active_devices": 0,
                     "active_sessions": 0,
                 }
+            # Counted as Settings › Devices lists them: still signed in (a session not
+            # signed out or run out), and never this computer's own windows (F7).
+            from datetime import datetime, timezone
+
+            from row_bot.access.service import THIS_COMPUTER_ROUTE
+
+            live = (
+                "FROM access_sessions s JOIN access_devices d ON d.id = s.device_id "
+                "WHERE s.revoked_at IS NULL AND d.revoked_at IS NULL "
+                "AND COALESCE(d.access_route, '') != ? AND s.expires_at > ?"
+            )
+            now = datetime.now(timezone.utc).isoformat()
             devices = int(
                 connection.execute(
-                    "SELECT COUNT(*) FROM access_devices WHERE revoked_at IS NULL"
+                    f"SELECT COUNT(DISTINCT d.id) {live}", (THIS_COMPUTER_ROUTE, now)
                 ).fetchone()[0]
             )
             sessions = int(
                 connection.execute(
-                    "SELECT COUNT(*) FROM access_sessions WHERE revoked_at IS NULL"
+                    f"SELECT COUNT(*) {live}", (THIS_COMPUTER_ROUTE, now)
                 ).fetchone()[0]
             )
         finally:

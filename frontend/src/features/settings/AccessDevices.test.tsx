@@ -28,7 +28,7 @@ const device: AccessDevice = {
       device_id: 'device-a',
       created_at: '2026-09-20T00:00:00Z',
       last_seen_at: null,
-      expires_at: '2026-10-20T00:00:00Z',
+      expires_at: '2099-10-20T00:00:00Z',
       revoked_at: null,
       lifetime: 'trusted' as const,
       current: true,
@@ -72,6 +72,31 @@ it('marks the device the server says is making the request (B141)', async () => 
   expect(rows[0]).toHaveTextContent('This device');
   expect(rows[1]).toHaveTextContent('Laptop');
   expect(rows[1]).not.toHaveTextContent('This device');
+});
+
+it('leaves out a browser whose temporary sign-in ran out (F7)', async () => {
+  const expired: AccessDevice = {
+    ...device,
+    id: 'device-c',
+    display_name: 'Borrowed browser',
+    current: false,
+    sessions: [
+      {
+        ...device.sessions[0],
+        id: 'session-c',
+        device_id: 'device-c',
+        expires_at: '2020-01-01T12:00:00Z',
+        lifetime: 'temporary',
+        current: false,
+      },
+    ],
+  };
+  const client = fixture();
+  client.devices = vi.fn().mockResolvedValue([device, laptop, expired]);
+  show(client);
+  const list = await screen.findByRole('list', { name: 'Your devices' });
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+  expect(list).not.toHaveTextContent('Borrowed browser');
 });
 
 it('signs a device out only after a confirmation', async () => {

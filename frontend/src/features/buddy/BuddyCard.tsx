@@ -5,6 +5,7 @@ import { EyeOff, PictureInPicture2, Settings } from 'lucide-react';
 import { useClientState } from '../../runtime';
 import { Button, Hint, IconButton, StatusDot } from '../../ui/primitives';
 import type { BuddySnapshot } from '../shell/BuddyControls';
+import { SidebarMoment, useProactiveGlance } from '../proactive/SidebarMoment';
 
 type Tone = 'neutral' | 'accent' | 'warning' | 'danger' | 'success';
 
@@ -122,6 +123,9 @@ export function BuddyCard({
     window.matchMedia?.('(max-width: 640px)').matches === true;
   const name = snapshot.preferences.display_name || 'Buddy';
   const status = buddyStatus(snapshot);
+  // Buddy's face says it; a screen reader hears it with Buddy's name.
+  // When Buddy is busy, its status words win.
+  const glancing = useProactiveGlance() && status.tone === 'neutral';
   // The conversation its work is in, while it works.
   const about =
     status.tone !== 'neutral' ? (snapshot.conversation_id ?? '') : '';
@@ -141,12 +145,16 @@ export function BuddyCard({
       aria-busy={busy}
     >
       <Popover.Root open={open} onOpenChange={setOpen}>
-        <Hint label={`${name} · ${status.text}`}>
+        <Hint
+          label={`${name} · ${glancing ? 'Something for you' : status.text}`}
+        >
           <Popover.Trigger asChild>
             <Button
               variant="ghost"
               className="buddy-avatar-button"
               aria-label={`Open ${name}`}
+              aria-description={glancing ? 'Something for you' : undefined}
+              data-proactive={glancing ? 'moment' : undefined}
             >
               {avatar}
             </Button>
@@ -242,6 +250,8 @@ export function BuddyCard({
         </IconButton>
       </span>
       {children}
+      {/* Proactive: Buddy's bubble for a moment it was asked to deliver. */}
+      <SidebarMoment />
     </aside>
   );
 }

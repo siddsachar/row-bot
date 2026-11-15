@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "chunk_bytes": {
+      "const": 1048576,
+      "default": 1048576,
+      "title": "Chunk Bytes",
+      "type": "integer"
+    },
+    "file_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "File Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 200,
+      "title": "Name",
+      "type": "string"
+    },
+    "received_bytes": {
+      "minimum": 0,
+      "title": "Received Bytes",
+      "type": "integer"
+    },
+    "size_bytes": {
+      "minimum": 1,
+      "title": "Size Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "file_id",
+    "name",
+    "size_bytes",
+    "received_bytes"
+  ],
+  "title": "MemoryImportFileView",
+  "type": "object"
+}

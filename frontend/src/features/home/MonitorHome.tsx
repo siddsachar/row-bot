@@ -200,16 +200,14 @@ const TILES: {
     icon: Cpu,
     match: (check) =>
       ['Ollama', 'Model', 'Cloud API', 'TTS'].includes(check.name) ||
-      ['Models', 'Providers', 'Voice'].includes(check.settings_tab),
+      ['Models', 'Voice'].includes(check.settings_tab),
   },
   {
-    // Accounts, channels and connections are all apps now; older checks still name their old pages.
     key: 'channels',
     label: 'Apps',
     icon: Plug,
     match: (check) =>
-      ['MCP', 'Plugins'].includes(check.name) ||
-      ['Channels', 'Accounts', 'MCP', 'Plugins'].includes(check.settings_tab),
+      ['MCP', 'Plugins'].includes(check.name) || check.settings_tab === 'Apps',
   },
   {
     key: 'mcp',
@@ -234,7 +232,7 @@ const TILES: {
     match: (check) =>
       ['Knowledge', 'FAISS Index', 'Wiki Vault', 'Documents'].includes(
         check.name,
-      ) || ['Knowledge', 'Documents'].includes(check.settings_tab),
+      ) || ['Memory', 'Documents'].includes(check.settings_tab),
   },
   {
     key: 'storage',
@@ -244,23 +242,20 @@ const TILES: {
   },
 ];
 
+/** A check's Settings page by the page's own name (its settings_tab). */
 const SETTINGS_ROUTES: Record<string, string> = {
+  Preferences: 'preferences',
+  Buddy: 'buddy',
   Models: 'models',
-  Providers: 'models',
   Voice: 'voice',
-  Channels: 'apps',
-  Accounts: 'apps',
-  MCP: 'apps',
-  Plugins: 'apps',
-  Skills: 'skills',
-  Tools: 'tools',
-  Knowledge: 'knowledge',
+  Memory: 'knowledge',
   Documents: 'documents',
   Tracker: 'tracker',
-  Buddy: 'buddy',
-  Preferences: 'preferences',
+  Tools: 'tools',
+  Skills: 'skills',
+  Apps: 'apps',
   System: 'system',
-  Access: 'access',
+  'Devices & remote access': 'access',
 };
 
 function settingsLabel(route: string) {

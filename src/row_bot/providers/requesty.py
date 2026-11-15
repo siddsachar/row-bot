@@ -63,9 +63,9 @@ def requesty_context_window(metadata: Mapping[str, Any], fallback: int = 0) -> i
     """Resolve a context window from Requesty's ``context_window`` field.
 
     Falls back to OpenRouter-style ``context_length`` for robustness, then to
-    the supplied ``fallback``.
+    the supplied ``fallback``. ``max_tokens`` is the reply's limit, never the context (I33).
     """
-    for key in ("context_window", "contextWindow", "context_length", "max_tokens"):
+    for key in ("context_window", "contextWindow", "context_length"):
         value = metadata.get(key)
         if value is None:
             continue

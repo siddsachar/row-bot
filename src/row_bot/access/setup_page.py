@@ -127,7 +127,8 @@ _CHEVRON_ICON = (
     'stroke-linejoin="round"/></svg>'
 )
 
-_STYLE = """
+# The card both sign-in pages share: /setup here and the /connect pages (D9).
+CARD_STYLE = """
 :root {
   color-scheme: light dark;
   --canvas: #F3F5F7; --surface: #FFFFFF; --sunken: #ECEFF2; --hover: #ECEFF3;
@@ -513,7 +514,7 @@ def render_setup_page(
   <meta name="color-scheme" content="light dark">
   <title>Row-Bot</title>
   <link rel="icon" href="/static/row_bot_glyph_256.png">
-  <style>{_STYLE}</style>
+  <style>{CARD_STYLE}</style>
 </head>
 <body>
 <main>
@@ -529,6 +530,7 @@ def render_setup_page(
 
 
 __all__ = [
+    "CARD_STYLE",
     "FAILURE_LIMIT",
     "paused_message",
     "render_setup_page",

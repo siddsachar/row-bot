@@ -41,7 +41,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "NativeTerminalOpenRequest", "NativeTerminalExternalRequest", "NativeTerminalView", "NativeTerminalInput",
     "NativeTerminalResize",
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
-    "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
+    "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "SettingChangeUndoRequest", "SettingChangeUndoResult", "GuidePageView", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
     "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState", "ClaudeSignInOpenRequest", "ClaudeSignInView", "ClaudeSignInOutput", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "TrackerEntryPage", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
@@ -73,14 +73,20 @@ MODELS = {name: getattr(schemas, name) for name in (
     "CustomToolLibrary", "CustomToolLibraryCommand", "CustomToolLibraryReceipt",
     "DataBackupState", "DataBackupCommand", "DataBackupReceipt", "DataRestoreReview",
     "DataBackupUploadRequest", "DataBackupUploadView",
+    "MemoryImportModel", "MemoryImportSource", "MemoryImportReceipt", "MemoryImportSources", "MemoryImportRequest",
+    "MemoryImportFileRequest", "MemoryImportFileView", "MemoryImportText", "MemoryImportJob", "MemoryImportBatch",
+    "MemoryImportCandidatePage", "MemoryImportPreviewRequest", "MemoryImportPreview", "MemoryImportApply",
+    "MemoryImportUndo",
+    "MemoryReviewReceipt", "MemoryReviewOverview", "MemoryReviewRequest", "MemoryReviewCancel", "MemoryReviewRun",
+    "MemoryReviewProposals", "MemoryReviewApply", "MemoryReviewUndo",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
-    "SubscriptionActionRequest", "SubscriptionActionResult", "SubscriptionActionReceipt", "SubscriptionQuiescence",
+    "SubscriptionActionRequest", "SubscriptionActionResult", "SubscriptionActionReceipt", "SubscriptionQuiescence", "OpenRouterSignIn",
     "SubscriptionOptionsSnapshot", "SubscriptionOptionsReview",
     "SubscriptionOptionsRequest", "SubscriptionOptionsResult", "SubscriptionOptionsReceipt",
     "SubscriptionProbeResult", "SubscriptionProbeSnapshot", "SubscriptionProbeRequest", "SubscriptionProbeReview", "SubscriptionProbeState",
@@ -237,6 +243,22 @@ OPERATIONS = (
     ("get", "/video-brand", None, "VideoBrand"),
     ("get", "/waits", None, "WaitPage"),
     ("post", "/waits/{wait_id}/stop", None, "WaitPage"),
+    ("get", "/proactive/moments", None, "ProactiveMomentPage"),
+    ("get", "/proactive/moments/{moment_id}", None, "ProactiveMomentDetail"),
+    ("post", "/proactive/moments/{moment_id}/feedback", "ProactiveFeedback", "ProactiveMomentDetail"),
+    ("get", "/proactive/activity", None, "ProactiveActivityPage"),
+    ("get", "/proactive/settings", None, "ProactiveSettingsView"),
+    ("put", "/proactive/settings", "ProactiveSettingsChange", "ProactiveSettingsView"),
+    ("post", "/proactive/rules", "ProactiveRuleWrite", "ProactiveSettingsView"),
+    ("put", "/proactive/rules/{rule_id}", "ProactiveRuleWrite", "ProactiveSettingsView"),
+    ("delete", "/proactive/rules/{rule_id}", None, "ProactiveSettingsView"),
+    ("get", "/proactive/drafts", None, "ProactiveDraftPage"),
+    ("get", "/proactive/drafts/{draft_id}", None, "ProactiveDraftView"),
+    ("put", "/proactive/drafts/{draft_id}", "ProactiveDraftEdit", "ProactiveDraftView"),
+    ("post", "/proactive/drafts/{draft_id}/send", None, "ProactiveDraftView"),
+    ("post", "/proactive/drafts/{draft_id}/send/answer", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome"),
+    ("get", "/proactive/preview", None, "ProactivePreview"),
+    ("post", "/proactive/boundaries", "ProactiveBoundary", "ProactiveBoundaryNoted"),
     ("get", "/row-bot-sandboxes", None, "RowBotSandboxPage"),
     ("post", "/row-bot-sandboxes", "RowBotSandboxCreate", "RowBotSandboxView"),
     ("post", "/row-bot-sandboxes/{sandbox_id}/link", None, "RowBotSandboxLink"),
@@ -364,6 +386,31 @@ OPERATIONS = (
     ("get", "/data/backup/uploads/{upload_id}", None, "DataBackupUploadView"),
     ("put", "/data/backup/uploads/{upload_id}/chunks", "bytes", "DataBackupUploadView"),
     ("delete", "/data/backup/uploads/{upload_id}", None, "UploadCancelled"),
+    ("get", "/knowledge/import/sources", None, "MemoryImportSources"),
+    ("post", "/knowledge/import/batches", "MemoryImportRequest", "MemoryImportBatch"),
+    ("get", "/knowledge/import/batches/{batch_id}", None, "MemoryImportBatch"),
+    ("delete", "/knowledge/import/batches/{batch_id}", None, "UploadCancelled"),
+    ("post", "/knowledge/import/batches/{batch_id}/files", "MemoryImportFileRequest", "MemoryImportFileView"),
+    ("get", "/knowledge/import/batches/{batch_id}/files/{file_id}", None, "MemoryImportFileView"),
+    ("put", "/knowledge/import/batches/{batch_id}/files/{file_id}/chunks", "bytes", "MemoryImportFileView"),
+    ("delete", "/knowledge/import/batches/{batch_id}/files/{file_id}", None, "UploadCancelled"),
+    ("post", "/knowledge/import/batches/{batch_id}/text", "MemoryImportText", "MemoryImportBatch"),
+    ("post", "/knowledge/import/batches/{batch_id}/scan", "MemoryImportRequest", "MemoryImportBatch"),
+    ("post", "/knowledge/import/batches/{batch_id}/conversations", "MemoryImportRequest", "MemoryImportBatch"),
+    ("post", "/knowledge/import/batches/{batch_id}/cancel", "MemoryImportRequest", "MemoryImportBatch"),
+    ("get", "/knowledge/import/batches/{batch_id}/candidates", None, "MemoryImportCandidatePage"),
+    ("post", "/knowledge/import/batches/{batch_id}/preview", "MemoryImportPreviewRequest", "MemoryImportBatch"),
+    ("get", "/knowledge/import/batches/{batch_id}/preview", None, "MemoryImportPreview"),
+    ("post", "/knowledge/import/batches/{batch_id}/apply", "MemoryImportApply", "MemoryImportReceipt"),
+    ("post", "/knowledge/import/batches/{batch_id}/undo", "MemoryImportUndo", "MemoryImportReceipt"),
+    ("get", "/knowledge/review/overview", None, "MemoryReviewOverview"),
+    ("post", "/knowledge/review/runs", "MemoryReviewRequest", "MemoryReviewRun"),
+    ("get", "/knowledge/review/runs/{run_id}", None, "MemoryReviewRun"),
+    ("delete", "/knowledge/review/runs/{run_id}", None, "UploadCancelled"),
+    ("post", "/knowledge/review/runs/{run_id}/cancel", "MemoryReviewCancel", "MemoryReviewRun"),
+    ("get", "/knowledge/review/runs/{run_id}/proposals", None, "MemoryReviewProposals"),
+    ("post", "/knowledge/review/runs/{run_id}/apply", "MemoryReviewApply", "MemoryReviewReceipt"),
+    ("post", "/knowledge/review/runs/{run_id}/undo", "MemoryReviewUndo", "MemoryReviewReceipt"),
     ("get", "/insights", None, "InsightsSnapshot"),
     ("get", "/insights/commands/{command_id}", None, "InsightReceipt"),
     ("post", "/insights/commands", "InsightCommand", "InsightReceipt"),
@@ -415,6 +462,10 @@ OPERATIONS = (
     ("post", "/settings/providers/subscriptions/review", "SubscriptionActionRequest", "SubscriptionActionReview"),
     ("get", "/settings/providers/subscriptions/flows/{flow_id}", None, "SubscriptionFlowSnapshot"),
     ("delete", "/settings/providers/subscriptions/flows", None, "SubscriptionQuiescence"),
+    ("post", "/settings/providers/openrouter/sign-in", "EmptyPayload", "OpenRouterSignIn"),
+    ("get", "/settings/providers/openrouter/sign-in/{flow_id}", None, "OpenRouterSignIn"),
+    ("post", "/settings/providers/openrouter/sign-in/{flow_id}/cancel", "EmptyPayload", "OpenRouterSignIn"),
+    ("get", "/settings/providers/openrouter/sign-in/callback", None, "bytes"),
     ("post", "/settings/providers/subscriptions/starts/{command_id}/cancel", "EmptyPayload", "SubscriptionFlowSnapshot"),
     ("get", "/settings/providers/subscriptions/{provider_id}/receipts/{command_id}", None, "SubscriptionActionReceipt"),
     ("post", "/settings/providers/default-model/review", "DefaultModelReviewRequest", "DefaultModelReview"),
@@ -512,6 +563,8 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/workspace", None, "ConversationWorkspace"),
     ("post", "/conversations/{conversation_id}/composer/query", "ConversationComposerQuery", "ConversationComposer"),
     ("post", "/conversations/{conversation_id}/composer/command", "SlashCommandRead", "SlashCommandResult"),
+    ("post", "/conversations/{conversation_id}/setting-changes/undo", "SettingChangeUndoRequest", "SettingChangeUndoResult"),
+    ("get", "/guides/page", None, "GuidePageView"),
     ("get", "/conversations/{conversation_id}/open", None, "ConversationOpenView"),
     ("get", "/conversations/{conversation_id}/delegated", None, "DelegatedActivityView"),
     ("get", "/conversations/{conversation_id}/delegated/{run_id}", None, "DelegatedRun"),
@@ -734,6 +787,10 @@ export const queryComposer = (base: string, proof: SessionProof, conversation: s
   jsonRequest(base, `/conversations/${id(conversation)}/composer/query`, 'ConversationComposer', proof, 'POST', body, undefined, signal);
 export const readComposerCommand = (base: string, proof: SessionProof, conversation: string, body: SlashCommandRead, signal?: AbortSignal): Promise<SlashCommandResult> =>
   jsonRequest(base, `/conversations/${id(conversation)}/composer/command`, 'SlashCommandResult', proof, 'POST', body, undefined, signal);
+export const undoSettingChange = (base: string, proof: SessionProof, conversation: string, body: SettingChangeUndoRequest, signal?: AbortSignal): Promise<SettingChangeUndoResult> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/setting-changes/undo`, 'SettingChangeUndoResult', proof, 'POST', validateWire<SettingChangeUndoRequest>('SettingChangeUndoRequest', body), undefined, signal);
+export const getGuidePage = (base: string, proof: SessionProof, route: string, signal?: AbortSignal): Promise<GuidePageView> =>
+  jsonRequest(base, '/guides/page' + query({route}), 'GuidePageView', proof, 'GET', undefined, undefined, signal);
 export const openConversation = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationOpenView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/open`, 'ConversationOpenView', proof, 'GET', undefined, undefined, signal);
 export const getDraft = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<DraftView> =>
@@ -850,6 +907,40 @@ export const getWaits = (base: string, proof: SessionProof, signal?: AbortSignal
   jsonRequest(base, '/waits', 'WaitPage', proof, 'GET', undefined, undefined, signal);
 export const stopWait = (base: string, proof: SessionProof, wait: string, signal?: AbortSignal): Promise<WaitPage> =>
   jsonRequest(base, `/waits/${id(wait)}/stop`, 'WaitPage', proof, 'POST', undefined, undefined, signal);
+/** Proactive Row-Bot: For you, "Why this?", feedback, the Activity log, settings, rules and drafts. */
+export const getProactiveMoments = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveMomentPage> =>
+  jsonRequest(base, '/proactive/moments', 'ProactiveMomentPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveMoment = (base: string, proof: SessionProof, moment: string, signal?: AbortSignal): Promise<ProactiveMomentDetail> =>
+  jsonRequest(base, `/proactive/moments/${id(moment)}`, 'ProactiveMomentDetail', proof, 'GET', undefined, undefined, signal);
+export const sendProactiveFeedback = (base: string, proof: SessionProof, moment: string, body: ProactiveFeedback, signal?: AbortSignal): Promise<ProactiveMomentDetail> =>
+  jsonRequest(base, `/proactive/moments/${id(moment)}/feedback`, 'ProactiveMomentDetail', proof, 'POST', validateWire('ProactiveFeedback', body), undefined, signal);
+export const getProactiveActivity = (base: string, proof: SessionProof, before?: number, limit?: number, signal?: AbortSignal): Promise<ProactiveActivityPage> =>
+  jsonRequest(base, '/proactive/activity' + query({before, limit}), 'ProactiveActivityPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/settings', 'ProactiveSettingsView', proof, 'GET', undefined, undefined, signal);
+export const changeProactiveSettings = (base: string, proof: SessionProof, body: ProactiveSettingsChange, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/settings', 'ProactiveSettingsView', proof, 'PUT', validateWire('ProactiveSettingsChange', body), undefined, signal);
+export const addProactiveRule = (base: string, proof: SessionProof, body: ProactiveRuleWrite, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, '/proactive/rules', 'ProactiveSettingsView', proof, 'POST', validateWire('ProactiveRuleWrite', body), undefined, signal);
+export const changeProactiveRule = (base: string, proof: SessionProof, rule: string, body: ProactiveRuleWrite, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, `/proactive/rules/${id(rule)}`, 'ProactiveSettingsView', proof, 'PUT', validateWire('ProactiveRuleWrite', body), undefined, signal);
+export const deleteProactiveRule = (base: string, proof: SessionProof, rule: string, signal?: AbortSignal): Promise<ProactiveSettingsView> =>
+  jsonRequest(base, `/proactive/rules/${id(rule)}`, 'ProactiveSettingsView', proof, 'DELETE', undefined, undefined, signal);
+export const getProactiveDrafts = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveDraftPage> =>
+  jsonRequest(base, '/proactive/drafts', 'ProactiveDraftPage', proof, 'GET', undefined, undefined, signal);
+export const getProactiveDraft = (base: string, proof: SessionProof, draft: string, signal?: AbortSignal): Promise<ProactiveDraftView> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}`, 'ProactiveDraftView', proof, 'GET', undefined, undefined, signal);
+export const saveProactiveDraft = (base: string, proof: SessionProof, draft: string, body: ProactiveDraftEdit, signal?: AbortSignal): Promise<ProactiveDraftView> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}`, 'ProactiveDraftView', proof, 'PUT', validateWire('ProactiveDraftEdit', body), undefined, signal);
+/** Sending a drafted reply: the first call shows its approval card (always); only the answer can send it. */
+export const askToSendProactiveDraft = (base: string, proof: SessionProof, draft: string, signal?: AbortSignal): Promise<ProactiveDraftView> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}/send`, 'ProactiveDraftView', proof, 'POST', undefined, undefined, signal);
+export const answerProactiveDraftSend = (base: string, proof: SessionProof, draft: string, body: ProactiveDraftSendAnswer, signal?: AbortSignal): Promise<ProactiveDraftSendOutcome> =>
+  jsonRequest(base, `/proactive/drafts/${id(draft)}/send/answer`, 'ProactiveDraftSendOutcome', proof, 'POST', validateWire('ProactiveDraftSendAnswer', body), undefined, signal);
+export const getProactivePreview = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactivePreview> =>
+  jsonRequest(base, '/proactive/preview', 'ProactivePreview', proof, 'GET', undefined, undefined, signal);
+export const noteProactiveBoundary = (base: string, proof: SessionProof, body: ProactiveBoundary, signal?: AbortSignal): Promise<ProactiveBoundaryNoted> =>
+  jsonRequest(base, '/proactive/boundaries', 'ProactiveBoundaryNoted', proof, 'POST', validateWire('ProactiveBoundary', body), undefined, signal);
 /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */
 export const getRowBotSandboxes = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<RowBotSandboxPage> =>
   jsonRequest(base, '/row-bot-sandboxes', 'RowBotSandboxPage', proof, 'GET', undefined, undefined, signal);
@@ -1222,6 +1313,63 @@ export async function uploadDataBackupChunk(base: string, proof: SessionProof, u
   if (!response.ok) throw validateWire<Problem>('Problem', value);
   return validateWire<DataBackupUploadView>('DataBackupUploadView', value);
 }
+export const getMemoryImportSources = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MemoryImportSources> =>
+  jsonRequest(base, '/knowledge/import/sources', 'MemoryImportSources', proof, 'GET', undefined, undefined, signal);
+export const beginMemoryImport = (base: string, proof: SessionProof, body: MemoryImportRequest, signal?: AbortSignal): Promise<MemoryImportBatch> =>
+  jsonRequest(base, '/knowledge/import/batches', 'MemoryImportBatch', proof, 'POST', validateWire('MemoryImportRequest', body), undefined, signal);
+export const getMemoryImport = (base: string, proof: SessionProof, batch: string, signal?: AbortSignal): Promise<MemoryImportBatch> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}`, 'MemoryImportBatch', proof, 'GET', undefined, undefined, signal);
+export const discardMemoryImport = (base: string, proof: SessionProof, batch: string, signal?: AbortSignal): Promise<UploadCancelled> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}`, 'UploadCancelled', proof, 'DELETE', undefined, undefined, signal);
+export const addMemoryImportFile = (base: string, proof: SessionProof, batch: string, body: MemoryImportFileRequest, signal?: AbortSignal): Promise<MemoryImportFileView> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/files`, 'MemoryImportFileView', proof, 'POST', validateWire('MemoryImportFileRequest', body), undefined, signal);
+export const getMemoryImportFile = (base: string, proof: SessionProof, batch: string, file: string, signal?: AbortSignal): Promise<MemoryImportFileView> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/files/${id(file)}`, 'MemoryImportFileView', proof, 'GET', undefined, undefined, signal);
+export const removeMemoryImportFile = (base: string, proof: SessionProof, batch: string, file: string, signal?: AbortSignal): Promise<UploadCancelled> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/files/${id(file)}`, 'UploadCancelled', proof, 'DELETE', undefined, undefined, signal);
+export async function uploadMemoryImportChunk(base: string, proof: SessionProof, batch: string, file: string, offset: number, data: Blob, signal?: AbortSignal): Promise<MemoryImportFileView> {
+  if (data.size > 1048576) throw new Error('payload_too_large');
+  const response = await fetch(`${base}/api/v1/knowledge/import/batches/${id(batch)}/files/${id(file)}/chunks` + query({offset}), {
+    method: 'PUT', credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), body: data, signal,
+  });
+  const value = await response.json();
+  if (!response.ok) throw validateWire<Problem>('Problem', value);
+  return validateWire<MemoryImportFileView>('MemoryImportFileView', value);
+}
+export const addMemoryImportText = (base: string, proof: SessionProof, batch: string, body: MemoryImportText, signal?: AbortSignal): Promise<MemoryImportBatch> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/text`, 'MemoryImportBatch', proof, 'POST', validateWire('MemoryImportText', body), undefined, signal);
+export const scanMemoryImport = (base: string, proof: SessionProof, batch: string, body: MemoryImportRequest, signal?: AbortSignal): Promise<MemoryImportBatch> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/scan`, 'MemoryImportBatch', proof, 'POST', validateWire('MemoryImportRequest', body), undefined, signal);
+export const findMemoryImportConversations = (base: string, proof: SessionProof, batch: string, body: MemoryImportRequest, signal?: AbortSignal): Promise<MemoryImportBatch> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/conversations`, 'MemoryImportBatch', proof, 'POST', validateWire('MemoryImportRequest', body), undefined, signal);
+export const cancelMemoryImportStep = (base: string, proof: SessionProof, batch: string, body: MemoryImportRequest, signal?: AbortSignal): Promise<MemoryImportBatch> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/cancel`, 'MemoryImportBatch', proof, 'POST', validateWire('MemoryImportRequest', body), undefined, signal);
+export const getMemoryImportCandidates = (base: string, proof: SessionProof, batch: string, signal?: AbortSignal): Promise<MemoryImportCandidatePage> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/candidates`, 'MemoryImportCandidatePage', proof, 'GET', undefined, undefined, signal);
+export const previewMemoryImport = (base: string, proof: SessionProof, batch: string, body: MemoryImportPreviewRequest, signal?: AbortSignal): Promise<MemoryImportBatch> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/preview`, 'MemoryImportBatch', proof, 'POST', validateWire('MemoryImportPreviewRequest', body), undefined, signal);
+export const getMemoryImportPreview = (base: string, proof: SessionProof, batch: string, signal?: AbortSignal): Promise<MemoryImportPreview> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/preview`, 'MemoryImportPreview', proof, 'GET', undefined, undefined, signal);
+export const applyMemoryImport = (base: string, proof: SessionProof, batch: string, command: MemoryImportApply, signal?: AbortSignal): Promise<MemoryImportReceipt> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/apply`, 'MemoryImportReceipt', proof, 'POST', validateWire('MemoryImportApply', command), command.command_id, signal);
+export const undoMemoryImport = (base: string, proof: SessionProof, batch: string, command: MemoryImportUndo, signal?: AbortSignal): Promise<MemoryImportReceipt> =>
+  jsonRequest(base, `/knowledge/import/batches/${id(batch)}/undo`, 'MemoryImportReceipt', proof, 'POST', validateWire('MemoryImportUndo', command), command.command_id, signal);
+export const getMemoryReviewOverview = (base: string, proof: SessionProof, import_batch?: string, signal?: AbortSignal): Promise<MemoryReviewOverview> =>
+  jsonRequest(base, '/knowledge/review/overview' + query({import_batch}), 'MemoryReviewOverview', proof, 'GET', undefined, undefined, signal);
+export const beginMemoryReview = (base: string, proof: SessionProof, body: MemoryReviewRequest, signal?: AbortSignal): Promise<MemoryReviewRun> =>
+  jsonRequest(base, '/knowledge/review/runs', 'MemoryReviewRun', proof, 'POST', validateWire('MemoryReviewRequest', body), undefined, signal);
+export const getMemoryReview = (base: string, proof: SessionProof, run: string, signal?: AbortSignal): Promise<MemoryReviewRun> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}`, 'MemoryReviewRun', proof, 'GET', undefined, undefined, signal);
+export const discardMemoryReview = (base: string, proof: SessionProof, run: string, signal?: AbortSignal): Promise<UploadCancelled> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}`, 'UploadCancelled', proof, 'DELETE', undefined, undefined, signal);
+export const cancelMemoryReview = (base: string, proof: SessionProof, run: string, body: MemoryReviewCancel, signal?: AbortSignal): Promise<MemoryReviewRun> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}/cancel`, 'MemoryReviewRun', proof, 'POST', validateWire('MemoryReviewCancel', body), undefined, signal);
+export const getMemoryReviewProposals = (base: string, proof: SessionProof, run: string, signal?: AbortSignal): Promise<MemoryReviewProposals> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}/proposals`, 'MemoryReviewProposals', proof, 'GET', undefined, undefined, signal);
+export const applyMemoryReview = (base: string, proof: SessionProof, run: string, command: MemoryReviewApply, signal?: AbortSignal): Promise<MemoryReviewReceipt> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}/apply`, 'MemoryReviewReceipt', proof, 'POST', validateWire('MemoryReviewApply', command), command.command_id, signal);
+export const undoMemoryReview = (base: string, proof: SessionProof, run: string, command: MemoryReviewUndo, signal?: AbortSignal): Promise<MemoryReviewReceipt> =>
+  jsonRequest(base, `/knowledge/review/runs/${id(run)}/undo`, 'MemoryReviewReceipt', proof, 'POST', validateWire('MemoryReviewUndo', command), command.command_id, signal);
 export const getInsights = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<InsightsSnapshot> =>
   jsonRequest(base, '/insights', 'InsightsSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getInsightReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<InsightReceipt> =>
@@ -1612,6 +1760,12 @@ export const getSubscriptionReceipt = (base: string, proof: SessionProof, provid
   jsonRequest(base, `/settings/providers/subscriptions/${id(provider)}/receipts/${id(command)}`, 'SubscriptionActionReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendSubscriptionAction = (base: string, proof: SessionProof, command: Command, signal?: AbortSignal): Promise<SubscriptionActionResult> =>
   jsonRequest(base, '/settings/providers/commands', 'SubscriptionActionResult', proof, 'POST', command, command.command_id, signal);
+export const startOpenRouterSignIn = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<OpenRouterSignIn> =>
+  jsonRequest(base, '/settings/providers/openrouter/sign-in', 'OpenRouterSignIn', proof, 'POST', {}, undefined, signal);
+export const getOpenRouterSignIn = (base: string, proof: SessionProof, flow: string, signal?: AbortSignal): Promise<OpenRouterSignIn> =>
+  jsonRequest(base, `/settings/providers/openrouter/sign-in/${id(flow)}`, 'OpenRouterSignIn', proof, 'GET', undefined, undefined, signal);
+export const cancelOpenRouterSignIn = (base: string, proof: SessionProof, flow: string, signal?: AbortSignal): Promise<OpenRouterSignIn> =>
+  jsonRequest(base, `/settings/providers/openrouter/sign-in/${id(flow)}/cancel`, 'OpenRouterSignIn', proof, 'POST', {}, undefined, signal);
 export const revokeSubscriptionFlows = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SubscriptionQuiescence> =>
   jsonRequest(base, '/settings/providers/subscriptions/flows', 'SubscriptionQuiescence', proof, 'DELETE', undefined, undefined, signal, true);
 export const getDefaultModel = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<DefaultModelSnapshot> =>
@@ -1956,6 +2110,7 @@ def outputs() -> dict[Path, str]:
             "/native/revoke",
             "/settings/mcp/auth/callback",
             "/accounts/{account}/auth/callback",
+            "/settings/providers/openrouter/sign-in/callback",
             "/native/selections/complete",
             "/native/terminal/open",
             "/native/attachments/{reference}",
@@ -1979,6 +2134,8 @@ def outputs() -> dict[Path, str]:
                                 ("revision", False, {"type": "string", "maxLength": 64})]
         elif suffix in {"/settings/mcp/auth/callback", "/accounts/{account}/auth/callback"}:
             query_parameters = [(name, False, {"type": "string", "maxLength": 4096}) for name in ("state", "code", "error")]
+        elif suffix == "/settings/providers/openrouter/sign-in/callback":
+            query_parameters = [(name, False, {"type": "string", "maxLength": 4096}) for name in ("state", "code")]
         elif suffix == "/settings/mcp/configuration":
             query_parameters = [("query", False, {"type": "string", "maxLength": 128}),
                                 ("limit", False, {"type": "integer", "minimum": 1, "maximum": 50}),
@@ -2003,10 +2160,14 @@ def outputs() -> dict[Path, str]:
                     ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "other"]}),
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
+        elif suffix == "/knowledge/review/overview":
+            query_parameters = [("import_batch", False, {"type": "string", "pattern": "^[0-9a-f]{32}$"})]
         elif suffix == "/knowledge/graph":
             query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 5000})]
         elif suffix == "/monitor/logs":
             query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 200})]
+        elif suffix == "/guides/page":
+            query_parameters = [("route", True, {"type": "string", "minLength": 1, "maxLength": 256})]
         elif "/content/" in suffix:
             query_parameters = [("limit_bytes", False, {"type": "integer", "minimum": 1, "maximum": 65536}),
                                 ("cursor", False, {"type": "string", "maxLength": 2048})]

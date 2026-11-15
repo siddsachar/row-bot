@@ -32,4 +32,4 @@ Workflow:
 9. Promote with action `promote` only when the user wants the tool available in normal chat/plugin tools.
 10. If removing a draft or Custom Tool, use action `delete` and preserve the source folder unless the user explicitly asks to delete files.
 
-Be clear about scope: a Custom Tool starts as Developer-managed metadata around an existing repo/folder; promotion makes it appear in Settings -> Plugins and normal chat tools.
+Be clear about scope: a Custom Tool starts as Developer-managed metadata around an existing repo/folder; promotion makes it appear in Settings › Apps and normal chat tools.

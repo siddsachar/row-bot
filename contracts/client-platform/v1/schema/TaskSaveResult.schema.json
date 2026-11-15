@@ -138,6 +138,15 @@
           ],
           "title": "Conversation Id"
         },
+        "disabled_reason": {
+          "default": "",
+          "enum": [
+            "",
+            "failures"
+          ],
+          "title": "Disabled Reason",
+          "type": "string"
+        },
         "fields": {
           "$ref": "#/$defs/TaskEditableFields"
         },

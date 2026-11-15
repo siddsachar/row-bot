@@ -151,13 +151,13 @@ def test_client_platform_publishes_live_context_meter_event(platform):
         platform.registry.finish(handle, status="interrupted")
 
 
-def _record_call(thread_id: str, **usage) -> None:
+def _record_call(thread_id: str, purpose: str = "main", created_at: float | None = None, **usage) -> None:
     from row_bot.prompt_cache import ModelUsage
     from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
 
     assert record_model_usage(UsageRecord(
-        purpose="main", provider="openrouter", model="anthropic/claude-sonnet-4.5",
-        usage=ModelUsage(**usage), thread_id=thread_id,
+        purpose=purpose, provider="openrouter", model="anthropic/claude-sonnet-4.5",
+        usage=ModelUsage(**usage), thread_id=thread_id, created_at=created_at,
     ))
 
 
@@ -176,11 +176,71 @@ def test_meters_carry_this_conversations_ledger_totals_and_validate_on_the_wire(
     live = project_live_usage("conversation-a", saved_usage(snapshot_kind="transient"), "context_usage")
 
     expected = {"calls": 2, "input_tokens": 1200, "output_tokens": 60,
-                "cache_read_percent": 80, "cost_usd": pytest.approx(0.0042)}
+                "cache_read_percent": 80, "cost_usd": pytest.approx(0.0042), "last_cache_read_percent": None}
     assert saved["conversation_usage"] == expected
     assert live["conversation_usage"] == expected
     ContextUsageView.model_validate(saved)
     ContextUpdated.model_validate(live)
+    assert "PRIVATE" not in json.dumps(saved)
+
+
+def test_the_last_requests_cache_share_comes_from_the_newest_turn_call(platform, tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "ledger"))
+    _record_call("conversation-a", created_at=100.0, input_tokens=1000, output_tokens=5, cache_read_tokens=100)
+    _record_call("conversation-a", created_at=200.0, input_tokens=1000, output_tokens=5, cache_read_tokens=920)
+    # A background call for the conversation (its title) is newer, but is not one of its requests.
+    _record_call("conversation-a", purpose="title", created_at=300.0, input_tokens=50, output_tokens=5,
+                 cache_read_tokens=0)
+
+    usage = project_live_usage("conversation-a", saved_usage(snapshot_kind="transient"),
+                               "context_usage")["conversation_usage"]
+    assert usage["last_cache_read_percent"] == 92
+    assert usage["cache_read_percent"] == 50  # 1,020 of 2,050 over the whole conversation
+
+    # A provider that reports no cache numbers (a local model) leaves the last request's share out.
+    _record_call("conversation-a", purpose="chat_only", created_at=400.0, input_tokens=800, output_tokens=5)
+    usage = project_live_usage("conversation-a", saved_usage(snapshot_kind="transient"),
+                               "context_usage")["conversation_usage"]
+    assert usage["last_cache_read_percent"] is None
+
+
+BREAKDOWN = {"instructions": 40, "tools": 50, "skills": 10, "memory": 3, "conversation": 20, "tool_count": 12}
+
+
+def test_a_settled_breakdown_is_projected_saved_and_live_and_validates_on_the_wire(platform):
+    from row_bot import threads
+    from row_bot.api.v1.schemas import ContextUpdated, ContextUsageView
+
+    threads.append_checkpoint_messages("conversation-a", [HumanMessage(content="one", id="native-one")])
+    store(saved_usage(breakdown=BREAKDOWN))
+
+    saved = read_usage(platform, "conversation-a", CONTROLS)
+    settled = project_live_usage("conversation-a", saved_usage(breakdown=BREAKDOWN), "context_usage")
+    per_call = project_live_usage("conversation-a", saved_usage(snapshot_kind="transient"), "context_usage")
+
+    assert saved["state"] == "saved" and saved["breakdown"] == BREAKDOWN
+    assert settled["breakdown"] == BREAKDOWN
+    assert "breakdown" not in per_call
+    assert ContextUsageView.model_validate(saved).breakdown.tool_count == 12
+    assert ContextUpdated.model_validate(per_call).breakdown is None
+
+
+@pytest.mark.parametrize("breakdown", [
+    "PRIVATE", ["instructions"], {**BREAKDOWN, "tools": -1}, {**BREAKDOWN, "memory": True},
+    {**BREAKDOWN, "skills": 1.5}, {**BREAKDOWN, "conversation": 2_147_483_648},
+    {key: value for key, value in BREAKDOWN.items() if key != "tool_count"},
+])
+def test_a_malformed_breakdown_is_dropped_and_the_meter_still_reads(platform, breakdown):
+    from row_bot import threads
+
+    threads.append_checkpoint_messages("conversation-a", [HumanMessage(content="one", id="native-one")])
+    store(saved_usage(breakdown=breakdown))
+
+    saved = read_usage(platform, "conversation-a", CONTROLS)
+    live = project_live_usage("conversation-a", saved_usage(breakdown=breakdown), "context_usage")
+    assert saved["state"] == "saved" and saved["estimated_input_tokens"] == 123
+    assert live["state"] == "live"
+    assert "breakdown" not in saved and "breakdown" not in live
     assert "PRIVATE" not in json.dumps(saved)
 
 

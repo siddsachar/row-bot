@@ -60,7 +60,7 @@ def xai_media_auth_context(provider_id: str, *, refresh_if_needed: bool = True) 
         api_key = media_api_key("xai")
         if not api_key:
             raise XAIMediaError(
-                "No xAI API key configured. Please add your xAI API key in Settings -> Providers.",
+                "No xAI API key configured. Please add your xAI API key in Settings › Models.",
                 provider_id=provider,
                 kind="missing_api_key",
             )

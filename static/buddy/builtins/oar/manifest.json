@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "oar",
+  "name": "Buddy Oar",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact Row-Bot desktop companion dressed for rowing: a rounded slate-blue tile head with two glowing cyan eyes on a dark glass face, a small navy rowing vest with a cyan stripe, holding a tiny wooden oar, polished 3D, cheerful and sporty.",
+  "patches": "patches.png"
+}

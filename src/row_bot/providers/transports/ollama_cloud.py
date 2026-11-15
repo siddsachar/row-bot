@@ -239,7 +239,7 @@ def _raise_for_status(response: Any) -> None:
         if status_code == 401:
             raise RuntimeError(
                 "Ollama Cloud rejected the API key (HTTP 401). "
-                "Update the Ollama Cloud API key in Settings -> Providers."
+                "Update the Ollama Cloud API key in Settings › Models."
             )
         if status_code == 403:
             detail = _safe_response_text(response)

@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 SQLITE_COMPACT_MIN_FREE_BYTES = 32 * 1024 * 1024
 SQLITE_COMPACT_MIN_FREE_RATIO = 0.20
+# VACUUM rewrites the whole file and holds the write lock throughout: 3.5 GB took ~85 s and stalled
+# every chat (I29). A live database larger than this is left as it is; SQLite reuses its free pages.
+SQLITE_COMPACT_MAX_BYTES = 128 * 1024 * 1024
 STALE_TEMP_FILE_AGE = timedelta(days=1)
 AGENT_CHILD_ORPHAN_GRACE = timedelta(days=1)
 
@@ -656,12 +659,16 @@ def compact_sqlite_database(
     *,
     min_free_bytes: int = SQLITE_COMPACT_MIN_FREE_BYTES,
     min_free_ratio: float = SQLITE_COMPACT_MIN_FREE_RATIO,
+    max_bytes: int = SQLITE_COMPACT_MAX_BYTES,
 ) -> dict[str, Any]:
     """Threshold and compact one SQLite database at most once."""
 
     path = pathlib.Path(db_path).expanduser().resolve(strict=False)
     result: dict[str, Any] = {"path": str(path), "compacted": False, "reason": "missing"}
     if not path.exists() or not path.is_file():
+        return result
+    if path.stat().st_size > max_bytes:
+        result["reason"] = "too_large_to_compact_while_running"
         return result
     stats = _sqlite_space_stats(path)
     result.update(stats)
@@ -687,6 +694,26 @@ def compact_sqlite_database(
         result["error"] = str(exc)
         logger.info("SQLite compaction deferred for %s: %s", path, exc)
     return result
+
+
+def trim_sqlite_wal(db_path: str | pathlib.Path) -> bool:
+    """Copy a database's write-ahead log back into it and cut the log file to nothing (I29: it had grown
+    to 3.5 GB). The passive checkpoint copies without holding writers back, so the truncating one has
+    little left and gives up within a second while another connection is busy. True when the log was cut."""
+    from contextlib import closing
+
+    path = pathlib.Path(db_path)
+    if not path.is_file():
+        return False
+    try:
+        with closing(sqlite3.connect(str(path), timeout=1.0, isolation_level=None)) as connection:
+            connection.execute("PRAGMA busy_timeout=1000")
+            connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            busy = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+    except sqlite3.Error as exc:
+        logger.info("Write-ahead log of %s not trimmed: %s", path, exc)
+        return False
+    return not busy
 
 
 # A delete with Undo (B343) takes effect at once: the conversation leaves every
@@ -813,6 +840,11 @@ def _project_ids() -> set[str]:
 
 
 def _historical_agent_child(row: tuple, *, now: datetime) -> bool:
+    return _untouched_since(row, now - AGENT_CHILD_ORPHAN_GRACE)
+
+
+def _untouched_since(row: tuple, cutoff: datetime) -> bool:
+    """Created and last updated before *cutoff* (a ``_list_threads`` row); False when it can't be told."""
     timestamps = [str(row[index] or "") for index in (2, 3) if len(row) > index]
     parsed: list[datetime] = []
     for value in timestamps:
@@ -820,12 +852,49 @@ def _historical_agent_child(row: tuple, *, now: datetime) -> bool:
             continue
         try:
             candidate = datetime.fromisoformat(value)
-            if candidate.tzinfo is not None and now.tzinfo is None:
+            if candidate.tzinfo is not None and cutoff.tzinfo is None:
                 candidate = candidate.replace(tzinfo=None)
             parsed.append(candidate)
         except (TypeError, ValueError):
             return False
-    return bool(parsed) and max(parsed) <= now - AGENT_CHILD_ORPHAN_GRACE
+    return bool(parsed) and max(parsed) <= cutoff
+
+
+def _sweep_proactive_threads(rows: list[tuple], *, now: datetime) -> dict[str, int]:
+    """Proactive Row-Bot's hidden preparation threads (``thread_type`` "proactive").
+
+    Their drafts go first (``proactive.store.prune_drafts``: a week after the moment settled, or after an
+    overnight draft no moment came for); then a thread no draft links to any more, untouched for that long,
+    is deleted. A thread a draft still links to is never deleted, and nothing is when the drafts can't be read.
+    """
+    candidates = [str(row[0]) for row in rows if len(row) > 6 and str(row[6] or "") == "proactive"]
+    stats = {"proactive_candidates": len(candidates), "proactive_deleted": 0, "proactive_failures": 0}
+    if not candidates:
+        return stats
+    from row_bot.proactive import store
+
+    if not store.exists():
+        return stats
+    try:
+        store.prune_drafts(now.timestamp())
+        linked = store.draft_threads()
+    except sqlite3.Error:
+        logger.info("Proactive drafts are unavailable; keeping its preparation threads", exc_info=True)
+        return stats
+    cutoff = now - timedelta(days=store.DRAFTS_KEPT_DAYS)
+    by_id = {str(row[0]): row for row in rows}
+    for thread_id in candidates:
+        if thread_id in linked or not _untouched_since(by_id[thread_id], cutoff) \
+                or _thread_has_active_producer(thread_id):
+            continue
+        try:
+            result = delete_thread(thread_id)
+            stats["proactive_deleted"] += int(bool(result.deleted))
+            stats["proactive_failures"] += int(bool(result.warnings))
+        except Exception:
+            stats["proactive_failures"] += 1
+            logger.warning("Could not remove a Proactive preparation thread %s", thread_id, exc_info=True)
+    return stats
 
 
 def _agent_child_ownership_states(
@@ -1112,6 +1181,7 @@ def sweep_orphaned_thread_artifacts(
             now=maintenance_now,
         )
     )
+    stats.update(_sweep_proactive_threads(thread_rows, now=maintenance_now))
 
     if threads._MEDIA_DIR.exists():  # noqa: SLF001
         for child in list(threads._MEDIA_DIR.iterdir()):  # noqa: SLF001
@@ -1204,6 +1274,24 @@ def sweep_orphaned_thread_artifacts(
     return stats
 
 
+def prune_checkpoints_while_busy() -> dict[str, int] | None:
+    """Hourly, busy or not: the old checkpoints of chats quiet for half an hour (I32).
+
+    A long workflow chat saves its whole history at each step (34 MB a step for the owner's
+    883-message chat), and the idle maintenance waits while workflows keep the app busy, so
+    threads.db grew 16 GB in four hours. Pruning deletes in small batches, so it never holds
+    the write lock long, and skips every chat in use. None while the idle maintenance runs.
+    """
+    if not _maintenance_lock.acquire(blocking=False):
+        return None
+    try:
+        from row_bot import threads
+
+        return threads.cleanup_old_checkpoints()
+    finally:
+        _maintenance_lock.release()
+
+
 def run_idle_maintenance() -> dict[str, Any]:
     """Run checkpoint pruning, safe orphan repair, and thresholded compaction."""
 
@@ -1219,9 +1307,11 @@ def run_idle_maintenance() -> dict[str, Any]:
         checkpointer_lock = getattr(threads.checkpointer, "lock", None)
         if checkpointer_lock is None:
             compaction.append(compact_sqlite_database(threads.DB_PATH))
+            trim_sqlite_wal(threads.DB_PATH)
         else:
             with checkpointer_lock:
                 compaction.append(compact_sqlite_database(threads.DB_PATH))
+                trim_sqlite_wal(threads.DB_PATH)
         compaction.append(compact_sqlite_database(tasks._DB_PATH))  # noqa: SLF001
         usage_pruned = 0
         try:

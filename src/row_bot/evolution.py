@@ -1156,7 +1156,7 @@ def build_create_skill_proposal(
         confidence=0.72,
         payload=payload,
         preview=preview,
-        verification_plan="Validate metadata, check for overlap, create the skill only after preview approval, then confirm it appears in Settings > Skills.",
+        verification_plan="Validate metadata, check for overlap, create the skill only after preview approval, then confirm it appears in Settings › Skills.",
     )
 
 

@@ -151,6 +151,7 @@ COPY static /opt/row-bot/app/static
 COPY sounds /opt/row-bot/app/sounds
 COPY bundled_skills /opt/row-bot/app/bundled_skills
 COPY tool_guides /opt/row-bot/app/tool_guides
+COPY docs-site/docs /opt/row-bot/app/docs-site/docs
 COPY scripts/verify_runtime_dependencies.py /opt/row-bot/app/scripts/verify_runtime_dependencies.py
 
 # Fail the image build if any feature in the canonical aggregate set is not

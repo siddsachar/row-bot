@@ -57,7 +57,7 @@ def _search_wiki(query: str, max_results: int = 10) -> str:
     import row_bot.wiki_vault as wiki_vault
 
     if not wiki_vault.is_enabled():
-        return "Wiki vault is not enabled. Enable it in Settings → Knowledge → Wiki Vault."
+        return "Wiki vault is not enabled. Enable it in Settings › Memory › Wiki Vault."
 
     results = wiki_vault.search_vault(query, max_results=max_results)
     if not results:
@@ -76,7 +76,7 @@ def _read_article(subject: str) -> str:
     import row_bot.wiki_vault as wiki_vault
 
     if not wiki_vault.is_enabled():
-        return "Wiki vault is not enabled. Enable it in Settings → Knowledge → Wiki Vault."
+        return "Wiki vault is not enabled. Enable it in Settings › Memory › Wiki Vault."
 
     content = wiki_vault.read_article(subject)
     if content is None:
@@ -92,7 +92,7 @@ def _rebuild_vault() -> str:
     import row_bot.wiki_vault as wiki_vault
 
     if not wiki_vault.is_enabled():
-        return "Wiki vault is not enabled. Enable it in Settings → Knowledge → Wiki Vault."
+        return "Wiki vault is not enabled. Enable it in Settings › Memory › Wiki Vault."
 
     stats = wiki_vault.rebuild_vault()
     return (
@@ -110,7 +110,7 @@ def _vault_stats() -> str:
 
     stats = wiki_vault.get_vault_stats()
     if not stats.get("enabled"):
-        return "Wiki vault is not enabled. Enable it in Settings → Knowledge → Wiki Vault."
+        return "Wiki vault is not enabled. Enable it in Settings › Memory › Wiki Vault."
 
     return (
         f"Wiki Vault Status:\n"
@@ -126,7 +126,7 @@ def _export_conversation(title: str = "") -> str:
     import row_bot.wiki_vault as wiki_vault
 
     if not wiki_vault.is_enabled():
-        return "Wiki vault is not enabled. Enable it in Settings → Knowledge → Wiki Vault."
+        return "Wiki vault is not enabled. Enable it in Settings › Memory › Wiki Vault."
 
     # Access the current thread from the agent's context
     try:

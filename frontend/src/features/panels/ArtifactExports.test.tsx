@@ -165,7 +165,7 @@ it('sends the person to set up Browser Automation when exports need it', async (
   ).toBeInTheDocument();
   expect(
     screen.getByRole('link', { name: 'Set up Browser Automation' }),
-  ).toHaveAttribute('href', '/app-v2/settings/system#browser.install');
+  ).toHaveAttribute('href', '/app-v2/settings/system#browser-computer-use');
 });
 
 it('shows offline asset warnings and captured older revision without rebuilding', async () => {

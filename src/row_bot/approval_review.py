@@ -20,7 +20,7 @@ talk it into approving:
 - the action: its name, the readable summary the approval card shows, the app,
   and the risk flags the code already worked out.
 
-It fails safe: an error, a timeout (10 s), a refusal, an answer it can't read,
+It fails safe: an error, a timeout (30 s), a refusal, an answer it can't read,
 no request to compare with or no model means the person is asked.
 """
 
@@ -69,7 +69,8 @@ _SYSTEM_PROMPT = (
     "all of it alone. A step that only reads or checks something one part of the request needs is within it.\n"
     "A message, email or file going to someone the person named, saying what they asked for, is "
     "within the request: approve it. So is reading their data or capturing the screen when the task "
-    "they asked for needs it.\n"
+    "they asked for needs it. So is making a picture or video they asked for, even when its provider "
+    "charges for it.\n"
     "Ask the person instead when the action goes beyond that request, reaches people they did not "
     "name, posts publicly, moves money or buys something, grants access or changes permissions or "
     "security settings, deletes or overwrites anything they did not ask to change, or when you are "

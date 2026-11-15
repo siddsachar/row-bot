@@ -195,5 +195,134 @@ it('leaves out what the provider did not report, and says nothing before the fir
     hint: '11 tokens used, 0% from cache',
     detail:
       'This conversation: 11 tokens used, 0% of input read from cache. Cost reported by the provider: $0.0042.',
+    cache: null,
   });
+});
+
+const breakdown = {
+  instructions: 1200,
+  tools: 6000,
+  skills: 800,
+  memory: 0,
+  conversation: 4000,
+  tool_count: 85,
+};
+
+it('shows what fills the context, one row a part, leaving out empty parts', () => {
+  render(<ContextUsage usage={{ ...measured, breakdown }} />);
+  fireEvent.click(screen.getByText('Context 12%'));
+
+  const rows = screen
+    .getAllByRole('listitem')
+    .map((row) => row.textContent?.replace(/\s+/g, ' ').trim());
+  expect(rows).toEqual([
+    "Row-Bot's instructions1,20010%",
+    'Tools (85)6,00050%',
+    'Skills and guides8007%',
+    'Conversation4,00033%',
+  ]);
+  expect(screen.queryByText('Memories')).toBeNull();
+  expect(
+    screen.getByRole('img', {
+      name: "What fills the context: Row-Bot's instructions 10%, Tools (85) 50%, Skills and guides 7%, Conversation 33%",
+    }),
+  ).toBeInTheDocument();
+  // The parts add up to the ring's number: no "as of" note.
+  expect(screen.queryByText('As of the last reply')).toBeNull();
+});
+
+it('marks the parts as of the last reply once the live count has moved on', () => {
+  render(
+    <ContextUsage
+      usage={{
+        ...measured,
+        estimated_input_tokens: 13500,
+        breakdown: { ...breakdown, tools: 0, tool_count: 0, memory: 3 },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByText('Context 14%'));
+  expect(screen.getByText('As of the last reply')).toBeInTheDocument();
+  // Chat Only: no tools row; a tiny part still shows its share.
+  expect(screen.queryByText(/^Tools/)).toBeNull();
+  expect(screen.getByText('Memories').closest('li')).toHaveTextContent(
+    'Memories3<1%',
+  );
+});
+
+it('shows no breakdown section for an older measurement without one', () => {
+  render(<ContextUsage usage={measured} />);
+  fireEvent.click(screen.getByText('Context 12%'));
+  expect(screen.queryByRole('img')).toBeNull();
+  expect(screen.queryByRole('list')).toBeNull();
+});
+
+it("gives the last request's cache share its own line when the provider reports it", () => {
+  const { rerender } = render(
+    <ContextUsage
+      usage={{
+        ...measured,
+        conversation_usage: {
+          calls: 3,
+          input_tokens: 30000,
+          output_tokens: 600,
+          cache_read_percent: 81,
+          cost_usd: null,
+          last_cache_read_percent: 92,
+        },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByText('Context 12%'));
+  expect(
+    screen.getByText(
+      "Cache: 92% of the last request came from the provider's cache (81% over this conversation).",
+    ),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText('This conversation: 30,600 tokens used.'),
+  ).toBeInTheDocument();
+  // A provider without cache numbers (a local model): nothing about a cache.
+  rerender(
+    <ContextUsage
+      usage={{
+        ...measured,
+        conversation_usage: {
+          calls: 3,
+          input_tokens: 30000,
+          output_tokens: 600,
+          cache_read_percent: null,
+          cost_usd: null,
+          last_cache_read_percent: null,
+        },
+      }}
+    />,
+  );
+  expect(screen.queryByText(/cache/i)).toBeNull();
+});
+
+it('keeps the technical lines behind Details', () => {
+  render(
+    <ContextUsage
+      usage={{ ...measured, breakdown, last_confirmed_input_tokens: 11900 }}
+    />,
+  );
+  fireEvent.click(screen.getByText('Context 12%'));
+  const details = screen.getByText('Details').closest('details')!;
+  expect(details.open).toBe(false);
+  expect(details).toHaveTextContent('Model window: 100,000 tokens.');
+  expect(details).toHaveTextContent(
+    'Last provider-confirmed input: 11,900 tokens.',
+  );
+  expect(details).toHaveTextContent('Capacity source state: ready.');
+  fireEvent.click(screen.getByText('Details'));
+  expect(details.open).toBe(true);
+  // The short summary stays outside.
+  expect(
+    screen
+      .getByText(
+        'Approximately 12,000 of 100,000 usable tokens. Automatic compaction starts around 75,000 tokens.',
+      )
+      .closest('details'),
+  ).toBeNull();
 });

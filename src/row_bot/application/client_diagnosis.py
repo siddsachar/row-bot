@@ -46,7 +46,7 @@ _MAX_CHECKS = 64
 _STATUSES = {"ok", "warn", "error", "inactive"}
 _ID = re.compile(r"[a-z0-9][a-z0-9:-]{0,63}")
 # The attention indicator reads these areas from their own, finer readers.
-_ATTENTION_ELSEWHERE = ("tunnel", "mcp", "plugins", "channel:")
+ATTENTION_ELSEWHERE = ("tunnel", "mcp", "plugins", "channel:")
 # What a check says stays readable ("Token expired"); a credential's value, a
 # long opaque string and a private path are never kept.
 _CREDENTIAL = re.compile(
@@ -80,10 +80,23 @@ _PLACES: dict[str, tuple[str, str]] = {
     "plugins": ("/settings/apps", "Apps"),
     "tools": ("/settings/tools#built-in-tools", "Tools"),
 }
-# A sign-in Row-Bot can renew from its own row on Settings › Accounts.
+# Settings pages by the name a check gives them (status_checks' settings_tab), as Settings names them.
+_PAGE_IDS = {
+    "Preferences": "preferences", "Appearance": "appearance", "Buddy": "buddy", "Models": "models",
+    "Voice": "voice", "Memory": "knowledge", "Documents": "documents", "Tracker": "tracker", "Tools": "tools",
+    "Skills": "skills", "Apps": "apps", "System": "system", "Devices & remote access": "access",
+    "Updates": "updates", "Data": "data",
+}
+# Kept results saved before Settings renamed these pages name them the old way (G36). Connection checks
+# can stay kept for hours, so they are read under the page's name today.
+_RENAMED_PAGES = {
+    "Providers": "Models", "Accounts": "Apps", "Channels": "Apps", "MCP": "Apps", "Plugins": "Apps",
+    "Knowledge": "Memory", "Access": "Devices & remote access",
+}
+# A sign-in Row-Bot can renew from its own row on Settings › Apps.
 _ACCOUNTS = {"gmail-oauth": ("google", "Google"), "calendar-oauth": ("google", "Google"), "x-oauth": ("x", "X")}
 # Nothing in Row-Bot fixes these; once they are fixed outside it, check again.
-_CHECK_AGAIN = {"ollama": "/settings/providers", "network": None, "disk": None, "threads-db": None}
+_CHECK_AGAIN = {"ollama": "/settings/models#providers-local", "network": None, "disk": None, "threads-db": None}
 
 _lock = threading.Lock()
 # The app's scheduler, once start-up has scheduled the checks.
@@ -120,7 +133,7 @@ def _kept_entry(check_id: object, value: object) -> dict[str, Any] | None:
         "status": value["status"],
         "detail": value["detail"][:512],
         "checked_at": float(checked_at),
-        "settings_tab": value["settings_tab"][:64],
+        "settings_tab": _RENAMED_PAGES.get(value["settings_tab"], value["settings_tab"])[:64],
         "network": value["network"],
     }
 
@@ -208,6 +221,17 @@ def channel_id(slug: str) -> str:
     return slug
 
 
+def sign_in_provider(slug: str) -> tuple[str, str] | None:
+    """(provider id, short name) of the subscription a sign-in check names by its id's slug."""
+    from row_bot.providers.catalog import list_provider_definitions
+    from row_bot.providers.status import short_provider_name
+
+    for definition in list_provider_definitions():
+        if re.sub(r"[^a-z0-9]+", "-", definition.id.lower()).strip("-") == slug:
+            return definition.id, short_provider_name(definition.display_name)
+    return None
+
+
 def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None:
     """The one fix for a kept check that warns or fails (Phase 18), or None."""
     if entry["status"] not in {"warn", "error"}:
@@ -220,7 +244,13 @@ def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None
             return _fix("restart_channel", href, name, channel)
         return _fix("open", href, name)
     if check_id == "model":
-        return _fix("choose_model", "/settings/models#default-model", "Default model")
+        return _fix("choose_model", "/settings/models#default-model", "Main model")
+    if check_id.startswith("sign-in:"):
+        provider = sign_in_provider(check_id.removeprefix("sign-in:"))
+        if provider is not None:
+            # Signing in again is the person's own step, in that provider's row (G24).
+            return _fix("reconnect_account", f"/settings/models?provider={provider[0]}", provider[1], provider[0])
+        return _fix("open", "/settings/models#providers-subscription", "Subscriptions")
     if check_id in _ACCOUNTS:
         account, label = _ACCOUNTS[check_id]
         return _fix("reconnect_account", f"/settings/apps/{account}", label, account)
@@ -230,9 +260,9 @@ def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None
     if check_id in _CHECK_AGAIN:
         return _fix("check_again", _CHECK_AGAIN[check_id], name)
     # A check this table doesn't know yet: its settings page, else check again.
-    tab = entry["settings_tab"].lower()
-    if re.fullmatch(r"[a-z]{2,32}", tab):
-        return _fix("open", f"/settings/{tab}", entry["settings_tab"])
+    page = _PAGE_IDS.get(entry["settings_tab"])
+    if page:
+        return _fix("open", f"/settings/{page}", entry["settings_tab"])
     return _fix("check_again", None, name)
 
 
@@ -395,5 +425,5 @@ def attention_problems() -> list[dict[str, str]]:
             "fix": check["fix"],
         }
         for check in read_system_health()["checks"]
-        if check["status"] == "error" and not check["id"].startswith(_ATTENTION_ELSEWHERE)
+        if check["status"] == "error" and not check["id"].startswith(ATTENTION_ELSEWHERE)
     ]

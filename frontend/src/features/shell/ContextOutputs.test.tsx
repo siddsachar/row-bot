@@ -175,20 +175,26 @@ it('shows the newest six and folds the rest under Show all', () => {
   expect(tiles()).toHaveLength(6);
 });
 
-it('draws a picture from its small thumbnail and a video as a play mark, without downloading either', async () => {
+it('draws a picture and a video from their small thumbnails, without downloading either', async () => {
   const { container } = renderOutputs([output(1), output(2, 'video/mp4')]);
   await waitFor(() =>
-    expect(container.querySelector('img')).toHaveAttribute(
-      'src',
-      'blob:thumbnail',
-    ),
+    expect(container.querySelectorAll('img')).toHaveLength(2),
   );
-  expect(runtime.attachmentThumbnail).toHaveBeenCalledOnce();
-  expect(runtime.attachmentThumbnail.mock.calls[0][0]).toBe(
-    'conversation-a:media-1',
-  );
+  expect(
+    runtime.attachmentThumbnail.mock.calls.map(([reference]) => reference),
+  ).toEqual(['conversation-a:media-2', 'conversation-a:media-1']);
+  // A video's poster frame (I20) keeps its play mark; a picture has none.
+  expect(container.querySelectorAll('.context-output-play')).toHaveLength(1);
   // One rendering per result (B22): the media itself stays in the conversation.
   expect(runtime.download).not.toHaveBeenCalled();
+});
+
+it('keeps the play mark alone for a video with no poster', async () => {
+  runtime.attachmentThumbnail.mockRejectedValue(new Error('not_found'));
+  const { container } = renderOutputs([output(1, 'video/mp4')]);
+  await waitFor(() => expect(runtime.attachmentThumbnail).toHaveBeenCalled());
+  expect(container.querySelector('img')).toBeNull();
+  expect(container.querySelector('.context-output-play')).not.toBeNull();
 });
 
 it('opens an output full size in the media viewer', () => {

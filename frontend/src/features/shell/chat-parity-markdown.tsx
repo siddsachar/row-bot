@@ -1,7 +1,10 @@
 import { Fragment, useState, type JSX, type ReactNode } from 'react';
-import { Table } from 'lucide-react';
+import { Settings, Table } from 'lucide-react';
+import { AppLink } from '../../ui/app-link';
 import { CopyGlyph, Hint, IconButton } from '../../ui/primitives';
+import { settingsLink, type SettingsLink } from '../settings/model';
 import { CodeBlock } from './CodeBlock';
+import { GuideLink } from './GuideSheet';
 import MathTex from './MathTex';
 import { copyUnavailableMessage } from '../../platform/clipboard';
 
@@ -68,6 +71,46 @@ function Citation({ number, href }: { number: string; href: string }) {
   );
 }
 
+/**
+ * A Settings row or page Row-Bot linked: a chip with the row's own name that
+ * opens it in place, highlighted (the Settings jump).
+ */
+function SettingsChip({ to, label }: SettingsLink) {
+  return (
+    <Hint label="Open in Settings">
+      <AppLink className="settings-link-chip" to={to}>
+        <Settings size={12} aria-hidden />
+        <span>{label}</span>
+      </AppLink>
+    </Hint>
+  );
+}
+
+/**
+ * A link to a place in Row-Bot: a Settings chip, a guide, or a Home tab, all
+ * opened in place. A Settings link to a page or row that isn't there reads
+ * as its words. Null for any other link.
+ */
+function inAppLink(label: string, target: string, key: number): ReactNode {
+  if (/^\/(app-v2\/)?settings\//.test(target)) {
+    const place = settingsLink(target);
+    return place ? (
+      <SettingsChip key={key} {...place} />
+    ) : (
+      <Fragment key={key}>{label}</Fragment>
+    );
+  }
+  if (/^\/docs\/[A-Za-z0-9/_#-]*$/.test(target))
+    return <GuideLink key={key} route={target} label={label} />;
+  if (/^\/\?tab=[a-z-]+(&[A-Za-z0-9=&_-]*)?$/.test(target))
+    return (
+      <AppLink key={key} className="settings-link-chip" to={target}>
+        <span>{label}</span>
+      </AppLink>
+    );
+  return null;
+}
+
 /** A maths token's formula and whether it is display maths; null for anything else. */
 function mathToken(part: string): { tex: string; display: boolean } | null {
   if (part.length > 4 && part.startsWith('$$') && part.endsWith('$$'))
@@ -90,6 +133,8 @@ function inline(text: string): ReactNode[] {
     if (math?.tex) return <MathTex key={index} {...math} />;
     const link = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(part);
     if (link) {
+      const place = inAppLink(link[1], link[2], index);
+      if (place) return place;
       const href = safeHref(link[2]);
       const citation = CITATION.exec(link[1].trim());
       if (href && citation && /^https?:/i.test(href))

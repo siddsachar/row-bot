@@ -96,7 +96,7 @@ function result(id: string, status = 'running'): HatchResult {
     command_id: id,
     job_id: 'buddy-hatch-' + id,
     status,
-    stage: 'motion_provider_started',
+    stage: 'expression_provider_started',
     pack_id: null,
     selected: false,
     completed_clips: 2,
@@ -121,7 +121,7 @@ function transport(): BuddyPanelTransport {
       action: value.action,
       config_revision: value.config_revision,
       image_model: 'fixture/image',
-      video_model: 'fixture/video',
+      video_model: null,
       provider_calls: 7,
     })),
     execute: vi.fn(async (command) => ({
@@ -185,6 +185,69 @@ describe('controller-lifetime Buddy commands', () => {
           .display_name,
       ).toBe('Unsent name');
       expect(api.execute).not.toHaveBeenCalled();
+      session.purge();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('follows a running Hatch and shows the new look when it ends, without a refresh (F8)', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = transport();
+      const painted: BuddyPack = {
+        ...pack,
+        id: 'generated-otter',
+        name: 'Otter',
+        generated: true,
+      };
+      const session = createBuddyPanelSession(api, () => {});
+      await session.load();
+      await session.review(request);
+      const started = await session.confirm('review-one');
+      if (!('command_id' in started)) throw new Error('expected a Hatch');
+      const id = started.command_id;
+      api.receipt = vi
+        .fn()
+        .mockResolvedValueOnce({
+          command_id: id,
+          status: 'accepted',
+          hatch: { ...result(id), completed_clips: 4 },
+        })
+        .mockResolvedValue({
+          command_id: id,
+          status: 'completed',
+          hatch: {
+            ...result(id, 'completed'),
+            pack_id: painted.id,
+            selected: true,
+          },
+        });
+      const stop = session.observe();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(session.getSnapshot().result?.completed_clips).toBe(4);
+      api.snapshot = vi.fn(async () => ({
+        ...snapshot,
+        preferences: { ...snapshot.preferences, pack_id: painted.id },
+      }));
+      api.packs = vi.fn(async () => ({
+        revision: 'catalog-two',
+        total: 2,
+        packs: [pack, painted],
+        next_cursor: null,
+      }));
+      api.pack = vi.fn(async () => painted);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(session.getSnapshot().result?.status).toBe('completed');
+      expect(session.getSnapshot().selectedPack?.name).toBe('Otter');
+      expect(
+        session.getSnapshot().packs?.packs.map((item) => item.id),
+      ).toContain('generated-otter');
+      // Ended: no more receipt reads.
+      const reads = vi.mocked(api.receipt).mock.calls.length;
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(vi.mocked(api.receipt).mock.calls.length).toBe(reads);
+      stop();
       session.purge();
     } finally {
       vi.useRealTimers();

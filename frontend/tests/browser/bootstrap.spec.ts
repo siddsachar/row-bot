@@ -46,7 +46,8 @@ for (const appearance of ['light', 'dark'] as const) {
         .click();
     const settings = page.getByRole('link', { name: 'Settings', exact: true });
     await expect(settings).toBeVisible();
-    await expect(settings).toHaveAttribute('href', /\/settings\/models$/);
+    // Settings opens on Models beside its list, or on the list on a phone (D6).
+    await expect(settings).toHaveAttribute('href', /\/settings$/);
     if (compact) {
       await page.keyboard.press('Escape');
       await expect(drawer).toHaveCount(0);

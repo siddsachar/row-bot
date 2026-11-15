@@ -123,7 +123,7 @@ def resolve_catalog_model_selection(
         raise ModelSelectionError(
             f"Model '{raw}' was not found in configured model choices. "
             "Use a provider-qualified model such as model:<provider_id>:<model_id> "
-            "or pin the model in Settings -> Models first."
+            "or pin the model in Settings › Models first."
         )
     if len(matches) > 1:
         alternatives = tuple(_catalog_candidate_choice(item) for item in matches[:8])
@@ -224,7 +224,7 @@ def _pinned_model_selection_message(
 ) -> str:
     message = (
         f"Model '{raw}' is not pinned for Brain. "
-        "Pin it in Settings -> Models first, or choose an existing pinned Brain choice."
+        "Pin it in Settings › Models first, or choose an existing pinned Brain choice."
     )
     suggestions = _pinned_model_suggestions(candidates, provider_id=provider_id)
     if suggestions:

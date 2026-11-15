@@ -31,6 +31,11 @@
           "title": "Display Name",
           "type": "string"
         },
+        "follow_windows": {
+          "default": true,
+          "title": "Follow Windows",
+          "type": "boolean"
+        },
         "pack_id": {
           "maxLength": 128,
           "minLength": 1,

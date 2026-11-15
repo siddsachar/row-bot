@@ -287,7 +287,7 @@ export default function ArtifactExports(props: ArtifactExportsProps) {
           title="Export unavailable"
           action={
             needsBrowser ? (
-              <AppLink to="/settings/system#browser.install">
+              <AppLink to="/settings/system#browser-computer-use">
                 Set up Browser Automation
               </AppLink>
             ) : undefined

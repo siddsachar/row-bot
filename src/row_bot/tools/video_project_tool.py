@@ -37,7 +37,7 @@ class _Scene(BaseModel):
 
 
 class _VideoInput(BaseModel):
-    action: Literal["create", "change", "make", "status", "undo", "export"] = "status"
+    action: Literal["create", "change", "make", "status", "undo", "export", "brand"] = "status"
     project: str = Field(default="", description="change, make, status, undo: the project (vid-…).")
     title: str = Field(default="", description="create: the video's name.")
     recording: str = Field(default="", description="create: make the scenes from a browser recording's beats "
@@ -60,6 +60,12 @@ class _VideoInput(BaseModel):
     shape: Literal["16:9", "1:1", "9:16", "gif"] | None = Field(
         default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "
                                   "each scene reframed on its zoom, or a GIF.")
+    framing: Literal["full", "framed"] | None = Field(
+        default=None, description="brand: footage edge to edge (full) or on the brand colour (framed).")
+    caption_style: Literal["box", "bold", "title"] | None = Field(
+        default=None, description="brand: how captions look when a video has them.")
+    music_mood: Literal["calm", "upbeat", "focused", "warm"] | None = Field(
+        default=None, description="brand: the mood of music made for a video.")
     note: str = Field(default="", description="create, change: what you changed, in a few words.")
     version: int | None = Field(default=None, description="make, status: a version (default the latest).")
 
@@ -169,7 +175,8 @@ def _export(project, shape: str, number: int | None) -> str:
     fresh = project
     for _ in range(int(INLINE_SECONDS * 5)):  # Until its edit has started (it's made in the background).
         fresh = video_projects.get(project.project_id, project.conversation_id) or project
-        if shape in (fresh.version(version.number) or version).exports:
+        current = fresh.version(version.number) or version
+        if shape in current.exports or shape in current.export_problems:
             break
         time.sleep(0.2)
     text = (f"Exporting version {version.number} as {shape}: it's saved to this chat when it's made, and shows in the "
@@ -182,10 +189,14 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
            music: str | None = None, music_volume: float | None = None, narration: str | None = None,
            captions: bool | None = None, voice_lines: bool | None = None, note: str = "", version: int | None = None, aspect: str | None = None,
            shape: str | None = None, brand: bool | None = None, voice: str | None = None,
-           voice_speed: float | None = None) -> str:
+           voice_speed: float | None = None, framing: str | None = None, caption_style: str | None = None,
+           music_mood: str | None = None) -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
 
+    if action == "brand":
+        return _brand(framing=framing, captions=caption_style, music_mood=music_mood, voice=voice,
+                      voice_speed=voice_speed)
     conversation = _conversation()
     if not conversation:
         return "Video projects need a conversation."
@@ -226,7 +237,23 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             return video_projects.summary(fresh, number)
     except ProjectError as error:
         return str(error)
-    return "Use action create, change, make, status, undo or export."
+    return "Use action create, change, make, status, undo, export or brand."
+
+
+def _brand(**changes: object) -> str:
+    """Save how every video should look, as the person said it (R3): the kit the Video settings show."""
+    from dataclasses import asdict
+
+    from row_bot import video_brand
+
+    try:
+        kit = video_brand.update(changes)
+    except video_brand.BrandError as error:
+        return str(error)
+    shown = {key: value for key, value in asdict(kit).items() if key in {"framing", "captions", "music_mood",
+                                                                      "voice", "voice_speed"}}
+    return ("Saved in the brand kit (the Video panel’s Brand kit); every new video starts this way: "
+            + ", ".join(f"{key} {value or 'default'}" for key, value in shown.items()) + ".")
 
 
 def langchain_tool():
@@ -240,7 +267,8 @@ def langchain_tool():
             "(start, end), with speed, zoom, a card and its line (voiced when made). create, then change with "
             "every scene (keep scene ids) and a note; each change is a new version and makes the video again, "
             "saved to this chat. Read the checks and look at its review sheet: never say it's done until both are "
-            "right. undo goes back one version; export makes the same version in another shape or a GIF. For one "
+            "right. undo goes back one version; export makes the same version in another shape or a GIF; brand "
+            "saves how every video should look (framing, caption style, music mood, voice). For one "
             "quick edit use "
             "edit_video. A title or end card is a scene without a video: never make background videos or other "
             "working files in the person's workspace for it."
