@@ -35,6 +35,12 @@
           "title": "Batch Id",
           "type": "string"
         },
+        "conversations": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Conversations",
+          "type": "integer"
+        },
         "found": {
           "maximum": 5000,
           "minimum": 0,

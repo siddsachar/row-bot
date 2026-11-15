@@ -29,8 +29,9 @@ class MigrationApplyOptions:
     require_backup: bool = True
     allow_without_backup: bool = False
     overwrite: bool = False
-    # Memory files go to Import memories to be reviewed: given the files, this opens a batch with
-    # them and returns ``{"batch_id", "found"}``. Without it, memory items are not applied.
+    # Memory files (and past chats) go to Import memories to be reviewed: given the files, this opens
+    # a batch with them and returns its view (``batch_id``, ``found``, ``conversations``). Without it,
+    # memory items are not applied.
     stage_memories: Callable[[list[Path]], dict[str, Any]] | None = None
 
 
@@ -230,7 +231,8 @@ def _stage_memories(
             if not path.resolve().is_relative_to(source_root.resolve()) or not path.is_file():
                 raise FileNotFoundError(path.name)
         staged = stage(files)
-        review = {"batch_id": str(staged["batch_id"]), "found": int(staged["found"])}
+        review = {"batch_id": str(staged["batch_id"]), "found": int(staged["found"]),
+                  "conversations": int((staged.get("conversations") or {}).get("available") or 0)}
     except Exception as exc:
         return [item.with_status(MigrationStatus.ERROR, str(exc) or exc.__class__.__name__) for item in items], None
     reason = "ready to review in Import memories"
