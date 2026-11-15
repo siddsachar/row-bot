@@ -100,6 +100,7 @@ import {
   profileChoice,
   reasoningChoice,
   slashArgument,
+  watchRequest,
   type SlashArgument,
 } from './slash-arguments';
 import { GoalCheckConfirm, resetContextGoals } from './ContextGoal';
@@ -1267,6 +1268,34 @@ export default function Conversation({
           return;
         }
         await apply();
+      } else if (command.handler_kind === 'watch') {
+        // A public page or a command that only reads is set here, with no
+        // model call; a command that needs approval goes to the model, whose
+        // card asks (B4).
+        const request = watchRequest(argument);
+        if (request.kind === 'invalid') {
+          setError(request.message);
+          return;
+        }
+        if (request.kind !== 'direct') return;
+        try {
+          await controller.setWatch(target, {
+            mode: request.mode,
+            target: request.target,
+            every_minutes: request.everyMinutes,
+          });
+        } catch (cause) {
+          if (clientError(cause).code !== 'watch_needs_approval') throw cause;
+          const text = `/watch ${argument}`;
+          clear();
+          setBusy(false);
+          send(text, true);
+          return;
+        }
+        clear();
+        overlay.notify(
+          'Watching. Row-Bot speaks up here only when it changes.',
+        );
       } else if (command.handler_kind === 'agent') {
         await controller.intent(
           target,

@@ -2291,6 +2291,7 @@
             "agents",
             "agent",
             "goal",
+            "watch",
             "status",
             "tools",
             "export",
@@ -3113,7 +3114,8 @@
                 "page",
                 "personal_model_fallback",
                 "linked",
-                "backup_model"
+                "backup_model",
+                "watch"
               ],
               "type": "string"
             },

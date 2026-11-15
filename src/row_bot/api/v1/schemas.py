@@ -2485,6 +2485,8 @@ class MigrationFailedItem(WireModel):
 class MigrationMemoryReview(WireModel):
     batch_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     found: int = Field(ge=0, le=5000)
+    # Past chats in the batch, for the person to look in for memories there (only if they choose).
+    conversations: int = Field(default=0, ge=0)
 
 
 class MigrationApplyReceipt(WireModel):
@@ -3489,6 +3491,7 @@ SkillAction = Literal[
     "skill.delete",
     "skill.proposal.apply",
     "skill.proposal.reject",
+    "skill.proposal.edit",
 ]
 
 
@@ -3611,6 +3614,69 @@ class SkillProposalPayload(WireModel):
     proposal_id: str = Field(min_length=1, max_length=128)
     reason: str = Field(max_length=1024)
     review_id: str = Field(min_length=1, max_length=128)
+
+
+class SkillProposalEditPayload(WireModel):
+    """The person's edit of a skill drafted from a chat (C1): its words only; the name stays."""
+    revision: str = Field(min_length=1, max_length=128)
+    proposal_id: str = Field(min_length=1, max_length=128)
+    fields: dict[str, Any]
+    review_id: str = Field(min_length=1, max_length=128)
+
+
+SkillDraftLine = Annotated[str, StringConstraints(max_length=600)]
+
+
+class SkillDraftOverlap(WireModel):
+    name: str = Field(max_length=128)
+    display_name: str = Field(max_length=128)
+    score: float = Field(ge=0, le=1)
+
+
+class SkillDraftView(WireModel):
+    """A skill drafted from a chat, for the review sheet: its fields and the SKILL.md they make."""
+    proposal_id: str = Field(min_length=1, max_length=128)
+    proposal_status: str = Field(max_length=64)
+    name: str = Field(max_length=64)
+    display_name: str = Field(max_length=128)
+    icon: str = Field(max_length=32)
+    description: str = Field(max_length=1024)
+    when_to_use: str = Field(max_length=1200)
+    inputs: list[SkillDraftLine] = Field(max_length=12)
+    steps: list[SkillDraftLine] = Field(max_length=12)
+    checks: list[SkillDraftLine] = Field(max_length=12)
+    instructions: str = Field(max_length=16_400)
+    why: str = Field(max_length=400)
+    source_title: str = Field(max_length=200)
+    overlaps: list[SkillDraftOverlap] = Field(max_length=3)
+    errors: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
+    warnings: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
+
+
+class SkillOfferView(WireModel):
+    """"Save as a skill" under one reply (C1): offered, drafted, saved, rejected or dismissed."""
+    id: OpaqueId
+    message_id: str = Field(max_length=256)
+    origin: Literal["offered", "manual"]
+    status: Literal["offered", "drafted", "saved", "rejected", "dismissed"]
+    task_name: str = Field(max_length=80)
+    why: str = Field(max_length=400)
+    created_at: str = Field(max_length=64)
+    proposal_id: str | None = Field(max_length=128)
+    skill_id: str | None = Field(max_length=128)
+    draft: SkillDraftView | None
+
+
+class SkillOfferPage(WireModel):
+    conversation_id: OpaqueId
+    revision: str = Field(min_length=1, max_length=128)
+    items: list[SkillOfferView] = Field(max_length=50)
+
+
+class SkillDraftRequest(WireModel):
+    """Draft a skill from the turn that ends with ``message_id``: an offer taken up, or "Save as skill"."""
+    message_id: str = Field(min_length=1, max_length=256)
+    offer_id: OpaqueId | None = None
 
 
 class SkillReceipt(WireModel):
@@ -6006,23 +6072,73 @@ class RowBotSandboxPage(WireModel):
     available: bool
 
 
+class WatchWorkflowDraft(WireModel):
+    """What "Make this a workflow" fills the workflow editor with (B4); the person reviews it and saves."""
+
+    name: str = Field(min_length=1, max_length=80)
+    prompt: str = Field(min_length=1, max_length=4000)
+    every_minutes: int = Field(ge=1, le=10080)
+
+
+class WatchView(WireModel):
+    """A watch (B4): it checks a command, a page or a question again and again and speaks up only on a change."""
+
+    mode: Literal["command", "page", "judged"]
+    # The command, the page's address or the question.
+    target: str = Field(max_length=500)
+    checks: int = Field(ge=0)
+    changes: int = Field(ge=0)
+    max_changes: int = Field(ge=1)
+    # The last check's local time (ISO), "" before the first.
+    checked_at: str = Field(max_length=32)
+    # The last check's result in a line: "No change", "Couldn't check: …", or a judged check's own line.
+    result: str = Field(max_length=200)
+    trouble: bool
+    checking: bool
+    # What its checks and the turns it started used; the cost only when the provider says it.
+    tokens: int = Field(ge=0)
+    cost_usd: float | None = Field(default=None, ge=0)
+    ended: Literal["", "expired", "capped"] = ""
+    can_extend: bool
+    workflow: WatchWorkflowDraft
+
+
 class WaitView(WireModel):
     """Something a conversation waits for (5.3.1): it carries on there when it happens."""
 
     wait_id: str = Field(pattern=r"^[0-9a-f]{12}$")
     conversation_id: OpaqueId
     conversation_title: str = Field(max_length=160)
-    kind: Literal["process", "check", "time", "conversation"]
+    kind: Literal["process", "check", "time", "conversation", "watch"]
     label: str = Field(min_length=1, max_length=120)
-    # "checks every 5 min", "at 14:00" or "watching".
+    # "checks every 5 min", "at 14:00" or "watching"; a watch's "every 10 min" or "every 5–60 min".
     how: str = Field(max_length=40)
     until: str = Field(max_length=32)
-    status: Literal["waiting", "due"]
+    # "paused" is only ever a watch; "ended", a watch that ran out or reached its change cap and keeps its card
+    # (with "Make this a workflow") until the person puts it away.
+    status: Literal["waiting", "due", "paused", "ended"]
+    watch: WatchView | None = None
 
 
 class WaitPage(WireModel):
     schema_version: Literal[1] = 1
     items: list[WaitView] = Field(max_length=500)
+
+
+class WatchCreate(WireModel):
+    """``/watch 10m https://…`` or ``/watch 5m `cmd` `` (B4), set with no model call. A command must only read;
+    one that doesn't is refused with ``watch_needs_approval`` and goes to the model, which shows the card."""
+
+    mode: Literal["command", "page"]
+    target: str = Field(min_length=1, max_length=500)
+    # 0: it paces itself (every 5 minutes, slower while nothing changes, up to an hour).
+    every_minutes: float = Field(ge=0, le=1440)
+
+
+class WatchControl(WireModel):
+    """The watch card's Pause, Resume, Check now and Extend (B4)."""
+
+    action: Literal["pause", "resume", "check_now", "extend"]
 
 
 # --- Proactive Row-Bot (5.3.4) ------------------------------------------------------------------------------
@@ -8449,6 +8565,7 @@ class Command(WireModel):
         "skill.delete",
         "skill.proposal.apply",
         "skill.proposal.reject",
+        "skill.proposal.edit",
         "goal.control",
         "profile.mutate",
         "developer.repository.branch.create",
@@ -8636,6 +8753,7 @@ COMMAND_PAYLOADS = {
     "skill.delete": SkillDeletePayload,
     "skill.proposal.apply": SkillProposalPayload,
     "skill.proposal.reject": SkillProposalPayload,
+    "skill.proposal.edit": SkillProposalEditPayload,
     "goal.control": GoalCommandWirePayload,
     "profile.mutate": ProfileCommandWirePayload,
     "developer.repository.branch.create": DeveloperRepositoryBranchPayload,
@@ -8783,6 +8901,17 @@ class SettingChange(WireModel):
     after: str = Field(min_length=1, max_length=240)
 
 
+class ApprovalPrice(WireModel):
+    """What a paid picture or video costs, roughly (D4): "About $0.40", or "Price unknown" when Row-Bot has no price."""
+
+    status: Literal["known", "unknown"]
+    # US dollars; a range when the price depends on a choice the provider makes (OpenAI's "auto" quality).
+    low_usd: float | None = Field(default=None, ge=0, le=100_000)
+    high_usd: float | None = Field(default=None, ge=0, le=100_000)
+    # Where the price comes from, in words: "OpenAI's list price, checked 15 Nov 2026".
+    basis: str = Field(default="", max_length=160)
+
+
 class ApprovalQuestionOption(WireModel):
     """One option of a question card; the recommended one carries its own tag."""
 
@@ -8860,6 +8989,8 @@ class ApprovalRequired(WireModel):
     folder: str = Field(default="", max_length=120)
     # A change to one of Row-Bot's settings: its card shows it in words, with its row.
     setting_change: SettingChange | None = None
+    # A paid picture or video: what it costs, roughly (D4).
+    price: ApprovalPrice | None = None
 
 
 class GenerationError(WireModel):
@@ -9688,8 +9819,9 @@ class TranscriptRow(WireModel):
     # Learning (preview): "personal_model_fallback" is the quiet line where the main
     # model finished a turn the personal model got stuck on.
     # "backup_model" is the quiet line where the backup model took over a turn (#140).
+    # "watch": Row-Bot's own line that a watch ran out (B4), written without a model turn.
     note: Literal["continuation", "agent_task", "agent_guidance", "page", "personal_model_fallback",
-                  "linked", "backup_model"] | None = None
+                  "linked", "backup_model", "watch"] | None = None
     # A message from another conversation (5.3.1 C, note "linked"): where it came from.
     linked_from: LinkedFrom | None = None
     # A workflow run's line (note "continuation"): the messages other conversations left for that run.
@@ -10142,6 +10274,8 @@ class ApprovalView(WireModel):
     x_post: XPostApproval | None = None
     # A change to one of Row-Bot's settings: its card shows it in words, with its row.
     setting_change: SettingChange | None = None
+    # A paid picture or video: what it costs, roughly (D4).
+    price: ApprovalPrice | None = None
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 
@@ -10220,6 +10354,7 @@ class SlashCommandSpec(WireModel):
         "agents",
         "agent",
         "goal",
+        "watch",
         "status",
         "tools",
         "export",

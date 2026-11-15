@@ -1365,6 +1365,20 @@
   flex: none;
   align-self: center;
 }
+/* A paid picture or video (D4): its price, then where it comes from, quieter. */
+.approval-card-price {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 5px;
+}
+.approval-card-price svg {
+  flex: none;
+}
+.approval-card-price-words {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
 .approval-card-actions,
 .turn-notice-actions {
   display: flex;
@@ -4368,6 +4382,77 @@ button.attachment-tile-face:hover {
   flex: none;
   color: var(--text-muted);
   font-size: var(--text-12);
+}
+/* A watch (B4): its label, what it used, its last check and its controls. */
+.watch-card {
+  align-items: flex-start;
+  padding: 4px 0;
+}
+.watch-card > svg {
+  margin-top: 3px;
+}
+.watch-body {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 1px;
+  min-width: 0;
+}
+.watch-meta,
+.watch-result,
+.watch-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.watch-result {
+  color: var(--text-secondary);
+}
+.watch-card.is-trouble .watch-result,
+.watch-note {
+  color: var(--status-warning-text);
+}
+.watch-card.is-ended > svg {
+  color: var(--text-muted);
+}
+.watch-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+/* On a phone, and in Conversation details' narrow column: the text first, its controls below. */
+.context-live .watch-card {
+  flex-wrap: wrap;
+}
+.context-live .watch-body {
+  flex-basis: calc(100% - 22px);
+}
+.context-live .watch-meta,
+.context-live .watch-result,
+.context-live .watch-note {
+  white-space: normal;
+}
+.context-live .watch-actions {
+  margin-left: 14px;
+}
+@media (max-width: 640px) {
+  .watch-card {
+    flex-wrap: wrap;
+  }
+  .watch-body {
+    flex-basis: calc(100% - 22px);
+  }
+  .watch-meta,
+  .watch-result,
+  .watch-note {
+    white-space: normal;
+  }
+  .watch-actions {
+    margin-left: 14px;
+  }
 }
 
 /* Waiting messages: shown above the composer only while some wait. */

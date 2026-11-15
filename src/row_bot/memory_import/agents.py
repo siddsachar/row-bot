@@ -225,6 +225,22 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}  # noqa: S608 (fixed names)
 
 
+def count_hermes_chats(path: Path) -> int:
+    """How many chats a Hermes ``state.db`` holds, read only; 0 when it isn't one.
+
+    What is still only in its write-ahead log isn't counted (that needs a copy, as the import makes).
+    """
+    try:
+        with _read_only(path) as conn:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"sessions", "messages"} <= tables:
+                return 0
+            return int(conn.execute("SELECT COUNT(DISTINCT session_id) FROM messages "
+                                    "WHERE role IN ('user', 'assistant')").fetchone()[0])
+    except sqlite3.Error:
+        return 0
+
+
 def iter_hermes_db(member: Member, sink: Sink) -> Iterator[ImportedConversation]:
     assert member.path is not None
     with _read_only(member.path) as conn:

@@ -821,6 +821,21 @@ _STATUS.update(
     )
 )
 _STATUS.update(dict.fromkeys(("skill_missing", "skill_operation_unavailable"), 404))
+# "Save as a skill" (C1): an offer gone or settled, a draft already being written, a chat that is
+# or was incognito, a reply with no steps, the chat's model unavailable, or a draft refused.
+_STATUS.update(
+    {
+        "skill_offer_missing": 404,
+        "skill_offer_changed": 409,
+        "skill_draft_busy": 409,
+        "skill_draft_private": 409,
+        "skill_draft_no_steps": 409,
+        "skill_draft_unavailable": 503,
+        "skill_draft_failed": 422,
+        "skill_draft_refused": 422,
+        "skill_draft_secret": 422,
+    }
+)
 _STATUS.update(
     {
         "skill_unavailable": 503,
@@ -1113,6 +1128,14 @@ _STATUS.update(
         "video_brand_invalid": 422,
         "row_bot_sandbox_unavailable": 404,
         "wait_unavailable": 404,
+        # A watch (B4): a command that needs the approval card goes to the model; a private page, a full set of
+        # watches, a bad interval; one at its 7 days, or paused for Check now.
+        "watch_needs_approval": 409,
+        "watch_page_refused": 422,
+        "watch_limit": 409,
+        "watch_invalid": 422,
+        "watch_lifetime_max": 409,
+        "watch_paused": 409,
         "row_bot_sandbox_refused": 409,
         "sent_file_unavailable": 404,
         "sent_file_expired": 410,
@@ -3295,6 +3318,39 @@ def create_router(
             ),
         )
 
+    @router.get("/conversations/{conversation_id}/skill-offers")
+    async def skill_offers_view(conversation_id: str, request: Request) -> JSONResponse:
+        """This chat's "Save as a skill" offers and drafts (C1)."""
+        await session(request)
+        from row_bot.application.skill_offer_views import read_skill_offers
+
+        result = await call(read_skill_offers, service, conversation_id)
+        return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/conversations/{conversation_id}/skill-offers/draft")
+    async def skill_offer_draft(conversation_id: str, request: Request) -> JSONResponse:
+        """Draft a skill from one reply's turn, on the chat's own model, for the person to review."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillDraftRequest, 4096)
+        from row_bot.application.skill_offer_views import draft_skill
+
+        result = await call(
+            draft_skill, service, conversation_id, body.model_dump(mode="json"),
+            dispatch_validation(request, current),
+        )
+        return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/conversations/{conversation_id}/skill-offers/{offer_id}/dismiss")
+    async def skill_offer_dismiss(conversation_id: str, offer_id: str, request: Request) -> JSONResponse:
+        """"Not now": the offer closes; its task isn't offered again for 30 days."""
+        current = await session(request, lane="mutation")
+        from row_bot.application.skill_offer_views import dismiss_skill_offer
+
+        result = await call(
+            dismiss_skill_offer, service, conversation_id, offer_id, dispatch_validation(request, current)
+        )
+        return await respond(request, dto.SkillOfferPage, result)
+
     @router.get("/conversations/{conversation_id}/queue")
     async def queue_view(
         conversation_id: str,
@@ -5092,6 +5148,7 @@ def create_router(
             "skill.delete",
             "skill.proposal.apply",
             "skill.proposal.reject",
+            "skill.proposal.edit",
         }
         if body.type not in kinds or str(body.client_session_id) != current.id:
             raise ProtocolError("invalid_skill_command", 422)
@@ -5793,13 +5850,72 @@ def create_router(
         from row_bot.application.client_platform import ClientPlatformError
 
         items = []
-        for record in waits.waiting():
+        # A watch that ran out or reached its change cap keeps its card until the person puts it away (B4).
+        for record in [*waits.waiting(), *waits.ended_watches()]:
             try:
                 meta = service._metadata(record["conversation_id"])
             except ClientPlatformError:
                 continue  # Its conversation is gone: nothing will start there.
             items.append({**waits.view(record), "conversation_title": str(meta.get("name") or "")[:160]})
         return {"schema_version": 1, "items": items[:500]}
+
+    def _wait_id(wait_id: str) -> str:
+        if len(wait_id) != 12 or any(char not in "0123456789abcdef" for char in wait_id):
+            raise ProtocolError("wait_unavailable", 404)
+        return wait_id
+
+    def _set_watch(conversation_id: str, body: Any) -> dict:
+        """``/watch`` with no model call (B4): a public page, or a command that only reads. A command that doesn't
+        is refused (``watch_needs_approval``): it goes to the model, whose wait_for shows the approval card."""
+        from row_bot import goal_checks, waits
+        from row_bot.application.client_platform import ClientPlatformError
+
+        try:
+            service._metadata(conversation_id)
+        except ClientPlatformError:
+            raise ProtocolError("not_found", 404) from None
+        target = body.target.strip()
+        if body.mode == "page":
+            if waits.page_refusal(target):
+                raise ProtocolError("watch_page_refused", 422)
+            spec = {"mode": "page", "url": target}
+        else:
+            try:
+                approval = waits.command_approval(conversation_id, target, "read_only")
+            except goal_checks.CheckRefused as refused:
+                raise ProtocolError(refused.code, 422) from None
+            if not approval["classification"].get("read_only"):
+                raise ProtocolError("watch_needs_approval", 409)
+            spec = {"mode": "command", "command": target, "approval": approval}
+        label = target if len(target) <= 60 else target[:59] + "…"
+        try:
+            waits.create(conversation_id, "watch", label, spec={**spec, "then": "", "focus": "", "ends_when": ""},
+                         every_minutes=body.every_minutes)
+        except waits.WaitError as error:
+            raise ProtocolError("watch_limit" if "already" in str(error) else "watch_invalid",
+                                409 if "already" in str(error) else 422) from None
+        return _wait_page()
+
+    def _control_watch(wait_id: str, action: str) -> dict:
+        from row_bot import waits
+
+        refused = waits.control(wait_id, action)
+        if refused:
+            raise ProtocolError(refused, {"wait_unavailable": 404, "invalid_command": 422}.get(refused, 409))
+        return _wait_page()
+
+    @router.post("/conversations/{conversation_id}/watches")
+    async def set_watch(request: Request, conversation_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.WatchCreate, 4 * 1024)
+        return await respond(request, dto.WaitPage, await call(_set_watch, conversation_id, body))
+
+    @router.post("/waits/{wait_id}/control")
+    async def control_watch(request: Request, wait_id: str) -> JSONResponse:
+        """The watch card's Pause, Resume, Check now and Extend (B4)."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.WatchControl, 1024)
+        return await respond(request, dto.WaitPage, await call(_control_watch, _wait_id(wait_id), body.action))
 
     @router.get("/waits")
     async def waits_page(request: Request) -> JSONResponse:
@@ -11534,6 +11650,7 @@ def create_router(
                 "folder",
                 "x_post",
                 "setting_change",
+                "price",
                 "policy_revision",
             )
             if k in view

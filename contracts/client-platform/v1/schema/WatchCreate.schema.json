@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "description": "``/watch 10m https://\u2026`` or ``/watch 5m `cmd` `` (B4), set with no model call. A command must only read;\none that doesn't is refused with ``watch_needs_approval`` and goes to the model, which shows the card.",
+  "properties": {
+    "every_minutes": {
+      "maximum": 1440,
+      "minimum": 0,
+      "title": "Every Minutes",
+      "type": "number"
+    },
+    "mode": {
+      "enum": [
+        "command",
+        "page"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "target": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "mode",
+    "target",
+    "every_minutes"
+  ],
+  "title": "WatchCreate",
+  "type": "object"
+}
