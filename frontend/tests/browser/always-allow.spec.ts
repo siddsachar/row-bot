@@ -125,7 +125,20 @@ for (const size of ['desktop', 'phone'] as const) {
         log.getByText('The tests passed: 12 of 12.', { exact: true }),
       ).toHaveCount(2, { timeout: 15_000 });
       await expect(card).toHaveCount(0);
-      await expect(log.getByText('Your rule', { exact: true })).toBeVisible();
+      const steps = log.getByText('Used 1 tool', { exact: true }).last();
+      const ruled = log.getByText('Your rule', { exact: true });
+      // The live steps settle into the saved ones as the turn ends (collapsed again): open them.
+      await expect(async () => {
+        if (!(await ruled.isVisible())) await steps.click();
+        await expect(ruled).toBeVisible({ timeout: 1_000 });
+      }).toPass({ timeout: 15_000 });
+      await ruled.click();
+      await expect(
+        log.getByText(
+          'Allowed by your rule: Always allow `npm test` in row-bot',
+        ),
+      ).toBeVisible();
+      await shoot(page, info, 'always-allow-step');
 
       // Settings lists it with the seeded ones: one switched off.
       await page.goto('/app-v2/settings/activity');

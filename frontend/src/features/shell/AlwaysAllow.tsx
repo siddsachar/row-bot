@@ -100,6 +100,8 @@ export function DryRunPanel({
       className="always-allow-dry"
       aria-label="Would this have asked?"
       data-tone={refused ? 'warning' : undefined}
+      // A phone's sheet may scroll over it: keyboard users reach it too.
+      tabIndex={0}
     >
       <h4>Would this have asked?</h4>
       {result.total ? (
