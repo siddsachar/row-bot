@@ -3069,6 +3069,33 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "paid picture fixture" in text:
+        # D4: a picture on an API key asks, and its card says what it costs (or that the price is unknown).
+        from row_bot.providers.media_prices import price_for
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "paid-picture")
+        thread = call["conversation_id"]
+        identity = f"paid-picture:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        known = "unknown price" not in text
+        provider, label, model = ("openai", "OpenAI", "gpt-image-2") if known else (
+            "openrouter", "OpenRouter", "bytedance-seed/seedream-4.5")
+        args = {"prompt": "a lighthouse at dawn, watercolour", "size": "1024x1024", "quality": "medium"}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "generate_image", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "generate_image", "args": args}
+            yield "interrupt", [{
+                "__interrupt_id": fixture_id(identity + ":approval"), "tool": "generate_image",
+                "label": f"Make a picture on {label}",
+                "question": f"Make a picture on {label}? It costs money on your {label} account.",
+                "description": (f"Row-Bot will make a picture with {model} on {label}: \"{args['prompt']}\". "
+                                f"{label} charges your API key for each one, so this costs money."),
+                "risk_class": "medium", "args": {"prompt": args["prompt"], "model": model, "provider": label},
+                "price": price_for(provider, label, model, choices={"quality": "medium", "size": "1024x1024"})}]
+        finally:
+            call["quiesced"] = True
+        return
     if "reviewer asked fixture" in text:
         # Auto (A0): the reviewer asked the person rather than approving; its reason is on the card.
         from row_bot.threads import append_checkpoint_messages

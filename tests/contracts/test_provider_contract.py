@@ -412,3 +412,26 @@ def test_claude_code_runs_without_row_bots_keys_or_anything_that_leaves_the_plan
     # Row-Bot updates Claude Code itself, once a day (claude_update.py): Claude Code's own updater stays off.
     assert env["DISABLE_AUTOUPDATER"] == "1"
 
+
+
+# ── Media prices on approval cards (D4) ──────────────────────────────────────
+
+
+def test_every_shipped_media_price_is_a_dated_positive_price_for_a_billed_provider() -> None:
+    """A price the card shows says when it was read, and is for a provider that bills an API key."""
+    from datetime import date
+
+    from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META
+    from row_bot.providers.media_prices import CHOICE_KEYS, UNITS, table_rows
+
+    rows = table_rows()
+    assert rows
+    seen = set()
+    for row in rows:
+        meta = IMAGE_PROVIDER_META if row["unit"] == "picture" else VIDEO_PROVIDER_META
+        assert row["unit"] in UNITS and meta[row["provider"]].get("key"), row
+        assert isinstance(row["usd"], (int, float)) and 0 < row["usd"] < 10, row
+        assert date.fromisoformat(row["checked"]) <= date.today(), row
+        key = (row["provider"], row["model"], row["unit"], *(row.get(name) for name in CHOICE_KEYS))
+        assert key not in seen, row  # One price per tier, never two to choose from.
+        seen.add(key)

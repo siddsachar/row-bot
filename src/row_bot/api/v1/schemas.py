@@ -8834,6 +8834,17 @@ class SettingChange(WireModel):
     after: str = Field(min_length=1, max_length=240)
 
 
+class ApprovalPrice(WireModel):
+    """What a paid picture or video costs, roughly (D4): "About $0.40", or "Price unknown" when Row-Bot has no price."""
+
+    status: Literal["known", "unknown"]
+    # US dollars; a range when the price depends on a choice the provider makes (OpenAI's "auto" quality).
+    low_usd: float | None = Field(default=None, ge=0, le=100_000)
+    high_usd: float | None = Field(default=None, ge=0, le=100_000)
+    # Where the price comes from, in words: "OpenAI's list price, checked 15 Nov 2026".
+    basis: str = Field(default="", max_length=160)
+
+
 class ApprovalQuestionOption(WireModel):
     """One option of a question card; the recommended one carries its own tag."""
 
@@ -8911,6 +8922,8 @@ class ApprovalRequired(WireModel):
     folder: str = Field(default="", max_length=120)
     # A change to one of Row-Bot's settings: its card shows it in words, with its row.
     setting_change: SettingChange | None = None
+    # A paid picture or video: what it costs, roughly (D4).
+    price: ApprovalPrice | None = None
 
 
 class GenerationError(WireModel):
@@ -10194,6 +10207,8 @@ class ApprovalView(WireModel):
     x_post: XPostApproval | None = None
     # A change to one of Row-Bot's settings: its card shows it in words, with its row.
     setting_change: SettingChange | None = None
+    # A paid picture or video: what it costs, roughly (D4).
+    price: ApprovalPrice | None = None
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 
