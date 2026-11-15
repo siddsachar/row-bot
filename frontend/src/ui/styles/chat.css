@@ -2942,6 +2942,7 @@
   overflow: auto;
   border: 1px solid var(--border-hairline);
   border-radius: 10px;
+  background: var(--surface);
 }
 .markdown-table-scroll table {
   width: max-content;
@@ -2990,6 +2991,113 @@
 .markdown-table:hover .markdown-table-tools,
 .markdown-table:focus-within .markdown-table-tools {
   opacity: 1;
+}
+/* Every header sorts: the whole cell is its button, the glyph quiet until
+   the column is sorted or the header is pointed at. */
+.markdown-table-scroll th[aria-sort] {
+  padding: 0;
+}
+.table-sort {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.table-sort:hover,
+.table-sort[data-active] {
+  color: var(--text-primary);
+}
+.table-sort:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.table-sort-glyph {
+  flex: none;
+  opacity: 0.4;
+  transition: opacity var(--motion-popover) var(--ease-out);
+}
+.table-sort:hover .table-sort-glyph,
+.table-sort:focus-visible .table-sort-glyph,
+.table-sort[data-active] .table-sort-glyph {
+  opacity: 1;
+}
+.markdown-table-scroll th[data-numeric] .table-sort {
+  justify-content: flex-end;
+}
+.markdown-table-scroll th[data-numeric],
+.markdown-table-scroll td[data-numeric] {
+  text-align: end;
+}
+/* Room for the copy button over the last header. */
+.markdown-table[data-tools] th:last-child .table-sort {
+  padding-inline-end: 40px;
+}
+@media (hover: none), (pointer: coarse) {
+  .markdown-table-tools {
+    opacity: 1;
+  }
+}
+/* A phone scrolls a wide table sideways with its first column kept in view. */
+@media (max-width: 767px) {
+  .markdown-table-scroll th:first-child,
+  .markdown-table-scroll td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface);
+    box-shadow: inset -1px 0 0 var(--border-hairline);
+  }
+  .markdown-table-scroll tbody tr:hover td:first-child {
+    background: color-mix(in srgb, var(--surface-hover) 55%, var(--surface));
+  }
+  .markdown-table-scroll th:first-child {
+    z-index: 2;
+    background: var(--surface-raised);
+  }
+}
+
+/* Markdown task lists: real checkboxes the person can tick. */
+.task-list {
+  padding-inline-start: 4px;
+  list-style: none;
+}
+.task-item label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.task-item input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.task-item[data-done] > label > span {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+@media (pointer: coarse) {
+  .task-item label {
+    min-height: 44px;
+    align-items: center;
+  }
+  .task-item input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+  }
 }
 
 /* Citations: numbered source chips with the domain. */

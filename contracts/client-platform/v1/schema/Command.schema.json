@@ -4137,11 +4137,37 @@
     "GoalCommandWirePayload": {
       "additionalProperties": false,
       "properties": {
+        "check_command": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Command"
+        },
         "conversation_id": {
           "maxLength": 256,
           "minLength": 1,
           "title": "Conversation Id",
           "type": "string"
+        },
+        "done_means": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Done Means"
         },
         "goal_id": {
           "anyOf": [
