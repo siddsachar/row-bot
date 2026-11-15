@@ -3,7 +3,8 @@
 Ingestion is what the app does with a conversation it holds:
 
 1. each session becomes a saved conversation (``threads.create_thread`` and
-   ``threads.append_checkpoint_messages``: the person's messages and the other side's);
+   ``threads.append_checkpoint_messages``: the person's messages and the other side's), dated to the
+   session itself, as a conversation the person really had on that day would be;
 2. background memory extraction reads it (``memory_extraction.run_extraction``: the
    extraction prompt, the knowledge graph's reconcile and save, the projection repair),
    run until nothing is left unread, with the extraction's "Today is" pinned to the
@@ -18,7 +19,10 @@ every turn does.
 """
 from __future__ import annotations
 
+import sqlite3
 import time
+from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -45,6 +49,18 @@ def session_messages(task_id: str, session: Session) -> list[Any]:
         kind = HumanMessage if turn.role == "user" else AIMessage
         messages.append(kind(id=f"{task_id}-{session.session_id}-{index}", content=turn.text))
     return messages
+
+
+def set_thread_times(thread_id: str, when: datetime) -> None:
+    """Date a saved conversation to its session (``tests/e2e/learning/seeded/live._set_thread_times``'s way):
+    conversation search and the conversation list show a thread's ``updated_at``, so a session ingested
+    today would otherwise read as said today. Extraction's watermarks never move it afterwards."""
+    from row_bot import threads
+
+    stamp = when.isoformat()
+    with closing(sqlite3.connect(threads.DB_PATH)) as connection, connection:
+        connection.execute("UPDATE thread_meta SET created_at = ?, updated_at = ? WHERE thread_id = ?",
+                           (stamp, stamp, thread_id))
 
 
 def extract_until_read(runtime: BenchRuntime) -> dict[str, Any]:
@@ -96,6 +112,7 @@ def ingest(runtime: BenchRuntime, task: MemoryTask, *, stop: Callable[[], bool] 
         started = time.monotonic()
         thread_id = runtime.new_thread(f"{task.benchmark} {task.task_id} {session.session_id}")
         threads.append_checkpoint_messages(thread_id, session_messages(task.task_id, session))
+        set_thread_times(thread_id, session.when)  # after the append, which moves updated_at to now
         try:
             with pinned_clock(session.when):
                 found = extract_until_read(runtime)

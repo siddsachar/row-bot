@@ -916,5 +916,12 @@ def test_sessions_are_ingested_through_extraction_on_their_own_dates(tmp_path, m
     assert steps[-1].metrics["memories_total"] >= 1
     # Nothing is left unread: another extraction run finds nothing due.
     assert memory_extraction.run_extraction() == 0
+    # Each saved session is dated to the session itself, so a search shows the day it was said, not today.
+    from row_bot.tools import conversation_search_tool
+
+    found = conversation_search_tool._search_conversations("pottery class")
+    assert "Date: 2023-05-08" in found and datetime.now().date().isoformat() not in found
+    hike = conversation_search_tool._search_conversations("long hike")
+    assert "Date: 2023-10-22" in hike
     with pytest.raises(adapter.StopRequested):
         adapter.ingest(runtime, task, stop=lambda: True)
