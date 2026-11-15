@@ -1,12 +1,12 @@
 import { Fragment, useState, type JSX, type ReactNode } from 'react';
-import { Settings, Table } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { AppLink } from '../../ui/app-link';
-import { CopyGlyph, Hint, IconButton } from '../../ui/primitives';
+import { Hint } from '../../ui/primitives';
 import { settingsLink, type SettingsLink } from '../settings/model';
 import { CodeBlock } from './CodeBlock';
 import { GuideLink } from './GuideSheet';
 import MathTex from './MathTex';
-import { copyUnavailableMessage } from '../../platform/clipboard';
+import { SortableTable } from './SortableTable';
 
 // Underscore emphasis never starts or ends inside a word, so snake_case
 // names such as workspace_file_delete stay literal (as in CommonMark).
@@ -221,88 +221,26 @@ function tableColumns(lines: string[], index: number) {
     : 0;
 }
 
-/** Plain cell text for CSV: inline Markdown markers removed. */
-function plainCell(value: string) {
-  return value
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, '$1')
-    .replace(/(\*\*|__|~~)/g, '')
-    .trim();
-}
+// A task list item: "- [ ] open" or "- [x] done".
+const TASK = /^\[([ xX])\]\s+(.+)$/;
 
-function csvField(value: string) {
-  return /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
-}
-
-export function tableCsv(headers: string[], rows: string[][]) {
-  return [headers, ...rows]
-    .map((row) =>
-      headers
-        .map((_, index) => csvField(plainCell(row[index] ?? '')))
-        .join(','),
-    )
-    .join('\r\n');
-}
-
-/** A scrolling table with a sticky header and "Copy as CSV". */
-function MarkdownTable({
-  headers,
-  rows,
-  copyText,
-}: {
-  headers: string[];
-  rows: string[][];
-  copyText?: (value: string) => Promise<boolean>;
-}) {
-  const [status, setStatus] = useState('');
-  async function copy() {
-    try {
-      const ok = await (copyText ?? (async () => false))(
-        tableCsv(headers, rows),
-      );
-      setStatus(ok ? 'Table copied as CSV.' : copyUnavailableMessage());
-    } catch {
-      setStatus('The table could not be copied.');
-    }
-  }
+/**
+ * A task from a Markdown task list, as a real checkbox the person can tick.
+ * The tick is theirs: it changes what they see, never the answer's text.
+ */
+function TaskItem({ done, text }: { done: boolean; text: string }) {
+  const [checked, setChecked] = useState(done);
   return (
-    <div className="markdown-table">
-      <div className="markdown-table-scroll" tabIndex={0}>
-        <table>
-          <thead>
-            <tr>
-              {headers.map((header, cellIndex) => (
-                <th key={cellIndex}>{inline(header)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {headers.map((_, cellIndex) => (
-                  <td key={cellIndex}>{inline(row[cellIndex] ?? '')}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {copyText && (
-        <span className="markdown-table-tools">
-          <IconButton size="sm" label="Copy as CSV" onClick={() => void copy()}>
-            <CopyGlyph
-              copied={status === 'Table copied as CSV.'}
-              idle={Table}
-            />
-          </IconButton>
-        </span>
-      )}
-      {status && (
-        <small role="status" className="visually-hidden">
-          {status}
-        </small>
-      )}
-    </div>
+    <li className="task-item" data-done={checked ? 'true' : undefined}>
+      <label>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => setChecked(event.currentTarget.checked)}
+        />
+        <span>{inline(text)}</span>
+      </label>
+    </li>
   );
 }
 
@@ -471,19 +409,35 @@ export default function SafeMarkdown({
       const ordered = Boolean(list[2]);
       const items: ReactNode[] = [];
       const pattern = ordered ? /^\s*\d+[.)]\s+(.+)$/ : /^\s*[-*+]\s+(.+)$/;
+      let tasks = false;
       while (index < lines.length) {
         const item = pattern.exec(lines[index]);
         if (!item) break;
-        items.push(<li key={index++}>{inline(item[1])}</li>);
+        const task = TASK.exec(item[1]);
+        tasks ||= Boolean(task);
+        items.push(
+          task ? (
+            <TaskItem key={index++} done={task[1] !== ' '} text={task[2]} />
+          ) : (
+            <li key={index++}>{inline(item[1])}</li>
+          ),
+        );
       }
+      const className = tasks ? 'task-list' : undefined;
       blocks.push(
         ordered ? (
           // A list split by a paragraph goes on from its own first number.
-          <ol key={`list-${start}`} start={Number(list[2])}>
+          <ol
+            key={`list-${start}`}
+            start={Number(list[2])}
+            className={className}
+          >
             {items}
           </ol>
         ) : (
-          <ul key={`list-${start}`}>{items}</ul>
+          <ul key={`list-${start}`} className={className}>
+            {items}
+          </ul>
         ),
       );
       continue;
@@ -500,9 +454,10 @@ export default function SafeMarkdown({
       )
         rows.push(cells(lines[index++]));
       blocks.push(
-        <MarkdownTable
+        <SortableTable
           headers={headers}
           rows={rows}
+          renderCell={inline}
           copyText={copyText}
           key={`table-${start}`}
         />,
