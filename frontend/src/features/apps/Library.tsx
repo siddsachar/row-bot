@@ -16,6 +16,7 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import AddFromLink from './AddFromLink';
+import SkillDrafts from '../skills/SkillDrafts';
 import {
   FilterBar,
   filterQuery,
@@ -314,6 +315,8 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           {error}
         </ErrorState>
       )}
+      {/* Skills drafted from chats wait here for the person's review (C1). */}
+      {kind === 'skill' && !query && <SkillDrafts />}
       {mine.length > 0 && (
         <section aria-labelledby={`${headingId}-yours`}>
           <h3 id={`${headingId}-yours`}>{yours}</h3>

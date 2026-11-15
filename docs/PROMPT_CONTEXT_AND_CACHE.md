@@ -202,6 +202,25 @@ Compaction does what Claude Code does (`models.context_reserves`,
    (`thread_meta.compaction_failure_json`) names the summary in force, a digest
    of every older complete group, the model and the policy. A new turn, or new
    input to age, gets one more attempt.
+5. **Prepared ahead (B6).** When a turn settles at 85% or more of the
+   compaction point on a cloud model, the next summary is written in the
+   background (`agent._prepare_summary_ahead`) by the same boundary choice and
+   summarizer a compaction in the turn uses, so it is the same summary. It is
+   kept per mode in `thread_meta.prepared_summary_json`, saved only while the
+   summary in force is still the one it builds on. When a request reaches the
+   point, the turn uses it, inside the compaction lock and before
+   `compaction_started`: no summarizer call and no pause. It is used only while
+   the mode, model, provider, policy, the summary under it and the digest of
+   the messages before its boundary all match; otherwise it is dropped and
+   compaction runs as above. If it leaves too little room, compaction starts
+   from it and summarizes only the newer range. The preparation takes the lock
+   without waiting and skips when a compaction or another turn of the chat
+   runs. A failed one stores nothing and sets no failure marker. Local models
+   (Ollama, custom endpoints, or a compaction route to one) never prepare. Its
+   summarizer calls are counted as `compaction` in the usage ledger, outside
+   any turn, with `row_bot_compaction_prepared` in their run metadata. This
+   changes when a summary is made, not what it says: the summarizer prompt and
+   the way the summary is placed in the request are unchanged.
 
 **Calibrated estimate.** Requests are sized at about four characters a token
 (thinking blocks by their text, not their signatures), then scaled per provider

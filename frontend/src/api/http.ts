@@ -375,6 +375,40 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  skillOffers(conversationId: string, signal?: AbortSignal) {
+    return wire.getSkillOffers(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  draftSkill(
+    conversationId: string,
+    body: wire.SkillDraftRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.draftSkill(
+      this.base,
+      this.session(),
+      conversationId,
+      body,
+      signal,
+    );
+  }
+  dismissSkillOffer(
+    conversationId: string,
+    offerId: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.dismissSkillOffer(
+      this.base,
+      this.session(),
+      conversationId,
+      offerId,
+      signal,
+    );
+  }
   pageFrame(pageId: string, theme: wire.PageTheme, signal?: AbortSignal) {
     return wire.createPageFrame(
       this.base,
