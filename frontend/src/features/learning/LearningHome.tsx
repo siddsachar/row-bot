@@ -70,6 +70,7 @@ import {
   sizeWords,
   spendingWords,
   timesWords,
+  tokenWords,
 } from './words';
 import './learning.css';
 
@@ -132,7 +133,9 @@ function Banners({
           <p>
             {snapshot.spending.limit_tokens === 0
               ? 'Your monthly limit is 0, so Learning makes no model calls. Local training continues.'
-              : `Monthly limit reached. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`}
+              : (snapshot.spending.kept_for_comparing ?? 0) > 0
+                ? `Monthly limit reached, apart from ${tokenWords(snapshot.spending.kept_for_comparing ?? 0)} tokens kept for comparing methods. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`
+                : `Monthly limit reached. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`}
           </p>
           <Button className="small" onClick={onRaiseLimit}>
             Raise limit

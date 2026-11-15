@@ -4624,6 +4624,9 @@ class LearningSpending(WireModel):
     resets_on: str = Field(max_length=16)
     # The default chat model's name; Learning's own model calls use it. "" when none is chosen.
     model_name: str = Field(max_length=256)
+    # Tokens of the limit kept for comparing methods (the strategy trials' unused 20% share, O178); 0 with no limit.
+    kept_for_comparing: int = Field(default=0, ge=0, le=1_000_000_000)
+    # Learning's other work has used all it may: the limit, less what is kept for comparing methods.
     limit_reached: bool
 
 

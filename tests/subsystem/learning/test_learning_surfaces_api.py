@@ -197,6 +197,28 @@ def test_with_no_limit_this_months_spending_still_shows_and_the_limit_is_never_r
     assert (unlimited["used_tokens"], unlimited["limit_tokens"], unlimited["limit_reached"]) == (3_000_000, None, False)
 
 
+def test_the_limit_is_reached_for_learnings_other_work_when_only_comparing_methods_share_is_left(api, no_channels):
+    from row_bot.learning import spending
+    from row_bot.prompt_cache import ModelUsage
+    from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
+
+    client, headers, _, _ = api
+    _turn_on(client, headers)
+
+    def used(tokens: int) -> None:
+        assert record_model_usage(UsageRecord(purpose="learning_test", provider="openai", model="m",
+                                              created_at=spending.month_start() + 1,
+                                              usage=ModelUsage(input_tokens=tokens, output_tokens=0)))
+
+    used(1_500_000)
+    before = _snapshot(client, headers)["spending"]
+    assert (before["limit_tokens"], before["kept_for_comparing"], before["limit_reached"]) == (2_000_000, 400_000,
+                                                                                              False)
+    used(200_000)  # 1.7M: past the 1.6M the 400K kept for comparing methods leaves
+    after = _snapshot(client, headers)["spending"]
+    assert (after["used_tokens"], after["kept_for_comparing"], after["limit_reached"]) == (1_700_000, 400_000, True)
+
+
 def test_turning_on_with_no_limit_saves_it_and_a_setup_without_a_limit_is_refused(api, no_channels):
     client, headers, data, _ = api
     without = {key: value for key, value in SETUP.items() if key != "monthly_token_limit"}

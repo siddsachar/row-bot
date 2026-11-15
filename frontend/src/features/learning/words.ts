@@ -113,7 +113,7 @@ export function limitMeaning(limit: number | null): string {
   if (limit <= 0)
     return 'Learning makes no model calls. Local models still work.';
   const tests = Math.max(1, Math.round(limit / 100_000));
-  return `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change. Local models don't count.`;
+  return `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change. A fifth of it is kept for comparing methods. Local models don't count.`;
 }
 
 /** "1:00 AM" (the reader's own clock), as Dream Cycle's hours show. */

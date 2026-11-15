@@ -183,21 +183,24 @@ def _default_model_name() -> str:
 
 
 def _spending(settings: learning.LearningSettings) -> dict[str, Any]:
-    used = 0
+    used = kept = 0
+    limit = settings.monthly_token_limit
     try:
         from row_bot.learning import spending
 
         used = spending.used_this_month()
+        kept = spending.kept_for_trials(limit)
     except Exception:
         logger.debug("Learning could not read this month's tokens", exc_info=True)
-    limit = settings.monthly_token_limit
     return {
         # Shown whatever the limit is, no limit included.
         "used_tokens": max(0, int(used)),
         "limit_tokens": limit,
         "resets_on": _next_month(date.today()).isoformat(),
         "model_name": _default_model_name(),
-        "limit_reached": settings.enabled and limit is not None and (limit == 0 or used >= limit),
+        # What comparing methods still has of its share: the rest of Learning's work stops before it (O178).
+        "kept_for_comparing": max(0, int(kept)),
+        "limit_reached": settings.enabled and limit is not None and (limit == 0 or used >= limit - kept),
     }
 
 
