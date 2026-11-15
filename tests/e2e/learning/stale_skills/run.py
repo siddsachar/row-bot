@@ -155,6 +155,16 @@ def quiet_soon(now: datetime | None = None, start: tuple[int, int] = NO_NEW_DAY_
     return None
 
 
+def person_wait(night_open: bool, training: bool, quiet: str | None) -> str | None:
+    """Why a local booking waits for the person (None: it doesn't): their own Row-Bot trains, or their quiet
+    hours (``quiet``, 00:40-05:00), which a night they leave open (``--no-new-day-from 05:00``: their Row-Bot
+    closed for the night) lifts."""
+
+    if training:
+        return "the person's own Row-Bot is training"
+    return None if night_open else quiet
+
+
 def simulated_datetime(now: Any) -> type[datetime]:
     """A ``datetime`` class whose ``now()`` is ``now()`` (the simulated clock), for the turn context."""
 
@@ -292,6 +302,7 @@ class StaleRun(PersonRun):
         self.gpu.label = f"SA3 stale skills ({self.study_arm}, {self.lane}{', ' + args.local_model if self.lane == 'local' else ''})"
         cutoff = tuple(int(part) for part in str(getattr(args, "no_new_day_from", "") or "00:25").split(":"))
         self.gpu.quiet = lambda: quiet_soon(start=cutoff)
+        self._night_open = cutoff == (5, 0)
         if self.lane == "local":
             self.gpu.say = self._say_and_unload
         # A multi-day block keeps its booking through S1's night (which releases the card at its end).
@@ -442,6 +453,19 @@ class StaleRun(PersonRun):
         self._check_limits()
         return {"saved": int(saved or 0), "seconds": round(time.monotonic() - started, 1),
                 "cloud_tokens": self.cloud_tokens() - before, "memories": _memory_count()}
+
+    def _wait_for_person(self) -> None:
+        """The seeded runs' wait (O116); a night left open waits only while the person's own Row-Bot trains."""
+
+        from tests.e2e.learning.seeded.scratch import person_is_training, quiet_reason
+
+        said = ""
+        while why := person_wait(self._night_open, person_is_training(), quiet_reason()):
+            if why != said:
+                self.note(f"{why}: waiting")
+                said = why
+            self.gpu.release()
+            time.sleep(60.0)
 
     def _book(self, what: str, expect: str) -> None:
         if self.lane != "local":

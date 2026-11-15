@@ -681,3 +681,12 @@ def test_the_4b_is_registered_under_a_name_the_build_reads_as_tool_capable():
 
     four_b, nine_b = grid.MODELS["q4b"]["local"], grid.MODELS["q9b"]["local"]
     assert is_ollama_tool_capable(four_b) and normalize_ollama_family(four_b) == normalize_ollama_family(nine_b)
+
+
+def test_a_night_left_open_waits_only_while_the_person_trains():
+    quiet = "the person's quiet hours (00:40-05:00: their Row-Bot may train and compare)"
+
+    assert run.person_wait(False, False, quiet) == quiet
+    assert run.person_wait(False, False, None) is None
+    assert run.person_wait(True, False, quiet) is None
+    assert run.person_wait(True, True, None) == "the person's own Row-Bot is training"
