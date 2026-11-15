@@ -346,7 +346,10 @@ def run(args: argparse.Namespace) -> int:
                 "usage_book": str(usage_book_path()), "dream": bool(args.dream), "context_tokens": args.context_tokens,
                 "question_template": args.question_template, "record": record}
         expect = f"{max(10, figures['windows'] + figures['questions'])} min"
-        task_code = _book_and_run(run_dir, spec, provider, f"{label} {task.task_id}", expect)
+        if args.parallel > 1:  # the whole run holds one booking (below): one START and one END for every task
+            task_code = 77 if (run_dir / "STOP").exists() else run_worker(run_dir, spec)
+        else:
+            task_code = _book_and_run(run_dir, spec, provider, f"{label} {task.task_id}", expect)
         print(f"{task.task_id}: exit {task_code}", flush=True)
         if task_code in (75, EXIT_PROVIDER_LIMIT) and not (run_dir / "STOP").exists():
             # Tasks running beside it stop at their next question or session (resumable), as on a STOP file.
@@ -358,8 +361,19 @@ def run(args: argparse.Namespace) -> int:
         if task.task_id in finished:
             print(f"{task.task_id}: done earlier")
     stopped_by_us = False
-    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
-        codes = list(pool.map(one, todo))
+    book = None
+    kind = booking_kind(provider)
+    if args.parallel > 1 and kind is not None and todo:
+        book = booking_module.BookingFile(Path(os.environ[BOOKING_ENV]))
+        if not book.wait_for(kind, stop=lambda: (run_dir / "STOP").exists()):
+            return 77
+        book.start(kind, f"{label} ({len(todo)} tasks, {args.parallel} at a time)", f"{max(10, len(todo) * 10)} min")
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
+            codes = list(pool.map(one, todo))
+    finally:
+        if book is not None and kind is not None:
+            book.end(kind, f"{label} ({len(todo)} tasks, {args.parallel} at a time)")
     if (run_dir / "STOP").is_file() and (run_dir / "STOP").read_text(encoding="utf-8").startswith("stopped by the harness"):
         (run_dir / "STOP").unlink()  # the harness's own signal; a person's STOP file is left alone
         stopped_by_us = True
