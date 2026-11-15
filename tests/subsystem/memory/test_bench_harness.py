@@ -626,6 +626,10 @@ def test_the_local_model_is_the_stock_qwen_and_its_digest_is_recorded() -> None:
     assert calls == ["http://127.0.0.1:11434/api/tags", f"http://127.0.0.1:11434/api/show {LOCAL_MODEL}"]
     with pytest.raises(BenchEnvironmentError, match="stock weights"):
         ollama_identity("ofix-personal-27b", client=Ollama())
+    from tests.e2e.bench.runtime import ollama_base
+
+    assert [ollama_base(host) for host in ("0.0.0.0", "127.0.0.1:11500", "http://gpu.local", "0.0.0.0:11434")] == [
+        "http://127.0.0.1:11434", "http://127.0.0.1:11500", "http://gpu.local:11434", "http://127.0.0.1:11434"]
 
 
 # ── The plan's usage limit ──────────────────────────────────────────────────

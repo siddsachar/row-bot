@@ -25,6 +25,7 @@ import statistics
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -63,6 +64,9 @@ BEAM_SUBSET_SIZE = 10
 BEAM_FULL_CONTEXT_SUBSET = tuple(range(1, BEAM_SUBSET_SIZE + 1))
 BEAM_SUBSET_RULE = "the 10 lowest conversation ids (1-10), fixed before any run"
 EXIT_PROVIDER_LIMIT = 76
+#: What a booking of the card says the local model takes: qwen3.8:27b Q4_K_M (17.7 GB) and its cache at
+#: Row-Bot's 65,536-token context.
+GPU_GB = 24
 TASK_TIMEOUT_MIN = 24 * 60
 # Rough planning figures (tokens); the smoke run measures the real ones.
 EXTRACTION_PROMPT_TOKENS = 2_500
@@ -241,11 +245,25 @@ def _book_and_run(run_dir: Path, spec: dict[str, Any], provider: str, what: str,
     book = booking_module.BookingFile(Path(os.environ[BOOKING_ENV]))
     if not book.wait_for(kind, stop=stop):
         return 77
-    book.start(kind, what, expect)
+    book.start(kind, what, f"{expect}, {GPU_GB} GB" if kind == booking_module.GPU else expect)
     try:
         return run_worker(run_dir, spec)
     finally:
+        if kind == booking_module.GPU:
+            unload_local_model(str((spec.get("config") or {}).get("model") or LOCAL_MODEL))
         book.end(kind, what)
+
+
+def unload_local_model(model: str) -> None:
+    """Free the card before the booking ends: Ollama unloads a model asked with ``keep_alive: 0``."""
+    import httpx
+
+    from .runtime import ollama_base
+
+    try:
+        httpx.post(f"{ollama_base()}/api/generate", json={"model": model, "keep_alive": 0}, timeout=60)
+    except httpx.HTTPError as exc:
+        print(f"could not unload {model}: {type(exc).__name__}; run: ollama stop {model}")
 
 
 def limit_report(run_dir: Path) -> dict[str, Any]:
@@ -317,23 +335,41 @@ def run(args: argparse.Namespace) -> int:
     code = throttle_check(run_dir, provider, model, caps)
     if code:
         return code
-    for task in tasks:
-        if task.task_id in finished:
-            print(f"{task.task_id}: done earlier")
-            continue
+    if args.parallel > 1 and booking_kind(provider) == booking_module.GPU:
+        print("not running: the graphics card takes one job at a time (--parallel is for the plan lane)")
+        return 2
+
+    def one(task: MemoryTask) -> int:
         figures = estimate(task, args.mode)
         spec = {"kind": "memory", "mode": args.mode, "task_id": task.task_id, "benchmark": task.benchmark,
                 "task": task.to_dict(), "config": asdict(config), "caps": asdict(caps),
                 "usage_book": str(usage_book_path()), "dream": bool(args.dream), "context_tokens": args.context_tokens,
                 "question_template": args.question_template, "record": record}
         expect = f"{max(10, figures['windows'] + figures['questions'])} min"
-        code = _book_and_run(run_dir, spec, provider, f"{label} {task.task_id}", expect)
-        print(f"{task.task_id}: exit {code}")
-        if code == EXIT_PROVIDER_LIMIT:
-            limit_report(run_dir)
-            return code
-        if code in (75, 77):
-            print({75: "a cap stopped the run", 77: "stopped on request"}[code])
+        task_code = _book_and_run(run_dir, spec, provider, f"{label} {task.task_id}", expect)
+        print(f"{task.task_id}: exit {task_code}", flush=True)
+        if task_code in (75, EXIT_PROVIDER_LIMIT) and not (run_dir / "STOP").exists():
+            # Tasks running beside it stop at their next question or session (resumable), as on a STOP file.
+            (run_dir / "STOP").write_text(f"stopped by the harness: exit {task_code}\n", encoding="utf-8")
+        return task_code
+
+    todo = [task for task in tasks if task.task_id not in finished]
+    for task in tasks:
+        if task.task_id in finished:
+            print(f"{task.task_id}: done earlier")
+    stopped_by_us = False
+    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
+        codes = list(pool.map(one, todo))
+    if (run_dir / "STOP").is_file() and (run_dir / "STOP").read_text(encoding="utf-8").startswith("stopped by the harness"):
+        (run_dir / "STOP").unlink()  # the harness's own signal; a person's STOP file is left alone
+        stopped_by_us = True
+    for code in (EXIT_PROVIDER_LIMIT, 75, 77):
+        if code in codes:
+            if code == EXIT_PROVIDER_LIMIT:
+                limit_report(run_dir)
+            else:
+                print({75: "a cap stopped the run", 77: "stopped on request"}[code]
+                      + (" (the harness stopped the tasks beside it)" if stopped_by_us else ""))
             return code
     if args.judge:
         return judge(args, run_dir=run_dir)
@@ -606,6 +642,8 @@ def build_parser() -> argparse.ArgumentParser:
                             help="full-context: the reader's window (default: Row-Bot's catalog)")
     run_parser.add_argument("--question-template", default="{question}")
     run_parser.add_argument("--run-dir", default="", help="resume this run folder")
+    run_parser.add_argument("--parallel", type=int, default=1,
+                            help="plan lane only: tasks run side by side, each in its own worker and folder")
     run_parser.add_argument("--judge", default="", help="judge right after the run with this model, provider:model")
     judge_parser = sub.add_parser("judge", help="judge a run's answers")
     judge_parser.add_argument("--run-dir", required=True)

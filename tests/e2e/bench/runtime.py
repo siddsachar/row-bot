@@ -55,6 +55,16 @@ class BenchEnvironmentError(RuntimeError):
     """The worker's environment is not a safe benchmark environment."""
 
 
+def ollama_base(host: str = "") -> str:
+    """Ollama's address from ``OLLAMA_HOST`` as Ollama reads it: a bind-all host means loopback, and
+    no port means 11434."""
+    text = (host or os.environ.get("OLLAMA_HOST", "") or "127.0.0.1:11434").strip().rstrip("/")
+    scheme, _, rest = text.rpartition("://")
+    hostname, _, port = rest.partition(":")
+    hostname = "127.0.0.1" if hostname in {"", "0.0.0.0", "[::]", "::"} else hostname
+    return f"{scheme or 'http'}://{hostname}:{port or '11434'}"
+
+
 def ollama_identity(model: str, *, host: str = "", client: Any = None) -> dict[str, Any]:
     """The local model's exact tag, digest and details, as Ollama reports them (``/api/tags`` and
     ``/api/show``, the calls behind ``ollama list`` and ``ollama show``). Neither loads the model."""
@@ -62,8 +72,7 @@ def ollama_identity(model: str, *, host: str = "", client: Any = None) -> dict[s
 
     if model != LOCAL_MODEL:
         raise BenchEnvironmentError(f"the local model is {LOCAL_MODEL} (stock weights) only, not {model!r}")
-    base = host or os.environ.get("OLLAMA_HOST", "") or "127.0.0.1:11434"
-    base = base if base.startswith("http") else f"http://{base.replace('0.0.0.0', '127.0.0.1')}"
+    base = ollama_base(host)
     http = client or httpx.Client(timeout=20)
     tags = http.get(f"{base}/api/tags").json().get("models") or []
     entry = next((item for item in tags if model in {item.get("name"), item.get("model")}), None)

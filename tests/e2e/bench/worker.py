@@ -75,9 +75,13 @@ def _judge_call(runtime: Any, model_ref: str, protocol: Any) -> Any:
 
 
 def _context_window(model_ref: str) -> int:
-    """The reader's context window from Row-Bot's catalog; the run refuses to guess one."""
+    """The reader's context window as Row-Bot serves the model: a local model's ``num_ctx`` (Row-Bot's own
+    setting, which is also what Ollama is sent, so nothing is cut silently), a cloud model's catalog
+    window. The run refuses to guess one."""
     from row_bot import models
 
+    if model_ref.startswith("model:ollama:"):
+        return int(models._local_num_ctx_for(model_ref))  # noqa: SLF001 - the num_ctx get_llm_for sends
     size = models.get_model_max_context(model_ref)
     if not size:
         raise RuntimeError(f"no context window for {model_ref} in the catalog; pass --context-tokens")
