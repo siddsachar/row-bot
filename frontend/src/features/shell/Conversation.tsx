@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type {
   AttachmentView,
   ClientError,
@@ -50,6 +50,7 @@ import {
   ArrowUp,
   Bot,
   Code2,
+  GitBranch,
   ImageOff,
   Layers,
   LifeBuoy,
@@ -88,6 +89,7 @@ import {
   type PendingCommand,
 } from './command-receipts';
 import SafeMarkdown from './chat-parity-markdown';
+import { SkillOfferContext, useChatSkillOffers } from '../skills/skill-offers';
 import TranscriptTrace from './TranscriptTrace';
 import { writingLabel } from './tool-activity';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
@@ -99,9 +101,10 @@ import {
   profileChoice,
   reasoningChoice,
   slashArgument,
+  watchRequest,
   type SlashArgument,
 } from './slash-arguments';
-import { resetContextGoals } from './ContextGoal';
+import { GoalCheckConfirm, resetContextGoals } from './ContextGoal';
 import {
   currentProfileChoice,
   openAgentProfiles,
@@ -139,7 +142,11 @@ import { useBuddyStill } from '../buddy/BuddyStill';
 import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import { ComputerStep, useComputerUse } from './ComputerStep';
 import { BrowserStep } from '../browser/BrowserThumbnail';
-import { registerPromptSender } from './composer-bridge';
+import {
+  registerPromptSender,
+  setPromptReady,
+  type TappedChoice,
+} from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
 import {
   INCOGNITO_PLACEHOLDER,
@@ -480,6 +487,11 @@ export default function Conversation({
     value: ReturnType<typeof controller.getDraft>;
   } | null>(null);
   const firstPromptSent = useRef<string | null>(null);
+  // Edit and resend (B5): the edited text, sent once the new conversation is open.
+  const [forkPrompt, setForkPrompt] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
   useEffect(() => {
     receiptAlive.current = true;
     return () => {
@@ -1194,38 +1206,96 @@ export default function Conversation({
           return;
         }
         const start = request.operation === 'start';
+        const check = start ? request.check : undefined;
+        const objective = start ? request.objective : '';
+        if (start && !objective) {
+          setError('Say what the goal should achieve before “check:”.');
+          return;
+        }
         const payload = {
           conversation_id: target,
           goal_id: page.current_goal_id,
           revision: page.current_revision,
           operation: request.operation,
-          objective: start ? request.objective : null,
+          objective: start ? objective : null,
           // The Agent runtime default, else no limit (B243).
           max_turns: start ? page.default_max_turns || null : null,
           reason: start ? null : '',
+          ...(check ? { check_command: check } : {}),
         };
         const review = await controller.reviewGoal(target, payload);
         if (!review) throw { code: 'capability_unavailable' };
-        const receipt = await controller.executeGoal(target, {
-          command_id: crypto.randomUUID(),
-          type: 'goal.control',
-          payload: { ...payload, review_id: review.review_id },
-        });
-        if (receipt.status !== 'completed') {
-          setError("The goal change wasn't confirmed. Try again.");
+        const apply = async () => {
+          const receipt = await controller.executeGoal(target, {
+            command_id: crypto.randomUUID(),
+            type: 'goal.control',
+            payload: { ...payload, review_id: review.review_id },
+          });
+          if (receipt.status !== 'completed') {
+            setError("The goal change wasn't confirmed. Try again.");
+            return;
+          }
+          resetContextGoals(target);
+          clear();
+          overlay.notify(
+            start
+              ? 'Goal set. Row-Bot is working on it.'
+              : {
+                  pause: 'Goal paused.',
+                  resume: 'Goal resumed.',
+                  clear: 'Goal stopped.',
+                  complete: 'Goal marked done.',
+                }[request.operation],
+          );
+        };
+        if (check) {
+          // The person's Confirm of where the check runs is its approval (B3).
+          overlay.open({
+            title: 'Start this goal with a check?',
+            description: objective,
+            content: (
+              <GoalCheckConfirm
+                review={review}
+                onCancel={() => overlay.close()}
+                onStart={() => {
+                  overlay.close();
+                  apply().catch((cause) =>
+                    setError(clientError(cause).message),
+                  );
+                }}
+              />
+            ),
+          });
           return;
         }
-        resetContextGoals(target);
+        await apply();
+      } else if (command.handler_kind === 'watch') {
+        // A public page or a command that only reads is set here, with no
+        // model call; a command that needs approval goes to the model, whose
+        // card asks (B4).
+        const request = watchRequest(argument);
+        if (request.kind === 'invalid') {
+          setError(request.message);
+          return;
+        }
+        if (request.kind !== 'direct') return;
+        try {
+          await controller.setWatch(target, {
+            mode: request.mode,
+            target: request.target,
+            every_minutes: request.everyMinutes,
+          });
+        } catch (cause) {
+          if (clientError(cause).code !== 'watch_needs_approval') throw cause;
+          const text = `/watch ${argument}`;
+          clear();
+          setBusy(false);
+          send(text, true);
+          return;
+        }
         clear();
         overlay.notify(
-          start
-            ? 'Goal set. Row-Bot is working on it.'
-            : {
-                pause: 'Goal paused.',
-                resume: 'Goal resumed.',
-                clear: 'Goal stopped.',
-                complete: 'Goal marked done.',
-              }[request.operation],
+          'Watching. Row-Bot speaks up here only when it changes.',
         );
       } else if (command.handler_kind === 'agent') {
         await controller.intent(
@@ -1432,6 +1502,7 @@ export default function Conversation({
     capturedDraft?: ReturnType<typeof controller.getDraft>,
     selectedVersion = controller.getSelectionVersion(),
     retry = false,
+    tapped?: TappedChoice,
   ) {
     if (
       !id ||
@@ -1564,6 +1635,8 @@ export default function Conversation({
               write_targets: targets,
               // Retry runs the last message again in place, never a second copy of it.
               ...(retry ? { retry: true } : {}),
+              // A reply button's words: marked as the person's tap on that reply (never a note from Row-Bot).
+              ...(tapped ? { tapped_choice: tapped } : {}),
             },
             sendRevision,
             claim.commandId,
@@ -1623,6 +1696,7 @@ export default function Conversation({
     attachments: typeof draft.attachments = [],
     retry = false,
     questionChecked = false,
+    tapped?: TappedChoice,
   ) {
     const outgoing = example ? { text: example, attachments } : draft;
     // A message typed while Row-Bot's turn waits on one question answers it,
@@ -1726,7 +1800,7 @@ export default function Conversation({
       }));
     const text = outgoing.text;
     const selectedVersion = controller.getSelectionVersion();
-    void dispatch(text, targets, outgoing, selectedVersion, retry);
+    void dispatch(text, targets, outgoing, selectedVersion, retry, tapped);
   }
   /** The waiting approval is one question: the message answers it; else it goes as usual. */
   async function answerOrSend(
@@ -1794,12 +1868,13 @@ export default function Conversation({
     draft,
     onFirstPromptConsumed,
   ]);
-  // Side panels (the Design panel's "Ask Row-Bot to change this…") hand a
-  // short request to this composer, which sends it with its model and write
-  // targets, queued behind a running turn like any other message.
-  const sendPanelPrompt = useEffectEvent((text: string) => {
+  // Edit and resend (B5) sends the edited text through the normal send, in
+  // the new conversation, with the edited message's files.
+  const sendForkPrompt = useEffectEvent(() => send());
+  useEffect(() => {
     if (
-      !id ||
+      !forkPrompt ||
+      forkPrompt.conversationId !== id ||
       !historyReady ||
       state.status !== 'ready' ||
       !sendActionReady ||
@@ -1808,16 +1883,58 @@ export default function Conversation({
       talkBusy ||
       pendingSubmit ||
       pendingSteering ||
-      pendingResume
+      pendingResume ||
+      draft.text !== forkPrompt.text
     )
-      return false;
-    send(text, true);
-    return true;
-  });
+      return;
+    setForkPrompt(null);
+    sendForkPrompt();
+  }, [
+    forkPrompt,
+    id,
+    historyReady,
+    state.status,
+    sendActionReady,
+    controls,
+    busy,
+    talkBusy,
+    pendingSubmit,
+    pendingSteering,
+    pendingResume,
+    draft,
+  ]);
+  // Side panels (the Design panel's "Ask Row-Bot to change this…") hand a
+  // short request to this composer, which sends it with its model and write
+  // targets, queued behind a running turn like any other message.
+  // The composer can take a request from a panel or a reply button now (no turn or send in flight).
+  const promptReady = Boolean(
+    id &&
+    historyReady &&
+    state.status === 'ready' &&
+    sendActionReady &&
+    controls?.model_selection &&
+    !busy &&
+    !talkBusy &&
+    !pendingSubmit &&
+    !pendingSteering &&
+    !pendingResume,
+  );
+  const sendPanelPrompt = useEffectEvent(
+    (text: string, tapped?: TappedChoice) => {
+      if (!promptReady) return false;
+      send(text, true, [], false, false, tapped);
+      return true;
+    },
+  );
   useEffect(() => {
     if (!id) return;
-    return registerPromptSender(id, (text) => sendPanelPrompt(text));
+    return registerPromptSender(id, (text, tapped) =>
+      sendPanelPrompt(text, tapped),
+    );
   }, [id]);
+  useEffect(() => {
+    if (id) setPromptReady(id, promptReady);
+  }, [id, promptReady]);
   async function action(
     type: 'conversation.stop' | 'conversation.steer' | 'conversation.resume',
   ) {
@@ -2561,6 +2678,16 @@ export default function Conversation({
   // The latest turn is still in flight while it waits for an approval, even
   // though the worker is parked: no actions until it settles.
   const turnInFlight = isRunning || generation?.status === 'waiting_approval';
+  // Save as a skill (C1): this chat's offers, read again as each turn settles.
+  const skillOffers = useChatSkillOffers(id, {
+    refreshKey: [
+      generation?.generation_id ?? '',
+      generation?.status ?? '',
+      String(Boolean(generation?.quiesced)),
+    ].join(':'),
+    incognito,
+    title: state.conversation?.id === id ? state.conversation.title : '',
+  });
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   // Elapsed time for the live activity row, as this client observed it.
   const [runStartedAt, setRunStartedAt] = useState<number | undefined>();
@@ -2743,12 +2870,21 @@ export default function Conversation({
     const starts = turnStarts(items);
     const ends: boolean[] = [];
     const texts: (string | undefined)[] = [];
+    // An assistant turn's last row, when the turn used tools: it can be saved as a skill.
+    const tools: boolean[] = [];
     let start = 0;
     items.forEach((item, index) => {
       const next = items[index + 1];
       const end =
         item.row.role !== 'assistant' || next?.row.role !== 'assistant';
       ends.push(end);
+      tools.push(
+        end &&
+          item.row.role === 'assistant' &&
+          items
+            .slice(start, index + 1)
+            .some((part) => Boolean(part.traces?.length)),
+      );
       if (item.row.role !== 'assistant') {
         texts.push(undefined);
         start = index + 1;
@@ -2771,6 +2907,7 @@ export default function Conversation({
       starts,
       ends,
       texts,
+      tools,
       browser: browserOffers(items),
       lastUser: items.map((item) => item.row.role).lastIndexOf('user'),
     };
@@ -2995,6 +3132,58 @@ export default function Conversation({
     };
   });
   const retryLast = useCallback(() => retryAction.current(), []);
+  // Edit and resend, Fork from here (B5): a new conversation from an earlier
+  // message; this one stays as it is. A refusal rejects, for the row to say.
+  const forkAction = useRef<
+    (messageId: string, text?: string) => Promise<void>
+  >(async () => undefined);
+  useLayoutEffect(() => {
+    forkAction.current = async (messageId, text) => {
+      if (!id) return;
+      const source = id;
+      const snapshot = controller.getSnapshot();
+      const receipt = await controller.intent(
+        source,
+        'conversation.fork',
+        {
+          at_message_id: messageId,
+          mode: text === undefined ? 'fork' : 'edit',
+        },
+        snapshot.conversation?.id === source
+          ? snapshot.conversation.revision
+          : '0',
+      );
+      const fork = receipt.forked_conversation_id;
+      if (receipt.status !== 'completed' || !fork)
+        throw { code: receipt.code ?? 'operation_uncertain' };
+      if (text !== undefined) {
+        controller.setDraft(fork, {
+          text,
+          attachments: receipt.draft_attachments ?? [],
+        });
+        setForkPrompt({ conversationId: fork, text });
+      }
+      if (controller.getSnapshot().selectedConversationId !== fork)
+        void controller.selectConversation(fork);
+      navigate(`/conversations/${fork}`);
+      overlay.notify('Forked: the original is unchanged.');
+    };
+  });
+  const editAndResend = useCallback(
+    (messageId: string, text: string) => forkAction.current(messageId, text),
+    [],
+  );
+  const forkFromHere = useCallback(
+    (messageId: string) => forkAction.current(messageId),
+    [],
+  );
+  // A fork's first line: where it came from, while that conversation exists.
+  const forkedFrom =
+    state.conversation?.id === id ? state.conversation?.forked_from : null;
+  const forkedFromTitle = forkedFrom
+    ? (state.conversations.find((item) => item.id === forkedFrom.id)?.title ??
+      forkedFrom.title)
+    : '';
   // A known host runs this Row-Bot (U3, U10): its very first chat suggests one
   // message, and after an answer the phone card shows until dismissed.
   const onHostedServer = Boolean(
@@ -3475,81 +3664,107 @@ export default function Conversation({
                   </Button>
                 </div>
               )}
+              {forkedFrom &&
+                !canLoadEarlier &&
+                !state.history?.previous_cursor &&
+                !state.loadingConversation && (
+                  <div
+                    className="transcript-note"
+                    role="note"
+                    data-note="forked"
+                  >
+                    <GitBranch aria-hidden />
+                    <span>
+                      Forked from “{forkedFromTitle}” ·{' '}
+                      <Link
+                        to={`/conversations/${encodeURIComponent(forkedFrom.id)}`}
+                      >
+                        Open original
+                      </Link>
+                    </span>
+                  </div>
+                )}
               {state.loadingConversation ? (
                 <Skeleton label="Opening conversation" />
               ) : items.length || pending?.conversation === id ? (
                 <TeachContext.Provider value={learningChat.teach}>
-                  {earlierIds.size > 0 && (
-                    // Loaded history is not announced as new conversation.
-                    <div className="transcript-earlier" aria-live="off">
-                      {shown.items.map((item, index) =>
-                        earlierIds.has(item.row.id) ? (
-                          <TranscriptMessage
-                            key={`${id}:${item.row.id}`}
-                            row={item.row}
-                            conversationId={id}
-                            traces={item.traces}
-                            embeds={item.embeds}
-                            media={item.media}
-                            cards={item.cards}
-                            earlierCards={item.earlier}
-                            agents={item.agents}
-                            turnStart={turns.starts[index]}
-                            offerBrowser={turns.browser[index]}
-                            toolbar={turns.ends[index]}
-                            copyText={turns.texts[index]}
-                            onRecover={recoverTurn}
-                            onEdit={
-                              item.row.role === 'user' ? editMessage : undefined
-                            }
-                          />
-                        ) : null,
-                      )}
-                    </div>
-                  )}
-                  {shown.items.map((item, index) =>
-                    earlierIds.has(item.row.id) ? null : (
-                      <TranscriptMessage
-                        key={`${id}:${item.row.id}`}
-                        row={item.row}
-                        conversationId={id}
-                        traces={item.traces}
-                        embeds={item.embeds}
-                        media={item.media}
-                        cards={item.cards}
-                        earlierCards={item.earlier}
-                        agents={item.agents}
-                        turnStart={turns.starts[index]}
-                        latest={index === lastAssistant && !turnInFlight}
-                        computer={computerLine}
-                        // The live browser step stands in for it while this turn runs.
-                        offerBrowser={
-                          turns.browser[index] &&
-                          !(browserLive && index > turns.lastUser)
-                        }
-                        toolbar={turns.ends[index]}
-                        copyText={turns.texts[index]}
-                        onRecover={recoverTurn}
-                        streaming={
-                          turnInFlight &&
-                          index === items.length - 1 &&
-                          item.row.role === 'assistant'
-                        }
-                        onRetry={
-                          index === lastAssistant &&
-                          !turnInFlight &&
-                          !state.history &&
-                          lastUserText &&
-                          sendActionReady
-                            ? retryLast
-                            : undefined
-                        }
-                        onEdit={
-                          item.row.role === 'user' ? editMessage : undefined
-                        }
-                      />
-                    ),
-                  )}
+                  <SkillOfferContext.Provider value={skillOffers.value}>
+                    {earlierIds.size > 0 && (
+                      // Loaded history is not announced as new conversation.
+                      <div className="transcript-earlier" aria-live="off">
+                        {shown.items.map((item, index) =>
+                          earlierIds.has(item.row.id) ? (
+                            <TranscriptMessage
+                              key={`${id}:${item.row.id}`}
+                              row={item.row}
+                              conversationId={id}
+                              traces={item.traces}
+                              embeds={item.embeds}
+                              media={item.media}
+                              cards={item.cards}
+                              earlierCards={item.earlier}
+                              agents={item.agents}
+                              turnStart={turns.starts[index]}
+                              offerBrowser={turns.browser[index]}
+                              toolbar={turns.ends[index]}
+                              usedTools={turns.tools[index]}
+                              copyText={turns.texts[index]}
+                              onRecover={recoverTurn}
+                              onEditResend={
+                                turnInFlight ? undefined : editAndResend
+                              }
+                              onFork={turnInFlight ? undefined : forkFromHere}
+                            />
+                          ) : null,
+                        )}
+                      </div>
+                    )}
+                    {shown.items.map((item, index) =>
+                      earlierIds.has(item.row.id) ? null : (
+                        <TranscriptMessage
+                          key={`${id}:${item.row.id}`}
+                          row={item.row}
+                          conversationId={id}
+                          traces={item.traces}
+                          embeds={item.embeds}
+                          media={item.media}
+                          cards={item.cards}
+                          earlierCards={item.earlier}
+                          agents={item.agents}
+                          turnStart={turns.starts[index]}
+                          latest={index === lastAssistant && !turnInFlight}
+                          computer={computerLine}
+                          // The live browser step stands in for it while this turn runs.
+                          offerBrowser={
+                            turns.browser[index] &&
+                            !(browserLive && index > turns.lastUser)
+                          }
+                          toolbar={turns.ends[index]}
+                          usedTools={turns.tools[index]}
+                          copyText={turns.texts[index]}
+                          onRecover={recoverTurn}
+                          streaming={
+                            turnInFlight &&
+                            index === items.length - 1 &&
+                            item.row.role === 'assistant'
+                          }
+                          onRetry={
+                            index === lastAssistant &&
+                            !turnInFlight &&
+                            !state.history &&
+                            lastUserText &&
+                            sendActionReady
+                              ? retryLast
+                              : undefined
+                          }
+                          onEditResend={
+                            turnInFlight ? undefined : editAndResend
+                          }
+                          onFork={turnInFlight ? undefined : forkFromHere}
+                        />
+                      ),
+                    )}
+                  </SkillOfferContext.Provider>
                 </TeachContext.Provider>
               ) : (
                 <ChatEmpty
@@ -3874,6 +4089,7 @@ export default function Conversation({
             </div>
           </div>
           {learningChat.sheet}
+          {skillOffers.sheet}
           {(state.history || showLatest) && (
             <button
               type="button"

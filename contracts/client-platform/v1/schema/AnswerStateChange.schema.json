@@ -1,0 +1,62 @@
+{
+  "additionalProperties": false,
+  "description": "One change: a tick (``item_id`` and ``done``) or the choice a reply button sent (``choice``).",
+  "properties": {
+    "block_id": {
+      "pattern": "^block:[0-9a-f]{24}$",
+      "title": "Block Id",
+      "type": "string"
+    },
+    "choice": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Choice"
+    },
+    "done": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Done"
+    },
+    "expected_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Expected Revision",
+      "type": "string"
+    },
+    "item_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{1,96}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Item Id"
+    }
+  },
+  "required": [
+    "expected_revision",
+    "block_id"
+  ],
+  "title": "AnswerStateChange",
+  "type": "object"
+}

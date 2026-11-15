@@ -328,6 +328,87 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  answerState(conversationId: string, signal?: AbortSignal) {
+    return wire.getAnswerState(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  saveAnswerState(
+    conversationId: string,
+    change: wire.AnswerStateChange,
+    signal?: AbortSignal,
+  ) {
+    return wire.saveAnswerState(
+      this.base,
+      this.session(),
+      conversationId,
+      change,
+      signal,
+    );
+  }
+  createVisualFrame(
+    conversationId: string,
+    request: wire.VisualFrameRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.createVisualFrame(
+      this.base,
+      this.session(),
+      conversationId,
+      request,
+      signal,
+    );
+  }
+  createVisualPage(
+    conversationId: string,
+    request: wire.VisualPageRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.createVisualPage(
+      this.base,
+      this.session(),
+      conversationId,
+      request,
+      signal,
+    );
+  }
+  skillOffers(conversationId: string, signal?: AbortSignal) {
+    return wire.getSkillOffers(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  draftSkill(
+    conversationId: string,
+    body: wire.SkillDraftRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.draftSkill(
+      this.base,
+      this.session(),
+      conversationId,
+      body,
+      signal,
+    );
+  }
+  dismissSkillOffer(
+    conversationId: string,
+    offerId: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.dismissSkillOffer(
+      this.base,
+      this.session(),
+      conversationId,
+      offerId,
+      signal,
+    );
+  }
   pageFrame(pageId: string, theme: wire.PageTheme, signal?: AbortSignal) {
     return wire.createPageFrame(
       this.base,
@@ -427,6 +508,12 @@ export class HttpTransport implements ClientTransport {
   stopWait(waitId: string) {
     return wire.stopWait(this.base, this.session(), waitId);
   }
+  controlWatch(waitId: string, body: wire.WatchControl) {
+    return wire.controlWatch(this.base, this.session(), waitId, body);
+  }
+  setWatch(conversationId: string, body: wire.WatchCreate) {
+    return wire.setWatch(this.base, this.session(), conversationId, body);
+  }
   proactiveMoments(signal?: AbortSignal) {
     return wire.getProactiveMoments(this.base, this.session(), signal);
   }
@@ -440,6 +527,18 @@ export class HttpTransport implements ClientTransport {
       momentId,
       feedback,
     );
+  }
+  activity(filters: wire.ActivityFilters, signal?: AbortSignal) {
+    return wire.getActivity(this.base, this.session(), filters, signal);
+  }
+  activitySummary(since: number, signal?: AbortSignal) {
+    return wire.getActivitySummary(this.base, this.session(), since, signal);
+  }
+  exportActivity(body: wire.ActivityExportRequest) {
+    return wire.exportActivity(this.base, this.session(), body);
+  }
+  clearActivity() {
+    return wire.clearActivity(this.base, this.session());
   }
   proactiveActivity(before?: number, limit?: number, signal?: AbortSignal) {
     return wire.getProactiveActivity(

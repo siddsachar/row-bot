@@ -206,6 +206,61 @@
       "title": "ArtifactShareProgress",
       "type": "object"
     },
+    "AttachmentView": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Attachment Ref",
+          "type": "string"
+        },
+        "mime_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "video/mp4",
+            "audio/mpeg",
+            "audio/ogg",
+            "audio/wav",
+            "audio/flac",
+            "audio/aac",
+            "application/pdf",
+            "application/octet-stream"
+          ],
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 209715200,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attachment_ref",
+        "name",
+        "mime_type",
+        "size_bytes",
+        "revision"
+      ],
+      "title": "AttachmentView",
+      "type": "object"
+    },
     "DefaultModelSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1575,6 +1630,14 @@
       "title": "Deletion Warnings",
       "type": "array"
     },
+    "draft_attachments": {
+      "items": {
+        "$ref": "#/$defs/AttachmentView"
+      },
+      "maxItems": 32,
+      "title": "Draft Attachments",
+      "type": "array"
+    },
     "execution_id": {
       "anyOf": [
         {
@@ -1618,6 +1681,21 @@
       "default": false,
       "title": "Folder Reselection Required",
       "type": "boolean"
+    },
+    "forked_conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Forked Conversation Id"
     },
     "generation_id": {
       "anyOf": [

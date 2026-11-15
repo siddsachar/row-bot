@@ -4061,6 +4061,24 @@
 }
 
 /* Monitor when everything passes: one line, details on request (U38). */
+/* The activity log's line (D1): today's count, and the way to the whole list. */
+.monitor-activity-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 8px 4px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.monitor-activity-line > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-primary);
+}
 .monitor-all-good {
   display: flex;
   align-items: center;

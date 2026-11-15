@@ -96,6 +96,12 @@ def _generation_parameters():
             {"quality": "medium", "resolution": "1k"},
             {"quality": "medium", "resolution": "2k"},
         ],
+        "prices": [
+            {"quality": "low", "resolution": "1k", "usd": 0.04},
+            {"quality": "low", "resolution": "2k", "usd": 0.06},
+            {"quality": "medium", "resolution": "1k", "usd": 0.06},
+            {"quality": "medium", "resolution": "2k", "usd": 0.08},
+        ],
     }
 
 
@@ -338,10 +344,10 @@ def test_xai_oauth_discovery_to_high_quality_request_is_single_routed_fake_call(
             "input_modalities": ["text", "image"],
             "output_modalities": ["image"],
             "pricing": [
-                {"quality": "low", "resolution": "1k", "price_per_image": 4},
-                {"quality": "low", "resolution": "2k", "price_per_image": 6},
-                {"quality": "medium", "resolution": "1k", "price_per_image": 6},
-                {"quality": "medium", "resolution": "2k", "price_per_image": 8},
+                {"quality": "low", "resolution": "1k", "price_per_image": 400_000_000},
+                {"quality": "low", "resolution": "2k", "price_per_image": 600_000_000},
+                {"quality": "medium", "resolution": "1k", "price_per_image": 600_000_000},
+                {"quality": "medium", "resolution": "2k", "price_per_image": 800_000_000},
             ],
         }]}),
     ])

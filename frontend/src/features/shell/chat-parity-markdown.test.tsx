@@ -150,6 +150,28 @@ it('copies a table as CSV with markup removed and fields quoted', async () => {
   expect(screen.getByRole('status')).toHaveTextContent('Table copied as CSV.');
 });
 
+it('shows a Markdown task list as checkboxes the person can tick', () => {
+  const { container } = render(
+    <SafeMarkdown
+      text={'- [ ] Book the room\n- [x] Send the **agenda**\n- plain note'}
+    />,
+  );
+  const open = screen.getByRole('checkbox', { name: 'Book the room' });
+  const done = screen.getByRole('checkbox', { name: 'Send the agenda' });
+  expect(open).not.toBeChecked();
+  expect(done).toBeChecked();
+  expect(container).not.toHaveTextContent('[x]');
+  expect(screen.getByText('agenda').tagName).toBe('STRONG');
+  fireEvent.click(open);
+  expect(open).toBeChecked();
+  fireEvent.click(done);
+  expect(done).not.toBeChecked();
+  expect(screen.getByRole('list')).toHaveClass('task-list');
+  expect(screen.getByText('plain note').closest('li')).not.toHaveClass(
+    'task-item',
+  );
+});
+
 it('keeps numbering when a paragraph splits an ordered list', () => {
   render(
     <SafeMarkdown

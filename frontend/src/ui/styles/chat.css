@@ -701,6 +701,56 @@
     opacity: 1;
   }
 }
+.message-toolbar .spin,
+.message-edit .spin {
+  animation: chat-spin 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-toolbar .spin,
+  .message-edit .spin {
+    animation-duration: 3s;
+  }
+}
+/* Edit and resend (B5): the person's bubble becomes its field, in place. */
+.message-user > .transcript-content:has(> .message-edit) {
+  width: 78%;
+}
+.message-edit {
+  display: grid;
+  gap: 6px;
+  align-self: stretch;
+}
+.message-edit textarea.input {
+  min-height: 64px;
+  max-height: 40vh;
+  padding: 9px 14px;
+  border-radius: 18px 18px 6px 18px;
+  resize: vertical;
+  font: inherit;
+  line-height: var(--leading-15);
+}
+.message-edit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.message-edit-hint {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 18px;
+  text-align: end;
+}
+.message-edit-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+/* A fork's first line (B5): where it came from, linked. */
+.transcript-note[data-note='forked'] a {
+  color: var(--text-link);
+}
 .message-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1314,6 +1364,20 @@
 .approval-card-reviewer svg {
   flex: none;
   align-self: center;
+}
+/* A paid picture or video (D4): its price, then where it comes from, quieter. */
+.approval-card-price {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 5px;
+}
+.approval-card-price svg {
+  flex: none;
+}
+.approval-card-price-words {
+  color: var(--text-secondary);
+  font-weight: 600;
 }
 .approval-card-actions,
 .turn-notice-actions {
@@ -2892,6 +2956,7 @@
   overflow: auto;
   border: 1px solid var(--border-hairline);
   border-radius: 10px;
+  background: var(--surface);
 }
 .markdown-table-scroll table {
   width: max-content;
@@ -2940,6 +3005,338 @@
 .markdown-table:hover .markdown-table-tools,
 .markdown-table:focus-within .markdown-table-tools {
   opacity: 1;
+}
+/* Every header sorts: the whole cell is its button, the glyph quiet until
+   the column is sorted or the header is pointed at. */
+.markdown-table-scroll th[aria-sort] {
+  padding: 0;
+}
+.table-sort {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.table-sort:hover,
+.table-sort[data-active] {
+  color: var(--text-primary);
+}
+.table-sort:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.table-sort-glyph {
+  flex: none;
+  opacity: 0.4;
+  transition: opacity var(--motion-popover) var(--ease-out);
+}
+.table-sort:hover .table-sort-glyph,
+.table-sort:focus-visible .table-sort-glyph,
+.table-sort[data-active] .table-sort-glyph {
+  opacity: 1;
+}
+.markdown-table-scroll th[data-numeric] .table-sort {
+  justify-content: flex-end;
+}
+.markdown-table-scroll th[data-numeric],
+.markdown-table-scroll td[data-numeric] {
+  text-align: end;
+}
+/* Room for the copy button over the last header. */
+.markdown-table[data-tools] th:last-child .table-sort {
+  padding-inline-end: 40px;
+}
+@media (hover: none), (pointer: coarse) {
+  .markdown-table-tools {
+    opacity: 1;
+  }
+}
+/* A phone scrolls a wide table sideways with its first column kept in view. */
+@media (max-width: 767px) {
+  .markdown-table-scroll th:first-child,
+  .markdown-table-scroll td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface);
+    box-shadow: inset -1px 0 0 var(--border-hairline);
+  }
+  .markdown-table-scroll tbody tr:hover td:first-child {
+    background: color-mix(in srgb, var(--surface-hover) 55%, var(--surface));
+  }
+  .markdown-table-scroll th:first-child {
+    z-index: 2;
+    background: var(--surface-raised);
+  }
+}
+
+/* Answer components (F3): a table, checklist, figures, progress or choices
+   inside a reply, drawn from validated data with the app's own pieces. */
+.answer-component {
+  display: grid;
+  gap: 8px;
+  max-width: 100%;
+  margin: 12px 0;
+}
+.answer-component > .markdown-table {
+  margin: 0;
+}
+.answer-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.answer-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font: var(--weight-semibold) var(--text-14) / 20px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.answer-count {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.answer-note,
+.answer-prompt {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.answer-prompt {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+}
+.answer-pending {
+  padding: 10px 12px;
+  border: 1px dashed var(--border-hairline);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.answer-component .answer-checklist {
+  display: grid;
+  margin: 0;
+  padding: 4px 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  list-style: none;
+}
+.answer-component li {
+  margin: 0;
+}
+.answer-component .answer-checklist li + li {
+  border-top: 1px solid var(--border-hairline);
+}
+.answer-checklist label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.answer-checklist input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.answer-checklist li[data-done] span {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+.answer-figures .stat-value {
+  font-variant-numeric: tabular-nums;
+}
+.answer-component .answer-progress {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  list-style: none;
+}
+.answer-progress li {
+  display: grid;
+  gap: 6px;
+}
+.answer-progress-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  font-size: var(--text-13);
+  line-height: 18px;
+}
+.answer-progress-label {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.answer-progress-value {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.answer-progress-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-hover);
+}
+.answer-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-solid);
+  transition: width var(--motion-panel) var(--ease-out);
+}
+.answer-progress li[data-over] .answer-progress-bar > span {
+  background: var(--status-success-text);
+}
+.answer-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.answer-replies[data-variant='choices'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+}
+.answer-reply {
+  justify-content: flex-start;
+  max-width: 100%;
+  min-height: 32px;
+  text-align: start;
+}
+.answer-reply > span:not(.answer-reply-sent) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.answer-replies[data-variant='actions'] .answer-reply {
+  border-radius: 999px;
+}
+.answer-reply svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.answer-reply[data-picked] {
+  border-color: color-mix(in srgb, var(--accent-solid) 55%, transparent);
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+  opacity: 1;
+}
+.answer-reply[data-picked] svg {
+  color: var(--accent-solid);
+}
+.answer-replies-wait {
+  grid-column: 1 / -1;
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.answer-reply-sent {
+  margin-inline-start: auto;
+  padding-inline-start: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+}
+@media (pointer: coarse) {
+  .answer-reply {
+    min-height: 44px;
+  }
+  .answer-checklist label {
+    min-height: 44px;
+    align-items: center;
+  }
+  .answer-checklist input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+  }
+}
+
+/* An inline visual (F3): Row-Bot's HTML/SVG in a sandboxed frame. */
+.answer-visual-maker {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.answer-visual-frame {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  border: 0;
+  background: transparent;
+  transition: height var(--motion-popover) var(--ease-out);
+}
+.answer-visual-frame[data-expanded] {
+  max-height: min(78vh, 820px);
+}
+@media (min-width: 768px) {
+  .visual-dialog {
+    width: min(94vw, 1180px);
+    max-width: min(94vw, 1180px);
+  }
+}
+
+/* Markdown task lists: real checkboxes the person can tick. */
+.task-list {
+  padding-inline-start: 4px;
+  list-style: none;
+}
+.task-item label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.task-item input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.task-item[data-done] > label > span {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+@media (pointer: coarse) {
+  .task-item label {
+    min-height: 44px;
+    align-items: center;
+  }
+  .task-item input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+  }
 }
 
 /* Citations: numbered source chips with the domain. */
@@ -3985,6 +4382,77 @@ button.attachment-tile-face:hover {
   flex: none;
   color: var(--text-muted);
   font-size: var(--text-12);
+}
+/* A watch (B4): its label, what it used, its last check and its controls. */
+.watch-card {
+  align-items: flex-start;
+  padding: 4px 0;
+}
+.watch-card > svg {
+  margin-top: 3px;
+}
+.watch-body {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 1px;
+  min-width: 0;
+}
+.watch-meta,
+.watch-result,
+.watch-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.watch-result {
+  color: var(--text-secondary);
+}
+.watch-card.is-trouble .watch-result,
+.watch-note {
+  color: var(--status-warning-text);
+}
+.watch-card.is-ended > svg {
+  color: var(--text-muted);
+}
+.watch-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+/* On a phone, and in Conversation details' narrow column: the text first, its controls below. */
+.context-live .watch-card {
+  flex-wrap: wrap;
+}
+.context-live .watch-body {
+  flex-basis: calc(100% - 22px);
+}
+.context-live .watch-meta,
+.context-live .watch-result,
+.context-live .watch-note {
+  white-space: normal;
+}
+.context-live .watch-actions {
+  margin-left: 14px;
+}
+@media (max-width: 640px) {
+  .watch-card {
+    flex-wrap: wrap;
+  }
+  .watch-body {
+    flex-basis: calc(100% - 22px);
+  }
+  .watch-meta,
+  .watch-result,
+  .watch-note {
+    white-space: normal;
+  }
+  .watch-actions {
+    margin-left: 14px;
+  }
 }
 
 /* Waiting messages: shown above the composer only while some wait. */

@@ -49,6 +49,9 @@ PURPOSES: tuple[str, ...] = (
     "child",
     "synthesis",
     "finalization",
+    # Skill offers (C1): the judgement after a finished task, and the draft on the person's click.
+    "skill_offer_judge",
+    "skill_draft",
     # Learning (preview, E13): its own model calls, counted against its monthly token limit.
     "learning_diagnosis",
     "learning_test",
@@ -289,6 +292,31 @@ def conversation_usage(thread_id: str) -> dict[str, Any] | None:
     if not totals["calls"]:
         return None
     return {**totals, "last_cache_read_percent": _cache_percent(last[1], last[0]) if last else None}
+
+
+def usage_for(*, thread_ids: list[str] | tuple[str, ...] = (),
+              generation_ids: list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
+    """Totals of the calls of some threads and some turns (by generation id): a watch's checks and the turns it
+    started (B4). Zeros when there is nothing, or the ledger can't be read."""
+    threads = [_clean_text(value) for value in thread_ids if _clean_text(value)][:64]
+    generations = [_clean_text(value) for value in generation_ids if _clean_text(value)][:64]
+    path = _existing_ledger()
+    empty = _totals((0, 0, 0, None, None, None, 0))
+    if path is None or not (threads or generations):
+        return empty
+    clauses = []
+    if threads:
+        clauses.append(f"thread_id IN ({', '.join('?' for _ in threads)})")
+    if generations:
+        clauses.append(f"generation_id IN ({', '.join('?' for _ in generations)})")
+    try:
+        with closing(_connect(path)) as connection:
+            row = connection.execute(_TOTALS_SELECT + " WHERE " + " OR ".join(clauses),
+                                     (*threads, *generations)).fetchone()
+    except sqlite3.Error:
+        logger.debug("Usage ledger read failed", exc_info=True)
+        return empty
+    return _totals(row)
 
 
 def usage_summary(*, since: float | None = None, thread_id: str | None = None) -> dict[str, Any]:
