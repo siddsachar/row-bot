@@ -386,10 +386,12 @@ entities relate. Do not invent one just to connect an entity:
 - If you mention a person is the user's dad → entity for "Dad" + relation
   Dad→father_of→User
 
-DATES — Today is {today}. Write every date as a calendar date (e.g. \
-"14 November 2026"), never as "today", "tomorrow", "next week" or "last \
-month", and give the date a state started when it matters ("since \
-November 2026", not "currently").
+DATES — The conversation's date, and the weeks either side of it by \
+weekday, are given just before it. Work out every relative date ("today", \
+"yesterday", "last Friday", "next week") from that date, reading weekdays \
+off those lists, and write it as a calendar date (e.g. "14 November 2026"), \
+never as "today", "tomorrow", "next week" or "last month". Give the date a \
+state started when it matters ("since November 2026", not "currently").
 
 CORRECTIONS:
 - If the user corrects a previously stated fact during the conversation
@@ -467,6 +469,8 @@ I'm reading Designing Data-Intensive Applications and learning Rust on the side.
   {{"relation_type": "reading", "source_subject": "User", "target_subject": "Designing Data-Intensive Applications", "confidence": 1.0}},
   {{"relation_type": "learning", "source_subject": "User", "target_subject": "Rust", "confidence": 1.0}}
 ]
+
+{dated}
 
 CONVERSATION:
 {conversation}
