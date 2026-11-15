@@ -238,3 +238,18 @@ def test_without_state_the_newest_installed_version_starts(install):
     assert install.run().returncode == 0
     assert [launch["version"] for launch in install.launches()] == ["5.2.10"]
     assert layout.read_state(install.root) == layout.InstallState(active="5.2.10")
+
+
+def test_an_editors_mcp_bridge_runs_the_active_version_once_and_never_supervises(install):
+    install.version("5.2.0", 0)
+    install.version("5.2.1", 3, 3)
+    layout.write_state(install.root, layout.InstallState(active="5.2.1", previous="5.2.0", pending_verification=True))
+
+    result = install.run("mcp", "--editor", "codex")
+
+    # Its exit is the bridge's own: never retried, never counted toward a rollback.
+    assert result.returncode == 3
+    assert [(launch["version"], launch["args"]) for launch in install.launches()] == [
+        ("5.2.1", ["mcp", "--editor", "codex"])]
+    state = layout.read_state(install.root)
+    assert (state.active, state.pending_verification, state.unverified_launches) == ("5.2.1", True, 0)

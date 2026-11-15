@@ -1068,10 +1068,38 @@ static int RowBotRunPython(int argc, const char *argv[]) {
     return bytesMain(argc - 2, arguments);
 }
 
+// row-bot mcp ...: an editor's bridge to the running Row-Bot (src/row_bot/editors/bridge.py).
+// It runs the active version's launcher.py with these arguments on this process's stdin and
+// stdout, beside the app: no window, no tray, and it never supervises, relaunches or counts as a
+// launch (the seed rule picks the version, as a launch would, without writing state.json).
+static int RowBotRunEditorBridge(int argc, const char *argv[]) {
+    RowBotHost *host = [[RowBotHost alloc] init];
+    NSString *active = RowBotVersionOrNil(RowBotReadState()[@"active"]);
+    NSString *folder = nil;
+    if (active && RowBotCompareVersions(host.seedVersion, active) != NSOrderedDescending) {
+        folder = [host folderForVersion:active];
+    }
+    host.versionDir = folder ?: host.seedDir;
+    NSMutableArray<NSString *> *arguments = [NSMutableArray arrayWithCapacity:(NSUInteger)argc];
+    for (int index = 1; index < argc; index++) {
+        [arguments addObject:[NSString stringWithUTF8String:argv[index]]];
+    }
+    NSTask *task = [host startPythonLauncherWithArguments:arguments];
+    if (!task) {
+        fprintf(stderr, "row-bot: Row-Bot could not start; reinstall it from https://row-bot.ai\n");
+        return 1;
+    }
+    [task waitUntilExit];
+    return task.terminationStatus;
+}
+
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
         if (argc > 1 && strcmp(argv[1], "--run-python") == 0) {
             return RowBotRunPython(argc, argv);
+        }
+        if (argc > 1 && strcmp(argv[1], "mcp") == 0) {
+            return RowBotRunEditorBridge(argc, argv);
         }
         for (int index = 1; index < argc; index++) {
             if (strcmp(argv[index], "--") == 0) {

@@ -402,6 +402,7 @@ class BlobReader:
         media_error = ""
         note = ""
         linked_from: dict[str, str] | None = None
+        from_editor: dict[str, str] | None = None
         held: list[dict[str, str]] = []
         approval_id = ""
         chart_position, chart_label = None, ""
@@ -437,7 +438,7 @@ class BlobReader:
                     attachments = self.safe_attachments(metadata["platform_attachments"])
                 if "row_bot_ui" in metadata:
                     ui = self.fields(metadata["row_bot_ui"], {"learning_fallback", "backup_model", "linked_from",
-                                                               "held"})
+                                                               "held", "from_editor"})
                     if "held" in ui and note == "continuation":
                         held = self.held_messages(ui["held"])
                     if "linked_from" in ui and note == "linked":
@@ -446,6 +447,12 @@ class BlobReader:
                         if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", found.get("id", "")) and found.get("title"):
                             linked_from = {"id": found["id"], "title": found["title"],
                                            "kind": "reply" if found.get("kind") == "reply" else "message"}
+                    if "from_editor" in ui and not note:
+                        # Typed in an editor (E4): the row says which one.
+                        origin = self.fields(ui["from_editor"], {"id", "name"})
+                        found = {key: self.text(origin[key], 64) for key in ("id", "name") if key in origin}
+                        if re.fullmatch(r"[a-z][a-z0-9-]{0,31}", found.get("id", "")) and found.get("name"):
+                            from_editor = {"id": found["id"], "name": found["name"]}
                     if "learning_fallback" in ui:
                         # Learning (preview): the main model finished a stuck personal model's turn. The
                         # row is the note's public sentence; the handover's own text (written for the
@@ -487,7 +494,7 @@ class BlobReader:
                 "tool_calls_position": None if note else fields.get("tool_calls"), "tool_ids_lazy": tool_ids_lazy,
                 "tool_call_id": self.text(fields["tool_call_id"]) if "tool_call_id" in fields else "",
                 "attachments": attachments, "media": media, "media_error": media_error, "note": note,
-                "linked_from": linked_from, "held": held,
+                "linked_from": linked_from, "from_editor": from_editor, "held": held,
                 "approval_id": approval_id, "chart_position": chart_position, "chart_label": chart_label,
                 "cut_short": cut_short, "answered_by": answered_by}
 
@@ -686,6 +693,8 @@ class BlobReader:
             row["note"] = record["note"]
         if record.get("linked_from"):
             row["linked_from"] = record["linked_from"]
+        if record.get("from_editor"):
+            row["from_editor"] = record["from_editor"]
         if record.get("held"):
             row["held"] = record["held"]
         if record.get("approval_id"):

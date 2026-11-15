@@ -358,6 +358,29 @@
       "title": "FiguresBlock",
       "type": "object"
     },
+    "FromEditor": {
+      "additionalProperties": false,
+      "description": "The editor the person typed a message in (``row-bot mcp``, E4).",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9-]{0,31}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "FromEditor",
+      "type": "object"
+    },
     "GenerationState": {
       "additionalProperties": false,
       "properties": {
@@ -1364,6 +1387,17 @@
           "default": false,
           "title": "Cut Short",
           "type": "boolean"
+        },
+        "from_editor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FromEditor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "held": {
           "items": {

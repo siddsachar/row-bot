@@ -544,3 +544,20 @@ it('Fork from here sits in a reply’s actions and its long-press menu, only whe
     within(menu).queryByRole('menuitem', { name: 'Edit and resend' }),
   ).toBeNull();
 });
+
+it('shows the person’s message from an editor as theirs, saying which editor (E4)', () => {
+  const row = {
+    id: 'user:submission:editor-1',
+    message_id: 'editor-1',
+    role: 'user',
+    from_editor: { id: 'claude-code', name: 'Claude Code' },
+    blocks: [{ id: 'b', type: 'markdown', text: 'Where are the tests?' }],
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  render(<TranscriptMessage row={row} conversationId="conversation-a" />);
+  const message = screen.getByRole('article', { name: 'You message' });
+  expect(message).toHaveTextContent('From Claude Code');
+  expect(message).toHaveTextContent('Where are the tests?');
+  expect(screen.queryByRole('note')).toBeNull();
+});

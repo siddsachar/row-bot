@@ -4006,6 +4006,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     from row_bot.access.cli import add_remote_access_subcommands
 
     add_remote_access_subcommands(subparsers)
+    # Handled before anything else in main (row_bot.editors.bridge); listed here for --help.
+    mcp_parser = subparsers.add_parser("mcp", help="Serve Row-Bot to an editor over MCP (stdio)")
+    mcp_parser.add_argument("--editor", help="The connected editor this runs for")
     plugins_parser = subparsers.add_parser("plugins", help="Plugin developer utilities")
     plugin_sub = plugins_parser.add_subparsers(dest="plugins_command", required=True)
     validate_parser = plugin_sub.add_parser(
@@ -4192,6 +4195,12 @@ def main(argv: list[str] | None = None) -> None:
         run_as_container_user()
     except ContainerUserError as exc:
         raise SystemExit(f"Row-Bot didn't start: {exc}") from None
+    raw_arguments = list(sys.argv[1:] if argv is None else argv)
+    if raw_arguments[:1] == ["mcp"]:
+        # An editor's stdio bridge (E4): stdout is its protocol, so nothing else runs or prints first.
+        from row_bot.editors.bridge import main as editor_bridge
+
+        raise SystemExit(editor_bridge(raw_arguments[1:]))
     _ensure_launcher_file_logging()
     _launch_event(
         "process_start",

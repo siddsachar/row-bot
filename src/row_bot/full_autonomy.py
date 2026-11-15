@@ -4,8 +4,9 @@
   after a dialog that lists what it skips; after that it never asks again
   (``is_confirmed`` / ``confirm``).
 - A conversation other people share (a Slack or Discord channel thread, a group
-  chat) runs on reviewed Auto at most: Hands-off is only for the person's own
-  chats (``is_shared_conversation`` / ``cap_for_conversation``).
+  chat), or one an editor made or continued (``row-bot mcp``), runs on reviewed
+  Auto at most: Hands-off is only for the person's own chats in Row-Bot
+  (``is_shared_conversation``, ``reached_from_editor``, ``cap_for_conversation``).
 - Agent-facing tools never set it (``AGENT_SETTABLE_MODES``).
 
 The same file keeps the level new conversations, workflows and Developer
@@ -153,11 +154,35 @@ def is_shared_conversation(thread_id: str) -> bool:
     return bool(ref and int(ref.get("shared") or 0))
 
 
+def reached_from_editor(thread_id: str) -> bool:
+    """Whether an editor made or continued this conversation (``row-bot mcp``).
+
+    Fails closed: when the editors' record can't be read, the conversation counts as reached.
+    """
+
+    clean = str(thread_id or "").strip()
+    if not clean:
+        return False
+    try:
+        from row_bot.editors.store import reached_from_editor as reached
+
+        return reached(clean)
+    except Exception:
+        logger.warning("Whether an editor reached %s is unknown; it runs on Auto at most", clean[:8])
+        return True
+
+
+def hands_off_available(thread_id: str) -> bool:
+    """Whether the person may turn Hands-off on in this conversation."""
+
+    return not is_shared_conversation(thread_id) and not reached_from_editor(thread_id)
+
+
 def cap_for_conversation(thread_id: str, mode: object) -> ApprovalMode:
-    """The level a conversation runs at: Hands-off becomes Auto where others share it."""
+    """The level a conversation runs at: Hands-off becomes Auto where others share it or an editor reached it."""
 
     normalized = normalize_approval_mode(mode)
-    if normalized == "full" and is_shared_conversation(thread_id):
+    if normalized == "full" and not hands_off_available(thread_id):
         return SHARED_CONVERSATION_CAP
     return normalized
 

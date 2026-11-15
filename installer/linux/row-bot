@@ -12,7 +12,9 @@
 # points at, so it never depends on a release an update has removed.
 #
 # One wrapper supervises an install and data folder at a time; a second start
-# only runs launcher.py, which shows the running Row-Bot.
+# only runs launcher.py, which shows the running Row-Bot. `row-bot mcp ...` (an
+# editor's bridge to the running Row-Bot, src/row_bot/editors/bridge.py) never
+# supervises, relaunches or counts as a launch: it runs the current release once.
 #
 # Run by systemd as a unit's ExecStart= it starts the app once and leaves
 # restarts to the unit: use Restart=always, or RestartForceExitStatus=75.
@@ -101,7 +103,9 @@ unset ROW_BOT_LAUNCH_ERROR_RELAUNCHES ROW_BOT_LAUNCH_QUICK_RELAUNCHES
 
 # The supervising wrapper holds this lock (python inherits it) until the app exits.
 supervising=1
-if command -v flock >/dev/null 2>&1; then
+if [ "${1:-}" = "mcp" ]; then
+    supervising=""
+elif command -v flock >/dev/null 2>&1; then
     # A relaunch keeps the lock it already holds on fd 9.
     if [ "${ROW_BOT_LAUNCH_LOCKED:-}" != 1 ] || ! { true >&9; } 2>/dev/null; then
         lock_key="$(printf '%s' "$DATA_DIR" | cksum | cut -d ' ' -f 1)"
@@ -111,7 +115,7 @@ if command -v flock >/dev/null 2>&1; then
 fi
 unset ROW_BOT_LAUNCH_LOCKED
 if [ -z "$supervising" ]; then
-    # Row-Bot already runs from this install: launcher.py shows it and exits.
+    # Row-Bot already runs from this install: launcher.py shows it and exits (or the bridge runs).
     active="$(current_release)" || active="$SELF"
     runnable "$active" || active="$SELF"
     use_version "$active"

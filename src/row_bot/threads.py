@@ -2345,11 +2345,11 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
             kept = {key: copy.deepcopy(extra[key])
                     for key in ("platform_public_content", "platform_attachments", "platform_note")
                     if key in extra}
-            # A message from another conversation keeps where it came from (5.3.1 C); a run's line, the
-            # messages other conversations left for that run.
+            # A message from another conversation keeps where it came from (5.3.1 C), one typed in an editor
+            # which editor (E4); a run's line, the messages other conversations left for that run.
             ui = extra.get("row_bot_ui")
             if isinstance(ui, dict):
-                kept_ui = {key: copy.deepcopy(ui[key]) for key in ("linked_from", "held")
+                kept_ui = {key: copy.deepcopy(ui[key]) for key in ("linked_from", "held", "from_editor")
                            if isinstance(ui.get(key), (dict, list))}
                 if kept_ui:
                     kept["row_bot_ui"] = kept_ui

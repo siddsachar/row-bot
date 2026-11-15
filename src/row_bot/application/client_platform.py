@@ -458,13 +458,15 @@ class ClientPlatformService:
                         attachments: list[dict[str, Any]] | None = None,
                         note: str = "", retry: bool = False, shown: dict[str, str] | None = None,
                         linked: dict[str, Any] | None = None, held: tuple[dict, ...] = (),
-                        tapped_choice: dict[str, str] | None = None) -> Any:
+                        tapped_choice: dict[str, str] | None = None,
+                        editor: dict[str, str] | None = None) -> Any:
         """Single admission path for every conversation turn.
 
         ``retry`` runs the person's last message again in place: the turn it replaces goes in the same write that
         admits the new one, after every check has passed (``threads.append_checkpoint_messages``). ``shown``: what
         the transcript shows instead of the text, and its note (the person's message sent from a page). ``held``:
-        with a note, the messages other conversations left for a workflow run, shown under its line."""
+        with a note, the messages other conversations left for a workflow run, shown under its line. ``editor``: the
+        editor the person sent this message from (``row-bot mcp``), shown with it."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
         from row_bot.models import get_current_model
@@ -529,6 +531,11 @@ class ClientPlatformService:
                 # A reply button's tap (F3): the person's own message, its words the button's; this only says which
                 # reply offered it. Never a note: the turn stays the person's request.
                 public_metadata = {**public_metadata, "tapped_choice": dict(tapped_choice)}
+            if editor and not (linked or note or shown):
+                # Typed in an editor (E4): the person's own message, shown with where it came from. Never a note:
+                # it stays the person's request (decision 10).
+                public_metadata = {**public_metadata, "row_bot_ui": {"from_editor": {
+                    "id": str(editor["id"]), "name": str(editor["name"])}}}
             first_message = text is not None and not note and not threads.get_latest_checkpoint_revision(conversation_id)
             # A retry finds the turn it replaces by what the chat shows of the person's message.
             retry_text = ((shown["text"] if shown else text)
@@ -1137,8 +1144,10 @@ class ClientPlatformService:
                 validate_approval: Callable[..., None] | None = None,
                 resolve_upload: Callable[[str], bytes] | None = None,
                 frozen_context: dict | None = None,
-                runtime_surface: str = "normal_chat") -> dict:
-        if frozen_context is not None and command["type"] != "conversation.submit":
+                runtime_surface: str = "normal_chat",
+                editor: dict[str, str] | None = None) -> dict:
+        """Run one client command. ``editor``: a message an editor sent (``row-bot mcp``), never from a route."""
+        if (frozen_context is not None or editor is not None) and command["type"] != "conversation.submit":
             raise ClientPlatformError("invalid_command")
         if command["type"] in {"artifact.design.control", "artifact.asset.upload", "artifact.preset.mutate", "artifact.document.import", "artifact.notes.generate"}:
             from row_bot.application.artifact_design_commands import execute_artifact_design_command
@@ -1204,6 +1213,7 @@ class ClientPlatformService:
                         target,
                         runtime_surface=runtime_surface,
                         **({"frozen_context": frozen_context} if frozen_context is not None else {}),
+                        **({"editor": editor} if editor is not None else {}),
                     )
                 result["command_id"] = command["command_id"]
                 admissions.complete_command(owner_id, idempotency_key, result)
@@ -1228,6 +1238,7 @@ class ClientPlatformService:
         *,
         frozen_context: dict | None = None,
         runtime_surface: str = "normal_chat",
+        editor: dict[str, str] | None = None,
     ) -> dict:
         from row_bot import threads
         payload = command.get("payload") or {}
@@ -1379,6 +1390,8 @@ class ClientPlatformService:
                 # Only for the person's own chats, and after its one-time dialog on this install.
                 if full_autonomy.is_shared_conversation(target):
                     raise ClientPlatformError("full_autonomy_shared_conversation")
+                if full_autonomy.reached_from_editor(target):
+                    raise ClientPlatformError("full_autonomy_editor_conversation")
                 try:
                     full_autonomy.require_choice("full", confirmed=bool(payload.get("confirm_full_autonomy")))
                 except full_autonomy.FullAutonomyError as exc:
@@ -1455,7 +1468,7 @@ class ClientPlatformService:
                 if pending:
                     raise ClientPlatformError("approval_required")
             return self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]),
-                               runtime_surface=runtime_surface,
+                               runtime_surface=runtime_surface, editor=editor,
                                **({"frozen_context": frozen_context} if frozen_context is not None else {}))
         if kind == "conversation.stop":
             return self.stop_conversation(target, str(payload.get("generation_id") or ""))
@@ -1564,7 +1577,7 @@ class ClientPlatformService:
                approval_context: dict | None = None, queue_record: dict | None = None,
                frozen_context: dict | None = None,
                runtime_surface: str = "normal_chat",
-               followup: Any = None) -> dict:
+               followup: Any = None, editor: dict[str, str] | None = None) -> dict:
         if self.registry.active(conversation_id):
             raise ClientPlatformError("generation_active")
         if not resume:
@@ -1772,7 +1785,7 @@ class ClientPlatformService:
                 linked=({"text": followup.shown or followup.prompt, **(followup.linked_from or {})}
                         if followup is not None and followup.kind == "linked" else None),
                 held=followup.held if followup is not None else (),
-                tapped_choice=tapped)
+                tapped_choice=tapped, editor=None if resume else editor)
         except BaseException:
             if page_id:
                 from row_bot import pages

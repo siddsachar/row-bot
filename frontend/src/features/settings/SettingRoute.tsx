@@ -72,6 +72,7 @@ import SettingsShell from './SettingsShell';
 import AccessConnect from './AccessConnect';
 import AccessDevices from './AccessDevices';
 import DeviceNotifications from './DeviceNotifications';
+import EditorConnections from './EditorConnections';
 import AccessNetwork from './AccessNetwork';
 import AccessTailscale from './AccessTailscale';
 import ConnectedPrivacy from './InstallCount';
@@ -944,6 +945,7 @@ export default function SettingRoute() {
                     onConnected={() => setDevicesReload((value) => value + 1)}
                   />
                   <AccessDevices reloadKey={devicesReload} />
+                  <EditorConnections writeClipboard={platform.writeClipboard} />
                   <DeviceNotifications />
                 </>
               ) : null}

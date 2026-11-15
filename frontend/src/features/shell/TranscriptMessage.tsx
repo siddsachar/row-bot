@@ -20,6 +20,7 @@ import {
   VolumeX,
   LayoutTemplate,
   MoreHorizontal,
+  SquareTerminal,
   X,
 } from 'lucide-react';
 import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
@@ -625,6 +626,13 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           <small className="message-source">
             <LayoutTemplate size={14} aria-hidden />
             Sent from a page
+          </small>
+        )}
+        {row.role === 'user' && row.from_editor && (
+          // Typed in an editor (row-bot mcp, E4): the person's own words, sent from there.
+          <small className="message-source" data-source="editor">
+            <SquareTerminal size={14} aria-hidden />
+            From {row.from_editor.name}
           </small>
         )}
         {row.content_status && row.content_status !== 'inline' && (
