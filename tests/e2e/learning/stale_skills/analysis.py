@@ -1,7 +1,7 @@
 """Phase 3's report (Design A, Lane B): every cell of the grid scored from what it saved, pooled per model and arm,
 and the pre-registration's §6-§8 analysis.
 
-    python -m tests.e2e.learning.stale_skills.analysis --root D:\\RowBotScratch\\stale-skills\\phase3 --out <root>\\out
+    python -m tests.e2e.learning.stale_skills.analysis --root <phase 3 folder> --out <phase 3 folder>\\out
 
 Run only once every cell is done (no interim outcome). It reads each cell's ``run/state.json`` and the product's
 operation log (``data/stale_skills/operations.jsonl``), rebuilds each person's timeline (the only ground truth) and

@@ -1,7 +1,7 @@
 """The stale-skills pilot's run of one arm, on S1's harness and the released Row-Bot (Lane B, MEMORY-SKILLS §4).
 
 One process per arm (Row-Bot binds its data folder when imported), in its own scratch profile under
-``D:\\RowBotScratch\\learning\\pilot\\``:
+the pilot's scratch root:
 
 - ``--arm main``: the main model on the ChatGPT lane (the eval profile's sign-in, in this process's memory
   only; **a token refresh is refused**, so the eval profile is only ever read);

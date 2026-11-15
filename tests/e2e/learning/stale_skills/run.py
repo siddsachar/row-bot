@@ -1,7 +1,7 @@
 """The stale-skills run of one arm for one person (Design A, Lane B): the product with its stale-skills setting.
 
 One process per run (Row-Bot binds its data folder when imported), in its own scratch profile (``sa_`` folders under
-``D:\\RowBotScratch\\stale-skills\\``), on S1's :class:`~tests.e2e.learning.seeded.live.PersonRun` (the profile, the
+the run's scratch root), on S1's :class:`~tests.e2e.learning.seeded.live.PersonRun` (the profile, the
 30-day past through Row-Bot's own import, the simulated person, the simulated clock, the nights' Dream and vault).
 
 **The arm** (``--arm``, paired across arms: the same person, seed and changes) is the product's ``stale_skills.json``

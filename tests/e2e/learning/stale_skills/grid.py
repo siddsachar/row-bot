@@ -1,8 +1,8 @@
 """Phase 3's runs (Design A, Lane B): every cell of the pre-registered grid, one after another, resumed from its
 checkpoint after any stop.
 
-    python -m tests.e2e.learning.stale_skills.grid --queue main|local --root D:\\RowBotScratch\\stale-skills\\phase3
-        --eval-profile C:\\Data\\row-bot-eval-profile [--gpu-booking D:\\RowBotScratch\\gpu-booking.txt]
+    python -m tests.e2e.learning.stale_skills.grid --queue main|local --root <phase 3 folder>
+        --eval-profile <eval profile> [--gpu-booking <booking file>] [--modelfile-4b <the 4B's Modelfile>]
 
 **The grid** (``PREREG-DESIGN-A.md`` §5): six people × 120 simulated days, paired (the same seed, people and changes
 in every cell). The ``main`` queue: the main model on the ChatGPT lane, arms N, R and D. The ``local`` queue: Qwen3.5
@@ -59,8 +59,6 @@ MODELS: dict[str, dict[str, str]] = {
 }
 #: Per-cell ChatGPT-lane caps: well above need (a main cell is expected at about 20-25M), so a cap is a stop to look.
 CAPS = {"main": 80_000_000, "local": 4_000_000}
-#: The 4B, registered in Ollama from the precedence study's GGUF with Row-Bot's Modelfile when a 4B cell starts.
-FOUR_B_MODELFILE = Path(r"D:\RowBotScratch\learning\precedence\prec_export\gguf\Modelfile")
 
 
 @dataclass(frozen=True)
@@ -281,16 +279,19 @@ def unlock(folder: Path) -> None:
         pass
 
 
-def ensure_model(cell: Cell, status: Status) -> None:
-    """The 4B in Ollama (the precedence study's GGUF and Modelfile) before a 4B cell."""
+def ensure_model(cell: Cell, status: Status, modelfile: str = "") -> None:
+    """The 4B in Ollama before a 4B cell: registered from the precedence study's GGUF with Row-Bot's Modelfile
+    (``--modelfile-4b``) when it isn't there yet."""
 
     if cell.model != "q4b":
         return
     listed = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=120).stdout
     if MODELS["q4b"]["local"] in listed:
         return
-    status.event(f"registering {MODELS['q4b']['local']} in Ollama from {FOUR_B_MODELFILE}")
-    subprocess.run(["ollama", "create", MODELS["q4b"]["local"], "-f", str(FOUR_B_MODELFILE)], check=True,
+    if not modelfile:
+        raise SystemExit(f"{MODELS['q4b']['local']} isn't in Ollama: pass --modelfile-4b")
+    status.event(f"registering {MODELS['q4b']['local']} in Ollama from {modelfile}")
+    subprocess.run(["ollama", "create", MODELS["q4b"]["local"], "-f", modelfile], check=True,
                    capture_output=True, text=True, timeout=1800)
 
 
@@ -317,7 +318,7 @@ def run_cell(cell: Cell, args: argparse.Namespace, status: Status) -> str:
     crashes_without_step = 0
     waits = 0
     while True:
-        ensure_model(cell, status)
+        ensure_model(cell, status, args.modelfile_4b)
         before = progress(folder)["steps"]
         entry["state"] = "running"
         entry["starts"] += 1
@@ -373,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", required=True)
     parser.add_argument("--eval-profile", required=True)
     parser.add_argument("--gpu-booking", default="")
+    parser.add_argument("--modelfile-4b", default="", help="the 4B's Ollama Modelfile (the precedence study's "
+                        "GGUF), needed only while the 4B isn't registered in Ollama")
     parser.add_argument("--rest-minutes", type=float, default=0.0, help="a pause between cells (spreads the use)")
     parser.add_argument("--only", default="", help="comma-separated cell names (default: the whole queue)")
     parser.add_argument("--name", default="", help="this supervisor's status name (several may share a queue: "
