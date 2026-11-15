@@ -101,6 +101,7 @@ BROWSER_SMOKE_SPECS = (
     "model-visibility",
     "question-cards",
     "workflow-review",
+    "watches",
     "pages",
     "answer-components",
     "library-media",

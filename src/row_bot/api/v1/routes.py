@@ -1128,6 +1128,14 @@ _STATUS.update(
         "video_brand_invalid": 422,
         "row_bot_sandbox_unavailable": 404,
         "wait_unavailable": 404,
+        # A watch (B4): a command that needs the approval card goes to the model; a private page, a full set of
+        # watches, a bad interval; one at its 7 days, or paused for Check now.
+        "watch_needs_approval": 409,
+        "watch_page_refused": 422,
+        "watch_limit": 409,
+        "watch_invalid": 422,
+        "watch_lifetime_max": 409,
+        "watch_paused": 409,
         "row_bot_sandbox_refused": 409,
         "sent_file_unavailable": 404,
         "sent_file_expired": 410,
@@ -5842,13 +5850,72 @@ def create_router(
         from row_bot.application.client_platform import ClientPlatformError
 
         items = []
-        for record in waits.waiting():
+        # A watch that ran out or reached its change cap keeps its card until the person puts it away (B4).
+        for record in [*waits.waiting(), *waits.ended_watches()]:
             try:
                 meta = service._metadata(record["conversation_id"])
             except ClientPlatformError:
                 continue  # Its conversation is gone: nothing will start there.
             items.append({**waits.view(record), "conversation_title": str(meta.get("name") or "")[:160]})
         return {"schema_version": 1, "items": items[:500]}
+
+    def _wait_id(wait_id: str) -> str:
+        if len(wait_id) != 12 or any(char not in "0123456789abcdef" for char in wait_id):
+            raise ProtocolError("wait_unavailable", 404)
+        return wait_id
+
+    def _set_watch(conversation_id: str, body: Any) -> dict:
+        """``/watch`` with no model call (B4): a public page, or a command that only reads. A command that doesn't
+        is refused (``watch_needs_approval``): it goes to the model, whose wait_for shows the approval card."""
+        from row_bot import goal_checks, waits
+        from row_bot.application.client_platform import ClientPlatformError
+
+        try:
+            service._metadata(conversation_id)
+        except ClientPlatformError:
+            raise ProtocolError("not_found", 404) from None
+        target = body.target.strip()
+        if body.mode == "page":
+            if waits.page_refusal(target):
+                raise ProtocolError("watch_page_refused", 422)
+            spec = {"mode": "page", "url": target}
+        else:
+            try:
+                approval = waits.command_approval(conversation_id, target, "read_only")
+            except goal_checks.CheckRefused as refused:
+                raise ProtocolError(refused.code, 422) from None
+            if not approval["classification"].get("read_only"):
+                raise ProtocolError("watch_needs_approval", 409)
+            spec = {"mode": "command", "command": target, "approval": approval}
+        label = target if len(target) <= 60 else target[:59] + "…"
+        try:
+            waits.create(conversation_id, "watch", label, spec={**spec, "then": "", "focus": "", "ends_when": ""},
+                         every_minutes=body.every_minutes)
+        except waits.WaitError as error:
+            raise ProtocolError("watch_limit" if "already" in str(error) else "watch_invalid",
+                                409 if "already" in str(error) else 422) from None
+        return _wait_page()
+
+    def _control_watch(wait_id: str, action: str) -> dict:
+        from row_bot import waits
+
+        refused = waits.control(wait_id, action)
+        if refused:
+            raise ProtocolError(refused, {"wait_unavailable": 404, "invalid_command": 422}.get(refused, 409))
+        return _wait_page()
+
+    @router.post("/conversations/{conversation_id}/watches")
+    async def set_watch(request: Request, conversation_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.WatchCreate, 4 * 1024)
+        return await respond(request, dto.WaitPage, await call(_set_watch, conversation_id, body))
+
+    @router.post("/waits/{wait_id}/control")
+    async def control_watch(request: Request, wait_id: str) -> JSONResponse:
+        """The watch card's Pause, Resume, Check now and Extend (B4)."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.WatchControl, 1024)
+        return await respond(request, dto.WaitPage, await call(_control_watch, _wait_id(wait_id), body.action))
 
     @router.get("/waits")
     async def waits_page(request: Request) -> JSONResponse:
@@ -11583,6 +11650,7 @@ def create_router(
                 "folder",
                 "x_post",
                 "setting_change",
+                "price",
                 "policy_revision",
             )
             if k in view

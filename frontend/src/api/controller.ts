@@ -2938,6 +2938,11 @@ export class ClientController {
     this.query(() => this.transport.waits?.(signal));
   stopWait = (waitId: string) =>
     this.query(() => this.transport.stopWait?.(waitId));
+  /** A watch's Pause, Resume, Check now and Extend; /watch with no model call (B4). */
+  controlWatch = (waitId: string, body: import('./types').WatchControl) =>
+    this.query(() => this.transport.controlWatch?.(waitId, body));
+  setWatch = (conversationId: string, body: import('./types').WatchCreate) =>
+    this.query(() => this.transport.setWatch?.(conversationId, body));
   /** The activity log (D1): every tool action, its outcome and who decided. */
   activity = (
     filters: import('./types').ActivityFilters,

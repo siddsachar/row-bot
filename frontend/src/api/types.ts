@@ -1118,6 +1118,14 @@ export interface ClientTransport {
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;
   stopWait?(waitId: string): Promise<Wire.WaitPage>;
+  controlWatch?(
+    waitId: string,
+    body: Wire.WatchControl,
+  ): Promise<Wire.WaitPage>;
+  setWatch?(
+    conversationId: string,
+    body: Wire.WatchCreate,
+  ): Promise<Wire.WaitPage>;
   /** Proactive Row-Bot: moments, "Why this?", feedback, Activity, settings, rules, drafts. */
   proactiveMoments?(signal?: AbortSignal): Promise<Wire.ProactiveMomentPage>;
   proactiveMoment?(

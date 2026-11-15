@@ -7,6 +7,8 @@ from row_bot.providers.models import ModelInfo, ModelModality, ModelTask, Transp
 
 XAI_COMPOSER_MODEL_ID = "grok-composer-2.5-fast"
 XAI_COMPOSER_DISPLAY_NAME = "Grok Composer 2.5 Fast"
+# xAI's model lists give each picture tier's ``price_per_image`` in 1/100,000,000ths of a US cent.
+_XAI_PRICE_UNITS_PER_USD = 10_000_000_000
 
 
 def xai_model_id_from_item(item: dict[str, Any]) -> str:
@@ -21,6 +23,7 @@ def xai_generation_parameters_from_item(item: dict[str, Any]) -> dict[str, Any] 
     qualities: list[str] = []
     resolutions: list[str] = []
     combinations: list[dict[str, str]] = []
+    prices: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for row in pricing:
         if not isinstance(row, dict):
@@ -32,13 +35,17 @@ def xai_generation_parameters_from_item(item: dict[str, Any]) -> dict[str, Any] 
             continue
         seen.add(pair)
         combinations.append({"quality": quality, "resolution": resolution})
+        price = row.get("price_per_image")
+        if isinstance(price, (int, float)) and not isinstance(price, bool) and price > 0:
+            prices.append({"quality": quality, "resolution": resolution,
+                           "usd": price / _XAI_PRICE_UNITS_PER_USD})
         if quality not in qualities:
             qualities.append(quality)
         if resolution not in resolutions:
             resolutions.append(resolution)
     if not combinations:
         return None
-    return {
+    parameters: dict[str, Any] = {
         "options": {
             "quality": qualities,
             "resolution": resolutions,
@@ -49,6 +56,9 @@ def xai_generation_parameters_from_item(item: dict[str, Any]) -> dict[str, Any] 
         },
         "valid_combinations": combinations,
     }
+    if prices:  # What each tier costs, for the approval card (``media_prices``).
+        parameters["prices"] = prices
+    return parameters
 
 
 def merged_xai_model_entries(pages: Iterable[Iterable[Any]]) -> list[dict[str, Any]]:
