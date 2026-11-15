@@ -2138,6 +2138,43 @@
       "title": "ConversationDeleteCommand",
       "type": "object"
     },
+    "ConversationForkCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ForkPayload"
+        },
+        "type": {
+          "const": "conversation.fork",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationForkCommand",
+      "type": "object"
+    },
     "ConversationIncognitoCommand": {
       "additionalProperties": false,
       "properties": {
@@ -4069,6 +4106,32 @@
         "folder_name"
       ],
       "title": "EmptyWorkspaceSetupPayload",
+      "type": "object"
+    },
+    "ForkPayload": {
+      "additionalProperties": false,
+      "description": "A new conversation from an earlier message (B5); the original is never changed.\n\n\"edit\" (Edit and resend): *at_message_id* is the person's message, and the new conversation holds what came\nbefore it; the client then sends the edited text there. \"fork\" (Fork from here): it is a reply, and the new\nconversation holds everything up to the end of its turn.",
+      "properties": {
+        "at_message_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "At Message Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "edit",
+            "fork"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at_message_id",
+        "mode"
+      ],
+      "title": "ForkPayload",
       "type": "object"
     },
     "GoalCommandWirePayload": {
@@ -10850,6 +10913,7 @@
       "conversation.controls": "#/$defs/ConversationControlsCommand",
       "conversation.create": "#/$defs/ConversationCreateCommand",
       "conversation.delete": "#/$defs/ConversationDeleteCommand",
+      "conversation.fork": "#/$defs/ConversationForkCommand",
       "conversation.incognito": "#/$defs/ConversationIncognitoCommand",
       "conversation.link.dismiss": "#/$defs/ConversationLinkDismissCommand",
       "conversation.link.start": "#/$defs/ConversationLinkStartCommand",
@@ -10997,6 +11061,9 @@
     },
     {
       "$ref": "#/$defs/ConversationRestoreCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationForkCommand"
     },
     {
       "$ref": "#/$defs/ConversationSubmitCommand"

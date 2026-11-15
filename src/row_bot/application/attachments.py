@@ -426,6 +426,32 @@ def inspect_attachment(reference: str) -> dict:
             raise AttachmentError("not_found") from None
 
 
+def copy_attachment(reference: str, conversation_id: str) -> dict:
+    """Copy one checked file into another conversation, under the same id (a fork's history names it).
+
+    The copy's reference is ``conversation_id:<id>``: the other conversation reads its own copy, never this
+    one's files, and deleting either conversation leaves the other's copy.
+    """
+    from row_bot import threads
+    metadata, data = read_attachment(reference)
+    attachment_id = reference.rsplit(":", 1)[1]
+    copied = f"{conversation_id}:{attachment_id}"
+    with _LOCK:
+        _conversation(conversation_id)
+        media_root = threads._MEDIA_DIR
+        folder = media_root / conversation_id
+        _safe_path(media_root, folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        _safe_path(media_root, folder)
+        if not (folder / f"attachment_{attachment_id}.json").exists():
+            record = {**metadata, "attachment_ref": copied, "sha256": hashlib.sha256(data).hexdigest()}
+            _safe_path(media_root, folder / f"attachment_{attachment_id}.bin")
+            _write(media_root, folder / f"attachment_{attachment_id}.bin", data)
+            _safe_path(media_root, folder / f"attachment_{attachment_id}.json")
+            _write(media_root, folder / f"attachment_{attachment_id}.json", json.dumps(record).encode())
+    return inspect_attachment(copied)
+
+
 THUMBNAIL_PIXELS = 160
 THUMBNAIL_SOURCE_PIXELS = 64_000_000
 VIDEO_THUMBNAIL_TYPES = frozenset({"video/mp4", "video/webm", "video/quicktime"})

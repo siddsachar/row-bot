@@ -200,6 +200,27 @@ def delete_thread_outputs(thread_id: str) -> int:
     return 1
 
 
+def copy_saved_outputs(source_thread_id: str, target_thread_id: str, handles: Iterable[str]) -> int:
+    """Copy the named saved outputs of one conversation into another's folder (a fork's history names them).
+
+    Handles are the same in both, so ``read_tool_output`` finds them in the copy; returns how many were copied.
+    """
+    source = _thread_folder(source_thread_id)
+    target = _thread_folder(target_thread_id)
+    copied = 0
+    for handle in sorted(set(handles)):
+        text = source / f"{handle}.txt"
+        if not _HANDLE.fullmatch(handle) or not text.is_file():
+            continue
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(text, target / text.name)
+        record = source / f"{handle}.json"
+        if record.is_file():
+            shutil.copyfile(record, target / record.name)
+        copied += 1
+    return copied
+
+
 def sweep_orphaned_outputs(thread_ids: Iterable[str], *, older_than: float | None = None) -> int:
     """Remove saved outputs of conversations that no longer exist.
 

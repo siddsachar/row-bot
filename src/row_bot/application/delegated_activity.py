@@ -74,11 +74,25 @@ def read_run(service: Any, conversation_id: str, run_id: str) -> dict:
     from row_bot import agent_runs
     _require(service, conversation_id)
     run = agent_runs.get_agent_run(run_id)
-    if not run or run.get("kind") != "subagent" or run.get("parent_thread_id") != conversation_id:
+    if (not run or run.get("kind") != "subagent"
+            or run.get("parent_thread_id") not in {conversation_id, *_forked_from(service, conversation_id)}):
         raise ClientPlatformError("not_found")
     result = _public(service, run)
     _require(service, conversation_id)
     return result
+
+
+def _forked_from(service: Any, conversation_id: str) -> set[str]:
+    """The conversations a fork was copied from (B5): a helper card in its copied history opens the run that
+    ran there. Read only: the run is stopped or messaged from where it ran."""
+    found: set[str] = set()
+    current = conversation_id
+    while len(found) < 16:
+        current = str(service._metadata(current).get("forked_from_id") or "") if _available(service, current) else ""
+        if not current or current in found or current == conversation_id:
+            break
+        found.add(current)
+    return found
 
 
 def _controlled_run(service: Any, conversation_id: str, run_id: str) -> dict:
