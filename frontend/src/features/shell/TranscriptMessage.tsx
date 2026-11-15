@@ -5,6 +5,7 @@ import {
   BookOpen,
   CornerDownRight,
   Cpu,
+  Eye,
   GraduationCap,
   Pencil,
   Repeat2,
@@ -538,6 +539,21 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           </div>
         ) : null}
       </>
+    );
+  if (row.note === 'watch')
+    // A watch that ran out (B4): Row-Bot's own quiet line, with no model
+    // turn behind it.
+    return (
+      <div
+        className="transcript-note"
+        role="note"
+        data-note="watch"
+        data-message-id={row.message_id ?? row.id}
+        data-row-id={row.id}
+      >
+        <Eye aria-hidden />
+        <span>{visibleText(shown)}</span>
+      </div>
     );
   if (row.note === 'personal_model_fallback' || row.note === 'backup_model')
     // Learning (preview): the person's personal model got stuck on this turn

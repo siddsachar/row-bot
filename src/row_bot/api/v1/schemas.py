@@ -9739,8 +9739,9 @@ class TranscriptRow(WireModel):
     # Learning (preview): "personal_model_fallback" is the quiet line where the main
     # model finished a turn the personal model got stuck on.
     # "backup_model" is the quiet line where the backup model took over a turn (#140).
+    # "watch": Row-Bot's own line that a watch ran out (B4), written without a model turn.
     note: Literal["continuation", "agent_task", "agent_guidance", "page", "personal_model_fallback",
-                  "linked", "backup_model"] | None = None
+                  "linked", "backup_model", "watch"] | None = None
     # A message from another conversation (5.3.1 C, note "linked"): where it came from.
     linked_from: LinkedFrom | None = None
     # A workflow run's line (note "continuation"): the messages other conversations left for that run.

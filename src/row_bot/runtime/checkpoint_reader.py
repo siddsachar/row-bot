@@ -462,11 +462,15 @@ class BlobReader:
             elif name == "AIMessage" and "row_bot_ui" in metadata:
                 # A delegated agent's approval notice in its parent (B162):
                 # the row names the approval, so React answers it in place.
-                ui = self.fields(metadata["row_bot_ui"], {"approval_request_id"})
+                ui = self.fields(metadata["row_bot_ui"], {"approval_request_id", "watch_note"})
                 if "approval_request_id" in ui:
                     candidate = self.text(ui["approval_request_id"], 128)
                     if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", candidate):
                         approval_id = candidate
+                if "watch_note" in ui and self.node(ui["watch_note"]).kind == "str" \
+                        and self.text(ui["watch_note"], 16) == "ended":
+                    # A watch that ran out (B4): Row-Bot's own quiet line, written without a model turn.
+                    note = "watch"
             elif name == "ToolMessage":
                 if "platform_media" in metadata:
                     media, media_error = self.safe_platform_media(metadata["platform_media"])

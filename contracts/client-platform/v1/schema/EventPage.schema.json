@@ -4496,7 +4496,8 @@
                 "page",
                 "personal_model_fallback",
                 "linked",
-                "backup_model"
+                "backup_model",
+                "watch"
               ],
               "type": "string"
             },
