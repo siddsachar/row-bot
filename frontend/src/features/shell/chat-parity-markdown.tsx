@@ -221,6 +221,16 @@ function tableColumns(lines: string[], index: number) {
     : 0;
 }
 
+// What an answer component's placeholder says while its reply streams in.
+const PENDING: Record<string, string> = {
+  'rowbot-table': 'Preparing a table…',
+  'rowbot-chart': 'Preparing a chart…',
+  'rowbot-checklist': 'Preparing a checklist…',
+  'rowbot-figures': 'Preparing figures…',
+  'rowbot-progress': 'Preparing progress…',
+  'rowbot-choices': 'Preparing choices…',
+};
+
 // A task list item: "- [ ] open" or "- [x] done".
 const TASK = /^\[([ xX])\]\s+(.+)$/;
 
@@ -325,9 +335,12 @@ function quoteLines(lines: string[]) {
 export default function SafeMarkdown({
   text,
   copyText,
+  streaming = false,
 }: {
   text: string;
   copyText?: (value: string) => Promise<boolean>;
+  /** The reply is still arriving: an answer component's fence shows as a placeholder. */
+  streaming?: boolean;
 }) {
   const lines = withoutBlankRuns(text.replaceAll('\r\n', '\n').split('\n'));
   const blocks: ReactNode[] = [];
@@ -350,6 +363,15 @@ export default function SafeMarkdown({
       )
         content.push(lines[index++]);
       if (index < lines.length) index++;
+      if (streaming && language.startsWith('rowbot-')) {
+        // A component still being written: its block shows once the reply is saved.
+        blocks.push(
+          <p className="answer-pending" role="status" key={`code-${start}`}>
+            {PENDING[language] ?? 'Preparing…'}
+          </p>,
+        );
+        continue;
+      }
       blocks.push(
         <CodeBlock
           copyText={copyText}

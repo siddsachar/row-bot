@@ -1,10 +1,18 @@
-import { expect, test, type Page } from '@playwright/test';
-import { screenshot } from './evidence';
+import type { Page, TestInfo } from '@playwright/test';
+import { expect, screenshot, test } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
+import { composer, dismissNotices, newConversation } from './unified-helpers';
+
+/*
+ * F3 · Answer components. Markdown tables sort and task lists tick in any
+ * answer; a reply's rowbot-* fences become a table, chart, checklist,
+ * figures, progress and choices through the real server's projection, and a
+ * reply button sends its words as the person's own message, nothing else.
+ */
 
 type Block = { id: string; type: string; [key: string]: unknown };
 
-/** Shows one assistant answer made of these blocks in the open conversation. */
+/** Shows one assistant answer made of these blocks in the open fixture conversation. */
 async function showAnswer(page: Page, blocks: Block[]) {
   await page.evaluate((answer) => {
     const { controller } = (window as FixtureWindow).__ROW_BOT_FIXTURE__;
@@ -25,10 +33,10 @@ async function showAnswer(page: Page, blocks: Block[]) {
   }, blocks);
 }
 
-/** Desktop and phone, light and dark, of what is on screen. */
+/** Desktop and phone, light and dark, of what is on screen; never wider than the screen. */
 async function screens(
   page: Page,
-  info: Parameters<typeof screenshot>[1],
+  info: TestInfo,
   name: string,
   target: () => ReturnType<Page['locator']>,
 ) {
@@ -51,6 +59,112 @@ async function screens(
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ colorScheme: 'light' });
 }
+
+/** The turn has finished: no Stop in the composer, every chart drawn. */
+async function settled(page: Page) {
+  await expect(
+    page.getByRole('button', { name: 'Stop', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('.rich-chart-plot:not([data-status="ready"])'),
+  ).toHaveCount(0);
+  // The last message is confirmed: the composer (and so a reply button) can send.
+  await expect(
+    page.getByRole('button', { name: 'Check message', exact: true }),
+  ).toHaveCount(0);
+}
+
+/** Sends a message from the composer, as the person does. */
+async function ask(page: Page, text: string) {
+  await composer(page).fill(text);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+}
+
+test('a reply’s components render from the server, and a choice sends the person’s words', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium pass',
+  );
+  const submitted: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'POST' || !request.url().endsWith('/commands'))
+      return;
+    const body = request.postDataJSON() as {
+      type?: string;
+      payload?: { text?: string; tapped_choice?: { label?: string } };
+    };
+    const tap = body.payload?.tapped_choice;
+    submitted.push(
+      `${body.type}:${body.payload?.text ?? ''}${tap ? ` [tap: ${tap.label}]` : ''}`,
+    );
+  });
+  await newConversation(page);
+  await ask(page, 'f3 components fixture');
+  const log = page.getByRole('log', { name: 'Conversation' });
+
+  const figures = log.getByRole('region', { name: 'October spend' });
+  await expect(figures.getByRole('definition').first()).toHaveText(
+    '£2,140-8% vs Sep',
+  );
+  // The chart is the existing chart card, drawn from the inline data.
+  await expect(log.locator('.rich-chart .rich-block-title')).toHaveText(
+    'Spend by month',
+  );
+  const table = log.getByRole('region', { name: 'Biggest costs' });
+  await table.getByRole('button', { name: 'Cost' }).click();
+  expect(
+    await table.locator('tbody tr td:nth-child(2)').allTextContents(),
+  ).toEqual(['£186', '£238', '£512', '£1,200']);
+  await expect(
+    log.getByRole('progressbar', { name: 'Emergency fund' }),
+  ).toHaveAttribute('aria-valuenow', '100');
+  const checklist = log.getByRole('region', { name: 'This week' });
+  await expect(checklist.getByText('1 of 3 done')).toBeVisible();
+  await checklist
+    .getByRole('checkbox', { name: 'Check the energy bill' })
+    .click();
+  await expect(checklist.getByText('2 of 3 done')).toBeVisible();
+  // Every picture is of the settled turn: no Stop, the chart drawn.
+  await settled(page);
+  await dismissNotices(page);
+  await screens(page, info, 'components-figures-table', () => figures);
+  await screens(page, info, 'components-chart', () =>
+    log.locator('.rich-chart'),
+  );
+  await screens(page, info, 'components-progress-checklist', () => checklist);
+
+  const choices = log.getByRole('group', {
+    name: 'What should I look at next?',
+  });
+  await screens(page, info, 'choices-before', () => choices);
+  const before = submitted.length;
+  // Like the composer's Send, the buttons wait for the turn; once it has
+  // settled one tap sends, with no refusal notice.
+  await choices.getByRole('button', { name: 'Subscriptions' }).click();
+  await expect(
+    choices.getByRole('button', { name: /Subscriptions/ }),
+  ).toContainText('Sent');
+  await expect(page.getByText(/can.t take that reply/)).toHaveCount(0);
+  // The words went as the person's own message, and Row-Bot answered them.
+  await expect(
+    log.getByText('You pay for three: music, cloud storage and a news site.'),
+  ).toBeVisible();
+  await expect(log.getByText('List my subscriptions')).toBeVisible();
+  expect(submitted.slice(before)).toEqual([
+    'conversation.submit:List my subscriptions [tap: Subscriptions]',
+  ]);
+  const picked = choices.getByRole('button', { name: /Subscriptions/ });
+  await expect(picked).toHaveAttribute('aria-pressed', 'true');
+  await expect(picked).toContainText('Sent');
+  await expect(
+    choices.getByRole('button', { name: 'Groceries' }),
+  ).toBeDisabled();
+  await settled(page);
+  await dismissNotices(page);
+  await screens(page, info, 'choices-after', () => choices);
+});
 
 const TABLE = [
   'Here is the budget:',
