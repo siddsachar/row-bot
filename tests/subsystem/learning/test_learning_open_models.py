@@ -129,7 +129,7 @@ def test_a_model_that_fits_learns_converts_and_calls_tools_passes_and_says_what_
     assert [found.item(name).state for name in open_models.CHECK_ITEMS] == ["passed"] * 4
     assert found.item("fits").words == "Trains on this card: peak 21.2 GB of the 25.5 GB it may use."
     assert found.item("steps").words == "Loss 2.10 → 1.60 over 4 steps; gradients finite."
-    assert found.item("tools").words == "It called Row-Bot’s tools right 2 of 3 times."
+    assert found.item("tools").words == "Right 2 of 3 times."
     assert [item["prompt"] for item in found.sample] == [item["prompt"] for item in open_models.TOOL_SAMPLE]
     assert steps.calls[:2] == ["pin", ("download", "Qwen/Qwen3-14B", REV)]
     assert ("fit", open_models.FULL_SEQ) in steps.calls and ("fit", open_models.SHORT_SEQ) not in steps.calls
@@ -154,7 +154,7 @@ def test_too_big_for_this_card_still_passes_to_train_on_hugging_face_after_a_sho
     ({"losses": (1.0, 1.4, 1.9, 2.4)}, "steps", "steps", "The loss grew over the trial steps."),
     ({"export_ok": False}, "export", "export", "Its trained copy didn’t convert to run on Row-Bot’s own server."),
     ({"tools": (True, False, False)}, "tools", "tools",
-     "It called Row-Bot’s tools right 1 of 3 times; it needs at least 2."),
+     "Right 1 of 3 times; it needs at least 2."),
     ({"fits": False, "short_fits": False}, "steps", "no_room",
      "Even a short trial doesn’t fit this card, so Row-Bot can’t check the rest here."),
 ])
@@ -184,6 +184,8 @@ def test_stopping_a_check_keeps_what_it_learned_and_says_stopped(tmp_path):
 
     assert (found.state, found.stage) == ("stopped", None)
     assert found.item("steps").state == "passed" and "tools" not in steps.calls
+    # What it never reached says so: never "waiting" on a check that isn't running.
+    assert [found.item(name).state for name in ("export", "tools")] == ["skipped", "skipped"]
 
 
 def test_a_licence_with_terms_needs_the_person_s_ok_before_its_check(tmp_path):

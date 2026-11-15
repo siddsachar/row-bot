@@ -28,7 +28,6 @@ import hashlib
 import json
 import logging
 import math
-import os
 import re
 import threading
 import time
@@ -479,11 +478,12 @@ def read(repo: str, root: Path | None = None) -> Record | None:
 
 
 def write(record: Record, root: Path | None = None) -> Record:
-    target = _path(record.repo, root)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(_to_json(record), indent=1), encoding="utf-8")
-    os.replace(temporary, target)
+    """Save the record whole. A client reading it while the check saves its next step holds it open for a moment
+    on Windows, so the swap waits that out (``atomic``) instead of failing the check."""
+
+    from row_bot.learning import atomic
+
+    atomic.write_text(_path(record.repo, root), json.dumps(_to_json(record), indent=1))
     return record
 
 
@@ -704,7 +704,11 @@ class Checker:
             return self._run(record)
         except Stopped:
             found = read(repo, self._root) or record
-            return self._save(replace(found, state="stopped", stage=None)) if found is not None else None
+            if found is None:
+                return None
+            items = {name: found.item(name) if found.item(name).state in ("passed", "failed") else CheckItem("skipped")
+                     for name in CHECK_ITEMS}
+            return self._save(replace(found, state="stopped", stage=None, items=items))
         except Exception:  # noqa: BLE001 - a broken check fails, it never breaks Row-Bot
             logger.warning("Learning's model check failed unexpectedly", exc_info=True)
             found = read(repo, self._root) or record
@@ -792,17 +796,17 @@ class Checker:
                                   "export")
             size = gguf.stat().st_size if gguf.is_file() else 0
             record = self._item(record, "export", "passed",
-                                f"Converts to run on Row-Bot’s own server ({size / 1e9:.1f} GB at Q4_K_M).",
+                                f"Converted to a {size / 1e9:.1f} GB file at Q4_K_M.",
                                 gguf_bytes=size)
             record = self._item(record, "tools", "running")
             sample = steps.tool_sample(gguf, work, self._check)
             passed = sum(1 for item in sample if item.get("passed"))
             record = self._save(replace(record, sample=tuple(sample)))
             if passed < TOOL_PASSES:
-                return self._fail(record, "tools", f"It called Row-Bot’s tools right {passed} of {len(sample)} "
-                                  "times; it needs at least 2.", "tools")
+                return self._fail(record, "tools", f"Right {passed} of {len(sample)} times; it needs at least "
+                                  f"{TOOL_PASSES}.", "tools")
             record = self._item(record, "tools", "passed",
-                                f"It called Row-Bot’s tools right {passed} of {len(sample)} times.")
+                                f"Right {passed} of {len(sample)} times.")
             return self._save(replace(record, state="passed", stage=None, failure=None, checked_at=self._clock()))
         finally:
             import shutil
