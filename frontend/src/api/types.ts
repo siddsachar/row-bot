@@ -1135,6 +1135,20 @@ export interface ClientTransport {
   ): Promise<Wire.ActivitySummary>;
   exportActivity?(body: Wire.ActivityExportRequest): Promise<Wire.SaveOffer>;
   clearActivity?(): Promise<Wire.ActivityCleared>;
+  /** Always allow (D1): standing rules, made only from a card; "Would this have asked?". */
+  approvalRules?(signal?: AbortSignal): Promise<Wire.ApprovalRulePage>;
+  createApprovalRule?(
+    body: Wire.ApprovalRuleCreate,
+  ): Promise<Wire.ApprovalRuleView>;
+  updateApprovalRule?(
+    ruleId: string,
+    body: Wire.ApprovalRuleUpdate,
+  ): Promise<Wire.ApprovalRuleView>;
+  deleteApprovalRule?(ruleId: string): Promise<Wire.ApprovalRulePage>;
+  dryRunApprovalRule?(
+    body: Wire.ApprovalRuleDryRunRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ApprovalRuleDryRun>;
   proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
   changeProactiveSettings?(
     change: Wire.ProactiveSettingsChange,

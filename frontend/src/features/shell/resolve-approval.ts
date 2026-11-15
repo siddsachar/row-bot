@@ -15,6 +15,8 @@ export async function resolveApproval(
   approvalId: string,
   view: { nonce: string; revision: string },
   payload: Record<string, unknown>,
+  // The command's id when it must be this one: Always allow… made its rule with the same nonce, bound to it (D1).
+  identity?: string,
 ): Promise<CommandReceipt> {
   try {
     return await controller.intent(
@@ -22,6 +24,7 @@ export async function resolveApproval(
       'approval.resolve',
       { ...payload, nonce: view.nonce },
       view.revision,
+      ...(identity ? ([identity] as const) : []),
     );
   } catch (cause) {
     if (clientError(cause).code !== 'approval_expired') throw cause;

@@ -2925,6 +2925,21 @@ export class ClientController {
   exportActivity = (body: import('./types').ActivityExportRequest) =>
     this.query(() => this.transport.exportActivity?.(body));
   clearActivity = () => this.query(() => this.transport.clearActivity?.());
+  /** Always allow (D1): the person's standing rules; a rule is made only from a card. */
+  approvalRules = (signal?: AbortSignal) =>
+    this.query(() => this.transport.approvalRules?.(signal));
+  createApprovalRule = (body: import('./types').ApprovalRuleCreate) =>
+    this.query(() => this.transport.createApprovalRule?.(body));
+  updateApprovalRule = (
+    ruleId: string,
+    body: import('./types').ApprovalRuleUpdate,
+  ) => this.query(() => this.transport.updateApprovalRule?.(ruleId, body));
+  deleteApprovalRule = (ruleId: string) =>
+    this.query(() => this.transport.deleteApprovalRule?.(ruleId));
+  dryRunApprovalRule = (
+    body: import('./types').ApprovalRuleDryRunRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.dryRunApprovalRule?.(body, signal));
   /** Proactive Row-Bot (see `features/proactive/proactive-state.ts`). */
   proactiveMoments = (signal?: AbortSignal) =>
     this.query(() => this.transport.proactiveMoments?.(signal));

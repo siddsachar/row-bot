@@ -431,6 +431,10 @@ export function splitApproval(text: string): {
 export function approvedWithoutYou(approval: string): string | null {
   if (/^approved by the reviewer\b/i.test(approval)) return 'Reviewer approved';
   if (/^allowed by hands-off\b/i.test(approval)) return 'Hands-off';
+  // What the person allowed beforehand (D1): one of their Always allow rules, or for this chat.
+  if (/^allowed by your rule\b/i.test(approval)) return 'Your rule';
+  if (/^allowed by you for this chat\b/i.test(approval))
+    return 'Allowed in this chat';
   return null;
 }
 

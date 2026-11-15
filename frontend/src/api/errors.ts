@@ -705,6 +705,24 @@ const CATALOG: Record<string, Entry> = {
     "That edit can't be saved: the post is empty or longer than the account can post.",
     'none',
   ],
+  rule_not_eligible: [
+    'Always allow isn’t offered for this action. Approve it on its card.',
+    'none',
+  ],
+  rules_full: [
+    'You have 100 Always allow rules, the most there can be. Delete one in Settings › Activity first.',
+    'none',
+  ],
+  rule_exists: ['You already have a rule for exactly that command.', 'none'],
+  rule_command_refused: [
+    'A rule can only cover one plain command that doesn’t install, delete, use the network, commit, push or start a server.',
+    'review',
+  ],
+  rule_not_editable: ['Only a command rule’s command can be changed.', 'none'],
+  rules_unavailable: [
+    'Your Always allow rules couldn’t be read, so every action asks as usual.',
+    'retry',
+  ],
   approval_edit_invalid: [
     "That edit can't be used for this post. Close it and edit the post on its current card.",
     'review',

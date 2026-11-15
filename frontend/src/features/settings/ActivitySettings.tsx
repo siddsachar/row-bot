@@ -67,7 +67,7 @@ export const OUTCOMES: Record<
   approved_by_you: { label: 'You approved', tone: 'success' },
   approved_by_reviewer: { label: 'Reviewer approved', tone: 'success' },
   hands_off: { label: 'Hands-off', tone: 'warning' },
-  allowed_by_rule: { label: 'Your rule', tone: 'success' },
+  allowed_by_rule: { label: 'Allowed by your rule', tone: 'success' },
   allowed_in_chat: { label: 'Allowed in this chat', tone: 'success' },
   denied: { label: 'You said no', tone: 'danger' },
   changed: { label: 'Changed after you approved — didn’t run', tone: 'danger' },
@@ -443,6 +443,15 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
   );
 }
 
+/** The rule that allowed an action, in the Always allow list above (still there unless deleted). */
+function showRule(ruleId: string) {
+  const row = document.getElementById(`rule-${ruleId}`);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  row.setAttribute('tabindex', '-1');
+  row.focus({ preventScroll: true });
+}
+
 function ActivityRow({
   entry,
   open,
@@ -499,7 +508,21 @@ function ActivityRow({
           <dl>
             <div>
               <dt>Decided by</dt>
-              <dd>{DECIDED[entry.decided_by]}</dd>
+              <dd>
+                {DECIDED[entry.decided_by]}
+                {entry.rule_id && (
+                  <>
+                    {' · '}
+                    <button
+                      type="button"
+                      className="alog-rule-link"
+                      onClick={() => showRule(entry.rule_id ?? '')}
+                    >
+                      See the rule
+                    </button>
+                  </>
+                )}
+              </dd>
             </div>
             {entry.reason && (
               <div>

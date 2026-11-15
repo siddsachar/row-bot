@@ -114,6 +114,8 @@ BROWSER_SMOKE_SPECS = (
     "live-updates",
     # The activity log (D1): every action and who decided, its filters, CSV and Clear; Monitor's line.
     "activity-log",
+    # Always allow (D1): a card's rule and its dry run, the rule allowing it next time, Settings' rules.
+    "always-allow",
     "learning",
     "learning-training",
     "learning-download",
