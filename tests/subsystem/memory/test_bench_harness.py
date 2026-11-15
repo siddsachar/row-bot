@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -847,6 +847,67 @@ def test_the_report_gives_both_keys_tokens_and_time_from_a_run_folder(tmp_path) 
     report = (run_dir / "report.md").read_text(encoding="utf-8")
     assert "self-run, gpt-6.1-sol" in report and "not the published judge" in report
     assert "context, not head-to-head" in report
+
+
+def test_a_run_with_a_deadline_starts_no_task_that_would_not_finish_and_stops_cleanly_at_it(
+        tmp_path, monkeypatch) -> None:
+    import threading
+    import time as clock_module
+
+    assert orchestrate.parse_deadline("08:00", now=datetime(2026, 11, 16, 0, 20)) == datetime(2026, 11, 16, 8, 0)
+    assert orchestrate.parse_deadline("08:00", now=datetime(2026, 11, 16, 9, 0)) == datetime(2026, 11, 17, 8, 0)
+    assert orchestrate.parse_deadline("") is None
+
+    soon = datetime.now() + timedelta(seconds=0.2)
+    timer = orchestrate.deadline_timer(tmp_path, soon)
+    stopped = threading.Event()
+    while not (tmp_path / "STOP").exists() and not stopped.wait(0.05):
+        pass
+    timer.join(2)
+    assert (tmp_path / "STOP").read_text(encoding="utf-8").startswith("stopped by the harness: deadline")
+
+    data, key = _locomo_file(tmp_path)
+    (tmp_path / "prompts.yaml").write_text(
+        "llm_judge:\n  system_prompt: s\n  user_prompt: '{question}|{golden_answer}|{generated_answer}'\n",
+        encoding="utf-8")
+    started: list[str] = []
+    monkeypatch.setattr(orchestrate, "run_worker", lambda run_dir, spec, **_kwargs: started.append(spec["task_id"]) or 0)
+    monkeypatch.setenv("ROW_BOT_BENCH", "1")
+    monkeypatch.setenv("ROW_BOT_BENCH_MAX_USD", "1")
+    in_ten = (datetime.now() + timedelta(minutes=10)).strftime("%H:%M")
+    code = orchestrate.main(["run", "--benchmark", "locomo", "--data", str(data), "--key", str(key),
+                             "--protocol", str(tmp_path / "prompts.yaml"), "--model", "openai:gpt-x",
+                             "--run-dir", str(tmp_path / "run"), "--deadline", in_ten, "--task-minutes", "30"])
+    assert code == 77 and started == []  # neither task would finish in time: none starts, nothing is lost
+    assert clock_module.time() > 0
+
+
+def test_a_second_only_pass_judges_the_subset_with_the_second_judge_alone(tmp_path, monkeypatch) -> None:
+    from tests.e2e.bench.memory.protocols import protocol_to_json
+
+    (tmp_path / "prompts.yaml").write_text(
+        "llm_judge:\n  system_prompt: s\n  user_prompt: '{question}|{golden_answer}|{generated_answer}'\n",
+        encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "protocol.json").write_text(protocol_to_json(load_locomo(tmp_path / "prompts.yaml")), encoding="utf-8")
+    questions = [Question(f"q{i}", "?", "a", "temporal") for i in range(6)]
+    (run_dir / "questions.json").write_text(json.dumps([vars(q) for q in questions]), encoding="utf-8")
+    (run_dir / "answers.jsonl").write_text("".join(json.dumps(vars(scoring.Answer(q.question_id, "a"))) + "\n"
+                                                   for q in questions), encoding="utf-8")
+    (run_dir / "STOP").write_text("stopped by the harness: deadline 08:00\n", encoding="utf-8")
+    passes: list[tuple[str, int]] = []
+    real_check = orchestrate.throttle_check
+    monkeypatch.setattr(orchestrate, "throttle_check", lambda run_dir, provider, model, caps: pytest.fail(
+        "the plan was checked") if provider == "codex" else real_check(run_dir, provider, model, caps))
+    monkeypatch.setattr(orchestrate, "_book_and_run", lambda run_dir, spec, provider, what, expect:
+                        passes.append((spec["config"]["provider"], len(spec["answers"]))) or 0)
+    monkeypatch.setenv("ROW_BOT_BENCH", "1")
+    monkeypatch.setenv("ROW_BOT_BENCH_BOOKING_FILE", str(tmp_path / "booking.txt"))
+    assert orchestrate.main(["judge", "--run-dir", str(run_dir), "--judge", "codex:auto", "--second-only",
+                             "--second-judge", "ollama:qwen3.8:27b", "--second-judge-subset", "4"]) == 0
+    assert passes == [("ollama", 4)]  # the plan judge never ran; the second judge took its fixed subset
+    assert not (run_dir / "STOP").exists()  # an earlier deadline's stop does not hold a later pass
 
 
 def test_each_attempt_at_a_task_gets_a_fresh_scratch_folder(tmp_path, monkeypatch) -> None:

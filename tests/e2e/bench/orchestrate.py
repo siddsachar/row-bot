@@ -24,9 +24,11 @@ import os
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -294,6 +296,31 @@ def throttle_check(run_dir: Path, provider: str, model: str, caps: LedgerCaps) -
     return code
 
 
+def parse_deadline(text: str, *, now: datetime | None = None) -> datetime | None:
+    """``"08:00"`` -> the next 08:00 (today's, if still ahead); ``""`` -> None."""
+    if not str(text or "").strip():
+        return None
+    moment = now or datetime.now()
+    hour, _, minute = str(text).strip().partition(":")
+    target = moment.replace(hour=int(hour), minute=int(minute or 0), second=0, microsecond=0)
+    return target if target > moment else target + timedelta(days=1)
+
+
+def deadline_timer(run_dir: Path, deadline: datetime | None) -> threading.Timer | None:
+    """At *deadline*, the run's STOP file: tasks running stop at their next step (resumable); none starts."""
+    if deadline is None:
+        return None
+
+    def stop() -> None:
+        if not (run_dir / "STOP").exists():
+            (run_dir / "STOP").write_text(f"stopped by the harness: deadline {deadline:%H:%M}\n", encoding="utf-8")
+
+    timer = threading.Timer(max(0.0, deadline.timestamp() - time.time()), stop)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
 def run(args: argparse.Namespace) -> int:
     if not enabled():
         print(f"set {ENABLE_ENV}=1 to run (it uses the model you name)")
@@ -309,6 +336,7 @@ def run(args: argparse.Namespace) -> int:
     label = f"{args.benchmark}-{args.mode}{'-dream' if args.dream else ''}"
     run_dir = Path(args.run_dir) if args.run_dir else new_run_dir(label)
     run_dir.mkdir(parents=True, exist_ok=True)
+    clear_deadline_stop(run_dir)
     questions = [vars(question) for task in tasks for question in task.questions]
     (run_dir / "questions.json").write_text(json.dumps(questions, indent=1), encoding="utf-8")
     (run_dir / "protocol.json").write_text(protocol_to_json(protocol), encoding="utf-8")
@@ -339,7 +367,12 @@ def run(args: argparse.Namespace) -> int:
         print("not running: the graphics card takes one job at a time (--parallel is for the plan lane)")
         return 2
 
+    deadline = parse_deadline(args.deadline)
+
     def one(task: MemoryTask) -> int:
+        if deadline is not None and time.time() + 60 * args.task_minutes > deadline.timestamp():
+            print(f"{task.task_id}: not started, it would not finish by {deadline:%H:%M}", flush=True)
+            return 77
         figures = estimate(task, args.mode)
         spec = {"kind": "memory", "mode": args.mode, "task_id": task.task_id, "benchmark": task.benchmark,
                 "task": task.to_dict(), "config": asdict(config), "caps": asdict(caps),
@@ -368,14 +401,19 @@ def run(args: argparse.Namespace) -> int:
         if not book.wait_for(kind, stop=lambda: (run_dir / "STOP").exists()):
             return 77
         book.start(kind, f"{label} ({len(todo)} tasks, {args.parallel} at a time)", f"{max(10, len(todo) * 10)} min")
+    timer = deadline_timer(run_dir, deadline)
     try:
         with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
             codes = list(pool.map(one, todo))
     finally:
+        if timer is not None:
+            timer.cancel()
         if book is not None and kind is not None:
             book.end(kind, f"{label} ({len(todo)} tasks, {args.parallel} at a time)")
-    if (run_dir / "STOP").is_file() and (run_dir / "STOP").read_text(encoding="utf-8").startswith("stopped by the harness"):
-        (run_dir / "STOP").unlink()  # the harness's own signal; a person's STOP file is left alone
+    if (run_dir / "STOP").is_file() and (run_dir / "STOP").read_text(encoding="utf-8").startswith(
+            "stopped by the harness: exit"):
+        # The harness's own signal after a cap or a limit; a person's STOP file, and a deadline's, stay.
+        (run_dir / "STOP").unlink()
         stopped_by_us = True
     for code in (EXIT_PROVIDER_LIMIT, 75, 77):
         if code in codes:
@@ -385,7 +423,12 @@ def run(args: argparse.Namespace) -> int:
                 print({75: "a cap stopped the run", 77: "stopped on request"}[code]
                       + (" (the harness stopped the tasks beside it)" if stopped_by_us else ""))
             return code
+    if args.judge and deadline is not None and time.time() + 60 * max(args.task_minutes, 10) > deadline.timestamp():
+        print(f"judging left for later: it would not finish by {deadline:%H:%M} (bench.py judge --run-dir {run_dir})")
+        write_report(run_dir)
+        return 77
     if args.judge:
+        args._judging_run_dir = run_dir  # the run's own deadline (and STOP) carry into its judging
         return judge(args, run_dir=run_dir)
     write_report(run_dir)
     return 0
@@ -407,7 +450,29 @@ def judge(args: argparse.Namespace, *, run_dir: Path | None = None) -> int:
     answers = _latest_answers(run_dir)
     keys = scoring.keys_for(questions)
     rows = _rows(run_dir / "judgments.jsonl")
-    passes = [(args.judge, list(answers.values()))]
+    deadline = parse_deadline(getattr(args, "deadline", ""))
+    if run_dir != getattr(args, "_judging_run_dir", None):  # a judge pass of its own, not the tail of a run
+        clear_deadline_stop(run_dir)
+    timer = deadline_timer(run_dir, deadline)
+    try:
+        return _judge_passes(args, run_dir, caps, protocol, questions, answers, keys, rows)
+    finally:
+        if timer is not None:
+            timer.cancel()
+
+
+def clear_deadline_stop(run_dir: Path) -> None:
+    """A deadline's STOP file is the harness's own: a later run or judge pass of the folder starts without it."""
+    stop = run_dir / "STOP"
+    if stop.is_file() and stop.read_text(encoding="utf-8").startswith("stopped by the harness: deadline"):
+        stop.unlink()
+
+
+def _judge_passes(args: argparse.Namespace, run_dir: Path, caps: LedgerCaps, protocol: JudgeProtocol,
+                  questions: list[Question], answers: dict[str, scoring.Answer], keys: Sequence[str],
+                  rows: list[dict[str, Any]]) -> int:
+    # --second-only: the second judge's subset alone (a pass that needs only the card, not the eval profile).
+    passes = [] if getattr(args, "second_only", False) else [(args.judge, list(answers.values()))]
     if args.second_judge:
         ids = set(scoring.subset(answers, args.second_judge_subset))
         passes.append((args.second_judge, [answer for key, answer in answers.items() if key in ids]))
@@ -663,10 +728,18 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--run-dir", default="", help="resume this run folder")
     run_parser.add_argument("--parallel", type=int, default=1,
                             help="plan lane only: tasks run side by side, each in its own worker and folder")
+    run_parser.add_argument("--deadline", default="",
+                            help="HH:MM: at it the run stops cleanly (resumable); with --task-minutes, a task that "
+                                 "would not finish by then is not started")
+    run_parser.add_argument("--task-minutes", type=float, default=0.0,
+                            help="how long one task of this run takes at most, for --deadline")
     run_parser.add_argument("--judge", default="", help="judge right after the run with this model, provider:model")
     judge_parser = sub.add_parser("judge", help="judge a run's answers")
     judge_parser.add_argument("--run-dir", required=True)
     judge_parser.add_argument("--judge", required=True, help="the judge, provider:model")
+    judge_parser.add_argument("--deadline", default="", help="HH:MM: judging stops cleanly at it (resumable)")
+    judge_parser.add_argument("--second-only", action="store_true",
+                              help="only the second judge's subset (needs only that judge's lane)")
     for item in (run_parser, judge_parser):
         item.add_argument("--judge-runs", type=int, default=1)
         item.add_argument("--second-judge", default="", help=f"judge agreement: e.g. ollama:{LOCAL_MODEL} on a subset")
