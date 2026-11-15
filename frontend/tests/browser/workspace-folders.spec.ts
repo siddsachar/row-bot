@@ -1,7 +1,13 @@
 import type { Locator, Page, TestInfo } from '@playwright/test';
 import { assertNoOverflow, expect, screenshot, test } from './evidence';
 import { fixtureHeaders } from './surface-helpers';
-import { newConversation, openAddResource } from './unified-helpers';
+import {
+  composer,
+  headerAction,
+  newConversation,
+  openAddResource,
+  reloadDocument,
+} from './unified-helpers';
 
 /*
  * F19 · Attach a code folder without the native picker. Plain Chromium has
@@ -190,6 +196,12 @@ test('Clone from URL clones into Row-Bot’s workspace folder after the download
   page,
 }, info) => {
   await newConversation(page);
+  // A new conversation starts on Auto, which clones without asking; under Ask the download is confirmed.
+  await page.getByRole('button', { name: /^Approvals: / }).click();
+  await page.getByRole('menuitem', { name: /^Ask/ }).click();
+  await expect(
+    page.getByRole('button', { name: 'Approvals: Ask' }),
+  ).toBeVisible();
   const dialog = await codeFolderSetup(page, 'clone_repository');
   await dialog
     .getByRole('textbox', { name: 'Repository URL', exact: true })
@@ -221,4 +233,127 @@ test('Clone from URL clones into Row-Bot’s workspace folder after the download
     headers: fixtureHeaders(),
   });
   expect((await state.json()).folders).toContain('demo');
+  // Choosing Ask is remembered for new conversations: later specs start on Auto again.
+  const reset = await page.request.post('/__a0_fixture/full-autonomy/reset', {
+    headers: fixtureHeaders(),
+  });
+  expect(reset.ok()).toBe(true);
+});
+
+/** The details card on screen: the rail on a desktop, its sheet on a phone. */
+async function detailsCard(page: Page) {
+  const rail = page.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  const sheet = page.getByRole('dialog', { name: 'Conversation details' });
+  const card = rail.or(sheet).filter({ visible: true }).first();
+  // A phone shows the code folder's panel over the chat: go back to it first.
+  const back = page.getByRole('button', {
+    name: 'Back to conversation',
+    exact: true,
+  });
+  await expect(async () => {
+    if (!(await rail.isVisible()) && !(await sheet.isVisible())) {
+      if (await back.isVisible()) await back.click();
+      await headerAction(page, 'Conversation details');
+      await expect(card).toBeVisible({ timeout: 10_000 });
+    }
+    await expect(card.getByText(/^Project notes:/)).toBeVisible({
+      timeout: 5_000,
+    });
+  }).toPass({ timeout: 45_000 });
+  return card;
+}
+
+/** The project notes popover, opened from the card on screen. */
+async function notesPopover(page: Page) {
+  const popover = page.getByRole('dialog', { name: 'Project notes' });
+  if (!(await popover.isVisible())) {
+    const card = await detailsCard(page);
+    await card.getByRole('button', { name: 'About project notes' }).click();
+  }
+  await expect(popover).toBeVisible();
+  return popover;
+}
+
+/** The card's line, then its popover, on a desktop and a phone, light and dark. */
+async function notesViews(
+  page: Page,
+  info: TestInfo,
+  name: string,
+  check: (popover: Locator) => Promise<void>,
+) {
+  const popover = page.getByRole('dialog', { name: 'Project notes' });
+  for (const [size, suffix] of [
+    [DESKTOP, ''],
+    [PHONE, '-phone'],
+  ] as const) {
+    await page.setViewportSize(size);
+    if (await popover.isVisible()) await page.keyboard.press('Escape');
+    await expect(popover).toBeHidden();
+    const card = await detailsCard(page);
+    await card.getByText(/^Project notes:/).scrollIntoViewIfNeeded();
+    await views(page, info, `${name}-card${suffix}`);
+    await expect(async () => check(await notesPopover(page))).toPass();
+    await views(page, info, `${name}${suffix}`);
+  }
+  await page.keyboard.press('Escape');
+  await page.setViewportSize(DESKTOP);
+}
+
+test('the details card names the folder’s project notes, what was cut and what was left out', async ({
+  page,
+}, info) => {
+  test.setTimeout(180_000);
+  const conversation = await newConversation(page);
+  const dialog = await codeFolderSetup(page, 'draft_folder');
+  await dialog
+    .getByRole('textbox', { name: 'Name (optional)', exact: true })
+    .fill('tide-notes');
+  await dialog
+    .getByRole('button', { name: 'Create draft code folder', exact: true })
+    .click();
+  await expect(dialog.getByText('Code folder ready')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const notes = async (leftOut: boolean) => {
+    const written = await page.request.post('/__s6_fixture/project-notes', {
+      headers: fixtureHeaders(),
+      data: { conversation_id: conversation, left_out: leftOut },
+    });
+    expect(written.ok()).toBe(true);
+    // Retire the page's event streams first, as every intentional reload in
+    // these specs does: otherwise the reload can wait behind them.
+    await reloadDocument(page);
+    await expect(composer(page)).toBeVisible();
+  };
+
+  await notes(false);
+  await expect(await detailsCard(page)).toContainText(
+    'Project notes: AGENTS.md, .cursorrules',
+  );
+  await notesViews(page, info, 'project-notes-used', async (popover) => {
+    await expect(popover).toContainText(
+      /AGENTS\.mdUsed in part: the first [\d,]+ of [\d,]+ characters/,
+    );
+    await expect(popover).toContainText('.cursorrulesUsed');
+  });
+
+  await notes(true);
+  await expect(await detailsCard(page)).toContainText(
+    'Project notes: AGENTS.md, .cursorrules · CLAUDE.md left out',
+  );
+  await notesViews(page, info, 'project-notes-left-out', async (popover) => {
+    await expect(popover).toContainText(
+      'CLAUDE.mdNot used: it tries to give the agent new instructions',
+    );
+  });
+
+  // Open file shows it in the code folder's Files tab.
+  const popover = await notesPopover(page);
+  await popover.getByRole('button', { name: 'Open AGENTS.md' }).click();
+  const file = page.getByRole('region', { name: 'File text' });
+  await expect(file).toContainText(
+    'Rule 1: run `make test` before handing off.',
+  );
 });

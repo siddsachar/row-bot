@@ -1,0 +1,622 @@
+{
+  "$defs": {
+    "VideoEditView": {
+      "additionalProperties": false,
+      "description": "A video edit (F3): an edited video, or stills from one, saved to its conversation's files.",
+      "properties": {
+        "conversation_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "detail": {
+          "maxLength": 400,
+          "title": "Detail",
+          "type": "string"
+        },
+        "download_received": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Download Received"
+        },
+        "download_total": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Download Total"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duration Seconds"
+        },
+        "edit_id": {
+          "pattern": "^edit-[0-9a-f]{8}$",
+          "title": "Edit Id",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ended At"
+        },
+        "ffmpeg": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ffmpeg"
+        },
+        "frame_count": {
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "video",
+            "frames"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "media_ref": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Media Ref"
+        },
+        "mime_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "video/mp4",
+                "image/jpeg",
+                "image/png",
+                "image/gif"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mime Type"
+        },
+        "output_name": {
+          "maxLength": 120,
+          "title": "Output Name",
+          "type": "string"
+        },
+        "problem": {
+          "enum": [
+            "",
+            "ffmpeg_unavailable",
+            "download_failed",
+            "edit_failed",
+            "too_large",
+            "not_saved"
+          ],
+          "title": "Problem",
+          "type": "string"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Progress"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Size Bytes"
+        },
+        "started_at": {
+          "maxLength": 80,
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "getting_ffmpeg",
+            "preparing",
+            "editing",
+            "saving",
+            "saved",
+            "failed",
+            "stopped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "stopped_by": {
+          "enum": [
+            "",
+            "you",
+            "agent",
+            "conversation",
+            "quit"
+          ],
+          "title": "Stopped By",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 200,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "edit_id",
+        "conversation_id",
+        "kind",
+        "summary",
+        "status",
+        "progress",
+        "download_received",
+        "download_total",
+        "started_at",
+        "ended_at",
+        "seconds",
+        "duration_seconds",
+        "output_name",
+        "media_ref",
+        "mime_type",
+        "size_bytes",
+        "frame_count",
+        "stopped_by",
+        "problem",
+        "detail",
+        "ffmpeg"
+      ],
+      "title": "VideoEditView",
+      "type": "object"
+    },
+    "VideoExportView": {
+      "additionalProperties": false,
+      "description": "The same version in another shape, or as a GIF: the edit that makes it.",
+      "properties": {
+        "edit": {
+          "$ref": "#/$defs/VideoEditView"
+        },
+        "shape": {
+          "enum": [
+            "16:9",
+            "1:1",
+            "9:16",
+            "gif"
+          ],
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "shape",
+        "edit"
+      ],
+      "title": "VideoExportView",
+      "type": "object"
+    },
+    "VideoScene": {
+      "additionalProperties": false,
+      "description": "One scene of a video project (5.3.1 B3): a piece of a video, its speed, zoom, card and line.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "At"
+        },
+        "card": {
+          "maxLength": 120,
+          "title": "Card",
+          "type": "string"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Length"
+        },
+        "line": {
+          "maxLength": 300,
+          "title": "Line",
+          "type": "string"
+        },
+        "scene_id": {
+          "pattern": "^s[0-9a-f]{6}$",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 512,
+          "title": "Source",
+          "type": "string"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "speed": {
+          "maximum": 4,
+          "minimum": 0.25,
+          "title": "Speed",
+          "type": "number"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "voice_ref": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Voice Ref"
+        },
+        "voiced": {
+          "title": "Voiced",
+          "type": "boolean"
+        },
+        "zoom": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Zoom"
+        }
+      },
+      "required": [
+        "scene_id",
+        "source",
+        "start",
+        "end",
+        "speed",
+        "zoom",
+        "card",
+        "line",
+        "voiced",
+        "at",
+        "length"
+      ],
+      "title": "VideoScene",
+      "type": "object"
+    },
+    "VideoVersionView": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maxLength": 80,
+          "title": "At",
+          "type": "string"
+        },
+        "by": {
+          "enum": [
+            "you",
+            "row-bot"
+          ],
+          "title": "By",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 200,
+          "title": "Note",
+          "type": "string"
+        },
+        "number": {
+          "minimum": 1,
+          "title": "Number",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "number",
+        "at",
+        "by",
+        "note"
+      ],
+      "title": "VideoVersionView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A video project at one version (5.3.1 B3), shared by the Video panel and Row-Bot.",
+  "properties": {
+    "aspect": {
+      "enum": [
+        "",
+        "16:9",
+        "1:1",
+        "9:16"
+      ],
+      "title": "Aspect",
+      "type": "string"
+    },
+    "brand": {
+      "title": "Brand",
+      "type": "boolean"
+    },
+    "captions": {
+      "title": "Captions",
+      "type": "boolean"
+    },
+    "changed": {
+      "items": {
+        "pattern": "^s[0-9a-f]{6}$",
+        "type": "string"
+      },
+      "maxItems": 60,
+      "title": "Changed",
+      "type": "array"
+    },
+    "checks": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Checks",
+      "type": "array"
+    },
+    "checks_passed": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Checks Passed"
+    },
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "edit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VideoEditView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "exports": {
+      "items": {
+        "$ref": "#/$defs/VideoExportView"
+      },
+      "maxItems": 4,
+      "title": "Exports",
+      "type": "array"
+    },
+    "latest": {
+      "minimum": 1,
+      "title": "Latest",
+      "type": "integer"
+    },
+    "music": {
+      "maxLength": 200,
+      "title": "Music",
+      "type": "string"
+    },
+    "music_volume": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Music Volume",
+      "type": "number"
+    },
+    "narration": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Narration",
+      "type": "string"
+    },
+    "number": {
+      "minimum": 1,
+      "title": "Number",
+      "type": "integer"
+    },
+    "problem": {
+      "maxLength": 400,
+      "title": "Problem",
+      "type": "string"
+    },
+    "project_id": {
+      "pattern": "^vid-[0-9a-f]{8}$",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "review_sheet": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Review Sheet",
+      "type": "string"
+    },
+    "scenes": {
+      "items": {
+        "$ref": "#/$defs/VideoScene"
+      },
+      "maxItems": 60,
+      "title": "Scenes",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "voicing",
+        "rendering",
+        "made",
+        "failed",
+        "stopped"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "versions": {
+      "items": {
+        "$ref": "#/$defs/VideoVersionView"
+      },
+      "maxItems": 50,
+      "title": "Versions",
+      "type": "array"
+    },
+    "voice": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Voice",
+      "type": "string"
+    },
+    "voice_lines": {
+      "title": "Voice Lines",
+      "type": "boolean"
+    },
+    "voice_speed": {
+      "default": 0.0,
+      "maximum": 1.25,
+      "minimum": 0,
+      "title": "Voice Speed",
+      "type": "number"
+    }
+  },
+  "required": [
+    "project_id",
+    "conversation_id",
+    "title",
+    "latest",
+    "versions",
+    "number",
+    "scenes",
+    "changed",
+    "music",
+    "music_volume",
+    "captions",
+    "voice_lines",
+    "status",
+    "problem",
+    "edit",
+    "checks",
+    "checks_passed",
+    "aspect",
+    "exports",
+    "brand"
+  ],
+  "title": "VideoProjectView",
+  "type": "object"
+}

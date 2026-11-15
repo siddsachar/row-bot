@@ -6,13 +6,16 @@ import {
   type AccessRouteSettings,
 } from '../../api/access';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
 
-const LISTEN_LABELS: Record<AccessRouteSettings['listen_mode'], string> = {
-  local_only: 'This computer only',
-  local_network: 'This computer and my network',
-};
+const listenLabels = (
+  place: PlaceWords,
+): Record<AccessRouteSettings['listen_mode'], string> => ({
+  local_only: `${place.label} only`,
+  local_network: `${place.label} and my network`,
+});
 
 /**
  * Advanced › Network: where Row-Bot listens and the extra addresses it
@@ -25,6 +28,7 @@ export default function AccessNetwork({
 }: {
   client?: AccessInvitationClient;
 }) {
+  const place = usePlace();
   const overlay = useOverlay();
   const addressId = useId();
   const [settings, setSettings] = useState<AccessRouteSettings | null>(null);
@@ -94,7 +98,7 @@ export default function AccessNetwork({
               description:
                 next === 'local_network'
                   ? 'Row-Bot restarts and listens on your network. Anyone there can reach its sign-in page; only a device with a code from this page gets in.'
-                  : 'Row-Bot restarts and listens on this computer only. Devices that reach it over your network can’t connect until you turn it back on.',
+                  : `Row-Bot restarts and listens ${place.on} only. Devices that reach it over your network can’t connect until you turn it back on.`,
               confirmLabel: 'Restart and apply',
               onConfirm: () => {
                 overlay.close();
@@ -108,7 +112,7 @@ export default function AccessNetwork({
             });
           }}
         >
-          {Object.entries(LISTEN_LABELS).map(([value, label]) => (
+          {Object.entries(listenLabels(place)).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>

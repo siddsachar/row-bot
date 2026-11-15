@@ -191,7 +191,7 @@ def cmd_model(channel_name: str, arg: str = "") -> str:
         choices = list_model_choice_options("channels", include_values=[current], include_inactive=True)
         if choices:
             lines.append("")
-            lines.append("Channel Quick Choices:")
+            lines.append("Your models:")
             for choice in choices[:12]:
                 value = str(choice.get("value") or "")
                 label = str(choice.get("label") or value)
@@ -256,6 +256,9 @@ def cmd_approval(channel_name: str, arg: str = "", *, thread_id: str | None = No
     if mode not in {"block", "approve", "auto"}:
         return "Usage: `/approval block`, `/approval ask`, or `/approval auto`."
     _set_thread_approval_mode(thread_id, mode)
+    from row_bot.full_autonomy import remember_level
+
+    remember_level(mode)
     clear_agent_cache()
     return f"Approvals here: **{approval_label(mode)}**: {_APPROVAL_WORDS[mode]}."
 

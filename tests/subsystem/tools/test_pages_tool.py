@@ -159,3 +159,34 @@ def test_a_read_only_profile_can_read_a_page_but_not_change_one():
     assert dispatch_refusal(profile, "page_read", {"page": "page-1a2b3c4d"}, source="core", parent="pages") is None
     for name in ("page_create", "page_update"):
         assert dispatch_refusal(profile, name, {}, source="core", parent="pages").startswith("BLOCKED")
+
+
+BROKEN = """<h1>Edinburgh in 3 days</h1><div id="days"></div>
+<script>
+const days = ["Old Town", "New Town", "Leith"];
+days.forEach((name) => {
+  $('days').append(make('article', {class: 'day'}, make('p', {}, name))
+});
+</script>"""
+FIXED = BROKEN.replace("make('p', {}, name))", "make('p', {}, name)))")
+
+
+def test_a_script_that_wont_run_is_named_with_where_so_its_fixed_first(chat):
+    """B423: a missing ')' left the page's sections empty, and nothing said why."""
+    tool, pages, _current = chat
+    made = tool._page_create(title="Edinburgh", html=BROKEN)
+
+    assert "Warning: the page has a script that won't run" in made
+    assert "script 1, line 5, column 19: '(' is never closed before a '}'" in made
+    page = _page_id(made)
+    assert "Warning" not in tool._page_update(page=page, html=FIXED), "fixed, nothing to say"
+
+
+@pytest.mark.parametrize("html", [
+    "<script>const re = /[(]/g; const t = `a ${b.map((x) => (x + 1)).join(')')} }`; // (\nif (a / b) { f(')'); }</script>",
+    '<script type="application/json">{"a": [</script><script src="app.js"></script>',
+    "<p>No scripts at all.</p>",
+])
+def test_scripts_that_run_raise_no_warning(chat, html):
+    tool, _pages, _current = chat
+    assert "Warning" not in tool._page_create(title="Fine", html=html)

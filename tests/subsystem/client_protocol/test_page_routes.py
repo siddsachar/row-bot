@@ -138,33 +138,28 @@ def test_the_bridge_writes_are_checked_again(service, plan):
         assert cleared.json()["pending"] == 0
 
 
-def test_download_as_html_works_on_its_own_and_the_desktop_window_saves_it(service, plan):
+def test_download_as_html_is_one_file_that_works_on_its_own_saved_the_one_way(service, plan):
     page = plan["page"]
     with _client(service) as client:
         _, headers = bootstrap(client)
-        download = client.post(f"/api/v1/pages/{page}/download", headers=headers, json={"theme": THEME})
+        offer = client.post("/api/v1/saves", headers=headers,
+                            json={"source": {"kind": "page", "page_id": page, "theme": THEME}})
+        assert offer.status_code == 200, offer.text
+        assert offer.json()["file_name"] == "Launch-plan.html"
+        download = client.get(f"/api/v1/attachments/{offer.json()['reference']}", headers=headers)
         assert download.status_code == 200, download.text
-        body = download.json()
-        assert body["file_name"] == "Launch-plan.html"
-        assert '"standalone":true' in body["html"]
+        html = download.content.decode("utf-8")
+        assert '"standalone":true' in html
         # Opened from disk there are no headers: the frame's policy comes first, before any of the page.
         opening = re.match(r'<!doctype html>\n<html><head>\n<meta charset="utf-8">\n'
-                           r'<meta http-equiv="Content-Security-Policy" content="([^"]+)">\n', body["html"])
-        assert opening is not None, body["html"][:300]
+                           r'<meta http-equiv="Content-Security-Policy" content="([^"]+)">\n', html)
+        assert opening is not None, html[:300]
         policy = [part.strip() for part in opening.group(1).split(";")]
         for directive in ("default-src 'none'", "script-src 'unsafe-inline'", "img-src data: blob:",
                           "connect-src 'none'", "form-action 'none'", "base-uri 'none'"):
             assert directive in policy, directive
         assert not any(part.startswith(("sandbox", "frame-ancestors")) for part in policy)  # A meta can't carry them.
-        assert body["html"].count("<!doctype") == 1 and "<h1>Launch plan</h1>" in body["html"][opening.end():]
-        saved = client.post(f"/api/v1/pages/{page}/save", headers=headers, json={"theme": THEME})
-        assert saved.status_code == 200, saved.text
-        assert (plan["exports"] / "Exports" / "Launch-plan.html").read_text(encoding="utf-8").startswith("<!doctype")
-    remote, _active = _remote_client(service)
-    with remote as client:
-        _, headers = bootstrap(client)
-        elsewhere = client.post(f"/api/v1/pages/{page}/save", headers=headers, json={"theme": THEME})
-        assert elsewhere.status_code == 409 and elsewhere.json()["code"] == "desktop_only"
+        assert html.count("<!doctype") == 1 and "<h1>Launch plan</h1>" in html[opening.end():]
 
 
 def test_send_posts_the_decisions_as_one_message_from_the_page(service, plan):

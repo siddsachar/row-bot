@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "edited": {
+      "const": true,
+      "title": "Edited",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "edited"
+  ],
+  "title": "ScheduledPostEdited",
+  "type": "object"
+}

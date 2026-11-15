@@ -39,6 +39,7 @@ export default function ConversationHeader({
   menuActions,
   trailingMenuActions = [],
   breadcrumb,
+  workingOn,
   children,
 }: {
   title: string;
@@ -70,6 +71,11 @@ export default function ConversationHeader({
    * agent's icon shown before the title on wide layouts.
    */
   breadcrumb?: { to: string; title: string; icon?: ReactNode };
+  /**
+   * Phone layout: the one tap from the chat to the deck or folder it works
+   * on (D7), before the ⋯ menu.
+   */
+  workingOn?: ReactNode;
   /** Rare, urgent actions such as checking a pending receipt. */
   children?: ReactNode;
 }) {
@@ -241,6 +247,7 @@ export default function ConversationHeader({
         aria-label="Conversation actions"
       >
         {children}
+        {phone && workingOn}
         {phone && menu.length > 0 && (
           <Menu
             label="Conversation menu"

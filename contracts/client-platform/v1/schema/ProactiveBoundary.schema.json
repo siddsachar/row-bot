@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "description": "The client says the app just opened: a natural break for moments that wait for one.",
+  "properties": {
+    "kind": {
+      "const": "app_open",
+      "title": "Kind",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "title": "ProactiveBoundary",
+  "type": "object"
+}

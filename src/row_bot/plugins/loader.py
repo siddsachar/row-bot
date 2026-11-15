@@ -504,7 +504,8 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
         )
 
     # Step 4: Security scan
-    sec_err = _security_scan(plugin_dir) if manifest.package_format == "row-bot-v2" else None
+    sec_err = (_security_scan(plugin_dir, runs_programs="shell_processes" in manifest.permissions)
+               if manifest.package_format == "row-bot-v2" else None)
     if sec_err:
         return LoadResult(plugin_id=plugin_id, success=False,
                           manifest=manifest, error=sec_err)
@@ -677,9 +678,12 @@ def _version_tuple(v: str) -> tuple[int, ...]:
 
 
 # ── Security Scan ────────────────────────────────────────────────────────────
-def _security_scan(plugin_dir: pathlib.Path) -> str | None:
+def _security_scan(plugin_dir: pathlib.Path, *, runs_programs: bool = False) -> str | None:
     """Scan plugin Python files for blocked calls and core imports.
 
+    A plugin whose manifest declares ``shell_processes`` (shown as "run programs on this computer" when it
+    is added, and again when an update changes it) may use ``subprocess`` and ``os.system`` (5.3.1 A5);
+    ``eval``, ``exec``, ``__import__`` and Row-Bot's internals stay refused for every plugin.
     Returns error string or None.
     """
     for py_file in plugin_dir.rglob("*.py"):
@@ -694,14 +698,15 @@ def _security_scan(plugin_dir: pathlib.Path) -> str | None:
             return f"Security violation in {rel_path}:{exc.lineno}: Python syntax error: {exc.msg}"
 
         rel_path = py_file.relative_to(plugin_dir)
-        error = _scan_ast_for_security_errors(tree, rel_path)
+        error = _scan_ast_for_security_errors(tree, rel_path, runs_programs=runs_programs)
         if error:
             return error
 
     return None
 
 
-def _scan_ast_for_security_errors(tree: ast.AST, rel_path: pathlib.Path) -> str | None:
+def _scan_ast_for_security_errors(tree: ast.AST, rel_path: pathlib.Path, *,
+                                  runs_programs: bool = False) -> str | None:
     os_aliases = {"os"}
     os_system_aliases: set[str] = set()
     subprocess_aliases: set[str] = set()
@@ -710,25 +715,28 @@ def _scan_ast_for_security_errors(tree: ast.AST, rel_path: pathlib.Path) -> str 
         if isinstance(node, ast.Import):
             for alias in node.names:
                 module = alias.name
+                if _is_subprocess(module):
+                    if runs_programs:
+                        continue
+                    return _dangerous_error(rel_path, node.lineno, "subprocess")
                 forbidden = _forbidden_import(module)
                 if forbidden:
                     return _security_error(rel_path, node.lineno, forbidden)
                 if module == "os":
                     os_aliases.add(alias.asname or "os")
-                if module == "subprocess" or module.startswith("subprocess."):
-                    subprocess_aliases.add(alias.asname or module.split(".", 1)[0])
-                    return _dangerous_error(rel_path, node.lineno, "subprocess")
 
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 continue
             module = node.module or ""
+            if _is_subprocess(module):
+                if runs_programs:
+                    continue
+                return _dangerous_error(rel_path, node.lineno, "subprocess")
             forbidden = _forbidden_import(module)
             if forbidden:
                 return _security_error(rel_path, node.lineno, forbidden)
-            if module == "subprocess" or module.startswith("subprocess."):
-                return _dangerous_error(rel_path, node.lineno, "subprocess")
-            if module == "os":
+            if module == "os" and not runs_programs:
                 for alias in node.names:
                     if alias.name == "system":
                         os_system_aliases.add(alias.asname or alias.name)
@@ -744,7 +752,8 @@ def _scan_ast_for_security_errors(tree: ast.AST, rel_path: pathlib.Path) -> str 
                     return _dangerous_error(rel_path, node.lineno, "subprocess")
             elif isinstance(target, ast.Attribute):
                 if (
-                    target.attr == "system"
+                    not runs_programs
+                    and target.attr == "system"
                     and isinstance(target.value, ast.Name)
                     and target.value.id in os_aliases
                 ):
@@ -755,13 +764,15 @@ def _scan_ast_for_security_errors(tree: ast.AST, rel_path: pathlib.Path) -> str 
     return None
 
 
+def _is_subprocess(module: str) -> bool:
+    return module == "subprocess" or module.startswith("subprocess.")
+
+
 def _forbidden_import(module: str) -> str | None:
     if not module:
         return None
     if module in _ALLOWED_CORE_IMPORTS:
         return None
-    if module == "subprocess" or module.startswith("subprocess."):
-        return "subprocess"
     if module == "row_bot" or module.startswith("row_bot."):
         return module
     if module == "plugins" or module.startswith("plugins."):

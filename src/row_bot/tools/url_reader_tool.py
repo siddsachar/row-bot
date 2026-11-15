@@ -14,6 +14,7 @@ import httpx
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from row_bot.brand import WEB_READER_USER_AGENT
 from row_bot.integrations.safe import _Pinned, _public_addresses
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
@@ -30,7 +31,6 @@ class _ReadURLInput(BaseModel):
     limit: int = Field(default=PAGE_CHARS, description=f"Characters to return, at most {PAGE_CHARS_MAX}.")
 
 
-_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 _PDF_MAX_BYTES = 200 * 1024 * 1024
 _PDF_MAX_PAGES = 2000
 _TIMEOUT = 15
@@ -141,7 +141,9 @@ def _public_get(url: str) -> Iterator[tuple[str, httpx.Response]]:
             raise ConnectionError(f"could not resolve {target.host}") from None
         transport = _Pinned(target.host, addresses, deadline)
         with httpx.Client(transport=transport, timeout=_TIMEOUT, follow_redirects=False, trust_env=False) as client:
-            with client.stream("GET", target, headers={"User-Agent": _USER_AGENT}) as response:
+            # Row-Bot says who it is, not a browser it isn't: sites such as Wikipedia refuse (403) an automated
+            # reader posing as one.
+            with client.stream("GET", target, headers={"User-Agent": WEB_READER_USER_AGENT}) as response:
                 location = response.headers.get("Location", "")
                 if response.status_code in _REDIRECTS and location:
                     url = urljoin(str(target), location)
@@ -172,9 +174,29 @@ def _pdf_text(data: bytes) -> str:
     return "\n\n".join(pages)
 
 
-def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS) -> str:
-    """Fetch a webpage or PDF and return a page of its text content."""
+def _collapsed(text: str) -> str:
+    """Plain text with runs of spaces and blank lines collapsed."""
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+def _retry_after(value: str | None) -> float:
+    """How long to wait before reading a rate-limited page again: what the site asks (in seconds), at most 10."""
+    try:
+        return min(10.0, max(0.0, float(value or 3)))
+    except ValueError:
+        return 3.0
+
+
+def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS, *, readable: bool = True) -> str:
+    """Fetch a webpage or PDF and return a page of its text content.
+
+    A web page reads as its main content in Markdown; ``readable=False`` keeps all of its text, menus,
+    sidebars and footers included, for a page wait looking for text anywhere on it.
+    """
     from bs4 import BeautifulSoup
+
+    from row_bot.tools.readable_page import readable_markdown
 
     url = str(url or "").strip()
     # Asked before fetching: the approval pauses the turn, which a fetch error must not swallow.
@@ -182,31 +204,48 @@ def _read_url(url: str, offset: int = 0, limit: int = PAGE_CHARS) -> str:
     if refusal:
         return refusal
     try:
-        with _public_get(url) as (source, response):
-            chunks, size = [], 0
-            for chunk in response.iter_bytes(64 * 1024):
-                size += len(chunk)
-                if size > _PDF_MAX_BYTES:
+        for attempt in range(2):
+            with _public_get(url) as (source, response):
+                status = response.status_code
+                # A site's block or rate limit: its error page is not the article (U10). A rate limit is read
+                # again once, after the wait the site asks for.
+                if status == 429 and attempt == 0:
+                    wait = _retry_after(response.headers.get("Retry-After"))
+                elif status in (403, 429):
+                    return (f"The site refused to be read just now ({status}"
+                            f"{': too many requests' if status == 429 else ''}). Wait a minute and try again, "
+                            "or open the page in the browser.")
+                else:
+                    chunks, size = [], 0
+                    for chunk in response.iter_bytes(64 * 1024):
+                        size += len(chunk)
+                        if size > _PDF_MAX_BYTES:
+                            break
+                        chunks.append(chunk)
+                    data = b"".join(chunks)
+                    if _is_pdf(response, source, data[:5]):
+                        if size > _PDF_MAX_BYTES:
+                            return f"The PDF is larger than {_PDF_MAX_BYTES // (1024 * 1024)} MB, too large to read."
+                        text = _collapsed(_pdf_text(data))
+                    else:
+                        # BeautifulSoup reads the page's own charset when the server names none.
+                        content_type = response.headers.get("Content-Type", "")
+                        charset = content_type.partition("charset=")[2].strip(" \"';") or None
+                        soup = BeautifulSoup(data, "html.parser", from_encoding=charset)
+                        # A web page reads as its main content in Markdown (#139); other text as it is.
+                        if readable and "html" in content_type.lower():
+                            try:
+                                text = readable_markdown(soup, source)
+                            except RecursionError:  # nested deeper than Python's stack: its plain text
+                                text = _collapsed(soup.get_text())
+                        else:
+                            text = _collapsed(soup.get_text())
                     break
-                chunks.append(chunk)
-            data = b"".join(chunks)
-            if _is_pdf(response, source, data[:5]):
-                if size > _PDF_MAX_BYTES:
-                    return f"The PDF is larger than {_PDF_MAX_BYTES // (1024 * 1024)} MB, too large to read."
-                text = _pdf_text(data)
-            else:
-                # BeautifulSoup reads the page's own charset when the server names none.
-                charset = response.headers.get("Content-Type", "").partition("charset=")[2].strip(" \"';") or None
-                text = BeautifulSoup(data, "html.parser", from_encoding=charset).get_text()
+            time.sleep(wait)
     except _NotPublic:
         return NOT_PUBLIC_MESSAGE
     except Exception as exc:
         return f"Failed to fetch URL: {exc}"
-
-    # Collapse excessive whitespace / blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    text = text.strip()
 
     if not text:
         return "The page was fetched but no readable text content was found."

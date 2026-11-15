@@ -2,13 +2,14 @@
 
 Row-Bot never types a password, one-time code or card number. Paying, sending, deleting and the
 rest ask by the approval level: Ask asks the person, Auto the reviewer first, Hands-off runs it,
-Block refuses. While the person has control the agent waits. An address on this computer opens
+Block refuses. The page is shared: while the person uses it the agent waits. An address on this computer opens
 once allowed in that chat; the local network and Row-Bot itself never do. Nothing launches a
 browser: the engine's page work is a fake that records what would have run.
 """
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from types import SimpleNamespace
@@ -31,7 +32,7 @@ NEXT = {"role": "button", "name": "Next", "url": "https://www.homeserve.co.uk/cl
 
 
 class FakeEngine(BrowserEngine):
-    """The real engine's grants, control and pane state; page work is recorded, not run."""
+    """The real engine's grants, the person's use of the page and pane state; page work is recorded, not run."""
 
     def __init__(self, state) -> None:
         super().__init__()
@@ -41,6 +42,8 @@ class FakeEngine(BrowserEngine):
         return dict(self.state.targets.get(ref, {})) or None
 
     def act(self, chat_id, label, step, *, settle=True, timeout=120.0):
+        if not self.state.browser:
+            raise RuntimeError("Row-Bot's browser couldn't start.")
         self.state.acts.append((chat_id, label))
         return ActionResult(f"{label}: done")
 
@@ -56,7 +59,7 @@ def browser(monkeypatch):
     monkeypatch.setenv("ROW_BOT_PORT", "8080")
     state = SimpleNamespace(conversation="conversation-a", acts=[], asked=[], reviewed=[], mode="approve",
                             answer=True, verdict=ReviewVerdict("approve", "You asked to book the plumber."),
-                            servers=[], targets={}, url="https://www.homeserve.co.uk/claim/5")
+                            servers=[], targets={}, url="https://www.homeserve.co.uk/claim/5", browser=True)
     manager = BrowserSessionManager()
     engine = FakeEngine(state)
     manager._engine = engine
@@ -146,6 +149,54 @@ def test_hands_off_runs_it_and_block_refuses_it(browser):
     assert len(browser.acts) == 1
 
 
+def test_without_chrome_or_edge_the_browser_asks_once_to_download_its_own_then_goes_on(browser, monkeypatch):
+    """5.3.1 beta: on a Mac without Chrome or Edge the browser only said it couldn't start; it now offers its own,
+    as ffmpeg and the voice do."""
+    from row_bot.browser import runtime
+
+    browser.targets["e2"] = NEXT
+    browser.browser = False
+    downloads: list[str] = []
+
+    def install(**_kw):
+        downloads.append("chromium")
+        browser.browser = True
+        return runtime.BrowserRuntimeInstallResult(True, "Installed.")
+
+    monkeypatch.setattr(service_module, "can_start", lambda: browser.browser)
+    monkeypatch.setattr(runtime, "install_managed_browser_runtime", install)
+
+    browser.answer = False
+    refused = _tool("browser_click", ref="e2")
+    assert "The person didn't allow downloading Row-Bot's browser; nothing was downloaded." in refused
+    assert "Settings › System › Browser and computer use" in refused and downloads == []
+    [card] = browser.asked
+    assert card["question"] == ("Using websites needs a browser, and this computer has no Chrome or Edge. "
+                                "Download Row-Bot's own (about 300 MB) now?")
+    # What it downloads, from where, and the room it takes once unpacked (U29).
+    assert card["description"] == ("Row-Bot will download Chromium, the open-source browser Chrome is built on: "
+                                   "about 300 MB from cdn.playwright.dev, about 550 MB once unpacked in Row-Bot's "
+                                   "data folder. This happens once.")
+
+    browser.mode = "block"
+    assert _tool("browser_click", ref="e2").startswith("BLOCKED: using websites needs a browser")
+
+    browser.mode, browser.answer = "approve", True
+    done = _tool("browser_click", ref="e2")
+    assert done.endswith('Clicking button "Next": done') and downloads == ["chromium"]
+    assert _tool("browser_click", ref="e2") == 'Clicking button "Next": done', "once: it's there now"
+    assert len(browser.asked) == 2
+
+
+def test_a_browser_that_is_there_but_fails_to_start_offers_no_download(browser, monkeypatch):
+    browser.targets["e2"] = NEXT
+    browser.browser = False
+    monkeypatch.setattr(service_module, "can_start", lambda: True)
+
+    assert _tool("browser_click", ref="e2").startswith("Row-Bot's browser couldn't start.")
+    assert browser.asked == []
+
+
 def test_ordinary_steps_run_without_asking(browser):
     browser.targets["e2"] = NEXT
     browser.targets["e5"] = {**NEXT, "role": "radio", "name": "Leak"}
@@ -153,6 +204,53 @@ def test_ordinary_steps_run_without_asking(browser):
     _tool("browser_click", ref="e2")
     _tool("browser_select", ref="e7", options=["Kitchen"])
     assert browser.asked == [] and len(browser.acts) == 3
+
+
+def _run_steps(browser, monkeypatch, locator) -> None:
+    """Run each page step against one fake control, as the real engine would."""
+    import asyncio
+
+    async def locate(_tab, _ref):
+        return locator
+
+    monkeypatch.setattr(browser.engine, "locate", locate)
+    monkeypatch.setattr(browser.engine, "act",
+                        lambda chat, label, step, **_kw: ActionResult(asyncio.run(step(object()))))
+
+
+class _Covered:
+    """A control something lies over: a click waits for it and times out; its key still works."""
+
+    def __init__(self) -> None:
+        self.pressed: list[str] = []
+
+    async def click(self, **_kw):
+        raise TimeoutError("Timeout 8000ms exceeded. <div class=scrim> intercepts pointer events")
+
+    async def press(self, key, **_kw):
+        self.pressed.append(key)
+
+
+@pytest.mark.parametrize(("role", "key"), [("button", "Enter"), ("switch", "Space")])
+def test_a_click_something_lies_over_presses_the_control_instead(browser, monkeypatch, role, key):
+    """R6 (12 Nov): 12 clicks on Row-Bot's own Models page "didn't respond"; pressing Enter on the same button worked."""
+    browser.targets["e5"] = {**NEXT, "role": role, "name": "Add a provider"}
+    covered = _Covered()
+    _run_steps(browser, monkeypatch, covered)
+
+    result = _tool("browser_click", ref="e5")
+
+    assert result == f'Clicked {role} "Add a provider" (pressed {key}: something was over it).'
+    assert covered.pressed == [key]
+
+
+def test_a_covered_control_without_a_key_still_says_it_did_not_respond(browser, monkeypatch):
+    browser.targets["e6"] = {**NEXT, "role": "generic", "name": "Can I use Row-Bot from another device?"}
+    covered = _Covered()
+    _run_steps(browser, monkeypatch, covered)
+
+    assert "didn't respond" in _tool("browser_click", ref="e6")
+    assert covered.pressed == []
 
 
 def test_pressing_enter_in_a_message_box_asks_like_its_send_button(browser):
@@ -175,29 +273,78 @@ def test_uploading_a_file_asks_and_names_it(browser, monkeypatch):
     assert browser.acts == [("conversation-a", "Uploading leak.jpg")]
 
 
-# ── The person's control ──────────────────────────────────────────────────────
+# ── The shared page: the person uses it whenever they like ─────────────────────
 
 
-def test_while_the_person_has_control_the_agent_waits_then_carries_on(browser):
+@pytest.fixture
+def page_open(browser, monkeypatch):
+    """A page open in the chat: the person's input is played (recorded), not refused."""
+
+    monkeypatch.setattr(BrowserEngine, "running", property(lambda self: True))
+    browser.engine._chat("conversation-a").active = SimpleNamespace(page=None)
+    played: list[list[dict]] = []
+    monkeypatch.setattr(browser.engine, "_run", lambda job, **_kw: played.append(True) or {"status": "ok",
+                                                                                            "copied": ""})
+    return played
+
+
+def test_hovering_never_makes_row_bot_wait_and_the_person_is_never_refused(browser, page_open):
+    engine = browser.engine
+    move = {"type": "mouse", "action": "move", "x": 10, "y": 10}
+    assert engine.person_input("conversation-a", [move, move])["status"] == "ok"
+    assert engine.person_still_for("conversation-a") == float("inf")  # Hovering isn't using the page.
+    # Mid-action too: the person is never told to wait or take anything over.
+    engine._chat("conversation-a").acting = 'Clicking button "Next"'
+    assert engine.person_input("conversation-a", [{"type": "key", "action": "down", "key": "a"}])["status"] == "ok"
+    assert engine.person_still_for("conversation-a") < 1
+    assert len(page_open) == 2
+
+
+def test_the_wait_counts_from_the_last_key_the_page_received_however_long_the_typing_took(
+        browser, monkeypatch):
+    """A long password plays key by key; Row-Bot's wait starts when the last key lands, not when the first did."""
+
+    clock = [100.0]
+    monkeypatch.setattr(service_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(BrowserEngine, "running", property(lambda self: True))
+
+    async def press(_key: str) -> None:
+        clock[0] += 0.5  # A slow machine: each key takes half a second to reach the page.
+
+    keyboard = SimpleNamespace(down=press, up=press)
+    engine = browser.engine
+    engine._chat("conversation-a").active = SimpleNamespace(page=SimpleNamespace(keyboard=keyboard))
+    monkeypatch.setattr(engine, "_run", lambda job, **_kw: asyncio.run(job()))
+    keys = [{"type": "key", "action": action, "key": "a"} for _ in range(4) for action in ("down", "up")]
+
+    assert engine.person_input("conversation-a", keys)["status"] == "ok"
+    assert clock[0] == 104.0  # Four seconds of typing, longer than the wait itself.
+    assert engine.person_still_for("conversation-a") == 0.0
+
+
+def test_while_the_person_uses_the_page_the_agent_waits_until_they_are_still(browser, page_open, monkeypatch):
+    monkeypatch.setattr(service_module, "PERSON_STILL_SECONDS", 0.4)
     browser.targets["e2"] = NEXT
-    browser.engine.take_control("conversation-a")
+    engine = browser.engine
+    engine.person_input("conversation-a", [{"type": "mouse", "action": "down", "x": 5, "y": 5}])
     waiting: list[str] = []
 
-    def give_back() -> None:
-        time.sleep(0.3)
-        waiting.append(browser.engine.pane_state("conversation-a")["waiting"])
-        browser.engine.give_back("conversation-a")
+    def look() -> None:
+        time.sleep(0.15)
+        waiting.append(engine.pane_state("conversation-a")["waiting"])
 
-    threading.Thread(target=give_back).start()
+    threading.Thread(target=look).start()
+    started = time.monotonic()
     result = _tool("browser_click", ref="e2")
 
-    assert waiting == ["Waiting for you to give back control"]
-    assert result.endswith(": done") and browser.engine.pane_state("conversation-a")["waiting"] == ""
+    assert waiting == ["Waiting while you use the page"]
+    assert time.monotonic() - started >= 0.2
+    assert result.endswith(": done") and engine.pane_state("conversation-a")["waiting"] == ""
 
 
-def test_stop_ends_the_wait_for_control(browser):
+def test_stop_ends_the_wait_while_the_person_uses_the_page(browser, page_open):
     browser.targets["e2"] = NEXT
-    browser.engine.take_control("conversation-a")
+    browser.engine.person_input("conversation-a", [{"type": "key", "action": "down", "key": "a"}])
     scope = CancellationScope()
     threading.Timer(0.2, scope.cancel).start()
     with use_cancellation_scope(scope):
@@ -205,13 +352,9 @@ def test_stop_ends_the_wait_for_control(browser):
     assert result == service_module.STOPPED and browser.acts == []
 
 
-def test_the_person_using_the_page_takes_control_but_not_mid_action(browser):
-    engine = browser.engine
-    engine._chat("conversation-a").acting = 'Clicking button "Next"'
-    assert engine.person_input("conversation-a", [{"type": "key", "action": "down", "key": "a"}]) == "agent_acting"
-    assert not engine.person_has_control("conversation-a")
-    engine._chat("conversation-a").acting = ""
-    assert engine.person_input("conversation-a", [{"type": "key", "action": "down", "key": "a"}]) == "no_page"
+def test_without_a_page_the_persons_input_has_nothing_to_play(browser):
+    result = browser.engine.person_input("conversation-a", [{"type": "key", "action": "down", "key": "a"}])
+    assert result == {"status": "no_page", "copied": ""}
 
 
 # ── Addresses on this computer (F4) ───────────────────────────────────────────
@@ -225,6 +368,14 @@ def test_ask_asks_about_one_address_once_then_it_opens(browser):
     assert len(browser.asked) == 1 and len(browser.acts) == 2
     [grant] = browser.engine.local_address_grants("conversation-a")
     assert (grant.address, grant.source) == ("localhost:5173", "you")
+
+
+def test_a_file_address_says_to_serve_its_folder_and_asks_nothing(browser):
+    # A file:/// address is not a host called "file" on the person's network.
+    result = _tool("browser_navigate", url="file:///D:/Shop/workspace/hello.html")
+
+    assert result.startswith("BLOCKED: Files don't open in Row-Bot's browser.") and "http.server" in result
+    assert browser.asked == [] and browser.acts == []
 
 
 def test_a_denied_address_never_opens(browser):

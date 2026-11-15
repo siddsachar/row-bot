@@ -6,7 +6,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
+import { clientError } from '../../api/errors';
 import ApprovalCard from './ApprovalCard';
 import { usePendingApprovals } from './pending-approvals';
 
@@ -77,6 +79,35 @@ async function renderCard() {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
   );
 }
+
+it('answers a card left open past its five-minute nonce, with a fresh one, only while the approval is unchanged (#631)', async () => {
+  await renderCard();
+  // Read later: the card's nonce ran out, the approval still waits as shown.
+  intent.mockRejectedValueOnce(clientError({ code: 'approval_expired' }));
+  approval.mockResolvedValue({ ...view, nonce: 'nonce-b' });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+  });
+  expect(intent.mock.calls.map((call) => call[2].nonce)).toEqual([
+    'nonce-a',
+    'nonce-b',
+  ]);
+  expect(intent.mock.calls[1][3]).toBe('3');
+  expect(await screen.findByText('Approval submitted.')).toBeVisible();
+});
+
+it('never re-sends an answer to an approval that changed after the person read it (#631)', async () => {
+  await renderCard();
+  intent.mockRejectedValueOnce(clientError({ code: 'approval_expired' }));
+  approval.mockResolvedValue({ ...view, revision: '4', nonce: 'nonce-b' });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+  });
+  expect(intent).toHaveBeenCalledTimes(1);
+  expect(
+    screen.getByText(/This approval expired/, { exact: false }),
+  ).toBeVisible();
+});
 
 it('ignores Ctrl+Enter typed in a text field (B134)', async () => {
   await renderCard();
@@ -528,6 +559,9 @@ it('asks to post on X as the named account with the full text, the reply link an
           sha256: 'ba9876543210',
           kind: 'video',
           thumbnail: '',
+          silent: true,
+          ref: 'conversation-a:00000000-0000-4000-8000-000000000001',
+          mime: 'video/mp4',
         },
       ],
     },
@@ -556,11 +590,82 @@ it('asks to post on X as the named account with the full text, the reply link an
   expect(within(files).getByText('launch.png')).toBeVisible();
   expect(within(files).getByText('0123456789ab')).toBeVisible();
   expect(within(files).getByText('ba9876543210')).toBeVisible();
+  // A video with nothing to hear says so before it's approved; it plays silent on X too.
+  expect(within(files).getAllByText('No sound')).toHaveLength(1);
+  // A file from Library › Media opens full size to check before it goes; one
+  // on this computer (no reference) shows only its facts.
+  expect(
+    within(files).queryByRole('button', { name: 'Open launch.png' }),
+  ).toBeNull();
+  fireEvent.click(within(files).getByRole('button', { name: 'Open demo.mp4' }));
+  expect(open).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      title: 'demo.mp4',
+      className: 'media-lightbox',
+    }),
+  );
   expect(
     within(card).getByText(/The reviewer asked you: Only you can approve/),
   ).toBeVisible();
   // The reason's sentence isn't repeated beside the card's own facts.
   expect(within(card).queryByText(/^Reply as @rowbot_ai to/)).toBeNull();
+});
+
+it('edits a post on its card: its text against the account’s limit and the files it keeps, then asks again (G2)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'x_post',
+    question: 'Post to X as @rowbot_ai?',
+    x_post: {
+      account_id: '111',
+      username: 'rowbot_ai',
+      name: 'Row-Bot',
+      action: 'post',
+      text: 'Draft launch post',
+      limit: 280,
+      media: [
+        { name: 'a.png', size: 2048, sha256: '0123456789ab', kind: 'image' },
+        { name: 'b.png', size: 2048, sha256: 'ba9876543210', kind: 'image' },
+      ],
+    },
+  });
+  await renderCard();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit the post' }));
+  // Nothing is approved while it's edited.
+  expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  const text = screen.getByRole('textbox', {
+    name: 'Edit the post as @rowbot_ai',
+  });
+  expect(text).toHaveValue('Draft launch post');
+  expect(screen.getByText('17 of 280')).toBeVisible();
+  // A link counts 23, whatever its length.
+  fireEvent.change(text, {
+    target: { value: `Row-Bot 5.3.1: https://row-bot.ai/${'x'.repeat(80)}` },
+  });
+  expect(screen.getByText('38 of 280')).toBeVisible();
+  fireEvent.change(text, { target: { value: 'Long. '.repeat(50) } });
+  expect(screen.getByText('20 over the 280 @rowbot_ai can post')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Save edits' })).toBeDisabled();
+  fireEvent.change(text, { target: { value: 'Row-Bot 5.3.1 is out.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Remove a.png' }));
+  expect(screen.getByRole('list', { name: 'Attached file' })).toBeVisible();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Save edits' }));
+  });
+  expect(intent).toHaveBeenCalledOnce();
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    {
+      decision: 'edit',
+      nonce: 'nonce-a',
+      edit: { text: 'Row-Bot 5.3.1 is out.', media: ['ba9876543210'] },
+    },
+    '3',
+  );
+  expect(
+    screen.getByText('Edited. Row-Bot asks again with your version.'),
+  ).toBeVisible();
 });
 
 it('an approval for a browser action shows the page and opens the Browser pane (N12-A)', async () => {
@@ -645,4 +750,175 @@ it('keeps an incognito chat’s memory unsaved with Don’t save (N11)', async (
     '3',
   );
   expect(screen.getByRole('status')).toHaveTextContent('Not saved to memory.');
+});
+
+function onPhone() {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+function offPhone() {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+
+it('on a phone keeps Deny and Approve in reach and the other choices, explained, under More choices (D4)', async () => {
+  onPhone();
+  try {
+    approval.mockResolvedValue({
+      ...view,
+      action_label: 'developer_commit_changes',
+      repeatable: true,
+    });
+    await renderCard();
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Allow in this chat' }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'More choices' }));
+    const allow = screen.getByRole('menuitem', { name: 'Allow in this chat' });
+    expect(allow).toHaveAccessibleDescription(/later in this chat/);
+    await userEvent.click(allow);
+
+    await waitFor(() =>
+      expect(intent).toHaveBeenCalledWith(
+        'approval-a',
+        'approval.resolve',
+        { decision: 'approve', nonce: 'nonce-a', scope: 'chat' },
+        '3',
+      ),
+    );
+  } finally {
+    offPhone();
+  }
+});
+
+it('on a phone answers from the details too, so reading them never means going back (D4)', async () => {
+  onPhone();
+  try {
+    await renderCard();
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    render(open.mock.calls[0][0].content);
+    const sheet = screen
+      .getByText('Delete a file in the workspace.', {
+        selector: '.approval-detail-reason',
+      })
+      .closest('.approval-detail') as HTMLElement;
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Approve' }));
+
+    await waitFor(() =>
+      expect(intent).toHaveBeenCalledWith(
+        'approval-a',
+        'approval.resolve',
+        { decision: 'approve', nonce: 'nonce-a' },
+        '3',
+      ),
+    );
+  } finally {
+    offPhone();
+  }
+});
+
+it('keeps the details read-only on a wide layout, where the card stays in view', async () => {
+  await renderCard();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  const sheet = document.querySelector('.approval-detail') as HTMLElement;
+  expect(within(sheet).queryByRole('button')).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'More choices' }),
+  ).not.toBeInTheDocument();
+});
+
+const change = {
+  label: 'Dream Cycle',
+  where: 'Settings › Preferences › Dream Cycle',
+  href: '/settings/preferences#dream-cycle',
+  before: '1:00–5:00',
+  after: '2:00–6:00',
+};
+
+it('asks about a setting change in words: what it is, what it becomes, and where it is', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'row_bot_update_setting',
+    reason: 'Dream Cycle: 1:00–5:00 → 2:00–6:00',
+    setting_change: change,
+  });
+  render(<ApprovalCard id="approval-a" />);
+
+  const card = await screen.findByRole('complementary', {
+    name: 'Change Dream Cycle',
+  });
+  expect(card).toHaveTextContent('Change Dream Cycle?');
+  expect(card).toHaveTextContent('1:00–5:00 → 2:00–6:00');
+  expect(
+    within(card).getByRole('link', { name: 'Show in Settings' }),
+  ).toHaveAttribute('href', '/app-v2/settings/preferences#dream-cycle');
+  await waitFor(() =>
+    expect(within(card).getByRole('button', { name: 'Change' })).toBeEnabled(),
+  );
+  await act(async () => {
+    fireEvent.click(within(card).getByRole('button', { name: 'Change' }));
+  });
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce-a' },
+    '3',
+  );
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Changing Dream Cycle…',
+  );
+});
+
+it('leaves a setting as it was with Not now, an icon with its name', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'row_bot_update_setting',
+    setting_change: change,
+  });
+  render(<ApprovalCard id="approval-a" />);
+  const notNow = await screen.findByRole('button', { name: 'Not now' });
+  await waitFor(() => expect(notNow).toBeEnabled());
+
+  await act(async () => {
+    fireEvent.click(notNow);
+  });
+
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'reject', nonce: 'nonce-a' },
+    '3',
+  );
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Dream Cycle stays as it was.',
+  );
+});
+
+it('shows the shortcut only where it works', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'row_bot_update_setting',
+    setting_change: change,
+  });
+  render(<ApprovalCard id="approval-a" shortcut={false} />);
+
+  const button = await screen.findByRole('button', { name: 'Change' });
+  expect(button).not.toHaveAttribute('aria-keyshortcuts');
 });

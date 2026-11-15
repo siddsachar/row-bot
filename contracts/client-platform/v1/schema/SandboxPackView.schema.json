@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "maxLength": 80,
+      "title": "Name",
+      "type": "string"
+    },
+    "pack": {
+      "enum": [
+        "empty",
+        "shop",
+        "charity",
+        "paperwork",
+        "code"
+      ],
+      "title": "Pack",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pack",
+    "name"
+  ],
+  "title": "SandboxPackView",
+  "type": "object"
+}

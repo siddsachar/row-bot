@@ -4,17 +4,29 @@ import {
   Link2,
   MessageCircleQuestion,
   Palette,
+  Settings2,
+  SquareArrowOutUpRight,
+  Undo2,
 } from 'lucide-react';
 import type {
   EventRecord,
   ResourceView,
+  SettingChange,
   TraceAppRef,
   TraceQuestionAnswer,
   TranscriptTraceGroup,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Input } from '../../ui/primitives';
+import { AppLink } from '../../ui/app-link';
+import {
+  Button,
+  Disclosure,
+  Hint,
+  IconButton,
+  Input,
+} from '../../ui/primitives';
+import { useOptionalRuntime } from '../../runtime';
 import ChatConnect from '../apps/ChatConnect';
 import AppViewFrame from '../apps/AppViewFrame';
 import { ProcessCard } from './BackgroundProcess';
@@ -24,6 +36,8 @@ import { DeliveryCard } from './DeliveryCard';
 import { SandboxJobCard } from './SandboxJobCard';
 import { SandboxPrepareOffer } from './SandboxPrepare';
 import { PageCard } from '../pages/PageCard';
+import { VideoProjectCard } from '../video/VideoProjectCard';
+import { LinkedConversationCard } from './LinkedConversationCard';
 
 /**
  * Cards the assistant leaves in a turn (decision 12): a design or code folder
@@ -59,7 +73,11 @@ export type TranscriptCard =
   /** A recording of Row-Bot's browser or the screen a step started or stopped (F2). */
   | { kind: 'recording'; recordingId: string }
   /** A video edit a step started, followed or stopped (F3). */
-  | { kind: 'video_edit'; editId: string }
+  | {
+      kind: 'video_edit';
+      editId: string;
+      /** Stills, not a version of a video. */ frames?: boolean;
+    }
   /** Files a step sent to the person's devices or a chat app (F7). */
   | { kind: 'delivery'; deliveryId: string }
   /** Prepare sandbox, or the sandbox image's download, a step started (F18). */
@@ -68,6 +86,17 @@ export type TranscriptCard =
   | { kind: 'sandbox_offer'; reason: string }
   /** A page a step made or changed, with Open (N5). */
   | { kind: 'page'; pageId: string }
+  /** A video project a step made or changed, with Open (5.3.1 B3). */
+  | { kind: 'video_project'; projectId: string }
+  /** A conversation this one started or proposed, followed by its link (5.3.1 C). */
+  | { kind: 'linked'; linkId: string; title: string }
+  /** A setting Row-Bot changed, with Undo (its result message) and its row. */
+  | {
+      kind: 'setting';
+      callId: string;
+      messageId: string;
+      change: SettingChange;
+    }
   /** Row-Bot's question, answered (or skipped), collapsed to what was chosen (N4). */
   | {
       kind: 'answer';
@@ -80,8 +109,19 @@ type Specialization = NonNullable<
   TranscriptTraceGroup['items'][number]['specialization']
 >;
 
-export function cardOf(value: Specialization | null | undefined, callId = '') {
+export function cardOf(
+  value: Specialization | null | undefined,
+  callId = '',
+  messageId = '',
+) {
   if (!value) return null;
+  if (value.kind === 'setting_change' && value.setting_change)
+    return {
+      kind: 'setting',
+      callId,
+      messageId,
+      change: value.setting_change,
+    } satisfies TranscriptCard;
   if (
     value.kind === 'question_answered' &&
     (value.outcome === 'answered' ||
@@ -136,10 +176,22 @@ export function cardOf(value: Specialization | null | undefined, callId = '') {
     } satisfies TranscriptCard;
   if (value.kind === 'page' && value.page_id)
     return { kind: 'page', pageId: value.page_id } satisfies TranscriptCard;
+  if (value.kind === 'video_project' && value.project_id)
+    return {
+      kind: 'video_project',
+      projectId: value.project_id,
+    } satisfies TranscriptCard;
+  if (value.kind === 'linked_conversation' && value.link_id)
+    return {
+      kind: 'linked',
+      linkId: value.link_id,
+      title: value.display_name ?? '',
+    } satisfies TranscriptCard;
   if (value.kind === 'video_edit' && value.edit_id)
     return {
       kind: 'video_edit',
       editId: value.edit_id,
+      ...(value.media_kind === 'frames' ? { frames: true } : {}),
     } satisfies TranscriptCard;
   if (
     value.kind === 'setup_needed' &&
@@ -155,6 +207,7 @@ export function cardOf(value: Specialization | null | undefined, callId = '') {
 }
 
 export function cardKey(card: TranscriptCard) {
+  if (card.kind === 'setting') return `setting:${card.callId}`;
   return card.kind === 'resource'
     ? `resource:${card.bindingId}`
     : card.kind === 'apps'
@@ -173,11 +226,15 @@ export function cardKey(card: TranscriptCard) {
                   ? `answer:${card.callId}`
                   : card.kind === 'page'
                     ? `page:${card.pageId}`
-                    : card.kind === 'sandbox_job'
-                      ? `sandbox_job:${card.jobId}`
-                      : card.kind === 'sandbox_offer'
-                        ? 'sandbox_offer'
-                        : `connect:${card.target}`;
+                    : card.kind === 'video_project'
+                      ? `video_project:${card.projectId}`
+                      : card.kind === 'linked'
+                        ? `linked:${card.linkId}`
+                        : card.kind === 'sandbox_job'
+                          ? `sandbox_job:${card.jobId}`
+                          : card.kind === 'sandbox_offer'
+                            ? 'sandbox_offer'
+                            : `connect:${card.target}`;
 }
 
 export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
@@ -188,7 +245,7 @@ export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
       const card: TranscriptCard | null =
         item.app?.view && item.status === 'succeeded'
           ? { kind: 'view', callId: item.call_id, app: item.app }
-          : cardOf(item.specialization, item.call_id);
+          : cardOf(item.specialization, item.call_id, item.result_message_id);
       if (!card || seen.has(cardKey(card))) continue;
       seen.add(cardKey(card));
       cards.push(card);
@@ -396,6 +453,113 @@ function ResourceCard({
   );
 }
 
+type UndoState = 'idle' | 'busy' | 'undone' | 'changed_since' | 'unavailable';
+
+/**
+ * A setting Row-Bot changed: what it is now, Undo (the person's own action:
+ * nothing is asked, and it refuses if the setting changed since), and its row
+ * in Settings.
+ */
+function SettingCard({
+  card,
+  conversation,
+}: {
+  card: Extract<TranscriptCard, { kind: 'setting' }>;
+  conversation?: string | null;
+}) {
+  const runtime = useOptionalRuntime();
+  const [state, setState] = useState<UndoState>('idle');
+  const [note, setNote] = useState('');
+  const { label, before, after, href } = card.change;
+  const turnedOn = before === 'Off' && after === 'On';
+  async function undo() {
+    if (!runtime || !conversation || !card.messageId || state === 'busy')
+      return;
+    setState('busy');
+    setNote('');
+    try {
+      const result = await runtime.controller.undoSettingChange(
+        conversation,
+        card.messageId,
+      );
+      setState(result?.status ?? 'unavailable');
+      if (result && result.status !== 'undone') setNote(result.message);
+    } catch (cause) {
+      setState('idle');
+      setNote(clientError(cause).message);
+    }
+  }
+  const canUndo =
+    Boolean(before && card.messageId && conversation && runtime) &&
+    state !== 'undone';
+  return (
+    <div
+      className="transcript-card"
+      data-kind="setting"
+      role="group"
+      aria-label={state === 'undone' ? `Undone: ${label}` : `Changed ${label}`}
+    >
+      <Settings2 className="transcript-card-icon" aria-hidden />
+      <div className="transcript-card-text">
+        <span>
+          {state === 'undone' ? (
+            <>
+              Undone: <strong>{label}</strong> is back to {before}
+            </>
+          ) : turnedOn ? (
+            <>
+              Turned on <strong>{label}</strong>
+            </>
+          ) : (
+            <>
+              Changed <strong>{label}</strong> to {after}
+            </>
+          )}
+        </span>
+      </div>
+      <div className="transcript-card-actions">
+        {canUndo && (
+          <IconButton
+            size="sm"
+            label={
+              state === 'changed_since'
+                ? 'Changed since: open Settings to change it'
+                : turnedOn
+                  ? 'Turn it off again'
+                  : `Undo: back to ${before}`
+            }
+            disabled={
+              state === 'busy' ||
+              state === 'changed_since' ||
+              state === 'unavailable'
+            }
+            aria-busy={state === 'busy' || undefined}
+            onClick={() => void undo()}
+          >
+            <Undo2 size={15} aria-hidden />
+          </IconButton>
+        )}
+        {href && (
+          <Hint label="Show in Settings">
+            <AppLink
+              className="button ghost icon-button icon-action icon-action-sm"
+              to={href}
+              aria-label="Show in Settings"
+            >
+              <SquareArrowOutUpRight size={15} aria-hidden />
+            </AppLink>
+          </Hint>
+        )}
+      </div>
+      {note && (
+        <p role="status" className="transcript-card-error">
+          {note}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ConnectCard({
   card,
 }: {
@@ -491,71 +655,99 @@ function AnsweredCard({
 
 export function TranscriptCards({
   cards,
+  earlier = [],
   live = false,
   conversation,
 }: {
   cards: TranscriptCard[];
+  /** Earlier versions of this reply's newest video, folded under it. */
+  earlier?: TranscriptCard[];
   live?: boolean;
   /** The chat a view belongs to; views show only where it is known. */
   conversation?: string | null;
 }) {
-  if (!cards.length) return null;
+  if (!cards.length && !earlier.length) return null;
+  const show = (card: TranscriptCard) => (
+    <CardView
+      key={cardKey(card)}
+      card={card}
+      live={live}
+      conversation={conversation}
+    />
+  );
   return (
     <div className="transcript-cards">
-      {cards.map((card) =>
-        card.kind === 'resource' ? (
-          <ResourceCard key={cardKey(card)} card={card} live={live} />
-        ) : card.kind === 'apps' ? (
-          <AppsCard key={cardKey(card)} card={card} />
-        ) : card.kind === 'process' ? (
-          <ProcessCard
-            key={cardKey(card)}
-            processId={card.processId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'recording' ? (
-          <RecordingCard
-            key={cardKey(card)}
-            recordingId={card.recordingId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'delivery' ? (
-          <DeliveryCard key={cardKey(card)} deliveryId={card.deliveryId} />
-        ) : card.kind === 'sandbox_job' ? (
-          <SandboxJobCard key={cardKey(card)} jobId={card.jobId} />
-        ) : card.kind === 'sandbox_offer' ? (
-          <SandboxPrepareOffer
-            key={cardKey(card)}
-            conversationId={conversation}
-            reason={card.reason}
-          />
-        ) : card.kind === 'answer' ? (
-          <AnsweredCard key={cardKey(card)} card={card} />
-        ) : card.kind === 'page' ? (
-          <PageCard
-            key={cardKey(card)}
-            pageId={card.pageId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'video_edit' ? (
-          <VideoEditCard
-            key={cardKey(card)}
-            editId={card.editId}
-            conversationId={conversation}
-          />
-        ) : card.kind === 'view' ? (
-          conversation ? (
-            <AppViewFrame
-              key={cardKey(card)}
-              conversation={conversation}
-              callId={card.callId}
-              app={card.app}
-            />
-          ) : null
-        ) : (
-          <ConnectCard key={cardKey(card)} card={card} />
-        ),
+      {cards.map(show)}
+      {earlier.length > 0 && (
+        <Disclosure
+          className="transcript-earlier-videos"
+          summary={
+            earlier.length === 1
+              ? '1 earlier version'
+              : `${earlier.length} earlier versions`
+          }
+        >
+          <div className="transcript-cards">{earlier.map(show)}</div>
+        </Disclosure>
       )}
     </div>
+  );
+}
+
+function CardView({
+  card,
+  live,
+  conversation,
+}: {
+  card: TranscriptCard;
+  live: boolean;
+  conversation?: string | null;
+}) {
+  return card.kind === 'resource' ? (
+    <ResourceCard card={card} live={live} />
+  ) : card.kind === 'apps' ? (
+    <AppsCard card={card} />
+  ) : card.kind === 'process' ? (
+    <ProcessCard processId={card.processId} conversationId={conversation} />
+  ) : card.kind === 'recording' ? (
+    <RecordingCard
+      recordingId={card.recordingId}
+      conversationId={conversation}
+    />
+  ) : card.kind === 'delivery' ? (
+    <DeliveryCard deliveryId={card.deliveryId} />
+  ) : card.kind === 'sandbox_job' ? (
+    <SandboxJobCard jobId={card.jobId} />
+  ) : card.kind === 'sandbox_offer' ? (
+    <SandboxPrepareOffer conversationId={conversation} reason={card.reason} />
+  ) : card.kind === 'answer' ? (
+    <AnsweredCard card={card} />
+  ) : card.kind === 'setting' ? (
+    <SettingCard card={card} conversation={conversation} />
+  ) : card.kind === 'page' ? (
+    <PageCard pageId={card.pageId} conversationId={conversation} />
+  ) : card.kind === 'video_project' ? (
+    <VideoProjectCard
+      projectId={card.projectId}
+      conversationId={conversation}
+    />
+  ) : card.kind === 'linked' ? (
+    <LinkedConversationCard
+      linkId={card.linkId}
+      title={card.title}
+      conversationId={conversation}
+    />
+  ) : card.kind === 'video_edit' ? (
+    <VideoEditCard editId={card.editId} conversationId={conversation} />
+  ) : card.kind === 'view' ? (
+    conversation ? (
+      <AppViewFrame
+        conversation={conversation}
+        callId={card.callId}
+        app={card.app}
+      />
+    ) : null
+  ) : (
+    <ConnectCard card={card} />
   );
 }

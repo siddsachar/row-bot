@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from row_bot.channels.base import Channel
@@ -22,6 +22,9 @@ class ChannelSource:
 
 _channels: dict[str, "Channel"] = {}
 _channel_sources: dict[str, ChannelSource] = {}
+_seen_states: dict[str, tuple] | None = None
+# How often a channel's own changes (a WhatsApp link dropping, a bot's polling ending) are looked for.
+STATE_CHECK_SECONDS = 10
 
 
 def clear_agent_cache_if_loaded() -> None:
@@ -149,8 +152,44 @@ def validate_delivery(channel_name: str | None, target: str | None) -> None:
         return
 
 
+def _state(channel: "Channel") -> tuple:
+    """What Monitor reads of a channel: running, its link, whether it can be reached."""
+    link = channel.link_status()
+    check = getattr(channel, "reachability_problem", None)
+    return (channel.is_configured(), channel.is_running(), (link or {}).get("state"),
+            check() if callable(check) else None)
+
+
+def publish_state_changes() -> bool:
+    """Tell open clients when a channel changed by itself (B410), so Monitor shows it now, not on its next read.
+
+    Adapters keep their own state; this compares it with the last look. It reads only local state.
+    """
+    global _seen_states
+    states = {}
+    for name, channel in list(_channels.items()):
+        try:
+            states[name] = _state(channel)
+        except Exception:
+            log.debug("Could not read %s's state", name, exc_info=True)
+    changed = _seen_states is not None and states != _seen_states
+    _seen_states = states
+    if changed:
+        from row_bot.application.live_updates import publish
+
+        publish("monitor")
+    return changed
+
+
+def schedule_state_checks(scheduler: Any) -> None:
+    scheduler.add_job(publish_state_changes, trigger="interval", seconds=STATE_CHECK_SECONDS,
+                      id="channel_state_changes", replace_existing=True, coalesce=True, max_instances=1)
+
+
 def _reset() -> None:
     """Clear all channels (testing only)."""
+    global _seen_states
 
     _channels.clear()
     _channel_sources.clear()
+    _seen_states = None

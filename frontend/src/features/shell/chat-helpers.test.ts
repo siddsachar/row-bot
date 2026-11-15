@@ -230,6 +230,9 @@ describe('tool activity', () => {
       'src/app.ts',
     );
     expect(keyArgument('{"limit": 3, "offset": 1}')).toBe('');
+    // A setting is named in words, not by its ID (F5).
+    expect(keyArgument('{"setting": "tool_toggle"}')).toBe('Tools');
+    expect(keyArgument('{"setting": "image_gen_model"}')).toBe('Image model');
     expect(keyArgument('plain bounded input')).toBe('plain bounded input');
     expect(keyArgument(`"${'x'.repeat(300)}"`)).toHaveLength(140);
     expect(keyArgument(undefined)).toBe('');
@@ -459,6 +462,16 @@ describe('runtime error rows', () => {
         '⚠️ qwen via Local does not support tool calling — switch to a compatible model in Settings → Models.',
       )?.actions,
     ).toEqual(['model']);
+    // The main model and the backup model both failed (#140).
+    expect(
+      turnError(
+        '⚠️ Neither qwen3:8b nor GPT-5 mini answered — Request timed out.',
+      ),
+    ).toEqual({
+      cause: 'Neither qwen3:8b nor GPT-5 mini answered',
+      detail: 'Request timed out.',
+      actions: ['retry', 'model'],
+    });
   });
 
   it('leaves ordinary answers that mention warnings alone', () => {

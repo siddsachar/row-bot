@@ -78,6 +78,14 @@ export const panelRegistry = {
     capabilities: [],
     compact: 'tab',
   },
+  // A video project (5.3.1 B3): its id is the subresource key.
+  'video.project': {
+    title: 'Video',
+    resourceKinds: [],
+    requiresResource: false,
+    capabilities: [],
+    compact: 'tab',
+  },
   'fake.info': {
     title: 'Sample information',
     resourceKinds: [],

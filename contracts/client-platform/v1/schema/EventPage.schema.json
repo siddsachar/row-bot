@@ -345,6 +345,17 @@
           "title": "Scope",
           "type": "string"
         },
+        "setting_change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingChange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "setup": {
           "anyOf": [
             {
@@ -545,7 +556,7 @@
           "type": "string"
         },
         "size_bytes": {
-          "maximum": 26214400,
+          "maximum": 209715200,
           "minimum": 1,
           "title": "Size Bytes",
           "type": "integer"
@@ -603,9 +614,72 @@
       "title": "ChartBlock",
       "type": "object"
     },
+    "ContextBreakdown": {
+      "additionalProperties": false,
+      "description": "What fills the context after the last reply, in estimated tokens: counts only, no names.",
+      "properties": {
+        "conversation": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Conversation",
+          "type": "integer"
+        },
+        "instructions": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Instructions",
+          "type": "integer"
+        },
+        "memory": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Memory",
+          "type": "integer"
+        },
+        "skills": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Skills",
+          "type": "integer"
+        },
+        "tool_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Tool Count",
+          "type": "integer"
+        },
+        "tools": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Tools",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instructions",
+        "tools",
+        "skills",
+        "memory",
+        "conversation",
+        "tool_count"
+      ],
+      "title": "ContextBreakdown",
+      "type": "object"
+    },
     "ContextUpdated": {
       "additionalProperties": false,
       "properties": {
+        "breakdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextBreakdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "capacity_state": {
           "default": "unavailable",
           "maxLength": 64,
@@ -920,6 +994,20 @@
           "title": "Input Tokens",
           "type": "integer"
         },
+        "last_cache_read_percent": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Cache Read Percent"
+        },
         "output_tokens": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -1170,9 +1258,16 @@
         "code": {
           "enum": [
             "generation_failed",
-            "sign_in_required"
+            "sign_in_required",
+            "provider_unavailable"
           ],
           "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "maxLength": 400,
+          "title": "Message",
           "type": "string"
         },
         "provider": {
@@ -1340,6 +1435,12 @@
             "not_applicable"
           ],
           "title": "External Outcome",
+          "type": "string"
+        },
+        "failure_reason": {
+          "default": "",
+          "maxLength": 400,
+          "title": "Failure Reason",
           "type": "string"
         },
         "generation_id": {
@@ -1511,6 +1612,71 @@
       "title": "GenerationStateEvent",
       "type": "object"
     },
+    "HeldMessage": {
+      "additionalProperties": false,
+      "description": "A message another conversation left for a workflow's next run, shown under that run's line.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "text"
+      ],
+      "title": "HeldMessage",
+      "type": "object"
+    },
+    "LinkedFrom": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "message",
+          "enum": [
+            "message",
+            "reply"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "LinkedFrom",
+      "type": "object"
+    },
     "MarkdownBlock": {
       "additionalProperties": false,
       "properties": {
@@ -1560,6 +1726,7 @@
           "enum": [
             "image/png",
             "image/jpeg",
+            "image/gif",
             "video/mp4",
             "audio/mpeg",
             "audio/ogg",
@@ -1570,6 +1737,12 @@
             "application/octet-stream"
           ],
           "title": "Mime Type",
+          "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
           "type": "string"
         },
         "tool_call_id": {
@@ -1922,6 +2095,21 @@
           "minLength": 1,
           "title": "Title",
           "type": "string"
+        },
+        "workflow_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
         }
       },
       "required": [
@@ -2426,6 +2614,49 @@
         "payload"
       ],
       "title": "ResourceChangedEvent",
+      "type": "object"
+    },
+    "SettingChange": {
+      "additionalProperties": false,
+      "description": "A change to one of Row-Bot's settings, in words: the row's name, where it is, what it was and becomes.",
+      "properties": {
+        "after": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Before",
+          "type": "string"
+        },
+        "href": {
+          "default": "",
+          "maxLength": 200,
+          "pattern": "^(/settings/[A-Za-z0-9/?=&#._:-]{0,189})?$",
+          "title": "Href",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "where": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "after"
+      ],
+      "title": "SettingChange",
       "type": "object"
     },
     "Snapshot": {
@@ -3096,6 +3327,12 @@
           "maxLength": 128,
           "title": "Mime Type",
           "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Prompt",
+          "type": "string"
         }
       },
       "required": [
@@ -3218,9 +3455,19 @@
             "sandbox_unprepared",
             "question_answered",
             "page",
-            "request_corrected"
+            "request_corrected",
+            "linked_conversation",
+            "video_project",
+            "setting_change"
           ],
           "title": "Kind",
+          "type": "string"
+        },
+        "link_id": {
+          "default": "",
+          "maxLength": 32,
+          "pattern": "^([0-9a-f]{32})?$",
+          "title": "Link Id",
           "type": "string"
         },
         "media": {
@@ -3274,6 +3521,13 @@
           "title": "Process Id",
           "type": "string"
         },
+        "project_id": {
+          "default": "",
+          "maxLength": 32,
+          "pattern": "^(vid-[0-9a-f]{8})?$",
+          "title": "Project Id",
+          "type": "string"
+        },
         "recording_id": {
           "default": "",
           "maxLength": 64,
@@ -3296,6 +3550,17 @@
           ],
           "title": "Resource Kind",
           "type": "string"
+        },
+        "setting_change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingChange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "settings_page": {
           "default": "",
@@ -3696,11 +3961,30 @@
           "title": "Cut Short",
           "type": "boolean"
         },
+        "held": {
+          "items": {
+            "$ref": "#/$defs/HeldMessage"
+          },
+          "maxItems": 10,
+          "title": "Held",
+          "type": "array"
+        },
         "id": {
           "maxLength": 1024,
           "minLength": 1,
           "title": "Id",
           "type": "string"
+        },
+        "linked_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LinkedFrom"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "message_id": {
           "anyOf": [
@@ -3723,7 +4007,9 @@
                 "agent_task",
                 "agent_guidance",
                 "page",
-                "personal_model_fallback"
+                "personal_model_fallback",
+                "linked",
+                "backup_model"
               ],
               "type": "string"
             },
@@ -3755,6 +4041,19 @@
           ],
           "title": "Role",
           "type": "string"
+        },
+        "run_failure": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Failure"
         },
         "tool_call_id": {
           "default": "",

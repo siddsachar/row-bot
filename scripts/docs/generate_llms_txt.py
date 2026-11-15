@@ -8,10 +8,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for _path in (ROOT, ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from scripts.docs.schemas import clean_public_text, public_route_for_doc
+from row_bot.guides import clean_markdown  # noqa: E402  (standard library only: no app install needed)
+from scripts.docs.schemas import clean_public_text, public_route_for_doc  # noqa: E402
 
 
 def _read(path: Path) -> str:
@@ -40,27 +42,8 @@ def _route_for(path: Path, docs_root: Path) -> str:
 
 
 def _clean_body(body: str) -> str:
-    lines = []
-    skip_component = False
-    for line in body.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("import ", "export ")):
-            continue
-        if stripped.startswith("<") and stripped.endswith("/>"):
-            continue
-        if stripped.startswith("<") and not stripped.startswith(("<table", "<thead", "<tbody", "<tr", "<td", "<th")):
-            skip_component = not stripped.startswith("</")
-            continue
-        if skip_component:
-            if stripped.startswith("</"):
-                skip_component = False
-            continue
-        lines.append(line)
-    cleaned = "\n".join(lines).strip()
-    cleaned = re.sub(r"\{\/\*.*?\*\/\}", "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r"<!--.*?-->", "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return clean_public_text(cleaned)
+    """The page's Markdown as Row-Bot reads it offline: lines, lists, steps and › kept."""
+    return clean_markdown(body)
 
 
 def _sidebar_order(docs_root: Path) -> list[str]:

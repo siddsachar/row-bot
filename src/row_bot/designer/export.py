@@ -16,6 +16,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from row_bot.data_paths import default_workspace_root
 from row_bot.designer.preview import render_page_html
 from row_bot.designer.state import DesignerProject
 
@@ -134,9 +135,7 @@ def _export_context(browser, **options):
         context.route('**/*', lambda route: route.abort())
     return context
 
-_WORKSPACE = pathlib.Path(
-    os.environ.get("ROW_BOT_WORKSPACE", pathlib.Path.home() / "Documents" / "Row-Bot")
-)
+_WORKSPACE = default_workspace_root()
 
 
 def _launch_playwright_browser(playwright):

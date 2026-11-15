@@ -257,6 +257,7 @@ class Comparer:
         serving_context: Callable[[str], int | None] | None = None,
         server_hold: Callable[[str], Any] | None = None,
         card_mib: Callable[[], int | None] | None = None,
+        server_slots: Callable[[], int] | None = None,
     ) -> None:
         self._root = root
         self._store = store
@@ -276,6 +277,7 @@ class Comparer:
         self._serving_context = serving_context
         self._server_hold = server_hold
         self._card_mib = card_mib
+        self._server_slots = server_slots
 
     @property
     def root(self) -> Path:
@@ -404,16 +406,39 @@ class Comparer:
             sizes.append(int(getattr(other, "gguf_bytes", 0) or 0) if other is not None else 0)
         return sizes
 
-    def _order(self, sizes: list[int]) -> str:
-        """``model`` when the two local models can't stay loaded together on this card, so each is loaded once
-        rather than for every task (28 Oct: a 27B and its 27B starting model on a 32 GB card swapped each task,
-        about 16 s a task). Each needs about 1.25 times its file and 1 GB (the 9B's and 27B's measured needs).
-        Models that fit together (the 9B and its starting model) keep the interleaved order."""
+    def _slots(self, runtime: str) -> int | None:
+        """How many models Row-Bot's own server keeps loaded side by side (its ``--models-max``, set by the
+        largest model registered there and the card); None for another runtime."""
 
-        card = self._card()
+        if self._server_slots is not None:
+            return self._server_slots()
+        from row_bot.learning.training import llama_server, serving
+
+        if runtime != serving.ROW_BOT:
+            return None
+        try:
+            server = llama_server.get(self._root)
+            return llama_server.models_max([llama_server._file_bytes(entry.gguf) for entry in server.models()],  # noqa: SLF001
+                                           server._card_bytes())  # noqa: SLF001
+        except Exception:  # noqa: BLE001 - unknown: the sizes decide
+            return None
+
+    def _order(self, sizes: list[int], runtime: str = "") -> str:
+        """``model`` when the two local models can't stay loaded together, so each is loaded once rather than for
+        every task (28 Oct: a 27B and its 27B starting model on a 32 GB card swapped each task, about 16 s a task;
+        and the 9B pair swapped too, about 9 s a task, because Row-Bot's own server keeps one model at a time once
+        a 27B is registered there). Row-Bot's own server says how many it keeps (its ``--models-max``); otherwise
+        each model needs about 1.25 times its file and 1 GB (the 9B's and 27B's measured needs)."""
+
         known = [size for size in sizes if size > 0]
+        if len(known) < 2:
+            return "interleaved"
+        slots = self._slots(runtime) if runtime else None
+        if slots is not None:
+            return "model" if slots < 2 else "interleaved"
+        card = self._card()
         need = sum(int(size / 2**20 * 1.25) + 1024 for size in known)
-        return "model" if card and len(known) > 1 and need > card else "interleaved"
+        return "model" if card and need > card else "interleaved"
 
     def _server_held(self, runtime: str) -> Any:
         """Row-Bot's own model server (O75) stays running for the whole comparison when the version
@@ -482,7 +507,7 @@ class Comparer:
         packs = [pack for pack in PACKS if container or pack != "small_coding"]
         hidden_total = evaluation.audit_size(asked_by=ASKED_BY, store=self.store, packs=packs, verifiers=verifiers,
                                              include_replay=self.plan.replay) if self.plan.hidden else 0
-        order = self._order(self._local_sizes(version, state, base_key)) if base_ref else "interleaved"
+        order = self._order(self._local_sizes(version, state, base_key), state.runtime) if base_ref else "interleaved"
         total = (len(chosen) * max(1, self.plan.visible_repeats)
                  + hidden_total * max(1, self.plan.hidden_repeats)) * len(arms)
         self._progress(version, phase="visible", done=0, total=total)

@@ -14,7 +14,7 @@ from typing import Literal, TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from row_bot.voice.browser_local import (
-    ALLOWED_AUDIO_TYPES, MAX_INPUT_BYTES, MAX_TEXT_CHARS,
+    ALLOWED_AUDIO_TYPES, MAX_INPUT_BYTES, MAX_TRANSCRIPT_CHARS,
     MAX_UTTERANCE_SECONDS, BrowserLocalVoiceService,
 )
 from row_bot.voice.coordinator import OutputActivityTracker, VoiceSessionCoordinator
@@ -22,7 +22,8 @@ from row_bot.voice.coordinator import OutputActivityTracker, VoiceSessionCoordin
 if TYPE_CHECKING:
     from row_bot.voice.client_realtime import _RealtimeState
 
-LEASE_SECONDS = 120.0
+LEASE_SECONDS = 360.0  # Longer than the longest utterance.
+REALTIME_LEASE_SECONDS = 120.0  # Realtime speaks in short turns; its lease stays two minutes.
 MAX_RECEIVE_SECONDS = 30.0
 _CONVERSATION = re.compile(r"^[A-Za-z0-9:_-]{1,128}$")
 
@@ -220,7 +221,8 @@ class ClientDictationTransport:
             self.coordinator._session_id += 1
             handle = DictationHandle(str(uuid4()), self.coordinator.session_id,
                                       owner.conversation_id, owner.server_epoch)
-            lease = _Lease(owner, request_id, handle, self._clock() + LEASE_SECONDS)
+            lease = _Lease(owner, request_id, handle, self._clock() + (
+                REALTIME_LEASE_SECONDS if _transport == "realtime" else LEASE_SECONDS))
             lease.mode = mode
             from copy import deepcopy
             lease.chat_context = deepcopy(_chat_context)
@@ -394,7 +396,7 @@ class ClientDictationTransport:
                                                          mode=lease.mode)
                 if not isinstance(text, str):
                     raise DictationError("voice_operation_failed")
-                if len(text) > MAX_TEXT_CHARS:
+                if len(text) > MAX_TRANSCRIPT_CHARS:
                     raise DictationError("transcript_too_large")
                 text = text.strip()
                 if lease.mode == "talk":

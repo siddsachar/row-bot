@@ -25,20 +25,22 @@ import zlib
 
 from row_bot.integrations import apps
 from row_bot.integrations.safe import write_atomic
+from row_bot.mcp_client import registry_signals
 
 if TYPE_CHECKING:
     from row_bot.mcp_client.marketplace import MarketplaceEntry
 
-SCHEMA = 3
+SCHEMA = 4
 _GENERATION = re.compile(r"registry-[0-9a-f]{16}\.sqlite3")
 _LOCK = threading.RLock()
 _READY: dict = {}
 _TABLES = """
 CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, title TEXT NOT NULL, app TEXT NOT NULL,
     verified INTEGER NOT NULL, featured INTEGER, setup INTEGER NOT NULL, updated INTEGER NOT NULL, icon TEXT,
-    quality INTEGER NOT NULL, row BLOB NOT NULL);
+    quality INTEGER NOT NULL, hosted INTEGER NOT NULL, sign_in INTEGER NOT NULL, merit REAL NOT NULL,
+    stars INTEGER NOT NULL, pushed INTEGER NOT NULL, archived INTEGER NOT NULL, first INTEGER NOT NULL, row BLOB NOT NULL);
 CREATE INDEX entries_app ON entries(app) WHERE app != '';
-CREATE VIRTUAL TABLE fts USING fts5(name, title, publisher, app_text, description, content='',
+CREATE VIRTUAL TABLE fts USING fts5(name, title, app_names, publisher, about, content='',
     tokenize='unicode61 remove_diacritics 2', prefix='2 3');
 """
 
@@ -100,17 +102,39 @@ def low_quality(entry: MarketplaceEntry) -> bool:
             or ".staging." in "." + name.split("/", 1)[0] + ".")
 
 
+_SIGN_IN = {"none": 0, "required": 1, "unknown": 2}
+
+
 def derive(entry: MarketplaceEntry) -> dict:
-    """What ranking needs about one record: its app, vendor verification, setup tier and freshness."""
+    """What ranking and the filters need about one record, worked out as ``sources._McpCatalog.row`` and
+    ``sources.rank`` do: its app, vendor verification, setup order, where it runs, sign-in and quality."""
+    from row_bot.integrations import sources
     metadata = entry.metadata or {}
-    refs = apps.registry_refs(metadata.get("canonical_name", ""))  # The namespace only; see sources._McpCatalog.row.
+    canonical = metadata.get("canonical_name", "")
+    refs = apps.registry_refs(canonical)  # The namespace only; see sources._McpCatalog.row.
     app = apps.match(refs)
-    installable = bool(entry.install) and metadata.get("status") == "active"
+    install = entry.install or {}
+    supported = sources.launchable(install)
     # Authentication is known for local servers, and for hosted ones whose app documents it.
-    known = not (entry.install or {}).get("url") or bool(app and app.auth in {"oauth", "api_key", "none"})
-    setup = 0 if installable and known else 1 if installable else 2
+    known = metadata.get("auth_mode") in {"oauth", "api_key", "none"} or not install.get("url") or bool(
+        app and app.auth in {"oauth", "api_key", "none"})
+    identity = sources.mcp_identity(install, metadata.get("version", ""), canonical,
+                                    own_client=metadata.get("oauth_client") == "required")
+    how = sources.catalog_method(identity, metadata.get("auth_mode") or ("oauth" if entry.requires_auth else ""))
+    sign_in = sources.sign_in(install, metadata.get("auth_mode", ""), entry.requires_auth)
+    updated = epoch(metadata.get("updated_at", ""))
+    shipped = sources.shipped_signals(entry.url, canonical, updated)
+    stars = (shipped["signals"] or {}).get("stars") or 0
+    merit = sources.merit(stars=stars, words=len(sources.plain_text(entry.description[:2048], 2048).split()),
+                          licence=bool(metadata.get("license") or shipped["licence"]),
+                          icon=bool(metadata.get("icon") or (app and app.icon)), sign_in_known=sign_in != "unknown",
+                          fork=shipped["fork"])
     return {"app": app.id if app else "", "verified": apps.verified(app, refs), "featured": app.featured_rank if app else None,
-            "setup": setup, "updated": epoch(metadata.get("updated_at", "")), "app_text": apps.text(app)}
+            "setup": sources.setup_order(how, 0 if supported and known else 1 if supported else 2),
+            "hosted": identity.startswith("mcp:endpoint:"), "sign_in": _SIGN_IN[sign_in], "merit": merit, "stars": stars,
+            "pushed": shipped["pushed_at"] or updated, "archived": shipped["archived"], "first": shipped["first_published"],
+            "updated": updated, "app_names": " ".join(apps.names(app)),
+            "about": " ".join([app.publisher, app.summary] if app else [])}
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -151,16 +175,19 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
                     preferred = found["verified"] or found["featured"] is not None  # Never hidden by the floor.
                     quality = 0 if preferred else 1 if low_quality(entry) else 2 if copy else 0
                     # Rows are stored compressed (their text repeats); icons get a column for updates.
-                    cursor = db.execute("INSERT INTO entries(name, title, app, verified, featured, setup, updated, icon, quality, row)"
-                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (name_key, entry.name, found["app"], int(found["verified"]),
-                        found["featured"], found["setup"], found["updated"], (entry.metadata or {}).get("icon"), quality,
-                        zlib.compress(line.encode("utf-8"))))
-                    # Only words people search for: the server part, a real title and the namespace's owner,
-                    # never "io", "github" or "com" from the namespace itself.
                     namespace, _, server = name_key.rpartition("/")
-                    db.execute("INSERT INTO fts(rowid, name, title, publisher, app_text, description) VALUES (?, ?, ?, ?, ?, ?)",
-                               (cursor.lastrowid, server, server if entry.name == name_key else entry.name,
-                                owner_label(namespace), found["app_text"], entry.description))
+                    title = server if entry.name == name_key else entry.name  # The name its card shows.
+                    cursor = db.execute("INSERT INTO entries(name, title, app, verified, featured, setup, updated, icon, quality,"
+                        " hosted, sign_in, merit, stars, pushed, archived, first, row)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (name_key, title, found["app"],
+                        int(found["verified"]), found["featured"], found["setup"], found["updated"], (entry.metadata or {}).get("icon"),
+                        quality, int(found["hosted"]), found["sign_in"], found["merit"], found["stars"], found["pushed"],
+                        int(found["archived"]), found["first"], zlib.compress(line.encode("utf-8"))))
+                    # Only words people search for: the server part, a real title, the app's names and the namespace's
+                    # owner, never "io", "github" or "com" from the namespace itself.
+                    db.execute("INSERT INTO fts(rowid, name, title, app_names, publisher, about) VALUES (?, ?, ?, ?, ?, ?)",
+                               (cursor.lastrowid, server, title, found["app_names"], owner_label(namespace),
+                                found["about"] + " " + entry.description))
                 db.commit()
                 if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                     raise ValueError("catalog_index_corrupt")
@@ -171,7 +198,8 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
             if cancelled():
                 raise ValueError("integration_search_cancelled")
             os.replace(building, root / name)
-            value = {"schema": SCHEMA, "file": name, "apps": apps.digest(), "captured_at": captured_at, "watermark": watermark,
+            value = {"schema": SCHEMA, "file": name, "apps": apps.digest(), "signals": registry_signals.digest(),
+                     "captured_at": captured_at, "watermark": watermark,
                      "etag": etag, "digest": digest.hexdigest(), "count": len(by_name), "updated_at": updated_at,
                      "built_at": time.time()}
             for attempt in range(5):  # A search may hold the pointer open for a moment (Windows).
@@ -202,12 +230,13 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
 
 def ensure() -> dict:
     """The index in use, built first from the shipped snapshot when it is missing, outdated
-    by a newer release snapshot, or derived under other app rules."""
+    by a newer release snapshot, or derived under other app rules or other shipped signals."""
     from row_bot.mcp_client import registry_snapshot
     with _LOCK:
         current = pointer()
         try:
-            shipped_key = (str(registry_snapshot.SHIPPED), registry_snapshot.SHIPPED.stat().st_mtime_ns)
+            shipped_key = (str(registry_snapshot.SHIPPED), registry_snapshot.SHIPPED.stat().st_mtime_ns,
+                           registry_signals.digest())
         except OSError:
             shipped_key = None
         if current and _READY.get("key") == (current["file"], shipped_key):
@@ -221,7 +250,7 @@ def ensure() -> dict:
             current = None  # Torn by a crash or damaged: rebuilt from the release snapshot.
         if current and (shipped is None or current["digest"] == shipped["digest"]
                         or registry_snapshot.instant(current["watermark"]) > registry_snapshot.instant(shipped["watermark"])):
-            if current["apps"] == apps.digest():
+            if current["apps"] == apps.digest() and current.get("signals", "") == registry_signals.digest():
                 _READY["key"] = (current["file"], shipped_key)
                 return current
             return build(list(rows(current)), captured_at=current["captured_at"], watermark=current["watermark"],
@@ -301,20 +330,27 @@ def _match(words: list[str], columns: str = "") -> str:
     return f"{{{columns}}} : ({terms})" if columns else terms
 
 
-# ``sources.order`` in SQL, so SQLite keeps only the top rows however many match.
-_ORDER = """ORDER BY NOT (e.featured IS NOT NULL OR e.verified),
-    NOT (lower(e.title) = :wanted OR lower(e.name) = :wanted OR e.app IN (SELECT value FROM json_each(:apps))),
-    NOT ({strong}), COALESCE(e.featured, 1000000), e.setup,
-    CASE WHEN e.updated = 0 THEN 0 WHEN :now - e.updated <= 7776000 THEN -2 WHEN :now - e.updated <= 31536000 THEN -1 ELSE 0 END,
-    lower(e.title), e.name LIMIT :limit"""
+def _order(strong: str) -> str:
+    """``sources.order`` and ``sources.quality`` in SQL, so SQLite keeps only the top rows however many match.
+    A Registry record is official when verified and community otherwise."""
+    from row_bot.integrations.sources import ACTIVE, ALIVE, ARCHIVED, NEW, NEW_DAYS
+    match = f"CASE WHEN lower(e.title) = :wanted OR e.app IN (SELECT value FROM json_each(:apps)) THEN 0 WHEN {strong} THEN 1 ELSE 2 END"
+    quality = (f"e.merit + CASE WHEN e.archived THEN {ARCHIVED} WHEN e.pushed = 0 THEN 0 WHEN :now - e.pushed <= {90 * 86400} "
+               f"THEN {ACTIVE} WHEN :now - e.pushed <= {365 * 86400} THEN {ALIVE} ELSE 0 END - CASE WHEN e.first > 0 AND "
+               f":now - e.first < {NEW_DAYS * 86400} AND e.stars = 0 THEN {NEW} ELSE 0 END")
+    return (f"ORDER BY ({match}) = 2, NOT e.verified, CASE WHEN e.verified THEN {match} ELSE 0 END, "
+            f"COALESCE(e.featured, 1000000), -({quality}), {match}, e.setup, lower(e.title), e.name LIMIT :limit")
+
+
 _NAMESPACE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+(/[a-z0-9._-]*)?")
 
 
-def search(query: str, *, now: float | None = None, everything: bool = False) -> tuple[list[MarketplaceEntry], int, dict, int]:
+def search(query: str, *, now: float | None = None, everything: bool = False, labels: frozenset[str] | None = None,
+           runs: str = "anywhere", no_sign_in: bool = False) -> tuple[list[MarketplaceEntry], int, dict, int]:
     """The top 200 records for a query (the empty query lists app records only), the number that
     matched, the index in use, and how many placeholder or duplicate records were left out
     (``everything`` keeps them). A query that is itself a namespace matches that namespace
-    exactly."""
+    exactly. The search filters (labels, where it runs, no sign-in) apply before the top 200."""
     from row_bot.mcp_client.registry_snapshot import expand
     index, words, wanted = current(), _words(query), query.casefold().strip()
     named = [app.id for app in apps.catalog()[0].values() if wanted and app.name.casefold() == wanted]
@@ -322,19 +358,26 @@ def search(query: str, *, now: float | None = None, everything: bool = False) ->
               "prefix": wanted.rstrip("/") + "/"}
     select = "SELECT e.row FROM entries e "
     floor = "" if everything else " AND e.quality = 0"
+    filters = ""
+    if labels is not None and not {"official", "community"} <= labels:
+        filters += " AND e.verified" if "official" in labels else " AND NOT e.verified" if "community" in labels else " AND 0"
+    if runs != "anywhere":
+        filters += " AND e.hosted" if runs == "hosted" else " AND NOT e.hosted"
+    if no_sign_in:
+        filters += " AND e.sign_in = 0"
     db = _connect(folder() / index["file"])
     try:
         where = "WHERE (lower(e.name) = :wanted OR substr(lower(e.name), 1, length(:prefix)) = :prefix)"
         if _NAMESPACE.fullmatch(wanted) and db.execute("SELECT 1 FROM entries e " + where + " LIMIT 1", values).fetchone():
             matched, strong = where, "1"  # "io.github.zoom" or "com.notion/mcp" names a namespace: exactly that.
         elif words:
-            values |= {"query": _match(words), "strong": _match(words, "name title publisher app_text")}
+            values |= {"query": _match(words), "strong": _match(words, "name title app_names")}
             matched, strong = "JOIN fts ON fts.rowid = e.id WHERE fts MATCH :query", "e.id IN (SELECT rowid FROM fts WHERE fts MATCH :strong)"
         else:
             matched, strong = "WHERE e.app != ''", "1"
-        top = db.execute(select + matched + floor + " " + _ORDER.format(strong=strong), values).fetchall()
+        top = db.execute(select + matched + filters + floor + " " + _order(strong), values).fetchall()
         # One count for both: everything that matched, and how much of it the floor leaves out.
-        found, low = db.execute("SELECT count(*), total(e.quality > 0) FROM entries e " + matched, values).fetchone()
+        found, low = db.execute("SELECT count(*), total(e.quality > 0) FROM entries e " + matched + filters, values).fetchone()
         hidden = 0 if everything else int(low)
         return [expand(json.loads(zlib.decompress(row[0]))) for row in top], found - hidden, index, hidden
     finally:

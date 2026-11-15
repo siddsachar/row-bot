@@ -3,6 +3,11 @@
     "ProviderEndpointFields": {
       "additionalProperties": false,
       "properties": {
+        "allow_private_address": {
+          "default": false,
+          "title": "Allow Private Address",
+          "type": "boolean"
+        },
         "auth_required": {
           "default": false,
           "title": "Auth Required",
@@ -143,37 +148,6 @@
       ],
       "title": "ProviderEndpointIdentity",
       "type": "object"
-    },
-    "ProviderModelPin": {
-      "additionalProperties": false,
-      "properties": {
-        "model_id": {
-          "maxLength": 512,
-          "minLength": 1,
-          "title": "Model Id",
-          "type": "string"
-        },
-        "provider_id": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9:_-]+$",
-          "title": "Provider Id",
-          "type": "string"
-        },
-        "surface": {
-          "maxLength": 80,
-          "minLength": 1,
-          "title": "Surface",
-          "type": "string"
-        }
-      },
-      "required": [
-        "provider_id",
-        "model_id",
-        "surface"
-      ],
-      "title": "ProviderModelPin",
-      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -190,9 +164,6 @@
         },
         {
           "$ref": "#/$defs/ProviderEndpointIdentity"
-        },
-        {
-          "$ref": "#/$defs/ProviderModelPin"
         }
       ],
       "title": "Fields"
@@ -203,9 +174,7 @@
         "provider.endpoint.save",
         "provider.endpoint.delete",
         "provider.endpoint.probe",
-        "provider.endpoint.refresh",
-        "provider.model.pin",
-        "provider.model.unpin"
+        "provider.endpoint.refresh"
       ],
       "title": "Operation",
       "type": "string"

@@ -1398,6 +1398,43 @@
     }
   },
   {
+    "id": "google-analytics-mcp",
+    "name": "Google Analytics MCP Server",
+    "description": "Google's own server for Analytics reports, realtime reports and property details. Read-only.",
+    "source": "curated",
+    "url": "https://github.com/googleanalytics/google-analytics-mcp",
+    "publisher": "Google",
+    "classification": "official",
+    "category": "Data & Research",
+    "trust_tier": "official_vendor",
+    "risk_level": "low",
+    "action_scope": "read_only",
+    "transport": "stdio",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "analytics",
+      "reports"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-28",
+    "notes": [
+      "Runs the analytics-mcp package from Google on this computer; it needs Python tools (uv).",
+      "Sign in once with `gcloud auth application-default login` and the analytics.readonly scope, and turn on the Google Analytics Admin and Data APIs in your Google Cloud project.",
+      "Read-only: Row-Bot starts it without --allow-write. Google labels it experimental."
+    ],
+    "install": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "analytics-mcp"
+      ],
+      "env": {
+        "GOOGLE_CLOUD_PROJECT": ""
+      }
+    }
+  },
+  {
     "id": "mixpanel-mcp",
     "name": "Mixpanel MCP",
     "description": "Query Mixpanel reports and events and manage dashboards, cohorts and flags (US region endpoint).",
@@ -1709,6 +1746,48 @@
           "format": "string",
           "flag": ""
         }
+      ]
+    }
+  },
+  {
+    "id": "karanb192-reddit-mcp-buddy",
+    "name": "Reddit Buddy",
+    "description": "Browse subreddits from Reddit's public feeds and explain Reddit terms, with no account or key. Searching, reading comments and looking up users need your own approved Reddit API app.",
+    "source": "curated",
+    "url": "https://github.com/karanb192/reddit-mcp-buddy",
+    "publisher": "karanb192",
+    "classification": "community",
+    "category": "Social Media",
+    "trust_tier": "community_reviewed",
+    "risk_level": "low",
+    "action_scope": "read_only",
+    "transport": "stdio",
+    "requires_auth": false,
+    "recommended": false,
+    "capabilities": [
+      "reddit",
+      "social_media",
+      "browsing"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-11-05",
+    "notes": [
+      "Made by the community (karanb192, MIT licence), not by Reddit. Reviewed by Row-Bot and pinned to 1.1.14, which only reads.",
+      "Without an approved Reddit API app it browses subreddits from Reddit's public feeds, which Reddit may slow down or block."
+    ],
+    "metadata": {
+      "version": "1.1.14",
+      "auth_mode": "none",
+      "license": "MIT",
+      "version_policy": "Pinned reddit-mcp-buddy release; a newer one is reviewed before it runs.",
+      "evidence": "Reviewed 2026-11-05 from its repository and npm 1.1.14: five read-only tools (browse_subreddit, search_reddit, get_post_details, user_analysis, reddit_explain); posting arrived in 1.2.0 behind an opt-in. Not yet live-tested through Row-Bot."
+    },
+    "install": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "reddit-mcp-buddy@1.1.14"
       ]
     }
   }

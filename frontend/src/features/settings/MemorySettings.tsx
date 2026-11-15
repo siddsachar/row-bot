@@ -7,7 +7,8 @@ import type {
   WikiSettingsSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, Toggle } from '../../ui/primitives';
+import { BrushCleaning, Import } from 'lucide-react';
+import { Button, IconButton, Toggle } from '../../ui/primitives';
 import { AppLink } from '../../ui/app-link';
 import { humanizeToken } from '../../ui/format';
 import { useNotify } from '../../ui/overlays';
@@ -22,6 +23,10 @@ import WikiSettings, {
   type WikiSettingsSession,
 } from '../knowledge/WikiSettings';
 import type { SettingsMutationIO } from './SettingsSnapshotPanels';
+import MemoryImportDialog from '../knowledge/MemoryImportDialog';
+import type { MemoryImportIO } from '../knowledge/memory-import-io';
+import MemoryReviewDialog from '../knowledge/MemoryReviewDialog';
+import type { MemoryReviewIO } from '../knowledge/memory-review-io';
 
 export type KnowledgeMaintenanceIO = {
   review(
@@ -52,12 +57,18 @@ export default function MemorySettings({
   loadCatalog,
   maintenance,
   onMutation,
+  importIO,
+  reviewIO,
   refreshToken = 0,
 }: {
   snapshot?: KnowledgeSettingsSnapshot;
   settingsMutation?: SettingsMutationIO | null;
   wikiSession?: WikiSettingsSession;
   wikiSnapshot?: WikiSettingsSnapshot;
+  /** Import memories from another assistant (the same dialog as Knowledge's). */
+  importIO?: MemoryImportIO;
+  /** Review memory: suggestions to keep, merge, rewrite or remove (the same dialog as Knowledge's). */
+  reviewIO?: MemoryReviewIO;
   /** The saved catalog, whose revision "Delete all" is reviewed against. */
   loadCatalog?: (signal?: AbortSignal) => Promise<EntitySummaryPage>;
   maintenance?: KnowledgeMaintenanceIO;
@@ -79,6 +90,10 @@ export default function MemorySettings({
   const [deleteResult, setDeleteResult] =
     useState<KnowledgeMaintenanceReceipt | null>(null);
   const [dangerOpen, setDangerOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [reviewing, setReviewing] = useState<{ importBatch?: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!loadCatalog) return;
@@ -281,9 +296,46 @@ export default function MemorySettings({
               </AppLink>
             }
           />
+          {importIO && (
+            <SettingsItem
+              label="Import memories"
+              help="Bring what ChatGPT, Claude, Gemini or another assistant knows about you. You check everything before it is saved."
+              bind={false}
+              control={
+                <IconButton
+                  label="Import memories"
+                  variant="secondary"
+                  onClick={() => setImporting(true)}
+                >
+                  <Import size={16} aria-hidden />
+                </IconButton>
+              }
+            />
+          )}
+          {reviewIO && (
+            <SettingsItem
+              label="Review memory"
+              help="Row-Bot suggests what to keep, merge, rewrite or remove, each with a reason. Nothing changes until you approve, and you can undo it."
+              bind={false}
+              control={
+                <IconButton
+                  label="Review memory"
+                  variant="secondary"
+                  onClick={() => setReviewing({})}
+                >
+                  <BrushCleaning size={16} aria-hidden />
+                </IconButton>
+              }
+            />
+          )}
         </SettingsGroup>
       )}
-      {snapshot && <GraphHealth snapshot={snapshot} />}
+      {/* Counts of nothing say nothing: shown once there are memories, or
+          when they can't be read (U40). */}
+      {snapshot &&
+        (snapshot.availability === 'unavailable' || snapshot.entities > 0) && (
+          <GraphHealth snapshot={snapshot} />
+        )}
       {wikiSession && (
         <WikiSettings compact session={wikiSession} snapshot={wikiSnapshot} />
       )}
@@ -351,6 +403,33 @@ export default function MemorySettings({
           )}
         </SettingsDangerZone>
       )}
+      {importIO && (
+        <MemoryImportDialog
+          open={importing}
+          onOpenChange={setImporting}
+          io={importIO}
+          onImported={onMutation}
+          onReview={
+            reviewIO
+              ? (importBatch) => {
+                  setImporting(false);
+                  setReviewing({ importBatch });
+                }
+              : undefined
+          }
+        />
+      )}
+      {reviewIO && (
+        <MemoryReviewDialog
+          open={reviewing !== null}
+          onOpenChange={(open) => {
+            if (!open) setReviewing(null);
+          }}
+          io={reviewIO}
+          importBatch={reviewing?.importBatch}
+          onChanged={onMutation}
+        />
+      )}
     </div>
   );
 }
@@ -358,7 +437,7 @@ export default function MemorySettings({
 /** How many memories there are and how well they connect. */
 function GraphHealth({ snapshot }: { snapshot: KnowledgeSettingsSnapshot }) {
   return (
-    <SettingsGroup title="Graph health" anchor="memory-graph">
+    <SettingsGroup title="How your memories link" anchor="memory-graph">
       {snapshot.availability === 'available' ? (
         <>
           <SettingsItem
@@ -380,8 +459,8 @@ function GraphHealth({ snapshot }: { snapshot: KnowledgeSettingsSnapshot }) {
             }
           />
           <SettingsItem
-            label="Connected groups"
-            help={`The largest holds ${snapshot.largest_component.toLocaleString()} memories.`}
+            label="Groups of linked memories"
+            help={`The largest holds ${snapshot.largest_component.toLocaleString()} ${snapshot.largest_component === 1 ? 'memory' : 'memories'}.`}
             bind={false}
             control={
               <span className="settings-row-value">
@@ -390,8 +469,8 @@ function GraphHealth({ snapshot }: { snapshot: KnowledgeSettingsSnapshot }) {
             }
           />
           <SettingsItem
-            label="Unconnected memories"
-            help="Memories with no links to others yet."
+            label="Memories on their own"
+            help="Not linked to any other memory yet."
             bind={false}
             control={
               <span className="settings-row-value">

@@ -1,35 +1,25 @@
 {
   "additionalProperties": false,
-  "description": "Favourite or hide one model (by its provider-qualified reference), or show every hidden one.",
+  "description": "Star or unstar one model (by its provider-qualified reference).",
   "properties": {
     "action": {
       "enum": [
         "favourite",
-        "unfavourite",
-        "hide",
-        "show",
-        "show_all"
+        "unfavourite"
       ],
       "title": "Action",
       "type": "string"
     },
     "model_ref": {
-      "anyOf": [
-        {
-          "maxLength": 647,
-          "minLength": 1,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Model Ref"
+      "maxLength": 647,
+      "minLength": 1,
+      "title": "Model Ref",
+      "type": "string"
     }
   },
   "required": [
-    "action"
+    "action",
+    "model_ref"
   ],
   "title": "ModelVisibilityMutation",
   "type": "object"

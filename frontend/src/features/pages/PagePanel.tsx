@@ -8,13 +8,13 @@ import {
 } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type { PageDecisionView, PageView } from '../../api/types';
-import { saveBrowserDownload } from '../../platform/download';
 import { useClientSelector, useRuntime } from '../../runtime';
 import { Button, ErrorState, IconButton, Skeleton } from '../../ui/primitives';
 import { shortTime } from '../shell/conversation-groups';
+import { saveProblem, useSaveFile } from '../shell/save-file';
 import { PageBridge } from './page-bridge';
 import { pageMode, pageTheme } from './page-theme';
-import { choiceWords, decisionCount, pageFileName } from './page-words';
+import { choiceWords, decisionCount } from './page-words';
 
 type Status = 'loading' | 'ready' | 'failed' | 'closed';
 
@@ -45,6 +45,7 @@ export default function PagePanel({
   visible: boolean;
 }) {
   const { controller } = useRuntime();
+  const saveFile = useSaveFile();
   const [view, setView] = useState<PageView | null>(null);
   const [frameUrl, setFrameUrl] = useState('');
   const [status, setStatus] = useState<Status>('loading');
@@ -202,38 +203,15 @@ export default function PagePanel({
   }
 
   async function download() {
-    if (!view) return;
+    if (!view || !saveFile) return;
     setError('');
     setNotice('');
-    const name = pageFileName(view.title);
-    let failure: unknown = null;
-    const result = await saveBrowserDownload(async () => {
-      try {
-        const file = await controller.downloadPage(pageId, pageTheme());
-        return new Blob([file.html], { type: 'text/html;charset=utf-8' });
-      } catch (cause) {
-        failure = cause;
-        throw cause;
-      }
-    }, name);
-    try {
-      if (failure) setError(clientError(failure).message);
-      else if (
-        result.status === 'unavailable' &&
-        result.reason === 'desktop_download_unavailable'
-      ) {
-        // The desktop window can't download: the page goes into Exports.
-        const saved = await controller.savePageToExports(pageId, pageTheme());
-        setNotice(`Saved ${saved.file_name} in ${saved.folder}.`);
-      } else if (result.status === 'unavailable')
-        setError(
-          result.reason === 'user_gesture_required'
-            ? 'Press Download again to save the page.'
-            : `Couldn't download ${name}. Try again.`,
-        );
-    } catch (cause) {
-      setError(clientError(cause).message);
-    }
+    const result = await saveFile({
+      kind: 'page',
+      page_id: pageId,
+      theme: pageTheme(),
+    });
+    setError(saveProblem(result, 'the page'));
   }
 
   const pending = (view?.decisions ?? []).filter((item) => !item.sent);

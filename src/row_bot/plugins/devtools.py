@@ -37,7 +37,7 @@ def validate_plugin_path(path: str | Path) -> PluginValidationResult:
     try:
         from row_bot.plugins.loader import _security_scan
 
-        security_error = _security_scan(plugin_dir)
+        security_error = _security_scan(plugin_dir, runs_programs="shell_processes" in manifest.permissions)
         if security_error:
             return PluginValidationResult(
                 False,

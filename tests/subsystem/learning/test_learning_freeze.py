@@ -314,5 +314,9 @@ def test_the_freeze_gives_the_same_results_model_by_model_as_interleaved(vault):
     interleaved = _freeze(rule, tasks=tasks, replay=replay, arms=arms, contrasts=contrasts)
     model = _freeze(rule, tasks=tasks, replay=replay, arms=arms, contrasts=contrasts, order="model")
 
-    assert model == interleaved
+    def results(found):  # an arm's seconds is how long it took, not a result: a busy machine moves it
+        return {**found, "arms": {name: {key: value for key, value in arm.items() if key != "seconds"}
+                                  for name, arm in found["arms"].items()}}
+
+    assert results(model) == results(interleaved)
     assert interleaved["contrasts"]["personal27 vs start27"]["real_uncorrected"]["primary"]["problems"] == 12

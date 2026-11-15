@@ -1,0 +1,20 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "shape": {
+      "enum": [
+        "16:9",
+        "1:1",
+        "9:16",
+        "gif"
+      ],
+      "title": "Shape",
+      "type": "string"
+    }
+  },
+  "required": [
+    "shape"
+  ],
+  "title": "VideoProjectExport",
+  "type": "object"
+}

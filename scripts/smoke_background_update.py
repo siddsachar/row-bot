@@ -47,6 +47,7 @@ import tarfile
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -124,6 +125,25 @@ def _run_python(version_root: Path, code: str) -> str:
         # -B: -I ignores PYTHONDONTWRITEBYTECODE, and a version folder is never written.
         [str(_python(version_root)), "-I", "-B", "-c", code], check=True, capture_output=True, text=True, env=env,
     ).stdout.strip()
+
+
+def _invitation(version_root: Path, data_dir: Path, origin: str) -> str:
+    """A one-time owner invitation, made the way a person at this computer makes one
+    (``row-bot access invite``) with the installed runtime and its data folder."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("PYTHON", "ROW_BOT_"))}
+    env.update(PYTHONDONTWRITEBYTECODE="1", ROW_BOT_DATA_DIR=str(data_dir))
+    code = (
+        f"import sys; sys.path.insert(0, {str(version_root / 'app' / 'src')!r}); "
+        "from row_bot.access.cli import build_remote_access_parser, dispatch_access_command; "
+        "sys.exit(dispatch_access_command(build_remote_access_parser().parse_args("
+        f"['access', 'invite', '--data-dir', {str(data_dir)!r}, '--origin', {origin!r}, '--json'])))"
+    )
+    made = subprocess.run(  # noqa: S603 - the installed runtime
+        [str(_python(version_root)), "-I", "-B", "-c", code], capture_output=True, text=True, env=env,
+    )
+    assert made.returncode == 0, f"row-bot access invite failed: {made.stderr[-2000:]}"
+    url = json.loads(made.stdout)["invitation"]["invitation_url"]
+    return urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["invitation"][0]
 
 
 def _installed_dists(version_root: Path) -> dict[str, str]:
@@ -348,11 +368,19 @@ def build_feed(version_root: Path, feed: Path, version: str, checkout: Path) -> 
 
 
 class Client:
-    """A desktop client on this computer: one handshake, then the update API."""
+    """A desktop client on this computer: one handshake, then the update API.
 
-    def __init__(self, port: int) -> None:
+    With an invitation it signs in first, as the person's window does: on this computer
+    only a signed-in client may change anything (A0). Without one it may only look.
+    """
+
+    def __init__(self, port: int, invitation: str = "") -> None:
         self.base = f"http://127.0.0.1:{port}"
         self.origin = self.base
+        self._opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+        if invitation:
+            self._call("POST", "/api/access/invitations/claim",
+                       {"invitation": invitation, "display_name": "Background update smoke"}, session=False)
         data = self._call("POST", "/api/v1/handshake", {}, session=False)
         self.headers = {"X-Client-Session": data["client_session_id"], "X-CSRF-Token": data["csrf_token"]}
 
@@ -372,7 +400,7 @@ class Client:
                 headers=headers,
             )
             try:
-                with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - loopback
+                with self._opener.open(request, timeout=60) as response:  # noqa: S310 - loopback
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as error:
                 detail = error.read()[:400]
@@ -473,7 +501,7 @@ def run(root: Path, kind: str, version_root: Path, port: int, command: list[str]
         launcher = Launcher(command, work / "data", work / "launcher.log")
         _wait("/readyz", lambda: _get(f"http://127.0.0.1:{port}/readyz") == 200, timeout, launcher)
         program_before = _listening_program(port) if kind == "windows" else ""
-        client = Client(port)
+        client = Client(port, _invitation(version_root, work / "data", f"http://127.0.0.1:{port}"))
         snapshot = client.updates()
         assert snapshot["mode"] == "self", snapshot
         assert snapshot["current_version"] == previous, snapshot

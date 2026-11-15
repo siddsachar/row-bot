@@ -140,8 +140,10 @@ async def _json_error(
 ) -> None:
     if scope is not None and str(scope.get("path", "")).startswith("/api/v1/"):
         from uuid import uuid4
+        # A window on this computer that isn't signed in may look but not change: it says so, not "not allowed".
         safe_code = ("authentication_required" if status == 401 else
-                     "origin_rejected" if code.startswith("origin") else "action_denied")
+                     "origin_rejected" if code.startswith("origin") else
+                     "sign_in_required" if code == "person_required" else "action_denied")
         body = json.dumps({"type": f"urn:row-bot:error:{safe_code}",
                            "title": safe_code.replace("_", " "), "status": status,
                            "code": safe_code, "request_id": str(uuid4()), "retryable": False,

@@ -506,3 +506,15 @@ def test_stop_ends_the_worker_mid_task_and_reads_as_stopped_never_failed(ready, 
     assert stopped.value.code == "stopped"
     assert model_compare.read_progress(1, ready)["state"] == "stopped"
 
+
+@pytest.mark.parametrize(("slots", "order"), [(1, "model"), (2, "interleaved")])
+def test_row_bots_own_server_decides_whether_two_models_stay_loaded(ready, slots, order):
+    """28 Oct evening: the 9B pair (both fit the card) still swapped, because Row-Bot's own server keeps one model
+    at a time once a 27B is registered there; its own --models-max now decides the order."""
+
+    comparer = _comparer(ready)
+    comparer._server_slots = lambda: slots  # noqa: SLF001
+
+    assert comparer._order([9_786_060_672, 9_786_060_672], "row_bot") == order  # noqa: SLF001
+    assert comparer._order([9_786_060_672], "row_bot") == "interleaved"  # noqa: SLF001
+

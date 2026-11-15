@@ -24,6 +24,19 @@ class ConversationTokenUsage(TypedDict):
     output_tokens: int
     cache_read_percent: int | None
     cost_usd: float | None
+    # Share of the newest turn request's input read from the provider's cache.
+    last_cache_read_percent: int | None
+
+
+class ContextBreakdown(TypedDict):
+    """What fills the context after the last settled reply, in estimated tokens; counts only."""
+
+    instructions: int
+    tools: int
+    skills: int
+    memory: int
+    conversation: int
+    tool_count: int
 
 
 class ContextUsageView(TypedDict):
@@ -42,6 +55,8 @@ class ContextUsageView(TypedDict):
     capacity_state: str
     # Present once the conversation has a recorded model call.
     conversation_usage: NotRequired[ConversationTokenUsage]
+    # Present on a settled measurement (a saved snapshot or the event after a reply).
+    breakdown: NotRequired[ContextBreakdown]
 
 
 _MAX_SNAPSHOT_BYTES = 16 * 1024
@@ -55,6 +70,24 @@ _COUNTS = (
     "effective_limit_tokens",
     "last_confirmed_input_tokens",
 )
+_BREAKDOWN_KEYS = ("instructions", "tools", "skills", "memory", "conversation", "tool_count")
+
+
+def _breakdown(value: Any) -> ContextBreakdown | None:
+    """A bounded breakdown of counts, or ``None`` when anything in it is malformed."""
+    if not isinstance(value, Mapping):
+        return None
+    counts = {key: value.get(key) for key in _BREAKDOWN_KEYS}
+    if any(type(count) is not int or not 0 <= count <= _MAX_TOKENS for count in counts.values()):
+        return None
+    return counts  # type: ignore[return-value]
+
+
+def _with_breakdown(view: ContextUsageView, source: Mapping[str, Any]) -> ContextUsageView:
+    breakdown = _breakdown(source.get("breakdown"))
+    if breakdown is not None:
+        view["breakdown"] = breakdown
+    return view
 
 
 def _unknown(conversation_id: str) -> ContextUsageView:
@@ -83,11 +116,14 @@ def _conversation_usage(conversation_id: str) -> ConversationTokenUsage | None:
     percent = totals.get("cache_read_percent")
     if percent is not None and (type(percent) is not int or not 0 <= percent <= 100):
         percent = None
+    last_percent = totals.get("last_cache_read_percent")
+    if last_percent is not None and (type(last_percent) is not int or not 0 <= last_percent <= 100):
+        last_percent = None
     cost = totals.get("cost")
     if cost is not None and (not isinstance(cost, float) or not math.isfinite(cost) or cost < 0):
         cost = None
     return {"calls": counts[0], "input_tokens": counts[1], "output_tokens": counts[2],
-            "cache_read_percent": percent, "cost_usd": cost}
+            "cache_read_percent": percent, "cost_usd": cost, "last_cache_read_percent": last_percent}
 
 
 def _with_conversation_usage(view: ContextUsageView) -> ContextUsageView:
@@ -131,7 +167,7 @@ def _project_live_usage(
     if str(payload.get("status") or "") == "unavailable":
         status = "unavailable"
     capacity_state = str(payload.get("capacity_state") or "unavailable")[:64]
-    return {
+    return _with_breakdown({
         "conversation_id": conversation_id,
         "state": "live",
         "freshness": "current",
@@ -140,7 +176,7 @@ def _project_live_usage(
         "scope": scope,
         "capacity_state": capacity_state,
         **counts,
-    }
+    }, payload)
 
 
 def read_usage(service: Any, conversation_id: str, controls: Mapping[str, Any]) -> ContextUsageView:
@@ -234,7 +270,7 @@ def _read_saved(service: Any, conversation_id: str, controls: Mapping[str, Any])
     capacity_state = str(usage.get("capacity_state") or "unavailable")
     if len(capacity_state) > 64 or any(ord(character) < 32 for character in capacity_state):
         return unknown
-    return {"conversation_id": conversation_id, "state": "stale" if stale else "saved",
-            "freshness": "stale" if stale else "current", "status": status,
-            "model_ref": model_ref, "scope": usage["mode"],
-            "capacity_state": capacity_state, **counts}
+    return _with_breakdown({"conversation_id": conversation_id, "state": "stale" if stale else "saved",
+                            "freshness": "stale" if stale else "current", "status": status,
+                            "model_ref": model_ref, "scope": usage["mode"],
+                            "capacity_state": capacity_state, **counts}, usage)

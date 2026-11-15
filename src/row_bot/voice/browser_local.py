@@ -18,11 +18,13 @@ from row_bot.voice.providers import (
     speech_to_text_provider,
 )
 
-MAX_INPUT_BYTES = 8 * 1024 * 1024
+# A dictated prompt or a spoken turn of up to five minutes (5.3.1 A4; 30 s cut long ones off).
+MAX_INPUT_BYTES = 32 * 1024 * 1024
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
-MAX_UTTERANCE_SECONDS = 30
+MAX_UTTERANCE_SECONDS = 300
 MAX_TEXT_CHARS = 4_000
-DECODE_TIMEOUT_SECONDS = 15
+MAX_TRANSCRIPT_CHARS = 20_000
+DECODE_TIMEOUT_SECONDS = 60
 REQUESTS_PER_MINUTE = 12
 GLOBAL_CONCURRENCY = 2
 

@@ -74,7 +74,10 @@ from plugins.api import PluginTool
 from plugins.api import Channel
 ```
 
-The loader blocks imports from Row-Bot internals and UI frameworks. Channel
+The loader blocks imports from Row-Bot internals and UI frameworks, and `eval`,
+`exec` and `__import__`. A plugin may use `subprocess` and `os.system` only when
+its manifest declares `shell_processes`, which the person sees as "run programs
+on this computer" before adding it, and again when an update changes it. Channel
 plugins can subclass the public `Channel` export, but plugin-owned channels do
 not render arbitrary settings UI; their setup is rendered by Plugin Center
 metadata.

@@ -21,6 +21,7 @@ class AttachmentExecutionCaches:
     data: dict[str, bytes] = field(default_factory=dict)
     images: dict[str, bytes] = field(default_factory=dict)
     pending_image: str | None = None
+    pending_image_name: str = ""  # The file name it is saved under ("" is generated-image).
     pending_video: dict | None = None
 
 
@@ -55,6 +56,7 @@ def tool_attachment_scope() -> Iterator[AttachmentExecutionCaches | None]:
         # Data and image dictionaries belong to the outer execution. A tool
         # finishing cannot clear attachments still needed by its siblings.
         child.pending_image = None
+        child.pending_image_name = ""
         child.pending_video = None
 
 
@@ -84,4 +86,5 @@ def prepared_attachments(conversation_id: str, files: list[dict], *,
         caches.data.clear()
         caches.images.clear()
         caches.pending_image = None
+        caches.pending_image_name = ""
         caches.pending_video = None

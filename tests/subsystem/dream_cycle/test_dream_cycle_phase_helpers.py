@@ -19,88 +19,113 @@ def fresh_dream_and_kg(tmp_path, monkeypatch, reload_for_data_dir):
     return dream_cycle, kg
 
 
-def test_find_merge_candidates_uses_similarity_type_and_subject_guards(tmp_path, monkeypatch, reload_for_data_dir) -> None:
-    dream_cycle, kg = fresh_dream_and_kg(tmp_path, monkeypatch, reload_for_data_dir)
-    alice = {"id": "a", "entity_type": "person", "subject": "Alice", "description": "Writes tests"}
-    bob = {"id": "b", "entity_type": "person", "subject": "Bob", "description": "Also writes tests"}
-    project = {"id": "p", "entity_type": "project", "subject": "Alice", "description": "Wrong type"}
-    user = {"id": "u", "entity_type": "person", "subject": "User", "description": "Never merge"}
+def _fake_threads(monkeypatch, conversations: dict[str, str]) -> list[str]:
+    """Conversations as Dream reads them; returns the ids read, in order."""
+    import row_bot.memory_extraction as memory_extraction
+    import row_bot.threads as threads
 
-    def fake_semantic_search(_text, top_k, threshold):
-        assert top_k == 5
-        assert threshold == 0.93
-        return [
-            {**bob, "score": 0.97},
-            {**project, "score": 0.99},
-            {**alice, "score": 1.0},
-        ]
+    read: list[str] = []
+    monkeypatch.setattr(threads, "_list_threads", lambda: [(tid, tid, "", "") for tid in conversations])
+
+    def messages(tid):
+        read.append(tid)
+        return [{"role": "user", "content": conversations[tid]}]
+
+    monkeypatch.setattr(memory_extraction, "_get_thread_messages", messages)
+    monkeypatch.setattr(memory_extraction, "_format_conversation", lambda items: items[0]["content"])
+    return read
+
+
+def test_pair_candidates_use_calibrated_similarity_type_family_and_skip_user_archived_and_unlike_lessons(
+        tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    dream_cycle, kg = fresh_dream_and_kg(tmp_path, monkeypatch, reload_for_data_dir)
+
+    def memory(eid, kind, subject, description="", created="2026-01-01", properties="{}"):
+        return {"id": eid, "entity_type": kind, "subject": subject, "description": description or subject,
+                "aliases": "", "created_at": created, "properties": properties}
+
+    entities = [
+        memory("a", "person", "Alice", "Alice writes tests", "2026-01-02"),
+        memory("a2", "fact", "Alice", "Alice writes the tests", "2026-01-01"),   # person/fact: one family
+        memory("p", "project", "Alice", "Wrong type"),
+        memory("u", "person", "User", "Never paired"),
+        memory("old", "person", "Archived", properties='{"status": "archived"}'),
+        memory("l1", "self_knowledge", "Lesson", "Ask before deleting files."),
+        memory("l2", "self_knowledge", "Lesson", "Ask before moving or renaming files in the workspace."),
+        memory("far", "person", "Bob", "Bob plays chess"),
+    ]
+    scores = {"a": {"a2": 0.9, "p": 0.99, "u": 0.99, "old": 0.99, "far": 0.7},
+              "l1": {"l2": 0.99}}
+    searched: list[str] = []
+
+    def fake_semantic_search(text, top_k, threshold, stats=None):
+        [entity] = [e for e in entities if e["description"] == text]
+        searched.append(entity["id"])
+        stats["mean"] = 0.5  # calibrated: (0.9 - 0.5) / 0.5 = 0.8; (0.7 - 0.5) / 0.5 = 0.4
+        return [{**other, "score": scores.get(entity["id"], {}).get(other["id"], 0.0)}
+                for other in entities if other["id"] in scores.get(entity["id"], {})]
 
     monkeypatch.setattr(kg, "_entity_text", lambda entity: entity["description"])
     monkeypatch.setattr(kg, "semantic_search", fake_semantic_search)
 
-    assert dream_cycle._find_merge_candidates([alice, user], threshold=0.93) == []
+    pairs = dream_cycle._find_pair_candidates(entities)
 
-    monkeypatch.setattr(kg, "semantic_search", lambda *_args, **_kwargs: [{**bob, "score": 0.99}])
-    candidates = dream_cycle._find_merge_candidates([alice, bob], threshold=0.93)
-    assert candidates == [(alice, {**bob, "score": 0.99}, 0.99)]
+    # Older first; the far pair is under the calibrated bar; the lessons are not near-identical.
+    assert [(older["id"], newer["id"], round(score, 2)) for older, newer, score in pairs] == [("a2", "a", 0.8)]
+    # One search per memory at most, never for the User record or an archived memory.
+    assert sorted(searched) == sorted(["a", "a2", "p", "l1", "l2", "far"])
 
 
-def test_enrichment_input_helpers_filter_merged_and_noisy_entities(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+def test_enrichment_inputs_skip_lessons_user_and_superseded_and_name_only_people_places_and_organisations(
+        tmp_path, monkeypatch, reload_for_data_dir) -> None:
     dream_cycle, _kg = fresh_dream_and_kg(tmp_path, monkeypatch, reload_for_data_dir)
     entities = [
-        {"id": "old", "subject": "Old", "description": "short", "aliases": "O", "updated_at": "1"},
-        {"id": "merged", "subject": "Merged", "description": "tiny", "aliases": "", "updated_at": "0"},
-        {"id": "long", "subject": "Long", "description": "x" * 100, "aliases": "L", "updated_at": "2"},
-        {"id": "user", "subject": "User", "description": "tiny", "aliases": "", "updated_at": "3"},
+        {"id": "old", "entity_type": "person", "subject": "Old", "description": "short", "aliases": "Oldie", "updated_at": "1"},
+        {"id": "gone", "entity_type": "fact", "subject": "Gone", "description": "tiny", "updated_at": "0",
+         "properties": '{"status": "superseded"}'},
+        {"id": "lesson", "entity_type": "self_knowledge", "subject": "Lesson", "description": "tiny", "updated_at": "0"},
+        {"id": "long", "entity_type": "place", "subject": "Long", "description": "x" * 100, "aliases": "L", "updated_at": "2"},
+        {"id": "tea", "entity_type": "preference", "subject": "Tea", "description": "tiny", "updated_at": "4"},
+        {"id": "user", "entity_type": "person", "subject": "User", "description": "tiny", "aliases": "", "updated_at": "3"},
     ]
 
-    thin, other_subjects = dream_cycle._prepare_enrichment_inputs(
-        entities,
-        merges=[{"duplicate_id": "merged"}],
-        min_chars=20,
-    )
+    thin, other_names = dream_cycle._prepare_enrichment_inputs(entities, min_chars=20)
 
-    assert [entity["id"] for entity in thin] == ["old", "user"]
-    assert other_subjects == {"old", "long"}
+    assert [entity["id"] for entity in thin] == ["old", "tea"]
+    assert other_names == {"old", "oldie", "long"}
 
 
-def test_extract_relevant_sentences_and_conversation_mentions(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+def test_one_read_finds_the_sentences_naming_a_memory_and_passages_naming_two(
+        tmp_path, monkeypatch, reload_for_data_dir) -> None:
     dream_cycle, _kg = fresh_dream_and_kg(tmp_path, monkeypatch, reload_for_data_dir)
+    read = _fake_threads(monkeypatch, {
+        "t1": "User: Alice likes tea. Bob deploys. Assistant: Alice writes tests! Other sentence.",
+        "t2": "user: t2: Alice and Al appear together.",
+    })
+    alice = {"id": "alice", "subject": "Alice", "aliases": "Al"}
+    bob = {"id": "bob", "subject": "Bob", "aliases": ""}
 
-    text = "User: Alice likes tea. Bob deploys. Assistant: Alice writes tests! Other sentence."
-    assert dream_cycle._extract_relevant_sentences(text, {"alice"}) == (
-        "User: Alice likes tea. Assistant: Alice writes tests!"
-    )
+    found = dream_cycle._read_conversations([alice, bob], {"alice"})
 
-    import row_bot.memory_extraction as memory_extraction
-    import row_bot.threads as threads
-
-    monkeypatch.setattr(threads, "_list_threads", lambda: [("t1", "one", "", ""), ("t2", "two", "", "")])
-    monkeypatch.setattr(
-        memory_extraction,
-        "_get_thread_messages",
-        lambda tid: [{"role": "user", "content": f"{tid}: Alice and Al appear together."}],
-    )
-    monkeypatch.setattr(
-        memory_extraction,
-        "_format_conversation",
-        lambda messages: "\n".join(f"{m['role']}: {m['content']}" for m in messages),
-    )
-
-    assert dream_cycle._find_conversation_mentions("Alice", aliases="Al") == [
-        "user: t1: Alice and Al appear together.",
-        "user: t2: Alice and Al appear together.",
-    ]
+    assert read == ["t1", "t2"]
+    assert found.mentions == {"alice": ["User: Alice likes tea. Assistant: Alice writes tests!",
+                                        "user: t2: Alice and Al appear together."]}
+    # Alice and Bob are named in adjacent sentences of t1 only.
+    assert found.pairs == {("alice", "bob"): [1, ["User: Alice likes tea. Bob deploys."]]}
+    assert dream_cycle._find_conversation_mentions("Alice", aliases="Al") == found.mentions["alice"]
 
 
-def test_validate_enrichment_allows_related_subjects_and_rejects_unrelated(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+def test_validate_enrichment_rejects_only_names_the_evidence_does_not_hold(tmp_path, monkeypatch, reload_for_data_dir) -> None:
     dream_cycle, kg = fresh_dream_and_kg(tmp_path, monkeypatch, reload_for_data_dir)
-    entity = {"id": "alice", "subject": "Alice"}
+    entity = {"id": "alice", "subject": "Alice", "description": "Alice likes tea."}
+    excerpts = ["Alice went hiking with Dana in Lisbon."]
+    names = {"bob", "carol", "dana", "lisbon", "alice"}
 
     monkeypatch.setattr(kg, "get_relations", lambda *_args, **_kwargs: [{"peer_subject": "Bob"}])
 
-    assert dream_cycle._validate_enrichment("Alice works with Bob on tests.", entity, {"bob"}) is True
-    assert dream_cycle._validate_enrichment("Alice owns Carol deployment facts.", entity, {"carol"}) is False
+    assert dream_cycle._validate_enrichment("Alice works with Bob on tests.", entity, names, excerpts) is True
+    assert dream_cycle._validate_enrichment("Alice hiked with Dana in Lisbon.", entity, names, excerpts) is True
+    assert dream_cycle._validate_enrichment("Alice owns Carol's deployment facts.", entity, names, excerpts) is False
 
 
 def test_cooccurring_pairs_ignore_rejections_existing_edges_and_duplicate_subjects(tmp_path, monkeypatch, reload_for_data_dir) -> None:
@@ -109,12 +134,7 @@ def test_cooccurring_pairs_ignore_rejections_existing_edges_and_duplicate_subjec
     bob = {"id": "bob", "entity_type": "person", "subject": "Bob", "aliases": "", "description": ""}
     carol = {"id": "carol", "entity_type": "person", "subject": "Carol", "aliases": "", "description": ""}
 
-    import row_bot.memory_extraction as memory_extraction
-    import row_bot.threads as threads
-
-    monkeypatch.setattr(threads, "_list_threads", lambda: [("t1", "one", "", ""), ("t2", "two", "", "")])
-    monkeypatch.setattr(memory_extraction, "_get_thread_messages", lambda _tid: [{"role": "user", "content": "Alice Bob Carol"}])
-    monkeypatch.setattr(memory_extraction, "_format_conversation", lambda messages: messages[0]["content"])
+    _fake_threads(monkeypatch, {"t1": "Alice Bob Carol", "t2": "Alice Bob Carol"})
     monkeypatch.setattr(dream_cycle, "_rejected_with_same_evidence",
                         lambda kind, key, _prompt, _cache=None, **_kwargs: kind == "infer" and "carol" in key)
     monkeypatch.setattr(
@@ -125,9 +145,37 @@ def test_cooccurring_pairs_ignore_rejections_existing_edges_and_duplicate_subjec
         else [],
     )
 
-    pairs = dream_cycle._find_cooccurring_pairs([alice, bob, carol])
+    conversations = dream_cycle._read_conversations([alice, bob, carol])
+    pairs = dream_cycle._find_cooccurring_pairs([alice, bob, carol], conversations)
 
     assert pairs == []
+
+
+def test_an_inference_excerpt_is_a_passage_naming_both_and_a_pair_never_named_together_is_skipped(
+        tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    dream_cycle, kg = fresh_dream_and_kg(tmp_path, monkeypatch, reload_for_data_dir)
+    alice = {"id": "alice", "entity_type": "person", "subject": "Alice", "aliases": "", "description": "A friend."}
+    bob = {"id": "bob", "entity_type": "person", "subject": "Bob", "aliases": "", "description": "A neighbour."}
+    acme = {"id": "acme", "entity_type": "organisation", "subject": "Acme", "aliases": "", "description": "A company."}
+    filler = " ".join(f"Line {n} is about the weather." for n in range(40))
+    long_turn = "x" * 900
+    _fake_threads(monkeypatch, {
+        # Alice is named first, far from Bob; Acme never shares a passage with Alice.
+        "t1": f"User: Alice likes tea. {filler} Acme hired Carol. {filler} Later, Alice met Bob at the market.",
+        # One long sentence: the passage is cut to the part naming both.
+        "t2": f"User: {long_turn} Bob called Alice yesterday about {long_turn}",
+    })
+    monkeypatch.setattr(kg, "get_relations", lambda *_args, **_kwargs: [])
+
+    conversations = dream_cycle._read_conversations([alice, bob, acme])
+    pairs = dream_cycle._find_cooccurring_pairs([alice, bob, acme], conversations)
+
+    assert [(a["id"], b["id"], count) for a, b, _excerpt, count in pairs] == [("alice", "bob", 2)]
+    excerpt = pairs[0][2]
+    assert "Alice" in excerpt and "Bob" in excerpt
+    assert "Later, Alice met Bob at the market." in conversations.pairs[("alice", "bob")][1]
+    assert all(len(passage) <= 700 for passage in conversations.pairs[("alice", "bob")][1])
+    assert ("acme", "alice") not in conversations.pairs
 
 
 def test_relation_inference_handles_invalid_json_model_failure_and_reverse_direction(tmp_path, monkeypatch, reload_for_data_dir) -> None:

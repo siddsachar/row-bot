@@ -47,6 +47,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
+  // Close the app first: restoring turns Learning's start-up flag off, and a
+  // poll still due (download, training) would get a 404 a real app never sees.
+  await page.close();
   await l2c2(page, 'restore');
   await fixture(page, '/__s8_fixture/models/restore');
   await l2c(page, 'restore');
@@ -354,8 +357,6 @@ test('the chat says which replies the personal model gave, and when the main mod
   // The hand-over is never shown as the person's words.
   await expect(page.getByText(/couldn.t finish it/)).toHaveCount(0);
   await shoot(page, info, 'chat-lines');
-  // Putting the profile back deletes this chat: close it first, as a person would leave it.
-  await page.close();
 });
 
 test('the composer’s picker offers a ready version as Personal model v1', async ({

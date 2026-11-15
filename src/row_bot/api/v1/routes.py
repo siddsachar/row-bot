@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -73,6 +75,12 @@ _LOCAL_APPLICATION_CAPABILITIES = (
 _PRESENTATION_FEATURES = frozenset({"panels", "responsive", "pwa", "compact"})
 
 
+def _hosted() -> bool:
+    from row_bot.hosting import hosted_by
+
+    return hosted_by() is not None
+
+
 def _learning_preview() -> bool:
     from row_bot import learning
 
@@ -104,6 +112,7 @@ _STATUS = {
     "model_selection_required": 422,
     "authentication_required": 401,
     "action_denied": 403,
+    "sign_in_required": 403,
     "upload_expired": 410,
     "upload_incomplete": 409,
     "payload_too_large": 413,
@@ -274,6 +283,24 @@ _STATUS.update(
 _STATUS.update({"queue_content_unavailable": 503, "queue_capacity": 413})
 _STATUS.update({"profile_unavailable": 409, "profile_snapshot_unavailable": 503})
 _STATUS.update(dict.fromkeys(("invalid_fields", "invalid_query"), 422))
+_STATUS.update(
+    {
+        "import_expired": 410,
+        "import_busy": 409,
+        "import_applied": 409,
+        "import_preview_stale": 409,
+        "import_file_too_large": 413,
+        "import_too_many_files": 422,
+        "import_storage_full": 507,
+        "import_storage_unavailable": 503,
+        "import_model_unavailable": 503,
+        "review_expired": 410,
+        "review_busy": 409,
+        "review_stale": 409,
+        "review_backup_failed": 503,
+        "review_storage_unavailable": 503,
+    }
+)
 _STATUS.update(
     dict.fromkeys(
         (
@@ -495,6 +522,7 @@ _STATUS.update(
         (
             "invalid_task_fields",
             "invalid_task_schedule",
+            "task_schedule_too_often",
             "task_time_passed",
             "invalid_task_identity",
             "invalid_task_revision",
@@ -603,6 +631,8 @@ _STATUS.update(
             "subscription_cancelled",
             "subscription_expired",
             "subscription_storage_unavailable",
+            "subscription_callback_invalid",
+            "subscription_denied",
         ),
         409,
     )
@@ -714,10 +744,36 @@ _STATUS["plugin_environment_ready"] = 409
 # "Send a test message to me" needs a running channel that knows the person.
 _STATUS["channel_not_running"] = 409
 _STATUS["channel_test_target_missing"] = 409
-# A custom endpoint that did not answer a refresh or probe (B114).
-_STATUS["endpoint_unreachable"] = 409
+# A custom endpoint that did not answer a refresh or probe (B114), refused its key or has none,
+# or whose address is on a hosted server's private network (H16).
+_STATUS.update(
+    dict.fromkeys(
+        (
+            "endpoint_unreachable",
+            "endpoint_key_rejected",
+            "endpoint_key_missing",
+            "endpoint_private_address",
+            "endpoint_address_blocked",
+        ),
+        409,
+    )
+)
 # "Enable in chat" (B130): the MCP tool isn't registered in this process.
 _STATUS["native_mcp_unavailable"] = 409
+# The Claude plan (H14, H15): Claude Code to install, or Claude's own sign-in.
+_STATUS.update(
+    dict.fromkeys(
+        (
+            "claude_code_missing",
+            "claude_code_present",
+            "claude_code_installing",
+            "claude_sign_in_ended",
+            "claude_sign_in_unavailable",
+            "claude_sign_out_failed",
+        ),
+        409,
+    )
+)
 _STATUS.update(dict.fromkeys(("invalid_plugin_query", "invalid_plugin_command"), 422))
 _STATUS.update(
     dict.fromkeys(
@@ -814,6 +870,8 @@ _STATUS.update(
             "buddy_tool_unavailable",
             "buddy_tool_policy_denied",
             "buddy_media_capability_unavailable",
+            "buddy_image_model_cannot_edit",
+            "buddy_image_model_unsupported",
             "buddy_data_policy_denied",
             "hatch_source_changed",
             "hatch_job_unavailable",
@@ -934,6 +992,8 @@ _STATUS.update(
     {
         "invalid_model_selection": 422,
         "model_configuration_unavailable": 409,
+        # A send whose model isn't ready (signed out, not running): unlisted, it read "Part of Row-Bot isn't responding".
+        "model_configuration_required": 409,
         "model_settings_unavailable": 503,
         "command_metadata_unavailable": 503,
         "provider_settings_unavailable": 503,
@@ -1041,6 +1101,15 @@ _STATUS.update(
         "recording_unavailable": 404,
         "local_address_unavailable": 404,
         "video_edit_unavailable": 404,
+        "video_project_unavailable": 404,
+        "video_project_stale": 409,
+        "video_project_invalid": 422,
+        "video_project_needs_ffmpeg": 409,
+        "video_project_not_made": 409,
+        "video_brand_invalid": 422,
+        "row_bot_sandbox_unavailable": 404,
+        "wait_unavailable": 404,
+        "row_bot_sandbox_refused": 409,
         "sent_file_unavailable": 404,
         "sent_file_expired": 410,
         "sent_files_gone": 409,
@@ -1085,6 +1154,9 @@ _STATUS.update(
 )
 
 
+# An MCP Registry listing that changed or went away since the person saw it (B405): a 409 in words, never a 503.
+_STATUS.update(dict.fromkeys(('registry_entry_removed', 'registry_recipe_changed', 'registry_recipe_unsupported',
+                              'registry_identity_missing'), 409))
 _STATUS.update(dict.fromkeys(('plan_changed', 'plan_unsupported', 'plan_not_resumable', 'invalid_access_preset', 'invalid_integration_query', 'invalid_mcp_auth', 'invalid_mcp_target', 'mcp_auth_busy', 'mcp_auth_callback_invalid', 'mcp_auth_callback_unavailable', 'mcp_auth_configuration_changed', 'mcp_auth_connection_unavailable', 'mcp_auth_denied', 'mcp_auth_expired', 'mcp_auth_flow_unavailable', 'mcp_auth_not_completed', 'mcp_auth_state_invalid', 'mcp_oauth_http_required', 'mcp_auth_endpoint_invalid', 'mcp_auth_issuer_mismatch', 'mcp_auth_origin_mismatch', 'mcp_auth_redirect_refused', 'mcp_credentials_endpoint_changed', 'mcp_credentials_too_large', 'mcp_credentials_unavailable', 'invalid_credential_reference', 'mcp_durable_storage_required', 'mcp_sign_in_required', 'mcp_package_recipe_unsupported', 'mcp_package_install_scripts_unsupported', 'mcp_package_locked_dependencies_required', 'mcp_package_integrity_required', 'mcp_package_integrity_changed', 'mcp_package_invalid', 'mcp_package_node_required', 'mcp_package_preparation_required', 'mcp_package_preview_capacity', 'mcp_package_preview_expired', 'mcp_package_source_invalid', 'mcp_package_too_large', 'package_link_or_collision', 'unsafe_package_path', 'hermes_recipe_unsupported', 'package_download_too_large', 'package_preview_changed', 'package_preview_expired', 'package_source_not_supported', 'package_source_removed', 'plugin_child_owned', 'plugin_child_parent_owned', 'plugin_child_source_immutable', 'plugin_mcp_state_unavailable', 'plugin_package_state_unavailable'), 409))
 # An address pasted back to finish a sign-in from another device: not that address, another sign-in's, already
 # used, or its sign-in has ended.
@@ -1096,6 +1168,10 @@ _STATUS.update(dict.fromkeys(('integration_link_unsupported', 'invalid_upload', 
 _STATUS['upload_too_large'] = 413
 # An answer that doesn't fit Row-Bot's question, or answers sent for an approval (N4).
 _STATUS['question_answer_invalid'] = 422
+_STATUS['approval_edit_invalid'] = 422
+_STATUS['media_unavailable'] = 404
+_STATUS['scheduled_post_unavailable'] = 404
+_STATUS['scheduled_post_invalid'] = 422
 _STATUS['app_not_connected'] = 409  # A workflow template whose app is not connected yet.
 # Pages (N5): gone, not valid, too big, written to too often, or nothing to send.
 _STATUS.update({"chat_page_unavailable": 404, "chat_page_invalid": 422, "chat_page_too_large": 413,
@@ -1166,6 +1242,12 @@ class ProtocolRoute(APIRoute):
         return safe_handler
 
 
+def _is_sandbox() -> bool:
+    from row_bot.sandboxes import is_sandbox
+
+    return is_sandbox()
+
+
 def problem(exc: Exception) -> JSONResponse:
     code = getattr(exc, "code", "dependency_unavailable")
     # Retained readers use exact ValueError codes; never expose arbitrary messages.
@@ -1173,6 +1255,8 @@ def problem(exc: Exception) -> JSONResponse:
         code = str(exc)
     # Only codes are public. Never interpolate exceptions or validator input.
     if code not in _KNOWN_CODES and code not in _STATUS:
+        # The code alone, never the message: it names the missing mapping.
+        logger.warning("Unmapped error code %r from %s", code, type(exc).__name__)
         code = "dependency_unavailable"
     status = getattr(
         exc,
@@ -1214,7 +1298,12 @@ def _wire(model: Any, value: Any, *, status_code: int = 200) -> JSONResponse:
     # internal fields fail closed rather than leaking through JSONResponse.
     try:
         record = model.model_validate_json(json.dumps(value))
-    except (ValueError, ValidationError, TypeError):
+    except (ValueError, ValidationError, TypeError) as exc:
+        # Only the record's name and the failing fields: never their values.
+        fields = sorted({".".join(map(str, error["loc"])) for error in exc.errors()}) if isinstance(
+            exc, ValidationError) else []
+        logger.warning("Outgoing %s failed its schema (%s)", getattr(model, "__name__", "record"),
+                       ", ".join(fields[:5]) or type(exc).__name__)
         raise ProtocolError("dependency_unavailable", 503) from None
     return JSONResponse(
         record.model_dump(mode="json", exclude_unset=True),
@@ -1264,8 +1353,16 @@ def cached_choices() -> dict:
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
     snapshot = read_model_catalog_cache()
-    # The composer offers the Brain picker's list, judged by the same rule,
-    # with each person's favourites and hidden models marked (F10).
+    from row_bot.application.provider_default_model import read_default_model
+    from row_bot.providers.config import ProviderConfigError
+
+    # The composer offers the Brain picker's list, judged by the same rule, with
+    # each person's stars marked; the main model is always in it, starred or not.
+    try:
+        main_model = read_default_model().selection_ref or ""
+    except ProviderConfigError:
+        # model_settings.json can't be read: the list still opens, without it.
+        main_model = ""
     models = annotate(
         (
             {
@@ -1275,10 +1372,11 @@ def cached_choices() -> dict:
                 "available": option["available"],
                 "unavailable_reason": option["unavailable_reason"],
                 "billing": option["billing"],
+                "chat_only": bool(option.get("chat_only")),
                 # Learning (preview, D11): a personal-model version, tagged Personal in the picker.
                 "personal": withheld(option["provider_id"], option["selection_ref"]),
             }
-            for option in picker_choices("chat")
+            for option in picker_choices("chat", main_model)
         ),
         key="model_ref",
     )
@@ -1369,6 +1467,13 @@ def create_router(
                 )
 
                 await asyncio.to_thread(expire_backup_uploads)
+                # Abandoned memory imports (never loaded: none was started).
+                memory_imports = sys.modules.get("row_bot.application.memory_import")
+                if memory_imports is not None:
+                    await asyncio.to_thread(memory_imports.sweep)
+                memory_reviews = sys.modules.get("row_bot.application.memory_review")
+                if memory_reviews is not None:
+                    await asyncio.to_thread(memory_reviews.sweep)
 
         cleanup = asyncio.create_task(expire_uploads(), name="client-upload-expiry")
         try:
@@ -1385,11 +1490,21 @@ def create_router(
             data_backups = sys.modules.get("row_bot.application.client_data_backup")
             if data_backups is not None:
                 data_backups.close_uploads()
+            memory_imports = sys.modules.get("row_bot.application.memory_import")
+            if memory_imports is not None:
+                memory_imports.close_batches()
+            memory_reviews = sys.modules.get("row_bot.application.memory_review")
+            if memory_reviews is not None:
+                memory_reviews.close_runs()
             with terminal_clients_lock:
                 closing_terminals = tuple(terminal_clients.values())
                 terminal_clients.clear()
             for terminal_client in closing_terminals:
                 terminal_client.disconnect()
+            # Claude's sign-in never outlives the server (never opened: never loaded).
+            claude_sign_in = sys.modules.get("row_bot.providers.claude_sign_in")
+            if claude_sign_in is not None:
+                await asyncio.to_thread(claude_sign_in.close_claude_sign_ins)
             if not await asyncio.to_thread(runtime_installations.close):
                 logger.warning(
                     "Managed runtime shutdown has admitted work still stopping"
@@ -1540,6 +1655,13 @@ def create_router(
                     for item in discovery["capabilities"]
                 ],
             }
+        # Where Row-Bot runs, from this browser's side (U7): "this computer" only when it is.
+        from row_bot.hosting import hosted_by, request_place
+        from row_bot.server_memory import limit_bytes
+
+        kind = request_place(not local_owner)
+        host = hosted_by() if kind == "hosted" else None
+        place = {"kind": kind, "host_name": host.name if host else None}
         # The native bridge is a person's window: only a signed-in one gets its token.
         native_window = local_owner and context.may_act
         native_attestation = (
@@ -1562,6 +1684,8 @@ def create_router(
                 "application_capabilities": [
                     *_APPLICATION_CAPABILITIES,
                     *(_LOCAL_APPLICATION_CAPABILITIES if local_owner else ()),
+                    # A known host runs this Row-Bot (H13): its first chat and phone card (U3, U10).
+                    *(("hosted",) if _hosted() else ()),
                     # Learning (preview) surfaces exist only in a build with its flag (O34).
                     *(("learning:preview",) if _learning_preview() else ()),
                 ],
@@ -1577,6 +1701,9 @@ def create_router(
                 ),
                 # A new schedule keeps its times in this zone unless another is chosen (N9).
                 "server_timezone": _schedule_zone_name(),
+                "sandbox": _is_sandbox(),
+                "place": place,
+                "memory_limit_bytes": limit_bytes(),
                 "native_adapter": {
                     "available": native_window,
                     "proof_required": True,
@@ -1876,10 +2003,15 @@ def create_router(
                 raise ProtocolError("action_denied", 403)
 
         authorize()
+        from row_bot.application import save_offers
         from row_bot.application.attachments import read_attachment
         from urllib.parse import quote
 
-        metadata, data = await call(read_attachment, reference)
+        # The Save dialog reads a conversation's file, or a file offered to this window's session.
+        if save_offers.is_offer(reference):
+            metadata, data = await call(save_offers.take, reference, body.session_id)
+        else:
+            metadata, data = await call(read_attachment, reference)
         authorize()
         return Response(
             data,
@@ -2217,6 +2349,8 @@ def create_router(
     async def transcribe_dictation(
         conversation_id: str, lease_id: str, request: Request
     ) -> JSONResponse:
+        from row_bot.voice.browser_local import MAX_INPUT_BYTES
+
         current = await session(request, lane="mutation")
         handle = dictation_handle(conversation_id, lease_id, dictation_headers(request))
         utterance = voice_header(request, "x-dictation-utterance", 36)
@@ -2263,7 +2397,7 @@ def create_router(
                         break
                     transport.check_receive(operation)
                     security.session(await _context(request), current.id, current.csrf)
-                    if len(data) + len(chunk) > 8388608:
+                    if len(data) + len(chunk) > MAX_INPUT_BYTES:
                         raise ProtocolError("payload_too_large", 413)
                     data.extend(chunk)
             await dictation_owner(request, current, conversation_id)
@@ -2680,8 +2814,11 @@ def create_router(
 
         async def stream() -> Any:
             sent_seq, sent_revision = -1, -1
-            heartbeat = security.clock()
+            heartbeat = opened = security.clock()
             slow = 0
+            # How it ended, for the log, as for /events and /live (#568).
+            ended = "the window went away"
+            logger.debug("Browser pane stream opened (session %s)", current.id[:8])
             try:
                 yield ": connected\n\n"
                 # The stream ends with the browser too (Row-Bot quitting), so shutdown never waits on it.
@@ -2707,10 +2844,15 @@ def create_router(
                     if not changed and security.clock() - heartbeat >= 15:
                         yield ": heartbeat\n\n"
                         heartbeat = security.clock()
-            except ProtocolError:
+                if engine.closed:
+                    ended = "the browser closed, or Row-Bot is stopping"
+            except ProtocolError as error:
+                ended = f"refused ({error.code})"
                 return
             finally:
                 watch.close()
+                logger.debug("Browser pane stream ended after %.0f s: %s (session %s)",
+                             security.clock() - opened, ended, current.id[:8])
 
         return StreamingResponse(stream(), media_type="text/event-stream", headers=HEADERS)
 
@@ -2733,7 +2875,8 @@ def create_router(
 
     @router.post("/conversations/{conversation_id}/browser/input")
     async def browser_input(conversation_id: str, request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
+        # The person's keys and clicks in the shared page: the terminal's interactive lane, not the write budget.
+        current = await session(request, lane="terminal")
         body = await _body(request, dto.BrowserInput, 64 * 1024)
         validate = await browser_authority(conversation_id, request, current)
         from row_bot.application.client_browser import pane_input
@@ -3031,18 +3174,41 @@ def create_router(
         await readable_conversation(conversation_id)
         return await respond(request, dto.ConversationComposer, result)
 
+    @router.post("/conversations/{conversation_id}/setting-changes/undo")
+    async def undo_setting_change(conversation_id: str, request: Request) -> JSONResponse:
+        """The person's Undo on a setting Row-Bot changed: their own action, so nothing is asked."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SettingChangeUndoRequest, 1024)
+        await readable_conversation(conversation_id)
+        from row_bot.application.client_self import undo_setting_change as undo
+
+        result = await call(undo, conversation_id, body.message_id)
+        return await respond(request, dto.SettingChangeUndoResult, result)
+
+    @router.get("/guides/page")
+    async def guide_page(request: Request, route: str) -> JSONResponse:
+        """One of Row-Bot's guides, from the copy this install ships."""
+        await session(request)
+        if len(route) > 256:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_self import read_guide_page
+
+        return await respond(request, dto.GuidePageView, await call(read_guide_page, route))
+
     @router.post("/conversations/{conversation_id}/composer/command")
     async def composer_command(conversation_id: str, request: Request) -> JSONResponse:
         await session(request, lane="view")
         body = await _body(request, dto.SlashCommandRead, 1024)
         await readable_conversation(conversation_id)
-        if body.command_id in {"status", "tools"}:
+        if body.command_id == "status":
+            # For the person: never the model's overview, its ids or paths (G6).
+            from row_bot.application.client_self import person_status
+
+            title, text = "Status", await call(person_status, conversation_id)
+        elif body.command_id == "tools":
             from row_bot.tools.row_bot_status_tool import _row_bot_status
 
-            text = _row_bot_status(
-                "overview" if body.command_id == "status" else "tools"
-            )
-            title = "Status" if body.command_id == "status" else "Tools"
+            title, text = "Tools", _row_bot_status("tools")
         elif body.command_id == "profiles":
             from row_bot.agent_commands import format_agent_profiles
 
@@ -3127,6 +3293,17 @@ def create_router(
         )
         await call(service._metadata, conversation_id)
         return await respond(request, dto.ClientQueueView, asdict(result))
+
+    @router.get("/conversations/{conversation_id}/links")
+    async def conversation_links(conversation_id: str, request: Request) -> JSONResponse:
+        """The conversations this one started or proposed, with their state (5.3.1 C)."""
+        await session(request)
+        await call(service._metadata, conversation_id)
+        from row_bot.linked_conversations import links
+
+        cards = await call(links, conversation_id)
+        items = [{key: value for key, value in card.items() if key != "kind"} for card in cards]
+        return await respond(request, dto.ConversationLinkPage, {"schema_version": 1, "items": items})
 
     @router.get("/conversations/{conversation_id}/steering")
     async def steering_view(
@@ -4570,11 +4747,13 @@ def create_router(
 
     @router.get("/integrations/items")
     async def integration_items(request: Request, query: str = "", kind: str = "all", scope: str = "installed",
-                                cursor: str | None = None, limit: int = 50, all: bool = False) -> JSONResponse:
+                                cursor: str | None = None, limit: int = 50, all: bool = False, labels: str = "",
+                                runs: str = "anywhere", no_sign_in: bool = False) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_integrations import read_items
         result = await call(read_items, owner_id=await integration_owner(request), query=query, kind=kind, scope=scope,
-            cursor=cursor, limit=limit, everything=all, validate=dispatch_validation(request, current))
+            cursor=cursor, limit=limit, everything=all, labels=labels.split(",") if labels else None, runs=runs,
+            no_sign_in=no_sign_in, validate=dispatch_validation(request, current))
         return await respond(request, dto.IntegrationEntryPage, result)
 
     @router.post("/integrations/items/search")
@@ -5221,6 +5400,15 @@ def create_router(
         result = await call(read_attention, include_update=True)
         return await respond(request, dto.AttentionSnapshot, result)
 
+    @router.delete("/monitor/memory-notice")
+    async def monitor_dismiss_memory_notice(request: Request) -> JSONResponse:
+        # The person read "Row-Bot restarted because the server ran out of memory" (U8): it stays away
+        # until the next such restart.
+        await session(request, lane="mutation")
+        from row_bot.server_memory import dismiss
+
+        return await respond(request, dto.MemoryNoticeDismissed, {"dismissed": await call(dismiss)})
+
     @router.get("/monitor/approvals")
     async def monitor_approvals(request: Request) -> JSONResponse:
         # Every pending approval, wherever it was raised (B255). Each one is
@@ -5230,6 +5418,52 @@ def create_router(
 
         result = await call(read_pending_approvals)
         return await respond(request, dto.PendingApprovalPage, result)
+
+    @router.get("/monitor/scheduled-posts")
+    async def monitor_scheduled_posts(request: Request) -> JSONResponse:
+        # Posts approved for a time slot, waiting for it (G3): Home's Review lists them with Cancel.
+        await session(request)
+        from row_bot.tools import x_posting
+
+        result = await call(x_posting.scheduled_posts)
+        return await respond(request, dto.ScheduledPostPage, {"schema_version": 1, "items": result})
+
+    @router.delete("/monitor/scheduled-posts/{post_id}")
+    async def monitor_cancel_scheduled_post(post_id: str, request: Request) -> JSONResponse:
+        await session(request, lane="control")
+        from row_bot.tools import x_posting
+
+        if not await call(x_posting.cancel_scheduled, post_id):
+            raise ProtocolError("scheduled_post_unavailable", 404)
+        return await respond(request, dto.ScheduledPostCancelled, {"cancelled": True})
+
+    @router.post("/monitor/scheduled-posts/{post_id}/edit")
+    async def monitor_edit_scheduled_post(post_id: str, request: Request) -> JSONResponse:
+        # The person's Edit on a post waiting for its time (5.3.1): its text and which files go; it keeps its time.
+        await session(request, lane="mutation")
+        body = await _body(request, dto.XPostEdit, 128 * 1024)
+        from row_bot.tools import x_posting
+
+        try:
+            edited = await call(x_posting.edit_scheduled, post_id, body.text, list(body.media))
+        except x_posting.XPostError:
+            raise ProtocolError("scheduled_post_invalid", 422) from None
+        if not edited:
+            raise ProtocolError("scheduled_post_unavailable", 404)
+        return await respond(request, dto.ScheduledPostEdited, {"edited": True})
+
+    @router.post("/monitor/scheduled-posts/{post_id}/retry")
+    async def monitor_retry_scheduled_post(post_id: str, request: Request) -> JSONResponse:
+        # The person's Try again on a post that didn't go out (5.3.1): it goes now, as approved or without media.
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ScheduledPostRetry, 1024)
+        from row_bot.tools import x_posting
+
+        if not await call(x_posting.retry_scheduled, post_id, without_media=body.without_media):
+            raise ProtocolError("scheduled_post_unavailable", 404)
+        # It goes now, not at the scheduler's next minute; X's answer can take a while, so not on this request.
+        threading.Thread(target=x_posting.send_due, name="x-post-retry", daemon=True).start()
+        return await respond(request, dto.ScheduledPostRetried, {"retried": True})
 
     @router.get("/monitor/logs")
     async def monitor_logs(request: Request, limit: int = 200) -> JSONResponse:
@@ -5420,9 +5654,11 @@ def create_router(
             raise ProtocolError("sandbox_job_unavailable", 404)
         return await respond(request, dto.SandboxJobView, result)
 
+    # A video edit card reads its edit every second while it runs: the person is looking at it, so it
+    # reads in the view lane and never waits behind background reads (as an approval card does).
     @router.get("/video-edits")
     async def list_video_edits(request: Request, conversation_id: str | None = None) -> JSONResponse:
-        await session(request)
+        await session(request, lane="view")
         from row_bot.application.video_edit_views import read_video_edits
 
         result = await call(read_video_edits, (conversation_id or "")[:256] or None)
@@ -5430,7 +5666,7 @@ def create_router(
 
     @router.get("/video-edits/{edit_id}")
     async def video_edit(request: Request, edit_id: str) -> JSONResponse:
-        await session(request)
+        await session(request, lane="view")
         from row_bot.application.video_edit_views import read_video_edit
 
         result = await call(read_video_edit, _edit_id(edit_id))
@@ -5447,6 +5683,338 @@ def create_router(
         if result is None:
             raise ProtocolError("video_edit_unavailable", 404)
         return await respond(request, dto.VideoEditView, result)
+
+    # Video projects (5.3.1 B3): the Video panel reads a project and adds the person's versions.
+    def _project_id(value: str) -> str:
+        from row_bot.video_projects import PROJECT_ID
+
+        if not PROJECT_ID.fullmatch(str(value or "")):
+            raise ProtocolError("video_project_unavailable", 404)
+        return value
+
+    async def _project_call(function: Any, *args: Any) -> Any:
+        from row_bot.application.video_project_views import ProjectRefused
+
+        try:
+            result = await call(function, *args)
+        except ProjectRefused as error:
+            raise ProtocolError(str(error), _STATUS[str(error)]) from None
+        if result is None:
+            raise ProtocolError("video_project_unavailable", 404)
+        return result
+
+    @router.get("/video-projects/{project_id}")
+    async def video_project(request: Request, project_id: str, version: int | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application.video_project_views import read_video_project
+
+        result = await _project_call(read_video_project, _project_id(project_id), version)
+        return await respond(request, dto.VideoProjectView, result)
+
+    @router.put("/video-projects/{project_id}")
+    async def change_video_project_route(request: Request, project_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_project_views import change_video_project
+
+        body = await _body(request, dto.VideoProjectChange, 256 * 1024)
+        result = await _project_call(change_video_project, _project_id(project_id), body.model_dump())
+        return await respond(request, dto.VideoProjectView, result)
+
+    @router.post("/video-projects/{project_id}/restore")
+    async def restore_video_project_route(request: Request, project_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_project_views import restore_video_project
+
+        body = await _body(request, dto.VideoProjectRestore, 4 * 1024)
+        result = await _project_call(restore_video_project, _project_id(project_id), body.number)
+        return await respond(request, dto.VideoProjectView, result)
+
+    # Sandboxes (5.3.1 B4): second Row-Bots on made-up data, started, stopped and opened from Settings › Data.
+    def _row_bot_sandbox_id(value: str) -> str:
+        from row_bot.sandboxes import SANDBOX_ID
+
+        if not SANDBOX_ID.fullmatch(str(value or "")):
+            raise ProtocolError("row_bot_sandbox_unavailable", 404)
+        return value
+
+    async def _sandbox_call(function: Any, *args: Any) -> Any:
+        from row_bot import sandboxes
+
+        if sandboxes.is_sandbox():
+            raise ProtocolError("row_bot_sandbox_refused", 409)
+        try:
+            return await call(function, *args)
+        except sandboxes.SandboxError as error:
+            gone = "no longer here" in str(error)
+            raise ProtocolError("row_bot_sandbox_unavailable" if gone else "row_bot_sandbox_refused",
+                                404 if gone else 409) from None
+
+    def _sandbox_page() -> dict[str, Any]:
+        from row_bot import sandboxes
+        from row_bot.sandbox_packs import PACKS
+
+        inside = sandboxes.is_sandbox()
+        return {"items": [] if inside else [sandboxes.view(item) for item in sandboxes.list_sandboxes()],
+                "packs": [{"pack": pack, "name": name} for pack, name in PACKS.items()], "available": not inside}
+
+    def _wait_page() -> dict:
+        from row_bot import waits
+        from row_bot.application.client_platform import ClientPlatformError
+
+        items = []
+        for record in waits.waiting():
+            try:
+                meta = service._metadata(record["conversation_id"])
+            except ClientPlatformError:
+                continue  # Its conversation is gone: nothing will start there.
+            items.append({**waits.view(record), "conversation_title": str(meta.get("name") or "")[:160]})
+        return {"schema_version": 1, "items": items[:500]}
+
+    @router.get("/waits")
+    async def waits_page(request: Request) -> JSONResponse:
+        """What conversations wait for (5.3.1): the composer, the sidebar and Home show them."""
+        await session(request)
+        return await respond(request, dto.WaitPage, await call(_wait_page))
+
+    @router.post("/waits/{wait_id}/stop")
+    async def stop_wait(request: Request, wait_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        if len(wait_id) != 12 or any(char not in "0123456789abcdef" for char in wait_id):
+            raise ProtocolError("wait_unavailable", 404)
+        from row_bot import waits
+
+        if not await call(waits.stop, wait_id):
+            raise ProtocolError("wait_unavailable", 404)
+        return await respond(request, dto.WaitPage, await call(_wait_page))
+
+    # --- Proactive Row-Bot (5.3.4): For you, "Why this?", feedback, the Activity log and settings ---------
+
+    def _moment_id(moment_id: str) -> str:
+        if len(moment_id) != 16 or any(char not in "0123456789abcdef" for char in moment_id):
+            raise ProtocolError("not_found", 404)
+        return moment_id
+
+    def _rule_id(rule_id: str) -> str:
+        if len(rule_id) != 12 or any(char not in "0123456789abcdef" for char in rule_id):
+            raise ProtocolError("not_found", 404)
+        return rule_id
+
+    @router.get("/proactive/moments")
+    async def proactive_moments(request: Request) -> JSONResponse:
+        """For you: the open moments, urgent first."""
+        await session(request)
+        from row_bot.application.client_proactive import for_you
+
+        return await respond(request, dto.ProactiveMomentPage, await call(for_you))
+
+    @router.get("/proactive/moments/{moment_id}")
+    async def proactive_moment(request: Request, moment_id: str) -> JSONResponse:
+        """"Why this?": the moment's evidence, why it got through, and its history."""
+        await session(request)
+        from row_bot.application.client_proactive import read_moment
+
+        return await respond(request, dto.ProactiveMomentDetail, await call(read_moment, _moment_id(moment_id)))
+
+    @router.post("/proactive/moments/{moment_id}/feedback")
+    async def proactive_moment_feedback(request: Request, moment_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveFeedback, 1024)
+        from row_bot.application.client_proactive import moment_feedback
+
+        result = await call(moment_feedback, _moment_id(moment_id), body.action, scope=body.scope,
+                            action_id=body.action_id)
+        return await respond(request, dto.ProactiveMomentDetail, result)
+
+    @router.get("/proactive/activity")
+    async def proactive_activity(request: Request, before: int = 0, limit: int = 100) -> JSONResponse:
+        """Every proactive pass, silent ones too, and each moment's steps, newest first."""
+        await session(request)
+        if before < 0 or not 1 <= limit <= 200:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_proactive import read_activity
+
+        return await respond(request, dto.ProactiveActivityPage, await call(read_activity, before=before, limit=limit))
+
+    @router.get("/proactive/settings")
+    async def proactive_settings(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_proactive import read_settings
+
+        return await respond(request, dto.ProactiveSettingsView, await call(read_settings))
+
+    @router.put("/proactive/settings")
+    async def update_proactive_settings(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveSettingsChange, 4 * 1024)
+        from row_bot.application.client_proactive import update_settings
+
+        changes = body.model_dump(exclude_none=True)
+        return await respond(request, dto.ProactiveSettingsView, await call(update_settings, changes))
+
+    @router.post("/proactive/rules")
+    async def create_proactive_rule(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveRuleWrite, 1024)
+        from row_bot.application.client_proactive import save_rule
+
+        return await respond(request, dto.ProactiveSettingsView, await call(save_rule, body.model_dump()))
+
+    @router.put("/proactive/rules/{rule_id}")
+    async def update_proactive_rule(request: Request, rule_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveRuleWrite, 1024)
+        from row_bot.application.client_proactive import save_rule
+
+        result = await call(save_rule, body.model_dump(), rule_id=_rule_id(rule_id))
+        return await respond(request, dto.ProactiveSettingsView, result)
+
+    @router.delete("/proactive/rules/{rule_id}")
+    async def delete_proactive_rule(request: Request, rule_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_proactive import delete_rule
+
+        return await respond(request, dto.ProactiveSettingsView, await call(delete_rule, _rule_id(rule_id)))
+
+    @router.get("/proactive/drafts")
+    async def proactive_drafts(request: Request) -> JSONResponse:
+        """Drafts: what Row-Bot prepared (meeting briefs, drafted replies), newest first. None was sent."""
+        await session(request)
+        from row_bot.application.client_proactive import list_drafts
+
+        return await respond(request, dto.ProactiveDraftPage, await call(list_drafts))
+
+    @router.get("/proactive/drafts/{draft_id}")
+    async def proactive_draft(request: Request, draft_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_proactive import read_draft
+
+        return await respond(request, dto.ProactiveDraftView, await call(read_draft, _moment_id(draft_id)))
+
+    @router.put("/proactive/drafts/{draft_id}")
+    async def save_proactive_draft(request: Request, draft_id: str) -> JSONResponse:
+        """The person's edits to a drafted reply, saved in Row-Bot (never to the mail account)."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveDraftEdit, 64 * 1024)
+        from row_bot.application.client_proactive import save_draft
+
+        result = await call(save_draft, _moment_id(draft_id), body=body.body, to=body.to, subject=body.subject)
+        return await respond(request, dto.ProactiveDraftView, result)
+
+    @router.post("/proactive/drafts/{draft_id}/send")
+    async def send_proactive_draft(request: Request, draft_id: str) -> JSONResponse:
+        """Send a drafted reply: shows its approval card, under every approval level, and sends nothing yet."""
+        await session(request, lane="mutation")
+        from row_bot.application.client_proactive import ask_to_send
+
+        return await respond(request, dto.ProactiveDraftView, await call(ask_to_send, _moment_id(draft_id)))
+
+    @router.post("/proactive/drafts/{draft_id}/send/answer")
+    async def answer_proactive_draft_send(request: Request, draft_id: str) -> JSONResponse:
+        """The person's answer on that card: only their approval of exactly what it showed sends it."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveDraftSendAnswer, 1024)
+        from row_bot.application.client_proactive import answer_send
+
+        result = await call(answer_send, _moment_id(draft_id), binding=body.binding, approved=body.approved)
+        return await respond(request, dto.ProactiveDraftSendOutcome, result)
+
+    @router.get("/proactive/preview")
+    async def proactive_preview(request: Request) -> JSONResponse:
+        """What each level would have brought up today, from today's moments."""
+        await session(request)
+        from row_bot.application.client_proactive import read_preview
+
+        return await respond(request, dto.ProactivePreview, await call(read_preview))
+
+    @router.post("/proactive/boundaries")
+    async def proactive_boundary(request: Request) -> JSONResponse:
+        """The app just opened: moments batched for a natural break may go out."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProactiveBoundary, 256)
+        from row_bot.application.client_proactive import note_boundary
+
+        return await respond(request, dto.ProactiveBoundaryNoted, await call(note_boundary, body.kind))
+
+    @router.get("/row-bot-sandboxes")
+    async def row_bot_sandboxes(request: Request) -> JSONResponse:
+        await session(request)
+        return await respond(request, dto.RowBotSandboxPage, await call(_sandbox_page))
+
+    @router.post("/row-bot-sandboxes")
+    async def create_row_bot_sandbox(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot import sandboxes
+
+        body = await _body(request, dto.RowBotSandboxCreate, 4 * 1024)
+        created = await _sandbox_call(sandboxes.create, body.name, body.pack)
+        return await respond(request, dto.RowBotSandboxView, sandboxes.view(created))
+
+    @router.post("/row-bot-sandboxes/{sandbox_id}/link")
+    async def row_bot_sandbox_link(request: Request, sandbox_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot import sandboxes
+
+        url = await _sandbox_call(sandboxes.sign_in_url, _row_bot_sandbox_id(sandbox_id))
+        return await respond(request, dto.RowBotSandboxLink, {"url": url})
+
+    @router.post("/row-bot-sandboxes/{sandbox_id}/{action}")
+    async def act_on_row_bot_sandbox(request: Request, sandbox_id: str, action: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot import sandboxes
+
+        run = {"start": sandboxes.start, "stop": sandboxes.stop, "reset": sandboxes.reset}.get(action)
+        if run is None:
+            raise ProtocolError("row_bot_sandbox_unavailable", 404)
+        result = await _sandbox_call(run, _row_bot_sandbox_id(sandbox_id))
+        return await respond(request, dto.RowBotSandboxView, sandboxes.view(result))
+
+    @router.delete("/row-bot-sandboxes/{sandbox_id}")
+    async def delete_row_bot_sandbox(request: Request, sandbox_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot import sandboxes
+
+        await _sandbox_call(sandboxes.delete, _row_bot_sandbox_id(sandbox_id))
+        return await respond(request, dto.RowBotSandboxPage, await call(_sandbox_page))
+
+    @router.get("/video-brand")
+    async def video_brand_route(request: Request) -> JSONResponse:
+        await session(request)
+        from dataclasses import asdict
+
+        from row_bot import video_brand
+
+        return await respond(request, dto.VideoBrand, asdict(await call(video_brand.load)))
+
+    @router.put("/video-brand")
+    async def save_video_brand(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from dataclasses import asdict
+
+        from row_bot import video_brand
+
+        body = await _body(request, dto.VideoBrand, 8 * 1024)
+        try:
+            saved = await call(video_brand.save, body.model_dump())
+        except video_brand.BrandError:
+            raise ProtocolError("video_brand_invalid", 422) from None
+        return await respond(request, dto.VideoBrand, asdict(saved))
+
+    @router.post("/video-projects/{project_id}/export")
+    async def export_video_project_route(request: Request, project_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_project_views import export_video_project
+
+        body = await _body(request, dto.VideoProjectExport, 4 * 1024)
+        result = await _project_call(export_video_project, _project_id(project_id), body.shape)
+        return await respond(request, dto.VideoProjectView, result)
+
+    @router.post("/video-projects/{project_id}/make")
+    async def make_video_project_route(request: Request, project_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_project_views import make_video_project
+
+        result = await _project_call(make_video_project, _project_id(project_id))
+        return await respond(request, dto.VideoProjectView, result)
 
     # Files sent to the person's devices or a chat app (F7). Every signed-in device is the owner's,
     # so each sees every delivery; a download needs the session and ends when its copy expires.
@@ -5475,68 +6043,14 @@ def create_router(
 
     @router.get("/deliveries/{delivery_id}")
     async def delivery(request: Request, delivery_id: str) -> JSONResponse:
-        await session(request)
+        # The sent-files card in the transcript, like an approval card: the view lane.
+        await session(request, lane="view")
         from row_bot.application.delivery_views import read_delivery
 
         result = await call(read_delivery, _delivery(delivery_id)[0])
         if result is None:
             raise ProtocolError("sent_file_unavailable", 404)
         return await respond(request, dto.DeliveryView, result)
-
-    @router.get("/deliveries/{delivery_id}/files/{index}")
-    async def delivery_file(request: Request, delivery_id: str, index: str) -> Response:
-        current = await session(request)
-        from urllib.parse import quote
-
-        from row_bot.file_deliveries import CHUNK_BYTES, DeliveryError, open_file
-
-        identifier, number = _delivery(delivery_id, index)
-        try:
-            name, size, handle = await call(open_file, identifier, number)
-        except DeliveryError as exc:
-            raise _delivery_failure(exc) from None
-
-        async def chunks() -> Any:
-            try:
-                while True:
-                    # The person's session is checked again for every part sent.
-                    security.session(await _context(request), current.id, current.csrf)
-                    data = await call(handle.read, CHUNK_BYTES)
-                    if not data:
-                        return
-                    yield data
-            except ProtocolError:
-                return
-            finally:
-                handle.close()
-
-        return StreamingResponse(
-            chunks(),
-            # Never shown in the page: always a download, whatever the file is.
-            media_type="application/octet-stream",
-            headers={
-                **HEADERS,
-                "Content-Length": str(size),
-                "Content-Security-Policy": "default-src 'none'; sandbox",
-                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name, safe=""),
-            },
-        )
-
-    @router.post("/deliveries/{delivery_id}/files/{index}/save")
-    async def delivery_file_save(request: Request, delivery_id: str, index: str) -> JSONResponse:
-        """The desktop window can't download (B275): the file is saved into Exports on this computer."""
-        current = await session(request, lane="mutation")
-        require_this_computer(await _context(request))
-        from row_bot.application.export_folder import save_export
-        from row_bot.file_deliveries import DeliveryError, read_file
-
-        identifier, number = _delivery(delivery_id, index)
-        try:
-            name, data = await call(read_file, identifier, number)
-        except DeliveryError as exc:
-            raise _delivery_failure(exc) from None
-        result = await call(save_export, name, data, validate=dispatch_validation(request, current))
-        return await respond(request, dto.ExportSaved, result)
 
     @router.post("/deliveries/{delivery_id}/to-devices")
     async def delivery_to_devices(request: Request, delivery_id: str) -> JSONResponse:
@@ -5578,6 +6092,28 @@ def create_router(
         from row_bot.pages import views
 
         return await respond(request, dto.PagePage, await call(views, (conversation_id or "")[:256] or None))
+
+    @router.get("/media")
+    async def media_list(request: Request, query: str = "", kind: str = "") -> JSONResponse:
+        # Library › Media (5.3.1 B3): every picture, video and sound in the chats, newest first.
+        await session(request)
+        from row_bot import media_library
+
+        items = await call(media_library.items, query=query[:200],
+                           kind=kind if kind in {"image", "video", "audio"} else "", limit=500)
+        return await respond(request, dto.MediaPage, {"items": items})
+
+    @router.put("/media/tags")
+    async def media_tags(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.MediaTagsWrite, 16 * 1024)
+        from row_bot import media_library
+
+        try:
+            tags = await call(media_library.set_tags, body.ref, body.tags)
+        except media_library.MediaError:
+            raise ProtocolError("media_unavailable", 404) from None
+        return await respond(request, dto.MediaTags, {"ref": body.ref, "tags": tags})
 
     @router.get("/pages/{page_id}")
     async def page_read(request: Request, page_id: str) -> JSONResponse:
@@ -5624,26 +6160,6 @@ def create_router(
 
         found = require(page_id)
         return download_name(found), document(found, theme, standalone=True)
-
-    @router.post("/pages/{page_id}/download")
-    async def page_download(request: Request, page_id: str) -> JSONResponse:
-        """Download as HTML: one file that works on its own in any browser (it saves nothing)."""
-        await session(request, lane="mutation")
-        body = await _body(request, dto.PageFrameRequest, 16 * 1024)
-        name, html = await _page_call(_standalone, _page_id(page_id), body.theme.model_dump())
-        return await respond(request, dto.PageDownload, {"file_name": name, "html": html})
-
-    @router.post("/pages/{page_id}/save")
-    async def page_save(request: Request, page_id: str) -> JSONResponse:
-        """The desktop window can't download (B275): the page is saved into Exports on this computer."""
-        current = await session(request, lane="mutation")
-        require_this_computer(await _context(request))
-        body = await _body(request, dto.PageFrameRequest, 16 * 1024)
-        from row_bot.application.export_folder import save_export
-
-        name, html = await _page_call(_standalone, _page_id(page_id), body.theme.model_dump())
-        result = await call(save_export, name, html.encode("utf-8"), validate=dispatch_validation(request, current))
-        return await respond(request, dto.ExportSaved, result)
 
     @router.post("/monitor/diagnosis")
     async def monitor_diagnosis(request: Request) -> JSONResponse:
@@ -5991,6 +6507,8 @@ def create_router(
             profile=body.profile,
             step=body.step,
             model_ref=body.model_ref,
+            provider_id=body.provider_id,
+            conversation_id=body.conversation_id,
         )
         return await respond(request, dto.OnboardingReceipt, result)
 
@@ -6000,8 +6518,10 @@ def create_router(
         await session(request)
         from row_bot.application.client_first_run import detect_local_runtime
 
+        snapshot = await call(detect_local_runtime)
+        on_machine = on_this_computer(await _context(request))
         return await respond(
-            request, dto.LocalRuntimeSnapshot, await call(detect_local_runtime)
+            request, dto.LocalRuntimeSnapshot, {**snapshot, "on_this_computer": on_machine}
         )
 
     @router.post("/setup/model-test")
@@ -6820,6 +7340,128 @@ def create_router(
                 else "Runtime test failed",
             },
         )
+
+    # ── The Claude plan: Claude Code on request (H14) and Claude's own sign-in (H15) ──
+
+    @router.get("/settings/providers/claude-plan/install")
+    async def claude_code_install_state(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.providers.claude_install import claude_code_installer
+
+        state = (await call(claude_code_installer().state)).to_json()
+        await call(dispatch_validation(request, current))
+        return await respond(request, dto.ClaudeCodeInstallState, state)
+
+    @router.post("/settings/providers/claude-plan/install")
+    async def claude_code_install(request: Request) -> JSONResponse:
+        """Install the newest Claude Code from Anthropic, only when the person asks (never at start-up)."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ClaudeCodeInstallRequest, 1024)
+        from row_bot.providers.claude_install import claude_code_installer
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+        from row_bot.providers.claude_subscription import find_claude_code
+
+        await call(dispatch_validation(request, current))
+        if not body.update and await call(find_claude_code):
+            raise ProtocolError("claude_code_present", 409)
+        # A sign-in left open (a closed tab, another device) never holds an install or update back.
+        await call(claude_sign_ins().close_running)
+        state = (await call(claude_code_installer().start)).to_json()
+        return await respond(request, dto.ClaudeCodeInstallState, state)
+
+    def claude_sign_in_problem(exc: Exception) -> ProtocolError:
+        code = getattr(exc, "code", "")
+        if code == "not_found":
+            return ProtocolError("not_found", 404)
+        if code == "sign_in_ended":
+            return ProtocolError("claude_sign_in_ended", 409)
+        if code in {"claude_code_missing", "claude_code_installing"}:
+            return ProtocolError(code, 409)
+        if code == "sign_out_failed":
+            return ProtocolError("claude_sign_out_failed", 409)
+        if isinstance(exc, ValueError):
+            return ProtocolError("invalid_command", 422)
+        return ProtocolError("claude_sign_in_unavailable", 409)
+
+    @router.post("/settings/providers/claude-plan/sign-in")
+    async def claude_sign_in_open(request: Request) -> JSONResponse:
+        """Start Claude's own sign-in: ``claude auth login`` and nothing else, for this device session.
+
+        ``switch_account``: Claude Code's own ``claude auth logout`` first, to sign in to another account.
+        """
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        body = await _body(request, dto.ClaudeSignInOpenRequest, 1024)
+        from row_bot.providers.claude_install import claude_code_installer
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        await call(dispatch_validation(request, current))
+        try:
+            sign_in = await call(
+                claude_sign_ins().open,
+                current.id,
+                cols=body.cols,
+                rows=body.rows,
+                busy=claude_code_installer().running,
+                switch_account=body.switch_account,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            if not getattr(exc, "code", ""):
+                logger.info("Claude's sign-in didn't start", exc_info=True)
+            raise claude_sign_in_problem(exc) from None
+        return await respond(
+            request,
+            dto.ClaudeSignInView,
+            {"sign_in_id": sign_in.id, "browser_opens": on_this_computer(context)},
+        )
+
+    @router.get("/settings/providers/claude-plan/sign-in/{sign_in_id}")
+    async def claude_sign_in_read(
+        sign_in_id: str, request: Request, cursor: int = 0
+    ) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            value = await call(claude_sign_ins().read, sign_in_id, current.id, cursor)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.ClaudeSignInOutput, value)
+
+    @router.post("/settings/providers/claude-plan/sign-in/{sign_in_id}/input")
+    async def claude_sign_in_input(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        body = await _body(request, dto.NativeTerminalInput, 32768)
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().input, sign_in_id, current.id, body.data)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.post("/settings/providers/claude-plan/sign-in/{sign_in_id}/resize")
+    async def claude_sign_in_resize(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="terminal")
+        body = await _body(request, dto.NativeTerminalResize, 4096)
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().resize, sign_in_id, current.id, body.cols, body.rows)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
+    @router.delete("/settings/providers/claude-plan/sign-in/{sign_in_id}")
+    async def claude_sign_in_close(sign_in_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        from row_bot.providers.claude_sign_in import claude_sign_ins
+
+        try:
+            await call(claude_sign_ins().close, sign_in_id, current.id)
+        except (RuntimeError, ValueError) as exc:
+            raise claude_sign_in_problem(exc) from None
+        return await respond(request, dto.NativeTerminalClosed, {"disconnected": True})
 
     @router.post("/settings/providers/commands")
     async def provider_mutation(request: Request) -> JSONResponse:
@@ -8200,6 +8842,56 @@ def create_router(
             request, dto.SubscriptionQuiescence, {"quiescent": quiescent}
         )
 
+    @router.post("/settings/providers/openrouter/sign-in")
+    async def openrouter_sign_in_start(request: Request) -> JSONResponse:
+        """Try Row-Bot free: start an OpenRouter sign-in (openrouter_sign_in)."""
+        current = await session(request, lane="control")
+        await _body(request, dto.EmptyPayload, 1024)
+        from row_bot.application import openrouter_sign_in
+
+        result = await call(openrouter_sign_in.start, owner_id=current.id, device=await account_device(request))
+        return await respond(request, dto.OpenRouterSignIn, result)
+
+    @router.get("/settings/providers/openrouter/sign-in/callback")
+    async def openrouter_sign_in_callback(request: Request) -> Response:
+        """OpenRouter returns a browser here from another device. No session: only a
+        waiting sign-in's one-time state is accepted."""
+        from row_bot.application import openrouter_sign_in
+
+        values = request.query_params
+        if any(len(values.getlist(key)) > 1 for key in ("state", "code")):
+            phase = "invalid"
+        else:
+            phase = await call(openrouter_sign_in.accept_callback, state=values.get("state", ""),
+                               code=values.get("code", ""))
+        message, status = {
+            "done": ("Row-Bot is signed in to OpenRouter. Return to Row-Bot; you can close this tab.", 200),
+            "failed": ("Signing in to OpenRouter didn't finish. Return to Row-Bot and try again.", 400),
+        }.get(phase, ("This sign-in has expired or isn't valid. Return to Row-Bot and sign in again.", 400))
+        return Response(message, status_code=status, media_type="text/plain",
+            headers={**HEADERS, "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'"})
+
+    @router.get("/settings/providers/openrouter/sign-in/{flow_id}")
+    async def openrouter_sign_in_read(flow_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        if len(flow_id) != 36:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application import openrouter_sign_in
+
+        result = await call(openrouter_sign_in.read, owner_id=current.id, flow_id=flow_id)
+        return await respond(request, dto.OpenRouterSignIn, result)
+
+    @router.post("/settings/providers/openrouter/sign-in/{flow_id}/cancel")
+    async def openrouter_sign_in_cancel(flow_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        await _body(request, dto.EmptyPayload, 1024)
+        if len(flow_id) != 36:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application import openrouter_sign_in
+
+        result = await call(openrouter_sign_in.cancel, owner_id=current.id, flow_id=flow_id)
+        return await respond(request, dto.OpenRouterSignIn, result)
+
     @router.post("/settings/providers/subscriptions/starts/{command_id}/cancel")
     async def subscription_cancel_start(
         command_id: UUID, request: Request
@@ -9037,8 +9729,6 @@ def create_router(
         binding_id: str,
         export_id: str,
         request: Request,
-        *,
-        download: bool = False,
     ) -> Response:
         current = await session(request, lane="view")
         try:
@@ -9054,40 +9744,10 @@ def create_router(
             if bound_resource(conversation_id, binding_id, "artifact") != identity:
                 raise ProtocolError("resource_binding_revoked", 403)
 
-        from row_bot.designer.client_exports import read_export, read_export_payload
+        from row_bot.designer.client_exports import read_export
 
-        if not download:
-            result = await call(
-                read_export,
-                identity,
-                export_id,
-                binding_id=binding_id,
-                validate=validate,
-            )
-            return await respond(request, dto.ArtifactExport, asdict(result))
-        descriptor, data = await call(
-            read_export_payload,
-            identity,
-            export_id,
-            binding_id=binding_id,
-            validate=validate,
-        )
-        # Validate closed metadata and current access before releasing immutable
-        # bytes. Never reopen a filesystem path after the ownership check.
-        dto.ArtifactExport.model_validate_json(json.dumps(asdict(descriptor)))
-        await call(validate)
-        from urllib.parse import quote
-
-        return Response(
-            data,
-            media_type=descriptor.media_type,
-            headers={
-                **HEADERS,
-                "Content-Security-Policy": "sandbox; default-src 'none'",
-                "Content-Disposition": "attachment; filename=export; filename*=UTF-8''"
-                + quote(descriptor.filename, safe=""),
-            },
-        )
+        result = await call(read_export, identity, export_id, binding_id=binding_id, validate=validate)
+        return await respond(request, dto.ArtifactExport, asdict(result))
 
     @router.get(
         "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}"
@@ -9096,16 +9756,6 @@ def create_router(
         conversation_id: str, binding_id: str, export_id: str, request: Request
     ) -> Response:
         return await bound_export(conversation_id, binding_id, export_id, request)
-
-    @router.get(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download"
-    )
-    async def artifact_export_download(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> Response:
-        return await bound_export(
-            conversation_id, binding_id, export_id, request, download=True
-        )
 
     @router.post(
         "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion"
@@ -9126,7 +9776,7 @@ def create_router(
     async def local_export(
         conversation_id: str, binding_id: str, export_id: str, request: Request
     ) -> tuple[str, Callable[[], None]]:
-        """Saving an export into the workspace's Exports folder, from any device."""
+        """A design's export, checked against its binding for a save offer (5.3.3)."""
         current = await session(request, lane="mutation")
         try:
             if str(UUID(export_id)) != export_id:
@@ -9142,43 +9792,6 @@ def create_router(
                 raise ProtocolError("resource_binding_revoked", 403)
 
         return identity, validate
-
-    @router.post(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save"
-    )
-    async def artifact_export_save(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> JSONResponse:
-        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
-        from row_bot.designer.client_exports import save_export_copy
-
-        result = await call(
-            save_export_copy, identity, export_id, binding_id=binding_id, validate=validate
-        )
-        return await respond(request, dto.ArtifactSavedExport, asdict(result))
-
-    @router.post(
-        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal"
-    )
-    async def artifact_export_reveal(
-        conversation_id: str, binding_id: str, export_id: str, request: Request
-    ) -> JSONResponse:
-        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
-        # Open and Show in folder open an app or the file manager on this
-        # computer's screen.
-        require_this_computer(await _context(request))
-        body = await _body(request, dto.ArtifactExportReveal)
-        from row_bot.designer.client_exports import reveal_export_copy
-
-        result = await call(
-            reveal_export_copy,
-            identity,
-            export_id,
-            binding_id=binding_id,
-            action=body.action,
-            validate=validate,
-        )
-        return await respond(request, dto.ArtifactExportRevealResult, result)
 
     @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/inspector")
     async def workspace_inspector(
@@ -9889,6 +10502,297 @@ def create_router(
         await call(data.cancel_upload, current.id, upload_id)
         return await respond(request, dto.UploadCancelled, {"cancelled": True})
 
+    # Import memory: export files arrive in chunks, a scan finds candidate memories, an
+    # optional look through the person's own past messages adds more, a preview decides
+    # what each would do, and only Apply writes (with a receipt Undo reverses).
+    async def memory_import_mutation(request: Request, model: Any, maximum: int = 4096) -> tuple[Any, Any]:
+        current = await session(request, lane="mutation")
+        body = await _body(request, model, maximum)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        await call(dispatch_validation(request, current))
+        return current, body
+
+    @router.get("/knowledge/import/sources")
+    async def memory_import_sources(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application import memory_import
+
+        return await respond(request, dto.MemoryImportSources, await call(memory_import.sources))
+
+    @router.post("/knowledge/import/batches")
+    async def memory_import_begin(request: Request) -> JSONResponse:
+        current, _body_value = await memory_import_mutation(request, dto.MemoryImportRequest)
+        from row_bot.application import memory_import
+
+        view = await call(memory_import.begin, current.id)
+        return await respond(request, dto.MemoryImportBatch, view)
+
+    @router.get("/knowledge/import/batches/{batch_id}")
+    async def memory_import_status(batch_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application import memory_import
+
+        view = await call(memory_import.status, current.id, batch_id)
+        return await respond(request, dto.MemoryImportBatch, view)
+
+    @router.delete("/knowledge/import/batches/{batch_id}")
+    async def memory_import_discard(batch_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        from row_bot.application import memory_import
+
+        await call(memory_import.discard, current.id, batch_id)
+        return await respond(request, dto.UploadCancelled, {"cancelled": True})
+
+    @router.post("/knowledge/import/batches/{batch_id}/files")
+    async def memory_import_file(batch_id: str, request: Request) -> JSONResponse:
+        current, body = await memory_import_mutation(request, dto.MemoryImportFileRequest)
+        from row_bot.application import memory_import
+
+        view = await call(
+            memory_import.add_file, current.id, batch_id, name=body.name, size_bytes=body.size_bytes
+        )
+        return await respond(request, dto.MemoryImportFileView, view)
+
+    @router.get("/knowledge/import/batches/{batch_id}/files/{file_id}")
+    async def memory_import_file_status(batch_id: str, file_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application import memory_import
+
+        view = await call(memory_import.file_status, current.id, batch_id, file_id)
+        return await respond(request, dto.MemoryImportFileView, view)
+
+    @router.put("/knowledge/import/batches/{batch_id}/files/{file_id}/chunks")
+    async def memory_import_chunk(
+        batch_id: str, file_id: str, request: Request, offset: int
+    ) -> JSONResponse:
+        # An export of several GB is thousands of chunks: the bounded transfer
+        # admission paces them, as it does backup chunks.
+        current = security.session(
+            await _context(request),
+            request.headers.get("x-client-session", ""),
+            request.headers.get("x-csrf-token", ""),
+        )
+        from row_bot.application import memory_import
+
+        uploads.enter_transfer(current.id)
+        try:
+            chunk = bytearray()
+            async for part in request.stream():
+                if len(chunk) + len(part) > memory_import.CHUNK_BYTES:
+                    raise ProtocolError("payload_too_large", 413)
+                security.session(await _context(request), current.id, current.csrf)
+                chunk.extend(part)
+            security.session(await _context(request), current.id, current.csrf)
+            view = await call(
+                memory_import.write_chunk, current.id, batch_id, file_id, offset, bytes(chunk)
+            )
+        finally:
+            uploads.leave_chunk(current.id)
+        return await respond(request, dto.MemoryImportFileView, view)
+
+    @router.delete("/knowledge/import/batches/{batch_id}/files/{file_id}")
+    async def memory_import_file_remove(batch_id: str, file_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        from row_bot.application import memory_import
+
+        await call(memory_import.remove_file, current.id, batch_id, file_id)
+        return await respond(request, dto.UploadCancelled, {"cancelled": True})
+
+    @router.post("/knowledge/import/batches/{batch_id}/text")
+    async def memory_import_text(batch_id: str, request: Request) -> JSONResponse:
+        current, body = await memory_import_mutation(request, dto.MemoryImportText, 4 * 1024 * 1024)
+        from row_bot.application import memory_import
+
+        view = await call(memory_import.add_text, current.id, batch_id, body.text)
+        return await respond(request, dto.MemoryImportBatch, view)
+
+    @router.post("/knowledge/import/batches/{batch_id}/scan")
+    async def memory_import_scan(batch_id: str, request: Request) -> JSONResponse:
+        current, _body_value = await memory_import_mutation(request, dto.MemoryImportRequest)
+        from row_bot.application import memory_import
+
+        view = await call(memory_import.scan, current.id, batch_id)
+        return await respond(request, dto.MemoryImportBatch, view)
+
+    @router.post("/knowledge/import/batches/{batch_id}/conversations")
+    async def memory_import_conversations(batch_id: str, request: Request) -> JSONResponse:
+        current, _body_value = await memory_import_mutation(request, dto.MemoryImportRequest)
+        from row_bot.application import memory_import
+
+        view = await call(memory_import.find_in_conversations, current.id, batch_id)
+        return await respond(request, dto.MemoryImportBatch, view)
+
+    @router.post("/knowledge/import/batches/{batch_id}/cancel")
+    async def memory_import_cancel(batch_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        body = await _body(request, dto.MemoryImportRequest, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application import memory_import
+
+        view = await call(memory_import.cancel_job, current.id, batch_id)
+        return await respond(request, dto.MemoryImportBatch, view)
+
+    @router.get("/knowledge/import/batches/{batch_id}/candidates")
+    async def memory_import_candidates(batch_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application import memory_import
+
+        page = await call(memory_import.candidates, current.id, batch_id)
+        return await respond(request, dto.MemoryImportCandidatePage, page)
+
+    @router.post("/knowledge/import/batches/{batch_id}/preview")
+    async def memory_import_preview(batch_id: str, request: Request) -> JSONResponse:
+        current, body = await memory_import_mutation(
+            request, dto.MemoryImportPreviewRequest, 16 * 1024 * 1024
+        )
+        from row_bot.application import memory_import
+
+        items = [item.model_dump(mode="json", exclude_none=True) for item in body.items]
+        view = await call(memory_import.preview, current.id, batch_id, items)
+        return await respond(request, dto.MemoryImportBatch, view)
+
+    @router.get("/knowledge/import/batches/{batch_id}/preview")
+    async def memory_import_read_preview(batch_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application import memory_import
+
+        result = await call(memory_import.read_preview, current.id, batch_id)
+        return await respond(request, dto.MemoryImportPreview, result)
+
+    @router.post("/knowledge/import/batches/{batch_id}/apply")
+    async def memory_import_apply(batch_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.MemoryImportApply, 512 * 1024)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application import memory_import
+
+        receipt = await call(
+            memory_import.apply,
+            current.id,
+            batch_id,
+            command_id=str(body.command_id),
+            revision=body.preview_revision,
+            exclude=list(body.exclude),
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.MemoryImportReceipt, receipt)
+
+    @router.post("/knowledge/import/batches/{batch_id}/undo")
+    async def memory_import_undo(batch_id: str, request: Request) -> JSONResponse:
+        # One owner: an import applied from one device can be undone from another.
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.MemoryImportUndo, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application import memory_import
+
+        receipt = await call(
+            memory_import.undo, batch_id, validate=dispatch_validation(request, current)
+        )
+        return await respond(request, dto.MemoryImportReceipt, receipt)
+
+    # Review memory: a background run proposes one change per memory, the person
+    # approves in a list, Apply backs memory up first, and Undo puts back exactly
+    # what was. A run belongs to the window that started it; Undo works from any.
+    @router.get("/knowledge/review/overview")
+    async def memory_review_overview(request: Request, import_batch: str | None = None) -> JSONResponse:
+        await session(request)
+        from row_bot.application import memory_review
+
+        result = await call(memory_review.overview, import_batch)
+        return await respond(request, dto.MemoryReviewOverview, result)
+
+    @router.post("/knowledge/review/runs")
+    async def memory_review_begin(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.MemoryReviewRequest, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        await call(dispatch_validation(request, current))
+        from row_bot.application import memory_review
+
+        view = await call(memory_review.begin, current.id, import_batch=body.import_batch)
+        return await respond(request, dto.MemoryReviewRun, view)
+
+    @router.get("/knowledge/review/runs/{run_id}")
+    async def memory_review_status(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application import memory_review
+
+        view = await call(memory_review.status, current.id, run_id)
+        return await respond(request, dto.MemoryReviewRun, view)
+
+    @router.delete("/knowledge/review/runs/{run_id}")
+    async def memory_review_discard(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        from row_bot.application import memory_review
+
+        await call(memory_review.discard, current.id, run_id)
+        return await respond(request, dto.UploadCancelled, {"cancelled": True})
+
+    @router.post("/knowledge/review/runs/{run_id}/cancel")
+    async def memory_review_cancel(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        body = await _body(request, dto.MemoryReviewCancel, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application import memory_review
+
+        view = await call(memory_review.cancel_job, current.id, run_id)
+        return await respond(request, dto.MemoryReviewRun, view)
+
+    @router.get("/knowledge/review/runs/{run_id}/proposals")
+    async def memory_review_proposals(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application import memory_review
+
+        page = await call(memory_review.proposals, current.id, run_id)
+        return await respond(request, dto.MemoryReviewProposals, page)
+
+    @router.post("/knowledge/review/runs/{run_id}/apply")
+    async def memory_review_apply(run_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.MemoryReviewApply, 8 * 1024 * 1024)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application import memory_review
+
+        receipt = await call(
+            memory_review.apply,
+            current.id,
+            run_id,
+            command_id=str(body.command_id),
+            revision=body.revision,
+            choices=[choice.model_dump(mode="json") for choice in body.choices],
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.MemoryReviewReceipt, receipt)
+
+    @router.post("/knowledge/review/runs/{run_id}/undo")
+    async def memory_review_undo(run_id: str, request: Request) -> JSONResponse:
+        # One owner: a review applied from one device can be undone from another.
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.MemoryReviewUndo, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application import memory_review
+
+        receipt = await call(
+            memory_review.undo, run_id, validate=dispatch_validation(request, current)
+        )
+        return await respond(request, dto.MemoryReviewReceipt, receipt)
+
     @router.get("/custom-tools")
     async def custom_tool_library(request: Request) -> JSONResponse:
         current = await session(request)
@@ -10500,7 +11404,9 @@ def create_router(
     async def approval_view(
         approval_id: str, request: Request, include_summary: bool = False
     ) -> JSONResponse:
-        current = await session(request)
+        # The card the person is looking at, like a conversation view: it does
+        # not wait behind the background reads that a reply sets off.
+        current = await session(request, lane="view")
         view = await call(service.get_approval, approval_id)
         ttl = 300.0
         if view.get("expires_at"):
@@ -10537,6 +11443,7 @@ def create_router(
                 "memory_text",
                 "folder",
                 "x_post",
+                "setting_change",
                 "policy_revision",
             )
             if k in view
@@ -10694,7 +11601,7 @@ def create_router(
                 if notices_epoch is not None
                 else None
             )
-            heartbeat = started = security.clock()
+            heartbeat = started = checked = security.clock()
             # How it ended, for the log (#568): a dropped window left no trace before.
             ended = "the window went away, or Row-Bot is stopping"
             logger.debug("Event stream opened (session %s)", current.id[:8])
@@ -10703,9 +11610,25 @@ def create_router(
                 # connection need not wait for the periodic heartbeat.
                 yield ": connected\n\n"
                 while sub.streaming and not await request.is_disconnected():
-                    await _context(request)
-                    security.session(await _context(request), current.id, current.csrf)
                     result = await replay(sub, position)
+                    notices = (
+                        app_notices.since(notice_position)
+                        if notice_position is not None
+                        else []
+                    )
+                    # Access is checked before anything is sent, and every half second while nothing
+                    # is: a revoked session's stream still ends well within a second, and an open page
+                    # no longer reads the access store eight times a second (5.3.1).
+                    if (
+                        result["snapshot_required"]
+                        or result["events"]
+                        or notices
+                        or security.clock() - checked >= 0.5
+                    ):
+                        security.session(
+                            await _context(request), current.id, current.csrf
+                        )
+                        checked = security.clock()
                     if result["snapshot_required"]:
                         await _context(request)
                         # A snapshot may exceed one event's limit. Transfer the new
@@ -10728,11 +11651,7 @@ def create_router(
                             )
                     # Background notices ride the same stream as their own
                     # frames; they never move the conversation cursor.
-                    for notice in (
-                        app_notices.since(notice_position)
-                        if notice_position is not None
-                        else ()
-                    ):
+                    for notice in notices:
                         frame = dto.NoticeFrame(
                             notices_epoch=app_notices.epoch, notice=notice.view()
                         )
@@ -10999,13 +11918,71 @@ def create_router(
             },
         )
 
+    @router.post("/saves")
+    async def save_offer(request: Request) -> JSONResponse:
+        """One file to save, the one way every Download and Export button saves (5.3.3): its reference
+        then goes to the desktop app's Save dialog, a browser download, or Exports while reconnecting."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SaveOfferRequest, 16 * 1024 * 1024)
+        source = body.source
+        validate = dispatch_validation(request, current)
+        if source.kind == "page":
+            name, html = await _page_call(_standalone, _page_id(source.page_id), source.theme.model_dump())
+            data = html.encode("utf-8")
+        elif source.kind == "delivery":
+            from row_bot.file_deliveries import DeliveryError, read_file
+
+            identifier, number = _delivery(source.delivery_id, str(source.index))
+            try:
+                name, data = await call(read_file, identifier, number)
+            except DeliveryError as exc:
+                raise _delivery_failure(exc) from None
+        elif source.kind == "design_export":
+            identity, check = await local_export(source.conversation_id, source.binding_id, source.export_id, request)
+            from row_bot.designer.client_exports import read_export_payload
+
+            descriptor, data = await call(
+                read_export_payload, identity, source.export_id, binding_id=source.binding_id, validate=check)
+            # Closed metadata and current access are checked again before the bytes are offered.
+            dto.ArtifactExport.model_validate_json(json.dumps(asdict(descriptor)))
+            await call(check)
+            name = descriptor.filename
+        elif source.kind == "workflow_webhook":
+            from row_bot.application.task_settings_controls import TaskSettingsError, export_webhook_configuration
+
+            try:
+                data = await call(export_webhook_configuration, source.task_id,
+                                  expected_revision=source.revision, validate=validate)
+            except TaskSettingsError as exc:
+                raise ProtocolError(exc.code, _STATUS.get(exc.code, 422)) from exc
+            name = "workflow-webhook.json"
+        else:
+            try:
+                data = base64.b64decode(source.content_base64, validate=True)
+            except (ValueError, binascii.Error):
+                raise ProtocolError("invalid_command", 422) from None
+            name = source.name
+        from row_bot.application import save_offers
+
+        await call(validate)
+        result = await call(save_offers.offer, current.id, save_offers.plain_name(name), data)
+        return await respond(request, dto.SaveOffer, result)
+
+    def _saveable(reference: str, session_id: str) -> tuple[dict, bytes]:
+        """A conversation's file, or a file offered to this session to save (``save:…``)."""
+        from row_bot.application import save_offers
+        from row_bot.application.attachments import read_attachment
+
+        if save_offers.is_offer(reference):
+            return save_offers.take(reference, session_id)
+        return read_attachment(reference)
+
     @router.get("/attachments/{reference}")
     async def attachment(reference: str, request: Request) -> Response:
         current = await session(request)
-        from row_bot.application.attachments import read_attachment
         from urllib.parse import quote
 
-        metadata, data = await call(read_attachment, reference)
+        metadata, data = await call(_saveable, reference, current.id)
         await _context(request)
 
         async def chunks() -> Any:
@@ -11028,13 +12005,12 @@ def create_router(
 
     @router.post("/attachments/{reference}/save")
     async def attachment_save(reference: str, request: Request) -> JSONResponse:
-        """Save a conversation export into Exports when the desktop window
-        cannot show its Save dialog (B238)."""
+        """Save a conversation's file, or one offered to save, into Exports when the desktop
+        window cannot show its Save dialog (B238)."""
         current = await session(request, lane="mutation")
-        from row_bot.application.attachments import read_attachment
         from row_bot.application.export_folder import save_export
 
-        metadata, data = await call(read_attachment, reference)
+        metadata, data = await call(_saveable, reference, current.id)
         result = await call(
             save_export,
             metadata["name"],

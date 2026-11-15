@@ -22,6 +22,8 @@ from urllib.parse import urlsplit
 
 _REFERENCE = re.compile(r"[A-Za-z0-9:_-]{1,256}")
 _SCOPE_VALUE = re.compile(r"[A-Za-z0-9:_.-]{1,256}")
+# A Proactive place the desktop Buddy may open in the main window (see buddy.native_host.MAIN_TARGET).
+_MAIN_TARGET = re.compile(r"for-you|drafts|draft:[0-9a-f]{16}|why:[0-9a-f]{16}")
 # The app's own pages. Home and its tabs are "/app-v2" with no trailing slash
 # (React Router writes "/" under its basename that way), and a conversation's
 # address carries its id percent-encoded (B406).
@@ -29,10 +31,18 @@ _SHELL_PATH = re.compile(r"/app-v2(?:/(?:[A-Za-z0-9_-]|%[0-9A-Fa-f]{2})+)*/?")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
                          "clipboard_write", "open_external", "managed_window", "save",
                          "terminal_open", "terminal_external", "buddy_placement", "buddy_follow",
-                         "main_window"})
+                         "buddy_pet", "main_window", "reveal_saved"})
+# A file a Save dialog wrote, shown in its folder later by a token (never its path); the newest few.
+_SAVED_TOKEN = re.compile(r"[0-9a-f]{32}")
+_SAVED_KEPT = 8
 # Main windows tear Buddy off and dock it; the desktop Buddy docks, hides
 # itself and reports that its first view is drawn ("ready").
 _BUDDY_ACTIONS = frozenset({"status", "dock", "hide", "ready"})
+# The desktop pet's own window: its layout (bubble open or not), the pixels that
+# take clicks, drags, and what it should look at. Answers carry only these keys.
+_PET_ACTIONS = frozenset({"layout", "hit", "drag", "state"})
+_PET_ANSWER = frozenset({"accepted", "side", "expanded", "width", "height", "petX", "petY", "cursor", "landed",
+                         "perched", "following"})
 # A document's lease. It runs from the latest attestation the document
 # exchanged, so a long-lived window renews it with a fresh one (B99).
 LEASE_SECONDS = 1800
@@ -40,6 +50,23 @@ LEASE_SECONDS = 1800
 
 def _unavailable(reason: str = "unsupported") -> dict[str, Any]:
     return {"status": "unavailable", "reason": reason}
+
+
+def _pet_answer(value: object) -> bool:
+    """A pet answer holds only plain layout and state values (and a cursor of three numbers)."""
+    if not isinstance(value, dict) or not value or not set(value) <= _PET_ANSWER:
+        return False
+    for key, item in value.items():
+        if key == "cursor":
+            if item is not None and not (isinstance(item, dict) and set(item) == {"x", "y", "age"} and all(
+                    isinstance(part, (int, float)) and not isinstance(part, bool) for part in item.values())):
+                return False
+        elif key == "side":
+            if item not in {"left", "right"}:
+                return False
+        elif not isinstance(item, (bool, int, float)) or (isinstance(item, float) and item != item):
+            return False
+    return True
 
 
 def safe_external_url(value: object) -> str | None:
@@ -126,15 +153,17 @@ def _picker_request(payload: Mapping[str, Any], selection_kind: str) -> NativePi
 class NativeDriver(Protocol):
     """Host operations supplied by the trusted shell, never by browser payloads."""
 
-    def select(self, kind: str) -> str | None: ...
+    def select(self, kind: str, start: str | None = None) -> str | None: ...
     def clipboard_read(self) -> str | None: ...
     def clipboard_write(self, text: str) -> bool: ...
     def open_external(self, url: str) -> bool: ...
     def managed_window(self, route: str) -> bool: ...
     def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None: ...
     def buddy_follow(self, conversation_id: str | None) -> dict[str, Any] | None: ...
-    def main_window(self, conversation_id: str | None) -> bool: ...
-    def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None: ...
+    def buddy_pet(self, payload: dict[str, Any]) -> dict[str, Any] | None: ...
+    def main_window(self, conversation_id: str | None, target: str | None = None) -> bool: ...
+    def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None: ...
+    def reveal(self, path: Path) -> bool: ...
     def capabilities(self) -> list[str]: ...
 
 
@@ -156,6 +185,19 @@ def _dialog_path(selected: object) -> str | None:
     if not isinstance(selected, str) or not Path(selected).is_absolute():
         raise ValueError("invalid_dialog_answer")
     return selected
+
+
+def _picker_start(request: NativePickerRequest) -> str | None:
+    """Where a picker opens: a backup to restore is looked for where Row-Bot saves them (U13), not wherever the
+    system's last dialog was. Only the starting folder: the server still checks what is chosen."""
+    if request.intent != "restore_backup":
+        return None
+    try:
+        from row_bot.application.conversation_creation import configured_workspace_root
+        backups = configured_workspace_root() / "Backups"
+        return str(backups) if backups.is_dir() else None
+    except Exception:
+        return None
 
 
 def _save_folder() -> str:
@@ -192,6 +234,7 @@ class PyWebViewDriver:
                  publish_buddy_target: Callable[[str], dict[str, Any] | None] | None = None,
                  read_buddy_target: Callable[[], dict[str, Any] | None] | None = None,
                  show_main_window: Callable[[str | None], bool] | None = None,
+                 buddy_pet: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
                  allowed: frozenset[str] | None = None) -> None:
         if publish_buddy_target is not None and read_buddy_target is not None:
             # One window either publishes what it shows or follows; never both.
@@ -206,6 +249,7 @@ class PyWebViewDriver:
         self._publish_buddy_target = publish_buddy_target
         self._read_buddy_target = read_buddy_target
         self._show_main_window = show_main_window
+        self._buddy_pet = buddy_pet
         self._allowed = allowed
 
     def capabilities(self) -> list[str]:
@@ -214,6 +258,7 @@ class PyWebViewDriver:
                                ("clipboard_write", self._write_clipboard), ("save", self._save_reference),
                                ("buddy_placement", self._buddy_placement),
                                ("buddy_follow", self._publish_buddy_target or self._read_buddy_target),
+                               ("buddy_pet", self._buddy_pet),
                                ("main_window", self._show_main_window)):
             if callback is not None:
                 result.append(name)
@@ -221,10 +266,11 @@ class PyWebViewDriver:
         # Buddy gets no pickers, clipboard, saves or external navigation).
         return [name for name in result if self._allowed is None or name in self._allowed]
 
-    def select(self, kind: str) -> str | None:
+    def select(self, kind: str, start: str | None = None) -> str | None:
         import webview
         return _dialog_path(self._window.create_file_dialog(
-            webview.FOLDER_DIALOG if kind == "folder" else webview.OPEN_DIALOG, allow_multiple=False))
+            webview.FOLDER_DIALOG if kind == "folder" else webview.OPEN_DIALOG, allow_multiple=False,
+            **({"directory": start} if start else {})))
 
     def clipboard_read(self) -> str | None:
         return self._read_clipboard() if self._read_clipboard is not None else None
@@ -249,10 +295,18 @@ class PyWebViewDriver:
             return self._read_buddy_target() if self._read_buddy_target else None
         return self._publish_buddy_target(conversation_id) if self._publish_buddy_target else None
 
-    def main_window(self, conversation_id: str | None) -> bool:
-        return bool(self._show_main_window and self._show_main_window(conversation_id))
+    def main_window(self, conversation_id: str | None, target: str | None = None) -> bool:
+        if not self._show_main_window:
+            return False
+        if target is None:
+            return bool(self._show_main_window(conversation_id))
+        return bool(self._show_main_window(conversation_id, target))  # type: ignore[call-arg]
 
-    def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None:
+    def buddy_pet(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        return self._buddy_pet(payload) if self._buddy_pet else None
+
+    def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None:
+        """The file written (so Show in folder can find it), None when cancelled, False when not saved."""
         if self._save_reference is None:
             return False
         import webview
@@ -265,7 +319,16 @@ class PyWebViewDriver:
             return None
         if not authorized():
             return False
-        return self._save_reference(reference, Path(selected))
+        target = Path(selected)
+        return target if self._save_reference(reference, target) else False
+
+    def reveal(self, path: Path) -> bool:
+        from row_bot.application.export_folder import show_in_folder
+        try:
+            show_in_folder(path)
+        except OSError:
+            return False
+        return True
 
 
 class NativeClientBridge:
@@ -338,6 +401,7 @@ class NativeClientBridge:
         self._expires = 0.0
         self._attestation = ""
         self._authority: NativeDocumentAuthority | None = None
+        self._saved: dict[str, Path] = {}
 
     def _at_shell(self) -> bool:
         try:
@@ -491,6 +555,8 @@ class NativeClientBridge:
                 available.append("terminal_open")
             if self._open_external_terminal is not None:
                 available.append("terminal_external")
+            if "save" in available:
+                available.append("reveal_saved")
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
@@ -508,7 +574,8 @@ class NativeClientBridge:
             kind = "folder" if operation == "select_folder" else "file"
             request = _picker_request(payload, kind) if operation in {"select_file", "select_folder"} else None
             if operation in {"select_file", "select_folder"} and request is not None:
-                path = self._driver.select(kind)
+                start = _picker_start(request)
+                path = self._driver.select(kind, start) if start else self._driver.select(kind)
                 with self._lock:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")
@@ -578,9 +645,28 @@ class NativeClientBridge:
                 result = self._driver.save(payload["reference"], payload["name"], authorized)
                 if not authorized():
                     return _unavailable("native_proof_required")
+                if result is None:
+                    return {"status": "cancelled"}
                 # A file the host could not write is never reported as saved.
-                return ({"status": "cancelled"} if result is None
-                        else {"status": "ok", "value": None} if result else _unavailable("save_failed"))
+                if not result:
+                    return _unavailable("save_failed")
+                if not isinstance(result, Path):
+                    return {"status": "ok", "value": None}
+                # The page gets a token for Show in folder and the chosen file's own name for the
+                # notice, never the path or folder the person chose.
+                token = secrets.token_hex(16)
+                with self._lock:
+                    self._saved[token] = result
+                    while len(self._saved) > _SAVED_KEPT:
+                        del self._saved[next(iter(self._saved))]
+                return {"status": "ok", "value": {"saved": token, "name": result.name[:255]}}
+            if (operation == "reveal_saved" and set(payload) == {"saved"}
+                    and isinstance(payload["saved"], str) and _SAVED_TOKEN.fullmatch(payload["saved"])):
+                with self._lock:
+                    path = self._saved.get(payload["saved"])
+                if path is None or not path.is_file():
+                    return _unavailable("not_found")
+                return {"status": "ok", "value": None} if self._driver.reveal(path) else _unavailable()
             if operation == "buddy_follow":
                 publish = set(payload) == {"conversationId"}
                 if not (publish or not payload) or (
@@ -598,14 +684,27 @@ class NativeClientBridge:
                         and type(value["revision"]) is int and value["revision"] >= 0 else _unavailable())
             if operation == "main_window":
                 target = payload.get("conversationId")
-                if set(payload) != {"conversationId"} or not (
-                        target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target)):
+                place = payload.get("target")
+                if set(payload) - {"target"} != {"conversationId"} or not (
+                        target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target)) or (
+                        "target" in payload and not (target is None and isinstance(place, str)
+                                                     and _MAIN_TARGET.fullmatch(place))):
                     return _unavailable("invalid_request")
-                result = self._driver.main_window(target)
+                result = (self._driver.main_window(target) if "target" not in payload
+                          else self._driver.main_window(None, place))
                 with self._lock:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")
                 return {"status": "ok", "value": None} if result else _unavailable()
+            if operation == "buddy_pet":
+                if (payload.get("action") not in _PET_ACTIONS
+                        or len(json.dumps(payload, separators=(",", ":"))) > 1024):
+                    return _unavailable("invalid_request")
+                value = self._driver.buddy_pet(dict(payload))
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                return ({"status": "ok", "value": value} if _pet_answer(value) else _unavailable("invalid_request"))
             if operation == "buddy_placement":
                 action = payload.get("action")
                 point = action == "tear_off" and set(payload) == {"action", "x", "y"}

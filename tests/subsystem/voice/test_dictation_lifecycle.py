@@ -327,7 +327,8 @@ def test_worker_failure_acknowledges_without_persisting_audio(runtime, failure):
 
 
 def test_transcript_size_rejected_without_truncation(runtime):
-    runtime.service.transcribe = lambda *args, **kwargs: "x" * 4001
+    """Five minutes of speech fits (5.3.1 A4); more than 20,000 characters is refused, never cut."""
+    runtime.service.transcribe = lambda *args, **kwargs: "x" * 20_001
     snapshot = start(runtime)
     with pytest.raises(DictationError, match="transcript_too_large"):
         finish(runtime, receive(runtime, snapshot))
@@ -425,7 +426,7 @@ def test_readiness_retains_ownership_until_actual_return(runtime, termination):
         assert entered.wait(3)
         handle = runtime.coordinator._dictation_lease.handle
         if termination == "expiry":
-            runtime.clock[0] += 121
+            runtime.clock[0] += 361
         elif termination == "stop":
             runtime.adapter.stop(runtime.owner, handle, validate=lambda: None)
         else:

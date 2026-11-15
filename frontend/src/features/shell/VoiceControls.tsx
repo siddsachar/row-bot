@@ -323,7 +323,7 @@ export default function VoiceControls(props: VoiceControlsProps) {
           0,
           Math.min(
             snapshot.max_utterance_ms ?? 30000,
-            30000,
+            300000,
             expires - performance.now(),
           ),
         ),

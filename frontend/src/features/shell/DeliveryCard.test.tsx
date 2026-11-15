@@ -14,21 +14,11 @@ import { DeliveryIoContext, type DeliveryIo } from './deliveries';
 import { stepVerb } from './tool-activity';
 
 const saving = vi.hoisted(() => ({
-  result: { status: 'ok', value: null } as
-    { status: 'ok'; value: null } | { status: 'unavailable'; reason: string },
-  names: [] as string[],
+  save: vi.fn(),
 }));
-vi.mock('../../platform/download', () => ({
-  saveBrowserDownload: async (load: () => Promise<Blob>, name: string) => {
-    saving.names.push(name);
-    if (saving.result.status !== 'ok') return saving.result;
-    try {
-      await load();
-      return saving.result;
-    } catch {
-      return { status: 'unavailable', reason: 'operation_failed' };
-    }
-  },
+vi.mock('./save-file', async (original) => ({
+  ...(await original<typeof import('./save-file')>()),
+  useSaveFile: () => saving.save,
 }));
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -73,12 +63,6 @@ function io(views: Record<string, DeliveryView>) {
       if (!found) throw new Error('not found');
       return found;
     }),
-    download: vi.fn(async () => new Blob(['%PDF-1.7'])),
-    saveToExports: vi.fn(async () => ({
-      file_name: 'report.pdf',
-      folder: 'Row-Bot › Exports',
-    })),
-    reveal: vi.fn(async () => true),
     sendToDevices: vi.fn(async () => {
       const copy = view({ delivery_id: 'send-99990000' });
       views[copy.delivery_id] = copy;
@@ -96,15 +80,14 @@ function renderCard(deliveries: DeliveryIo, id = 'send-1a2b3c4d') {
 }
 
 beforeEach(() => {
-  saving.result = { status: 'ok', value: null };
-  saving.names = [];
+  saving.save.mockResolvedValue({ status: 'ok', value: { kind: 'file' } });
 });
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
-it('files sent to your devices download on this device with its session', async () => {
+it('files sent to your devices save the one way every download saves', async () => {
   const deliveries = io({ 'send-1a2b3c4d': view() });
   renderCard(deliveries);
 
@@ -118,37 +101,21 @@ it('files sent to your devices download on this device with its session', async 
     within(card).getByRole('button', { name: 'Download report.pdf' }),
   );
   await waitFor(() =>
-    expect(deliveries.download).toHaveBeenCalledWith('send-1a2b3c4d', 0),
+    expect(saving.save).toHaveBeenCalledWith({
+      kind: 'delivery',
+      delivery_id: 'send-1a2b3c4d',
+      index: 0,
+    }),
   );
-  expect(saving.names).toEqual(['report.pdf']);
   expect(within(card).queryByRole('alert')).toBeNull();
 });
 
-it('the desktop window saves into Exports instead, with Show in folder', async () => {
-  saving.result = {
+it('says plainly when the download has ended, and reads the card again', async () => {
+  saving.save.mockResolvedValueOnce({
     status: 'unavailable',
-    reason: 'desktop_download_unavailable',
-  };
-  const deliveries = io({ 'send-1a2b3c4d': view() });
-  renderCard(deliveries);
-  const card = await screen.findByRole('group', {
-    name: /^Sent to your devices/,
+    reason: 'sent_file_expired',
   });
-  fireEvent.click(
-    within(card).getByRole('button', { name: 'Download report.pdf' }),
-  );
-  expect(await within(card).findByRole('status')).toHaveTextContent(
-    'Saved to Row-Bot › Exports as report.pdf.',
-  );
-  fireEvent.click(within(card).getByRole('button', { name: 'Show in folder' }));
-  await waitFor(() =>
-    expect(deliveries.reveal).toHaveBeenCalledWith('report.pdf'),
-  );
-});
-
-it('says plainly when the download has ended', async () => {
   const deliveries = io({ 'send-1a2b3c4d': view() });
-  deliveries.download.mockRejectedValueOnce({ code: 'sent_file_expired' });
   renderCard(deliveries);
   const card = await screen.findByRole('group', {
     name: /^Sent to your devices/,
@@ -159,6 +126,7 @@ it('says plainly when the download has ended', async () => {
   expect(await within(card).findByRole('alert')).toHaveTextContent(
     'This download has ended: sent files stay for 7 days.',
   );
+  await waitFor(() => expect(deliveries.load).toHaveBeenCalledTimes(2));
 });
 
 it('after a week the files can no longer be downloaded', async () => {

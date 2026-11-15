@@ -112,6 +112,53 @@ def test_sending_mail_sends_what_its_card_showed(outlook, tmp_path):
     assert refused.startswith("Outlook couldn't do that:") and len(outlook.seen("POST", "/v1.0/me/sendMail")) == 1
 
 
+def test_a_file_over_3_mb_goes_up_in_pieces_onto_a_draft_that_is_then_sent(outlook, tmp_path):
+    """5.3.1 A4: Graph takes 3 MB in the message itself and up to 150 MB through an upload session."""
+    from row_bot.tools import registry
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    video = bytes(range(256)) * (4 * 1024 * 1024 // 256 + 7)  # Just over 4 MB: two pieces.
+    (workspace / "demo.mp4").write_bytes(video)
+    (workspace / "notes.txt").write_bytes(b"small")
+    registry.set_tool_config("filesystem", "workspace_root", str(workspace))
+    outlook.graph[("POST", "/me/messages")] = {"id": "AAMkDraft", "webLink": LINK}
+    outlook.graph[("POST", "/me/messages/AAMkDraft/attachments/createUploadSession")] = {
+        "uploadUrl": outlook.url + "/upload/session-1?authtoken=secret"}
+    outlook.graph[("POST", "/me/messages/AAMkDraft/send")] = 202
+
+    sent = outlook_tool.send_mail(to=["amy@example.test"], subject="Demo", body="Here it is.",
+                                  attachments=["demo.mp4", "notes.txt"])
+
+    assert sent.startswith("Sent “Demo” to amy@example.test with 2 attachments.")
+    (draft,) = outlook.seen("POST", "/v1.0/me/messages")
+    assert [item["name"] for item in draft.body["attachments"]] == ["notes.txt"]  # Small files ride along.
+    (session,) = outlook.seen("POST", "/v1.0/me/messages/AAMkDraft/attachments/createUploadSession")
+    assert session.body == {"AttachmentItem": {"attachmentType": "file", "name": "demo.mp4", "size": len(video),
+                                               "contentType": "video/mp4"}}
+    pieces = outlook.seen("PUT", "/upload/session-1")
+    assert len(pieces) == 2 and all("authorization" not in piece.headers for piece in pieces)
+    assert bytes(outlook.uploaded["/upload/session-1"]) == video
+    assert outlook.seen("POST", "/v1.0/me/sendMail") == [] and len(outlook.seen("POST", "/v1.0/me/messages/AAMkDraft/send")) == 1
+    assert _no_token(sent, outlook)
+
+
+def test_an_upload_address_off_microsoft_s_hosts_is_never_used(outlook, tmp_path):
+    from row_bot.tools import registry
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "big.bin").write_bytes(b"x" * (3 * 1024 * 1024 + 1))
+    registry.set_tool_config("filesystem", "workspace_root", str(workspace))
+    outlook.graph[("POST", "/me/messages")] = {"id": "AAMkDraft"}
+    outlook.graph[("POST", "/me/messages/AAMkDraft/attachments/createUploadSession")] = {
+        "uploadUrl": "https://attacker.example/upload"}
+
+    refused = outlook_tool.draft_mail(to=["amy@example.test"], subject="x", body="y", attachments=["big.bin"])
+
+    assert refused.startswith("Outlook couldn't do that:") and outlook.uploaded == {}
+
+
 def test_reply_forward_file_and_delete_send_graphs_own_requests(outlook):
     path = "/me/messages/AAMk1%2Fx%2By%3D"
     outlook.graph[("GET", path)] = MESSAGE

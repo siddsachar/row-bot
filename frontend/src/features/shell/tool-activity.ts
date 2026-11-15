@@ -144,6 +144,7 @@ const EXACT: Record<string, Verb> = {
   animate_image: verb('Animated an image', 'Animating an image', Clapperboard),
   generate_video: verb('Generated a video', 'Generating a video', Clapperboard),
   edit_video: verb('Edited a video', 'Editing a video', Scissors),
+  video: verb('Worked on a video', 'Working on a video', Clapperboard),
   send_file: verb('Sent files', 'Sending files', Send),
   create_chart: verb('Created a chart', 'Creating a chart', ChartColumn),
   create_design: verb('Created a design', 'Creating a design', Palette),
@@ -497,6 +498,34 @@ function clip(value: string, limit = 140): string {
 }
 
 /** The one argument worth showing inline, from the bounded public input. */
+/**
+ * The settings Row-Bot may change, in Settings' own words: a step names one
+ * while its card is up, never its ID (F5). The finished step's card names it
+ * from the change itself (row_bot.self_settings).
+ */
+const SETTING_NAMES: Record<string, string> = {
+  thread_model: "This chat's model",
+  default_model: 'Main model',
+  vision_model: 'Vision model',
+  name: 'Name',
+  personality: 'Personality',
+  context_size: 'Reading limit',
+  cloud_context_size: 'Reading limit',
+  dream_cycle: 'Dream Cycle',
+  dream_window: 'Dream Cycle hours',
+  run_dream_cycle: 'Dream Cycle',
+  skill_toggle: 'Skills',
+  skill_pin: 'Skills',
+  tool_toggle: 'Tools',
+  image_gen_model: 'Image model',
+  video_gen_model: 'Video model',
+  self_improvement: 'Learn new skills',
+  read_aloud: 'Read aloud',
+  live_captions: 'Live captions',
+  log_detail: 'Log detail',
+  notification_details: 'Notification details',
+};
+
 export function keyArgument(safeInput: string | undefined): string {
   const source = (safeInput ?? '').trim();
   if (!source) return '';
@@ -509,6 +538,8 @@ export function keyArgument(safeInput: string | undefined): string {
   if (typeof parsed === 'string') return clip(compactUrl(parsed));
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
   const record = parsed as Record<string, unknown>;
+  if (typeof record.setting === 'string' && record.setting)
+    return SETTING_NAMES[record.setting] ?? record.setting.replace(/_/g, ' ');
   for (const key of KEY_ARGUMENTS) {
     const value = record[key];
     if (typeof value === 'string' && value.trim())
@@ -667,6 +698,7 @@ const SILENT_E = new Set([
   'analyz',
   'animat',
   'calculat',
+  'chang',
   'clon',
   'coordinat',
   'creat',

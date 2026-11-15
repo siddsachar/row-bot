@@ -405,6 +405,21 @@ def _plugin_problems() -> list[dict[str, str]]:
     return problems
 
 
+def _sandbox_problems() -> list[dict[str, str]]:
+    """A running sandbox with no model yet: its chats can't answer until the person signs it in once (W12)."""
+    sandboxes = _MODULE.get("row_bot.sandboxes")
+    if sandboxes is None:
+        return []
+    problems = []
+    for sandbox in sandboxes.list_sandboxes():
+        if sandbox.status != "running" or sandboxes.has_model(sandbox.sandbox_id):
+            continue
+        problems.append(_problem(f"sandbox:{sandbox.sandbox_id}", f"{sandbox.name} needs a model",
+                                 "Open it and sign in to a provider once, so its chats can answer.", "data",
+                                 _open("/settings/data#sandboxes", "Sandboxes")))
+    return problems
+
+
 def _mcp_problems() -> list[dict[str, str]]:
     runtime = _MODULE.get("row_bot.mcp_client.runtime")
     if runtime is None:
@@ -478,10 +493,18 @@ def _workflow_problems() -> list[dict[str, Any]]:
     problems = []
     for row in tasks.iter_task_summary_snapshot():
         words = _FAILED_RUNS.get(str(row.get("last_status") or "").lower())
-        if words is None or row.get("active_run_json"):
+        switched_off = row.get("disabled_reason") == "failures"
+        if (words is None and not switched_off) or row.get("active_run_json"):
             continue
         task_id, name = str(row["id"]), str(row.get("name") or "A workflow")
         href = f"/?tab=workflows&workflow={task_id}" if _TASK_ID.fullmatch(task_id) else "/?tab=workflows"
+        if switched_off:
+            # Row-Bot switched it off after failed runs in a row (D5): it stays listed until it's back on.
+            problems.append(_problem(
+                f"workflow:{task_id}", f"{name} was switched off",
+                f"It failed {tasks.FAILURES_BEFORE_OFF} times in a row. Open it to see why, then turn it back on.",
+                "workflows", _open(href, name)))
+            continue
         blocked = str(row.get("last_status") or "").lower() == "blocked"
         if blocked and _TASK_ID.fullmatch(task_id) and tasks.newest_run_fix(task_id) == "choose_folder":
             # Its code folder was removed (N9): the fix is choosing another, in its settings.
@@ -523,11 +546,48 @@ def _health_problems() -> list[dict[str, str]]:
     return attention_problems()
 
 
+def _memory_problems() -> list[dict[str, Any]]:
+    """Row-Bot restarted because the server ran out of memory (H12, U8): its size, what needs more, and
+    how to resize, with the host's own page when a known host runs it. Only where there is a limit."""
+    from row_bot import server_memory
+    from row_bot.hosting import hosted_by, trial
+
+    notice = server_memory.notice()
+    if notice is None:
+        return []
+    host = hosted_by()
+    size = notice["limit_bytes"]
+    target = "4 GB" if size < server_memory.SMALL_SERVER_BYTES else "bigger"
+    # A trial's small server (A4) grows only on the host's paid plan: that is the step to name.
+    on_trial = trial(host, size)
+    if host is not None and on_trial is not None:
+        resize = str(host.trial_resize)
+    elif host is not None:
+        resize = host.resize_to_4gb if target == "4 GB" else host.resize_bigger
+    else:
+        resize = "Give the server 4 GB" if target == "4 GB" else "Give the server more memory"
+    links = [{"label": "How to resize", "url": server_memory.RESIZE_GUIDE}]
+    if host is not None and on_trial is not None:
+        links.append({"label": f"Upgrade in {host.name}", "url": on_trial["upgrade_url"]})
+    elif host is not None and host.settings_url:
+        # The service's own settings, where its memory limit is (A2).
+        links.append({"label": "Raise the memory limit", "url": host.settings_url})
+    elif host is not None and host.manage_url:
+        links.append({"label": f"Manage your {host.unit} in {host.name}", "url": host.manage_url})
+    return [{
+        **_problem("memory:restarted", "Row-Bot restarted because the server ran out of memory",
+                   f"Your server has {server_memory.size_words(size)}. Local speech-to-text together with the "
+                   f"search model and browser needs about 3.2 GB. {resize}, or use cloud speech-to-text.",
+                   "memory"),
+        "links": links,
+    }]
+
+
 def read_attention(*, include_update: bool) -> dict[str, Any]:
     """What needs the person now, for the sidebar's one indicator."""
     problems: list[dict[str, Any]] = []
-    for reader in (_channel_problems, _tunnel_problems, _plugin_problems,
-                   _app_problems, _mcp_problems, _workflow_problems, _health_problems):
+    for reader in (_memory_problems, _channel_problems, _tunnel_problems, _plugin_problems,
+                   _app_problems, _mcp_problems, _workflow_problems, _sandbox_problems, _health_problems):
         try:
             found = reader()
         except Exception:
@@ -598,6 +658,7 @@ def read_pending_approvals() -> dict[str, Any]:
             source, title = "workflow", str(row.get("task_name") or "") or "Workflow"
             conversation_id, task_id = None, str(row.get("task_id") or "") or None
         from row_bot.questions import stored_question
+        goes_out = _goes_out(row.get("approval_payload_json"))
         items.append({
             "id": str(row["id"]),
             "source": source,
@@ -610,8 +671,28 @@ def read_pending_approvals() -> dict[str, Any]:
             "conversation_id": conversation_id,
             "parent_conversation_id": parent_id if parent_id and parent_id != conversation_id else None,
             "task_id": task_id,
+            **({"goes_out": goes_out} if goes_out else {}),
         })
     return {"schema_version": 1, "items": items, "total": len(rows)}
+
+
+_EMAIL_TOOLS = frozenset({"send_gmail_message", "outlook_send_mail", "outlook_reply_mail", "outlook_forward_mail"})
+
+
+def _goes_out(raw: Any) -> str:
+    """"post" or "email" when the approval sends one (Home's Review shows it in full, G3); else ""."""
+    try:
+        context = json.loads(str(raw or "{}"))
+    except (TypeError, ValueError):
+        return ""
+    interrupt = context.get("interrupt") if isinstance(context, dict) else None
+    items = interrupt if isinstance(interrupt, list) else [interrupt]
+    if len(items) != 1 or not isinstance(items[0], dict):
+        return ""
+    tool = str(items[0].get("tool") or "")
+    if tool == "x_post" and isinstance(items[0].get("x_post"), dict) and items[0]["x_post"].get("action") != "delete":
+        return "post"
+    return "email" if tool in _EMAIL_TOOLS else ""
 
 
 def _digest(value: Any) -> str:

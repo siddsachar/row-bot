@@ -1,0 +1,75 @@
+{
+  "additionalProperties": false,
+  "description": "One picture, video or sound in Library \u203a Media (5.3.1 B3), from the chat that keeps it.",
+  "properties": {
+    "added_at": {
+      "maxLength": 40,
+      "title": "Added At",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "conversation_title": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Conversation Title",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "image",
+        "video",
+        "audio"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "mime_type": {
+      "maxLength": 64,
+      "title": "Mime Type",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 240,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "ref": {
+      "maxLength": 300,
+      "minLength": 3,
+      "title": "Ref",
+      "type": "string"
+    },
+    "size": {
+      "minimum": 1,
+      "title": "Size",
+      "type": "integer"
+    },
+    "tags": {
+      "items": {
+        "maxLength": 40,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Tags",
+      "type": "array"
+    }
+  },
+  "required": [
+    "ref",
+    "name",
+    "kind",
+    "mime_type",
+    "size",
+    "added_at",
+    "conversation_id"
+  ],
+  "title": "MediaItem",
+  "type": "object"
+}

@@ -192,10 +192,14 @@ def _page_picture(message: Mapping[str, Any]) -> bool:
 
 
 def _is_person(message: Mapping[str, Any]) -> bool:
+    """A message the person sent: not Row-Bot's turn context, nor a note it sent the model (that stays in
+    the row as sent, but the turn's targets still start after the person's own message)."""
+
+    from row_bot.learning.corrections import is_row_bot_note
     from row_bot.turn_context import is_person_message
 
     kind, data = _data(message)
-    return is_person_message({**dict(data), "type": kind})
+    return is_person_message({**dict(data), "type": kind}) and not is_row_bot_note(message)
 
 
 # ── Paths (O33) ─────────────────────────────────────────────────────────────

@@ -240,6 +240,147 @@
   font-weight: var(--weight-medium);
   white-space: nowrap;
 }
+/* Library › Media (5.3.1 B3) */
+.media-library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.media-library-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+}
+.media-library-search {
+  position: relative;
+  display: flex;
+  flex: 1 1 220px;
+  align-items: center;
+  min-width: 0;
+}
+.media-library-search > svg {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.media-library-search .input {
+  width: 100%;
+  padding-left: 32px;
+}
+.media-library-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.media-library-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-right: 10px;
+  border-radius: var(--radius-control);
+}
+.media-library-row:is(:hover, :focus-within) {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+.media-library-link {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 56px;
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.media-library-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+  object-fit: cover;
+}
+.media-library-icon {
+  display: grid;
+  place-items: center;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+.media-library-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.media-library-name,
+.media-library-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-library-name {
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-medium);
+}
+.media-library-meta {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.media-library-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 40%;
+}
+.media-library-tag {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: 20px;
+  white-space: nowrap;
+}
+.media-library-tags-edit {
+  display: grid;
+  gap: 2px;
+  width: min(260px, 40%);
+}
+.media-library-error {
+  color: var(--status-danger-text);
+  font-size: var(--type-size-metadata);
+}
+@media (max-width: 640px) {
+  .media-library-row {
+    flex-wrap: wrap;
+    padding-bottom: 6px;
+  }
+  /* The name keeps the row; tags, when an item has some, wrap below it. */
+  .media-library-link {
+    flex-basis: calc(100% - 64px);
+  }
+  .media-library-tags,
+  .media-library-tags-edit {
+    max-width: none;
+    width: auto;
+    margin-left: auto;
+  }
+  .media-library-row .library-row-date {
+    display: none;
+  }
+}
 /* One small action: it stays beside the title in a narrow chat too. */
 @container transcript (max-width: 520px) {
   .transcript-card.page-card {

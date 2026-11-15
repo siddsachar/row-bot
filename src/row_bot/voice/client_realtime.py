@@ -18,7 +18,7 @@ from uuid import uuid4
 from row_bot.voice.agent_bridge import VoiceAgentBridge
 from row_bot.voice.client_transport import (
     ClientDictationTransport, DictationError, DictationHandle, DictationOperation,
-    DictationOwner, LEASE_SECONDS, _CONVERSATION, _uuid,
+    DictationOwner, REALTIME_LEASE_SECONDS, _CONVERSATION, _uuid,
 )
 
 _EVENTS = frozenset({"connected", "disconnected", "fatal_error", "speech_started", "speech_stopped",
@@ -194,7 +194,7 @@ class ClientRealtimeTransport:
         with self.coordinator._dictation_lock:
             lease = self._lease(owner, handle, active=False)
             if heartbeat and not lease.revoked:
-                lease.expires = min(self._transport._clock() + LEASE_SECONDS, lease.started_at + 600)
+                lease.expires = min(self._transport._clock() + REALTIME_LEASE_SECONDS, lease.started_at + 600)
             return self._snapshot(lease)
 
     def exchange(self, owner: DictationOwner, handle: DictationHandle, *, offer: bytes,

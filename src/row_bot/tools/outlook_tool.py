@@ -46,7 +46,8 @@ TITLES = {
 }
 FOLDERS = {"inbox": "Inbox", "drafts": "Drafts", "sentitems": "Sent Items", "deleteditems": "Deleted Items",
            "archive": "Archive", "junkemail": "Junk Email"}
-_ATTACHMENT_LIMIT = 3 * 1024 * 1024  # Graph takes a file in the message itself up to about 3 MB.
+_ATTACHMENT_LIMIT = 3 * 1024 * 1024  # Graph takes a file in the message itself up to about 3 MB...
+_UPLOAD_LIMIT = 150 * 1024 * 1024  # ...and up to 150 MB through an upload session (5.3.1 A4).
 _BODY_CHARS = 30_000
 _PREVIEW_CHARS = 300
 _MAIL_FIELDS = ("id,subject,from,toRecipients,ccRecipients,receivedDateTime,isRead,isDraft,flag,hasAttachments,"
@@ -155,33 +156,54 @@ def _recipients(values: list[str] | None) -> list[dict]:
     return found
 
 
-def _attachments(paths: list[str] | None) -> list[dict]:
+def _attachments(paths: list[str] | None) -> tuple[list[dict], list[Path]]:
+    """The files in the message itself (up to 3 MB each), and the larger ones to upload after."""
     from row_bot.tools.gmail_tool import _resolve_file_path
 
-    found = []
+    inline, large = [], []
     for given in paths or []:
         path = Path(_resolve_file_path(given))
         if not path.is_file():
             raise ValueError(f"there's no file at {given} to attach.")
-        if path.stat().st_size > _ATTACHMENT_LIMIT:
-            raise ValueError(f"{path.name} is larger than 3 MB, which Outlook can't attach this way.")
-        found.append({"@odata.type": "#microsoft.graph.fileAttachment", "name": path.name,
-                      "contentType": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
-                      "contentBytes": base64.b64encode(path.read_bytes()).decode("ascii")})
-    return found
+        size = path.stat().st_size
+        if size > _UPLOAD_LIMIT:
+            raise ValueError(f"{path.name} is larger than 150 MB, more than Outlook takes as an attachment.")
+        if size > _ATTACHMENT_LIMIT:
+            large.append(path)
+            continue
+        inline.append({"@odata.type": "#microsoft.graph.fileAttachment", "name": path.name,
+                       "contentType": _content_type(path),
+                       "contentBytes": base64.b64encode(path.read_bytes()).decode("ascii")})
+    return inline, large
+
+
+def _content_type(path: Path) -> str:
+    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+
+def _upload_large(message_id: str, large: list[Path]) -> None:
+    """Attach each file over 3 MB to a draft through its own upload session."""
+    for path in large:
+        session = microsoft_account.graph(
+            "POST", f"/me/messages/{segment(message_id)}/attachments/createUploadSession",
+            body={"AttachmentItem": {"attachmentType": "file", "name": path.name, "size": path.stat().st_size,
+                                     "contentType": _content_type(path)}})
+        microsoft_account.upload(str(session.get("uploadUrl") or ""), path)
 
 
 def _message(to: list[str], subject: str, body: str, cc: list[str] | None, bcc: list[str] | None,
-             attachments: list[str] | None) -> dict:
+             attachments: list[str] | None) -> tuple[dict, list[Path]]:
+    """The message as Graph takes it, and the attachments too large to go in it."""
     message = {"subject": subject, "body": {"contentType": "Text", "content": body},
                "toRecipients": _recipients(to)}
     if cc:
         message["ccRecipients"] = _recipients(cc)
     if bcc:
         message["bccRecipients"] = _recipients(bcc)
-    if attachments:
-        message["attachments"] = _attachments(attachments)
-    return message
+    inline, large = _attachments(attachments)
+    if inline:
+        message["attachments"] = inline
+    return message, large
 
 
 def _listed(message: dict, number: int) -> str:
@@ -265,7 +287,9 @@ def _with_files(attachments: list[str] | None) -> str:
 @_run
 def draft_mail(to: list[str], subject: str, body: str, cc: Optional[list[str]] = None,
                bcc: Optional[list[str]] = None, attachments: Optional[list[str]] = None) -> str:
-    draft = microsoft_account.graph("POST", "/me/messages", body=_message(to, subject, body, cc, bcc, attachments))
+    message, large = _message(to, subject, body, cc, bcc, attachments)
+    draft = microsoft_account.graph("POST", "/me/messages", body=message)
+    _upload_large(str(draft.get("id") or ""), large)
     link = _link(draft.get("webLink"))
     return (f"Saved a draft in Drafts: “{subject}” to {', '.join(to)}{_with_files(attachments)}. Nothing was sent."
             + (f"\nOpen in Outlook: {link}" if link else "") + f"\nid: {draft.get('id', '')}")
@@ -274,8 +298,15 @@ def draft_mail(to: list[str], subject: str, body: str, cc: Optional[list[str]] =
 @_run
 def send_mail(to: list[str], subject: str, body: str, cc: Optional[list[str]] = None,
               bcc: Optional[list[str]] = None, attachments: Optional[list[str]] = None) -> str:
-    microsoft_account.graph("POST", "/me/sendMail", body={
-        "message": _message(to, subject, body, cc, bcc, attachments), "saveToSentItems": True})
+    message, large = _message(to, subject, body, cc, bcc, attachments)
+    if large:
+        # A file over 3 MB goes onto a draft through an upload session, then the draft is sent.
+        draft = microsoft_account.graph("POST", "/me/messages", body=message)
+        draft_id = str(draft.get("id") or "")
+        _upload_large(draft_id, large)
+        microsoft_account.graph("POST", f"/me/messages/{segment(draft_id)}/send")
+    else:
+        microsoft_account.graph("POST", "/me/sendMail", body={"message": message, "saveToSentItems": True})
     copies = f" (cc {', '.join(cc)})" if cc else ""
     return f"Sent “{subject}” to {', '.join(to)}{copies}{_with_files(attachments)}. A copy is in Sent Items."
 
@@ -667,7 +698,7 @@ class _MailOut(BaseModel):
     cc: Optional[list[str]] = Field(default=None, description="Cc recipients.")
     bcc: Optional[list[str]] = Field(default=None, description="Bcc recipients.")
     attachments: Optional[list[str]] = Field(
-        default=None, description="Files to attach (workspace-relative or absolute paths), up to 3 MB each.")
+        default=None, description="Files to attach (workspace-relative or absolute paths), up to 150 MB each.")
 
     @field_validator("to", "cc", "bcc", "attachments", mode="before")
     @classmethod
@@ -763,7 +794,7 @@ _MAIL = {
     "outlook_read_mail": (read_mail, _MessageId, "Read one Outlook email in full, with its attachments listed."),
     "outlook_draft_mail": (draft_mail, _MailOut, "Save an Outlook email draft (never sent). Supports attachments."),
     "outlook_send_mail": (send_mail, _MailOut, "Send an email from the person's Outlook. Asks them first. "
-                          "Supports attachments up to 3 MB each."),
+                          "Supports attachments up to 150 MB each."),
     "outlook_reply_mail": (reply_mail, _Reply, "Reply to an Outlook email (or to everyone on it). Asks first."),
     "outlook_forward_mail": (forward_mail, _Forward, "Forward an Outlook email. Asks first."),
     "outlook_update_mail": (update_mail, _Update, "Move an Outlook email to a folder (archive it), flag it, or "

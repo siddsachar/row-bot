@@ -140,6 +140,31 @@ def test_ordinary_profile_skill_selection_is_a_hard_canonical_boundary(tmp_path,
     assert "MANUAL_OTHER_BODY" not in prompt
 
 
+def test_a_workflow_run_can_find_and_load_the_persons_skills_as_a_chat_can(tmp_path, monkeypatch,
+                                                                           reload_for_data_dir):
+    threads, _profiles, agent = _fresh_runtime_modules(tmp_path, reload_for_data_dir)
+    import row_bot.skill_discovery as discovery
+
+    def skill(skill_id: str) -> discovery.SkillRecord:
+        return discovery.SkillRecord(canonical_id=skill_id, alias=None, display_name=skill_id, icon="*",
+                                     description=skill_id, tags=(), activation={},
+                                     instructions=f"{skill_id.upper()}_BODY", source="manual", root=Path(tmp_path))
+
+    monkeypatch.setattr(discovery, "collect_enabled_skill_records", lambda: [skill("my_x_voice"), skill("pinned_one")])
+    monkeypatch.setattr(agent, "is_background_workflow", lambda: True)
+    thread_id = threads.create_thread("⚡ X content")
+    threads.set_thread_skills_override(thread_id, ["pinned_one"])
+    agent._set_active_runtime_context(thread_id=thread_id, runtime_surface="agent", agent_profile_snapshot={
+        "id": "builtin:row_bot_default", "enabled": True, "skill_policy_json": {"skills_override": []}})
+
+    authorized, active_ids, discoverable, _fingerprint = agent._build_runtime_skill_snapshot()
+
+    # The person's skill made in another chat is findable and loadable in the workflow's run.
+    assert {record.canonical_id for record in authorized} == {"my_x_voice", "pinned_one"}
+    assert active_ids == ("pinned_one",), "the workflow's own pinned skill stays on"
+    assert discoverable is True
+
+
 def test_thread_agent_profile_is_injected_into_chat_only_prompt(tmp_path, reload_for_data_dir):
     threads, _profiles, agent = _fresh_runtime_modules(tmp_path, reload_for_data_dir)
     thread_id = threads.create_thread("Chat only profile")

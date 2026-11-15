@@ -49,16 +49,19 @@ import { approvalLevel, approvalTag } from '../shell/approval-levels';
 import { favouritesFirst } from '../shell/model-choices';
 import { webhookReach } from './webhook-reach';
 import { writeClipboardText } from '../../platform/clipboard';
+import { useSaveFile } from '../shell/save-file';
 import { RunSparkline } from './RunSparkline';
 import {
   Button,
   EmptyState,
   ErrorState,
+  Hint,
   IconButton,
   Input,
   Menu,
   Segmented,
   Skeleton,
+  StatusDot,
   Toggle,
   type MenuAction,
 } from '../../ui/primitives';
@@ -110,6 +113,8 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'failed', label: 'Failed' },
 ];
+/** A workflow Row-Bot switched off after failed runs in a row (D5). */
+const OFF_AFTER_FAILURES = 'Off: failed 5 times in a row';
 /** Scheduled and Failed filter every saved workflow, read page by page. */
 const CLIENT_FILTER_PAGES = 20;
 
@@ -613,7 +618,11 @@ export function SavedTasks({
           size="sm"
           label="Refresh workflows"
           disabled={loading}
-          onClick={() => setReload((value) => value + 1)}
+          onClick={() => {
+            // A refreshed list is what the person acts on next.
+            setActionError('');
+            setReload((value) => value + 1);
+          }}
         >
           <RefreshCw size={15} aria-hidden />
         </IconButton>
@@ -672,6 +681,18 @@ export function SavedTasks({
                 {selected.size} {selected.size === 1 ? 'workflow' : 'workflows'}{' '}
                 selected
               </span>
+              <Button
+                variant="ghost"
+                className="small"
+                disabled={
+                  selected.size === page.items.length || Boolean(action)
+                }
+                onClick={() =>
+                  setSelected(new Set(page.items.map((item) => item.id)))
+                }
+              >
+                Select all
+              </Button>
               <Button
                 variant="ghost"
                 className="small"
@@ -742,13 +763,13 @@ export function SavedTasks({
                 const run = task.active_run;
                 const next = parseTimestamp(task.next_run);
                 const schedule = scheduleWords(task.schedule, task.at);
+                // Never run is said once, by the run chart (U36).
                 const lastRun = task.last_run ? (
                   <>
                     Ran <When value={task.last_run} />
                   </>
-                ) : (
-                  'Never run'
-                );
+                ) : null;
+                const profile = profileTag(task.agent_profile_id);
                 const actions: MenuAction[] = [
                   ...(onRuns
                     ? [
@@ -825,12 +846,18 @@ export function SavedTasks({
                 const failed = FAILED_RUN_STATUSES.has(
                   String(task.last_status ?? '').toLowerCase(),
                 );
+                // Row-Bot switched it off after failed runs in a row (D5).
+                const switchedOff =
+                  !task.enabled && task.disabled_reason === 'failures';
                 return (
                   <li
                     className="workflow-row"
                     data-enabled={task.enabled ? 'true' : 'false'}
                     data-running={running ? 'true' : undefined}
                     data-failed={failed ? 'true' : undefined}
+                    data-selected={
+                      selecting && selected.has(task.id) ? 'true' : undefined
+                    }
                     key={task.id}
                   >
                     {selecting && (
@@ -864,35 +891,50 @@ export function SavedTasks({
                           </span>
                         )}
                       </span>
+                      {switchedOff && (
+                        <Hint label="Row-Bot switched it off. Turn it back on when it’s fixed.">
+                          <span className="workflow-off" tabIndex={0}>
+                            <StatusDot
+                              tone="warning"
+                              label={OFF_AFTER_FAILURES}
+                              showLabel
+                            />
+                          </span>
+                        </Hint>
+                      )}
                       <p className="workflow-metadata">
                         <span>
                           {task.notify_only
                             ? 'Reminder'
                             : `${task.step_count} ${task.step_count === 1 ? 'message' : 'messages'}`}
                         </span>
-                        <span aria-hidden>·</span>
-                        <span>{lastRun}</span>
+                        {lastRun && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span>{lastRun}</span>
+                          </>
+                        )}
                         <span aria-hidden>·</span>
                         <span>
                           {schedule === 'Manual' ? 'Run manually' : schedule}
                         </span>
+                        {/* The agent only when it isn't the default one (U36);
+                            what a run may do is always said (B254). */}
+                        {!task.notify_only && profile !== 'Default' && (
+                          <span className="workflow-tag">{profile}</span>
+                        )}
                         {!task.notify_only && (
-                          <>
-                            <span className="workflow-tag">
-                              {profileTag(task.agent_profile_id)}
-                            </span>
-                            <span
-                              className="workflow-tag"
-                              // Only Hands-off carries the warning tone.
-                              data-attention={
-                                approvalLevel(task.approval_mode) === 'full'
-                                  ? 'true'
-                                  : undefined
-                              }
-                            >
-                              {approvalTag(task.approval_mode)}
-                            </span>
-                          </>
+                          <span
+                            className="workflow-tag"
+                            // Only Hands-off carries the warning tone.
+                            data-attention={
+                              approvalLevel(task.approval_mode) === 'full'
+                                ? 'true'
+                                : undefined
+                            }
+                          >
+                            {approvalTag(task.approval_mode)}
+                          </span>
                         )}
                       </p>
                     </div>
@@ -906,11 +948,13 @@ export function SavedTasks({
                         <span className="workflow-next-none">
                           {ranOnce(task)
                             ? 'Done'
-                            : task.schedule || task.at
-                              ? task.enabled
-                                ? 'Not scheduled'
-                                : 'Paused'
-                              : ''}
+                            : switchedOff
+                              ? 'Off'
+                              : task.schedule || task.at
+                                ? task.enabled
+                                  ? 'Not scheduled'
+                                  : 'Paused'
+                                : ''}
                         </span>
                       )}
                     </span>
@@ -936,18 +980,23 @@ export function SavedTasks({
                         />
                       )}
                     </span>
-                    <Toggle
-                      label={`${task.enabled ? 'Disable' : 'Enable'} workflow: ${task.name}`}
-                      checked={task.enabled}
-                      disabled={!onToggleEnabled || Boolean(action)}
-                      onChange={(event) =>
-                        void invoke(
-                          `toggle:${task.id}`,
-                          () => onToggleEnabled!(task.id, event.target.checked),
-                          `${task.name} ${event.target.checked ? 'enabled' : 'disabled'}.`,
-                        )
-                      }
-                    />
+                    {ranOnce(task) ? (
+                      <span aria-hidden />
+                    ) : (
+                      <Toggle
+                        label={`${task.enabled ? 'Disable' : 'Enable'} workflow: ${task.name}`}
+                        checked={task.enabled}
+                        disabled={!onToggleEnabled || Boolean(action)}
+                        onChange={(event) =>
+                          void invoke(
+                            `toggle:${task.id}`,
+                            () =>
+                              onToggleEnabled!(task.id, event.target.checked),
+                            `${task.name} ${event.target.checked ? 'enabled' : 'disabled'}.`,
+                          )
+                        }
+                      />
+                    )}
                     <div className="workflow-row-actions">
                       {running
                         ? onStop && (
@@ -1068,6 +1117,19 @@ function EditorFrame({
 
 export default function TaskLibrary() {
   const { controller, taskEditSessions, platform } = useRuntime();
+  const saveFile = useSaveFile();
+  // The webhook's private file, saved the one way every download saves (5.3.3).
+  const saveWebhook = async (task: string, revision: string) => {
+    if (!saveFile) throw clientError({ code: 'capability_unavailable' });
+    const result = await saveFile({
+      kind: 'workflow_webhook',
+      task_id: task,
+      revision,
+    });
+    if (result.status === 'unavailable')
+      throw clientError({ code: result.reason || 'action_denied' });
+    return result.status === 'ok';
+  };
   const reach = useMemo(() => webhookReach(controller), [controller]);
   const state = useClientState();
   const navigate = useNavigate();
@@ -1222,7 +1284,6 @@ export default function TaskLibrary() {
   ).map((model) => ({
     id: model.model_ref,
     label: model.label,
-    ...(model.hidden ? { group: 'More models' } : {}),
   }));
   // The draft in the editor is not waiting to be continued. Its row stays
   // mounted (hidden) so closing the editor returns focus to it.
@@ -1325,7 +1386,7 @@ export default function TaskLibrary() {
           review={controller.reviewTaskSettings}
           save={selected.settings.save}
           rotate={selected.settings.rotate}
-          download={selected.settings.download}
+          download={saveWebhook}
           onSaved={saved}
           onCancel={close}
           profileOptions={profileOptions}
@@ -1372,6 +1433,11 @@ export default function TaskLibrary() {
               selected.label,
             )
           }
+          onLastRun={() => {
+            const { taskId } = selected.session;
+            close();
+            setRunsFor({ id: taskId, name: selected.label });
+          }}
         />
       </EditorFrame>
     );

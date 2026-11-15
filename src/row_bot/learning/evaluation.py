@@ -799,12 +799,13 @@ class ReplaySet:
 
 def _last_person_text(messages: Sequence[Mapping[str, Any]]) -> str:
     """The text of the person's last message: its text parts, never image data, and never the page's
-    picture after a browser or computer action (A8)."""
+    picture after a browser or computer action (A8), nor a note Row-Bot sent the model itself."""
 
+    from row_bot.learning.corrections import is_row_bot_note
     from row_bot.learning.pictures import is_page_picture
 
     for item in reversed(messages):
-        if item.get("type") != "human" or is_page_picture(item):
+        if item.get("type") != "human" or is_page_picture(item) or is_row_bot_note(item):
             continue
         content = (item.get("data") or {}).get("content")
         if isinstance(content, str):

@@ -42,8 +42,8 @@ def _media_state(surface: str, context: dict) -> tuple[str, dict]:
     registry = sys.modules.get("row_bot.tools.registry")
     if registry is None:
         raise ClientPlatformError("buddy_tool_unavailable")
-    from row_bot.providers.media import curated_media_cache_entries
     from row_bot.providers.capabilities import snapshot_supports_surface
+    from row_bot.providers.selection import parse_model_ref
     from row_bot.tools.profile_policy import dispatch_refusal
 
     parent, operation = (
@@ -76,11 +76,12 @@ def _media_state(surface: str, context: dict) -> tuple[str, dict]:
     ):
         raise ClientPlatformError("invalid_media_selection")
     if provider not in (
-        {"openai", "google", "xai", "xai_oauth"}
+        {"openai", "google", "xai", "xai_oauth", "codex"}
         if surface == "image"
         else {"google", "xai", "xai_oauth"}
     ):
-        raise ClientPlatformError("invalid_media_selection")
+        # A well-formed choice of a provider Buddy can't paint with yet.
+        raise ClientPlatformError("buddy_image_model_unsupported")
     # Explicit stored changes must not silently use a stale process registry.
     path = registry._config_path()
     if path.exists():
@@ -121,22 +122,30 @@ def _media_state(surface: str, context: dict) -> tuple[str, dict]:
         allowlist=tuple(allowlist) if allowlist is not None else None,
     ):
         raise ClientPlatformError("buddy_tool_policy_denied")
-    entries = curated_media_cache_entries(surface)
-    entry = entries.get(selection)
+    # The provider's own model list says what the chosen model can make.
+    entry = None
     models = sys.modules.get("row_bot.models")
     cached = getattr(models, "_cloud_model_cache", {}) if models is not None else {}
-    if isinstance(cached, dict):
-        candidate = cached.get(selection, cached.get(model))
-        if isinstance(candidate, dict) and candidate.get("provider") == provider:
-            snapshot = candidate.get("capabilities_snapshot")
-            if isinstance(snapshot, dict) and snapshot_supports_surface(
-                snapshot, surface
-            ):
-                entry = {"provider": provider, "capabilities_snapshot": snapshot}
+    for key, candidate in cached.items() if isinstance(cached, dict) else ():
+        # Lists key their rows by bare ID or by model:<provider>:<id>.
+        parsed = parse_model_ref(str(key))
+        if (
+            not isinstance(candidate, dict)
+            or candidate.get("provider") != provider
+            or (parsed[1] if parsed else str(key)) != model
+        ):
+            continue
+        snapshot = candidate.get("capabilities_snapshot")
+        if isinstance(snapshot, dict) and snapshot_supports_surface(snapshot, surface):
+            entry = {"provider": provider, "capabilities_snapshot": snapshot}
+            break
     if entry is None:
         raise ClientPlatformError("buddy_media_capability_unavailable")
     policy = context.get("data_policy")
-    if policy == "local_only" or policy == "allow_api_key" and provider == "xai_oauth":
+    if policy == "local_only" or policy == "allow_api_key" and provider in {
+        "xai_oauth",
+        "codex",
+    }:
         raise ClientPlatformError("buddy_data_policy_denied")
     return selection, {
         "tool": parent,
@@ -195,6 +204,37 @@ def _account_auth(selection: str) -> CapturedMediaAuth:
             "bundle": captured[1],
             "base_url": base_url,
         }
+        entry = before
+    elif provider == "codex":
+        from row_bot.providers import codex
+        from row_bot.providers.codex_media import NO_IMAGES_PLANS
+        from row_bot.providers.transports.codex_responses import (
+            CODEX_RESPONSES_BASE_URL,
+        )
+
+        captured = auth_store.read_provider_oauth_bundle_snapshot(provider)
+        if captured[1] != before:
+            raise ClientPlatformError("buddy_policy_changed")
+        credentials = codex.codex_runtime_credentials(
+            refresh_if_needed=False, _snapshot=captured
+        )
+        if (
+            not (credentials.access_token or credentials.refresh_token)
+            or not credentials.account_id
+            or (credentials.plan_type or "").lower() in NO_IMAGES_PLANS
+            or before.get("health") in {"missing_auth", "disabled"}
+        ):
+            raise ClientPlatformError("buddy_account_unavailable")
+        # The ChatGPT access token renews about hourly and a Hatch paints for minutes,
+        # so the approval binds the account, not one token generation: the image
+        # request renews the token itself and refuses any other account.
+        base_url = CODEX_RESPONSES_BASE_URL
+        selected = credentials.account_id
+        identity = {"account": credentials.account_id, "base_url": base_url}
+        entry = {
+            name: before.get(name)
+            for name in ("auth_method", "source", "account_id_hash", "plan_type")
+        }
     else:
         selected = auth_store.get_provider_secret(provider)
         if not selected or len(selected) > 16384:
@@ -205,6 +245,7 @@ def _account_auth(selection: str) -> CapturedMediaAuth:
             "google": "https://generativelanguage.googleapis.com",
             "xai": "https://api.x.ai/v1",
         }[provider]
+        entry = before
     after = load_provider_config(strict=True).get("providers", {}).get(provider, {})
     if before != after:
         raise ClientPlatformError("buddy_policy_changed")
@@ -212,7 +253,7 @@ def _account_auth(selection: str) -> CapturedMediaAuth:
         _bounded(
             {
                 "provider": provider,
-                "entry": before,
+                "entry": entry,
                 "identity": identity,
                 "organization": organization,
                 "project": project,
@@ -281,14 +322,12 @@ def create_buddy_policy(
             "media": {},
         }
         try:
-            for surface in (
-                ("image", "video")
-                if action == "full"
-                else ("video",)
-                if action == "motion"
-                else ()
-            ):
+            # A Hatch paints with the image model only: the character, then its expressions.
+            for surface in ("image",) if action in {"full", "motion"} else ():
                 selection, identity = _media_state(surface, current)
+                if selection.split("/", 1)[-1].lower().startswith("imagen-"):
+                    # Imagen only makes new images; expressions are edits of the painting.
+                    raise ClientPlatformError("buddy_image_model_cannot_edit")
                 identity["account"] = _account_auth(selection).identity
                 result[surface + "_model"] = selection
                 result["media"][surface] = identity
@@ -306,7 +345,7 @@ def create_buddy_policy(
         validate()
 
     def provider(media: str, selection: str, captured: dict) -> CapturedMediaAuth:
-        surface = {"image": "image", "motion": "video"}.get(media)
+        surface = {"image": "image"}.get(media)
         if (
             surface is None
             or not isinstance(captured, dict)

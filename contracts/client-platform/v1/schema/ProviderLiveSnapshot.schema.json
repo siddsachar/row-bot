@@ -23,6 +23,11 @@
           "title": "Set Up Again",
           "type": "boolean"
         },
+        "signed_in_before": {
+          "default": false,
+          "title": "Signed In Before",
+          "type": "boolean"
+        },
         "state": {
           "enum": [
             "not_installed",

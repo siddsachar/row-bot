@@ -295,10 +295,22 @@
         "decision": {
           "enum": [
             "approve",
-            "reject"
+            "reject",
+            "edit"
           ],
           "title": "Decision",
           "type": "string"
+        },
+        "edit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/XPostEdit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "nonce": {
           "maxLength": 256,
@@ -414,7 +426,7 @@
           "type": "string"
         },
         "size_bytes": {
-          "maximum": 26214400,
+          "maximum": 209715200,
           "minimum": 1,
           "title": "Size Bytes",
           "type": "integer"
@@ -599,7 +611,7 @@
           "type": "string"
         },
         "size_bytes": {
-          "maximum": 26214400,
+          "maximum": 209715200,
           "minimum": 1,
           "title": "Size Bytes",
           "type": "integer"
@@ -1423,6 +1435,23 @@
           "title": "Config Revision",
           "type": "string"
         },
+        "family": {
+          "anyOf": [
+            {
+              "enum": [
+                "floater",
+                "biped",
+                "winged"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
         "prompt": {
           "maxLength": 4000,
           "minLength": 1,
@@ -2144,6 +2173,95 @@
         "payload"
       ],
       "title": "ConversationIncognitoCommand",
+      "type": "object"
+    },
+    "ConversationLinkDismissCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationLinkPayload"
+        },
+        "type": {
+          "const": "conversation.link.dismiss",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationLinkDismissCommand",
+      "type": "object"
+    },
+    "ConversationLinkPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "link_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Link Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "link_id"
+      ],
+      "title": "ConversationLinkPayload",
+      "type": "object"
+    },
+    "ConversationLinkStartCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationLinkPayload"
+        },
+        "type": {
+          "const": "conversation.link.start",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationLinkStartCommand",
       "type": "object"
     },
     "ConversationPinCommand": {
@@ -6092,9 +6210,6 @@
             },
             {
               "$ref": "#/$defs/ProviderEndpointIdentity"
-            },
-            {
-              "$ref": "#/$defs/ProviderModelPin"
             }
           ],
           "title": "Fields"
@@ -6517,6 +6632,11 @@
     "ProviderEndpointFields": {
       "additionalProperties": false,
       "properties": {
+        "allow_private_address": {
+          "default": false,
+          "title": "Allow Private Address",
+          "type": "boolean"
+        },
         "auth_required": {
           "default": false,
           "title": "Auth Required",
@@ -6767,111 +6887,6 @@
         "payload"
       ],
       "title": "ProviderEndpointSaveCommand",
-      "type": "object"
-    },
-    "ProviderModelPin": {
-      "additionalProperties": false,
-      "properties": {
-        "model_id": {
-          "maxLength": 512,
-          "minLength": 1,
-          "title": "Model Id",
-          "type": "string"
-        },
-        "provider_id": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9:_-]+$",
-          "title": "Provider Id",
-          "type": "string"
-        },
-        "surface": {
-          "maxLength": 80,
-          "minLength": 1,
-          "title": "Surface",
-          "type": "string"
-        }
-      },
-      "required": [
-        "provider_id",
-        "model_id",
-        "surface"
-      ],
-      "title": "ProviderModelPin",
-      "type": "object"
-    },
-    "ProviderModelPinCommand": {
-      "additionalProperties": false,
-      "properties": {
-        "client_session_id": {
-          "format": "uuid",
-          "title": "Client Session Id",
-          "type": "string"
-        },
-        "command_id": {
-          "format": "uuid",
-          "title": "Command Id",
-          "type": "string"
-        },
-        "expected_revision": {
-          "pattern": "^(0|[1-9][0-9]{0,19})$",
-          "title": "Expected Revision",
-          "type": "string"
-        },
-        "payload": {
-          "$ref": "#/$defs/ProviderConfigurationPayload"
-        },
-        "type": {
-          "const": "provider.model.pin",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "command_id",
-        "client_session_id",
-        "expected_revision",
-        "type",
-        "payload"
-      ],
-      "title": "ProviderModelPinCommand",
-      "type": "object"
-    },
-    "ProviderModelUnpinCommand": {
-      "additionalProperties": false,
-      "properties": {
-        "client_session_id": {
-          "format": "uuid",
-          "title": "Client Session Id",
-          "type": "string"
-        },
-        "command_id": {
-          "format": "uuid",
-          "title": "Command Id",
-          "type": "string"
-        },
-        "expected_revision": {
-          "pattern": "^(0|[1-9][0-9]{0,19})$",
-          "title": "Expected Revision",
-          "type": "string"
-        },
-        "payload": {
-          "$ref": "#/$defs/ProviderConfigurationPayload"
-        },
-        "type": {
-          "const": "provider.model.unpin",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "command_id",
-        "client_session_id",
-        "expected_revision",
-        "type",
-        "payload"
-      ],
-      "title": "ProviderModelUnpinCommand",
       "type": "object"
     },
     "ProviderSubscriptionCancelCommand": {
@@ -9412,6 +9427,16 @@
           ],
           "title": "Model Override"
         },
+        "send_results": {
+          "default": "every_run",
+          "enum": [
+            "every_run",
+            "needs_me",
+            "digest"
+          ],
+          "title": "Send Results",
+          "type": "string"
+        },
         "trigger_task_id": {
           "anyOf": [
             {
@@ -10703,6 +10728,31 @@
       ],
       "title": "WriteTarget",
       "type": "object"
+    },
+    "XPostEdit": {
+      "additionalProperties": false,
+      "description": "The person's edit of an X post on its card (G2): the new text, and the files kept by their SHA-256 start.",
+      "properties": {
+        "media": {
+          "items": {
+            "pattern": "^[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Media",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 25000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "XPostEdit",
+      "type": "object"
     }
   },
   "discriminator": {
@@ -10732,6 +10782,8 @@
       "conversation.create": "#/$defs/ConversationCreateCommand",
       "conversation.delete": "#/$defs/ConversationDeleteCommand",
       "conversation.incognito": "#/$defs/ConversationIncognitoCommand",
+      "conversation.link.dismiss": "#/$defs/ConversationLinkDismissCommand",
+      "conversation.link.start": "#/$defs/ConversationLinkStartCommand",
       "conversation.pin": "#/$defs/ConversationPinCommand",
       "conversation.queue.dispatch": "#/$defs/ConversationQueueDispatchCommand",
       "conversation.queue.edit": "#/$defs/ConversationQueueEditCommand",
@@ -10798,8 +10850,6 @@
       "provider.endpoint.probe": "#/$defs/ProviderEndpointProbeCommand",
       "provider.endpoint.refresh": "#/$defs/ProviderEndpointRefreshCommand",
       "provider.endpoint.save": "#/$defs/ProviderEndpointSaveCommand",
-      "provider.model.pin": "#/$defs/ProviderModelPinCommand",
-      "provider.model.unpin": "#/$defs/ProviderModelUnpinCommand",
       "provider.subscription.cancel": "#/$defs/ProviderSubscriptionCancelCommand",
       "provider.subscription.check": "#/$defs/ProviderSubscriptionCheckCommand",
       "provider.subscription.client_id.reset": "#/$defs/ProviderSubscriptionClientIdResetCommand",
@@ -10941,6 +10991,12 @@
     },
     {
       "$ref": "#/$defs/AgentDismissCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationLinkStartCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationLinkDismissCommand"
     },
     {
       "$ref": "#/$defs/MediaSaveCommand"
@@ -11241,12 +11297,6 @@
     },
     {
       "$ref": "#/$defs/ProviderEndpointRefreshCommand"
-    },
-    {
-      "$ref": "#/$defs/ProviderModelPinCommand"
-    },
-    {
-      "$ref": "#/$defs/ProviderModelUnpinCommand"
     },
     {
       "$ref": "#/$defs/ArtifactDesignControlCommand"

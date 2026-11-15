@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Only Railway's sign-in and the relay; no other site, script, font or frame. GitHub Pages can't send headers, so the policy is here. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://backboard.railway.com https://row-bot-railway.row-bot.workers.dev; base-uri 'none'; form-action 'none'">
+    <meta name="referrer" content="no-referrer">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run Row-Bot on Railway &mdash; Row-Bot</title>
+    <meta name="description" content="Run your own private Row-Bot in your own Railway account, opened from any browser. Railway runs the server and bills you directly.">
+    <link rel="canonical" href="https://row-bot.ai/railway/">
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" content="#080b0f" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f4f6f9" media="(prefers-color-scheme: light)">
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" href="railway.css?v=1">
+    <script type="application/json" id="railway-config">{"redirectUri": "https://row-bot.ai/railway/", "relay": "https://row-bot-railway.row-bot.workers.dev"}</script>
+    <script src="flow.js?v=1" defer></script>
+    <script src="railway.js?v=1" defer></script>
+</head>
+<body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="topbar">
+        <div class="shell topbar__inner">
+            <a class="wordmark" href="../index.html" aria-label="Row-Bot home"><img src="../row_bot_glyph_256.png" width="256" height="256" alt=""><strong>Row-Bot</strong></a>
+            <a class="topbar__link" href="../docs/">Docs</a>
+        </div>
+    </header>
+
+    <main class="shell page" id="main">
+        <section class="card" data-view="start" aria-labelledby="start-title">
+            <img class="card__glyph" src="../row_bot_glyph_256.png" width="256" height="256" alt="">
+            <p class="kicker">Row-Bot in your browser</p>
+            <h1 id="start-title" tabindex="-1">Run Row-Bot in your own Railway account</h1>
+            <p class="lead">Your own private Row-Bot, always on, opened from any browser.</p>
+            <p class="lead lead--soft">Railway runs the server and bills you directly, usually <span class="nowrap">$5–10 a month</span>.</p>
+            <p class="notice" data-start-notice role="alert" hidden></p>
+            <div class="actions">
+                <button class="button button--primary button--wide" type="button" data-action="sign-in" data-js-only>Continue with Railway</button>
+            </div>
+            <noscript><p class="notice">This page needs JavaScript to sign you in to Railway. You can also <a href="../docs/getting-started/on-railway/">deploy the template by hand</a>.</p></noscript>
+            <p class="privacy">
+                <svg class="icon" aria-hidden="true" viewBox="0 0 20 20"><path d="M10 2.5 4 5v4.6c0 3.8 2.6 6.6 6 7.9 3.4-1.3 6-4.1 6-7.9V5l-6-2.5Z"/><path d="m7.3 10 1.9 1.9 3.6-3.8"/></svg>
+                <span>This page talks only to Railway, through a small <span class="nowrap">Row-Bot</span> relay that keeps and logs nothing. <span class="nowrap">Row-Bot</span> never stores your Railway sign-in.</span>
+            </p>
+            <p class="fine">Prefer to do it by hand? <a href="../docs/getting-started/on-railway/">Deploy the template <span aria-hidden="true">→</span></a></p>
+        </section>
+
+        <section class="card card--quiet" data-view="signing-in" aria-labelledby="signing-in-title" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <h1 class="title--small" id="signing-in-title" tabindex="-1">Signing in to Railway…</h1>
+            <p class="lead lead--soft">Reading your workspaces.</p>
+        </section>
+
+        <section class="card" data-view="account" aria-labelledby="account-title" hidden>
+            <p class="signed-in"><span class="signed-in__dot" aria-hidden="true"></span><span data-signed-in>Signed in to Railway</span></p>
+            <h1 id="account-title" tabindex="-1">Create your Row-Bot</h1>
+            <p class="lead lead--soft">It runs in your own Railway account. Railway bills by use, usually <span class="nowrap">$5–10 a month</span>.</p>
+
+            <div class="fields">
+                <div class="field">
+                    <label class="field__label" for="workspace" data-workspace-label>Workspace</label>
+                    <div class="select" data-workspace-choice><select id="workspace" data-workspace></select></div>
+                    <p class="field__value" data-workspace-name hidden></p>
+                    <div class="notice notice--warn notice--field" id="blocked-note" data-blocked role="alert" hidden>
+                        <p>You can't create projects in this workspace. Pick another one.</p>
+                        <div class="actions actions--start"><button class="button button--secondary button--small" type="button" data-action="choose-again">Choose again</button></div>
+                    </div>
+                </div>
+                <div class="field" data-region-field>
+                    <label class="field__label" for="region">Region</label>
+                    <div class="select"><select id="region" data-region aria-describedby="region-hint"></select></div>
+                    <p class="field__hint" id="region-hint" data-region-hint>Guessed from your time zone.</p>
+                </div>
+            </div>
+
+            <div class="notice notice--warn" id="unverified-note" data-unverified hidden>
+                <p>Railway needs to verify your account before Row-Bot can reach the internet. <a href="https://railway.com/dashboard" data-verify-link target="_blank" rel="noopener noreferrer">Verify at Railway<svg class="icon icon--inline" aria-hidden="true" viewBox="0 0 20 20"><path d="M7 4h9v9"/><path d="M16 4 5 15"/></svg><span class="sr-only"> (opens in a new tab)</span></a>, then come back.</p>
+            </div>
+
+            <div class="notice" data-existing hidden>
+                <p>You already have a Row-Bot in this workspace.</p>
+                <p class="existing__address" data-existing-address hidden></p>
+                <div class="actions actions--start">
+                    <a class="button button--primary button--small" data-existing-link href="https://railway.com/dashboard">Open it</a>
+                    <button class="button button--secondary button--small" type="button" data-action="create-another">Create another</button>
+                </div>
+            </div>
+
+            <div class="actions" data-create-actions>
+                <button class="button button--primary button--wide" type="button" data-action="create">Create my Row-Bot</button>
+                <button class="icon-button" type="button" data-action="recheck" aria-label="Check again" title="Check again" hidden>
+                    <svg class="icon" aria-hidden="true" viewBox="0 0 20 20"><path d="M16 10a6 6 0 1 1-1.8-4.3"/><path d="M16 3.5v3.7h-3.7"/></svg>
+                </button>
+            </div>
+            <p class="plan-note" data-plan-note hidden><span data-plan-text></span> <a href="https://railway.com/workspace/plans" data-plans-link target="_blank" rel="noopener noreferrer">Upgrade in Railway<svg class="icon icon--inline" aria-hidden="true" viewBox="0 0 20 20"><path d="M7 4h9v9"/><path d="M16 4 5 15"/></svg><span class="sr-only"> (opens in a new tab)</span></a></p>
+            <p class="fine">You can change size, region and billing in Railway any time.</p>
+        </section>
+
+        <section class="card" data-view="progress" aria-labelledby="progress-title" hidden>
+            <h1 id="progress-title" tabindex="-1">Creating your Row-Bot</h1>
+            <ol class="steps">
+                <li class="step" data-step="project" data-state="running">
+                    <span class="step__icon" aria-hidden="true"></span>
+                    <span class="sr-only" data-step-status></span>
+                    <span data-step-text>Creating a project in your Railway account</span>
+                </li>
+                <li class="step" data-step="starting" data-state="pending">
+                    <span class="step__icon" aria-hidden="true"></span>
+                    <span class="sr-only" data-step-status></span>
+                    <span>Starting Row-Bot <span class="step__aside" data-step-aside>(about 1½ minutes)</span></span>
+                </li>
+                <li class="step" data-step="signing-in" data-state="pending">
+                    <span class="step__icon" aria-hidden="true"></span>
+                    <span class="sr-only" data-step-status></span>
+                    <span>Signing you in</span>
+                </li>
+            </ol>
+            <p class="fine fine--progress" data-keep-open>Keep this page open: it signs you in to your <span class="nowrap">Row-Bot</span> as soon as it's ready.</p>
+
+            <div class="notice" data-slow hidden>
+                <p>Still starting. Railway is downloading <span class="nowrap">Row-Bot</span>. You can leave this page open, or come back later: your Row-Bot is at <a data-address href="https://railway.com/dashboard" target="_blank" rel="noopener noreferrer"></a> and its setup code is in <a data-variables-link href="https://railway.com/dashboard" target="_blank" rel="noopener noreferrer">Railway's Variables<svg class="icon icon--inline" aria-hidden="true" viewBox="0 0 20 20"><path d="M7 4h9v9"/><path d="M16 4 5 15"/></svg><span class="sr-only"> (opens in a new tab)</span></a>.</p>
+            </div>
+
+            <div class="notice notice--error" data-failed role="alert" hidden>
+                <p data-failed-text>Railway couldn't start Row-Bot.</p>
+                <div class="actions actions--start">
+                    <button class="button button--primary button--small" type="button" data-action="retry">Try again</button>
+                    <a class="button button--secondary button--small" data-log-link href="https://railway.com/dashboard" target="_blank" rel="noopener noreferrer">See Railway's log<svg class="icon icon--inline" aria-hidden="true" viewBox="0 0 20 20"><path d="M7 4h9v9"/><path d="M16 4 5 15"/></svg><span class="sr-only"> (opens in a new tab)</span></a>
+                </div>
+            </div>
+        </section>
+
+        <p class="sr-only" role="status" aria-live="polite" data-announce></p>
+    </main>
+
+    <footer class="site-footer">
+        <div class="shell footer-grid">
+            <span>Row-Bot &middot; Apache 2.0</span>
+            <div class="footer-links"><a href="../index.html">Home</a><a href="../docs/">Docs</a><a href="../index.html#privacy">Privacy</a><a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a></div>
+        </div>
+    </footer>
+</body>
+</html>

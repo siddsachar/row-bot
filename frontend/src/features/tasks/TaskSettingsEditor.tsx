@@ -54,7 +54,8 @@ export interface TaskSettingsEditorProps {
     confirmFullAutonomy?: boolean,
   ) => Promise<TaskSettingsSnapshot>;
   rotate: (taskId: string, revision: string) => Promise<TaskSettingsSnapshot>;
-  download: (taskId: string, revision: string) => Promise<void>;
+  /** Save the webhook's private file; true once it is saved (false: cancelled). */
+  download: (taskId: string, revision: string) => Promise<boolean>;
   onSaved: (snapshot: TaskSettingsSnapshot) => void;
   onCancel: () => void;
   profileOptions?: ReadonlyArray<{ id: string; label: string }>;
@@ -167,6 +168,17 @@ const LEVEL_NOTES: Record<ApprovalLevel, string> = {
   auto: "A reviewer approves what matches the workflow's messages; anything else pauses the run for you.",
   full: 'Nothing pauses for approval; every action runs and is recorded. The profile and sandbox limits still apply.',
   block: 'Anything that would change something is refused.',
+};
+
+/** What reaches the workflow's channels under each choice (G8). */
+const SEND_RESULTS: Record<
+  NonNullable<TaskSettingsFields['send_results']>,
+  string
+> = {
+  every_run: 'Each run sends what it did first, then its reply.',
+  needs_me:
+    "Only a run that didn't finish, or isn't sure something went through. Approvals still reach you.",
+  digest: 'One message from 6 PM with a line for each run that day.',
 };
 
 export default function TaskSettingsEditor({
@@ -443,11 +455,12 @@ export default function TaskSettingsEditor({
     const generation = epoch.current;
     try {
       if (kind === 'download') {
-        await session.run(() => download(taskId, snapshot.revision), true);
-        if (generation === epoch.current)
-          setNotice(
-            'The private webhook configuration was downloaded. Keep it private.',
-          );
+        const saved = await session.run(
+          () => download(taskId, snapshot.revision),
+          true,
+        );
+        if (saved && generation === epoch.current)
+          setNotice('Keep the webhook file private: it holds its secret.');
       } else {
         setPendingKind(kind);
         const result = meta.uncertain
@@ -698,6 +711,27 @@ export default function TaskSettingsEditor({
               >
                 <option value="skip">Skip it</option>
                 <option value="run_once">Run once when Row-Bot starts</option>
+              </Select>
+            </SettingRow>
+            <SettingRow
+              label="Send results"
+              htmlFor={`${inputId}-send`}
+              description={SEND_RESULTS[fields.send_results ?? 'every_run']}
+            >
+              <Select
+                id={`${inputId}-send`}
+                aria-label="Send results"
+                value={fields.send_results ?? 'every_run'}
+                onChange={(event) =>
+                  change(
+                    'send_results',
+                    event.target.value as TaskSettingsFields['send_results'],
+                  )
+                }
+              >
+                <option value="every_run">After every run</option>
+                <option value="needs_me">Only when it needs me</option>
+                <option value="digest">In a daily digest</option>
               </Select>
             </SettingRow>
             <SettingRow

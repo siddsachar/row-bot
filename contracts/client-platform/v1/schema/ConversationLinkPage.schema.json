@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "ConversationLinkView": {
+      "additionalProperties": false,
+      "description": "A conversation another one started or proposed, as its card shows it (5.3.1 C).",
+      "properties": {
+        "conversation_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Conversation Id"
+        },
+        "link_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Link Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "fresh",
+            "fork"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "proposed": {
+          "title": "Proposed",
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "proposed",
+            "working",
+            "waiting",
+            "done",
+            "dismissed",
+            "expired"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "link_id",
+        "title",
+        "conversation_id",
+        "state",
+        "proposed",
+        "mode"
+      ],
+      "title": "ConversationLinkView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ConversationLinkView"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "ConversationLinkPage",
+  "type": "object"
+}

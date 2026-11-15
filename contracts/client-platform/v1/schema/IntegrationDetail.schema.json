@@ -548,6 +548,12 @@
           "title": "Evidence",
           "type": "string"
         },
+        "forks": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Forks",
+          "type": "integer"
+        },
         "icon": {
           "pattern": "^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$",
           "title": "Icon",
@@ -573,6 +579,17 @@
           "title": "Kind",
           "type": "string"
         },
+        "label": {
+          "default": "community",
+          "enum": [
+            "official",
+            "reviewed",
+            "built_in",
+            "community"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
         "lifecycle": {
           "enum": [
             "available",
@@ -582,6 +599,23 @@
           ],
           "title": "Lifecycle",
           "type": "string"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "name",
+                "description"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match"
         },
         "method": {
           "default": "",
@@ -807,6 +841,19 @@
           "default": null,
           "title": "Downloads"
         },
+        "last_activity_at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Activity At"
+        },
         "official": {
           "default": false,
           "title": "Official",
@@ -837,6 +884,17 @@
           "maxLength": 512,
           "minLength": 1,
           "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "default": "community",
+          "enum": [
+            "official",
+            "reviewed",
+            "built_in",
+            "community"
+          ],
+          "title": "Label",
           "type": "string"
         },
         "method": {

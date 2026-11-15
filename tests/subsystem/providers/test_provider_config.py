@@ -4,18 +4,17 @@ import pathlib
 import pytest
 
 from row_bot.providers import config
-from row_bot.providers.config import DEFAULT_ROUTE_PROFILES, load_provider_config, mask_provider_config, save_provider_config
+from row_bot.providers.config import load_provider_config, mask_provider_config, save_provider_config
 
 
 def test_provider_config_normalizes_defaults(tmp_path):
     path = tmp_path / "providers.json"
-    path.write_text(json.dumps({"quick_choices": "bad", "routes": []}))
+    path.write_text(json.dumps({"task_routes": "bad", "custom_endpoints": {}}))
 
     cfg = load_provider_config(path)
 
     assert cfg["version"] == 1
-    assert cfg["quick_choices"] == []
-    assert [route["id"] for route in cfg["routes"]][:5] == [route["id"] for route in DEFAULT_ROUTE_PROFILES]
+    assert cfg["task_routes"] == {} and cfg["custom_endpoints"] == [] and cfg["providers"] == {}
 
 
 def test_provider_config_atomic_save_and_masking(tmp_path):

@@ -24,7 +24,6 @@ const PAGE: BrowserPaneState = {
   schema_version: 1,
   conversation_id: 'conversation-a',
   status: 'running',
-  control: 'agent',
   acting: '',
   waiting: '',
   url: 'https://www.homeserve.co.uk/claim/1',
@@ -60,15 +59,49 @@ function setup(
   {
     frame = FRAME,
     running = false,
-  }: { frame?: BrowserFrame | null; running?: boolean } = {},
+    asked = false,
+  }: { frame?: BrowserFrame | null; running?: boolean; asked?: boolean } = {},
 ) {
   const sent: BrowserInputEvent[][] = [];
   const snapshot = {
     status: 'ready',
     conversation: { id: 'conversation-a', revision: '7', title: 'Plumber' },
-    projection: running
-      ? { generation: { quiesced: false, can_stop: true, status: 'running' } }
-      : undefined,
+    projection: asked
+      ? {
+          generation: {
+            quiesced: true,
+            can_stop: true,
+            status: 'waiting_approval',
+            approval_id: 'approval-1',
+          },
+        }
+      : running
+        ? { generation: { quiesced: false, can_stop: true, status: 'running' } }
+        : undefined,
+    activity: asked
+      ? [
+          {
+            event: {
+              type: 'approval.required',
+              payload: {
+                status: 'waiting_approval',
+                approval_id: 'approval-1',
+                questions: [
+                  {
+                    header: 'Sign in',
+                    question:
+                      'Sign in to ChatGPT in the browser, then press Done.',
+                    options: [
+                      { label: 'Done', recommended: true },
+                      { label: "I can't" },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ]
+      : [],
   };
   const controller = {
     subscribe: () => () => {},
@@ -86,9 +119,26 @@ function setup(
     browserAction: vi.fn(async () => ({ ...PAGE, ...state })),
     browserInput: vi.fn(async (_c: string, events: BrowserInputEvent[]) => {
       sent.push(events);
-      return { status: 'ok', control: 'person' };
+      return {
+        status: 'ok',
+        copied: events.some((event) => event.type === 'copy')
+          ? 'ABCD-1234'
+          : '',
+      };
     }),
     intent: vi.fn(async () => ({})),
+    approval: vi.fn(async () => ({
+      nonce: 'n'.repeat(40),
+      revision: '0',
+      questions: [
+        {
+          header: 'Sign in',
+          question: 'Sign in to ChatGPT in the browser, then press Done.',
+          options: [{ label: 'Done', recommended: true }, { label: "I can't" }],
+        },
+      ],
+    })),
+    pendingApprovals: vi.fn(async () => ({ items: [] })),
     browserLocalAddresses: vi.fn(),
     removeBrowserLocalAddress: vi.fn(),
   } as unknown as ClientController & {
@@ -96,10 +146,15 @@ function setup(
     browserInput: ReturnType<typeof vi.fn>;
     intent: ReturnType<typeof vi.fn>;
     browserLive: ReturnType<typeof vi.fn>;
+    approval: ReturnType<typeof vi.fn>;
   };
   const platform = {
     managedWindow: vi.fn(async () => ({ status: 'ok' })),
-  } as unknown as ClientPlatform & { managedWindow: ReturnType<typeof vi.fn> };
+    readClipboard: vi.fn(async () => ({ status: 'ok', value: 'WXYZ-9876' })),
+  } as unknown as ClientPlatform & {
+    managedWindow: ReturnType<typeof vi.fn>;
+    readClipboard: ReturnType<typeof vi.fn>;
+  };
   render(
     <RuntimeContext.Provider value={{ controller, platform }}>
       <OverlayProvider>
@@ -129,10 +184,8 @@ it('shows the live page with the address, and plain words for what Row-Bot is do
     {},
     '7',
   );
-  await userEvent.click(screen.getByRole('button', { name: 'Take control' }));
-  expect(controller.browserAction).toHaveBeenCalledWith('conversation-a', {
-    action: 'take_control',
-  });
+  // One shared page: nothing to take or give back.
+  expect(screen.queryByRole('button', { name: 'Take control' })).toBeNull();
 });
 
 it('gives the page the pane’s size, and the new size once a resize settles', async () => {
@@ -181,28 +234,81 @@ it('gives the page the pane’s size, and the new size once a resize settles', a
   expect(controller.browserLive).toHaveBeenCalledTimes(2);
 });
 
-it('says plainly that the person signs in, with one primary action', async () => {
-  const { controller } = setup({ sign_in: 'password' });
-  expect(await screen.findByText('Sign in here')).toBeVisible();
-  expect(screen.getByText(/Row-Bot doesn't type passwords/)).toBeVisible();
-  // One primary action, and no second Take control beside it.
+it('says plainly that the person signs in on the page, with nothing to take over', async () => {
+  setup({ sign_in: 'password' });
+  expect(await screen.findByText('Sign in here.')).toBeVisible();
+  expect(screen.getByText(/click the page and sign in/)).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Take control' })).toBeNull();
-  await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-  expect(controller.browserAction).toHaveBeenCalledWith('conversation-a', {
-    action: 'take_control',
-  });
+  expect(screen.queryByRole('button', { name: 'Give back' })).toBeNull();
 });
 
-it('while the person has control, Give back hands the page to Row-Bot', async () => {
-  const { controller } = setup({ control: 'person' });
-  expect(await screen.findByText('You have control.')).toBeVisible();
+it('when Row-Bot asks for something on the page, Done above it answers', async () => {
+  const { controller } = setup({ sign_in: 'password' }, { asked: true });
+  expect(await screen.findByText('Row-Bot is waiting for you.')).toBeVisible();
   expect(
-    screen.getByText(/Row-Bot waits until you give it back/),
+    screen.getByText('Sign in to ChatGPT in the browser, then press Done.'),
   ).toBeVisible();
-  await userEvent.click(screen.getByRole('button', { name: 'Give back' }));
-  expect(controller.browserAction).toHaveBeenCalledWith('conversation-a', {
-    action: 'give_back',
+  await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+  await waitFor(() =>
+    expect(controller.intent).toHaveBeenCalledWith(
+      'approval-1',
+      'approval.resolve',
+      {
+        decision: 'approve',
+        nonce: 'n'.repeat(40),
+        answers: [{ choices: [0] }],
+      },
+      '0',
+    ),
+  );
+});
+
+it('Ctrl+C copies the page’s selection to the clipboard', async () => {
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+  const { sent } = setup({});
+  await screen.findByRole('img', { name: 'Live page: Make a claim' });
+  const keys = screen.getByRole('textbox', { name: /Type into the page/ });
+  fireEvent.keyDown(keys, { key: 'c', ctrlKey: true });
+  fireEvent.keyUp(keys, { key: 'c', ctrlKey: true });
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith('ABCD-1234'));
+  expect(await screen.findByText('Copied')).toBeVisible();
+  // The copy is read from the page, never sent to it as keys.
+  expect(sent.flat()).toEqual([{ type: 'copy' }]);
+});
+
+it('a paste reaches the page as its own paste, from the keyboard or the menu', async () => {
+  const { sent, platform } = setup({});
+  await screen.findByRole('img', { name: 'Live page: Make a claim' });
+  const keys = screen.getByRole('textbox', { name: /Type into the page/ });
+  fireEvent.paste(keys, {
+    clipboardData: { getData: () => 'ABCD-1234' },
   });
+  await waitFor(() =>
+    expect(sent.flat()).toContainEqual({ type: 'paste', text: 'ABCD-1234' }),
+  );
+
+  await userEvent.click(
+    screen.getByRole('button', { name: 'More browser actions' }),
+  );
+  await userEvent.click(
+    await screen.findByRole('menuitem', { name: 'Paste into the page' }),
+  );
+  await waitFor(() =>
+    expect(sent.flat()).toContainEqual({ type: 'paste', text: 'WXYZ-9876' }),
+  );
+
+  platform.readClipboard.mockResolvedValueOnce({
+    status: 'unavailable',
+    message: '',
+  });
+  await userEvent.click(
+    screen.getByRole('button', { name: 'More browser actions' }),
+  );
+  await userEvent.click(
+    await screen.findByRole('menuitem', { name: 'Paste into the page' }),
+  );
+  expect(await screen.findByText(/couldn't read the clipboard/)).toBeVisible();
 });
 
 it('a crash says so and restarts on one click', async () => {

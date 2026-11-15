@@ -138,8 +138,22 @@ test('an ordinary action may be allowed for the rest of the chat', async ({
   await expect(allow).toBeVisible();
   await views(page, info, 'allow-in-this-chat-card');
   await page.setViewportSize(PHONE);
-  await expect(allow).toBeVisible();
+  // A phone keeps Deny and Approve side by side, one thumb each, and the
+  // allowance among the choices under More choices (D4).
+  await expect(allow).toBeHidden();
+  const [deny, approve] = await Promise.all([
+    card.getByRole('button', { name: 'Deny', exact: true }).boundingBox(),
+    card.getByRole('button', { name: 'Approve', exact: true }).boundingBox(),
+  ]);
+  expect(Math.abs(deny!.width - approve!.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(deny!.y - approve!.y)).toBeLessThanOrEqual(1);
+  expect(deny!.height).toBeGreaterThanOrEqual(44);
   await views(page, info, 'allow-in-this-chat-card-phone');
+  await card.getByRole('button', { name: 'More choices', exact: true }).click();
+  await expect(
+    page.getByRole('menuitem', { name: 'Allow in this chat' }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 900 });
   // Answer it: an approval left waiting shows in every later spec's sidebar and Buddy.
   await card.getByRole('button', { name: 'Deny', exact: true }).click();
@@ -148,6 +162,41 @@ test('an ordinary action may be allowed for the rest of the chat', async ({
       .getByRole('log', { name: 'Conversation' })
       .getByText('You said no, so Row-Bot stopped there.', { exact: true }),
   ).toBeVisible();
+});
+
+test('a proposed conversation starts with one tap and reads as from this chat (5.3.1 C)', async ({
+  page,
+}, info) => {
+  await newConversation(page);
+  await send(page, 'Plan the launch linked conversation fixture');
+  const card = page.getByRole('group', {
+    name: 'Make the 5.3 demo video · proposed',
+  });
+  await expect(card.getByRole('button', { name: 'Start' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Not now' })).toBeVisible();
+  await views(page, info, 'linked-conversation-proposed');
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'linked-conversation-proposed-phone');
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  await card.getByRole('button', { name: 'Start' }).click();
+  const started = page.getByRole('group', {
+    name: /^Make the 5\.3 demo video · (working|done)$/,
+  });
+  await expect(started.getByRole('button', { name: 'Open' })).toBeVisible();
+  await started.getByRole('button', { name: 'Open' }).click();
+  const from = page.getByRole('note').filter({ hasText: 'From ' });
+  await expect(from).toContainText(
+    'Script, record and cut a 60 second demo of the browser pane.',
+  );
+  await expect(
+    page.getByRole('button', {
+      name: 'Make the 5.3 demo video (started by another conversation)',
+    }),
+  ).toBeVisible();
+  await views(page, info, 'linked-conversation-from');
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'linked-conversation-from-phone');
 });
 
 test('the reviewer’s decisions are visible but quiet', async ({
@@ -188,10 +237,14 @@ test('the reviewer’s decisions are visible but quiet', async ({
     }),
   ).toBeVisible();
   const steps = transcript.getByText('Used 2 tools', { exact: true }).last();
-  await steps.click();
   const reviewed = transcript.getByText('Reviewer approved', { exact: true });
   const full = transcript.getByText('Hands-off', { exact: true }).last();
-  await expect(reviewed).toBeVisible();
+  // The live steps settle into the saved ones as the turn ends (collapsed
+  // again, seen on CI): open them, and again if they were replaced.
+  await expect(async () => {
+    if (!(await reviewed.isVisible())) await steps.click();
+    await expect(reviewed).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
   await expect(full).toBeVisible();
   await reviewed.click();
   await expect(

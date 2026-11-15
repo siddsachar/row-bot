@@ -12,6 +12,7 @@ import type {
   PlanSignIn,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { safeExternalUrl } from '../../platform/types';
 import { useRuntime } from '../../runtime';
 import { Button } from '../../ui/primitives';
@@ -137,6 +138,7 @@ export function useAccountAuth(
   owner: Owner,
   onChanged?: () => void,
 ): AccountAuth {
+  const place = usePlace();
   const changed = useRef(onChanged);
   useEffect(() => {
     changed.current = onChanged;
@@ -318,13 +320,13 @@ export function useAccountAuth(
         >
           {removing ? (
             <p>
-              Remove {removing.handle} from Row-Bot? Its sign-in is deleted from
-              this computer; your other X accounts stay. This doesn’t revoke
+              Remove {removing.handle} from Row-Bot? Its sign-in is deleted from{' '}
+              {place.noun}; your other X accounts stay. This doesn’t revoke
               access at X.
             </p>
           ) : (
             <p>
-              Remove {name}’s sign-in from this computer? You’ll need to sign in
+              Remove {name}’s sign-in from {place.noun}? You’ll need to sign in
               again. This doesn’t revoke access at {name}.
             </p>
           )}

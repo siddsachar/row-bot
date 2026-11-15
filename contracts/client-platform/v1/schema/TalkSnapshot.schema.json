@@ -42,7 +42,7 @@
   "additionalProperties": false,
   "properties": {
     "expires_in_ms": {
-      "maximum": 120000,
+      "maximum": 360000,
       "minimum": 0,
       "title": "Expires In Ms",
       "type": "integer"
@@ -51,12 +51,12 @@
       "$ref": "#/$defs/DictationHandle"
     },
     "max_audio_bytes": {
-      "const": 8388608,
+      "const": 33554432,
       "title": "Max Audio Bytes",
       "type": "integer"
     },
     "max_utterance_ms": {
-      "const": 30000,
+      "const": 300000,
       "title": "Max Utterance Ms",
       "type": "integer"
     },

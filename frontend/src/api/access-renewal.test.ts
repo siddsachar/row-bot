@@ -90,3 +90,48 @@ describe('keepAccessSessionRenewed', () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('renewing across page loads', () => {
+  it('renews on a page load only when a renewal is due for that session', async () => {
+    const stored = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+    };
+    const answer = (url: RequestInfo | URL) =>
+      String(url) === '/api/access/session'
+        ? reply({
+            authenticated: true,
+            authentication_kind: 'session',
+            session_id: 'session-1',
+          })
+        : reply({});
+    let now = 1_000;
+    const first = fakeWindow();
+    Object.assign(first.target, { localStorage: storage });
+    const request = vi.fn(async (url: RequestInfo | URL) => answer(url));
+    keepAccessSessionRenewed(first.target, request as typeof fetch, () => now);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    await settle();
+
+    // Many quick page loads of the same session: none renews again.
+    for (let load = 0; load < 40; load += 1) {
+      const page = fakeWindow();
+      Object.assign(page.target, { localStorage: storage });
+      const again = vi.fn(async (url: RequestInfo | URL) => answer(url));
+      now += 1_000;
+      keepAccessSessionRenewed(page.target, again as typeof fetch, () => now);
+      await vi.waitFor(() => expect(again).toHaveBeenCalledTimes(1));
+      await settle();
+      expect(again).toHaveBeenCalledTimes(1);
+    }
+
+    // Twelve hours on, the next load renews.
+    now = 1_000 + ACCESS_RENEW_MS;
+    const later = fakeWindow();
+    Object.assign(later.target, { localStorage: storage });
+    const due = vi.fn(async (url: RequestInfo | URL) => answer(url));
+    keepAccessSessionRenewed(later.target, due as typeof fetch, () => now);
+    await vi.waitFor(() => expect(due).toHaveBeenCalledTimes(2));
+  });
+});

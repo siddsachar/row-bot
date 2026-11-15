@@ -213,7 +213,7 @@ def test_heartbeat_bounded_by_session_and_cannot_revive_expiry(runtime):
     for now in (100, 200, 300, 400, 500):
         r.clock[0] = now
         current = r.talk.snapshot(r.owner, snapshot.handle, validate=lambda: None, heartbeat=True)
-        assert current.expires_in_ms == min(120_000, (600 - now) * 1000)
+        assert current.expires_in_ms == min(360_000, (600 - now) * 1000)
     r.clock[0] = 601
     assert r.talk.snapshot(r.owner, snapshot.handle, validate=lambda: None, heartbeat=True).state == "stopped"
     with pytest.raises(DictationError, match="voice_session_expired"):
@@ -332,7 +332,7 @@ def test_synthesis_owner_validates_before_model_and_after_worker(runtime):
     effects = []
     revoked = [False]
 
-    def speak(text):
+    def speak(text, **_options):
         effects.append(text)
         revoked[0] = True
         return b"synthetic bytes"

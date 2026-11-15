@@ -24,9 +24,9 @@ async function setup() {
     schema_version: 1,
     state: 'capturing',
     quiesced: true,
-    expires_in_ms: 120000,
-    max_audio_bytes: 8388608,
-    max_utterance_ms: 30000,
+    expires_in_ms: 360000,
+    max_audio_bytes: 33554432,
+    max_utterance_ms: 300000,
     handle: {
       lease_id: '11111111-1111-4111-8111-111111111111',
       voice_session_id: 1,

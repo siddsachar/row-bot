@@ -19,6 +19,10 @@ import {
   checksStatus,
   type WorkspaceInspectorProps,
 } from './WorkspaceInspector';
+import {
+  requestWorkspaceFile,
+  takeWorkspaceFile,
+} from './workspace-file-requests';
 
 const fixture: Inspector = {
   resource_id: 'workspace',
@@ -356,6 +360,42 @@ function pending<T>() {
 }
 
 describe('Developer inspector', () => {
+  it('opens a file asked for from the details card in Files, before or after it has loaded', async () => {
+    const options = props();
+    requestWorkspaceFile({ resourceId: 'workspace', path: 'AGENTS.md' });
+    render(<WorkspaceInspector {...options} />);
+
+    expect(
+      await screen.findByRole('region', { name: 'File text' }),
+    ).toBeVisible();
+    expect(options.file).toHaveBeenCalledWith(
+      'AGENTS.md',
+      0,
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(screen.getByRole('tab', { name: /^Files/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    act(() =>
+      requestWorkspaceFile({ resourceId: 'workspace', path: 'CLAUDE.md' }),
+    );
+    await waitFor(() =>
+      expect(options.file).toHaveBeenLastCalledWith(
+        'CLAUDE.md',
+        0,
+        undefined,
+        expect.any(AbortSignal),
+      ),
+    );
+    // Another folder's request waits for that folder's inspector.
+    act(() => requestWorkspaceFile({ resourceId: 'other', path: 'AGENTS.md' }));
+    expect(options.file).toHaveBeenCalledTimes(2);
+    expect(takeWorkspaceFile('other')).toBe('AGENTS.md');
+  });
+
   it('shows a status strip and opens on Changes when a repository has changes', async () => {
     const options = props();
     render(

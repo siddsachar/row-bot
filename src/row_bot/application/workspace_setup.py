@@ -112,17 +112,17 @@ def clone_gate(target: str, payload: dict) -> None:
     The person asked for it (Add resource, the folder browser, or a clone card the agent showed),
     so Auto and Hands-off let it go ahead; Ask needs the person's confirmation of the download
     (``confirm_network``); Block refuses. Add resource without a conversation starts one at the
-    default level.
+    level new conversations start at.
     """
-    from row_bot.approval_policy import DEFAULT_APPROVAL_MODE
     from row_bot.developer.client_clone import CloneCreationError, source_name
+    from row_bot.full_autonomy import new_level
     from row_bot.developer.sandbox import decide_action
 
     try:  # An address Row-Bot never clones is refused first, at every level.
         source_name(str((payload.get("clone_workspace") or {}).get("repo_url") or ""))
     except CloneCreationError as exc:
         raise ClientPlatformError(exc.code) from exc
-    level = DEFAULT_APPROVAL_MODE
+    level = new_level()
     if target != "resources":
         from row_bot.threads import _get_thread_approval_mode
 
@@ -501,8 +501,9 @@ def conversation_workspace(service: Any, identity: str) -> dict:
         resources.append({"resource_ref": identity + ":" + binding.binding_id, "conversation_revision": str(row["client_revision"]),
                           "binding": asdict(binding), "title": descriptor.title, "resource_revision": descriptor.resource_revision,
                           "available": descriptor.available})
-    status = model_status(service, controls)
-    ready = status["state"] == "ready"
+    status = model_status(service, controls, identity)
+    # The backup model answers while the chat's own model can't (#140).
+    ready = status["state"] == "ready" or bool(status["backup_name"])
     from row_bot.application.context_status import read_usage
     from row_bot.application.reasoning_controls import reasoning_view
     from row_bot.application.attachments import list_generated_outputs
@@ -586,40 +587,91 @@ def _unavailable_reason(model_ref: str, provider_id: str, result: Any, runtime_m
         return f"{provider_display_label(provider_id)} isn't connected", "reconnect"
     if runtime_mode != "chat_only" and result.chat.ready:
         return "It can't use tools; switch to Chat only or choose another model", "choose"
+    if provider_id.startswith("custom_openai_"):
+        from row_bot.providers.custom import custom_probe_for_model
+        from row_bot.providers.model_catalog import (
+            CUSTOM_ENDPOINT_CHECK_FAILED_REASON,
+            CUSTOM_ENDPOINT_NOT_CHECKED_REASON,
+        )
+        from row_bot.providers.selection import parse_model_ref
+
+        model_id = (parse_model_ref(model_ref) or ("", ""))[1]
+        probe = custom_probe_for_model(provider_id, model_id)
+        # Its chat is ready only once the endpoint's own check answered one.
+        if not probe:
+            return CUSTOM_ENDPOINT_NOT_CHECKED_REASON.rstrip("."), "choose"
+        if probe.get("chat_ok") is not True:
+            return CUSTOM_ENDPOINT_CHECK_FAILED_REASON.rstrip("."), "choose"
     errors = " ".join(chosen.errors).lower()
     if "context window" in errors:
         return "Its context window is too small", "choose"
     return "It isn't ready right now", "choose"
 
 
-def model_status(service: Any, controls: dict) -> dict:
+def model_status(service: Any, controls: dict, conversation_id: str = "") -> dict:
     """What the composer's model pill shows: never "Ready" for an unavailable model."""
     selection = controls.get("model_selection")
     if not selection:
         return {"state": "missing", "reason": "No model chosen yet", "fix": "choose",
-                "local": False, "sees_images": None}
+                "local": False, "sees_images": None, "backup_name": ""}
     model_ref = str(selection.get("model_ref") or "")
     provider_id = str(selection.get("provider_id") or "")
     from row_bot.providers.catalog import provider_billing
 
-    base = {"local": provider_billing(provider_id) == "local", "sees_images": _sees_images(model_ref)}
+    base = {"local": provider_billing(provider_id) == "local", "sees_images": _sees_images(model_ref),
+            "backup_name": ""}
     if service.readiness_factory is not None:
         ready = bool(service.readiness_factory(controls))
-        return {**base, "state": "ready" if ready else "unavailable",
-                "reason": "" if ready else "It isn't ready right now", "fix": None if ready else "choose"}
-    from row_bot.providers.readiness import evaluate_runtime_readiness
-    try:
-        result = evaluate_runtime_readiness(model_ref, refresh_provider_status=False, probe_ollama_tools=False)
-    except (ValueError, RuntimeError):
-        return {**base, "state": "unavailable", "reason": "This model can't be used right now", "fix": "choose"}
-    runtime_mode = str(controls.get("runtime_mode") or "agent")
-    if (result.chat if runtime_mode == "chat_only" else result.agent).ready:
-        return {**base, "state": "ready", "reason": "", "fix": None}
-    reason, fix = _unavailable_reason(model_ref, provider_id, result, runtime_mode)
-    return {**base, "state": "unavailable", "reason": reason, "fix": fix}
+        status = {**base, "state": "ready" if ready else "unavailable",
+                  "reason": "" if ready else "It isn't ready right now", "fix": None if ready else "choose"}
+    else:
+        from row_bot.providers.readiness import evaluate_runtime_readiness
+        try:
+            result = evaluate_runtime_readiness(model_ref, refresh_provider_status=False, probe_ollama_tools=False)
+        except (ValueError, RuntimeError):
+            result = None
+        runtime_mode = str(controls.get("runtime_mode") or "agent")
+        if result is None:
+            status = {**base, "state": "unavailable", "reason": "This model can't be used right now", "fix": "choose"}
+        elif (result.chat if runtime_mode == "chat_only" else result.agent).ready:
+            return {**base, "state": "ready", "reason": "", "fix": None}
+        else:
+            reason, fix = _unavailable_reason(model_ref, provider_id, result, runtime_mode)
+            status = {**base, "state": "unavailable", "reason": reason, "fix": fix}
+    if status["state"] == "unavailable":
+        backup_ref = answering_backup(service, model_ref, conversation_id)
+        if backup_ref:
+            from row_bot.providers import backup
+            status["backup_name"] = backup.model_name(backup_ref)[:256]
+    return status
 
 
-def generation_readiness(service: Any, controls: dict) -> bool:
+def answering_backup(service: Any, model_ref: str, conversation_id: str = "") -> str:
+    """The backup model that answers this chat's turns while ``model_ref`` can't (#140), or "".
+
+    The turn's own rule (``backup.plan``: switched on and chosen, another model, never a cloud backup for
+    an incognito chat), and the backup itself ready.
+    """
+    from row_bot.providers import backup
+    from row_bot.providers.selection import parse_model_ref
+
+    chosen = backup.plan({"configurable": {"thread_id": conversation_id, "model_override": model_ref}})
+    parsed = parse_model_ref(chosen.backup_ref) if chosen is not None else None
+    if not parsed:
+        return ""
+    controls = {"model_selection": {"provider_id": parsed[0], "model_ref": chosen.backup_ref}, "runtime_mode": "agent"}
+    return chosen.backup_ref if _model_ready(service, controls) else ""
+
+
+def generation_readiness(service: Any, controls: dict, conversation_id: str = "") -> bool:
+    """Whether a turn can start: its model is ready, or the backup model answers for it (#140)."""
+    if _model_ready(service, controls):
+        return True
+    selection = controls.get("model_selection") or {}
+    return bool(selection) and bool(answering_backup(service, str(selection.get("model_ref") or ""), conversation_id))
+
+
+def _model_ready(service: Any, controls: dict) -> bool:
     if service.readiness_factory is not None:
         return bool(service.readiness_factory(controls))
     if not controls.get("model_selection"):

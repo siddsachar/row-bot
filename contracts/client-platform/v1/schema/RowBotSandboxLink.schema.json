@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "description": "The sandbox's address with a one-time sign-in, for the person's own window or browser.",
+  "properties": {
+    "url": {
+      "maxLength": 600,
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "title": "RowBotSandboxLink",
+  "type": "object"
+}

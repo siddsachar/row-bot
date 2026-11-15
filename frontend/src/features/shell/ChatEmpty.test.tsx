@@ -108,3 +108,24 @@ it('keeps the general suggestions, and two more on request, elsewhere', () => {
   fireEvent.click(screen.getByRole('button', { name: 'More ideas' }));
   expect(suggestions()).toHaveLength(6);
 });
+
+it('suggests one first message on a hosted Row-Bot, sent with one tap (U3)', () => {
+  const onSend = vi.fn();
+  const onChoose = vi.fn();
+  render(
+    <ChatEmpty
+      conversationId="first-chat"
+      disabled={false}
+      onChoose={onChoose}
+      recent={[]}
+      onOpen={vi.fn()}
+      first={{ prompt: 'What can you do for me?', onSend }}
+    />,
+  );
+  expect(screen.queryByRole('group', { name: 'Example prompts' })).toBeNull();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'What can you do for me?' }),
+  );
+  expect(onSend).toHaveBeenCalledWith('What can you do for me?');
+  expect(onChoose).not.toHaveBeenCalled();
+});

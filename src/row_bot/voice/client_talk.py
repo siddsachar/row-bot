@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import uuid4
 
-from row_bot.voice.browser_local import MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_TEXT_CHARS
+from row_bot.voice.browser_local import MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_TEXT_CHARS, MAX_UTTERANCE_SECONDS
 from row_bot.voice.client_transport import (
     ClientDictationTransport, DictationError, DictationHandle, DictationOperation,
     DictationOwner, LEASE_SECONDS, _CONVERSATION,
@@ -35,7 +35,7 @@ class TalkSnapshot:
     run_id: str | None
     transport: Literal["browser_local"] = "browser_local"
     max_audio_bytes: int = MAX_INPUT_BYTES
-    max_utterance_ms: int = 30_000
+    max_utterance_ms: int = MAX_UTTERANCE_SECONDS * 1000
 
 
 @dataclass(frozen=True)

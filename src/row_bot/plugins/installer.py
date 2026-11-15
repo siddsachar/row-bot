@@ -349,7 +349,7 @@ def _prepare_package(plugin_id: str, staged: pathlib.Path, *, source_dir, source
         raise ValueError("plugin_manifest_invalid")
     if manifest.package_format == "row-bot-v2":
         from row_bot.plugins.loader import _security_scan
-        if _security_scan(staged):
+        if _security_scan(staged, runs_programs="shell_processes" in manifest.permissions):
             raise ValueError("plugin_security_check_failed")
     return manifest
 

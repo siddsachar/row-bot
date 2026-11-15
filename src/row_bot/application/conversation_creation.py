@@ -12,7 +12,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from row_bot.brand import DEFAULT_WORKSPACE_DIR_NAME
 
 
 def media_tool_selection(text: str, enabled: list[str], *, has_design: bool) -> list[str]:
@@ -46,7 +45,9 @@ def configured_workspace_root() -> Path:
 
     filesystem = registry.get_tool("filesystem")
     configured = filesystem.get_config("workspace_root", "") if filesystem else ""
-    root = Path(configured).expanduser() if configured else Path.home() / "Documents" / DEFAULT_WORKSPACE_DIR_NAME
+    from row_bot.data_paths import default_workspace_root
+
+    root = Path(configured).expanduser() if configured else default_workspace_root()
     root.mkdir(parents=True, exist_ok=True)
     if root.is_symlink():
         raise ValueError("workspace_root_unavailable")

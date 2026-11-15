@@ -35,6 +35,17 @@ def _remote_note(html: str | None) -> str:
     return ""
 
 
+def _script_note(html: str | None) -> str:
+    """A script that won't run leaves the page's sections empty (B423): say where, so it's fixed first."""
+    from row_bot.page_scripts import problems
+
+    found = problems(html or "")
+    if not found:
+        return ""
+    return ("\nWarning: the page has a script that won't run, so parts of it will be empty: " + "; ".join(found[:3])
+            + ". Fix it with page_update before you say the page is ready.")
+
+
 def _page_create(title: str, html: str, data: Any = None, libraries: list[str] | None = None) -> str:
     from row_bot import pages
 
@@ -45,7 +56,7 @@ def _page_create(title: str, html: str, data: Any = None, libraries: list[str] |
         page = pages.create(conversation, title, html, data, libraries)
     except pages.PageError as exc:
         return f"The page wasn't made: {exc}"
-    return pages.summary(page, made=True) + _remote_note(html)
+    return pages.summary(page, made=True) + _remote_note(html) + _script_note(html)
 
 
 def _page_update(page: str, html: str | None = None, data: Any = None, title: str | None = None,
@@ -61,7 +72,7 @@ def _page_update(page: str, html: str | None = None, data: Any = None, title: st
                                data_given=data is not None)
     except pages.PageError as exc:
         return f"The page wasn't changed: {exc}"
-    return pages.summary(updated, made=False) + _remote_note(html)
+    return pages.summary(updated, made=False) + _remote_note(html) + _script_note(html)
 
 
 def _page_read(page: str, version: int | None = None, include_html: bool = False) -> str:

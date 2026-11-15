@@ -9,7 +9,9 @@ import { Button } from '../../ui/primitives';
 
 /**
  * Messages typed while Row-Bot was answering, until they are sent or
- * discarded (B107, B108, U21). The list reads the server's waiting messages
+ * discarded (B107, B108, U21). The running turn reads them at its next step,
+ * as Claude Code does (5.3.1); one it has read stays listed, marked so, until
+ * that turn ends and the transcript shows it in its place. The list reads the server's waiting messages
  * and never counts events, so it cannot show a message that is not there.
  * Follow-ups for running agents are listed too; they cannot be changed.
  */
@@ -23,7 +25,7 @@ export type WaitingMessage = {
   forAgents?: boolean;
 };
 
-const WAITING = new Set(['queued', 'paused', 'dispatching']);
+const WAITING = new Set(['queued', 'paused', 'dispatching', 'steered']);
 
 export function waitingFrom(
   queue: ClientQueueView | null | undefined,
@@ -184,7 +186,8 @@ export default function WaitingMessages({
       onConfirm: () => void act('remove', item),
     });
   }
-  const count = items.length;
+  const read = items.filter((item) => item.state === 'steered').length;
+  const count = items.length - read;
   return (
     <section
       className="waiting-messages"
@@ -193,9 +196,18 @@ export default function WaitingMessages({
     >
       <p className="waiting-messages-title">
         <strong>
-          {count === 1 ? '1 message waiting' : `${count} messages waiting`}
+          {count === 0
+            ? 'Row-Bot read your message'
+            : count === 1
+              ? '1 message waiting'
+              : `${count} messages waiting`}
         </strong>
-        {running && <span> · sends when Row-Bot finishes</span>}
+        {running && count > 0 && (
+          <span>
+            {' · Row-Bot reads '}
+            {count === 1 ? 'it' : 'them'} at its next step
+          </span>
+        )}
       </p>
       <ol className="waiting-message-list">
         {items.map((item) => {
@@ -240,6 +252,10 @@ export default function WaitingMessages({
                   {item.forAgents ? (
                     <span className="waiting-message-note">
                       For the running agents
+                    </span>
+                  ) : item.state === 'steered' ? (
+                    <span className="waiting-message-note">
+                      Row-Bot read this
                     </span>
                   ) : item.state === 'dispatching' ? (
                     <span className="waiting-message-note">Sending…</span>

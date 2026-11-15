@@ -48,7 +48,7 @@ CHANNELS = 1
 # VAD / speech collection
 _PRE_SPEECH_CHUNKS = 8      # ~640 ms of audio kept before speech trigger
 _SILENCE_TIMEOUT_S = 1.5    # seconds of silence after last speech to stop recording
-_MAX_RECORDING_S = 30       # hard cap on a single utterance
+_MAX_RECORDING_S = 300      # hard cap on a single utterance (5.3.1 A4)
 _MIN_SPEECH_CHUNKS = 5      # minimum chunks to count as real speech (~400 ms)
 
 # Whisper
@@ -271,8 +271,6 @@ class VoiceService:
     # ── Pipeline ─────────────────────────────────────────────────────────
 
     def _run(self) -> None:
-        import sounddevice as sd
-
         try:
             self._ensure_selected_stt_model()
         except Exception as exc:
@@ -281,10 +279,13 @@ class VoiceService:
             self._set_state("stopped")
             return
 
-        # Pre-check: is there any input device at all?
+        # Pre-check: is there any input device at all? Importing sounddevice already fails where no sound
+        # system answers (a Linux machine without PulseAudio).
         try:
+            import sounddevice as sd
+
             sd.query_devices(kind="input")
-        except sd.PortAudioError:
+        except Exception:
             msg = "No microphone detected on this system"
             self.status_queue.put(msg)
             logger.warning(msg)
@@ -464,6 +465,20 @@ class VoiceService:
             f32, beam_size=5, language="en", vad_filter=True,
         )
         return " ".join(s.text.strip() for s in segs).strip()
+
+
+    def transcribe_words(self, audio_bytes: bytes) -> tuple[list, str]:
+        """16 kHz mono signed-16 PCM as stretches of speech with each word's time, and the language heard
+        (a recording or a clip for video work, 5.3.1 B). The model must be installed: nothing downloads here."""
+        from row_bot.sound import Segment
+
+        model = self._ensure_whisper(allow_download=False)
+        f32 = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        segments, info = model.transcribe(f32, beam_size=5, vad_filter=True, word_timestamps=True)
+        found = [Segment(float(s.start), float(s.end), s.text.strip(),
+                         tuple((float(w.start), float(w.end), w.word.strip()) for w in (s.words or ())))
+                 for s in segments if s.text.strip()]
+        return found, str(getattr(info, "language", "") or "")
 
 
 # ── Singleton ────────────────────────────────────────────────────────────────

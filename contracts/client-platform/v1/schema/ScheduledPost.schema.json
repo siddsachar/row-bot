@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "XPostMedia": {
+      "additionalProperties": false,
+      "description": "A photo or video on an X post's card: its name, size, the start of its SHA-256 and a small picture.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "image",
+            "gif",
+            "video"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mime": {
+          "default": "",
+          "maxLength": 100,
+          "pattern": "^([a-z]+/[a-z0-9.+-]+)?$",
+          "title": "Mime",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "ref": {
+          "default": "",
+          "maxLength": 256,
+          "pattern": "^([A-Za-z0-9_-]+:[0-9a-f-]{36})?$",
+          "title": "Ref",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{12}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "silent": {
+          "default": false,
+          "title": "Silent",
+          "type": "boolean"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "thumbnail": {
+          "default": "",
+          "maxLength": 32768,
+          "pattern": "^(data:image/jpeg;base64,[A-Za-z0-9+/=]+)?$",
+          "title": "Thumbnail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "size",
+        "sha256",
+        "kind"
+      ],
+      "title": "XPostMedia",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A post approved for a time slot, waiting for it (G3); Cancel stops it. One that didn't go out stays, with why,\nuntil the person tries it again or dismisses it.",
+  "properties": {
+    "account_id": {
+      "pattern": "^[0-9]{1,20}$",
+      "title": "Account Id",
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "post",
+        "reply",
+        "quote"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^xs-[0-9a-f]{12}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "limit": {
+      "default": 0,
+      "maximum": 25000,
+      "minimum": 0,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "media": {
+      "items": {
+        "$ref": "#/$defs/XPostMedia"
+      },
+      "maxItems": 4,
+      "title": "Media",
+      "type": "array"
+    },
+    "name": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Name",
+      "type": "string"
+    },
+    "post_at": {
+      "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d$",
+      "title": "Post At",
+      "type": "string"
+    },
+    "reason": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Reason",
+      "type": "string"
+    },
+    "status": {
+      "default": "scheduled",
+      "enum": [
+        "scheduled",
+        "failed",
+        "missed",
+        "unknown",
+        "by_hand"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "target_url": {
+      "default": "",
+      "maxLength": 256,
+      "pattern": "^(https://x\\.com/[A-Za-z0-9_]+/status/[0-9]+)?$",
+      "title": "Target Url",
+      "type": "string"
+    },
+    "text": {
+      "default": "",
+      "maxLength": 25000,
+      "title": "Text",
+      "type": "string"
+    },
+    "username": {
+      "default": "",
+      "pattern": "^[A-Za-z0-9_]{0,50}$",
+      "title": "Username",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "account_id",
+    "action",
+    "post_at"
+  ],
+  "title": "ScheduledPost",
+  "type": "object"
+}

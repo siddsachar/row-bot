@@ -22,25 +22,84 @@ def get_row_bot_data_dir(*, create: bool = True) -> Path:
     return get_row_bot_target_data_dir(create=create)
 
 
+def default_workspace_root() -> Path:
+    """The workspace folder until the person chooses one: ``ROW_BOT_WORKSPACE`` (a sandbox's own), else
+    Documents/Row-Bot in their home."""
+    from row_bot.brand import APP_WORKSPACE_ENV, DEFAULT_WORKSPACE_DIR_NAME
+
+    configured = str(os.environ.get(APP_WORKSPACE_ENV) or "").strip()
+    return Path(configured).expanduser() if configured else Path.home() / "Documents" / DEFAULT_WORKSPACE_DIR_NAME
+
+
+def display_path(path: Path | str) -> str:
+    """*path* as the model is told it: ``~/…`` under the home folder, so the account name isn't sent with it.
+
+    A folder elsewhere (``D:\\Work``) is the person's own choice and is shown as it is. The file tools and both
+    shells expand ``~``.
+    """
+    folder = Path(path).expanduser()
+    home = Path.home()
+    if not folder.is_relative_to(home):
+        return str(folder)
+    relative = folder.relative_to(home).as_posix()
+    return "~" if relative == "." else f"~/{relative}"
+
+
 def private_data_dirs() -> list[Path]:
-    """Row-Bot's data folder, and the server secrets folder when one is in use (a self-hosted install's keys)."""
+    """Row-Bot's data folder, and the server secrets folder when one is in use (a self-hosted install's keys);
+    in a sandbox (5.3.1 B4), the real data folder it was started from too."""
     from row_bot.secret_store import server_secrets_dir
 
     folders = [get_row_bot_data_dir(create=False)]
     secrets_dir = server_secrets_dir()
     if secrets_dir is not None:
         folders.append(secrets_dir)
+    parent = str(os.environ.get("ROW_BOT_SANDBOX_OF") or "").strip()
+    if parent:
+        folders.append(Path(parent))
     return folders
 
 
+def sandbox_workspace() -> Path | None:
+    """In a sandbox (5.3.1 B4), its own workspace: it lies inside the data folder the sandbox was started
+    from, which is otherwise private to it."""
+    from row_bot.brand import APP_WORKSPACE_ENV
+
+    configured = str(os.environ.get(APP_WORKSPACE_ENV) or "").strip()
+    if not configured or not str(os.environ.get("ROW_BOT_SANDBOX_OF") or "").strip():
+        return None
+    return Path(configured).expanduser().resolve()
+
+
+def own_workspaces() -> list[Path]:
+    """Workspaces that lie inside a private folder on purpose and stay the agent's to use: a sandbox's own
+    (5.3.1 B4); otherwise the default one, Documents/Row-Bot in the home folder. On a computer the home and the
+    data folder are apart, but in the container image the home is the data folder (HOME=/data), so the default
+    workspace lies inside it. A sandbox never gets the real Row-Bot's workspace."""
+    from row_bot.brand import DEFAULT_WORKSPACE_DIR_NAME
+
+    sandbox = sandbox_workspace()
+    if sandbox is not None:
+        return [sandbox]
+    return [(Path.home() / "Documents" / DEFAULT_WORKSPACE_DIR_NAME).expanduser().resolve()]
+
+
 def is_private_data_path(path: str | os.PathLike[str]) -> bool:
-    """True when *path* is Row-Bot's data folder or the server secrets folder, or inside one of them."""
+    """True when *path* is Row-Bot's data folder or the server secrets folder, or inside one of them; an own
+    workspace (``own_workspaces``) inside one of them is not."""
     try:
         resolved = Path(path).expanduser().resolve()
         folders = [folder.expanduser().resolve() for folder in private_data_dirs()]
+        workspaces = own_workspaces()
     except (OSError, ValueError):
         return False
-    return any(resolved == folder or folder in resolved.parents for folder in folders)
+
+    def inside(child: Path, parent: Path) -> bool:
+        return child == parent or parent in child.parents
+
+    return any(inside(resolved, folder)
+               and not any(inside(resolved, workspace) and folder in workspace.parents for workspace in workspaces)
+               for folder in folders)
 
 
 # Parts of the data folder that hold tools Row-Bot downloaded and results it made, not conversations,

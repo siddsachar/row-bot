@@ -15,7 +15,6 @@ const settingsRoutes = [
   ['preferences', 'Preferences'],
   ['appearance', 'Appearance'],
   ['buddy', 'Buddy'],
-  ['providers', 'Providers'],
   ['models', 'Models'],
   ['voice', 'Voice'],
   ['knowledge', 'Memory'],
@@ -30,12 +29,7 @@ const settingsRoutes = [
   ['data', 'Data'],
 ] as const;
 
-const firefoxPhoneRoutes = new Set([
-  'providers',
-  'system',
-  'apps',
-  'preferences',
-]);
+const firefoxPhoneRoutes = new Set(['models', 'system', 'apps', 'preferences']);
 
 // Legacy ids and moved pages redirect to their new page (and row).
 const aliases = [
@@ -43,7 +37,9 @@ const aliases = [
   ['plugins', 'apps', 'Apps'],
   ['mcp', 'apps', 'Apps'],
   ['wiki', 'knowledge', 'Memory'],
-  ['cloud', 'providers', 'Providers'],
+  // Providers merged into Models (5.3.3).
+  ['cloud', 'models', 'Models'],
+  ['providers', 'models', 'Models'],
   // Accounts and channels are apps: their old pages open the app.
   ['google', 'apps/google', 'Apps'],
   ['gmail', 'apps/google', 'Apps'],
@@ -201,7 +197,7 @@ test('Settings groups list every page, and search finds pages and rows', async (
     navigation.getByRole('link', { name: 'Documents', exact: true }),
   ).toHaveAttribute('aria-current', 'page');
   await expect(
-    navigation.getByRole('link', { name: 'Providers', exact: true }),
+    navigation.getByRole('link', { name: 'Models', exact: true }),
   ).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'settings-category-deep-link-wide');
@@ -245,19 +241,21 @@ test('Settings groups list every page, and search finds pages and rows', async (
   await screenshot(page, info, 'settings-category-search-wide');
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(settingsPath('providers'));
-  await waitForSettings(page, 'Providers');
-  // Compact: the picker replaces the page links; the search stays.
+  await page.goto(settingsPath('models'));
+  await waitForSettings(page, 'Models');
+  // A phone's page keeps the search and goes back to the list of pages
+  // (D6); the keyboard reaches both.
   await expect(navigation.getByRole('link')).toHaveCount(0);
   await expect(
     navigation.getByRole('searchbox', { name: 'Find a setting' }),
   ).toBeVisible();
-  const picker = page.getByRole('combobox', { name: 'Settings section' });
-  await picker.focus();
-  await page.keyboard.press('ArrowDown');
+  await page.getByRole('link', { name: 'Back to Settings' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(new RegExp(`${settingsPath('models')}$`));
-  await waitForSettings(page, 'Models');
+  await expect(page).toHaveURL(/\/app-v2\/settings$/);
+  await navigation.getByRole('link', { name: 'Voice', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(new RegExp(`${settingsPath('voice')}$`));
+  await waitForSettings(page, 'Voice');
   await assertNoOverflow(page);
   await screenshot(page, info, 'settings-picker-keyboard-narrow');
 });
@@ -274,40 +272,34 @@ test('Settings shell preserves the exact owner order aliases history and reload'
   await blockFixtureServiceWorkers(context);
   await useLightBlueCompact(page);
   await page.goto('/app-v2/settings');
-  await expect(page).toHaveURL(new RegExp(`${settingsPath('providers')}$`));
-  await waitForSettings(page, 'Providers');
+  // A desktop opens on Models beside the list; a phone on the list (D6).
+  if (info.project.use.viewport!.width >= 768) {
+    await expect(page).toHaveURL(new RegExp(`${settingsPath('models')}$`));
+    await waitForSettings(page, 'Models');
+  } else await expect(page).toHaveURL(/\/app-v2\/settings$/);
 
   const expectedLabels = settingsRoutes.map(([, label]) => label);
-  if (info.project.use.viewport!.width >= 1024) {
-    const navigation = page.getByRole('navigation', {
-      name: 'Settings sections',
-      exact: true,
-    });
-    await expect(navigation).toBeVisible();
-    await expect(navigation.getByRole('heading')).toHaveCount(0);
-    const groups = navigation.getByRole('list');
-    await expect(groups).toHaveCount(6);
-    expect(
-      await groups.evaluateAll((lists) =>
-        lists.map((list) => list.getAttribute('aria-label')),
-      ),
-    ).toEqual([
-      'General',
-      'Models',
-      'Knowledge',
-      'Capabilities',
-      'Connections',
-      'System',
-    ]);
-    await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
-  } else {
-    const picker = page.getByRole('combobox', {
-      name: 'Settings section',
-      exact: true,
-    });
-    await expect(picker).toBeVisible();
-    await expect(picker.locator('option')).toHaveText(expectedLabels);
-  }
+  const navigation = page.getByRole('navigation', {
+    name: 'Settings sections',
+    exact: true,
+  });
+  await expect(navigation).toBeVisible();
+  await expect(navigation.getByRole('heading')).toHaveCount(0);
+  const groups = navigation.getByRole('list');
+  await expect(groups).toHaveCount(6);
+  expect(
+    await groups.evaluateAll((lists) =>
+      lists.map((list) => list.getAttribute('aria-label')),
+    ),
+  ).toEqual([
+    'General',
+    'Models',
+    'Knowledge',
+    'Capabilities',
+    'Connections',
+    'System',
+  ]);
+  await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
 
   // The first alias is a fresh deep link; the rest redirect in the app.
   for (const [index, [alias, destination, label]] of aliases.entries()) {
@@ -335,7 +327,7 @@ test('Settings shell preserves the exact owner order aliases history and reload'
     await expect(agents).toHaveCount(0);
   }
 
-  await page.goto(settingsPath('providers'));
+  await page.goto(settingsPath('buddy'));
   await page.goto(settingsPath('models'));
   await page.goto(settingsPath('tracker'));
   await page.goBack();
@@ -355,13 +347,7 @@ test('Settings shell preserves the exact owner order aliases history and reload'
     aliases: Object.fromEntries(
       aliases.map(([alias, destination]) => [alias, destination]),
     ),
-    history: [
-      'providers',
-      'models',
-      'tracker',
-      'back:models',
-      'forward:tracker',
-    ],
+    history: ['buddy', 'models', 'tracker', 'back:models', 'forward:tracker'],
     reload: 'tracker',
     browser: browserName,
   });
@@ -379,7 +365,7 @@ for (const [id, label] of settingsRoutes) {
     );
     test.skip(
       browserName === 'firefox' && !firefoxPhoneRoutes.has(id),
-      'Firefox phone smoke is scoped to the shell, Providers, System, MCP, and Preferences.',
+      'Firefox phone smoke is scoped to the shell, Models, System, MCP, and Preferences.',
     );
     await blockFixtureServiceWorkers(context);
     await useLightBlueCompact(page);
@@ -394,11 +380,14 @@ for (const [id, label] of settingsRoutes) {
         'compact',
       );
       await assertNoOverflow(page);
-      const close = page.getByRole('link', {
-        name: 'Close settings',
+      const phone = info.project.use.viewport!.width === 390;
+      // A phone has no Close (the tab bar), and its page goes back to the
+      // list of pages instead (D6).
+      const exit = page.getByRole('link', {
+        name: phone ? 'Back to Settings' : 'Close settings',
         exact: true,
       });
-      await close.focus();
+      await exit.focus();
       await page.keyboard.press('Tab');
       expect(
         await page.locator('.settings-shell').evaluate((root) => {
@@ -407,14 +396,14 @@ for (const [id, label] of settingsRoutes) {
         }),
         `${label} must retain keyboard focus inside the Settings shell`,
       ).toBe(true);
-      if (info.project.use.viewport!.width === 390) {
-        // One header on phones (B119): Settings carries the navigation
-        // toggle and commands instead of a second bar above it.
+      if (phone) {
+        // One header on phones (B119): Settings carries the way back and
+        // the commands instead of a second bar above it.
         await expect(page.locator('.compact-controls')).toHaveCount(0);
         await expect(
           page
             .locator('.settings-shell-header')
-            .getByRole('button', { name: 'Toggle navigation' }),
+            .getByRole('link', { name: 'Back to Settings' }),
         ).toBeVisible();
         await expectCoarseTargets(page, info);
       }
@@ -589,7 +578,7 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
     name: 'Settings sections',
     exact: true,
   });
-  for (const name of ['Preferences', 'Appearance', 'Buddy', 'Providers']) {
+  for (const name of ['Preferences', 'Appearance', 'Buddy']) {
     await page.keyboard.press('Tab');
     await expect(nav.getByRole('link', { name, exact: true })).toBeFocused();
   }
@@ -612,10 +601,8 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
 
   await page.goto(settingsPath('appearance'));
   await waitForSettings(page, 'Appearance');
-  const appearance = page.getByRole('combobox', {
-    name: 'Appearance',
-    exact: true,
-  });
+  // The last look card, then the colour theme (U37: no Appearance dropdown).
+  const appearance = page.getByRole('button', { name: 'Dark', exact: true });
   await appearance.focus();
   await expect(appearance).toBeFocused();
   await page.keyboard.press('Tab');

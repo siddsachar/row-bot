@@ -36,7 +36,8 @@
             "dispatching",
             "consumed",
             "cancelled",
-            "paused"
+            "paused",
+            "steered"
           ],
           "title": "State",
           "type": "string"

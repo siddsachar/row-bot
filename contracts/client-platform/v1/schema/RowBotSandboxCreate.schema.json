@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "default": "",
+      "maxLength": 60,
+      "title": "Name",
+      "type": "string"
+    },
+    "pack": {
+      "default": "empty",
+      "enum": [
+        "empty",
+        "shop",
+        "charity",
+        "paperwork",
+        "code"
+      ],
+      "title": "Pack",
+      "type": "string"
+    }
+  },
+  "title": "RowBotSandboxCreate",
+  "type": "object"
+}

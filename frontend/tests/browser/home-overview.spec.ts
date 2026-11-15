@@ -393,7 +393,7 @@ test('busy profile: Needs you under the Ask box, then Recent and Today', async (
   ).toBeVisible();
   await expect(needs.getByText('Stock count failed')).toBeVisible();
   await expect(
-    home.getByRole('region', { name: 'Continue setup' }),
+    home.getByRole('region', { name: 'More you can set up' }),
   ).toBeVisible();
   // The sidebar (shown beside Home on a desktop) counts the same three.
   if (!phone(info))

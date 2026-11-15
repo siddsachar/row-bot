@@ -31,9 +31,14 @@ import type { BackgroundProcessesIo } from '../home/BackgroundProcesses';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
 import { BuddyPortrait } from '../buddy/BuddySurface';
+import ForYou from '../proactive/ForYou';
 import ResourceSetup from './ResourceSetup';
 import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
+import MemoryImportDialog from '../knowledge/MemoryImportDialog';
+import { memoryImportIO } from '../knowledge/memory-import-io';
+import MemoryReviewDialog from '../knowledge/MemoryReviewDialog';
+import { memoryReviewIO } from '../knowledge/memory-review-io';
 import { neverUsed } from './new-chat';
 import LearningHome, {
   LEARNING_VIEWS,
@@ -102,6 +107,13 @@ export default function Home({
   const [knowledgeError, setKnowledgeError] = useState('');
   const [knowledgeReload, setKnowledgeReload] = useState(0);
   const [graphLimit, setGraphLimit] = useState(GRAPH_DEFAULT_LIMIT);
+  const [importing, setImporting] = useState(false);
+  const importIO = useMemo(() => memoryImportIO(controller), [controller]);
+  // Review memory: the whole memory, or one import's (from its done step).
+  const [reviewing, setReviewing] = useState<{ importBatch?: string } | null>(
+    null,
+  );
+  const reviewIO = useMemo(() => memoryReviewIO(controller), [controller]);
   const knowledgeRead = useRef({ at: 0, key: '' });
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [monitorLoading, setMonitorLoading] = useState(false);
@@ -573,7 +585,16 @@ export default function Home({
                   identity ? controller.pendingApprovals : undefined
                 }
                 loadAttention={identity ? controller.attention : undefined}
+                loadScheduledPosts={
+                  identity ? controller.scheduledPosts : undefined
+                }
+                onCancelScheduledPost={controller.cancelScheduledPost}
+                onRetryScheduledPost={controller.retryScheduledPost}
+                onEditScheduledPost={controller.editScheduledPost}
                 buddy={<BuddyPortrait />}
+                forYou={({ rows, footer }) => (
+                  <ForYou today={rows} footer={footer} />
+                )}
                 onAsk={onAsk}
                 asking={asking}
                 onNewResource={onPanel && newResource}
@@ -650,6 +671,8 @@ export default function Home({
                     ? () => knowledgeOwner.get()?.open(null)
                     : undefined
                 }
+                onImport={() => setImporting(true)}
+                onReview={() => setReviewing({})}
                 onMerge={mergeMemory}
                 onDelete={(id, subject) => deleteMemories([{ id, subject }])}
                 onDeleteMany={deleteMemories}
@@ -748,6 +771,25 @@ export default function Home({
           onMutation={() => setKnowledgeReload((value) => value + 1)}
         />
       )}
+      <MemoryImportDialog
+        open={importing}
+        onOpenChange={setImporting}
+        io={importIO}
+        onReview={(importBatch) => {
+          setImporting(false);
+          setReviewing({ importBatch });
+        }}
+        onImported={() => setKnowledgeReload((value) => value + 1)}
+      />
+      <MemoryReviewDialog
+        open={reviewing !== null}
+        onOpenChange={(open) => {
+          if (!open) setReviewing(null);
+        }}
+        io={reviewIO}
+        importBatch={reviewing?.importBatch}
+        onChanged={() => setKnowledgeReload((value) => value + 1)}
+      />
     </div>
   );
 }

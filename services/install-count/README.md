@@ -35,6 +35,13 @@ without storing any secret, and a ping carries nothing more than the four fields
 `by_country` is the installations reporting on that day (today so far, and yesterday) from each
 country, as Cloudflare works it out from the connection (`request.cf.country`; `XX` when unknown).
 
+`GET /v1/totals` needs no token and answers only the current totals, overall and by OS (no versions,
+countries or days; rate-limited like a ping). The owner's reports read it:
+
+```json
+{"active_7d": 0, "active_15d": 0, "by_os": {"windows": {"active_7d": 0, "active_15d": 0}}, "as_of": "2026-11-20"}
+```
+
 Each installation counts once, under the version and OS of its latest day in the window. Show
 these numbers as "installations reporting in the last 7/15 days", apart from GitHub downloads,
 never as users, all installs or consenting installs.

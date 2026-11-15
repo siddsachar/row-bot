@@ -28,6 +28,22 @@
       ],
       "title": "Expires At"
     },
+    "goes_out": {
+      "anyOf": [
+        {
+          "enum": [
+            "post",
+            "email"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Goes Out"
+    },
     "id": {
       "maxLength": 128,
       "minLength": 1,

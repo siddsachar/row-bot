@@ -2933,6 +2933,18 @@ def resume_parent_orchestration(
                 from row_bot.questions import resume_values
 
                 answered = {"resume_values": resume_values(current_interrupts, answer)}
+            else:
+                from row_bot.tools.approval_gate import asked_alone, bound_answer
+
+                # A card only the person answers (an incognito memory write, N11) is asked by itself and
+                # counts only an answer bound to what it showed (B416): this answer is that card's alone,
+                # and what waits beside it asks again for itself, as in a chat or a helper.
+                alone = asked_alone(current_interrupts) or {}
+                alone_id = str(alone.get("__interrupt_id") or "")
+                if alone_id:
+                    interrupt_ids = [alone_id]
+                    answered = {"resume_values": {
+                        alone_id: bound_answer(True, str(alone["binding"])) if approved else False}}
             result = resume_invoke_agent(
                 enabled_tools,
                 config,

@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "servo",
+  "name": "Buddy Servo",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact industrial robot desktop companion: chunky safety-yellow and graphite body with black hazard-stripe trim, round camera-lens eyes behind a dark visor, visible joints and small actuators, sturdy factory-floor charm, polished 3D.",
+  "patches": "patches.png"
+}

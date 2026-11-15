@@ -45,7 +45,7 @@ def test_a_name_never_attaches_or_verifies():
     assert found["app"] == "" and not found["verified"] and found["featured"] is None
 
 
-def test_search_ranks_featured_and_verified_first_then_setup_and_freshness(local, monkeypatch):
+def test_search_ranks_the_vendor_first_then_quality_then_setup(local, monkeypatch):
     rows = [
         listing("io.github.someone/notion-helper", "Notion helper", url="https://helper.example.test/mcp", updated="2026-10-01"),
         listing("com.notion/mcp", "Notion", url="https://mcp.notion.com/mcp", updated="2025-01-01"),
@@ -59,8 +59,8 @@ def test_search_ranks_featured_and_verified_first_then_setup_and_freshness(local
     names = [entry.metadata["canonical_name"] for entry in results]
     assert total == 5 and "org.other/weather" not in names
     assert names[0] == "com.notion/mcp" and index.derive(results[0])["verified"]
-    # Installable with known authentication (local), then installable, then no recipe; fresher first.
-    assert names[1:] == ["org.fresh/notion-notes", "org.old/notion-notes", "io.github.someone/notion-helper", "org.none/notion-docs"]
+    # Quality: fresh and runs here without a sign-in (3), fresh (2: hosted before no recipe), old (1).
+    assert names[1:] == ["org.fresh/notion-notes", "io.github.someone/notion-helper", "org.none/notion-docs", "org.old/notion-notes"]
     assert [e.metadata["canonical_name"] for e in index.search("")[0]] == ["com.notion/mcp"]  # No alphabetical dump.
     assert [e.metadata["canonical_name"] for e in index.search("noti")[0]][0] == "com.notion/mcp"  # As you type.
     assert index.search("wiki")[0][0].metadata["canonical_name"] == "com.notion/mcp"  # A job or synonym.
@@ -101,16 +101,34 @@ def test_registry_and_curated_listings_of_one_deployment_merge_with_the_vendor_b
     assert typed["verified"] and typed["app"]["verified"] and typed["icon"] == "si:notion"
 
 
-def test_ranking_key_orders_preferred_then_exact_then_setup_then_freshness():
+def test_ranking_key_gates_on_relevance_then_who_stands_behind_it_then_quality():
     def key(**fields):
-        base = dict(exact=False, preferred=False, strong=True, featured_rank=None, setup=0, updated=0, popularity=0,
-                    precedence=0, name="b", ident="b", now=1_000_000_000)
+        base = dict(match=sources.NAME, label="community", featured_rank=None, quality=0.0, setup=0, name="b", ident="b")
         return sources.order(**{**base, **fields})
-    ranked = sorted([key(name="setup1", setup=1), key(name="stale", updated=1), key(name="fresh", updated=999_999_000),
-                     key(name="featured", preferred=True, featured_rank=3), key(name="exact", exact=True),
-                     key(name="popular", popularity=10), key(name="weak", strong=False)])
-    # A community record never outranks a featured or vendor-verified one on its name alone.
-    assert [k[-2] for k in ranked] == ["featured", "exact", "fresh", "popular", "stale", "setup1", "weak"]
+    ranked = sorted([key(name="setup1", setup=1), key(name="good", quality=5.0), key(name="official", label="official"),
+                     key(name="reviewed exact", label="reviewed", match=sources.EXACT), key(name="exact", match=sources.EXACT),
+                     key(name="featured", label="official", featured_rank=3), key(name="described", match=sources.DESCRIPTION),
+                     key(name="described official", label="official", match=sources.DESCRIPTION)])
+    # A community record never outranks a vendor's or a reviewed one on its name alone; nothing found only in a
+    # description outranks a name.
+    # Among community results quality orders before an exact name: a bare copy of a name never leads.
+    assert [k[-2] for k in ranked] == ["reviewed exact", "featured", "official", "good", "exact", "setup1",
+                                       "described official", "described"]
+
+
+def test_quality_weighs_stars_activity_completeness_and_penalties():
+    now = 1_800_000_000
+    plain = sources.merit(stars=0, words=3, licence=False, icon=False, sign_in_known=False, fork=False)
+    complete = sources.merit(stars=0, words=12, licence=True, icon=True, sign_in_known=True, fork=False)
+    assert (plain, complete) == (0, 4)
+    assert round(sources.merit(stars=99, words=0, licence=False, icon=False, sign_in_known=False, fork=False), 6) == 6
+    assert sources.merit(stars=0, words=0, licence=False, icon=False, sign_in_known=False, fork=True) == -3
+
+    def scored(**fields):
+        return sources.quality(0, **{"stars": 0, "pushed": 0, "archived": False, "first": 0, "now": now, **fields})
+    assert scored(pushed=now - 10 * 86400) == 2 and scored(pushed=now - 200 * 86400) == 1 and scored(pushed=now - 900 * 86400) == 0
+    assert scored(pushed=now, archived=True) == -2
+    assert scored(first=now - 5 * 86400) == -2 and scored(first=now - 5 * 86400, stars=3) == 0
 
 
 @pytest.mark.slow

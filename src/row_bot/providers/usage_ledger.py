@@ -44,6 +44,7 @@ PURPOSES: tuple[str, ...] = (
     "verifier",
     "condition",
     "contradiction",
+    "memory_reconcile",
     "approval_review",
     "child",
     "synthesis",
@@ -259,8 +260,16 @@ def _totals(row: Any) -> dict[str, Any]:
     }
 
 
+# The conversation's own requests: its turns, not background calls made for it (titles, memory, compaction).
+_TURN_PURPOSES = ("main", "chat_only")
+
+
 def conversation_usage(thread_id: str) -> dict[str, Any] | None:
-    """Totals for one conversation, or ``None`` before its first recorded call."""
+    """Totals for one conversation, or ``None`` before its first recorded call.
+
+    ``last_cache_read_percent`` is the share of the newest turn request's input read from the
+    provider's cache, ``None`` when that request reported no cache numbers.
+    """
     clean = _clean_text(thread_id)
     path = _existing_ledger()
     if not clean or path is None:
@@ -268,11 +277,18 @@ def conversation_usage(thread_id: str) -> dict[str, Any] | None:
     try:
         with closing(_connect(path)) as connection:
             row = connection.execute(_TOTALS_SELECT + " WHERE thread_id = ?", (clean,)).fetchone()
+            last = connection.execute(
+                "SELECT input_tokens, cache_read_tokens FROM model_usage WHERE thread_id = ? AND purpose IN "
+                f"({', '.join('?' for _ in _TURN_PURPOSES)}) ORDER BY created_at DESC, id DESC LIMIT 1",
+                (clean, *_TURN_PURPOSES),
+            ).fetchone()
     except sqlite3.Error:
         logger.debug("Usage ledger read failed", exc_info=True)
         return None
     totals = _totals(row)
-    return totals if totals["calls"] else None
+    if not totals["calls"]:
+        return None
+    return {**totals, "last_cache_read_percent": _cache_percent(last[1], last[0]) if last else None}
 
 
 def usage_summary(*, since: float | None = None, thread_id: str | None = None) -> dict[str, Any]:

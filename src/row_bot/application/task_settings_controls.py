@@ -30,6 +30,8 @@ class TaskSettingsFields:
     missed_runs: str = "skip"
     # Apps and tools whose actions always wait for the person ("Always ask me").
     always_ask: tuple[str, ...] = ()
+    # When its results go to its channels (G8): "every_run", "needs_me" or "digest".
+    send_results: str = "every_run"
 
     def __post_init__(self) -> None:
         if isinstance(self.always_ask, list):  # As a wire payload carries it.
@@ -85,7 +87,7 @@ def _validate(fields: TaskSettingsFields) -> None:
         raise TaskSettingsError("invalid_task_settings")
     if fields.workspace_id is not None:
         _identity(fields.workspace_id)
-    if fields.missed_runs not in tasks.MISSED_RUN_RULES:
+    if fields.missed_runs not in tasks.MISSED_RUN_RULES or fields.send_results not in tasks.SEND_RESULTS:
         raise TaskSettingsError("invalid_task_settings")
     if (not isinstance(fields.always_ask, tuple) or len(fields.always_ask) > _MAX_ALWAYS_ASK
             or len(set(fields.always_ask)) != len(fields.always_ask)
@@ -106,7 +108,7 @@ def _fields(task: dict) -> TaskSettingsFields:
         task.get("agent_profile_id") or tasks.DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
         tasks.get_task_approval_mode(task),
         task.get("workspace_id") or None, task.get("missed_runs") or "skip",
-        tuple(task.get("always_ask") or ()),
+        tuple(task.get("always_ask") or ()), task.get("send_results") or "every_run",
     )
     _validate(fields)
     return fields
@@ -183,6 +185,8 @@ def _proposed(task: dict, fields: TaskSettingsFields) -> dict:
         values["missed_runs"] = fields.missed_runs
     if fields.always_ask != current.always_ask:
         values["always_ask"] = list(fields.always_ask)
+    if fields.send_results != current.send_results:
+        values["send_results"] = fields.send_results
     return values
 
 

@@ -51,17 +51,6 @@
 .buddy-companion {
   position: relative;
 }
-.buddy-companion .buddy-undock {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  font-size: 0.65rem;
-  opacity: 0;
-}
-.buddy-companion:hover .buddy-undock,
-.buddy-companion .buddy-undock:focus-visible {
-  opacity: 1;
-}
 
 .buddy-companion-state {
   min-height: 118px;

@@ -81,6 +81,26 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertFalse(loaded["enabled"])
         self.assertEqual(loaded["servers"], {})
 
+    def test_a_cold_read_during_a_save_waits_it_out_instead_of_reading_no_apps(self) -> None:
+        """B409: Windows refuses the open while a save replaces the file; the first read is never locked."""
+        cfg = self._reload_config()
+        Path(self._tmp.name, "mcp_servers.json").write_text(
+            '{"enabled": true, "servers": {"notes": {"transport": "stdio", "command": "notes-server"}}}',
+            encoding="utf-8")
+        real_open, refused = open, []
+
+        def busy_once(path, *args, **kwargs):
+            if Path(path) == cfg.CONFIG_PATH and not refused:
+                refused.append(path)
+                raise PermissionError("being replaced")
+            return real_open(path, *args, **kwargs)
+
+        with patch("builtins.open", busy_once), patch.object(cfg.time, "sleep"):
+            loaded = cfg.load_config()
+        self.assertEqual(len(refused), 1)
+        self.assertTrue(loaded["enabled"])
+        self.assertIn("notes", loaded["servers"])
+
     def test_config_save_clears_packaged_agent_cache(self) -> None:
         cfg = self._reload_config()
         clear_cache = Mock()
@@ -783,7 +803,7 @@ class McpClientFoundationTests(unittest.TestCase):
              patch.object(runtime, "discover_enabled_servers") as discover_mock:
             result = _update_setting("tool_toggle", "mcp:on")
 
-        self.assertIn("MCP client and tool 'External MCP Tools' enabled", result)
+        self.assertIn("External MCP Tools is on.", result)
         self.assertTrue(cfg.is_globally_enabled())
         self.assertTrue(tool_registry.is_enabled("mcp"))
         discover_mock.assert_called_once()

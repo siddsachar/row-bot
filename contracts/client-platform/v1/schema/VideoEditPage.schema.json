@@ -112,7 +112,8 @@
               "enum": [
                 "video/mp4",
                 "image/jpeg",
-                "image/png"
+                "image/png",
+                "image/gif"
               ],
               "type": "string"
             },

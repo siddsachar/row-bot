@@ -1,0 +1,548 @@
+/* The Video panel (5.3.1 B3): the player, then the video as scenes, then the review card. */
+.video-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+  background: var(--canvas);
+}
+.video-panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.video-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.video-panel-heading h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--type-size-body);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-panel-versions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.video-panel-versions .select {
+  max-width: 280px;
+}
+.video-player {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.video-player video {
+  display: block;
+  width: 100%;
+  max-height: 52vh;
+  border-radius: var(--radius-card);
+  background: #000;
+}
+.video-player-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-card);
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  background: var(--surface-sunken);
+}
+.video-player-empty progress {
+  width: min(240px, 70%);
+}
+.video-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.video-preview-stage {
+  position: relative;
+  container-type: inline-size;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-card);
+  background: #000;
+}
+.video-preview-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform 300ms ease;
+}
+.video-preview-still {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-4);
+  color: #e5e7eb;
+  font-size: var(--type-size-metadata);
+  text-align: center;
+}
+.video-preview-card,
+.video-preview-caption {
+  position: absolute;
+  left: 50%;
+  max-width: 86%;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-control);
+  color: #fff;
+  text-align: center;
+  transform: translateX(-50%);
+}
+.video-preview-card {
+  top: 50%;
+  font-size: clamp(16px, 4cqw, 28px);
+  font-weight: var(--weight-semibold);
+  background: rgba(17, 24, 39, 0.84);
+  transform: translate(-50%, -50%);
+}
+/* Over a picture the card sits in the lower third on the left, as the made video has it. */
+.video-preview-card[data-over='picture'] {
+  top: 68%;
+  left: 4.5%;
+  text-align: left;
+  transform: translateY(-50%);
+}
+.video-preview-caption {
+  bottom: 6%;
+  font-size: var(--type-size-body);
+  background: rgba(0, 0, 0, 0.7);
+}
+.video-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.video-player-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+.video-panel-problem,
+.video-panel-error {
+  margin: 0;
+  color: var(--status-danger-text);
+  font-size: var(--type-size-metadata);
+}
+.video-scenes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.video-scenes-head h3,
+.video-review h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-semibold);
+}
+.video-captions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-scenes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.video-scene {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.video-scene[data-changed='true'] {
+  border-color: var(--status-info-text);
+  background: var(--status-info-background);
+}
+.video-scene-thumb {
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+  width: 112px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  cursor: pointer;
+}
+.video-scene-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.video-scene-thumb:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.video-scene-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  cursor: default;
+}
+.video-scene-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.video-scene-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.video-scene-meta strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.video-scene-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+}
+.video-scene-line {
+  width: 100%;
+  min-height: 2.5em;
+  resize: vertical;
+  field-sizing: content;
+}
+.video-scene-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.video-scene-controls .select {
+  width: auto;
+}
+.video-scene-card {
+  flex: 1;
+  min-width: 140px;
+}
+.video-scene-actions {
+  display: inline-flex;
+  margin-left: auto;
+}
+.video-scene-seconds,
+.video-scene-trim label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-right: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-scene-seconds input,
+.video-scene-trim input {
+  width: 84px;
+}
+.video-scene-source {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  overflow-wrap: anywhere;
+}
+.video-panel-save {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.video-panel-save span {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.video-review h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.video-review ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.video-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.video-review .video-exports {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.video-export {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 36px;
+}
+.video-export-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--type-size-metadata);
+}
+.video-export-name strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.video-export-name small {
+  color: var(--text-muted);
+}
+.video-scenes-head .video-captions + .video-captions {
+  margin-left: var(--space-3);
+}
+.video-brand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+.video-brand-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* A compact form in the side panel: label and control on one line. */
+.video-brand .field.is-row {
+  grid-template-columns: 112px minmax(0, 1fr);
+  grid-template-areas: 'label control';
+  column-gap: var(--space-3);
+  padding: var(--space-1) 0;
+}
+.video-brand .field.is-row > .field-label {
+  font-size: var(--type-size-metadata);
+}
+.video-brand .field.is-row > .video-brand-colour {
+  justify-self: start;
+}
+.video-brand-colour {
+  width: 48px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.video-brand-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.video-panel-foot {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+
+/* The timeline (desktop): tracks of blocks sized by their length. */
+.video-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.video-timeline-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.video-timeline-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.video-timeline-scroll {
+  overflow-x: auto;
+  padding: var(--space-2) 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.video-timeline-scroll:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.video-timeline-tracks {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 100%;
+  padding-left: 64px;
+}
+.video-track {
+  position: relative;
+  height: 28px;
+}
+.video-track:first-of-type {
+  height: 56px;
+}
+.video-track-name {
+  position: absolute;
+  top: 50%;
+  left: -60px;
+  width: 52px;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.video-block,
+.video-line-block,
+.video-card-block,
+.video-music-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: 26px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 var(--space-1);
+  background: var(--surface-sunken);
+}
+.video-block {
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.video-block[data-selected='true'] {
+  border-color: var(--status-info-text);
+  box-shadow: 0 0 0 1px var(--status-info-text);
+}
+.video-block video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.video-block-label {
+  position: absolute;
+  bottom: 2px;
+  left: 4px;
+  padding: 0 4px;
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  background: var(--surface);
+  line-height: 1.4;
+}
+.video-block-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.video-block-edge[data-edge='start'] {
+  left: 0;
+}
+.video-block-edge[data-edge='end'] {
+  right: 0;
+}
+.video-block-edge:hover {
+  background: var(--status-info-background);
+}
+.video-line-block {
+  background: var(--status-info-background);
+}
+.video-timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 2px;
+  margin-left: 64px;
+  background: var(--status-danger-text);
+  pointer-events: none;
+}
+
+/* On a phone the panel is the whole editor: thumb-sized scenes, one under another. */
+@media (max-width: 767px) {
+  .video-scene {
+    gap: var(--space-2);
+  }
+  .video-scene-thumb {
+    width: 72px;
+  }
+  .video-panel-versions {
+    width: 100%;
+  }
+  .video-panel-versions .select {
+    flex: 1;
+    max-width: none;
+  }
+}

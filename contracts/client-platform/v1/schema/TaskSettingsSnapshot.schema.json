@@ -50,6 +50,16 @@
           ],
           "title": "Model Override"
         },
+        "send_results": {
+          "default": "every_run",
+          "enum": [
+            "every_run",
+            "needs_me",
+            "digest"
+          ],
+          "title": "Send Results",
+          "type": "string"
+        },
         "trigger_task_id": {
           "anyOf": [
             {

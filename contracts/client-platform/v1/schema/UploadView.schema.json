@@ -14,13 +14,13 @@
       "type": "integer"
     },
     "received_bytes": {
-      "maximum": 26214400,
+      "maximum": 209715200,
       "minimum": 0,
       "title": "Received Bytes",
       "type": "integer"
     },
     "size_bytes": {
-      "maximum": 26214400,
+      "maximum": 209715200,
       "minimum": 1,
       "title": "Size Bytes",
       "type": "integer"

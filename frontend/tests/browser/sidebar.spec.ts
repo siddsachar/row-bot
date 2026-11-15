@@ -91,16 +91,15 @@ test('the sidebar leads with New chat, keeps Home in its header and Agents under
   expect(agentsBox.y + agentsBox.height).toBeLessThanOrEqual(
     (await buddy.boundingBox())!.y + 1,
   );
-  // Buddy: a large avatar, its name only in the tooltip, Settings below.
-  const avatar = buddy.getByRole('button', {
-    name: 'Buddy settings',
-    exact: true,
-  });
+  // Buddy: a large avatar with its status beside it, its name in the tooltip
+  // and peek, Settings below.
+  const avatar = buddy.getByRole('button', { name: /^Open / });
   await expect(avatar).toBeVisible();
   const avatarBox = (await avatar.boundingBox())!;
   expect(avatarBox.width).toBeGreaterThanOrEqual(112);
   const name = buddy.locator('.buddy-companion-name');
   expect((await name.boundingBox())!.width).toBeLessThanOrEqual(1);
+  await expect(buddy.getByRole('status')).toBeVisible();
   const settings = nav.getByRole('link', { name: 'Settings', exact: true });
   await settings.scrollIntoViewIfNeeded();
   const buddyBox = (await buddy.boundingBox())!;
@@ -114,7 +113,7 @@ test('the sidebar leads with New chat, keeps Home in its header and Agents under
   );
   if (info.project.use.viewport!.width >= 1024) {
     await avatar.hover();
-    await expect(page.getByRole('tooltip')).toHaveText(
+    await expect(page.getByRole('tooltip')).toContainText(
       (await name.textContent())!,
     );
   }

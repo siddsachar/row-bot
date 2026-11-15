@@ -1,0 +1,97 @@
+{
+  "additionalProperties": false,
+  "description": "The brand kit (5.3.1 B3): the look every video project uses unless a version turns it off.",
+  "properties": {
+    "camera": {
+      "default": "follow",
+      "enum": [
+        "follow",
+        "still"
+      ],
+      "title": "Camera",
+      "type": "string"
+    },
+    "captions": {
+      "enum": [
+        "box",
+        "bold",
+        "title"
+      ],
+      "title": "Captions",
+      "type": "string"
+    },
+    "colour": {
+      "pattern": "^#[0-9a-fA-F]{6}$",
+      "title": "Colour",
+      "type": "string"
+    },
+    "framing": {
+      "default": "framed",
+      "enum": [
+        "framed",
+        "full"
+      ],
+      "title": "Framing",
+      "type": "string"
+    },
+    "intro": {
+      "maxLength": 120,
+      "title": "Intro",
+      "type": "string"
+    },
+    "logo": {
+      "maxLength": 512,
+      "title": "Logo",
+      "type": "string"
+    },
+    "logo_corner": {
+      "enum": [
+        "top-left",
+        "top-right",
+        "bottom-left",
+        "bottom-right"
+      ],
+      "title": "Logo Corner",
+      "type": "string"
+    },
+    "music_mood": {
+      "enum": [
+        "calm",
+        "upbeat",
+        "focused",
+        "warm"
+      ],
+      "title": "Music Mood",
+      "type": "string"
+    },
+    "outro": {
+      "maxLength": 120,
+      "title": "Outro",
+      "type": "string"
+    },
+    "voice": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Voice",
+      "type": "string"
+    },
+    "voice_speed": {
+      "default": 1.0,
+      "maximum": 1.25,
+      "minimum": 0.9,
+      "title": "Voice Speed",
+      "type": "number"
+    }
+  },
+  "required": [
+    "colour",
+    "captions",
+    "logo",
+    "logo_corner",
+    "intro",
+    "outro",
+    "music_mood"
+  ],
+  "title": "VideoBrand",
+  "type": "object"
+}

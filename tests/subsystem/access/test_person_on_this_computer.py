@@ -45,6 +45,17 @@ def test_a_bare_connection_on_this_computer_can_look_but_not_change_anything(tmp
     assert client.get("/api/access/session").json()["may_act"] is False
 
 
+def test_a_bare_window_is_told_it_isnt_signed_in_not_that_it_isnt_allowed(tmp_path) -> None:
+    """The client says "This window isn't signed in, so it can only look", with how to sign in (5.3.1)."""
+    client, _service, _registration = _desktop(tmp_path)
+    client.app.add_api_route("/api/v1/settings/fixture", lambda: {"ok": True}, methods=["POST"])
+
+    refused = client.post("/api/v1/settings/fixture", json={}, headers={"origin": ORIGIN})
+
+    assert refused.status_code == 403
+    assert refused.json()["code"] == "sign_in_required"
+
+
 def test_a_window_signed_in_by_the_launcher_may_act_and_renews_like_a_device(tmp_path) -> None:
     client, service, registration = _desktop(tmp_path)
     session_id = sign_in_this_computer(client, service, registration, origin=ORIGIN)

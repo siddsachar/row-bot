@@ -90,7 +90,7 @@ def test_authentication_rejects_before_service_or_body_work(api, fault):
 
 
 @pytest.mark.parametrize("extra,status,code", [
-    ({"Content-Length": "8388609"}, 413, "payload_too_large"),
+    ({"Content-Length": "33554433"}, 413, "payload_too_large"),
     ({"Content-Length": "-1"}, 422, "invalid_command"),
     ({"Content-Length": "invalid"}, 422, "invalid_command"),
     ({"Content-Type": "text/plain"}, 415, "unsupported_audio_type"),
@@ -113,7 +113,7 @@ def test_header_bounds_fail_before_audio_read(api, extra, status, code):
 def test_actual_bytes_are_bounded_independently_of_declared_length(api):
     capture = start(api)
     response = api.client.post(url(capture), headers=audio_headers(api, capture, **{"Content-Length": "1"}),
-                               content=b"x" * 8388609)
+                               content=b"x" * 33554433)
     assert response.status_code == 413 and not api.runtime.calls
     fresh = start(api)
     assert fresh["handle"]["lease_id"] != capture["handle"]["lease_id"]

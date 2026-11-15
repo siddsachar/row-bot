@@ -2,8 +2,9 @@ name: Nightly
 
 # What pull requests don't run: the whole deterministic suite (slow tests
 # included) on Linux with coverage, on Windows and on macOS; the browser nightly
-# set at desktop and phone width; a Linux package build and install smoke; the
-# docs reference check. Weekly: installer-verify on Windows and macOS, and the
+# set at desktop and phone width; a Linux package build and install smoke. (The
+# docs reference pages are checked when the docs are published, once per
+# release: docs.yml.) Weekly: installer-verify on Windows and macOS, and the
 # browser smoke set on Firefox and WebKit. release.yml calls this workflow for a
 # commit that has no green nightly run yet.
 
@@ -155,26 +156,6 @@ jobs:
       windows: false
       linux: true
       macos: false
-
-  docs-reference:
-    name: Docs reference
-    if: github.event.schedule != '23 5 * * 0'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install Python docs dependencies
-        run: python -m pip install pyyaml pytest pillow
-
-      - name: Generated reference pages match the code
-        run: |
-          python scripts/docs/collect_inventory.py --out docs-build/inventory
-          python scripts/docs/generate_mdx.py --inventory docs-build/inventory --check
 
   installers:
     name: Installers (weekly)

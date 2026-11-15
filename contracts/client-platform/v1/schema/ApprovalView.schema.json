@@ -138,6 +138,49 @@
       "title": "ApprovalSetup",
       "type": "object"
     },
+    "SettingChange": {
+      "additionalProperties": false,
+      "description": "A change to one of Row-Bot's settings, in words: the row's name, where it is, what it was and becomes.",
+      "properties": {
+        "after": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Before",
+          "type": "string"
+        },
+        "href": {
+          "default": "",
+          "maxLength": 200,
+          "pattern": "^(/settings/[A-Za-z0-9/?=&#._:-]{0,189})?$",
+          "title": "Href",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "where": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "after"
+      ],
+      "title": "SettingChange",
+      "type": "object"
+    },
     "TraceAppRef": {
       "additionalProperties": false,
       "description": "An app a Connect card offers, or the app behind a step or approval: its catalog id, name and logo,\nre-read from local data, and for a step the tool's readable title in that app (\"Delete page\").",
@@ -202,6 +245,13 @@
           "title": "Action",
           "type": "string"
         },
+        "limit": {
+          "default": 0,
+          "maximum": 25000,
+          "minimum": 0,
+          "title": "Limit",
+          "type": "integer"
+        },
         "media": {
           "items": {
             "$ref": "#/$defs/XPostMedia"
@@ -214,6 +264,13 @@
           "default": "",
           "maxLength": 80,
           "title": "Name",
+          "type": "string"
+        },
+        "post_at": {
+          "default": "",
+          "maxLength": 16,
+          "pattern": "^(\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d)?$",
+          "title": "Post At",
           "type": "string"
         },
         "target_id": {
@@ -268,16 +325,35 @@
           "title": "Kind",
           "type": "string"
         },
+        "mime": {
+          "default": "",
+          "maxLength": 100,
+          "pattern": "^([a-z]+/[a-z0-9.+-]+)?$",
+          "title": "Mime",
+          "type": "string"
+        },
         "name": {
           "maxLength": 256,
           "minLength": 1,
           "title": "Name",
           "type": "string"
         },
+        "ref": {
+          "default": "",
+          "maxLength": 256,
+          "pattern": "^([A-Za-z0-9_-]+:[0-9a-f-]{36})?$",
+          "title": "Ref",
+          "type": "string"
+        },
         "sha256": {
           "pattern": "^[0-9a-f]{12}$",
           "title": "Sha256",
           "type": "string"
+        },
+        "silent": {
+          "default": false,
+          "title": "Silent",
+          "type": "boolean"
         },
         "size": {
           "minimum": 0,
@@ -442,6 +518,17 @@
       "maxLength": 1024,
       "title": "Scope",
       "type": "string"
+    },
+    "setting_change": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SettingChange"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "setup": {
       "anyOf": [

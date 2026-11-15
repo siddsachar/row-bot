@@ -22,7 +22,7 @@ import secrets
 import threading
 import time
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from row_bot import account_tokens
 
@@ -362,6 +362,40 @@ def graph(method: str, path: str, *, params: dict | None = None, body: Any = Non
         if error.status != 401:
             raise
     return _graph_with(access_token(force=True), method, path, params=params, body=body, headers=headers)
+
+
+# Graph takes an upload session's pieces in multiples of 320 KiB.
+UPLOAD_PIECE = 10 * 320 * 1024
+_UPLOAD_HOSTS = (".office.com", ".office365.com", ".outlook.com")
+
+
+def upload(url: str, path: Any, *, http: Any = None) -> None:
+    """Upload a file to a Graph upload session's own address, in pieces (attachments over 3 MB).
+
+    The address carries its own key, so no token goes with it; only an address on Microsoft's Outlook hosts
+    (or Graph's own) is used.
+    """
+    parts, graph_parts = urlsplit(url), urlsplit(GRAPH)
+    own = (parts.scheme, parts.netloc) == (graph_parts.scheme, graph_parts.netloc)
+    if not own and not (parts.scheme == "https" and (parts.hostname or "").endswith(_UPLOAD_HOSTS)):
+        raise ValueError("upload_url")
+    total = path.stat().st_size
+    owned = http is None
+    http = http or _http()
+    try:
+        with path.open("rb") as file:
+            start = 0
+            while start < total:
+                piece = file.read(UPLOAD_PIECE)
+                end = start + len(piece) - 1
+                response = http.request("PUT", url, content=piece, headers={
+                    "Content-Range": f"bytes {start}-{end}/{total}", "Content-Length": str(len(piece))})
+                if response.status_code >= 400:
+                    raise _graph_error(response)
+                start = end + 1
+    finally:
+        if owned:
+            http.close()
 
 
 def segment(value: str) -> str:

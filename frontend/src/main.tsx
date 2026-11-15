@@ -8,7 +8,7 @@ import { bindDraftSync } from './draft-sync';
 import { reloadAfterUpdate } from './api/stale-build';
 import { keepNativeLease } from './native-lease';
 import { keepAccessSessionRenewed } from './api/access-renewal';
-import { claimLauncherSignIn } from './api/sign-in';
+import { claimLauncherSignIn, forgetSetupCode } from './api/sign-in';
 import { createKnowledgeSessions } from './features/knowledge/knowledge-sessions';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -17,16 +17,24 @@ import { createClientController } from './api';
 import { selectClientPlatform } from './platform';
 import { RuntimeContext } from './runtime';
 import { provideLive } from './live';
+import {
+  noteAppOpen,
+  proactiveIO,
+  provideProactive,
+} from './features/proactive/proactive-state';
 import { bindPageLifecycle } from './page-lifecycle';
 import { PwaStatus } from './pwa';
 import { ThemeProvider } from './ui/theme';
 import { OverlayProvider } from './ui/overlays';
 import { installInputModality } from './ui/input-modality';
 import { setServerTimezone, setServerUtcOffset } from './ui/format';
+import { setPlace } from './api/place';
+import { setMemoryLimit } from './api/server-memory';
 import { EmptyState, ErrorState, Skeleton } from './ui/primitives';
 import Workspace, { panelMetrics } from './features/shell/Workspace';
 import { EditMenu } from './features/shell/EditMenu';
 import DesktopReconnecting from './features/shell/DesktopReconnecting';
+import SignedInNotice from './features/shell/SignedInNotice';
 import { resourcePanelMetrics } from './features/panels/ResourcePanel';
 import { createWorkspaceEditSessions } from './features/panels/workspace-edit-sessions';
 import { createWorkspaceProcessSessions } from './features/panels/workspace-process-sessions';
@@ -144,6 +152,8 @@ class RenderBoundary extends Component<
 }
 async function start() {
   installInputModality();
+  // A setup page's sign-in link opened in a browser already signed in: its code leaves the address (A1).
+  forgetSetupCode();
   // The window or browser the launcher opened signs in before the first handshake (A0).
   await claimLauncherSignIn();
   const query = new URLSearchParams(location.search).get('fixture');
@@ -170,6 +180,9 @@ async function start() {
   await controller.start();
   // Background state reaches the sidebar, Home and Monitor at once (B407).
   provideLive(controller.live);
+  // Proactive: opening the window is a break (the day's first brings the brief).
+  provideProactive(proactiveIO(controller));
+  noteAppOpen(controller);
   let platform = await selectClientPlatform(
     controller,
     controller.getSnapshot().handshake,
@@ -187,6 +200,15 @@ async function start() {
   };
   followServerClock();
   const unfollowServerClock = controller.subscribe(followServerClock);
+  // Where Row-Bot runs, from this browser's side: "this computer" only when it is (U7).
+  // A server with a memory limit says so (H12): Voice and Documents say what fits (U8).
+  const followPlace = () => {
+    const handshake = controller.getSnapshot().handshake;
+    setPlace(handshake?.place);
+    setMemoryLimit(handshake?.memory_limit_bytes);
+  };
+  followPlace();
+  const unfollowPlace = controller.subscribe(followPlace);
   const releaseNativeLease = keepNativeLease(controller, platform);
   // A phone or computer signed in by invitation stays signed in (B137).
   const stopAccessRenewal = keepAccessSessionRenewed();
@@ -345,6 +367,7 @@ async function start() {
               <OpenConversationRequests />
               <EditMenu />
               <DesktopReconnecting platform={platform} />
+              <SignedInNotice />
               <Suspense fallback={<Skeleton label="Opening workspace" />}>
                 <Routes>
                   <Route
@@ -456,6 +479,7 @@ async function start() {
       unpublishBuddyTarget();
       unbindDraftSync();
       unfollowServerClock();
+      unfollowPlace();
       releaseNativeLease();
       stopAccessRenewal();
       controller.dispose();

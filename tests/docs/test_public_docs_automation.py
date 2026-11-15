@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from contextlib import ExitStack
 from html.parser import HTMLParser
@@ -41,7 +42,7 @@ def test_public_docs_inventory_has_core_sections() -> None:
     assert inventory["version"]["version"] != "unknown"
     assert any(tool["id"] == "browser" for tool in inventory["tools"])
     assert any(provider["id"] == "ollama" for provider in inventory["providers"])
-    assert any(tab["title"] == "Providers" for tab in inventory["settings"])
+    assert any(tab["title"] == "Models" for tab in inventory["settings"])
     assert any(tab["title"] == "Workflows" for tab in inventory["home_tabs"])
     assert any(channel["id"] == "telegram" for channel in inventory["channels"])
     assert any(skill["id"] == "task_automation" for skill in inventory["skills"])
@@ -289,6 +290,8 @@ def test_all_published_html_internal_links_resolve() -> None:
                 )
 
 
+@pytest.mark.skipif(os.environ.get("ROW_BOT_DOCS_PUBLISH", "").lower() not in {"1", "true"},
+                    reason="The reference pages are regenerated when the docs are published (scripts/docs/publish.py)")
 def test_generated_mdx_pages_are_current() -> None:
     errors = check_pages(render_pages(build_inventory()))
     assert errors == []
@@ -410,6 +413,23 @@ def test_llms_txt_generation_covers_docs_routes(tmp_path: Path) -> None:
         from scripts.docs.schemas import public_route_for_doc
 
         assert public_route_for_doc(path, docs_root) in llms
+
+
+def test_llms_full_keeps_each_guides_lines_steps_and_separators(tmp_path: Path) -> None:
+    """G31: every page used to be one line, with "Settings › System" read as "Settings System"."""
+    docs_root = tmp_path / "docs"
+    docs_root.mkdir()
+    (docs_root / "system.mdx").write_text(
+        "---\ntitle: System\n---\n\nimport Screenshot from '@site/src/components/Screenshot';\n\n"
+        "<Screenshot id=\"x\" alt=\"System\" />\n\n## Logs\n\n1. Open **Settings › System**.\n"
+        "2. Raise **Log detail**.\n",
+        encoding="utf-8",
+    )
+    generate(docs_root, tmp_path / "out")
+    full = (tmp_path / "out" / "llms-full.txt").read_text(encoding="utf-8")
+
+    assert "## Logs\n\n1. Open **Settings › System**.\n2. Raise **Log detail**." in full
+    assert "Screenshot" not in full
 
 
 
@@ -908,11 +928,13 @@ def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
     ):
         assert phrase in combined
     assert "/docs/settings/buddy" in chat
-    assert "buddy desktop overlay" in readme
+    assert "buddy desktop" in readme
     for obsolete in (
         "enable switches decide whether buddy appears",
         "open and close overlay buttons",
         "toggle buddy visibility or reopen the overlay",
+        "compact always-on-top desktop overlay",
+        "motion clips",
     ):
         assert obsolete not in combined
 
@@ -925,7 +947,7 @@ def test_react_settings_pages_and_home_tabs_have_docs_routes() -> None:
     pages = collect_settings()
     tabs = collect_home_tabs()
 
-    assert {"providers", "tools", "access", "data"} <= {page["id"] for page in pages}
+    assert {"models", "tools", "access", "data"} <= {page["id"] for page in pages}
     assert {"overview", "workflows", "knowledge", "monitor"} <= {tab["id"] for tab in tabs}
     assert all(page["description"] and page["docs_route"].startswith("/docs/") for page in pages)
     assert all(tab["title"] and tab["docs_route"].startswith("/docs/") for tab in tabs)

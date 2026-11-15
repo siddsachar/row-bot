@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from row_bot.developer.change_ledger import ChangeSet
 from row_bot.developer.devcontainer import DevcontainerInfo
@@ -14,6 +14,9 @@ from row_bot.developer.review import ChangedFile, DiffStats
 from row_bot.developer.runtime import CommandSpec
 from row_bot.developer.sandbox_runtime import SandboxPendingChange, SandboxProbe, SandboxStatus
 from row_bot.developer.state import DeveloperTodo, DeveloperWorkspace
+
+if TYPE_CHECKING:
+    from row_bot.developer.project_notes import NoteFile
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,8 @@ class InspectorSnapshot:
     sandbox_probe: SandboxProbe
     sandbox_status: SandboxStatus | None
     sandbox_pending_changes: list[SandboxPendingChange]
+    # The folder's project notes: names, states and sizes; their text never leaves the prompt (B2).
+    project_notes: tuple[NoteFile, ...] = ()
     error: str = ""
     fingerprint: str = ""
 
@@ -296,6 +301,8 @@ def _fingerprint_snapshot(snapshot: InspectorSnapshot) -> str:
             }
             for item in snapshot.sandbox_pending_changes
         ],
+        "project_notes": [(item.path, item.state, item.characters, item.used_characters)
+                          for item in snapshot.project_notes],
         "error": snapshot.error,
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
@@ -320,7 +327,10 @@ def _inspector_change_sets(workspace_id: str, thread_id: str | None) -> list[Cha
 
 
 def _collect_snapshot_sync(workspace_id: str, thread_id: str | None) -> InspectorSnapshot:
+    from pathlib import Path
+
     from row_bot.developer.devcontainer import detect_devcontainer
+    from row_bot.developer.project_notes import read_project_notes
     from row_bot.developer.review import list_changed_files
     from row_bot.developer.runtime import detect_project_commands
     from row_bot.developer.sandbox_runtime import SandboxStatus, detect_container_runtime, get_docker_sandbox_status, list_pending_changes
@@ -408,5 +418,6 @@ def _collect_snapshot_sync(workspace_id: str, thread_id: str | None) -> Inspecto
         sandbox_probe=sandbox_probe,
         sandbox_status=sandbox_status,
         sandbox_pending_changes=sandbox_pending_changes,
+        project_notes=read_project_notes(Path(workspace.path)).files,
         error=error,
     )

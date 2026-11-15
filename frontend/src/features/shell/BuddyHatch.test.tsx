@@ -18,11 +18,11 @@ const result: HatchResult = {
   command_id: 'command-one',
   job_id: 'job-one',
   status: 'running',
-  stage: 'motion_provider_started',
+  stage: 'expression_provider_started',
   pack_id: null,
   selected: false,
-  completed_clips: 2,
-  total_clips: 6,
+  completed_clips: 3,
+  total_clips: 7,
   code: '',
   retained_copy: true,
   has_still: true,
@@ -48,10 +48,10 @@ function props(): BuddyHatchProps {
       review_id: 'review-one',
       action: request.action,
       config_revision: request.config_revision,
-      image_model: request.action === 'full' ? 'openai/image' : null,
-      video_model: ['full', 'motion'].includes(request.action)
-        ? 'xai/video'
+      image_model: ['full', 'motion'].includes(request.action)
+        ? 'openai/image'
         : null,
+      video_model: null,
       provider_calls:
         request.action === 'full' ? 7 : request.action === 'motion' ? 6 : 0,
     })),
@@ -72,7 +72,7 @@ function generateNew() {
     screen.getByRole('textbox', { name: 'Describe your Buddy' }),
     { target: { value: 'Synthetic Buddy' } },
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Generate full Buddy' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Hatch Buddy' }));
 }
 
 describe('Buddy Hatch explicit controls', () => {
@@ -91,12 +91,9 @@ describe('Buddy Hatch explicit controls', () => {
     const input = props();
     render(<BuddyHatch {...input} />);
 
-    expect(
-      screen.getByRole('button', { name: 'Generate full Buddy' }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole('button', { name: 'Generate motion' }),
-    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Hatch Buddy' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Bring to life' })).toBeVisible();
+    expect(screen.getByRole('radio', { name: 'Pick for me' })).toBeChecked();
     expect(input.review).not.toHaveBeenCalled();
     expect(input.confirm).not.toHaveBeenCalled();
   });
@@ -112,8 +109,50 @@ describe('Buddy Hatch explicit controls', () => {
         prompt: expect.stringContaining('User style notes: Warm and luminous'),
       }),
     );
-    await screen.findByText('2 of 6 motion clips retained.');
+    await screen.findByText('Painting expressions · 3 of 6');
     expect(input.confirm).toHaveBeenCalledExactlyOnceWith('review-one');
+    expect(input.review).toHaveBeenCalledWith(
+      expect.not.objectContaining({ family: expect.anything() }),
+    );
+  });
+  it('sends a chosen body family with a new Buddy, and only with a new Buddy', async () => {
+    const input = props();
+    render(<BuddyHatch {...input} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Winged' }));
+    generateNew();
+    await waitFor(() => expect(input.confirm).toHaveBeenCalledOnce());
+    expect(input.review).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: 'full', family: 'winged' }),
+    );
+  });
+  it('offers Bring to life only for a generated look without painted expressions', () => {
+    const input = props();
+    const view = render(<BuddyHatch {...input} />);
+    expect(screen.getByRole('button', { name: 'Bring to life' })).toBeVisible();
+    view.rerender(
+      <BuddyHatch
+        {...input}
+        selectedPack={{
+          ...input.selectedPack!,
+          assets: [
+            { id: 'art', content_type: 'image/png' },
+            { id: 'patches', content_type: 'image/png' },
+          ],
+        }}
+      />,
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Bring to life' }),
+    ).not.toBeInTheDocument();
+    view.rerender(
+      <BuddyHatch
+        {...input}
+        selectedPack={{ ...input.selectedPack!, generated: false }}
+      />,
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Bring to life' }),
+    ).not.toBeInTheDocument();
   });
   it('drops a late review when configuration changes before generation', async () => {
     const input = props();
@@ -129,7 +168,7 @@ describe('Buddy Hatch explicit controls', () => {
         config_revision: 'revision-one',
         provider_calls: 7,
         image_model: 'openai/image',
-        video_model: 'xai/video',
+        video_model: null,
       }),
     );
     expect(input.confirm).not.toHaveBeenCalled();
@@ -149,11 +188,11 @@ describe('Buddy Hatch explicit controls', () => {
       />,
     );
     expect(
-      screen.getByRole('button', { name: 'Generate motion' }),
+      screen.getByRole('button', { name: 'Bring to life' }),
     ).toBeDisabled();
     await act(async () => pending.resolve(result));
     expect(
-      screen.queryByText('2 of 6 motion clips retained.'),
+      screen.queryByText('Painting expressions · 3 of 6'),
     ).not.toBeInTheDocument();
     expect(input.confirm).toHaveBeenCalledTimes(1);
   });
@@ -162,7 +201,7 @@ describe('Buddy Hatch explicit controls', () => {
     const pending = deferred<HatchReview>();
     input.review = vi.fn(() => pending.promise);
     const view = render(<BuddyHatch {...input} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Generate motion' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bring to life' }));
     view.rerender(<BuddyHatch {...input} configRevision={null} />);
     await act(async () =>
       pending.resolve({
@@ -170,8 +209,8 @@ describe('Buddy Hatch explicit controls', () => {
         action: 'motion',
         config_revision: 'revision-one',
         provider_calls: 6,
-        image_model: null,
-        video_model: 'xai/video',
+        image_model: 'openai/image',
+        video_model: null,
       }),
     );
     expect(
@@ -189,7 +228,9 @@ describe('Buddy Hatch explicit controls', () => {
     await act(async () => {});
     expect(input.refresh).toHaveBeenCalledExactlyOnceWith('command-one');
     expect(input.confirm).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Use retained still' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Use the painting as it is' }),
+    );
     await waitFor(() => expect(input.confirm).toHaveBeenCalledOnce());
     expect(input.review).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -206,7 +247,7 @@ describe('Buddy Hatch explicit controls', () => {
     await screen.findByText(/Stop requested/);
     expect(input.cancel).toHaveBeenCalledExactlyOnceWith('job-one');
     expect(
-      screen.getByText('2 of 6 motion clips retained.'),
+      screen.getByText('Painting expressions · 3 of 6'),
     ).toBeInTheDocument();
   });
   it('consumes failed generation and requires a fresh explicit action', async () => {

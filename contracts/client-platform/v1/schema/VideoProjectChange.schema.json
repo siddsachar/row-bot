@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "VideoSceneWrite": {
+      "additionalProperties": false,
+      "description": "A scene as the Video panel writes it (an empty id is a new scene).",
+      "properties": {
+        "card": {
+          "default": "",
+          "maxLength": 120,
+          "title": "Card",
+          "type": "string"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "line": {
+          "default": "",
+          "maxLength": 300,
+          "title": "Line",
+          "type": "string"
+        },
+        "scene_id": {
+          "default": "",
+          "maxLength": 16,
+          "pattern": "^(s[0-9a-f]{6})?$",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Source",
+          "type": "string"
+        },
+        "speed": {
+          "default": 1,
+          "maximum": 4,
+          "minimum": 0.25,
+          "title": "Speed",
+          "type": "number"
+        },
+        "start": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "zoom": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Zoom"
+        }
+      },
+      "title": "VideoSceneWrite",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The person's change in the Video panel, made on version ``base``: a new version, then its video.",
+  "properties": {
+    "base": {
+      "minimum": 1,
+      "title": "Base",
+      "type": "integer"
+    },
+    "brand": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Brand"
+    },
+    "captions": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Captions"
+    },
+    "music_volume": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Music Volume"
+    },
+    "note": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Note",
+      "type": "string"
+    },
+    "scenes": {
+      "items": {
+        "$ref": "#/$defs/VideoSceneWrite"
+      },
+      "maxItems": 60,
+      "minItems": 1,
+      "title": "Scenes",
+      "type": "array"
+    },
+    "title": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Title",
+      "type": "string"
+    },
+    "voice": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Voice"
+    }
+  },
+  "required": [
+    "base",
+    "scenes"
+  ],
+  "title": "VideoProjectChange",
+  "type": "object"
+}

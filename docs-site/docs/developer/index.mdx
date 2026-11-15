@@ -47,6 +47,17 @@ The conversation's details card lists the folder under **Working on**. Its **⋯
 
 The Agents tool can also assign a child directly to an existing local folder. Row-Bot validates the path and registers it as that child's code folder; a folder assignment and a pre-existing workspace ID are alternative ways to select the workspace, not settings to combine.
 
+## Project Notes
+
+Many repositories keep instructions for coding agents: how to build, test and style the code. When a conversation works in a code folder, Row-Bot reads them from the folder's top level: `AGENTS.md`, `CLAUDE.md`, `.cursorrules` and `.github/copilot-instructions.md`.
+
+- Together they are kept to 8,000 characters (2,000 on a small local model). A longer file is cut, and Row-Bot is told where to read the rest.
+- Row-Bot treats them as the folder authors' notes, not your instructions. They can't change approvals, grant permissions, or ask it to send or reveal anything, and your own messages come first.
+- A file is left out when it seems to give the agent new instructions, looks like it holds a password or key, links outside the folder, is over 64 KB, or isn't plain text.
+- Under **Working on**, the folder shows **Project notes** with the files in use. The **ⓘ** button lists each file, whether it is used and why one was left out, and opens it in **Files**.
+
+Nothing is read from folders above the one you chose, and `CLAUDE.md` imports (`@file`) are not followed. To stop Row-Bot reading a file, rename or remove it; an edit applies from your next message.
+
 ## The Developer Panel
 
 - **Changes** lists changed files with their diffs (unified or split), and the agent's own change sets, each marked reviewed or not reviewed, with **Undo** or **Ask Row-Bot to undo** in its **⋯** menu. **Earlier agent changes** open their saved diffs.
@@ -89,6 +100,8 @@ The Docker sandbox's network is **off** by default: commands there can't reach t
 - It turns the network on **for the install only**: the install runs in a separate, short-lived container of the sandbox's image, on the sandbox's copy of the folder. The sandbox's own network setting never changes. When the install finishes, fails or you press **Stop**, the install container is removed and the network is off again; the card says **Network off again** and **Details** records when it was on.
 - Python packages go into the sandbox's copy only (`.row-bot-sandbox`), Node packages into its `node_modules`; neither is copied to your real folder.
 - Row-Bot can prepare the sandbox itself when a test run fails this way. It asks by the conversation's **Approvals**, like any install: **Ask** asks, **Auto**'s reviewer may approve it when you clearly asked for the tests, **Hands-off** runs it, **Block** refuses.
+
+When the sandbox network is **Ask** or **On**, and during Prepare sandbox's install, the sandbox reaches the **public internet only**. It sits on a private Docker network with no way out except Row-Bot's network gate, a small proxy container beside it. The gate refuses this computer (`host.docker.internal`, `localhost` and Docker's own addresses, so a local Ollama or Row-Bot itself), your local network and cloud metadata addresses, and connects only to the address it checked. `pip`, `npm`, `curl`, `git` over HTTPS, Python's own downloads and Node 24's `fetch` use it through the standard `HTTP_PROXY` and `HTTPS_PROXY` settings. A program that ignores them can't connect, and neither can SSH, raw TCP, or UDP such as DNS lookups of its own. Git remotes over SSH (`git@github.com:…`) don't work in a networked sandbox: use the HTTPS remote (`https://github.com/…`) there. The gate runs from the default sandbox image when it is on this computer, otherwise from the folder's own image, which then needs `python3`.
 
 **Safety boundaries** in the Developer panel says whether the sandbox network is on and what Prepare sandbox does.
 

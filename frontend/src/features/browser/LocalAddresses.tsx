@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Laptop } from 'lucide-react';
 import type { LocalAddressGrantView, LocalAddressPage } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { parseTimestamp } from '../../ui/format';
 import {
   Button,
@@ -56,6 +57,7 @@ export function LocalAddresses({
   load,
   remove,
 }: LocalAddressesProps) {
+  const place = usePlace();
   const [items, setItems] = useState<LocalAddressGrantView[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [removing, setRemoving] = useState('');
@@ -130,8 +132,8 @@ export function LocalAddresses({
         </div>
       ) : !items?.length ? (
         <InlineEmpty icon={<Laptop size={16} />}>
-          No addresses on this computer are open to Row-Bot&apos;s browser in
-          this chat. It asks before opening one, like localhost:5173.
+          No addresses {place.on} are open to Row-Bot&apos;s browser in this
+          chat. It asks before opening one, like localhost:5173.
         </InlineEmpty>
       ) : (
         <>

@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "ref": {
+      "maxLength": 300,
+      "minLength": 3,
+      "title": "Ref",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "maxLength": 40,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Tags",
+      "type": "array"
+    }
+  },
+  "required": [
+    "ref",
+    "tags"
+  ],
+  "title": "MediaTags",
+  "type": "object"
+}

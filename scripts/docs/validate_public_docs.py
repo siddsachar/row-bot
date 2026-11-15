@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -169,6 +170,10 @@ def _validate_required_files(errors: list[str]) -> None:
 
 
 def _validate_generated_pages(errors: list[str]) -> None:
+    # The generated reference pages are refreshed when docs are published (scripts/docs/publish.py, at a
+    # release), not in each pull request, so only a publish checks they're current.
+    if os.environ.get("ROW_BOT_DOCS_PUBLISH", "").lower() not in {"1", "true"}:
+        return
     try:
         inventory = build_inventory()
     except (OSError, ValueError) as exc:

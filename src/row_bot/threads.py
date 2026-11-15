@@ -153,10 +153,17 @@ def _use_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.05)
 
 
+# The databases whose schema this process has set up (I29): every chat read ran the set-up, with its
+# migration UPDATE, so reading needed the write lock and failed while maintenance held it.
+_initialised_dbs: set[str] = set()
+
+
 def _init_thread_db(*, raise_on_error: bool = False):
     """Create and migrate the thread metadata table."""
     try:
-        with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        # Waits for a writer as every other open here does: with the default 5 s, a start beside a long write
+        # failed 47 times ("database is locked", R13).
+        with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
             _use_wal(conn)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS thread_meta "
@@ -191,6 +198,7 @@ def _init_thread_db(*, raise_on_error: bool = False):
                 "ON thread_events(thread_id, id)"
             )
             conn.commit()
+        _initialised_dbs.add(str(DB_PATH))
         logger.debug("Thread database initialised at %s", DB_PATH)
     except Exception:
         logger.error("Failed to initialise thread database at %s", DB_PATH, exc_info=True)
@@ -199,6 +207,9 @@ def _init_thread_db(*, raise_on_error: bool = False):
 
 
 def _ensure_thread_db() -> None:
+    """Set up the schema once per database a process opens; again only if the file is gone."""
+    if str(DB_PATH) in _initialised_dbs and pathlib.Path(DB_PATH).exists():
+        return
     _init_thread_db(raise_on_error=True)
 
 def _list_threads(*, include_details: bool = False):
@@ -224,9 +235,16 @@ def _list_threads(*, include_details: bool = False):
     return rows
 
 
+_PRUNE_BATCH = 50
+# Every checkpoint holds the chat's whole history, and a workflow chat saves one per step: the owner's
+# 883-message chat wrote 34 MB a step and threads.db reached 18.9 GB while the tidy-up waited (I32). Chats
+# resume and read from the newest, so each save drops all but these few.
+CHECKPOINTS_KEPT = 3
+
+
 def cleanup_old_checkpoints(
     *,
-    keep_per_thread: int = 10,
+    keep_per_thread: int = CHECKPOINTS_KEPT,
     min_age_minutes: int = 30,
 ) -> dict[str, int]:
     """Prune redundant LangGraph checkpoints while preserving latest state."""
@@ -263,20 +281,21 @@ def cleanup_old_checkpoints(
             delete_rows.append(int(rowid))
             delete_keys.append((str(thread_id), str(checkpoint_ns or ""), str(checkpoint_id)))
             touched_threads.add(str(thread_id))
-        if delete_rows:
+        # In small batches, each its own transaction, so a chat's own write waits a moment at most (I29).
+        for start in range(0, len(delete_rows), _PRUNE_BATCH):
             cleanup_conn.executemany(
                 "DELETE FROM checkpoints WHERE rowid = ?",
-                [(rowid,) for rowid in delete_rows],
+                [(rowid,) for rowid in delete_rows[start:start + _PRUNE_BATCH]],
             )
-            stats["checkpoints"] = len(delete_rows)
-        if delete_keys and "writes" in tables:
-            before = cleanup_conn.total_changes
-            cleanup_conn.executemany(
-                "DELETE FROM writes WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
-                delete_keys,
-            )
-            stats["writes"] = max(0, cleanup_conn.total_changes - before)
-        cleanup_conn.commit()
+            if "writes" in tables:
+                before = cleanup_conn.total_changes
+                cleanup_conn.executemany(
+                    "DELETE FROM writes WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+                    delete_keys[start:start + _PRUNE_BATCH],
+                )
+                stats["writes"] += max(0, cleanup_conn.total_changes - before)
+            cleanup_conn.commit()
+        stats["checkpoints"] = len(delete_rows)
         stats["threads"] = len(touched_threads)
         try:
             cleanup_conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
@@ -548,6 +567,11 @@ def create_thread(
             "SELECT 1 FROM thread_meta WHERE thread_id = ?",
             (tid,),
         ).fetchone() is not None
+        if not safe_approval and not existed:
+            # A new conversation starts at the level the person chose last (Auto until then).
+            from row_bot.full_autonomy import new_level
+
+            safe_approval = new_level()
         conn.execute(
             "INSERT INTO thread_meta ("
             "thread_id, name, created_at, updated_at, model_override, project_id, "
@@ -581,6 +605,16 @@ def create_thread(
                 1 if incognito else 0,
             ),
         )
+        if not existed:
+            # A new conversation starts on the Thinking choice the person last made for each model.
+            from row_bot.providers.reasoning import remembered_reasoning_choices
+
+            remembered = remembered_reasoning_choices()
+            if remembered:
+                conn.execute(
+                    "UPDATE thread_meta SET reasoning_selections_json = ? WHERE thread_id = ?",
+                    (json.dumps(remembered, sort_keys=True, separators=(",", ":")), tid),
+                )
         conn.commit()
     if (
         seed_default_skills
@@ -1141,6 +1175,15 @@ def _get_thread_model_override(thread_id: str) -> str:
     return row[0] if row else ""
 
 
+@_publishes_live("conversations")
+def _set_thread_name(thread_id: str, name: str) -> None:
+    """Rename a thread without moving it up the list: only something the chat shows does that."""
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        conn.execute("UPDATE thread_meta SET name = ? WHERE thread_id = ?",
+                     (_normalize_thread_name(name, fallback="Untitled"), thread_id))
+
+
 def _set_thread_model_override(thread_id: str, model_name: str) -> None:
     """Set or clear the model override for a thread."""
     _ensure_thread_db()
@@ -1222,8 +1265,8 @@ def set_thread_reasoning_selection(
             else:
                 payload[model_key] = validated.to_json()
         conn.execute(
-            "UPDATE thread_meta SET reasoning_selections_json = ?, updated_at = ? WHERE thread_id = ?",
-            (json.dumps(payload, sort_keys=True, separators=(",", ":")), datetime.now().isoformat(), thread_id),
+            "UPDATE thread_meta SET reasoning_selections_json = ? WHERE thread_id = ?",
+            (json.dumps(payload, sort_keys=True, separators=(",", ":")), thread_id),
         )
         conn.commit()
 
@@ -1302,8 +1345,8 @@ def set_thread_app(thread_id: str, item_id: str, on: bool) -> int:
         except (json.JSONDecodeError, TypeError):
             off = []
         off = [item for item in off if item != item_id] + ([] if on else [item_id])
-        conn.execute("UPDATE thread_meta SET apps_off_json = ?, updated_at = ?, client_revision = client_revision + 1 "
-                     "WHERE thread_id = ?", (json.dumps(off[-256:]), datetime.now().isoformat(), thread_id))
+        conn.execute("UPDATE thread_meta SET apps_off_json = ?, client_revision = client_revision + 1 "
+                     "WHERE thread_id = ?", (json.dumps(off[-256:]), thread_id))
         return int(row[1] or 0) + 1
 
 
@@ -1315,9 +1358,9 @@ def set_thread_skills_override(thread_id: str, skill_names: list[str] | None) ->
     with sqlite3.connect(DB_PATH, timeout=30) as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
-            "UPDATE thread_meta SET skills_override = ?, updated_at = ?, "
+            "UPDATE thread_meta SET skills_override = ?, "
             "client_revision = client_revision + 1 WHERE thread_id = ?",
-            (value, datetime.now().isoformat(), thread_id),
+            (value, thread_id),
         )
         conn.commit()
 
@@ -1330,9 +1373,8 @@ def bump_thread_client_revision(thread_id: str) -> int:
     with sqlite3.connect(DB_PATH, timeout=30) as conn:
         conn.execute("BEGIN IMMEDIATE")
         result = conn.execute(
-            "UPDATE thread_meta SET updated_at = ?, client_revision = client_revision + 1 "
-            "WHERE thread_id = ?",
-            (datetime.now().isoformat(), thread_id),
+            "UPDATE thread_meta SET client_revision = client_revision + 1 WHERE thread_id = ?",
+            (thread_id,),
         )
         if result.rowcount != 1:
             raise ValueError("conversation_missing")
@@ -1963,7 +2005,30 @@ class _DeletionAwareSqliteSaver(SqliteSaver):
         with checkpoint_mutation(thread_id):
             if _thread_write_blocked(thread_id):
                 return config
-            return super().put(config, checkpoint, metadata, new_versions)
+            written = super().put(config, checkpoint, metadata, new_versions)
+            self._drop_superseded(written)
+            return written
+
+    def _drop_superseded(self, config) -> None:
+        """Delete this chat's oldest checkpoints (and their writes) beyond the newest few (I32).
+
+        Two at most per save: one save adds one, so the count holds, and a backlog from before
+        (hundreds of 34 MB rows) shrinks a step at a time instead of holding the write lock (I29)."""
+        configurable = config.get("configurable", {})
+        key = (str(configurable.get("thread_id") or ""), str(configurable.get("checkpoint_ns") or ""))
+        with self.cursor() as cur:
+            superseded = [(*key, row[0]) for row in cur.execute(
+                "SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? AND checkpoint_ns = ? "
+                "AND checkpoint_id < (SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? "
+                "AND checkpoint_ns = ? ORDER BY checkpoint_id DESC LIMIT 1 OFFSET ?) "
+                "ORDER BY checkpoint_id LIMIT 2",
+                (*key, *key, CHECKPOINTS_KEPT - 1),
+            ).fetchall()]
+            for table in ("checkpoints", "writes"):
+                cur.executemany(
+                    f"DELETE FROM {table} WHERE thread_id = ? AND checkpoint_ns = ? AND checkpoint_id = ?",
+                    superseded,
+                )
 
     def put_writes(self, config, writes, task_id, task_path="") -> None:
         if _thread_write_blocked(_checkpoint_config_thread_id(config)):
@@ -2273,9 +2338,18 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
     for message in saved.checkpoint.get("channel_values", {}).get("messages", []) or []:
         if getattr(message, "id", None) == message_id and getattr(message, "type", "") == "human":
             extra = getattr(message, "additional_kwargs", None) or {}
-            return {key: copy.deepcopy(extra[key])
+            kept = {key: copy.deepcopy(extra[key])
                     for key in ("platform_public_content", "platform_attachments", "platform_note")
                     if key in extra}
+            # A message from another conversation keeps where it came from (5.3.1 C); a run's line, the
+            # messages other conversations left for that run.
+            ui = extra.get("row_bot_ui")
+            if isinstance(ui, dict):
+                kept_ui = {key: copy.deepcopy(ui[key]) for key in ("linked_from", "held")
+                           if isinstance(ui.get(key), (dict, list))}
+                if kept_ui:
+                    kept["row_bot_ui"] = kept_ui
+            return kept
     return {}
 
 

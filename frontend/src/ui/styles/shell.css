@@ -521,6 +521,9 @@
 .nav-conversation-item[data-activity='attention'] svg[role='img'] {
   color: var(--status-warning-text);
 }
+.nav-waiting {
+  color: var(--text-secondary);
+}
 
 /* Pin and ⋯ appear over the date on hover and keyboard focus. */
 .nav-conversation-actions {
@@ -630,19 +633,17 @@
   background: var(--canvas);
 }
 
-/* Buddy in the footer: an avatar with an activity ring and its status; the
-   name is the avatar's tooltip. The ring is quiet at rest, turns while
-   Buddy works, and takes the approval, error and done tones. The collapsed
-   rail keeps a small avatar. */
+/* Buddy in the footer: the living character and its status; the name is
+   its tooltip. A small dot by its feet takes the working, approval and error
+   tones. The collapsed rail keeps a small Buddy. */
 .navigation,
 .navigation-rail {
   --nav-buddy-size: 112px;
-  --nav-buddy-ring-width: 2.5px;
-  --nav-buddy-ring: color-mix(in srgb, var(--accent-solid) 42%, transparent);
+  --nav-buddy-dot-size: 10px;
 }
 .navigation-rail {
   --nav-buddy-size: 30px;
-  --nav-buddy-ring-width: 2px;
+  --nav-buddy-dot-size: 7px;
 }
 /* A short sidebar keeps its room for the list: the avatar shrinks. Rows
    scrolled or focused into view stay clear of the sticky footer. */
@@ -669,9 +670,9 @@
 }
 .navigation .buddy-companion,
 .navigation-rail .buddy-companion {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-items: start;
   gap: 10px;
   flex: 1 1 auto;
   min-width: 0;
@@ -683,30 +684,22 @@
   box-shadow: none;
   transition: background-color var(--motion-popover) var(--ease-out);
 }
-/* The sidebar: the avatar spans the block; status, then Undock, beside it. */
-.navigation .buddy-companion {
+/* The sidebar card: the avatar, then its name and what it is doing, centred
+   beside it; Pop out and Settings at the right edge on hover. */
+.navigation .buddy-companion.buddy-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: 1fr auto auto 1fr;
   align-items: center;
   justify-items: start;
   column-gap: 14px;
-  row-gap: 4px;
   padding: 6px 4px 4px;
 }
-.navigation .buddy-companion > :first-child {
-  grid-row: 1 / -1;
+.navigation .buddy-card > :nth-child(n + 4) {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
-.navigation .buddy-companion > :nth-child(2) {
-  grid-row: 2;
-  grid-column: 2;
-}
-.navigation .buddy-companion > :nth-child(3) {
-  grid-row: 3;
-  grid-column: 2;
-}
-.navigation .buddy-companion > .button[aria-label='Buddy settings'],
-.navigation-rail .buddy-companion > .button[aria-label='Buddy settings'] {
+.navigation .buddy-avatar-button,
+.navigation-rail .buddy-avatar-button {
   position: relative;
   flex: none;
   display: grid;
@@ -718,79 +711,82 @@
   min-height: calc(var(--nav-buddy-size) + 8px);
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-card);
   background: transparent;
 }
-/* The ring: a hairline gap, then the activity colour. */
-.navigation .buddy-companion > .button[aria-label='Buddy settings']::before,
-.navigation-rail
-  .buddy-companion
-  > .button[aria-label='Buddy settings']::before {
+/* What Buddy is busy with, at a glance: a small dot by its feet. Its pose says the rest. */
+.navigation .buddy-avatar-button::before,
+.navigation-rail .buddy-avatar-button::before {
   position: absolute;
-  inset: 0;
-  z-index: 0;
+  right: 12%;
+  bottom: 10%;
+  z-index: 2;
+  width: var(--nav-buddy-dot-size);
+  height: var(--nav-buddy-dot-size);
   content: '';
   border-radius: 50%;
-  background: var(--nav-buddy-ring);
-  -webkit-mask: radial-gradient(
-    farthest-side,
-    transparent calc(100% - var(--nav-buddy-ring-width)),
-    #000 calc(100% - var(--nav-buddy-ring-width) + 0.5px)
-  );
-  mask: radial-gradient(
-    farthest-side,
-    transparent calc(100% - var(--nav-buddy-ring-width)),
-    #000 calc(100% - var(--nav-buddy-ring-width) + 0.5px)
-  );
+  background: var(--nav-buddy-dot);
+  box-shadow: 0 0 0 2px var(--canvas);
+  opacity: 0;
   pointer-events: none;
+  transition:
+    opacity var(--motion-popover) var(--ease-out),
+    background-color var(--motion-popover) var(--ease-out);
 }
-.buddy-companion
-  > .button:has(
+.buddy-avatar-button:has(
+  .buddy-avatar-frame:is(
+    [data-state='thinking'],
+    [data-state='streaming'],
+    [data-state='tool']
+  )
+) {
+  --nav-buddy-dot: var(--accent-solid);
+}
+.buddy-avatar-button:has(
+  .buddy-avatar-frame:is([data-state='approval'], [data-state='stopping'])
+) {
+  --nav-buddy-dot: var(--status-warning-text);
+}
+.buddy-avatar-button:has(
+  .buddy-avatar-frame:is([data-state='error'], [data-state='disconnected'])
+) {
+  --nav-buddy-dot: var(--status-danger-text);
+}
+.buddy-avatar-button:has(
     .buddy-avatar-frame:is(
       [data-state='thinking'],
       [data-state='streaming'],
-      [data-state='tool']
+      [data-state='tool'],
+      [data-state='approval'],
+      [data-state='stopping'],
+      [data-state='error'],
+      [data-state='disconnected']
     )
-  ) {
-  --nav-buddy-ring: conic-gradient(
-    from 0deg,
-    var(--accent-solid),
-    color-mix(in srgb, var(--accent-solid) 10%, transparent) 70%,
-    var(--accent-solid)
-  );
+  )::before {
+  opacity: 1;
 }
-.buddy-companion
-  > .button:has(
+.buddy-avatar-button:has(
     .buddy-avatar-frame:is(
       [data-state='thinking'],
       [data-state='streaming'],
       [data-state='tool']
     )
   )::before {
-  animation: nav-buddy-turn 1.6s linear infinite;
+  animation: nav-buddy-pulse 1.6s ease-in-out infinite;
 }
-.buddy-companion
-  > .button:has(
-    .buddy-avatar-frame:is([data-state='approval'], [data-state='stopping'])
-  ) {
-  --nav-buddy-ring: var(--status-warning-text);
-}
-.buddy-companion
-  > .button:has(
-    .buddy-avatar-frame:is([data-state='error'], [data-state='disconnected'])
-  ) {
-  --nav-buddy-ring: var(--status-danger-text);
-}
-.buddy-companion > .button:has(.buddy-avatar-frame[data-state='completed']) {
-  --nav-buddy-ring: var(--status-success-text);
-}
-@keyframes nav-buddy-turn {
-  to {
-    transform: rotate(360deg);
+@keyframes nav-buddy-pulse {
+  50% {
+    opacity: 0.45;
   }
 }
-.navigation .buddy-companion > .button[aria-label='Buddy settings']:hover {
-  --nav-buddy-ring: color-mix(in srgb, var(--accent-solid) 75%, transparent);
+@media (prefers-reduced-motion: reduce) {
+  .buddy-avatar-button::before {
+    animation: none !important;
+  }
+}
+.navigation .buddy-avatar-button:hover,
+.navigation .buddy-avatar-button[data-state='open'] {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 .navigation .buddy-drag-handle,
 .navigation-rail .buddy-drag-handle {
@@ -803,15 +799,6 @@
 .navigation-rail .buddy-avatar-frame {
   width: var(--nav-buddy-size);
   height: var(--nav-buddy-size);
-  border: 0;
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--text-primary) 8%, transparent);
-}
-.navigation .buddy-avatar-frame::before,
-.navigation-rail .buddy-avatar-frame::before,
-.navigation .buddy-avatar-frame::after,
-.navigation-rail .buddy-avatar-frame::after {
-  display: none;
 }
 .navigation .buddy-avatar,
 .navigation-rail .buddy-avatar,
@@ -827,7 +814,7 @@
 }
 .buddy-companion-text {
   display: grid;
-  gap: 1px;
+  gap: 3px;
   min-width: 0;
   line-height: 1.25;
 }
@@ -840,38 +827,78 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The sidebar shows no name: it is the avatar's tooltip, and stays here for
-   screen readers (B225). */
-.navigation .buddy-companion-name {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+.navigation .buddy-card .buddy-companion-text {
+  justify-self: stretch;
+  justify-items: start;
+  text-align: start;
 }
-.navigation .buddy-companion p,
-/* Up to two lines, so a longer status ("Row-Bot has a question") reads whole. */
-.navigation .buddy-companion-text p {
-  display: -webkit-box;
-  max-width: 100%;
-  margin: 0;
-  overflow: hidden;
+.buddy-card-status {
+  min-width: 0;
   color: var(--text-secondary);
   font-size: var(--text-13);
   line-height: var(--leading-13);
-  text-align: start;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 /* A longer status ("Learning: training your personal model") takes a second line, not an ellipsis. */
-.navigation .buddy-companion-text p[role='status'] {
+.buddy-card-status .status-indicator-label {
   display: -webkit-box;
+  overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
-  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.buddy-card-status[data-tone='neutral'] .status-indicator-dot {
+  opacity: 0.55;
+}
+.buddy-card-status-link {
+  display: block;
+  min-width: 0;
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.buddy-card-status-link:hover {
+  background: var(--surface-hover);
+}
+.buddy-card-status-link:hover .status-indicator-label {
+  color: var(--text-primary);
+}
+.buddy-card-status-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+/* Pop out and Settings: in the card's top corner, clear of the status, and
+   quiet until the card is hovered or focused. */
+.buddy-card-actions {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--motion-popover) var(--ease-out);
+}
+.buddy-card:hover .buddy-card-actions,
+.buddy-card:focus-within .buddy-card-actions {
+  opacity: 1;
+}
+.buddy-card-actions .icon-action {
+  color: var(--text-muted);
+}
+.buddy-card-actions .icon-action:hover {
+  color: var(--text-primary);
+}
+/* Touch has no hover: the peek card carries them. */
+@media (hover: none) {
+  .buddy-card-actions {
+    display: none;
+  }
 }
 .navigation .buddy-companion-state {
   justify-content: flex-start;
@@ -879,33 +906,84 @@
 .navigation .buddy-companion-state p {
   white-space: normal;
 }
-/* Undock is always shown beside the status, not only on hover. */
-.navigation .buddy-companion .buddy-undock {
-  position: static;
-  flex: none;
-  margin-inline-start: -6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  opacity: 1;
-}
-.navigation .buddy-companion .buddy-undock:hover {
-  color: var(--text-primary);
-}
 .navigation-rail .buddy-companion-text,
 .navigation-rail .buddy-companion > p,
-.navigation-rail .buddy-companion .buddy-undock,
-.navigation-rail .buddy-companion > .button:not([aria-label='Buddy settings']) {
+.navigation-rail .buddy-card-actions,
+.navigation-rail .buddy-companion > .button:not(.buddy-avatar-button) {
   display: none;
 }
+
+/* The peek: Buddy larger, what it is doing, and its actions. */
+.buddy-peek {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 248px;
+  padding: 18px 14px 10px;
+  text-align: center;
+}
+/* The card takes focus when it opens (so no action shows a ring nobody chose); the card itself needs none. */
+.buddy-peek:focus,
+.buddy-peek:focus-visible {
+  outline: none;
+}
+.buddy-peek-portrait {
+  display: grid;
+  place-items: center;
+  margin-bottom: 6px;
+}
+.buddy-peek-portrait .buddy-avatar-frame,
+.buddy-peek-portrait .buddy-avatar {
+  width: 168px;
+  height: 168px;
+}
+.buddy-peek-name {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.buddy-peek-status .buddy-card-status {
+  justify-content: center;
+}
+.buddy-peek-link {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--accent-solid);
+  font: inherit;
+  font-size: var(--text-13);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.buddy-peek-link:hover {
+  background: var(--surface-hover);
+}
+.buddy-peek-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-hairline);
+}
+.buddy-peek-actions .button {
+  gap: 6px;
+  font-size: var(--text-13);
+}
 @media (prefers-reduced-motion: reduce) {
-  .buddy-companion > .button::before {
+  .buddy-avatar-button::before {
     animation: none !important;
   }
 }
 @media (forced-colors: active) {
-  .buddy-companion > .button[aria-label='Buddy settings']::before {
+  .buddy-avatar-button::before {
     background: CanvasText;
   }
 }
@@ -1089,13 +1167,15 @@
 
 /* --------------------------------------------------------------- Context */
 
-/* Conversation details. A wide chat keeps them open in a rail anchored to
-   the right edge, from under the header to the foot of the window, with a
-   hairline beside the transcript (U3). The transcript's scroller ends at the
-   rail and its reading column, the composer, the Latest pill and errors
-   centre in the width left. A chat too narrow for the rail and a
-   comfortable column (isNarrowChat) opens them on demand as a card under
-   the header's details button. Reduced transparency makes the card opaque. */
+/* Conversation details. A wide window keeps them open as a glass card under
+   the header's buttons, beside a full reading column (U21). A chat with less
+   room keeps them in a rail anchored to the right edge, from under the
+   header to the foot of the window, with a hairline beside the transcript
+   (U3): there a card would cover the column. The transcript's scroller ends
+   at the rail and its reading column, the composer, the Latest pill and
+   errors centre in the width left. A chat too narrow for the rail and a
+   comfortable column (isNarrowChat) opens them on demand as a card under the
+   header's details button. Reduced transparency makes the card opaque. */
 .chat-workspace {
   position: relative;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 316px);
@@ -1108,7 +1188,7 @@
   --column: calc(var(--chat-column) + 2 * var(--chat-gutter));
   grid-template-columns: minmax(0, 1fr);
 }
-.details-open .transcript {
+.details-rail.details-open .transcript {
   margin-inline-end: var(--details-width);
 }
 .details-wide .transcript > .transcript-content {
@@ -1120,9 +1200,9 @@
   /* Outside the transcript, whose scrollbar is not part of the column. */
   --basis: calc(100% - var(--transcript-scrollbar, 0px));
 }
-.details-open > .composer,
-.details-open .latest-pill,
-.details-open .chat-error {
+.details-rail.details-open > .composer,
+.details-rail.details-open .latest-pill,
+.details-rail.details-open .chat-error {
   --basis: calc(100% - var(--transcript-scrollbar, 0px) - var(--details-width));
 }
 .details-wide .transcript > .transcript-content,
@@ -1131,6 +1211,23 @@
 .details-wide .chat-error {
   --column-left: max(0px, (var(--basis) - var(--column)) / 2);
   --column-width: min(var(--column), var(--basis));
+}
+/* The card (U21): the column stays centred, and moves left (then narrows a
+   little) only as far as it must so nothing runs under the card. */
+.details-float.details-open .transcript > .transcript-content,
+.details-float.details-open > .composer,
+.details-float.details-open .latest-pill,
+.details-float.details-open .chat-error {
+  --details-space: calc(var(--details-width) + 24px + 16px);
+  --column-left: clamp(
+    16px,
+    (var(--basis) - var(--column)) / 2,
+    var(--basis) - var(--column) - var(--details-space)
+  );
+  --column-width: min(
+    var(--column),
+    var(--basis) - var(--details-space) - 16px
+  );
 }
 .details-wide .transcript > .transcript-content,
 .details-wide > .composer {
@@ -1209,9 +1306,28 @@
     box-shadow: none;
   }
 }
+/* The card on a wide window (U21): content height, under the header's
+   buttons, its right edge on the last button's and above the composer. */
+/* The header's buttons end where the card does. */
+.details-float .chat-content > .conversation-heading {
+  padding-inline-end: 24px;
+}
+.chat-workspace.details-float > .context-card.context-card-pinned {
+  position: absolute;
+  z-index: 30;
+  top: 52px;
+  right: 24px;
+  width: var(--details-width);
+  /* Ends above the composer, never over it. */
+  max-height: calc(100% - 52px - 128px);
+  box-shadow:
+    inset 0 1px 0 var(--surface-highlight),
+    0 2px 8px -2px var(--shadow-color),
+    0 24px 56px -16px var(--shadow-color);
+}
 /* The anchored rail: part of the page, not a card over it (after the card's
    fills so it keeps none). Nothing scrolls under it. */
-.chat-workspace > .context-card.context-card-pinned {
+.chat-workspace.details-rail > .context-card.context-card-pinned {
   grid-column: 1;
   grid-row: 1 / -1;
   justify-self: end;
@@ -1228,11 +1344,11 @@
   backdrop-filter: none;
   animation: none;
 }
-.context-card-pinned .conversation-context-rail {
+.details-rail .context-card-pinned .conversation-context-rail {
   flex: 1 1 auto;
   padding: 10px 16px 16px;
 }
-.context-card-pinned .context-rail-heading {
+.details-rail .context-card-pinned .context-rail-heading {
   right: 12px;
 }
 /* The compact details sheet adopts the same host (Conversation). */
@@ -1335,6 +1451,224 @@
   letter-spacing: 0;
   text-transform: none;
 }
+/* Waiting, Running, Workflow and Linked conversations (5.3.1): one quiet line each, with its one action. */
+.context-live-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+.context-live-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--text-muted);
+}
+.context-live-text,
+.context-live-link {
+  display: grid;
+  min-width: 0;
+}
+.context-live-link {
+  grid-column: 2 / -1;
+  padding: 4px 6px;
+  margin-inline: -6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.context-live-link:hover {
+  background: var(--surface-hover);
+}
+.context-live-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.context-live-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-live-meta {
+  overflow: hidden;
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-live-dot {
+  color: var(--accent-solid);
+  justify-self: center;
+}
+/* Outputs (5.3.3): a grid of thumbnails, newest first, each named on one line
+   by the start of its prompt; each opens the media viewer, with its ⋯ chip
+   shown on hover or focus (always on touch). */
+.context-count {
+  margin-inline-start: 6px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.context-output-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.context-output-tile {
+  position: relative;
+  min-width: 0;
+}
+.context-output-open {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: inherit;
+  text-align: start;
+  cursor: zoom-in;
+}
+.context-output-frame {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+}
+.context-output-open:hover .context-output-frame {
+  border-color: var(--border-subtle);
+}
+.context-output-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.context-output-label {
+  overflow: hidden;
+  padding-inline: 1px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-output-open:hover .context-output-label {
+  color: var(--text-primary);
+}
+.context-output-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--motion-popover) var(--ease-out);
+}
+.context-output-open:hover img.context-output-thumb {
+  transform: scale(1.04);
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-output-open:hover img.context-output-thumb {
+    transform: none;
+  }
+}
+.context-output-glyph {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+.context-output-poster-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.context-output-play {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding-inline-start: 2px;
+  border: 1px solid rgb(255 255 255 / 0.28);
+  border-radius: 999px;
+  background: rgb(10 13 18 / 0.72);
+  color: #fff;
+}
+.context-output-tile[data-busy] .context-output-open {
+  opacity: 0.6;
+}
+.button.context-output-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(10 13 18 / 0.72);
+  color: #fff;
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity var(--motion-popover) var(--ease-out);
+}
+.button.context-output-menu:hover {
+  background: rgb(10 13 18 / 0.88);
+  color: #fff;
+}
+.context-output-tile:hover .context-output-menu,
+.context-output-tile:focus-within .context-output-menu,
+.context-output-menu[aria-expanded='true'] {
+  opacity: 1;
+}
+@media (hover: none), (pointer: coarse) {
+  .button.context-output-menu {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    opacity: 1;
+  }
+}
+.button.context-output-more {
+  min-height: 28px;
+  margin-top: 6px;
+  padding-inline: 6px;
+  margin-inline-start: -6px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  gap: 4px;
+}
+.context-output-more svg[data-open] {
+  transform: rotate(180deg);
+}
+.context-output-note {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  overflow-wrap: anywhere;
+}
+.context-output-note[data-tone='danger'] {
+  color: var(--status-danger-text);
+}
 .context-agents > summary,
 .context-goal > summary {
   min-height: 28px;
@@ -1423,6 +1757,92 @@
 }
 .context-resource-summary {
   margin: 4px 4px 0 44px;
+}
+
+/* Project notes: one quiet line under the code folder's summary (B2). */
+.context-project-notes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 0 0 44px;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.context-project-notes-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.context-project-notes-line > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.context-project-notes-line > span {
+  overflow-wrap: anywhere;
+}
+.context-project-notes[data-state='warning'] .context-project-notes-line > svg {
+  color: var(--status-warning-text);
+}
+.context-project-notes-info {
+  flex: none;
+  color: var(--text-muted);
+}
+.popover.project-notes-popover {
+  outline: none;
+  gap: 12px;
+  width: min(340px, calc(100vw - 24px));
+  padding: 16px;
+}
+.project-notes-head strong {
+  display: block;
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+.project-notes-head p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.project-notes-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.project-notes-list > li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px 6px 8px;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+.project-notes-list > li > svg {
+  color: var(--text-secondary);
+}
+.project-notes-list > li[data-state='warning'] > svg,
+.project-notes-list > li[data-state='warning'] small {
+  color: var(--status-warning-text);
+}
+.project-notes-file span,
+.project-notes-file small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.project-notes-file span {
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-family: var(--font-mono);
+}
+.project-notes-file small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
 }
 
 /* ------------------------------------------------------------ ⌘K palette */
@@ -1729,6 +2149,8 @@
   position: relative;
   display: flex;
   align-items: center;
+  /* A long title truncates instead of widening the row past a phone's edge. */
+  min-width: 0;
   border-radius: var(--radius-control);
 }
 .library-row:is(:hover, :focus-within) {

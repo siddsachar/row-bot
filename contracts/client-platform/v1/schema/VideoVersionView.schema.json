@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "at": {
+      "maxLength": 80,
+      "title": "At",
+      "type": "string"
+    },
+    "by": {
+      "enum": [
+        "you",
+        "row-bot"
+      ],
+      "title": "By",
+      "type": "string"
+    },
+    "note": {
+      "maxLength": 200,
+      "title": "Note",
+      "type": "string"
+    },
+    "number": {
+      "minimum": 1,
+      "title": "Number",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "number",
+    "at",
+    "by",
+    "note"
+  ],
+  "title": "VideoVersionView",
+  "type": "object"
+}

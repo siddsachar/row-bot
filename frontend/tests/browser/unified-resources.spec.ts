@@ -274,8 +274,14 @@ test('generated output is retained explicitly and can be handed to Developer wit
   ).toBeVisible();
   let context = await revealContext(page);
   await expect(context.getByRole('heading', { name: 'Outputs' })).toBeVisible();
-  await context.getByText('Image output').click();
-  await context.getByRole('button', { name: 'Use in code folder' }).click();
+  await expect(
+    context.getByRole('button', { name: /^Open Image/ }).first(),
+  ).toBeVisible();
+  await context
+    .getByRole('button', { name: /^Actions for Image/ })
+    .first()
+    .click();
+  await page.getByRole('menuitem', { name: 'Use in code folder' }).click();
   await expect(composer(page)).toHaveValue(/developer's media import/i);
   // The draft save can wait while the media run finalises; reload only once
   // it is saved, as a person would see "Draft saved".
@@ -284,12 +290,13 @@ test('generated output is retained explicitly and can be handed to Developer wit
     page.getByRole('status').filter({ hasText: /^Draft saved$/ }),
   ).toBeVisible();
   context = await revealContext(page);
-  const save = context.getByRole('button', { name: 'Save to workspace' });
-  if (!(await save.isVisible()))
-    await context.getByText('Image output').click();
-  await save.click();
+  await context
+    .getByRole('button', { name: /^Actions for Image/ })
+    .first()
+    .click();
+  await page.getByRole('menuitem', { name: 'Save to workspace' }).click();
   await expect(
-    context.getByText(/Saved outputs\/output-[a-f0-9]+\.png/),
+    context.getByText(/Saved to outputs\/output-[a-f0-9]+\.png/),
   ).toBeVisible();
   expect(
     (await fixtureState(page)).calls.filter(

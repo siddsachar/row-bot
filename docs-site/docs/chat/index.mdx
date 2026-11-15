@@ -60,7 +60,7 @@ An incognito chat keeps what you say in it out of Row-Bot's memory.
   See [Approvals](/docs/chat/tools-approvals-and-terminal).
 - The **+** menu (**Add files and more**) holds **Attach file**, **Add resource…** (a design or code folder), **Skills…**, **Apps**, **Agent** (each agent with a line on what it does), and **Mode**: **Agent** uses tools and agents, **Chat only** answers without tools.
 - **Skill chips** above the composer show the skills in use, including default ones; × removes one from this conversation. **Skills…** (or `/skills`) opens **Smart Skills**, which ends with **Find more skills** to open Settings › Skills.
-- **Voice** buttons use Dictate or Talk when voice is set up.
+- **Voice** buttons use Dictate or Talk when voice is set up. One stretch of speech can run up to five minutes.
 
 ## Apps In A Chat
 
@@ -122,6 +122,40 @@ When the best answer depends on a choice only you can make, such as your budget,
 - Questions can come from a chat, a helper or a workflow. In Telegram, Discord, Slack and WhatsApp, tap an option, or reply with its number or your own words.
 - An answer is never an approval: anything that needs approval still asks.
 
+## Conversations Row-Bot Starts
+
+For longer work that deserves its own chat, Row-Bot can start a conversation of its own, propose one, or message another conversation and hear back.
+
+- **Started**: the new conversation runs its first turn at once and shows in the sidebar with a shared-message icon. Its first message reads **From** and the conversation that started it, with a link. The chat that started it shows a card with its state (working, waiting for you, done) and **Open**. A turn starts at most three.
+- **Proposed**: a card with **Start** and **Not now**. Nothing runs until you tap **Start**. A proposal expires after a week.
+- **Messages between conversations**: a message to another conversation, a workflow's included (by its name), starts a turn there and shows as **From** the conversation that sent it. When that turn ends, its reply comes back as **Reply from**. A conversation that's busy gets the message after its current turn. An update that needs no answer brings nothing back, and a note for a workflow can wait for its next run.
+- **Never you**: a message from another conversation is never your request. It can't approve anything, and under **Auto** the reviewer never reads it as yours. A started conversation keeps the approval level of the chat that started it, or a stricter one, and never **Hands-off**, which only you turn on.
+- **Keep going?**: conversations that message each other ten times without you stop and ask you, whatever the approval level.
+
+Helpers stay as they are: quick sub-tasks whose results come back in the same turn.
+
+## Messages While Row-Bot Works
+
+You can keep typing while Row-Bot works. What you send waits above the message box (**1 message waiting · Row-Bot reads it at its next step**), and Row-Bot reads it at its next step, as part of what it is doing: to steer it ("use the blue logo instead"), or to add the next thing to do. Until it is read you can **Edit** or **Discard** it; once read it shows **Row-Bot read this**, and the transcript shows it in its place when the turn ends. A message Row-Bot has no step left to read is sent as the next turn. After **Stop**, waiting messages stay until you send them.
+
+## Conversation Details
+
+The details beside a conversation show what it is working on, its outputs and goal, and, when it has any:
+
+- **Waiting**: what it waits for, each with **Stop waiting**.
+- **Running**: its background processes, recordings and video edits, each with **Stop**.
+- **Workflow**: for a workflow's conversation, its schedule, next run and last run; the button opens its runs.
+- **Linked conversations**: the conversation that started this one, and the ones it started.
+
+## Waiting For Something
+
+A chat can wait for something and carry on by itself when it happens: a background process to finish, a check to pass (a build, a CI run, a deploy, a page showing a word), a time, or another conversation or workflow to finish. Nothing runs while it waits, so it costs nothing.
+
+- **Conversation details** list what it waits for and how often it looks, such as **CI on PR 590 is green · checks every 2 min**, each with **Stop waiting** (with details hidden, one line above the message box says the same). The conversation shows an hourglass in the sidebar, and **Home › Waiting** lists every wait.
+- When it happens, a turn starts in that chat: **Checked back: …**, with what happened. If the wait runs out first (2 hours unless Row-Bot set longer, at most a day; a time can be up to a week ahead), the turn says so.
+- A check that runs a command asks once, by the chat's approval level, showing the exact command and how often it runs; a read-only command such as `git status` asks nothing. A check never reads Row-Bot's own data.
+- Waits for a time or a check survive a restart. A wait for a background process ends when Row-Bot quits, and says so. A chat waits for at most five things at once.
+
 ## Attachments
 
 Attach files with **+ › Attach file**, by dropping them on the conversation, or by pasting. Each file shows as a small tile above the text: pictures show a preview, other files their type, name and size. Tiles show upload progress and offer **Retry** if an upload fails. You can keep adding files while others upload; **Send** waits for them. Click a tile to preview it, or × to remove it.
@@ -131,10 +165,12 @@ Attach files with **+ › Attach file**, by dropping them on the conversation, o
 The small ring beside **Send** shows how much of the model's context the conversation fills. It appears after the first reply, and the mark on it shows where compaction starts.
 
 - **Hover** over the ring for one line, such as "43% of context · compacts at 88% · 1.2M tokens used, 82% from cache". The tokens are what this conversation's model calls have used so far. The share from cache is how much of their input the provider read from its prompt cache, which providers usually charge less for.
-- **Click** the ring for the details: the approximate tokens against the usable amount, where compaction starts, the model's window, and the conversation's total. When a provider reports a cost, as OpenRouter does, the details show it too; Row-Bot keeps no price list of its own.
+- **Click** the ring for the details: the approximate tokens against the usable amount, where compaction starts, what fills the context, and the conversation's total. When a provider reports a cost, as OpenRouter does, the details show it too; Row-Bot keeps no price list of its own. **Details** at the bottom opens the model's window and the more technical lines.
 - On a phone or in a narrow window, the composer is one line, and the context line is in its **+** menu.
 
 For usage beyond one conversation, ask Row-Bot in Agent mode, for example "How many tokens did I use this week?" It answers from its own record: this conversation, the last 24 hours, 7 days and 30 days, with a breakdown by model and by kind of work, such as your chats, compaction, memory extraction and Dream Cycle. The record holds token counts and timings only, never prompts, replies or files. It stays on this computer, counts older than 90 days are removed, and deleting a conversation deletes its counts.
+
+After each reply, the details also show what fills the context, as a thin bar and one line each: **Row-Bot's instructions**, **Tools** (with how many are on), **Skills and guides**, the **Memories** recalled into the conversation, and the **Conversation** itself, including any summary of earlier turns. Each has its approximate tokens and its share, and together they add up to the ring's number. Empty parts are left out, so a Chat Only conversation shows no tools. While a newer count moves the ring, the parts read **As of the last reply**. When the provider reports its prompt cache, a line says how much of the last request came from the cache, and how much over the whole conversation; a local model reports none, and the line is left out. The parts are estimates counted on your computer, and hold numbers only.
 
 ### Long Conversations
 
@@ -144,7 +180,7 @@ Compaction starts near the end of the model's window, leaving room for the reply
 
 ## The Details Card
 
-**Conversation details** stays open in a rail along the conversation's right edge on a wide screen, and the conversation centres in the space beside it. In a narrower window it opens from the header's **Conversation details** button instead. It shows:
+**Conversation details** stays open on a wide window as a card under the header's buttons, beside the conversation. With less room it sits in a rail along the conversation's right edge, so it never covers the messages, and the conversation centres in the space beside it. In a narrower window it opens from the header's **Conversation details** button instead. It shows:
 
 - **Working on**: the designs and code folders bound to this conversation. Choose one to open its panel, or unbind it from its **⋯** menu. **Add resource** binds another.
 - **Outputs**: images and videos the conversation made, linked to where they appear.
@@ -184,6 +220,7 @@ In the native Windows and macOS apps, drag Buddy from the sidebar onto the deskt
 - **Export** in the header opens the conversation's actions: change its **Name**, **Pin** it to the top of the sidebar, or **Export** it as **Markdown** or **PDF**, then **Save export** to choose where the file goes.
 - A sidebar row's **⋯** menu exports or deletes one conversation too.
 - **Conversation library**, at the end of the sidebar's list, lists every conversation; its **Pages** view lists every page Row-Bot made.
+- Its **Media** view holds every picture, video and sound from your chats: recordings, video edits, voice lines, music and pictures, newest first. Search names, tags and chats, show only **Pictures**, **Videos** or **Sound**, and tag an item with the tag button. Each opens its chat. Row-Bot finds them too, and can copy one into another chat or workflow. An incognito chat's files never show there.
 
 <Screenshot id="conversation-library" alt="Row-Bot conversation library with search, the type filter and selected conversations." caption="The conversation library searches titles and messages, filters by type, and acts on a selection from the bar at the top." />
 

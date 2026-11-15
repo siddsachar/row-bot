@@ -1196,6 +1196,53 @@ def test_v2_parent_approval_resume_applies_decision_to_regenerated_interrupt_gro
     assert tasks.get_pending_approvals(parent_thread_id="parent-thread")
 
 
+@pytest.mark.parametrize("approved", [True, False])
+def test_a_parent_card_only_the_person_answers_is_answered_by_itself_and_bound(
+    tmp_path, monkeypatch, reload_for_data_dir, approved,
+):
+    """B416: a parent's incognito memory write (N11) counts only a bound answer, never a plain yes.
+
+    It is asked by itself; what waits beside it asks again, so a Don't save never ends the parent.
+    """
+    from row_bot.tools.approval_gate import bound_answer
+
+    tasks, agent_runs, orchestrator = _fresh_modules(tmp_path, reload_for_data_dir)
+    orchestration = _orchestration(orchestrator, version=2)
+    child = _run(agent_runs, "approval-source")
+    orchestrator.register_member(orchestration["id"], child["id"], required=True)
+    agent_runs.finish_agent_run(child["id"], "completed", summary="The evidence is ready.")
+    group = [
+        {"__interrupt_id": "parent-memory", "tool": "save_memory", "person_only": True,
+         "binding": "binding-of-the-shown-write", "args": {"subject": "Coffee"}},
+        {"__interrupt_id": "parent-command", "tool": "run_command", "args": {"command": "ls"}},
+    ]
+    orchestrator.complete_parent_pass(
+        orchestration["id"], {"type": "interrupt", "interrupts": group},
+        continuation_state={"config": {"configurable": {"thread_id": "parent-thread"}},
+                            "enabled_tool_names": ["memory", "shell"]},
+        foreground=False,
+        consumed_event_ids=[event.id for event in orchestrator.pending_thread_events(orchestration["id"])],
+    )
+    approval = orchestrator._persist_parent_approval(
+        orchestrator.get_orchestration(orchestration["id"]), {"type": "interrupt", "interrupts": group})
+    captured: dict[str, object] = {}
+
+    def fake_resume(enabled_tools, config, approved, *, interrupt_ids=None, resume_values=None):
+        captured.update(interrupt_ids=interrupt_ids, resume_values=resume_values)
+        return "Done."
+
+    monkeypatch.setattr("row_bot.agent.resume_invoke_agent", fake_resume)
+    monkeypatch.setattr("row_bot.agent.get_invoke_agent_interrupts", lambda _tools, _config: group)
+
+    orchestrator.resume_parent_orchestration(
+        orchestration["id"], resume_token=approval["resume_token"], approved=approved)
+
+    assert captured["interrupt_ids"] == ["parent-memory"], "the command asks again for itself"
+    answer = captured["resume_values"]["parent-memory"]
+    assert answer == (bound_answer(True, "binding-of-the-shown-write") if approved else False)
+    assert answer is not True
+
+
 def test_handled_parent_approval_is_not_reused_for_a_new_interrupt(
     tmp_path,
     reload_for_data_dir,

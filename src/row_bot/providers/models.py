@@ -151,33 +151,3 @@ class ModelInfo:
                 else None
             ),
         }
-
-
-@dataclass
-class RoutingProfile:
-    id: str
-    display_name: str
-    description: str = ""
-    enabled: bool = True
-    primary: str = ""
-    fallbacks: list[str] = field(default_factory=list)
-    triggers: list[str] = field(default_factory=list)
-    data_policy: str = "allow_api_key"
-    max_fallbacks_per_turn: int = 1
-    # Background purpose -> provider-qualified model ref, read by
-    # ``routing.task_route_model`` for background calls. Empty by default.
-    task_routes: dict[str, str] = field(default_factory=dict)
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "display_name": self.display_name,
-            "description": self.description,
-            "enabled": self.enabled,
-            "primary": self.primary,
-            "fallbacks": list(self.fallbacks),
-            "triggers": list(self.triggers),
-            "data_policy": self.data_policy,
-            "max_fallbacks_per_turn": self.max_fallbacks_per_turn,
-            "task_routes": dict(self.task_routes),
-        }

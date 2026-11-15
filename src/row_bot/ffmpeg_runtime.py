@@ -369,6 +369,7 @@ PURPOSES: dict[str, str] = {
     "edit": "Video editing",
     "frames": "Looking at frames of a video",
     "screen": "Recording your screen",
+    "command": "This command",
 }
 
 

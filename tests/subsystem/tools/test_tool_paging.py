@@ -266,7 +266,7 @@ def test_task_list_is_compact_json_and_stays_readable_when_long(data_dir, monkey
     short = task_tool._task_list()
 
     assert json.loads(short)[0] == {"id": "task-0", "name": "⚡ Task 0", "enabled": True,
-                                    "schedule": "daily:09:00", "messages": 1}
+                                    "schedule": "daily:09:00", "timezone": "local", "messages": 1}
     assert "\n" not in short
 
     many = [dict(task, id=f"task-{index}", description="d" * 200) for index in range(400) for task in tasks[:1]]

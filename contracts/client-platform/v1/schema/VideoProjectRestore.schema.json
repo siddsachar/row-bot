@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "description": "Back to an earlier version, as a new version.",
+  "properties": {
+    "number": {
+      "minimum": 1,
+      "title": "Number",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "number"
+  ],
+  "title": "VideoProjectRestore",
+  "type": "object"
+}

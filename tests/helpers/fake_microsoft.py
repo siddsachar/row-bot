@@ -54,6 +54,7 @@ class FakeMicrosoft:
     token_error: dict | None = None  # A refusal for the next code exchange (an AADSTS answer, say).
     codes: dict[str, dict] = field(default_factory=dict)
     issued: int = 1
+    uploaded: dict[str, bytearray] = field(default_factory=dict)  # Upload session -> the bytes it took.
 
     def seen(self, method: str, path: str) -> list[Seen]:
         return [request for request in self.requests if request.method == method and request.path == path]
@@ -130,6 +131,17 @@ class _Handler(BaseHTTPRequestHandler):
                                     "interval": 1, "message": "To sign in, use a web browser..."})
         if parsed.path.endswith("/oauth2/v2.0/token"):
             return self._json(*fake.token(form))
+        if parsed.path.startswith("/upload/") and self.command == "PUT":
+            # An upload session's own address: its key is in the address, so no token is expected.
+            if self.headers.get("Authorization"):
+                return self._json(400, {"error": {"code": "TokenNotExpected", "message": "no token here"}})
+            start, end_total = self.headers["Content-Range"].removeprefix("bytes ").split("-")
+            end, total = (int(value) for value in end_total.split("/"))
+            received = fake.uploaded.setdefault(parsed.path, bytearray())
+            if int(start) != len(received) or end - int(start) + 1 != len(raw):
+                return self._json(416, {"error": {"code": "InvalidRange", "message": "out of order"}})
+            received.extend(raw)
+            return self._json(201 if len(received) == total else 200, {"nextExpectedRanges": [f"{len(received)}-"]})
         if parsed.path.startswith("/v1.0/"):
             if self.headers.get("Authorization") != f"Bearer {fake.access_token}":
                 return self._json(401, {"error": {"code": "InvalidAuthenticationToken", "message": "expired"}})
@@ -158,7 +170,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    do_GET = do_POST = do_PATCH = do_DELETE = _handle
+    do_GET = do_POST = do_PATCH = do_DELETE = do_PUT = _handle
 
     def log_message(self, *_: Any) -> None:
         pass

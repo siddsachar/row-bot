@@ -8,6 +8,7 @@ import BuddyControls, {
   type BuddySnapshot,
 } from '../shell/BuddyControls';
 import BuddyHatch, {
+  hatchProgress,
   type HatchRequest,
   type HatchReview,
   type HatchResult,
@@ -234,6 +235,36 @@ export function createBuddyPanelSession(
           const version = viewVersion;
           const abort = new AbortController();
           observation = abort;
+          // A running Hatch is followed too: its progress, then the new look once
+          // it ends, without asking for a refresh (F8).
+          const hatching =
+            state.result && running(state.result)
+              ? attempts.get(state.result.command_id)
+              : undefined;
+          if (hatching) {
+            void owned(() => transport.receipt(hatching.command.command_id))
+              .then(async (receipt) => {
+                if (
+                  abort.signal.aborted ||
+                  state.busy ||
+                  version !== viewVersion
+                )
+                  return;
+                accept(hatching, receipt);
+                if (receipt.hatch && !running(receipt.hatch)) await load();
+              })
+              .catch(() => {
+                if (!abort.signal.aborted && !state.revoked)
+                  emit({
+                    statusError:
+                      'Buddy status could not be refreshed. Reload the saved view.',
+                  });
+              })
+              .finally(() => {
+                if (observation === abort) observation = null;
+              });
+            return;
+          }
           void owned(() => transport.snapshot(abort.signal))
             .then(async (snapshot) => {
               if (abort.signal.aborted) return;
@@ -489,10 +520,12 @@ export type BuddyPanelProps = Pick<
   BuddyControlsProps,
   | 'scopeKey'
   | 'renderAvatar'
+  | 'renderPortrait'
   | 'renderPackPreview'
   | 'previewUrl'
   | 'companionVisible'
   | 'onUndock'
+  | 'desktopPet'
 > & {
   session: BuddyPanelSession;
   settingsOpen: boolean;
@@ -606,7 +639,7 @@ export default function BuddyPanel(props: BuddyPanelProps) {
         }
         newLookStatus={
           state.result && ['queued', 'running'].includes(state.result.status)
-            ? `Making it · ${state.result.completed_clips} of ${state.result.total_clips} clips`
+            ? hatchProgress(state.result) || 'Painting…'
             : undefined
         }
       />
@@ -650,7 +683,7 @@ export default function BuddyPanel(props: BuddyPanelProps) {
           open={hatchOpen}
           onOpenChange={setHatchOpen}
           title="New look"
-          description="Create a look and six motion clips with your image and video models. Generation may cost provider credits; your current look stays until the new one is ready."
+          description="Your image model paints the Buddy you describe, then six small expression edits; Row-Bot brings it to life on this device. It may cost provider credits, and your current look stays until the new one is ready."
         >
           {hatch}
         </ModalTask>

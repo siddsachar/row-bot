@@ -46,7 +46,7 @@ _TOKEN_URL = x_accounts.TOKEN_URL
 # ── OAuth 2.0 scopes ────────────────────────────────────────────────────────
 _SCOPES = (
     "tweet.read tweet.write users.read like.read like.write "
-    "bookmark.read bookmark.write offline.access"
+    "bookmark.read bookmark.write media.write offline.access"
 )
 
 # Fixed port for OAuth callback — must match what user registers in X Developer Portal
@@ -347,12 +347,19 @@ class _XPostInput(BaseModel):
     media_paths: Optional[List[str]] = Field(
         default=None,
         description=(
-            "Optional list of file paths for media to attach. "
+            "Optional media to attach, each a file in this chat by its name, a Library › Media item by its "
+            "reference (from media_find), or a file path. "
             "Supports pictures (JPEG, PNG, WebP, GIF) and videos (MP4, MOV). "
             "Max 4 pictures, or 1 video or GIF, per post."
         ),
     )
     account: Optional[str] = _account_field(True)
+    post_at: Optional[str] = Field(
+        default=None,
+        description=("When it goes out, if not now: a local time like '13:00' or '2026-10-29T09:30', up to 7 days "
+                     "ahead. Its card waits for the person in Home › Review (several posts made in one step wait "
+                     "there together); approved, Row-Bot posts it then."),
+    )
 
 
 class _XEngageInput(BaseModel):
@@ -394,13 +401,37 @@ def _format_tweet(tweet: dict, includes: dict | None = None) -> str:
         parts.append(f"Posted: {created}")
     parts.append(f"\n{text}")
     if metrics:
-        parts.append(
-            f"\n❤️ {metrics.get('like_count', 0)}  "
-            f"🔁 {metrics.get('retweet_count', 0)}  "
-            f"💬 {metrics.get('reply_count', 0)}  "
-            f"👁️ {metrics.get('impression_count', 0)}"
-        )
+        parts.append("\n" + _numbers(metrics))
     return "\n".join(parts)
+
+
+_METRICS = (("impression_count", "view", "views"), ("like_count", "like", "likes"),
+            ("retweet_count", "repost", "reposts"), ("reply_count", "reply", "replies"),
+            ("quote_count", "quote", "quotes"), ("bookmark_count", "bookmark", "bookmarks"))
+
+
+def _numbers(metrics: dict) -> str:
+    """"1,204 views · 31 likes · 4 reposts · 2 replies · 1 quote · 6 bookmarks", what X said (G7)."""
+    shown = []
+    for key, one, many in _METRICS:
+        if key in metrics:
+            count = int(metrics.get(key) or 0)
+            shown.append(f"{count:,} {one if count == 1 else many}")
+    return " · ".join(shown)
+
+
+def _totals(tweets: list[dict]) -> str:
+    """An account's recent posts in one line: each number added up, and the most viewed post (G7)."""
+    totals: dict[str, int] = {}
+    for tweet in tweets:
+        for key, *_ in _METRICS:
+            if key in (tweet.get("public_metrics") or {}):
+                totals[key] = totals.get(key, 0) + int(tweet["public_metrics"].get(key) or 0)
+    if not totals:
+        return ""
+    best = max(tweets, key=lambda tweet: int((tweet.get("public_metrics") or {}).get("impression_count") or 0))
+    return (f"Together, these {len(tweets)} posts: {_numbers(totals)}. Most viewed: {best.get('id')} "
+            f"({int((best.get('public_metrics') or {}).get('impression_count') or 0):,} views).\n\n")
 
 
 def _format_user(user: dict) -> str:
@@ -761,11 +792,15 @@ class XTool(BaseTool):
                 lines.append(f"- The X account from before (its handle shows once Row-Bot reaches X): {state}")
             else:
                 name = f" · {row['name']}" if row["name"] else ""
-                lines.append(f"- @{row['username']}{name} (ID {row['id']}): {state}")
+                limit = x_posting.text_limit(XAccount(row["id"], row["username"], row["name"])) \
+                    if row["state"] in {"connected", "saved_unchecked"} else None
+                posts = f"; posts up to {limit:,} characters" if limit else ""
+                lines.append(f"- @{row['username']}{name} (ID {row['id']}): {state}{posts}")
         more = ("" if len(rows) < 2 else
                 "\nWith several accounts, every post, reply, quote, delete, like, repost or bookmark must say "
                 "which with account; ask the person if they haven't said.")
-        return f"Connected X accounts ({len(rows)}):\n" + "\n".join(lines) + more
+        return (f"Connected X accounts ({len(rows)}):\n" + "\n".join(lines) + more
+                + f"\nMedia: {x_posting.MEDIA_LIMITS} per post. Links count {x_posting.LINK_LENGTH} characters.")
 
     # ── Read operations ──────────────────────────────────────────────────────
 
@@ -782,7 +817,8 @@ class XTool(BaseTool):
         except XAccountChoice as exc:
             return str(exc)
 
-        max_results = max(1, min(max_results, 100))
+        # A model sends null for "the default": that was a TypeError on every read (R7).
+        max_results = max(1, min(int(max_results or 10), 100))
 
         if action == "search":
             if not self._is_op_enabled("x_search"):
@@ -881,7 +917,8 @@ class XTool(BaseTool):
                     return f"No tweets found in {who}'s timeline."
                 includes = data.get("includes", {})
                 results = [_format_tweet(t, includes) for t in tweets]
-                return f"{who}'s recent tweets ({len(tweets)}):\n\n" + "\n\n---\n\n".join(results)
+                return (f"{who}'s recent tweets ({len(tweets)}):\n\n" + _totals(tweets)
+                        + "\n\n---\n\n".join(results))
             except RuntimeError as e:
                 return str(e)
 
@@ -932,8 +969,10 @@ class XTool(BaseTool):
 
     def _x_post(self, action: str, text: str | None = None,
                 tweet_id: str | None = None,
-                media_paths: list[str] | None = None, *, account: str | None = None) -> str:
-        """Post, reply, quote or delete as the named account, once the person approves exactly that."""
+                media_paths: list[str] | None = None, *, account: str | None = None,
+                post_at: str | None = None) -> str:
+        """Post, reply, quote or delete as the named account, once the person approves exactly that; at its
+        time slot (post_at) when it has one."""
         operation = {"post": "x_post_tweet", "reply": "x_reply", "quote": "x_quote",
                      "delete": "x_delete_tweet"}.get(action)
         if operation is None:
@@ -943,19 +982,59 @@ class XTool(BaseTool):
         try:
             words, target = x_posting.check_text(action, text, tweet_id)
             chosen = x_accounts.resolve(account, required=True)
-            media = x_posting.media_facts(media_paths) if action != "delete" else []
+            x_posting.check_length(chosen, action, words)
+            from row_bot.tool_outputs import current_thread_id
+
+            media = (x_posting.media_facts(media_paths, str(current_thread_id() or "")) if action != "delete"
+                     else [])
+            if media and not x_accounts.can_post_media(chosen):
+                # Before any card: the person reconnects once, then the post with its pictures can go.
+                return (f"{x_accounts.media_reconnect(chosen)} Ask the person (ask_person) to do that, with Done as "
+                        "the recommended option, then make the post again. Nothing was sent to X.")
+            if post_at and action == "delete":
+                raise x_posting.XPostError("A delete happens at once; leave post_at out.")
+            # A time that passed while the card waited goes at once, on a new card that says so (R8).
+            when = x_posting.slot(post_at, late_ok=True)
+            late = bool(post_at) and when is None
         except (x_posting.XPostError, XAccountChoice) as exc:
             return str(exc)
+        if action in ("reply", "quote") and x_posting.summoned(chosen, target) is False:
+            # X's reply rule would refuse it after approval: no card, the draft for the person instead.
+            return (x_posting.by_hand(chosen, action, words, target)
+                    + "\n\nGive the person the draft and the link. Don't post it another way.")
         target_text = x_posting.read_text(chosen, target) if action == "delete" else ""
-        refusal, line = x_posting.approve(chosen, action, words, target, media, target_text=target_text)
+        edited = False
+        while True:
+            try:
+                refusal, line = x_posting.approve(chosen, action, words, target, media, target_text=target_text,
+                                                  post_at=when)
+                break
+            except x_posting.PostEdited as edit:
+                # The person changed the post on its card (G2): a new card, bound to the edited post.
+                try:
+                    words, _ = x_posting.check_text(action, edit.text, tweet_id)
+                    x_posting.check_length(chosen, action, words)
+                except x_posting.XPostError as exc:
+                    return f"The person edited the post, but it can't go out as edited: {exc} Nothing was sent to X."
+                media, edited = [item for item in media if item.short in edit.kept], True
         if refusal is not None:
             return refusal
         from row_bot.tools.approval_gate import with_approval
 
-        try:
-            sent = x_posting.post_as(chosen, action, words, target, media).text
-        except x_posting.XPostError as exc:
-            sent = str(exc)
+        if when is not None:
+            kept = x_posting.schedule(chosen, action, words, target, media, when)
+            sent = (f"Approved for its time: it goes out as {chosen.handle} at {when:%H:%M} on {when:%a %d %b} "
+                    f"(scheduled post {kept['id']}). Nothing is on X yet; the person can cancel it in Home › "
+                    "Review until then.")
+        else:
+            try:
+                sent = x_posting.post_as(chosen, action, words, target, media).text
+            except x_posting.XPostError as exc:
+                sent = str(exc)
+        if edited:
+            sent = f"The person edited the post on its card, then approved it as edited:\n{words}\n\n{sent}"
+        if late and refusal is None:
+            sent = f"Its time ({post_at}) had passed, so it went out at once.\n{sent}"
         return with_approval(line, sent) if line else sent
 
     # ── Engage operations ────────────────────────────────────────────────────
@@ -1095,10 +1174,10 @@ class XTool(BaseTool):
             def _run_post(action: str, text: str | None = None,
                           tweet_id: str | None = None,
                           media_paths: list[str] | None = None,
-                          account: str | None = None) -> str:
+                          account: str | None = None, post_at: str | None = None) -> str:
                 try:
                     return tool_instance._x_post(
-                        action, text, tweet_id, media_paths, account=account
+                        action, text, tweet_id, media_paths, account=account, post_at=post_at
                     )
                 except GraphBubbleUp:
                     raise  # The approval card: the conversation waits for the person.

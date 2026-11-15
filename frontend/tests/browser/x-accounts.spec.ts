@@ -151,6 +151,158 @@ test('the post card names the account and shows the whole text and the picture; 
   await everywhere(page, info, 'x-post-result', result);
 });
 
+test('the post is edited on its card: the text against the account’s limit, a picture taken off, then the edited post asks again (G2)', async ({
+  page,
+}, info) => {
+  await newConversation(page);
+  await send(page, 'n7 post fixture');
+  const card = page.getByRole('complementary', {
+    name: 'Approval required: Post to X as @rowbot_ai?',
+  });
+  await expect(card.getByText(/Row-Bot 5\.3 is out\./)).toBeVisible();
+  await card.getByRole('button', { name: 'Edit the post' }).click();
+  const text = card.getByRole('textbox', {
+    name: 'Edit the post as @rowbot_ai',
+  });
+  await expect(text).toBeFocused();
+  await expect(card.getByText(/^\d+ of 280$/)).toBeVisible();
+  await expect(
+    card.getByRole('button', { name: 'Approve', exact: true }),
+  ).toBeHidden();
+  await everywhere(page, info, 'x-post-edit', card);
+
+  await text.fill(
+    'Row-Bot 5.3.1 is out: edit a post right on its card before it goes to X.',
+  );
+  await card.getByRole('button', { name: 'Remove launch-card.png' }).click();
+  await expect(card.getByText('72 of 280')).toBeVisible();
+  await card.getByRole('button', { name: 'Save edits' }).click();
+  const edited = page.getByRole('complementary', {
+    name: 'Approval required: Post to X as @rowbot_ai?',
+  });
+  // The new card, loaded: the edited text as the post's own, no picture.
+  await expect(
+    edited.getByRole('button', { name: 'Approve', exact: true }),
+  ).toBeEnabled();
+  await expect(edited.locator('.x-post-text')).toHaveText(
+    'Row-Bot 5.3.1 is out: edit a post right on its card before it goes to X.',
+  );
+  await expect(edited.getByText('launch-card.png')).toHaveCount(0);
+  await everywhere(page, info, 'x-post-edited', edited);
+
+  await edited.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(
+    transcript(page).getByText(
+      /^Done\. It's live on @rowbot_ai: https:\/\/x\.com\/rowbot_ai\/status\/\d+$/,
+    ),
+  ).toBeVisible();
+  await expect(
+    await openResult(
+      page,
+      /Row-Bot 5\.3\.1 is out: edit a post right on its card/,
+    ),
+  ).toBeVisible();
+});
+
+test('a scheduled post that didn’t go out stays in Review with why, and goes without its picture in one click', async ({
+  page,
+}, info) => {
+  const { sent } = await seed(page, '/__n7_fixture/failed-post');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].status).toBe('failed');
+  await page.goto('/app-v2/?tab=overview');
+  await dismissNotices(page);
+  const notSent = page.getByRole('list', { name: "Posts that didn't go out" });
+  const row = notSent.getByRole('listitem');
+  await expect(row).toContainText('· @rowbot_ai');
+  await expect(row).toContainText(
+    'was connected before Row-Bot could post pictures and videos. Sign in to it once more in Settings › Apps › X',
+  );
+  await expect(
+    row.getByRole('button', { name: 'Try again now' }),
+  ).toBeVisible();
+  await everywhere(page, info, 'review-not-sent', notSent);
+
+  await row
+    .getByRole('button', { name: 'Post it now without the picture' })
+    .click();
+  await expect(notSent).toHaveCount(0);
+  await expect(page.getByText(/Posted on X as @rowbot_ai/).first()).toBeVisible(
+    { timeout: 15_000 },
+  );
+});
+
+test('Home › Review shows the waiting post in full with its time; approving schedules it and Cancel stops it (G3)', async ({
+  page,
+}, info) => {
+  await newConversation(page);
+  await send(page, 'n7 later post fixture');
+  const inChat = page.getByRole('complementary', {
+    name: 'Approval required: Post to X as @rowbot_ai?',
+  });
+  await expect(inChat.getByText(/^Goes out at/)).toBeVisible();
+  await page.goto('/app-v2/?tab=overview');
+  await dismissNotices(page);
+  await expect(
+    page.getByRole('button', { name: 'Go to Review' }),
+  ).toContainText('1 post to review');
+  const review = page.getByRole('list', { name: 'Waiting to go out' });
+  const card = review.getByRole('complementary', {
+    name: 'Approval required: Post to X as @rowbot_ai?',
+  });
+  await expect(card.getByText(/Row-Bot 5\.3 is out\./)).toBeVisible();
+  await expect(card.getByText('launch-card.png')).toBeVisible();
+  await expect(card.getByText(/^Goes out at/)).toBeVisible();
+  await expect(
+    card.getByRole('button', { name: 'Approve for then', exact: true }),
+  ).toBeEnabled();
+  await everywhere(page, info, 'review-queue', card);
+
+  info.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature:
+        'Failed to load resource: the server responded with a status of 409 (Conflict)',
+      count: 1,
+      upTo: true,
+      owner: 'x-accounts later-post fixture',
+      fixture:
+        'The chat that asked stays open behind Home with its own card: approving here moves its turn on, and a card it shows again reads the answered approval, which answers 409 and says it was answered',
+    }),
+  });
+  await card
+    .getByRole('button', { name: 'Approve for then', exact: true })
+    .click();
+  const scheduled = page.getByRole('list', { name: 'Scheduled posts' });
+  await expect(
+    scheduled.getByText(/^Today, .* · @rowbot_ai$|, .* · @rowbot_ai$/),
+  ).toBeVisible();
+  await expect(review).toHaveCount(0);
+  await everywhere(page, info, 'review-scheduled', scheduled);
+
+  // Edit before it goes out: the text and which files go; it keeps its time.
+  await scheduled.getByRole('button', { name: 'Edit this post' }).click();
+  const box = scheduled.getByRole('textbox', {
+    name: 'Edit the post as @rowbot_ai',
+  });
+  await box.fill('Row-Bot 5.3 is out. Edited before it goes out.');
+  await everywhere(page, info, 'review-scheduled-edit', scheduled);
+  await scheduled.getByRole('button', { name: 'Save edits' }).click();
+  await expect(box).toHaveCount(0);
+  await expect(
+    scheduled.getByText('Row-Bot 5.3 is out. Edited before it goes out.'),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page
+      .getByRole('list', { name: 'Scheduled posts' })
+      .getByText('Row-Bot 5.3 is out. Edited before it goes out.'),
+  ).toBeVisible();
+
+  await scheduled.getByRole('button', { name: 'Cancel this post' }).click();
+  await expect(scheduled).toHaveCount(0);
+});
+
 test('a reply card links the post it answers', async ({ page }, info) => {
   await newConversation(page);
   await send(page, 'n7 reply fixture');

@@ -1,5 +1,11 @@
 import * as wire from '../../../contracts/client-platform/v1/typescript/client';
-import type { ClientTransport } from './types';
+import type {
+  ClientTransport,
+  RowBotSandboxCreate,
+  VideoBrand,
+  VideoProjectChange,
+  VideoProjectExport,
+} from './types';
 import { sha256Hex } from '../platform/crypto';
 import { ATTACHMENT_LIMITS } from './limits';
 
@@ -300,24 +306,6 @@ export class HttpTransport implements ClientTransport {
   delivery(deliveryId: string, signal?: AbortSignal) {
     return wire.getDelivery(this.base, this.session(), deliveryId, signal);
   }
-  downloadDelivery(deliveryId: string, index: number, signal?: AbortSignal) {
-    return wire.readDeliveryFile(
-      this.base,
-      this.session(),
-      deliveryId,
-      index,
-      signal,
-    );
-  }
-  saveDelivery(deliveryId: string, index: number, signal?: AbortSignal) {
-    return wire.saveDeliveryFile(
-      this.base,
-      this.session(),
-      deliveryId,
-      index,
-      signal,
-    );
-  }
   sendDeliveryToDevices(deliveryId: string, signal?: AbortSignal) {
     return wire.sendDeliveryToDevices(
       this.base,
@@ -331,6 +319,14 @@ export class HttpTransport implements ClientTransport {
   }
   page(pageId: string, signal?: AbortSignal) {
     return wire.getPage(this.base, this.session(), pageId, signal);
+  }
+  conversationLinks(conversationId: string, signal?: AbortSignal) {
+    return wire.getConversationLinks(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
   }
   pageFrame(pageId: string, theme: wire.PageTheme, signal?: AbortSignal) {
     return wire.createPageFrame(
@@ -367,28 +363,6 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  downloadPage(pageId: string, theme: wire.PageTheme, signal?: AbortSignal) {
-    return wire.downloadPage(
-      this.base,
-      this.session(),
-      pageId,
-      { theme },
-      signal,
-    );
-  }
-  savePageToExports(
-    pageId: string,
-    theme: wire.PageTheme,
-    signal?: AbortSignal,
-  ) {
-    return wire.savePageToExports(
-      this.base,
-      this.session(),
-      pageId,
-      { theme },
-      signal,
-    );
-  }
   browserLocalAddresses(conversation: string, signal?: AbortSignal) {
     return wire.getBrowserLocalAddresses(
       this.base,
@@ -413,8 +387,160 @@ export class HttpTransport implements ClientTransport {
   attention(signal?: AbortSignal) {
     return wire.getAttention(this.base, this.session(), signal);
   }
+  dismissMemoryNotice() {
+    return wire.dismissMemoryNotice(this.base, this.session());
+  }
+  media(filter: { query?: string; kind?: string }, signal?: AbortSignal) {
+    return wire.getMedia(this.base, this.session(), filter, signal);
+  }
+  setMediaTags(ref: string, tags: string[]) {
+    return wire.setMediaTags(this.base, this.session(), { ref, tags });
+  }
+  videoProject(projectId: string, version?: number, signal?: AbortSignal) {
+    return wire.getVideoProject(
+      this.base,
+      this.session(),
+      projectId,
+      version,
+      signal,
+    );
+  }
+  changeVideoProject(projectId: string, change: VideoProjectChange) {
+    return wire.changeVideoProject(
+      this.base,
+      this.session(),
+      projectId,
+      change,
+    );
+  }
+  restoreVideoProject(projectId: string, number: number) {
+    return wire.restoreVideoProject(this.base, this.session(), projectId, {
+      number,
+    });
+  }
+  makeVideoProject(projectId: string) {
+    return wire.makeVideoProject(this.base, this.session(), projectId);
+  }
+  waits(signal?: AbortSignal) {
+    return wire.getWaits(this.base, this.session(), signal);
+  }
+  stopWait(waitId: string) {
+    return wire.stopWait(this.base, this.session(), waitId);
+  }
+  proactiveMoments(signal?: AbortSignal) {
+    return wire.getProactiveMoments(this.base, this.session(), signal);
+  }
+  proactiveMoment(momentId: string, signal?: AbortSignal) {
+    return wire.getProactiveMoment(this.base, this.session(), momentId, signal);
+  }
+  proactiveFeedback(momentId: string, feedback: wire.ProactiveFeedback) {
+    return wire.sendProactiveFeedback(
+      this.base,
+      this.session(),
+      momentId,
+      feedback,
+    );
+  }
+  proactiveActivity(before?: number, limit?: number, signal?: AbortSignal) {
+    return wire.getProactiveActivity(
+      this.base,
+      this.session(),
+      before,
+      limit,
+      signal,
+    );
+  }
+  proactiveSettings(signal?: AbortSignal) {
+    return wire.getProactiveSettings(this.base, this.session(), signal);
+  }
+  changeProactiveSettings(change: wire.ProactiveSettingsChange) {
+    return wire.changeProactiveSettings(this.base, this.session(), change);
+  }
+  addProactiveRule(rule: wire.ProactiveRuleWrite) {
+    return wire.addProactiveRule(this.base, this.session(), rule);
+  }
+  changeProactiveRule(ruleId: string, rule: wire.ProactiveRuleWrite) {
+    return wire.changeProactiveRule(this.base, this.session(), ruleId, rule);
+  }
+  deleteProactiveRule(ruleId: string) {
+    return wire.deleteProactiveRule(this.base, this.session(), ruleId);
+  }
+  proactiveDrafts(signal?: AbortSignal) {
+    return wire.getProactiveDrafts(this.base, this.session(), signal);
+  }
+  proactiveDraft(draftId: string, signal?: AbortSignal) {
+    return wire.getProactiveDraft(this.base, this.session(), draftId, signal);
+  }
+  saveProactiveDraft(draftId: string, edit: wire.ProactiveDraftEdit) {
+    return wire.saveProactiveDraft(this.base, this.session(), draftId, edit);
+  }
+  askToSendProactiveDraft(draftId: string) {
+    return wire.askToSendProactiveDraft(this.base, this.session(), draftId);
+  }
+  answerProactiveDraftSend(
+    draftId: string,
+    answer: wire.ProactiveDraftSendAnswer,
+  ) {
+    return wire.answerProactiveDraftSend(
+      this.base,
+      this.session(),
+      draftId,
+      answer,
+    );
+  }
+  proactivePreview(signal?: AbortSignal) {
+    return wire.getProactivePreview(this.base, this.session(), signal);
+  }
+  noteProactiveBoundary(boundary: wire.ProactiveBoundary) {
+    return wire.noteProactiveBoundary(this.base, this.session(), boundary);
+  }
+  rowBotSandboxes(signal?: AbortSignal) {
+    return wire.getRowBotSandboxes(this.base, this.session(), signal);
+  }
+  createRowBotSandbox(body: RowBotSandboxCreate) {
+    return wire.createRowBotSandbox(this.base, this.session(), body);
+  }
+  actOnRowBotSandbox(sandboxId: string, action: 'start' | 'stop' | 'reset') {
+    return wire.actOnRowBotSandbox(
+      this.base,
+      this.session(),
+      sandboxId,
+      action,
+    );
+  }
+  rowBotSandboxLink(sandboxId: string) {
+    return wire.rowBotSandboxLink(this.base, this.session(), sandboxId);
+  }
+  deleteRowBotSandbox(sandboxId: string) {
+    return wire.deleteRowBotSandbox(this.base, this.session(), sandboxId);
+  }
+  videoBrand(signal?: AbortSignal) {
+    return wire.getVideoBrand(this.base, this.session(), signal);
+  }
+  saveVideoBrand(brand: VideoBrand) {
+    return wire.saveVideoBrand(this.base, this.session(), brand);
+  }
+  exportVideoProject(projectId: string, shape: VideoProjectExport['shape']) {
+    return wire.exportVideoProject(this.base, this.session(), projectId, {
+      shape,
+    });
+  }
   pendingApprovals(signal?: AbortSignal) {
     return wire.getPendingApprovals(this.base, this.session(), signal);
+  }
+  scheduledPosts(signal?: AbortSignal) {
+    return wire.getScheduledPosts(this.base, this.session(), signal);
+  }
+  cancelScheduledPost(id: string) {
+    return wire.cancelScheduledPost(this.base, this.session(), id);
+  }
+  editScheduledPost(id: string, edit: wire.XPostEdit) {
+    return wire.editScheduledPost(this.base, this.session(), id, edit);
+  }
+  retryScheduledPost(id: string, withoutMedia: boolean) {
+    return wire.retryScheduledPost(this.base, this.session(), id, {
+      without_media: withoutMedia,
+    });
   }
   monitorLogs(limit = 200, signal?: AbortSignal) {
     return wire.getMonitorLogs(this.base, this.session(), limit, signal);
@@ -1226,6 +1352,15 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  startOpenRouterSignIn(signal?: AbortSignal) {
+    return wire.startOpenRouterSignIn(this.base, this.session(), signal);
+  }
+  openRouterSignIn(flow: string, signal?: AbortSignal) {
+    return wire.getOpenRouterSignIn(this.base, this.session(), flow, signal);
+  }
+  cancelOpenRouterSignIn(flow: string, signal?: AbortSignal) {
+    return wire.cancelOpenRouterSignIn(this.base, this.session(), flow, signal);
+  }
   cancelSubscriptionStart(command: string, signal?: AbortSignal) {
     return wire.cancelSubscriptionStart(
       this.base,
@@ -1359,6 +1494,9 @@ export class HttpTransport implements ClientTransport {
       scope?: 'installed' | 'catalog';
       cursor?: string;
       all?: 'true';
+      labels?: string;
+      runs?: 'anywhere' | 'hosted' | 'local';
+      no_sign_in?: 'true';
     },
     signal?: AbortSignal,
   ) {
@@ -1819,6 +1957,22 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  undoSettingChange(
+    conversation: string,
+    body: wire.SettingChangeUndoRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.undoSettingChange(
+      this.base,
+      this.session(),
+      conversation,
+      body,
+      signal,
+    );
+  }
+  guidePage(route: string, signal?: AbortSignal) {
+    return wire.getGuidePage(this.base, this.session(), route, signal);
+  }
   draft(conversation: string, signal?: AbortSignal) {
     return wire.getDraft(this.base, this.session(), conversation, signal);
   }
@@ -1931,6 +2085,65 @@ export class HttpTransport implements ClientTransport {
       provider,
       signal,
     );
+  }
+  claudeCodeInstall(signal?: AbortSignal) {
+    return wire.getClaudeCodeInstall(this.base, this.session(), signal);
+  }
+  installClaudeCode(update: boolean, signal?: AbortSignal) {
+    return wire.installClaudeCode(
+      this.base,
+      this.session(),
+      { update },
+      signal,
+    );
+  }
+  openClaudeSignIn(
+    cols: number,
+    rows: number,
+    switchAccount: boolean,
+    signal?: AbortSignal,
+  ) {
+    return wire.openClaudeSignIn(
+      this.base,
+      this.session(),
+      { cols, rows, switch_account: switchAccount },
+      signal,
+    );
+  }
+  readClaudeSignIn(signIn: string, cursor: number, signal?: AbortSignal) {
+    return wire.readClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      cursor,
+      signal,
+    );
+  }
+  writeClaudeSignIn(signIn: string, data: string, signal?: AbortSignal) {
+    return wire.writeClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      { data },
+      signal,
+    );
+  }
+  resizeClaudeSignIn(
+    signIn: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ) {
+    return wire.resizeClaudeSignIn(
+      this.base,
+      this.session(),
+      signIn,
+      { cols, rows },
+      signal,
+    );
+  }
+  closeClaudeSignIn(signIn: string, signal?: AbortSignal) {
+    return wire.closeClaudeSignIn(this.base, this.session(), signIn, signal);
   }
   savedEntities(
     query = '',
@@ -2285,6 +2498,247 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  memoryImportSources(signal?: AbortSignal) {
+    return wire.getMemoryImportSources(this.base, this.session(), signal);
+  }
+  beginMemoryImport(signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.beginMemoryImport(
+      this.base,
+      proof,
+      { client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  memoryImport(batch: string, signal?: AbortSignal) {
+    return wire.getMemoryImport(this.base, this.session(), batch, signal);
+  }
+  discardMemoryImport(batch: string, signal?: AbortSignal) {
+    return wire.discardMemoryImport(this.base, this.session(), batch, signal);
+  }
+  /** Send one export file, chunk by chunk; resolves to its file id. */
+  async uploadMemoryImportFile(
+    batch: string,
+    file: File,
+    progress?: (sent: number) => void,
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    signal?.throwIfAborted();
+    const name =
+      [...file.name.replace(/[\\/:\p{Cc}]/gu, '_')].slice(0, 200).join('') ||
+      'export';
+    const view = await wire.addMemoryImportFile(
+      this.base,
+      proof,
+      batch,
+      {
+        client_session_id: proof.client_session_id,
+        name,
+        size_bytes: file.size,
+      },
+      signal,
+    );
+    const step = view.chunk_bytes ?? 1048576;
+    let sent = view.received_bytes;
+    let failures = 0;
+    try {
+      while (sent < file.size) {
+        try {
+          const next = await wire.uploadMemoryImportChunk(
+            this.base,
+            proof,
+            batch,
+            view.file_id,
+            sent,
+            file.slice(sent, sent + step),
+            signal,
+          );
+          sent = next.received_bytes;
+          failures = 0;
+          progress?.(sent);
+        } catch (error) {
+          // A dropped connection or a busy server: carry on from what it has.
+          const retry =
+            error instanceof TypeError ||
+            (error as { retryable?: unknown }).retryable === true;
+          if (signal?.aborted || !retry || ++failures > 3) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 1000 * failures));
+          sent = (
+            await wire.getMemoryImportFile(
+              this.base,
+              proof,
+              batch,
+              view.file_id,
+              signal,
+            )
+          ).received_bytes;
+        }
+      }
+      return view.file_id;
+    } catch (error) {
+      await wire
+        .removeMemoryImportFile(this.base, proof, batch, view.file_id)
+        .catch(() => undefined);
+      throw error;
+    }
+  }
+  removeMemoryImportFile(batch: string, file: string, signal?: AbortSignal) {
+    return wire.removeMemoryImportFile(
+      this.base,
+      this.session(),
+      batch,
+      file,
+      signal,
+    );
+  }
+  addMemoryImportText(batch: string, text: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.addMemoryImportText(
+      this.base,
+      proof,
+      batch,
+      { client_session_id: proof.client_session_id, text },
+      signal,
+    );
+  }
+  memoryImportStep(
+    batch: string,
+    step: 'scan' | 'conversations' | 'cancel',
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    const body = { client_session_id: proof.client_session_id };
+    const send =
+      step === 'scan'
+        ? wire.scanMemoryImport
+        : step === 'conversations'
+          ? wire.findMemoryImportConversations
+          : wire.cancelMemoryImportStep;
+    return send(this.base, proof, batch, body, signal);
+  }
+  memoryImportCandidates(batch: string, signal?: AbortSignal) {
+    return wire.getMemoryImportCandidates(
+      this.base,
+      this.session(),
+      batch,
+      signal,
+    );
+  }
+  previewMemoryImport(
+    batch: string,
+    items: wire.MemoryImportPreviewRequest['items'],
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    return wire.previewMemoryImport(
+      this.base,
+      proof,
+      batch,
+      { client_session_id: proof.client_session_id, items },
+      signal,
+    );
+  }
+  memoryImportPreview(batch: string, signal?: AbortSignal) {
+    return wire.getMemoryImportPreview(
+      this.base,
+      this.session(),
+      batch,
+      signal,
+    );
+  }
+  applyMemoryImport(
+    batch: string,
+    command: Omit<wire.MemoryImportApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    return wire.applyMemoryImport(
+      this.base,
+      proof,
+      batch,
+      { ...command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  undoMemoryImport(batch: string, command: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.undoMemoryImport(
+      this.base,
+      proof,
+      batch,
+      { command_id: command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  memoryReviewOverview(importBatch?: string, signal?: AbortSignal) {
+    return wire.getMemoryReviewOverview(
+      this.base,
+      this.session(),
+      importBatch,
+      signal,
+    );
+  }
+  beginMemoryReview(importBatch?: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.beginMemoryReview(
+      this.base,
+      proof,
+      {
+        client_session_id: proof.client_session_id,
+        ...(importBatch ? { import_batch: importBatch } : {}),
+      },
+      signal,
+    );
+  }
+  memoryReview(run: string, signal?: AbortSignal) {
+    return wire.getMemoryReview(this.base, this.session(), run, signal);
+  }
+  discardMemoryReview(run: string, signal?: AbortSignal) {
+    return wire.discardMemoryReview(this.base, this.session(), run, signal);
+  }
+  cancelMemoryReview(run: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.cancelMemoryReview(
+      this.base,
+      proof,
+      run,
+      { client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  memoryReviewProposals(run: string, signal?: AbortSignal) {
+    return wire.getMemoryReviewProposals(
+      this.base,
+      this.session(),
+      run,
+      signal,
+    );
+  }
+  applyMemoryReview(
+    run: string,
+    command: Omit<wire.MemoryReviewApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    return wire.applyMemoryReview(
+      this.base,
+      proof,
+      run,
+      { ...command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
+  undoMemoryReview(run: string, command: string, signal?: AbortSignal) {
+    const proof = this.session();
+    return wire.undoMemoryReview(
+      this.base,
+      proof,
+      run,
+      { command_id: command, client_session_id: proof.client_session_id },
+      signal,
+    );
+  }
   insights(signal?: AbortSignal) {
     return wire.getInsights(this.base, this.session(), signal);
   }
@@ -2594,54 +3048,6 @@ export class HttpTransport implements ClientTransport {
       conversation,
       binding,
       body,
-      signal,
-    );
-  }
-  saveArtifactExport(
-    conversation: string,
-    binding: string,
-    exportId: string,
-    signal?: AbortSignal,
-  ) {
-    return wire.saveArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      exportId,
-      signal,
-    );
-  }
-  revealArtifactExport(
-    conversation: string,
-    binding: string,
-    exportId: string,
-    body: wire.ArtifactExportReveal,
-    signal?: AbortSignal,
-  ) {
-    return wire.revealArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      exportId,
-      body,
-      signal,
-    );
-  }
-  artifactDownload(
-    conversation: string,
-    binding: string,
-    descriptor: wire.ArtifactExport,
-    signal?: AbortSignal,
-  ) {
-    return wire.downloadArtifactExport(
-      this.base,
-      this.session(),
-      conversation,
-      binding,
-      descriptor,
-      sha256Hex,
       signal,
     );
   }
@@ -3256,6 +3662,9 @@ export class HttpTransport implements ClientTransport {
       reference,
       signal,
     );
+  }
+  createSaveOffer(body: wire.SaveOfferRequest, signal?: AbortSignal) {
+    return wire.createSaveOffer(this.base, this.session(), body, signal);
   }
   saveAttachmentExport(reference: string, signal?: AbortSignal) {
     return wire.saveAttachmentExport(

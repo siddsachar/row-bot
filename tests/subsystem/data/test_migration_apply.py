@@ -47,10 +47,15 @@ class MigrationApplyTests(unittest.TestCase):
             result = apply_migration_plan(plan)
 
             self.assertEqual(result.summary.errors, 0)
-            self.assertTrue((target / "identity" / "SOUL.md").is_file())
-            self.assertTrue((target / "memory" / "MEMORY.md").read_text(encoding="utf-8").find("Imported from") >= 0)
+            config = json.loads((target / "user_config.json").read_text(encoding="utf-8"))
+            self.assertIn("Calm, direct", config["identity"]["personality"])
             self.assertTrue((target / "skills" / "ship-it" / "SKILL.md").is_file())
-            self.assertTrue((target / "config" / "models.json").is_file())
+            self.assertTrue((target / "skills" / "instructions-from-hermes" / "SKILL.md").is_file())
+            self.assertEqual(json.loads((target / "model_settings.json").read_text(encoding="utf-8"))["model"],
+                             "model:openai:gpt-5.4")
+            # Nothing lands in side files that Row-Bot never reads.
+            for dead in ("identity", "memory", "config"):
+                self.assertFalse((target / dead).exists(), dead)
             self.assertFalse((target / "api_keys.json").exists())
             self.assertTrue((result.report_dir / "archive" / "logs" / "hermes.log").is_file())
             self.assertTrue((result.report_dir / "plan.json").is_file())
@@ -76,14 +81,18 @@ class MigrationApplyTests(unittest.TestCase):
             source = create_realistic_hermes_home(root / ".hermes")
             target = root / "target"
             plan = build_hermes_plan(source, target_root=target)
-            _write(target / "identity" / "SOUL.md", "# Existing persona\n")
+            existing = {"identity": {"name": "Rowan", "personality": "Existing persona."}, "theme": "dark"}
+            _write(target / "user_config.json", json.dumps(existing))
             result = apply_migration_plan(plan)
 
             self.assertTrue(result.backup_dir)
-            backup = result.backup_dir / "identity" / "SOUL.md"
+            backup = result.backup_dir / "user_config.json"
             self.assertTrue(backup.is_file())
-            self.assertEqual(backup.read_text(encoding="utf-8"), "# Existing persona\n")
-            self.assertNotEqual((target / "identity" / "SOUL.md").read_text(encoding="utf-8"), "# Existing persona\n")
+            self.assertEqual(json.loads(backup.read_text(encoding="utf-8")), existing)
+            saved = json.loads((target / "user_config.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["theme"], "dark")
+            self.assertEqual(saved["identity"]["name"], "Rowan")
+            self.assertNotEqual(saved["identity"]["personality"], "Existing persona.")
             self.assertTrue(result.backup_manifest)
 
     def test_secret_apply_requires_explicit_secret_plan(self) -> None:
@@ -112,25 +121,51 @@ class MigrationApplyTests(unittest.TestCase):
         finally:
             secret_store._set_backend_for_tests(None)
 
-    def test_openclaw_daily_memory_import_uses_markdown_target(self) -> None:
-        from row_bot.migration import apply_migration_plan, build_openclaw_plan
+    def test_openclaw_memory_files_and_daily_notes_go_to_review_together(self) -> None:
+        import os
+        from unittest import mock
+
+        from row_bot.migration import MigrationApplyOptions, MigrationStatus, apply_migration_plan, build_openclaw_plan
         from row_bot.migration.fixtures import create_realistic_openclaw_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = create_realistic_openclaw_home(root / ".openclaw")
-            target = root / "target"
-            plan = build_openclaw_plan(source, target_root=target)
-            result = apply_migration_plan(plan)
+            target = root / "profile"
+            target.mkdir()
+            staged: list[list[str]] = []
+            # The target is this Row-Bot's own data folder, where memories go to be reviewed.
+            with mock.patch.dict(os.environ, {"ROW_BOT_DATA_DIR": str(target)}):
+                plan = build_openclaw_plan(source, target_root=target)
+                memories = [item.id for item in plan.items if item.category.value == "memories"]
+                result = apply_migration_plan(plan, MigrationApplyOptions(stage_memories=lambda files: (
+                    staged.append(sorted(path.name for path in files)) or {"batch_id": "a" * 32, "found": 7})))
 
-            daily_memory = target / "memory" / "daily-memory.md"
-            legacy_daily_path = target / "memory" / "daily"
-            daily_memory_text = daily_memory.read_text(encoding="utf-8")
+            self.assertEqual(memories, ["memories:memory.md", "memories:user.md", "memories:daily-notes"])
+            self.assertEqual(staged, [["2026-02-27.md", "2026-03-19.md", "2026-04-11.md", "MEMORY.md", "USER.md"]])
+            self.assertEqual(result.memory_review, {"batch_id": "a" * 32, "found": 7})
+            self.assertTrue(all(item.status == MigrationStatus.MIGRATED for item in result.items
+                                if item.category.value == "memories"))
+            self.assertFalse((target / "memory").exists())
 
-            self.assertEqual(result.summary.errors, 0)
-            self.assertTrue(daily_memory.is_file())
-            self.assertFalse(legacy_daily_path.exists())
-            self.assertIn("2026-02.md", daily_memory_text)
+    def test_memories_are_not_applied_without_the_review_queue(self) -> None:
+        from row_bot.migration import MigrationStatus, apply_migration_plan, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = create_realistic_hermes_home(root / ".hermes")
+            plan = build_hermes_plan(source, target_root=root / "target")
+            memories = [item for item in plan.items if item.category.value == "memories"]
+            # Somewhere else than this Row-Bot's data folder they are listed, never chosen.
+            self.assertTrue(memories)
+            self.assertTrue(all(item.action.value == "manual_review" and not item.selected for item in memories))
+            chosen = plan.__class__(source=plan.source, items=tuple(item.with_selection(True) for item in memories),
+                                    metadata=dict(plan.metadata))
+            result = apply_migration_plan(chosen)
+
+        self.assertTrue(all(item.status == MigrationStatus.SKIPPED for item in result.items))
+        self.assertIsNone(result.memory_review)
 
     def test_multiple_secret_writes_backup_original_api_key_file_once(self) -> None:
         from row_bot.migration import apply_migration_plan, build_hermes_plan

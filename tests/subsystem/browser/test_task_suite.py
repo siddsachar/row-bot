@@ -34,6 +34,8 @@ def world(tmp_path, monkeypatch):
         pytest.skip("No browser runtime is installed")
     monkeypatch.setenv("ROW_BOT_PORT", "8080")
     monkeypatch.setattr(service, "PROFILE_DIR", tmp_path / "profile")
+    # The person's typing holds Row-Bot's next step until they're still; a short still keeps the suite quick.
+    monkeypatch.setattr(service, "PERSON_STILL_SECONDS", 0.3)
     state = SimpleNamespace(mode="ask", answer=True, asked=[], reviewed=[], steps=0,
                             verdict=ReviewVerdict("approve", "The person asked to book the plumber and pay the excess."))
     monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: state.mode)
@@ -87,8 +89,8 @@ def person_types(world, selector: str, text: str, *, frame: str = "", enter: boo
         events += [{"type": "key", "action": "down", "key": character}, {"type": "key", "action": "up", "key": character}]
     if enter:
         events += [{"type": "key", "action": "down", "key": "Enter"}, {"type": "key", "action": "up", "key": "Enter"}]
-    assert engine.person_input(world.chat, events) == "ok"
-    assert engine.person_has_control(world.chat)
+    assert engine.person_input(world.chat, events)["status"] == "ok"
+    assert engine.person_still_for(world.chat) < 1  # Row-Bot's next step waits until they're still.
 
 
 def sign_in(world) -> str:
@@ -100,7 +102,6 @@ def sign_in(world) -> str:
     assert "never types passwords" in refused
     assert world.engine.pane_state(world.chat)["sign_in"] == "password"
     person_types(world, "#password", PASSWORD, frame="/widget")
-    world.engine.give_back(world.chat)
     return world.agent("browser_wait_for", text="Your cover")
 
 
@@ -159,7 +160,6 @@ def test_a_multi_step_claim_from_problem_to_payment_and_summary(world):
     person_types(world, "#card", "4242424242424242", enter=False)
     person_types(world, "#expiry", "12/30", enter=False)
     person_types(world, "#cvc", "123", enter=False)
-    world.engine.give_back(world.chat)
     asked_before = len(world.asked)
     page = world.agent("browser_click", ref=ref(page, r'button "Confirm and pay'))
     payment = world.asked[asked_before]
@@ -184,7 +184,6 @@ def _to_payment(world) -> str:
     page = world.agent("browser_wait_for", text="Available slots")
     page = world.agent("browser_click", ref=ref(page, r'button "Tomorrow 8am'))
     person_types(world, "#card", "4242424242424242", enter=False)
-    world.engine.give_back(world.chat)
     return page
 
 

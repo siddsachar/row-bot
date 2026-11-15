@@ -142,14 +142,16 @@ test('twenty actual conversation preference openings and theme changes commit wi
             .__QA_PREFERENCE_COMMIT__,
       ),
     );
-    const choice = page.getByRole('combobox', {
-      name: 'Appearance',
+    const appearance = index % 2 ? 'light' : 'dark';
+    // The look is chosen from its card (U37): time the click to the next frame.
+    const choice = page.getByRole('button', {
+      name: appearance === 'light' ? 'Light' : 'Dark',
       exact: true,
     });
     await choice.evaluate((element) => {
       Object.assign(window, { __QA_THEME_COMMIT__: null });
       element.addEventListener(
-        'change',
+        'click',
         () => {
           const start = performance.now();
           requestAnimationFrame(() =>
@@ -161,8 +163,7 @@ test('twenty actual conversation preference openings and theme changes commit wi
         { once: true },
       );
     });
-    const appearance = index % 2 ? 'light' : 'dark';
-    await choice.selectOption(appearance);
+    await choice.click();
     await expect(page.locator('html')).toHaveAttribute(
       'data-theme',
       appearance,
@@ -723,7 +724,7 @@ test('cold and warm usable shell samples', async ({
       fresh.getByRole('dialog', { name: 'Preferences', exact: true }),
     ).toBeVisible();
     await expect(
-      fresh.getByRole('combobox', { name: 'Appearance', exact: true }),
+      fresh.getByRole('button', { name: 'Dark', exact: true }),
     ).toBeVisible();
     cold.push(performance.now() - started);
     expect(errors).toEqual([]);
@@ -741,7 +742,7 @@ test('cold and warm usable shell samples', async ({
       page.getByRole('dialog', { name: 'Preferences', exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole('combobox', { name: 'Appearance', exact: true }),
+      page.getByRole('button', { name: 'Dark', exact: true }),
     ).toBeVisible();
     warm.push(performance.now() - started);
   }
@@ -784,26 +785,27 @@ test('theme commits and reconnect complete within measured foreground budgets', 
   await page.getByRole('button', { name: 'Preferences', exact: true }).click();
   const samples: number[] = [];
   for (let sample = 0; sample < 20; sample += 1) {
-    await page
-      .getByRole('combobox', { name: 'Appearance', exact: true })
-      .evaluate((element) => {
-        element.addEventListener(
-          'change',
-          () => {
-            const start = performance.now();
-            requestAnimationFrame(() =>
-              Object.assign(window, {
-                __QA_THEME_COMMIT__: performance.now() - start,
-              }),
-            );
-          },
-          { once: true },
-        );
-        Object.assign(window, { __QA_THEME_COMMIT__: null });
-      });
-    await page
-      .getByRole('combobox', { name: 'Appearance', exact: true })
-      .selectOption(sample % 2 ? 'light' : 'dark');
+    // The look is chosen from its card (U37): time the click to the next frame.
+    const card = page.getByRole('button', {
+      name: sample % 2 ? 'Light' : 'Dark',
+      exact: true,
+    });
+    await card.evaluate((element) => {
+      element.addEventListener(
+        'click',
+        () => {
+          const start = performance.now();
+          requestAnimationFrame(() =>
+            Object.assign(window, {
+              __QA_THEME_COMMIT__: performance.now() - start,
+            }),
+          );
+        },
+        { once: true },
+      );
+      Object.assign(window, { __QA_THEME_COMMIT__: null });
+    });
+    await card.click();
     await page.waitForFunction(
       () =>
         typeof (window as unknown as { __QA_THEME_COMMIT__: unknown })

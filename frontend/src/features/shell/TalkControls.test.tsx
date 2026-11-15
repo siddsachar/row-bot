@@ -66,11 +66,11 @@ const snapshot: TalkSnapshot = {
   },
   state: 'listening',
   quiesced: true,
-  expires_in_ms: 120_000,
+  expires_in_ms: 360_000,
   run_id: null,
   transport: 'browser_local',
-  max_audio_bytes: 8_388_608,
-  max_utterance_ms: 30_000,
+  max_audio_bytes: 33_554_432,
+  max_utterance_ms: 300_000,
 };
 let media: ReturnType<typeof vi.fn>;
 let track: { stop: ReturnType<typeof vi.fn>; onended: (() => void) | null };
@@ -397,4 +397,20 @@ it('terminal heartbeat stops capture even when its expiry is still positive', as
   expect(track.stop).toHaveBeenCalled();
   expect(p.stop).toHaveBeenCalledWith(snapshot.handle);
   expect(screen.getByRole('button', { name: 'Talk' })).toBeVisible();
+});
+
+it('starts listening at once when opened by the one-tap Talk, and only then', async () => {
+  const p = props();
+  render(<TalkControls {...p} startOnMount />);
+  await screen.findByRole('button', { name: 'Send speech' });
+  expect(p.start).toHaveBeenCalledTimes(1);
+  expect(media).toHaveBeenCalledTimes(1);
+});
+
+it('a one-tap open that may not start yet stays idle and says why', async () => {
+  const p = props();
+  render(<TalkControls {...p} startOnMount disabled />);
+  expect(screen.getByRole('button', { name: 'Talk' })).toBeDisabled();
+  expect(p.start).not.toHaveBeenCalled();
+  expect(media).not.toHaveBeenCalled();
 });

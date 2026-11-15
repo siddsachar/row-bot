@@ -12,6 +12,13 @@ documented build/synchronization workflow. The root marketing files
 `404.html`, `site.css`, `site.js`, and their media) are deliberately outside
 the synchronization script's ownership.
 
+The published site is rebuilt once per release, not in each pull request:
+`scripts/cut_release.py` runs `python scripts/docs/publish.py`, which
+regenerates the reference pages, builds this site and syncs it into `docs/`.
+Pull requests change only this source. To publish a docs fix between releases,
+run the same command and open a pull request with the result. The landing page
+changes by hand after a release, in a pull request labelled `landing`.
+
 ## Local Preview
 
 ```powershell

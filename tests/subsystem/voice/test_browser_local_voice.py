@@ -91,6 +91,7 @@ class _TTS:
     def __init__(self, *, ready: bool = True) -> None:
         self.ready = ready
         self.texts: list[str] = []
+        self.voices: list[str | None] = []
         self.output = _wav()
 
     def is_installed(self) -> bool:
@@ -99,8 +100,9 @@ class _TTS:
     def reload_settings(self) -> None:
         pass
 
-    def synthesize_wav_bytes(self, text: str) -> bytes:
+    def synthesize_wav_bytes(self, text: str, *, voice: str | None = None, **_options) -> bytes:
         self.texts.append(text)
+        self.voices.append(voice)
         return self.output
 
     def download_model(self, _progress=None) -> None:

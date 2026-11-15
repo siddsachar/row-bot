@@ -12,28 +12,28 @@ CSS = (ROOT / "docs" / "site.css").read_text(encoding="utf-8")
 JS = (ROOT / "docs" / "site.js").read_text(encoding="utf-8")
 
 INDEX_WINDOWS_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.0/"
-    "Row-Bot-5.3.0-Windows-x64.exe"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.3/"
+    "Row-Bot-5.3.3-Windows-x64.exe"
 )
 INDEX_MAC_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.0/"
-    "Row-Bot-5.3.0-macOS-arm64.dmg"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.3/"
+    "Row-Bot-5.3.3-macOS-arm64.dmg"
 )
 INDEX_LINUX_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/"
-    "installer/install-linux.sh | bash -s -- 5.3.0"
+    "installer/install-linux.sh | bash -s -- 5.3.3"
 )
 SITE_WINDOWS_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.0/"
-    "Row-Bot-5.3.0-Windows-x64.exe"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.3/"
+    "Row-Bot-5.3.3-Windows-x64.exe"
 )
 SITE_MAC_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.0/"
-    "Row-Bot-5.3.0-macOS-arm64.dmg"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.3/"
+    "Row-Bot-5.3.3-macOS-arm64.dmg"
 )
 SITE_LINUX_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/"
-    "installer/install-linux.sh | bash -s -- 5.3.0"
+    "installer/install-linux.sh | bash -s -- 5.3.3"
 )
 MARKETING_PAGES = ("index.html", "features.html", "architecture.html", "contact.html", "404.html")
 
@@ -92,8 +92,8 @@ def test_landing_page_is_evergreen_and_current() -> None:
     )
     assert json_ld_match
     metadata = json.loads(json_ld_match.group(1))
-    assert metadata["softwareVersion"] == "5.3.0"
-    assert metadata["downloadUrl"].endswith("/releases/tag/v5.3.0")
+    assert metadata["softwareVersion"] == "5.3.3"
+    assert metadata["downloadUrl"].endswith("/releases/tag/v5.3.3")
 
     parser = _parse()
     assert all(image.get("width") and image.get("height") for image in parser.images)
@@ -104,8 +104,8 @@ def test_landing_page_is_evergreen_and_current() -> None:
         "faq",
         "install",
     ]
-    assert "Row-Bot 5.3.0 available" in HTML
-    assert "Row-Bot &middot; v5.3.0 &middot; Apache 2.0" in HTML
+    assert "Row-Bot 5.3.3 available" in HTML
+    assert "Row-Bot &middot; v5.3.3 &middot; Apache 2.0" in HTML
     assert 'src="media/landing-story/screenshots/research.webp"' in HTML
     assert "One private workspace to reason, build, automate, and act." in HTML
     assert "Row-Bot · Real app capture" in HTML
@@ -145,9 +145,11 @@ def test_mobile_handoff_and_product_media_contracts() -> None:
     assert "document.execCommand?.('copy')" in JS
 
     parser = _parse()
-    # On a phone the hero's download button hands off to desktop; its partner opens the demos.
+    # On a phone the hero's download button opens Row-Bot in the browser (the Railway page); its partner
+    # hands off to the desktop (landing_page_runtime_test.cjs runs the switch).
     hero_primary = next(link for link in parser.links if link.get("data-placement") == "hero")
-    assert hero_primary.get("data-mobile-target") == "install"
+    assert hero_primary.get("data-mobile-href") == "railway/"
+    assert hero_primary.get("data-mobile-label") == "Run in your browser"
     video_images = [image for image in parser.images if image.get("src", "").startswith("media/landing-story/demos/")]
     deferred_images = [image for image in parser.images if image.get("data-src", "").startswith("media/landing-story/demos/")]
     assert len(video_images) == len(deferred_images) == 4
@@ -279,11 +281,11 @@ def test_marketing_pages_share_analytics_and_download_conversion_contract() -> N
     assert "data-row-bot-google-tag" in JS
     assert "trackAdsConversion" in JS
 
-    cache_versions = {name: "5.3.0" for name in MARKETING_PAGES}
+    cache_versions = {name: "5.3.3" for name in MARKETING_PAGES}
     for name in MARKETING_PAGES:
         content = (ROOT / "docs" / name).read_text(encoding="utf-8")
         version = cache_versions[name]
-        assert f'src="site.js?v={version}"' in content, name
+        assert f'src="site.js?v={version}-r1"' in content, name
         assert f'href="site.css?v={version}-r1"' in content, name
         assert "googletagmanager.com/gtag/js" not in content, name
 

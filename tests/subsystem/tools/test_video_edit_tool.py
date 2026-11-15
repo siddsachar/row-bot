@@ -84,6 +84,10 @@ def studio(tmp_path, monkeypatch, reload_for_data_dir):
         for arg in argv:
             if arg.startswith("file:") and argv[argv.index(arg) - 1] != "-i":
                 name = arg[len("file:"):]
+                if "%02d" in name:  # One read that picks a still at each time (stills_arguments).
+                    for number in range(1, " ".join(argv).count("gte(t,") + 1):
+                        (root / (name % number)).write_bytes(_jpeg())
+                    continue
                 (root / name).write_bytes(_jpeg() if name.endswith(".jpg") else MP4)
         tracked.on_output("stdout", "out_time_us=3000000\nprogress=end\n")
         tracked.exit(0)
@@ -240,9 +244,9 @@ def test_an_earlier_edit_can_be_edited_again_without_replacing_it(studio):
     first = _edit_id(studio.edit(inputs=["demo.mp4"], name="demo"))
     second = studio.edit(inputs=[first], steps=[{"op": "text", "text": "v2"}], name="demo")
 
-    assert ": saved" in second
+    assert "to this chat's files as demo-3.mp4" in second  # Each file in a chat has its own name.
     names = [item["name"] for item in list_conversation_files(studio.chat)]
-    assert names.count("demo.mp4") == 3  # The original, the first edit and the second: none replaced.
+    assert sorted(names) == ["demo-2.mp4", "demo-3.mp4", "demo.mp4"]  # None replaced; each has its own name.
 
 
 def test_saving_into_the_workspace_writes_a_new_file_and_replacing_one_asks(studio):
@@ -285,12 +289,27 @@ def test_frames_are_saved_as_stills_with_one_contact_sheet(studio):
 
     assert ": saved 3 frames (at 0:01, 0:03, 0:05)" in result
     assert "files=['edit-" in result
+    # R4: a contact sheet can't show UI text; the result names the full-size stills to read it from.
+    assert "full-size still (frame-01.jpg to frame-03.jpg)" in result
     files = list_conversation_files(studio.chat)
     assert sorted(item["name"] for item in files if item["name"].startswith("frame")) == [
         "frame-01.jpg", "frame-02.jpg", "frame-03.jpg"]
     edit = studio.edits.get(_edit_id(result))
     view = studio.edits.view(edit)
     assert (view["kind"], view["frame_count"], view["mime_type"]) == ("frames", 3, "image/jpeg")
+
+
+def test_many_frames_are_picked_in_one_read_of_the_video(studio):
+    """R5: 18 to 34 times opened the video once each and failed ("no details"); past a few, one read picks them."""
+    from row_bot.application.attachments import list_conversation_files
+
+    result = studio.edit(action="frames", inputs=["demo.mp4"], times=[0.25 * step for step in range(1, 21)])
+
+    assert ": saved 20 frames" in result
+    argv = studio.started[-1]["argv"]
+    assert argv.count("-i") == 1, "the video is read once"
+    names = sorted(item["name"] for item in list_conversation_files(studio.chat) if item["name"].startswith("frame-"))
+    assert names[0] == "frame-01.jpg" and names[-1] == "frame-20.jpg" and len(names) == 20
 
 
 def test_a_failed_edit_says_what_ffmpeg_said(studio):
@@ -309,7 +328,7 @@ def test_a_result_too_large_for_the_chat_says_how_to_make_it_smaller(studio, mon
 
     result = studio.edit(inputs=["clips/intro.mp4"])
 
-    assert "more than a chat can hold (25 MB)" in result
+    assert "more than a chat can hold" in result
     assert studio.edits.get(_edit_id(result)).problem == "too_large"
 
 
@@ -395,3 +414,31 @@ def test_the_tool_waits_for_and_stops_an_edit_by_its_id(studio, monkeypatch):
 
     assert "carries on in the background" in studio.edit(action="status", edit_id=edit_id)
     assert studio.edit(action="stop", edit_id=edit_id).endswith("stopped by you; nothing was saved.")
+
+
+def test_a_result_name_keeps_its_apostrophe_and_drops_what_files_cant_hold():
+    """U28: "Mountain's" stays "Mountain's", never "Mountain-s"; a curly apostrophe becomes a plain one."""
+    from row_bot.tools.video_editing_tool import output_name
+
+    assert output_name("Find a Mountain's Height on Wikipedia v3", default="video") == (
+        "Find a Mountain's Height on Wikipedia v3.mp4")
+    assert output_name("Ana’s demo: take 2?", default="video") == "Ana's demo- take 2.mp4"
+    assert output_name("'quoted'", default="video") == "quoted.mp4"
+
+
+def test_a_cut_with_nothing_to_hear_says_it_has_no_sound(studio, monkeypatch):
+    """A demo cut only from screen recordings (which have no sound) went out to X silent twice, with nothing in
+    the result to say so (3 Nov). The result now says it, and the edit remembers it."""
+    from row_bot import sound
+
+    heard = {"value": False}
+    monkeypatch.setattr(sound, "has_sound", lambda _path: heard["value"])
+
+    silent = studio.edit(inputs=["demo.mp4"], steps=[{"op": "speed", "start": 1, "end": 3, "factor": 4}],
+                         name="demo cut")
+    assert "It has no sound: whoever watches it hears nothing." in silent
+    edit = studio.edits.get(_edit_id(silent))
+    assert edit.silent and studio.edits._load(studio.edits._record_path(edit)).silent, "kept with the edit"
+
+    heard["value"] = True
+    assert "no sound" not in studio.edit(inputs=["demo.mp4"], name="narrated")

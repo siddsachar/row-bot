@@ -7,11 +7,12 @@ async function expectSingleToolbarRow(page: import('@playwright/test').Page) {
   await expect(toolbar).toBeAttached();
   const layout = await toolbar.evaluate((element) => {
     const composer = element.closest('.composer')!;
-    // A one-line composer places +, the field and the actions in the field's
-    // grid (the toolbar is display: contents); compare their centres.
+    // A narrow composer is two rows in the field's grid (the toolbar is
+    // display: contents): the text full width, then + and the actions on
+    // one line beneath it; compare that line's centres.
     const single = composer.hasAttribute('data-single-line');
     const row = single
-      ? ['.composer-control-cluster', '.message-composer', '.composer-actions']
+      ? ['.composer-control-cluster', '.composer-actions']
           .map((selector) => composer.querySelector(selector)!)
           .filter(Boolean)
       : Array.from(element.children).filter(
@@ -21,7 +22,15 @@ async function expectSingleToolbarRow(page: import('@playwright/test').Page) {
       ? composer.querySelector('.composer-field')!
       : element;
     const bounds = row.map((child) => child.getBoundingClientRect());
+    const text = composer.querySelector('.message-composer')!;
+    const textBox = text.getBoundingClientRect();
     return {
+      textAbove:
+        !single ||
+        textBox.bottom <= Math.min(...bounds.map((box) => box.top)) + 1,
+      textShare: single
+        ? textBox.width / container.getBoundingClientRect().width
+        : 1,
       tops: bounds.map((box) => (single ? box.top + box.height / 2 : box.top)),
       right: Math.max(...bounds.map((box) => box.right)),
       toolbarRight: container.getBoundingClientRect().right,
@@ -31,6 +40,8 @@ async function expectSingleToolbarRow(page: import('@playwright/test').Page) {
     };
   });
   expect(Math.max(...layout.tops) - Math.min(...layout.tops)).toBeLessThan(8);
+  expect(layout.textAbove).toBe(true);
+  expect(layout.textShare).toBeGreaterThan(0.85);
   expect(layout.right).toBeLessThanOrEqual(layout.toolbarRight + 1);
   expect(layout.overflow).toBe('visible');
   expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
@@ -232,7 +243,7 @@ test('context card and composer stay compact through panels, narrowing, keyboard
     ).toBeVisible();
     await extras.click();
   }
-  // 700px at 200% zoom is a 350px composer: one line, with approvals, the
+  // 700px at 200% zoom is a 350px composer: two rows, with approvals, the
   // model and context usage in + (the mode switches after the zoom lands).
   await expect(page.locator('.composer').first()).toHaveAttribute(
     'data-single-line',
@@ -257,7 +268,7 @@ test('context card and composer stay compact through panels, narrowing, keyboard
   await screenshot(page, info, 'slice6-zoom-200');
 });
 
-test('Conversation details keep a rail beside the reading column at desktop widths, and open on demand in a narrower chat (U3)', async ({
+test('Conversation details float as a card on a wide window, keep a rail where a card would cover the column, and open on demand in a narrower chat (U3, U21)', async ({
   page,
 }, info) => {
   test.skip(
@@ -292,10 +303,17 @@ test('Conversation details keep a rail beside the reading column at desktop widt
     name: 'Conversation details',
     exact: true,
   });
+  const floated: number[] = [];
   for (const width of [1024, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(card).toBeVisible();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // Measured once the card has finished appearing (it pops in as a card).
+    await card.evaluate((element) =>
+      Promise.all(
+        element.getAnimations().map((animation) => animation.finished),
+      ),
+    );
     const layout = await page.evaluate(() => {
       const box = (element: Element) => element.getBoundingClientRect();
       const transcript = document.querySelector<HTMLElement>('.transcript')!;
@@ -311,14 +329,49 @@ test('Conversation details keep a rail beside the reading column at desktop widt
         card: box(document.querySelector('.context-card')!),
         composer: box(document.querySelector('.composer')!),
         buttonsBottom: Math.max(...buttons.map((button) => button.bottom)),
+        buttonsRight: Math.max(...buttons.map((button) => button.right)),
         texts: Array.from(
           document.querySelectorAll('.transcript .message-text'),
         ).map(box),
       };
     });
-    // The rail is anchored: under the header's buttons, flush with the
-    // conversation's right edge and down to its foot.
     expect(layout.card.top).toBeGreaterThanOrEqual(layout.buttonsBottom);
+    expect(layout.texts.length).toBeGreaterThan(0);
+    const text = layout.texts[0];
+    // The chat's own width decides (isRoomyChat): the sidebar takes part of the window.
+    if (layout.conversation.width >= 1100) {
+      floated.push(width);
+      // A wide window (U21): a card under the header's buttons, its right
+      // edge on theirs, content height above the composer; the transcript
+      // scrolls the whole width and no line runs under the card.
+      await expect(page.locator('.chat-workspace')).toHaveClass(
+        /details-float/,
+      );
+      expect(
+        Math.abs(layout.buttonsRight - layout.card.right),
+      ).toBeLessThanOrEqual(3);
+      expect(layout.card.bottom).toBeLessThanOrEqual(layout.composer.top);
+      expect(
+        Math.abs(layout.transcript.right - layout.conversation.right),
+      ).toBeLessThanOrEqual(1);
+      for (const line of layout.texts.filter(
+        (box) => box.top < layout.card.bottom && box.bottom > layout.card.top,
+      ))
+        expect(line.right).toBeLessThanOrEqual(layout.card.left);
+      expect(
+        Math.max(...layout.texts.map((box) => box.width)),
+      ).toBeGreaterThanOrEqual(640);
+      await screenshot(page, info, `u21-details-${width}`);
+      if (width === 1440) {
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await screenshot(page, info, `u21-details-${width}-dark`);
+        await page.emulateMedia({ colorScheme: 'light' });
+      }
+      continue;
+    }
+    // Less room: the rail is anchored under the header's buttons, flush with
+    // the conversation's right edge and down to its foot (U3).
+    await expect(page.locator('.chat-workspace')).toHaveClass(/details-rail/);
     expect(
       Math.abs(layout.card.right - layout.conversation.right),
     ).toBeLessThanOrEqual(1);
@@ -331,13 +384,14 @@ test('Conversation details keep a rail beside the reading column at desktop widt
     ).toBeLessThanOrEqual(1);
     expect(layout.composer.right).toBeLessThanOrEqual(layout.card.left + 1);
     // The reading column centres in the width left beside the rail.
-    expect(layout.texts.length).toBeGreaterThan(0);
-    const text = layout.texts[0];
     const left = text.left - layout.transcript.left;
     const right = layout.transcript.right - layout.scrollbar - text.right;
     expect(Math.min(left, right)).toBeGreaterThan(0);
     await screenshot(page, info, `u3-details-${width}`);
   }
+  // A 1024px window keeps the rail, and the widest floats the card.
+  expect(floated).not.toContain(1024);
+  expect(floated).toContain(1920);
   // A 900px window leaves no room for the rail beside a comfortable column:
   // the transcript keeps the width and the details open on demand.
   await page.setViewportSize({ width: 900, height: 768 });

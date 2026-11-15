@@ -223,6 +223,40 @@ describe('stats', () => {
   });
 });
 
+describe('public totals', () => {
+  const totalsPage = (options = {}) => send('/v1/totals', null, { method: 'GET', ...options });
+
+  it('gives the 7- and 15-day totals overall and by system to anyone, and nothing else', async () => {
+    const today = dayOf(Date.now());
+    await seed('a', today);
+    await seed('b', before(today, 6), '5.3.0', 'macos');
+    await seed('c', before(today, 9), '5.2.1', 'linux');
+    await env.DB.prepare('INSERT INTO countries (day, country, installs) VALUES (?1, ?2, ?3)').bind(today, 'GB', 2).run();
+    const response = await totalsPage();
+    expect(response.status).toBe(200);
+    // No token, and no versions, countries or days beyond the date it counts to.
+    expect(await response.json()).toEqual({
+      active_7d: 2,
+      active_15d: 3,
+      by_os: {
+        windows: { active_7d: 1, active_15d: 1 },
+        macos: { active_7d: 1, active_15d: 1 },
+        linux: { active_7d: 0, active_15d: 1 },
+      },
+      as_of: today,
+    });
+  });
+
+  it('only reads, and is rate-limited like a ping', async () => {
+    expect((await send('/v1/totals', {}, { method: 'POST' })).status).toBe(405);
+    const from = address();
+    const answers = [];
+    for (let i = 0; i < 21; i++) answers.push((await totalsPage({ from })).status);
+    expect(answers.slice(0, 20).every((status) => status === 200)).toBe(true);
+    expect(answers[20]).toBe(429);
+  });
+});
+
 describe('countries', () => {
   /** A ping as Cloudflare hands it to the Worker, with the country it worked out. */
   const pingFrom = async (country, install) =>

@@ -50,9 +50,10 @@ def test_explicit_settings_save_preserves_messages_schedule_delivery_and_run_sta
     tasks.update_task(task_id, schedule="daily:08:00", channels=[])
     before = tasks.get_task(task_id)
     result = save(review(owner, missed_runs="run_once", approval_mode="approve",
-                        model_override="model:synthetic:agent"))
+                        model_override="model:synthetic:agent", send_results="digest"))
     after = tasks.get_task(task_id)
     assert result.fields.missed_runs == "run_once"
+    assert result.fields.send_results == after["send_results"] == "digest"
     assert result.conversation_id is None, "saving settings never makes a conversation"
     assert after["prompts"] == before["prompts"] and after["schedule"] == "daily:08:00"
     assert after["channels"] == [] and not after["enabled"]

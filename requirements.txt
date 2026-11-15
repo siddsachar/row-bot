@@ -24,8 +24,8 @@ av==17.1.0
 babel==2.18.0
 beautifulsoup4==4.15.0
 bottle==0.13.4
-brotli==1.2.0 ; platform_python_implementation == 'CPython'
-brotlicffi==1.2.0.1 ; platform_python_implementation != 'CPython'
+brotli==1.2.1 ; platform_python_implementation == 'CPython'
+brotlicffi==1.2.1.0 ; platform_python_implementation != 'CPython'
 certifi==2026.10.19
 cffi==2.0.0
 charset-normalizer==3.4.7
@@ -53,11 +53,11 @@ fake-useragent==2.2.0
 fastapi==0.138.0
 faster-whisper==1.2.1
 feedparser==6.0.12
-filelock==3.29.4
+filelock==4.2.4
 filetype==1.2.0
 flatbuffers==25.12.19
 fonttools==4.63.0
-fpdf2==2.8.7
+fpdf2==2.8.9
 frozenlist==1.8.0
 fsspec==2026.6.0
 funasr==1.3.22 ; platform_machine != 'x86_64' or sys_platform != 'darwin'
@@ -82,7 +82,7 @@ httplib2==0.32.0
 httpx==0.28.1
 httpx-sse==0.4.3
 huggingface-hub==1.27.0
-hydra-core==1.3.7 ; platform_machine != 'x86_64' or sys_platform != 'darwin'
+hydra-core==1.3.8 ; platform_machine != 'x86_64' or sys_platform != 'darwin'
 hyperframe==6.1.0
 idna==3.18
 isodate==0.7.2
@@ -121,9 +121,9 @@ langchain-openrouter==0.2.3
 langchain-protocol==0.0.18
 langchain-text-splitters==1.1.2
 langchain-xai==1.2.2
-langgraph==1.2.6
-langgraph-checkpoint==4.1.1
-langgraph-checkpoint-sqlite==3.1.1
+langgraph==1.2.18
+langgraph-checkpoint==4.3.1
+langgraph-checkpoint-sqlite==3.1.2
 langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.6
 langsmith==0.8.18
@@ -142,7 +142,7 @@ modelscope==1.38.1 ; platform_machine != 'x86_64' or sys_platform != 'darwin'
 modelscope-hub==0.1.7 ; platform_machine != 'x86_64' or sys_platform != 'darwin'
 more-itertools==11.1.0
 mpmath==1.3.0
-msgpack==1.2.1 ; platform_machine != 'x86_64' or sys_platform != 'darwin'
+msgpack==1.2.4 ; platform_machine != 'x86_64' or sys_platform != 'darwin'
 mss==10.2.0
 multidict==6.9.1
 narwhals==2.22.1
@@ -175,7 +175,8 @@ proto-plus==1.28.0
 protobuf==7.35.1
 proxy-tools==0.1.0
 psutil==7.2.2
-pyasn1==0.6.4
+py-vapid==1.9.6
+pyasn1==0.6.5
 pyasn1-modules==0.4.2
 pycparser==3.0 ; implementation_name != 'PyPy'
 pycryptodome==3.23.0 ; platform_machine != 'x86_64' or sys_platform != 'darwin'
@@ -193,7 +194,7 @@ pyobjc-framework-quartz==12.2.1 ; sys_platform == 'darwin'
 pyobjc-framework-security==12.2.1 ; sys_platform == 'darwin'
 pyobjc-framework-webkit==12.2.1 ; sys_platform == 'darwin'
 pyparsing==3.3.2
-pypdf==6.21.2
+pypdf==6.21.4
 pystray==0.19.5
 python-dateutil==2.9.0.post0
 python-docx==1.2.0

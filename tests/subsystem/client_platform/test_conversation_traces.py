@@ -260,6 +260,9 @@ def test_skill_specialization_exposes_only_reviewed_bounded_metadata():
         "outcome": "",
         "answers": (),
         "page_id": "",
+        "link_id": "",
+        "project_id": "",
+        "setting_change": None,
     }
     assert private not in repr(specialized)
 
@@ -346,6 +349,7 @@ def test_media_specialization_keeps_references_without_marker_or_inline_data():
         {
             "media_ref": "conversation:attachment:synthetic",
             "mime_type": "image/png",
+            "prompt": "",
         }
     ]
     assert private_image not in repr(specialized)

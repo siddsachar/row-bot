@@ -136,8 +136,14 @@ it('says since when an approval waits in plain words', () => {
   );
 });
 
-function Notices({ openConversation }: { openConversation: string | null }) {
-  useApprovalNotices(openConversation);
+function Notices({
+  openConversation,
+  onHome = false,
+}: {
+  openConversation: string | null;
+  onHome?: boolean;
+}) {
+  useApprovalNotices(openConversation, onHome);
   return null;
 }
 
@@ -183,6 +189,20 @@ it('does not announce an approval in the conversation on screen', async () => {
   render(<Notices openConversation="conversation-open" />);
   await act(async () => undefined);
   expect(pendingApprovals).toHaveBeenCalled();
+  expect(notify).not.toHaveBeenCalled();
+});
+
+it('does not announce an approval while Home lists it under Needs you', async () => {
+  pendingApprovals.mockResolvedValue(page(item({ id: 'approval-on-home' })));
+  const { unmount } = render(<Notices openConversation={null} onHome />);
+  await act(async () => undefined);
+  expect(pendingApprovals).toHaveBeenCalled();
+  expect(notify).not.toHaveBeenCalled();
+  unmount();
+
+  // Seen there, so leaving Home doesn't announce it late.
+  render(<Notices openConversation={null} />);
+  await act(async () => undefined);
   expect(notify).not.toHaveBeenCalled();
 });
 

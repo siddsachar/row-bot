@@ -308,6 +308,22 @@ def token(account: XAccount) -> dict | None:
     return account_tokens.read(account.slot)
 
 
+# What X calls the permission to upload pictures and videos. Row-Bot's sign-in asks for it from 5.3.1; an account
+# connected before then has a sign-in without it, and X refuses its uploads.
+MEDIA_SCOPE = "media.write"
+
+
+def can_post_media(account: XAccount) -> bool:
+    """Whether the account's sign-in lets Row-Bot upload pictures and videos (X's ``media.write``)."""
+    return MEDIA_SCOPE in str((token(account) or {}).get("scope") or "").split()
+
+
+def media_reconnect(account: XAccount) -> str:
+    """What the person does, once, so pictures and videos can go out as this account."""
+    return (f"{account.handle} was connected before Row-Bot could post pictures and videos. Sign in to it once "
+            f"more in Settings › Apps › X (Sign in, then choose {account.handle} on X); text posts work as they are.")
+
+
 def save_token(account: XAccount, value: dict) -> None:
     """Keep a refreshed sign-in in the account's slot; if the keychain can't, it serves this request only."""
     try:

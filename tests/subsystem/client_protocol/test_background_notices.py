@@ -64,6 +64,22 @@ def test_journal_cleans_text_and_keeps_start_up_warnings_for_monitor():
     assert page.startup_warnings == ["The plugin 'rss' didn't load: environment not prepared"]
 
 
+def test_a_new_notice_tells_every_window_at_once_and_a_repeat_does_not(monkeypatch):
+    from row_bot.application import live_updates
+
+    live = live_updates.LiveUpdates()
+    monkeypatch.setattr(live_updates, "live_updates", live)
+    heard = lambda: live.frame()["topics"]["notices"]  # noqa: E731
+    journal = NoticeJournal(clock=Clock())
+    journal.post(title="Row-Bot sent you q3-report.pdf", message="Open the chat to download it.")
+    assert heard() == 1
+    # Folded into the notice a window already showed: nothing new to read.
+    journal.post(title="Row-Bot sent you q3-report.pdf", message="Open the chat to download it.")
+    assert heard() == 1
+    journal.post(title="Row-Bot sent you notes.md", message="Open the chat to download it.")
+    assert heard() == 2
+
+
 def test_notify_posts_a_notice_for_every_open_client(journal, monkeypatch):
     from row_bot import notifications
     monkeypatch.setattr(notifications, "_desktop_notify", lambda *_: None)

@@ -206,7 +206,8 @@ export function pageKey(key: string) {
 
 /**
  * Sends the person's input in order, a batch at a time: moves coalesce, so a
- * slow connection never queues up stale pointer moves.
+ * slow connection never queues up stale pointer moves. A batch that fails is
+ * sent once more before anything after it, so a busy moment drops no keys.
  */
 export function createInputQueue(
   send: (events: BrowserInputEvent[]) => Promise<unknown>,
@@ -219,9 +220,9 @@ export function createInputQueue(
     const batch = queue.slice(0, 64);
     queue = queue.slice(64);
     try {
-      await send(batch);
+      await send(batch).catch(() => send(batch));
     } catch {
-      // The pane shows the connection; dropped input isn't replayed later.
+      // Twice refused: the pane shows the connection; stale input isn't replayed later.
       queue = [];
     } finally {
       sending = false;

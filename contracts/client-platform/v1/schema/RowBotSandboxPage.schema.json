@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "RowBotSandboxView": {
+      "additionalProperties": false,
+      "description": "A sandbox (5.3.1 B4): a second Row-Bot on its own data folder, port and workspace, on made-up data.",
+      "properties": {
+        "name": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "needs_model": {
+          "default": false,
+          "title": "Needs Model",
+          "type": "boolean"
+        },
+        "pack": {
+          "enum": [
+            "empty",
+            "shop",
+            "charity",
+            "paperwork",
+            "code"
+          ],
+          "title": "Pack",
+          "type": "string"
+        },
+        "pack_name": {
+          "maxLength": 80,
+          "title": "Pack Name",
+          "type": "string"
+        },
+        "problem": {
+          "maxLength": 300,
+          "title": "Problem",
+          "type": "string"
+        },
+        "sandbox_id": {
+          "pattern": "^box-[0-9a-f]{8}$",
+          "title": "Sandbox Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "stopped",
+            "starting",
+            "running",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 200,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sandbox_id",
+        "name",
+        "pack",
+        "pack_name",
+        "status",
+        "url",
+        "problem"
+      ],
+      "title": "RowBotSandboxView",
+      "type": "object"
+    },
+    "SandboxPackView": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 80,
+          "title": "Name",
+          "type": "string"
+        },
+        "pack": {
+          "enum": [
+            "empty",
+            "shop",
+            "charity",
+            "paperwork",
+            "code"
+          ],
+          "title": "Pack",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pack",
+        "name"
+      ],
+      "title": "SandboxPackView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/RowBotSandboxView"
+      },
+      "maxItems": 5,
+      "title": "Items",
+      "type": "array"
+    },
+    "packs": {
+      "items": {
+        "$ref": "#/$defs/SandboxPackView"
+      },
+      "maxItems": 8,
+      "title": "Packs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items",
+    "packs",
+    "available"
+  ],
+  "title": "RowBotSandboxPage",
+  "type": "object"
+}

@@ -61,6 +61,9 @@ export default function PwaStatus({ client }: { client?: PwaClient }) {
       <span role="status" aria-live="polite">
         {state.phase === 'offline' &&
           'Row-Bot is offline. Your unsent draft stays on this device.'}
+        {state.updateAvailable &&
+          state.phase !== 'offline' &&
+          'A new version of Row-Bot is ready.'}
         {actionError}
       </span>
       {state.installAvailable && (

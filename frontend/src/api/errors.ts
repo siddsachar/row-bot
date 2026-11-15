@@ -1,5 +1,6 @@
 import type { ClientError, ClientStatus, ErrorAction } from './types';
 import { isNetworkFailure } from './network-failure';
+import { currentPlace, type PlaceWords } from './place';
 
 /**
  * The error catalog. Every code the server can put in a problem response
@@ -14,7 +15,8 @@ import { isNetworkFailure } from './network-failure';
  */
 type Recovery = ClientError['recovery'];
 type Entry = readonly [
-  message: string,
+  // Words about where Row-Bot runs follow the place (U7): "this computer" only when it is.
+  message: string | ((place: PlaceWords) => string),
   recovery?: Recovery,
   action?: ErrorAction,
 ];
@@ -30,12 +32,8 @@ function open(leaf: string, label: string, anchor?: string): ErrorAction {
     label: `Open ${label}`,
   };
 }
-const PROVIDERS = open('providers', 'Providers');
-const CUSTOM_ENDPOINTS = open(
-  'providers',
-  'Custom endpoints',
-  'custom-endpoints',
-);
+const PROVIDERS = open('models', 'Models', 'connections');
+const CUSTOM_ENDPOINTS = open('models', 'Custom endpoints', 'custom-endpoints');
 const IMAGE_MODEL = open('models', 'Image model', 'image-model');
 const VOICE = open('voice', 'Voice settings', 'dictation');
 // Accounts and channels are apps: their fixes open the app.
@@ -46,7 +44,7 @@ const OUTLOOK = open('apps/outlook', 'Outlook');
 const CHANNELS = open('apps?category=communication', 'Apps');
 const PLUGINS = open('apps', 'Apps');
 const MCP = open('apps', 'Apps');
-const RUNTIMES = open('apps?view=advanced', 'Runtimes', 'chats');
+const RUNTIMES = open('apps?view=advanced', 'Runtimes', 'runtimes');
 const SKILLS = open('skills', 'Skills');
 const TOOLS = open('tools', 'Built-in tools', 'built-in-tools');
 const WIKI = open('knowledge', 'Wiki vault', 'wiki-vault');
@@ -59,6 +57,26 @@ const TUNNEL = open('access', 'Tunnel', 'tunnel');
 const REMOTE_ACCESS = open('access', 'Devices & remote access');
 
 const CATALOG: Record<string, Entry> = {
+  registry_entry_removed: [
+    "This app is no longer listed in the MCP Registry, so Row-Bot can't set it up from there.",
+    'none',
+    MCP,
+  ],
+  registry_recipe_changed: [
+    'Its MCP Registry listing changed since you opened it. Open it again to see it as it is now.',
+    'review',
+    MCP,
+  ],
+  registry_recipe_unsupported: [
+    "Its MCP Registry listing asks for setup Row-Bot can't do safely.",
+    'none',
+    MCP,
+  ],
+  registry_identity_missing: [
+    "Its MCP Registry listing doesn't say which server it is.",
+    'none',
+    MCP,
+  ],
   plan_changed: [
     'Something changed since you agreed. Review it again before continuing.',
     'review',
@@ -97,7 +115,8 @@ const CATALOG: Record<string, Entry> = {
     'review',
   ],
   bundle_unsupported: [
-    "Row-Bot can't run this bundle on this computer: it's for another system or needs something Row-Bot doesn't set up.",
+    (place) =>
+      `Row-Bot can't run this bundle ${place.on}: it's for another system or needs something Row-Bot doesn't set up.`,
     'review',
   ],
   unsupported_upload: [
@@ -444,13 +463,17 @@ const CATALOG: Record<string, Entry> = {
     GITHUB,
   ],
   github_cli_unauthenticated: [
-    'Sign in to GitHub on this computer to open pull requests.',
+    (place) => `Sign in to GitHub ${place.on} to open pull requests.`,
     'review',
     GITHUB,
   ],
 
   // Connection and access
   action_denied: ["This device isn't allowed to do that.", 'none'],
+  sign_in_required: [
+    "This window isn't signed in, so it can only look. Open Row-Bot from its app, or a sandbox from Settings › Data › Sandboxes, to change things.",
+    'none',
+  ],
   agent_run_finished: [
     'This agent has already finished, so it can’t take a message.',
     'none',
@@ -621,9 +644,43 @@ const CATALOG: Record<string, Entry> = {
     "Row-Bot couldn't reach that endpoint. Check its address and that its server is running, then refresh it.",
     'review',
   ],
+  endpoint_key_rejected: [
+    'The model server refused the API key. Check the key and try again.',
+    'review',
+  ],
+  endpoint_key_missing: [
+    'This endpoint needs an API key. Add it, then refresh the endpoint.',
+    'review',
+  ],
+  endpoint_private_address: [
+    "This endpoint's address is on your host's private network. Edit the endpoint to allow it.",
+    'review',
+  ],
+  endpoint_address_blocked: [
+    "That address belongs to the hosting company's own computer, not a model server. Row-Bot never connects to it.",
+    'review',
+  ],
   native_mcp_unavailable: [
     'External MCP tools are not available in this Row-Bot. Restart it and try again.',
     'review',
+  ],
+  claude_code_missing: [
+    'Claude Code isn’t installed yet. Choose Use my Claude plan to install it.',
+    'review',
+  ],
+  claude_code_present: ['Claude Code is already installed.', 'review'],
+  claude_code_installing: [
+    'Claude Code is still installing. Try again when it has finished.',
+    'retry',
+  ],
+  claude_sign_in_ended: ['Claude’s sign-in has ended.', 'review'],
+  claude_sign_in_unavailable: [
+    'Claude’s sign-in couldn’t start. Try again.',
+    'retry',
+  ],
+  claude_sign_out_failed: [
+    'Claude Code didn’t sign out, so it’s still on the same Claude account. Try again.',
+    'retry',
   ],
   plugin_environment_ready: [
     'This plugin is already prepared. Refresh the list.',
@@ -637,6 +694,19 @@ const CATALOG: Record<string, Entry> = {
   ],
   approval_expired: [
     'This approval expired. Close this and answer the current approval.',
+    'review',
+  ],
+  media_unavailable: ["That item isn't in the media library any more.", 'none'],
+  scheduled_post_unavailable: [
+    'That post already went out or was cancelled.',
+    'none',
+  ],
+  scheduled_post_invalid: [
+    "That edit can't be saved: the post is empty or longer than the account can post.",
+    'none',
+  ],
+  approval_edit_invalid: [
+    "That edit can't be used for this post. Close it and edit the post on its current card.",
     'review',
   ],
   question_answer_invalid: [
@@ -792,7 +862,7 @@ const CATALOG: Record<string, Entry> = {
     'review',
   ],
   model_configuration_required: [
-    'Choose a model before sending. Your message is kept.',
+    "This model isn't ready, so nothing was sent. Choose another model, or set this one up in Settings › Models. Your message is kept.",
     'review',
     CHOOSE_MODEL,
   ],
@@ -873,7 +943,7 @@ const CATALOG: Record<string, Entry> = {
     CUSTOM_ENDPOINTS,
   ],
   provider_recovery_unavailable: [
-    "The provider's settings can't be repaired automatically. Check them in Providers.",
+    "The provider's settings can't be repaired automatically. Check them in Settings › Models.",
     'review',
     PROVIDERS,
   ],
@@ -890,6 +960,17 @@ const CATALOG: Record<string, Entry> = {
   ],
   subscription_cancelled: [
     'The sign-in was cancelled. Start it again.',
+    'retry',
+    RETRY,
+  ],
+  // A Grok address pasted from another device (H5).
+  subscription_callback_invalid: [
+    'That address isn’t from this sign-in. Copy the address your browser shows after you sign in, and paste it again.',
+    'review',
+    RETRY,
+  ],
+  subscription_denied: [
+    'Grok didn’t allow the sign-in. Start it again.',
     'retry',
     RETRY,
   ],
@@ -954,7 +1035,7 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   subscription_reference_changed: [
-    'The subscription account changed. Refresh Providers, then try again.',
+    'The subscription account changed. Refresh them in Settings › Models, then try again.',
     'retry',
     PROVIDERS,
   ],
@@ -974,7 +1055,12 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   subscription_storage_unavailable: [
-    "Row-Bot can't save the sign-in: this computer's keychain is locked or unavailable. Unlock it (on a Mac, in Keychain Access), then try again.",
+    (place) =>
+      place.kind === 'this_computer'
+        ? "Row-Bot can't save the sign-in: this computer's keychain is locked or unavailable. Unlock it (on a Mac, in Keychain Access), then try again."
+        : place.kind === 'hosted'
+          ? `Row-Bot can't save the sign-in: secure storage ${place.on} is unavailable. Try again.`
+          : `Row-Bot can't save the sign-in: secure storage ${place.on} is locked or unavailable. Unlock it there (on a Mac, in Keychain Access), then try again.`,
     'retry',
     PROVIDERS,
   ],
@@ -1250,6 +1336,10 @@ const CATALOG: Record<string, Entry> = {
     "This workflow has settings this editor can't change.",
     'review',
   ],
+  task_schedule_too_often: [
+    'Workflows run at most once a minute; choose 1 minute or more.',
+    'review',
+  ],
   task_time_passed: [
     'That time has passed. Pick a later time, or switch the workflow off.',
     'review',
@@ -1278,6 +1368,57 @@ const CATALOG: Record<string, Entry> = {
   ],
   backup_storage_full: [
     "The computer Row-Bot runs on doesn't have room for that backup. Free up space, then try again.",
+    'none',
+  ],
+  import_expired: ['This import was closed. Start it again.', 'review'],
+  import_busy: [
+    'Row-Bot is still working on this import. Wait for it to finish.',
+    'retry',
+    RETRY,
+  ],
+  import_applied: ['These memories were already imported.', 'none'],
+  import_preview_stale: [
+    'Some saved memories changed since the preview. Preview again before importing.',
+    'review',
+  ],
+  import_file_too_large: [
+    'That file is larger than 8 GB, the most Row-Bot imports at once.',
+    'none',
+  ],
+  import_too_many_files: [
+    'One import takes up to 20 files or pasted answers. Import the rest next.',
+    'none',
+  ],
+  import_storage_full: [
+    "The computer Row-Bot runs on doesn't have room for that file. Free up space, then try again.",
+    'none',
+  ],
+  import_storage_unavailable: [
+    "Row-Bot can't write to its data folder to import that.",
+    'none',
+  ],
+  import_model_unavailable: [
+    "Your chat model didn't answer. Check it in Settings, then try again.",
+    'retry',
+    PROVIDERS,
+  ],
+  review_expired: ['This review was closed. Start it again.', 'review'],
+  review_busy: [
+    'Row-Bot is still reviewing your memory. Wait for it to finish.',
+    'retry',
+    RETRY,
+  ],
+  review_stale: [
+    'Some memories changed since this review. Review again before making changes.',
+    'review',
+  ],
+  review_backup_failed: [
+    "Row-Bot couldn't back up your memory first, so nothing was changed. Check there is free space, then try again.",
+    'retry',
+    RETRY,
+  ],
+  review_storage_unavailable: [
+    "Row-Bot can't write to its data folder to review your memory.",
     'none',
   ],
   data_job_running: [
@@ -1416,7 +1557,8 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   brand_website_unavailable: [
-    "Row-Bot couldn't read that website. Check the address; pages on this computer or your local network aren't read.",
+    (place) =>
+      `Row-Bot couldn't read that website. Check the address; pages ${place.on} or your local network aren't read.`,
     'review',
   ],
   editing_record_too_large: [
@@ -1750,6 +1892,33 @@ const CATALOG: Record<string, Entry> = {
   process_unavailable: ['That command is no longer running.', 'none'],
   recording_unavailable: ['That recording is no longer listed.', 'none'],
   video_edit_unavailable: ['That video edit is no longer listed.', 'none'],
+  video_project_unavailable: ['That video is no longer here.', 'none'],
+  video_project_stale: [
+    'The video changed meanwhile. Look at the new version, then change it again.',
+    'review',
+  ],
+  video_project_invalid: [
+    "One of the scenes' videos can't be used any more. Ask Row-Bot to swap it.",
+    'none',
+  ],
+  row_bot_sandbox_unavailable: ['That sandbox is no longer here.', 'none'],
+  wait_unavailable: ['That wait has already ended.', 'none'],
+  row_bot_sandbox_refused: [
+    'The sandbox can’t do that now: start it first, or delete one (five at most).',
+    'none',
+  ],
+  video_brand_invalid: [
+    'The brand kit couldn’t be saved: pick its logo from your pictures again.',
+    'none',
+  ],
+  video_project_not_made: [
+    'Make this version first: its other shapes come from it.',
+    'none',
+  ],
+  video_project_needs_ffmpeg: [
+    'Making the video needs ffmpeg. Ask Row-Bot to make it once, and it offers to download ffmpeg.',
+    'none',
+  ],
   sent_file_unavailable: ['That file is no longer here to download.', 'none'],
   sent_file_expired: [
     'This download has ended: sent files stay for 7 days. Ask Row-Bot to send it again.',
@@ -1803,7 +1972,8 @@ const CATALOG: Record<string, Entry> = {
   ],
   sandbox_job_unavailable: ['That sandbox job is no longer listed.', 'none'],
   sandbox_docker_required: [
-    'This code folder runs commands on this computer, not in the Docker sandbox, so there is nothing to prepare.',
+    (place) =>
+      `This code folder runs commands ${place.on}, not in the Docker sandbox, so there is nothing to prepare.`,
     'none',
   ],
   sandbox_nothing_to_install: [
@@ -1811,7 +1981,8 @@ const CATALOG: Record<string, Entry> = {
     'none',
   ],
   sandbox_runtime_unavailable: [
-    "Docker isn't running on this computer. Start Docker Desktop (or Docker), then try again.",
+    (place) =>
+      `Docker isn't running ${place.on}. Start Docker Desktop (or Docker), then try again.`,
     'retry',
   ],
   sandbox_prepare_blocked: [
@@ -2100,6 +2271,16 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   buddy_data_policy_denied: ["Buddy isn't allowed to use that data.", 'none'],
+  buddy_image_model_cannot_edit: [
+    "Your image model can only make new pictures, and Buddy's expressions are edits. Choose a GPT Image or Nano Banana model.",
+    'review',
+    IMAGE_MODEL,
+  ],
+  buddy_image_model_unsupported: [
+    "Buddy can't paint with this image model. Choose a GPT Image, Nano Banana or Grok image model.",
+    'review',
+    IMAGE_MODEL,
+  ],
   buddy_media_capability_unavailable: [
     'Generating a Buddy needs an image model. Choose one first.',
     'review',
@@ -2561,7 +2742,8 @@ const CATALOG: Record<string, Entry> = {
     'none',
   ],
   document_processing_search_model_missing: [
-    'Documents need the search model on this computer first. In Documents › Advanced, under Search model files, choose Download.',
+    (place) =>
+      `Documents need the search model ${place.on} first. In Documents › Advanced, under Search model files, choose Download.`,
     'none',
     open('documents', 'Documents'),
   ],
@@ -2985,7 +3167,8 @@ const CATALOG: Record<string, Entry> = {
     PROVIDERS,
   ],
   sensevoice_unavailable: [
-    "SenseVoice isn't ready on this computer. Install it in Voice settings, or choose Whisper.",
+    (place) =>
+      `SenseVoice isn't ready ${place.on}. Install it in Voice settings, or choose Whisper.`,
     'review',
     VOICE,
   ],
@@ -3123,6 +3306,7 @@ const refusals = new Set([
   'migration_path_escaped',
   'path_denied',
   'process_policy_denied',
+  'sign_in_required',
   'resource_binding_revoked',
   'sandbox_prepare_blocked',
   'view_tool_denied',
@@ -3138,7 +3322,8 @@ const refusals = new Set([
 function describe(code: string): ClientError | null {
   const entry = CATALOG[code];
   if (!entry) return null;
-  const [message, recovery = 'review', action] = entry;
+  const [words, recovery = 'review', action] = entry;
+  const message = typeof words === 'function' ? words(currentPlace()) : words;
   return action
     ? { code, message, recovery, action }
     : { code, message, recovery };

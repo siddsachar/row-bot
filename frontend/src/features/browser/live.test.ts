@@ -77,3 +77,22 @@ it('sends input in order and lets a slow connection skip stale pointer moves', a
     { type: 'mouse', action: 'up', x: 3, y: 3 },
   ]);
 });
+
+it('sends a refused batch once more before anything after it, so a busy moment drops no keys', async () => {
+  const sent: BrowserInputEvent[][] = [];
+  let calls = 0;
+  const send = vi.fn(async (events: BrowserInputEvent[]) => {
+    calls += 1;
+    if (calls === 1) throw new Error('rate_limited');
+    sent.push(events);
+  });
+  const queue = createInputQueue(send);
+  queue.push({ type: 'key', action: 'down', key: 'a' } as BrowserInputEvent);
+  queue.push({ type: 'key', action: 'down', key: 'b' } as BrowserInputEvent);
+  await vi.waitFor(() =>
+    expect(sent.flat()).toEqual([
+      { type: 'key', action: 'down', key: 'a' },
+      { type: 'key', action: 'down', key: 'b' },
+    ]),
+  );
+});

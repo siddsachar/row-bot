@@ -59,9 +59,9 @@ const capture: DictationSnapshot = {
   handle,
   state: 'capturing',
   quiesced: true,
-  expires_in_ms: 120000,
-  max_audio_bytes: 8388608,
-  max_utterance_ms: 30000,
+  expires_in_ms: 360000,
+  max_audio_bytes: 33554432,
+  max_utterance_ms: 300000,
 };
 let track: { stop: ReturnType<typeof vi.fn> };
 let stream: MediaStream;
@@ -217,7 +217,7 @@ it('enforces the incremental byte ceiling before uploading', async () => {
   expect(track.stop).toHaveBeenCalledTimes(1);
 });
 
-it('finishes at the existing 30-second utterance ceiling', async () => {
+it('keeps dictating past 30 seconds and finishes at five minutes', async () => {
   vi.useFakeTimers();
   const p = props();
   render(<VoiceControls {...p} />);
@@ -225,6 +225,10 @@ it('finishes at the existing 30-second utterance ceiling', async () => {
   await act(async () => {});
   await act(async () => {
     vi.advanceTimersByTime(30000);
+  });
+  expect(p.transcribe).not.toHaveBeenCalled();
+  await act(async () => {
+    vi.advanceTimersByTime(270000);
   });
   expect(p.transcribe).toHaveBeenCalledTimes(1);
   expect(track.stop).toHaveBeenCalledTimes(1);

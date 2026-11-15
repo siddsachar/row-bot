@@ -1,0 +1,134 @@
+{
+  "additionalProperties": false,
+  "description": "One scene of a video project (5.3.1 B3): a piece of a video, its speed, zoom, card and line.",
+  "properties": {
+    "at": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "At"
+    },
+    "card": {
+      "maxLength": 120,
+      "title": "Card",
+      "type": "string"
+    },
+    "end": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "End"
+    },
+    "length": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Length"
+    },
+    "line": {
+      "maxLength": 300,
+      "title": "Line",
+      "type": "string"
+    },
+    "scene_id": {
+      "pattern": "^s[0-9a-f]{6}$",
+      "title": "Scene Id",
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 512,
+      "title": "Source",
+      "type": "string"
+    },
+    "source_ref": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Ref"
+    },
+    "speed": {
+      "maximum": 4,
+      "minimum": 0.25,
+      "title": "Speed",
+      "type": "number"
+    },
+    "start": {
+      "minimum": 0,
+      "title": "Start",
+      "type": "number"
+    },
+    "voice_ref": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Voice Ref"
+    },
+    "voiced": {
+      "title": "Voiced",
+      "type": "boolean"
+    },
+    "zoom": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Zoom"
+    }
+  },
+  "required": [
+    "scene_id",
+    "source",
+    "start",
+    "end",
+    "speed",
+    "zoom",
+    "card",
+    "line",
+    "voiced",
+    "at",
+    "length"
+  ],
+  "title": "VideoScene",
+  "type": "object"
+}

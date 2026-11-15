@@ -49,6 +49,9 @@ PERSON_RULE_REASON = "You asked to approve this yourself."
 # An incognito chat's memory write (N11): only the person saves from it, under every level.
 INCOGNITO_MEMORY_QUESTION = "Save to memory? This chat is incognito."
 INCOGNITO_MEMORY_REASON = "This chat is incognito: only you can save from it to memory."
+# A reply Proactive Row-Bot drafted in the background: its words weren't the person's, so only they send it,
+# under every level (Hands-off included).
+BACKGROUND_DRAFT_REASON = "Row-Bot wrote this reply on its own, so only you can send it."
 
 
 
@@ -408,9 +411,14 @@ def _decide_in_graph(payload: dict[str, Any], *, mode: str, risks: Iterable[str]
 
 GIT_IDENTITY_RISK = "sets the name and email Git records on commits, which only the person can choose"
 X_POST_RISK = "posts, replies, quotes or deletes on X as one of the person's accounts, which only the person approves"
+SYSTEM_INSTALL_RISK = "installs software on this computer for everyone, outside Row-Bot, which only the person decides"
+SECURITY_CAPABILITY_RISK = ("turns on a tool that acts on this computer (commands, files, the browser, the screen or "
+                            "MCP apps), which only the person decides")
 # Risks the Auto reviewer never accepts for the person: they go straight to the person's card.
 _PERSON_ONLY_RISKS = {GIT_IDENTITY_RISK: "Only you can choose the name and email your commits are from.",
-                      X_POST_RISK: "Only you can approve what goes out on X in your name."}
+                      X_POST_RISK: "Only you can approve what goes out on X in your name.",
+                      SYSTEM_INSTALL_RISK: "Only you can decide what software is installed on this computer.",
+                      SECURITY_CAPABILITY_RISK: "Only you can turn on a tool that acts on this computer."}
 
 
 def _decide_afresh(payload: dict[str, Any], *, mode: str, risks: Iterable[str], ask: Callable[[dict[str, Any]], Any],

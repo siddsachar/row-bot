@@ -19,6 +19,7 @@ import {
   BookOpen,
   Brain,
   ChevronLeft,
+  Clapperboard,
   Code2,
   Columns3,
   Compass,
@@ -90,6 +91,11 @@ import {
 } from './palette-switches';
 import { clientError } from '../../api/errors';
 import Navigation, { NavigationRail } from './Navigation';
+import PhoneTabBar, { phoneTabFor } from './PhoneTabBar';
+import { MomentStrip } from '../proactive/MomentStrip';
+import { proactivePaletteCommands } from '../proactive/palette';
+import { useProactive, useProactiveOn } from '../proactive/proactive-state';
+import { installEdgeSwipe } from './edge-swipe';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
 import useNewChat from './useNewChat';
@@ -112,6 +118,13 @@ import { designCommandSets } from '../panels/design-commands';
 import BrowserPane from '../browser/BrowserPane';
 import { BROWSER_PANEL, onBrowserPaneRequest } from '../browser/open-pane';
 import PagePanel from '../pages/PagePanel';
+import VideoPanel from '../video/VideoPanel';
+import {
+  VIDEO_PANEL_KIND,
+  onVideoRequest,
+  takeWaitingVideo,
+  type VideoRequest,
+} from '../video/open-video';
 import {
   PAGE_PANEL_KIND,
   onPageRequest,
@@ -145,7 +158,9 @@ function panelIcon(descriptor: PanelDescriptor): LucideIcon {
         ? Globe
         : descriptor.panel_kind === PAGE_PANEL_KIND
           ? LayoutTemplate
-          : BookOpen;
+          : descriptor.panel_kind === VIDEO_PANEL_KIND
+            ? Clapperboard
+            : BookOpen;
 }
 
 /** The sheet header names the kind; the panel itself shows the resource. */
@@ -176,6 +191,28 @@ function PagePanelContent({
     <PagePanel
       conversationId={conversationId}
       pageId={pageId}
+      visible={visible}
+    />
+  );
+}
+
+/** A video project beside its chat (5.3.1 B3); its id is the subresource key. */
+function VideoPanelContent({
+  panel,
+  visible,
+}: {
+  panel: PanelInstance;
+  visible: boolean;
+}) {
+  const conversationId = useClientSelector(
+    (value) => value.selectedConversationId,
+  );
+  const projectId = panel.descriptor.subresource_key ?? '';
+  if (!conversationId || !projectId) return null;
+  return (
+    <VideoPanel
+      conversationId={conversationId}
+      projectId={projectId}
       visible={visible}
     />
   );
@@ -296,6 +333,8 @@ function PanelContent({
     <BrowserPanel visible={visible} />
   ) : panel.descriptor.panel_kind === PAGE_PANEL_KIND ? (
     <PagePanelContent panel={panel} visible={visible} />
+  ) : panel.descriptor.panel_kind === VIDEO_PANEL_KIND ? (
+    <VideoPanelContent panel={panel} visible={visible} />
   ) : import.meta.env.VITE_ENABLE_FIXTURES === '1' ? (
     <SamplePanel panel={panel} visible={visible} />
   ) : (
@@ -339,6 +378,8 @@ export default function Workspace() {
   };
   const { controller, goalProfileOwner } = useRuntime();
   const overlay = useOverlay();
+  const proactiveOn = useProactiveOn();
+  const { store: proactive } = useProactive();
   const paletteSequence = useRef(0);
   const agentProfiles = useRef(new Map<string, ProfileSummary>());
   const location = useLocation();
@@ -362,6 +403,20 @@ export default function Workspace() {
     conversationId ?? 'home',
   );
   const creation = useNewChat();
+  // The installed app's New chat shortcut opens /app-v2/?new=chat: once per visit.
+  const shortcutVisit = useRef('');
+  const newChatShortcut =
+    homeOpen && new URLSearchParams(location.search).get('new') === 'chat';
+  useEffect(() => {
+    if (
+      !newChatShortcut ||
+      state.status !== 'ready' ||
+      shortcutVisit.current === location.key
+    )
+      return;
+    shortcutVisit.current = location.key;
+    void creation.newChat();
+  }, [newChatShortcut, state.status, location.key, creation]);
   // The desktop terminal (B249): a dock under the conversation, a
   // full-screen sheet on phones. Closing it keeps the session.
   const terminal = useTerminalDock();
@@ -374,10 +429,16 @@ export default function Workspace() {
     Boolean(
       state.handshake?.application_capabilities?.includes('native:terminal'),
     );
-  useBackgroundNotices(conversationId, (id) =>
-    navigate(`/conversations/${encodeURIComponent(id)}`),
+  useBackgroundNotices(
+    conversationId,
+    (id) => navigate(`/conversations/${encodeURIComponent(id)}`),
+    (id) => navigate(`/?tab=workflows&workflow=${encodeURIComponent(id)}`),
   );
-  useApprovalNotices(conversationId);
+  const homeTab = new URLSearchParams(location.search).get('tab') ?? '';
+  useApprovalNotices(
+    conversationId,
+    location.pathname === '/' && (homeTab === '' || homeTab === 'overview'),
+  );
   const connectionAction =
     state.error?.recovery === 'update' ? (
       <Button onClick={() => window.location.reload()}>Reload</Button>
@@ -499,6 +560,26 @@ export default function Workspace() {
   useEffect(() => {
     const waiting = conversationId ? takeWaitingPage(conversationId) : null;
     if (waiting) openPage(waiting);
+  }, [conversationId]);
+  // A video project's card opens the Video panel beside its chat (5.3.1 B3).
+  const openVideo = useEffectEvent((request: VideoRequest) => {
+    if (request.conversationId !== conversationId) return false;
+    showPanel(
+      {
+        panel_kind: VIDEO_PANEL_KIND,
+        title: request.title,
+        subresource_key: request.projectId,
+      },
+      undefined,
+      undefined,
+      { wide: true },
+    );
+    return true;
+  });
+  useEffect(() => onVideoRequest(openVideo), []);
+  useEffect(() => {
+    const waiting = conversationId ? takeWaitingVideo(conversationId) : null;
+    if (waiting) openVideo(waiting);
   }, [conversationId]);
   const presentationScope = useRef({
     conversationId,
@@ -890,6 +971,9 @@ export default function Workspace() {
         icon: <HomeIcon size={16} />,
         run: () => go('/'),
       },
+      ...(proactiveOn
+        ? proactivePaletteCommands(proactive, go, () => overlay.close())
+        : []),
       {
         id: 'library',
         label: 'Conversation library',
@@ -937,7 +1021,7 @@ export default function Workspace() {
         label: 'Settings',
         keywords: 'configuration providers models',
         icon: <SettingsIcon size={16} />,
-        run: () => go('/settings/providers'),
+        run: () => go('/settings/models'),
       },
       ...(session
         ? [
@@ -1607,6 +1691,24 @@ export default function Workspace() {
           commands: commandsButton,
         },
   };
+  function openNavigationDrawer() {
+    overlay.open({
+      kind: 'drawer',
+      key: 'navigation-drawer',
+      title: 'Conversations',
+      description: 'Choose a conversation',
+      content: navigation(false),
+    });
+  }
+  // A phone opens the same list with a swipe in from the left edge (D10).
+  const edgeSwipeOpens = useEffectEvent(openNavigationDrawer);
+  useEffect(
+    () =>
+      layout.widthClass === 'phone'
+        ? installEdgeSwipe(() => edgeSwipeOpens())
+        : undefined,
+    [layout.widthClass],
+  );
   function navigationButton(back: boolean) {
     return (
       <IconButton
@@ -1622,13 +1724,7 @@ export default function Workspace() {
         onClick={() =>
           desktop
             ? update((previous) => toggleRegion(previous, 'navigation'))
-            : overlay.open({
-                kind: 'drawer',
-                key: 'navigation-drawer',
-                title: 'Conversations',
-                description: 'Choose a conversation',
-                content: navigation(false),
-              })
+            : openNavigationDrawer()
         }
       >
         {back ? (
@@ -1713,6 +1809,12 @@ export default function Workspace() {
   ];
   const conversationVisible =
     Boolean(conversationId) && !homeOpen && !routeOpen && !compact;
+  // A phone moves between its four places with a tab bar (D1); a
+  // conversation and a panel sheet take the whole height.
+  const phoneTab =
+    layout.widthClass === 'phone' && !conversationVisible && !compact
+      ? phoneTabFor(location.pathname, location.search)
+      : null;
   const navigation = (inPane: boolean) => (
     <Navigation
       showBuddy={!layout.navigation.collapsed}
@@ -2146,10 +2248,14 @@ export default function Workspace() {
             {sideVisible && dock(sidePanels, 'side')}
           </Panel>
         </Group>
+        {/* Proactive below 1024px: a moment Buddy delivers, above the tab bar. */}
+        <MomentStrip hidden={Boolean(conversationId)} />
+        {phoneTab && <PhoneTabBar current={phoneTab} />}
         {conversationId &&
           railPanels.length > 0 &&
           // A page full screen on a phone has Back and × at the top: no third way out (N5).
-          compact?.descriptor.panel_kind !== PAGE_PANEL_KIND && (
+          compact?.descriptor.panel_kind !== PAGE_PANEL_KIND &&
+          compact?.descriptor.panel_kind !== VIDEO_PANEL_KIND && (
             <aside
               className={`panel-rail ${desktop ? 'panel-rail-docked' : ''}`}
               aria-label="Panel rail"

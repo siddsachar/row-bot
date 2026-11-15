@@ -38,6 +38,7 @@ export const DEFINITE_TASK_REFUSALS: ReadonlySet<string> = new Set([
   'task_not_found',
   'task_review_unsupported_fields',
   'task_revision_conflict',
+  'task_schedule_too_often',
   'task_settings_model_unavailable',
   'task_settings_profile_conflict',
   'task_settings_profile_unavailable',

@@ -24,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Generic, TypeVar
 
+from row_bot.data_paths import default_workspace_root
 from row_bot.data_paths import get_row_bot_data_dir
 
 log = logging.getLogger("row_bot.channels.media")
@@ -238,9 +239,9 @@ def copy_to_workspace(saved_path: pathlib.Path, workspace_filename: str | None =
             from row_bot.tools.registry import get_tool_config
             root = get_tool_config("filesystem", "workspace_root", "")
             if not root:
-                root = str(pathlib.Path.home() / "Documents" / "Row-Bot")
+                root = str(default_workspace_root())
         except Exception:
-            root = str(pathlib.Path.home() / "Documents" / "Row-Bot")
+            root = str(default_workspace_root())
 
     descriptor = -1
     dest: pathlib.Path | None = None

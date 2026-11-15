@@ -557,6 +557,34 @@ def test_loader_security_scan_rejects_dangerous_code(
     assert expected in error
 
 
+@pytest.mark.parametrize(
+    ("source", "allowed"),
+    [
+        ("import subprocess\nsubprocess.run(['ffmpeg', '-version'])\n", True),
+        ("from subprocess import run\nrun(['git', 'status'])\n", True),
+        ("import os\nos.system('echo ok')\n", True),
+        ("from os import system\nsystem('echo ok')\n", True),
+        ("value = eval('1 + 1')\n", False),
+        ("from row_bot.agent import get_agent_graph\n", False),
+    ],
+)
+def test_a_plugin_that_declares_running_programs_may_run_them(
+    plugin_modules: dict[str, Any],
+    tmp_path: Path,
+    source: str,
+    allowed: bool,
+) -> None:
+    """5.3.1 A5: shell_processes in the manifest, shown when the plugin is added, lets it run programs;
+    eval, exec and Row-Bot's internals stay refused, and an undeclared plugin is still refused."""
+    loader = plugin_modules["loader"]
+    plugin_dir = tmp_path / "runner-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin_main.py").write_text(source, encoding="utf-8")
+
+    assert (loader._security_scan(plugin_dir, runs_programs=True) is None) is allowed
+    assert loader._security_scan(plugin_dir) is not None
+
+
 @pytest.mark.parametrize("module", ["models", "tools", "ui", "memory", "prompts"])
 def test_a_plugins_own_modules_may_have_generic_names(
     plugin_modules: dict[str, Any],

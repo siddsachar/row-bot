@@ -1,5 +1,57 @@
 {
   "$defs": {
+    "ContextBreakdown": {
+      "additionalProperties": false,
+      "description": "What fills the context after the last reply, in estimated tokens: counts only, no names.",
+      "properties": {
+        "conversation": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Conversation",
+          "type": "integer"
+        },
+        "instructions": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Instructions",
+          "type": "integer"
+        },
+        "memory": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Memory",
+          "type": "integer"
+        },
+        "skills": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Skills",
+          "type": "integer"
+        },
+        "tool_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Tool Count",
+          "type": "integer"
+        },
+        "tools": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Tools",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instructions",
+        "tools",
+        "skills",
+        "memory",
+        "conversation",
+        "tool_count"
+      ],
+      "title": "ContextBreakdown",
+      "type": "object"
+    },
     "ConversationTokenUsage": {
       "additionalProperties": false,
       "description": "Tokens this conversation's model calls used, from the local ledger.",
@@ -43,6 +95,20 @@
           "title": "Input Tokens",
           "type": "integer"
         },
+        "last_cache_read_percent": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Cache Read Percent"
+        },
         "output_tokens": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -61,6 +127,17 @@
   },
   "additionalProperties": false,
   "properties": {
+    "breakdown": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ContextBreakdown"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "capacity_state": {
       "default": "unavailable",
       "maxLength": 64,

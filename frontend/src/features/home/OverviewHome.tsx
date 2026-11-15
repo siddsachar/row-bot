@@ -13,14 +13,24 @@ import {
   Bot,
   Brain,
   CalendarClock,
+  Check,
   ChevronDown,
   ChevronRight,
   Code2,
+  Copy,
+  ExternalLink,
   HeartPulse,
+  Hourglass,
+  ImageOff,
+  MemoryStick,
   MessageSquare,
   Palette,
   Paperclip,
+  Pencil,
+  RotateCw,
+  Send,
   ShieldAlert,
+  VolumeX,
   Workflow,
   X,
 } from 'lucide-react';
@@ -32,11 +42,21 @@ import type {
   OnboardingSnapshot,
   PendingApproval,
   PendingApprovalPage,
+  ScheduledPost,
+  ScheduledPostPage,
   SystemDiagnosis,
   TaskSummary,
   TaskSummaryPage,
+  XPostEdit,
 } from '../../api/types';
+import { clientError } from '../../api/errors';
+import { writeClipboardText } from '../../platform/clipboard';
+import { useRuntime } from '../../runtime';
 import { Hint, IconButton } from '../../ui/primitives';
+import ApprovalCard from '../shell/ApprovalCard';
+import { openMediaViewer } from '../shell/MediaPreview';
+import { MediaTile, XPostEditor } from '../shell/XPostDetails';
+import { useOverlay } from '../../ui/overlays';
 import { fallbackDue } from '../../api/live-updates';
 import { useLive, useLiveUpdate } from '../../live';
 import { parseTimestamp, relativeTime } from '../../ui/format';
@@ -56,7 +76,11 @@ import {
 } from '../shell/needs';
 import { usePendingApprovals } from '../shell/pending-approvals';
 import FixAction, { RunAgain } from './FixAction';
+import MemoryNoticeActions from './MemoryNotice';
+import { useWaits } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
+import { useProactive, useProactiveOn } from '../proactive/proactive-state';
+import { forYouLead } from '../proactive/words';
 
 export type OverviewHomeProps = {
   conversations: readonly ConversationView[];
@@ -72,8 +96,24 @@ export type OverviewHomeProps = {
   loadApprovals?: (signal?: AbortSignal) => Promise<PendingApprovalPage>;
   /** What needs the person, the sidebar indicator's shared read (B383). */
   loadAttention?: (signal?: AbortSignal) => Promise<AttentionSnapshot>;
+  /** Posts approved for a time slot, waiting for it: Review lists them (G3). */
+  loadScheduledPosts?: (signal?: AbortSignal) => Promise<ScheduledPostPage>;
+  onCancelScheduledPost?: (id: string) => Promise<unknown>;
+  /** Try again on a post that didn't go out: it goes now, or without its media. */
+  onRetryScheduledPost?: (
+    id: string,
+    withoutMedia: boolean,
+  ) => Promise<unknown>;
+  /** The person's edit of a post waiting for its time: its text and which files go. */
+  onEditScheduledPost?: (id: string, edit: XPostEdit) => Promise<unknown>;
   /** Buddy's live avatar beside the greeting. */
   buddy?: ReactNode;
+  /**
+   * Proactive's For you, in place of Today while Proactive is on: it gets
+   * Today's fact rows (for Later today) and its memories line (its footer),
+   * and renders its own section. Off, Today shows as it always has.
+   */
+  forYou?: (today: { rows: ReactNode[]; footer?: string }) => ReactNode;
   /**
    * Start a new chat with this text as its first message, or only waiting in
    * its composer (`send: false`) to add files and more there.
@@ -145,6 +185,18 @@ function working(row: ConversationView) {
 }
 
 const titleOf = (row: ConversationView) => row.title || 'Untitled conversation';
+
+/** "Today, 1:00 PM" or "Thu 30 Oct, 9:30 AM": when a scheduled post goes out. */
+function slotWords(at: string, now: Date) {
+  const when = new Date(at);
+  const time = when.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return when.toDateString() === now.toDateString()
+    ? `Today, ${time}`
+    : `${when.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}, ${time}`;
+}
 
 /** "A", "A and B", "A, B and C". */
 function listWords(items: readonly string[]) {
@@ -254,7 +306,7 @@ function AskBox({
         className="overview-ask-input"
         type="text"
         aria-label="Ask Row-Bot"
-        placeholder="Ask Row-Bot anything, or describe what to make…"
+        placeholder="Ask Row-Bot anything…"
         enterKeyHint="send"
         autoComplete="off"
         value={text}
@@ -322,6 +374,82 @@ function savedThisWeek(monitor: MonitorSnapshot | null, from: Date, to: Date) {
   }, 0);
 }
 
+/** A reply or quote X takes only from its own app or website (its reply rule):
+ * the draft to copy and the post to open, to post it there by hand. */
+function PostByHand({ post }: { post: ScheduledPost }) {
+  const { platform } = useRuntime();
+  const [copied, setCopied] = useState(false);
+  const target = post.target_url ?? '';
+  return (
+    <>
+      <IconButton
+        size="sm"
+        label={copied ? 'Copied' : 'Copy the draft'}
+        onClick={() =>
+          void writeClipboardText(
+            post.text ?? '',
+            platform.writeClipboard,
+          ).then(setCopied)
+        }
+      >
+        {copied ? (
+          <Check size={15} aria-hidden />
+        ) : (
+          <Copy size={15} aria-hidden />
+        )}
+      </IconButton>
+      {target && (
+        <IconButton
+          size="sm"
+          label="Open the post on X"
+          onClick={() => void platform.openExternal(target)}
+        >
+          <ExternalLink size={15} aria-hidden />
+        </IconButton>
+      )}
+    </>
+  );
+}
+
+/** A scheduled post's pictures and videos, each opening full size to check
+ * before it goes; a video with nothing to hear says so (it plays silent on X
+ * too). */
+function ScheduledMedia({
+  media,
+}: {
+  media: NonNullable<ScheduledPost['media']>;
+}) {
+  const overlay = useOverlay();
+  if (!media.length) return null;
+  return (
+    <span className="overview-scheduled-media">
+      {media.map((file) => (
+        <MediaTile
+          key={`${file.name}-${file.sha256}`}
+          item={file}
+          onOpen={
+            file.ref && file.mime
+              ? () =>
+                  openMediaViewer(overlay, {
+                    reference: file.ref ?? '',
+                    mime: file.mime ?? '',
+                    name: file.name,
+                    size: file.size,
+                  })
+              : undefined
+          }
+        />
+      ))}
+      {media.some((file) => file.silent) && (
+        <span className="overview-row-meta x-post-media-silent">
+          <VolumeX size={14} aria-hidden />
+          Its video has no sound
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function OverviewHome({
   conversations,
   setup,
@@ -332,6 +460,7 @@ export default function OverviewHome({
   loadApprovals,
   loadAttention,
   buddy,
+  forYou,
   onAsk,
   asking = false,
   onNewResource,
@@ -346,6 +475,10 @@ export default function OverviewHome({
   onDismissAgentWork,
   now: suppliedNow,
   refreshKey,
+  loadScheduledPosts,
+  onCancelScheduledPost,
+  onRetryScheduledPost,
+  onEditScheduledPost,
 }: OverviewHomeProps) {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<readonly TaskSummary[] | null>(null);
@@ -355,11 +488,89 @@ export default function OverviewHome({
   const [needsOpen, setNeedsOpen] = useState(false);
   // A fix changed something: read workflows and checks again.
   const [fixed, setFixed] = useState(0);
-  const [clock, setClock] = useState(() => new Date());
-  const now = suppliedNow ?? clock;
+  // Ticks once a minute; times are read at each render, so a run starting
+  // or a chat saved since the last tick is never words from the past minute.
+  const [, setClock] = useState(0);
+  const now = suppliedNow ?? new Date();
   const reduced = useReducedMotion();
   const approvalsFeed = usePendingApprovals(loadApprovals);
   const attentionFeed = useAttention(loadAttention);
+  // Review (G3): each post or email waiting to go out, in full, and the posts scheduled for later.
+  const [later, setLater] = useState<ReadonlySet<string>>(() => new Set());
+  const [scheduled, setScheduled] = useState<readonly ScheduledPost[]>([]);
+  const [scheduleError, setScheduleError] = useState('');
+  // The post being edited in place (its id), and whether its edit is being saved.
+  const [editingPost, setEditingPost] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const reviewKey = (approvalsFeed.page?.items ?? [])
+    .filter((item) => item.goes_out)
+    .map((item) => item.id)
+    .join('|');
+  useEffect(() => {
+    if (!loadScheduledPosts) return;
+    const abort = new AbortController();
+    loadScheduledPosts(abort.signal).then(
+      (page) => {
+        if (!abort.signal.aborted) setScheduled(page.items);
+      },
+      () => undefined,
+    );
+    return () => abort.abort();
+  }, [loadScheduledPosts, reviewKey, refreshKey]);
+  async function cancelScheduled(post: ScheduledPost) {
+    if (!onCancelScheduledPost) return;
+    setScheduleError('');
+    try {
+      await onCancelScheduledPost(post.id);
+      setScheduled((items) => items.filter((item) => item.id !== post.id));
+    } catch (cause) {
+      setScheduleError(clientError(cause).message);
+    }
+  }
+  async function editScheduled(post: ScheduledPost, change: XPostEdit) {
+    if (!onEditScheduledPost) return;
+    setScheduleError('');
+    setSavingEdit(true);
+    try {
+      await onEditScheduledPost(post.id, change);
+      const kept = new Set(change.media ?? []);
+      setScheduled((items) =>
+        items.map((item) =>
+          item.id === post.id
+            ? {
+                ...item,
+                text: change.text,
+                media: (item.media ?? []).filter((file) =>
+                  kept.has(file.sha256),
+                ),
+              }
+            : item,
+        ),
+      );
+      setEditingPost('');
+    } catch (cause) {
+      setScheduleError(clientError(cause).message);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+  async function retryScheduled(post: ScheduledPost, withoutMedia: boolean) {
+    if (!onRetryScheduledPost) return;
+    setScheduleError('');
+    try {
+      await onRetryScheduledPost(post.id, withoutMedia);
+      // It goes now; the list reads again once X has answered.
+      setScheduled((items) => items.filter((item) => item.id !== post.id));
+    } catch (cause) {
+      setScheduleError(clientError(cause).message);
+    }
+  }
+  const notSent = scheduled.filter(
+    (post) => post.status && post.status !== 'scheduled',
+  );
+  const upcoming = scheduled.filter(
+    (post) => !post.status || post.status === 'scheduled',
+  );
   const refixed = () => {
     setFixed((value) => value + 1);
     attentionFeed.refresh();
@@ -439,7 +650,10 @@ export default function OverviewHome({
   // Keep "in 2 hours" and "3 minutes ago" honest while the tab stays open.
   useEffect(() => {
     if (suppliedNow) return;
-    const timer = window.setInterval(() => setClock(new Date()), 60_000);
+    const timer = window.setInterval(
+      () => setClock((tick) => tick + 1),
+      60_000,
+    );
     return () => window.clearInterval(timer);
   }, [suppliedNow]);
 
@@ -457,7 +671,19 @@ export default function OverviewHome({
     setupDone + setupSkipped < setup.steps.length;
 
   // Needs you: the same items, and the same number, as the sidebar (B383).
+  // What goes out (a post, an email) shows in full under Review, with one row here.
   const waiting = approvalsFeed.page?.items ?? [];
+  const review = waiting.filter((item) => item.goes_out);
+  const reviewShown = review.filter((item) => !later.has(item.id));
+  const reviewAside = review.length - reviewShown.length;
+  const reviewWords = listWords(
+    [
+      ['post', review.filter((item) => item.goes_out === 'post').length],
+      ['email', review.filter((item) => item.goes_out === 'email').length],
+    ]
+      .filter(([, count]) => count)
+      .map(([word, count]) => plural(count as number, word as string)),
+  );
   const problems = attentionFeed.value?.problems ?? [];
   const attention = needsCount({
     approvals: approvalsFeed.page,
@@ -500,6 +726,24 @@ export default function OverviewHome({
     },
   );
   const problemNeeds = problems.map((problem: AttentionProblem): Item => {
+    // Row-Bot restarted for lack of memory (U8): its own actions; Monitor has the whole notice.
+    if (problem.place === 'memory')
+      return {
+        key: `problem:${problem.id}`,
+        icon: <MemoryStick size={16} />,
+        tone: 'warning',
+        title: problem.title,
+        meta: problem.detail,
+        label: `Open ${problem.title}`,
+        onOpen: () => onOpenTab('monitor'),
+        actions: (
+          <MemoryNoticeActions
+            problem={problem}
+            look="icon"
+            onDismissed={refixed}
+          />
+        ),
+      };
     // A workflow its removed code folder stopped (N9): running it again can't help;
     // its fix is choosing a folder, as on the run itself.
     const folder =
@@ -548,10 +792,35 @@ export default function OverviewHome({
     };
   });
   const needRows = [
-    ...waiting.map((approval) => ({
-      key: `approval:${approval.id}`,
-      approval,
-    })),
+    ...(review.length
+      ? [
+          {
+            key: 'review',
+            item: {
+              key: 'review',
+              icon: <Send size={16} />,
+              tone: 'warning' as const,
+              title: `${reviewWords} to review`,
+              meta: 'Shown in full under Review',
+              label: 'Go to Review',
+              onOpen: () =>
+                document
+                  .getElementById('overview-review')
+                  ?.closest('section')
+                  ?.scrollIntoView({
+                    behavior: reduced ? 'auto' : 'smooth',
+                    block: 'start',
+                  }),
+            },
+          },
+        ]
+      : []),
+    ...waiting
+      .filter((approval) => !approval.goes_out)
+      .map((approval) => ({
+        key: `approval:${approval.id}`,
+        approval,
+      })),
     ...conversationNeeds.map((item) => ({ key: item.key, item })),
     ...problemNeeds.map((item) => ({ key: item.key, item })),
   ];
@@ -631,10 +900,39 @@ export default function OverviewHome({
       label: 'Open Knowledge',
       onOpen: () => onOpenTab('knowledge'),
     });
+  // Proactive on: For you takes Today's place (and its rows).
+  const proactiveOn = useProactiveOn();
+  const { view: proactive } = useProactive();
+  // What waits For you leads Home's sentence when nothing needs the person.
+  const forYouLine =
+    proactiveOn && proactive.moments
+      ? forYouLead(proactive.moments, now, relativeTime)
+      : '';
   const unread = [
     tasksFailed && 'workflows',
     healthFailed && 'health checks',
   ].filter((name): name is string => Boolean(name));
+
+  // What conversations wait for (5.3.1): nothing needs the person; they carry on by themselves.
+  const { waits, stop: stopWait } = useWaits();
+  const waitRows = waits.map((wait): Item => ({
+    key: wait.wait_id,
+    icon: <Hourglass size={15} aria-hidden />,
+    tone: '3',
+    title: wait.label,
+    meta: `${wait.conversation_title || 'A conversation'} · ${wait.how}`,
+    label: `Open ${wait.conversation_title || 'the conversation'}`,
+    onOpen: () => onOpenConversation(wait.conversation_id),
+    actions: (
+      <IconButton
+        size="sm"
+        label="Stop waiting"
+        onClick={() => void stopWait(wait.wait_id)}
+      >
+        <X size={15} aria-hidden />
+      </IconButton>
+    ),
+  }));
 
   const recent = conversations
     .filter((row) => !row.parent_conversation_id)
@@ -657,11 +955,15 @@ export default function OverviewHome({
   // One sentence: the most important thing.
   const lead = attention
     ? `${plural(attention, 'thing')} ${attention === 1 ? 'needs' : 'need'} you.`
-    : readingNeeds || (loadTasks && tasks === null && !tasksFailed)
-      ? ''
-      : next
-        ? `Next: ${next.name} ${relativeTime(next.next_run, now)}.`
-        : 'All quiet.';
+    : forYouLine
+      ? forYouLine
+      : readingNeeds || (loadTasks && tasks === null && !tasksFailed)
+        ? ''
+        : next
+          ? `Next: ${next.name} ${relativeTime(next.next_run, now)}.`
+          : waits.length
+            ? `Waiting for ${plural(waits.length, 'thing')}.`
+            : 'All quiet.';
 
   const quickStarts = [
     onNewResource && (
@@ -670,6 +972,7 @@ export default function OverviewHome({
         label="New design"
         className="overview-quick-start"
         data-tone="5"
+        data-short="Design"
         onClick={() => onNewResource('artifact')}
       >
         <Palette size={17} aria-hidden />
@@ -681,6 +984,7 @@ export default function OverviewHome({
         label="New code folder"
         className="overview-quick-start"
         data-tone="2"
+        data-short="Code"
         onClick={() => onNewResource('workspace')}
       >
         <Code2 size={17} aria-hidden />
@@ -692,6 +996,7 @@ export default function OverviewHome({
         label="New workflow"
         className="overview-quick-start"
         data-tone="4"
+        data-short="Workflow"
         onClick={onNewWorkflow}
       >
         <Workflow size={17} aria-hidden />
@@ -757,7 +1062,7 @@ export default function OverviewHome({
         )}
       </header>
 
-      {!needsModel && (needRows.length > 0 || showSetup) && (
+      {!needsModel && needRows.length > 0 && (
         <Section
           id="overview-needs"
           className="overview-card overview-needs"
@@ -809,38 +1114,204 @@ export default function OverviewHome({
               )}
             </button>
           )}
-          {showSetup && (
-            <div
-              className="overview-setup"
-              role="region"
-              aria-label="Continue setup"
+        </Section>
+      )}
+
+      {!needsModel && (review.length > 0 || scheduled.length > 0) && (
+        <Section
+          id="overview-review"
+          className="overview-review"
+          order={1}
+          title={
+            <>
+              Review
+              {review.length ? (
+                <span className="overview-count">{review.length}</span>
+              ) : null}
+            </>
+          }
+        >
+          {reviewShown.length > 0 && (
+            <ul
+              className="overview-review-cards"
+              aria-label="Waiting to go out"
             >
-              <span className="overview-row-text">
-                <strong className="overview-row-title">Finish setup</strong>
-                <span className="overview-row-meta">
-                  {setupDone} of {setup.steps.length} done
-                  {setupSkipped ? ` · ${setupSkipped} skipped` : ''}
-                </span>
-              </span>
-              <Link className="button small" to="/setup">
-                Continue setup
-              </Link>
-              {onHideSetup && (
-                <IconButton
-                  size="sm"
-                  label="Hide setup reminder"
-                  onClick={onHideSetup}
-                >
-                  <X size={15} aria-hidden />
-                </IconButton>
-              )}
-              {setupError && (
-                <p role="status" className="overview-setup-error">
-                  {setupError}
-                </p>
-              )}
-            </div>
+              {reviewShown.map((item) => (
+                <li key={item.id}>
+                  <ApprovalCard
+                    id={item.id}
+                    conversationId={item.conversation_id ?? undefined}
+                    shortcut={false}
+                    onLater={() => setLater((ids) => new Set(ids).add(item.id))}
+                    onResolved={approvalsFeed.refresh}
+                  />
+                </li>
+              ))}
+            </ul>
           )}
+          {reviewAside > 0 && (
+            <button
+              type="button"
+              className="overview-needs-more"
+              onClick={() => setLater(new Set())}
+            >
+              {reviewAside} set aside · Show
+              <ChevronRight size={13} aria-hidden />
+            </button>
+          )}
+          {notSent.length > 0 && (
+            <>
+              <h4 className="overview-review-heading">Didn't go out</h4>
+              <ul
+                className="overview-rows"
+                aria-label="Posts that didn't go out"
+              >
+                {notSent.map((post) => (
+                  <li
+                    key={post.id}
+                    className="overview-row overview-row-approval"
+                  >
+                    <div className="overview-row-body">
+                      <Tile tone="warning">
+                        <AlertTriangle size={16} />
+                      </Tile>
+                      <span className="overview-row-text">
+                        <strong className="overview-row-title">
+                          {slotWords(post.post_at, now)}
+                          {post.username && ` · @${post.username}`}
+                        </strong>
+                        <span className="overview-row-meta overview-review-text">
+                          {post.text}
+                        </span>
+                        <ScheduledMedia media={post.media ?? []} />
+                        <span className="overview-row-meta overview-not-sent-reason">
+                          {post.reason}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="overview-row-actions">
+                      {post.status === 'by_hand' ? (
+                        <PostByHand post={post} />
+                      ) : (
+                        <IconButton
+                          size="sm"
+                          label="Try again now"
+                          onClick={() => void retryScheduled(post, false)}
+                        >
+                          <RotateCw size={15} aria-hidden />
+                        </IconButton>
+                      )}
+                      {post.status !== 'by_hand' &&
+                        (post.media?.length ?? 0) > 0 && (
+                          <IconButton
+                            size="sm"
+                            label="Post it now without the picture"
+                            onClick={() => void retryScheduled(post, true)}
+                          >
+                            <ImageOff size={15} aria-hidden />
+                          </IconButton>
+                        )}
+                      <IconButton
+                        size="sm"
+                        label="Dismiss"
+                        onClick={() => void cancelScheduled(post)}
+                      >
+                        <X size={15} aria-hidden />
+                      </IconButton>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {upcoming.length > 0 && (
+            <>
+              <h4 className="overview-review-heading">Scheduled</h4>
+              <ul className="overview-rows" aria-label="Scheduled posts">
+                {upcoming.map((post) =>
+                  editingPost === post.id ? (
+                    <li key={post.id} className="overview-row-edit">
+                      <XPostEditor
+                        post={{
+                          ...post,
+                          username: post.username ?? '',
+                        }}
+                        busy={savingEdit}
+                        onSave={(change) => void editScheduled(post, change)}
+                        onCancel={() => setEditingPost('')}
+                      />
+                    </li>
+                  ) : (
+                    <li
+                      key={post.id}
+                      className="overview-row overview-row-approval"
+                    >
+                      <div className="overview-row-body">
+                        <Tile tone="4">
+                          <CalendarClock size={16} />
+                        </Tile>
+                        <span className="overview-row-text">
+                          <strong className="overview-row-title">
+                            {slotWords(post.post_at, now)}
+                            {post.username && ` · @${post.username}`}
+                          </strong>
+                          <span className="overview-row-meta overview-review-text">
+                            {post.text}
+                          </span>
+                          <ScheduledMedia media={post.media ?? []} />
+                        </span>
+                      </div>
+                      <div className="overview-row-actions">
+                        {onEditScheduledPost && (
+                          <IconButton
+                            size="sm"
+                            label="Edit this post"
+                            onClick={() => {
+                              setScheduleError('');
+                              setEditingPost(post.id);
+                            }}
+                          >
+                            <Pencil size={15} aria-hidden />
+                          </IconButton>
+                        )}
+                        <IconButton
+                          size="sm"
+                          label="Cancel this post"
+                          onClick={() => void cancelScheduled(post)}
+                        >
+                          <X size={15} aria-hidden />
+                        </IconButton>
+                      </div>
+                    </li>
+                  ),
+                )}
+              </ul>
+            </>
+          )}
+          {scheduleError && (
+            <p role="alert" className="overview-setup-error">
+              {scheduleError}
+            </p>
+          )}
+        </Section>
+      )}
+
+      {!needsModel &&
+        proactiveOn &&
+        forYou?.({
+          rows: today
+            .filter((item) => item.key !== 'memory')
+            .map((item) => <Row key={item.key} item={item} />),
+          footer: today.find((item) => item.key === 'memory')?.title,
+        })}
+
+      {!needsModel && waitRows.length > 0 && (
+        <Section id="overview-waiting" title="Waiting" order={2}>
+          <ul className="overview-rows" aria-label="Waiting">
+            {waitRows.map((item) => (
+              <Row key={item.key} item={item} />
+            ))}
+          </ul>
         </Section>
       )}
 
@@ -864,23 +1335,65 @@ export default function OverviewHome({
         </Section>
       )}
 
-      {!needsModel && (today.length > 0 || unread.length > 0) && (
-        <Section id="overview-today" title="Today" order={3}>
-          {today.length > 0 && (
-            <ul className="overview-rows" aria-label="Today">
-              {today.map((item) => (
-                <Row key={item.key} item={item} />
-              ))}
-            </ul>
-          )}
-          {unread.length > 0 && (
-            <p className="overview-error" role="status">
-              Couldn’t read {listWords(unread)} just now. Their tabs may say
-              more.
-            </p>
+      {/* Once a model works Row-Bot is set up; the rest is optional, never
+          a "needs you" item or a count of what's left (U1, U2). */}
+      {showSetup && (
+        <Section id="overview-explore" title="Explore" order={4}>
+          {showSetup && (
+            <div
+              className="overview-setup"
+              role="region"
+              aria-label="More you can set up"
+            >
+              <span className="overview-row-text">
+                <strong className="overview-row-title">
+                  More you can set up
+                </strong>
+                <span className="overview-row-meta">
+                  Optional: voice, your phone, apps and more, whenever you like.
+                </span>
+              </span>
+              <Link className="button small" to="/setup">
+                Explore
+              </Link>
+              {onHideSetup && (
+                <IconButton
+                  size="sm"
+                  label="Hide setup reminder"
+                  onClick={onHideSetup}
+                >
+                  <X size={15} aria-hidden />
+                </IconButton>
+              )}
+              {setupError && (
+                <p role="status" className="overview-setup-error">
+                  {setupError}
+                </p>
+              )}
+            </div>
           )}
         </Section>
       )}
+
+      {!needsModel &&
+        (today.length > 0 || unread.length > 0) &&
+        !(proactiveOn && forYou) && (
+          <Section id="overview-today" title="Today" order={3}>
+            {today.length > 0 && (
+              <ul className="overview-rows" aria-label="Today">
+                {today.map((item) => (
+                  <Row key={item.key} item={item} />
+                ))}
+              </ul>
+            )}
+            {unread.length > 0 && (
+              <p className="overview-error" role="status">
+                Couldn’t read {listWords(unread)} just now. Their tabs may say
+                more.
+              </p>
+            )}
+          </Section>
+        )}
     </section>
   );
 }

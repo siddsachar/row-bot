@@ -39,6 +39,7 @@ export function createFakePlatform(
     buddyPlacement: () => result('buddyPlacement', unavailable()),
     publishBuddyTarget: () => result('publishBuddyTarget', unavailable()),
     readBuddyTarget: () => result('readBuddyTarget', unavailable()),
+    buddyPet: () => result('buddyPet', unavailable()),
     showMainWindow: () => result('showMainWindow', unavailable()),
     moveWindow: () => {
       calls.push('moveWindow');

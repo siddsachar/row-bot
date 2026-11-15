@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 from datetime import datetime
@@ -37,6 +38,9 @@ SECRET_ENTRIES = frozenset({
     "tailscale_serve_ownership.json",
     # The installation count's ID and deletion secret belong to this installation (N6).
     "install_count.json",
+    # The key a container made for its secure-secrets (secret_store.DATA_VOLUME_KEY_DIR_NAME, H2): never
+    # beside the records in a backup, and a restore leaves it with them.
+    "secret-store-key",
 })
 # Rebuildable or machine-local: caches, runtimes, logs and earlier backups. Learning's
 # ``learning_models`` holds re-downloadable or re-trainable bulk (starting-model weights,
@@ -47,11 +51,12 @@ LOCAL_ENTRIES = frozenset({
     "runtimes", "learning_models", "piper", "kokoro", "logs", "plugin_logs", "crashes", "feedback_reports",
     "recovery", "evolution_backups", "migration-backups", "migration_reports", "backups",
     "doc_staging", "stale_plugins", "document_ingestion", ".checkpoint-locks", PENDING_DIR, UPLOADS_DIR,
+    "memory_import", "memory_review",
     "backup_state.json", RESULT_FILE, "launcher_state.json",
 })
 LOCAL_NAMES = re.compile(
     r"(.*_cache\.json|.*\.log|.*\.log\.prev|.*\.lock|launcher-.*|tmp.*|.*-wal|.*-shm"
-    r"|mobile\.db\..*|.*-backup-\d{8}-\d{6}\.json|\.skills_activation\..+\.json|"
+    r"|mobile\.db\..*|memory\.db\.pre-review-.*|.*-backup-\d{8}-\d{6}\.json|\.skills_activation\..+\.json|"
     + re.escape(ASIDE_PREFIX) + r".*|" + re.escape(PARKED_PREFIX) + r".*)",
     re.IGNORECASE,
 )
@@ -67,18 +72,37 @@ def kept_in_place(name: str) -> bool:
     return name in SECRET_ENTRIES or name in LOCAL_ENTRIES or bool(LOCAL_NAMES.fullmatch(name))
 
 
+def claude_code_files() -> list[Path]:
+    """Claude Code's own files: its sign-in and settings, and its native install.
+
+    They are the person's Claude Code, not Row-Bot's profile. In the container
+    image the home is the data folder, so they sit beside the profile; a backup
+    never reads them (not even Claude's credential file, to copy it) and a
+    restore never moves them.
+    """
+    home = Path.home()
+    files = [home / ".claude", home / ".claude.json", home / ".claude.json.backup",
+             home / ".local" / "share" / "claude", home / ".local" / "bin" / "claude",
+             home / ".local" / "bin" / "claude.exe", home / ".config" / "anthropic"]
+    configured = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    if configured:
+        files.append(Path(configured).expanduser())
+    return files
+
+
 def outside_profile(data_dir: Path, folders: Iterable[Path] = ()) -> dict:
     """What sits in the data folder without being the profile.
 
     A container's home is its data folder, so the workspace (with its Backups
-    folder) and the home's own hidden files (tool settings, SSH keys) sit
-    beside the profile there. A backup never holds them and a restore never
-    moves them. ``folders`` are the workspace and the backups folder; only
-    those inside the data folder count.
+    folder) and the home's own hidden files (tool settings, SSH keys, Claude
+    Code's sign-in and install) sit beside the profile there. A backup never
+    holds them and a restore never moves them. ``folders`` are the workspace
+    and the backups folder; only those inside the data folder count, as do
+    Claude Code's files (``claude_code_files``).
     """
     root = data_dir.resolve()
     found: list[tuple[str, ...]] = []
-    for folder in folders:
+    for folder in (*folders, *claude_code_files()):
         try:
             parts = Path(folder).resolve().relative_to(root).parts
         except (OSError, ValueError):

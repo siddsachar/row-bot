@@ -18,6 +18,10 @@ import type {
   ClientState,
   PageDecisionWrite,
   PageTheme,
+  RowBotSandboxCreate,
+  VideoBrand,
+  VideoProjectChange,
+  VideoProjectExport,
   DictationScope,
   DictationHandle,
   DictationResult,
@@ -37,6 +41,9 @@ import type {
   MigrationApplyCommand,
   GitHubAccessCommand,
   AccountAuthCommand,
+  XPostEdit,
+  SaveOfferRequest,
+  ContextUsageView,
 } from './types';
 
 const INITIAL: ClientState = {
@@ -102,6 +109,26 @@ function readNoticePosition(): { after: number; epoch: string } {
     // No storage: this window shows each notice once while it stays open.
   }
   return { after: 0, epoch: '' };
+}
+
+/**
+ * A live per-call context count carries no breakdown (B7): the one from the
+ * last settled reply stays while the conversation, model and mode are the same.
+ */
+function withKeptBreakdown(
+  previous: ContextUsageView | null | undefined,
+  next: ContextUsageView,
+): ContextUsageView {
+  if (
+    next.breakdown ||
+    !previous?.breakdown ||
+    next.state === 'unknown' ||
+    previous.conversation_id !== next.conversation_id ||
+    previous.model_ref !== next.model_ref ||
+    previous.scope !== next.scope
+  )
+    return next;
+  return { ...next, breakdown: previous.breakdown };
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -238,6 +265,8 @@ export class ClientController {
       'conversations',
       () => void this.refreshConversationList(),
     );
+    // "Row-Bot sent you …" shows at once where no conversation stream carries it.
+    this.live.subscribe('notices', () => void this.readNotices());
   }
   getSnapshot = (): ClientState => this.state;
   getSelectionVersion = (): number => this.selectionNumber;
@@ -848,6 +877,9 @@ export class ClientController {
         session_ttl_seconds: result.session_ttl_seconds,
         server_utc_offset_minutes: result.server_utc_offset_minutes ?? null,
         server_timezone: result.server_timezone ?? null,
+        sandbox: result.sandbox ?? false,
+        place: result.place,
+        memory_limit_bytes: result.memory_limit_bytes ?? null,
         native_adapter: result.native_adapter,
         limits: result.limits,
       };
@@ -1603,7 +1635,13 @@ export class ClientController {
     const workspace =
       event.type === 'context.updated' &&
       this.state.workspace?.conversation_id === event.conversation_id
-        ? { ...this.state.workspace, context_usage: event.payload }
+        ? {
+            ...this.state.workspace,
+            context_usage: withKeptBreakdown(
+              this.state.workspace.context_usage,
+              event.payload,
+            ),
+          }
         : this.state.workspace;
     this.update({ projection: next, activity, workspace });
     if (
@@ -2007,6 +2045,18 @@ export class ClientController {
     this.query(() =>
       this.transport.composerCommand?.(conversation, { command_id }, signal),
     );
+  /** The person's Undo on a setting Row-Bot changed (its step's result message). */
+  undoSettingChange = (
+    conversation: string,
+    message_id: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.undoSettingChange?.(conversation, { message_id }, signal),
+    );
+  /** One of Row-Bot's guides, from the copy this install ships. */
+  guidePage = (route: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.guidePage?.(route, signal));
   private setDraftStatus(id: string, status: ClientState['draftStatus']): void {
     this.draftStates.set(id, status);
     if (this.state.selectedConversationId === id)
@@ -2385,6 +2435,51 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.testLiveProviderRuntime(provider, signal);
     });
+  /** Claude Code's install from Anthropic (H14): its progress. */
+  claudeCodeInstall = (signal?: AbortSignal) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.claudeCodeInstall)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.claudeCodeInstall(current);
+    }, signal);
+  /** Install (or, with `update`, reinstall) the newest Claude Code. */
+  installClaudeCode = (update: boolean) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.installClaudeCode)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.installClaudeCode(update, signal);
+    });
+  /** Claude's own sign-in (H15); `switchAccount` signs Claude Code out first. */
+  openClaudeSignIn = (cols: number, rows: number, switchAccount = false) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.openClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.openClaudeSignIn(cols, rows, switchAccount, signal);
+    });
+  readClaudeSignIn = (signIn: string, cursor: number, signal?: AbortSignal) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.readClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.readClaudeSignIn(signIn, cursor, current);
+    }, signal);
+  writeClaudeSignIn = (signIn: string, data: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.writeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.writeClaudeSignIn(signIn, data, signal);
+    });
+  resizeClaudeSignIn = (signIn: string, cols: number, rows: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.resizeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.resizeClaudeSignIn(signIn, cols, rows, signal);
+    });
+  closeClaudeSignIn = (signIn: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.closeClaudeSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.closeClaudeSignIn(signIn, signal);
+    });
   integrationSources = (signal?: AbortSignal) =>
     this.query(() => this.transport.integrationSources?.(signal));
   updateIntegrationSource = (source: string, signal?: AbortSignal) =>
@@ -2443,6 +2538,9 @@ export class ClientController {
       scope?: 'installed' | 'catalog';
       cursor?: string;
       all?: 'true';
+      labels?: string;
+      runs?: 'anywhere' | 'hosted' | 'local';
+      no_sign_in?: 'true';
     },
     signal?: AbortSignal,
   ) => this.query(() => this.transport.integrationItems?.(options, signal));
@@ -2695,24 +2793,6 @@ export class ClientController {
   /** Files sent to the person's devices or a chat app (F7). */
   delivery = (deliveryId: string, signal?: AbortSignal) =>
     this.query(() => this.transport.delivery?.(deliveryId, signal));
-  /** One file sent to the devices, with this session (refused once expired). */
-  downloadDelivery = (
-    deliveryId: string,
-    index: number,
-    signal?: AbortSignal,
-  ) =>
-    this.authenticatedResult((current) => {
-      if (!this.transport.downloadDelivery)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.downloadDelivery(deliveryId, index, current);
-    }, signal);
-  /** Desktop window: save a sent file into Exports on this computer. */
-  saveDelivery = (deliveryId: string, index: number) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.saveDelivery)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.saveDelivery(deliveryId, index, signal);
-    });
   /** "Send to your devices instead" for files that didn't go to a chat app. */
   sendDeliveryToDevices = (deliveryId: string) =>
     this.authenticatedResult((signal) => {
@@ -2725,6 +2805,11 @@ export class ClientController {
     this.query(() => this.transport.pages?.(conversationId, signal));
   page = (pageId: string, signal?: AbortSignal) =>
     this.query(() => this.transport.page?.(pageId, signal));
+  /** The conversations one started or proposed, with their state (5.3.1 C). */
+  conversationLinks = (conversationId: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.conversationLinks?.(conversationId, signal),
+    );
   /** One frame address for a page, served once to its sandboxed frame. */
   pageFrame = (pageId: string, theme: PageTheme, signal?: AbortSignal) =>
     this.authenticatedResult((current) => {
@@ -2746,20 +2831,6 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.savePageDecision(pageId, decision, signal);
     });
-  /** Download as HTML: one file that works on its own. */
-  downloadPage = (pageId: string, theme: PageTheme) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.downloadPage)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.downloadPage(pageId, theme, signal);
-    });
-  /** Desktop window: save a page into Exports on this computer. */
-  savePageToExports = (pageId: string, theme: PageTheme) =>
-    this.authenticatedResult((signal) => {
-      if (!this.transport.savePageToExports)
-        throw clientError({ code: 'capability_unavailable' });
-      return this.transport.savePageToExports(pageId, theme, signal);
-    });
   /** The local addresses a conversation's browser may open now (F4). */
   browserLocalAddresses = (conversation: string, signal?: AbortSignal) =>
     this.query(() =>
@@ -2779,9 +2850,109 @@ export class ClientController {
   /** The sidebar's one indicator: problems and an update (rows 12, 13). */
   attention = (signal?: AbortSignal) =>
     this.query(() => this.transport.attention?.(signal));
+  /** The out-of-memory notice is read (U8): gone until the next such restart. */
+  dismissMemoryNotice = () =>
+    this.query(() => this.transport.dismissMemoryNotice?.());
+  /** Library › Media (5.3.1 B3). */
+  media = (filter: { query?: string; kind?: string }, signal?: AbortSignal) =>
+    this.query(() => this.transport.media?.(filter, signal));
+  setMediaTags = (ref: string, tags: string[]) =>
+    this.query(() => this.transport.setMediaTags?.(ref, tags));
+  /** A video project (5.3.1 B3): read, change, go back, make again. */
+  videoProject = (projectId: string, version?: number, signal?: AbortSignal) =>
+    this.query(() => this.transport.videoProject?.(projectId, version, signal));
+  changeVideoProject = (projectId: string, change: VideoProjectChange) =>
+    this.query(() => this.transport.changeVideoProject?.(projectId, change));
+  restoreVideoProject = (projectId: string, number: number) =>
+    this.query(() => this.transport.restoreVideoProject?.(projectId, number));
+  makeVideoProject = (projectId: string) =>
+    this.query(() => this.transport.makeVideoProject?.(projectId));
+  /** What conversations wait for (5.3.1); a stopped one starts nothing. */
+  waits = (signal?: AbortSignal) =>
+    this.query(() => this.transport.waits?.(signal));
+  stopWait = (waitId: string) =>
+    this.query(() => this.transport.stopWait?.(waitId));
+  /** Proactive Row-Bot (see `features/proactive/proactive-state.ts`). */
+  proactiveMoments = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveMoments?.(signal));
+  proactiveMoment = (momentId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveMoment?.(momentId, signal));
+  proactiveFeedback = (
+    momentId: string,
+    feedback: import('./types').ProactiveFeedback,
+  ) => this.query(() => this.transport.proactiveFeedback?.(momentId, feedback));
+  proactiveActivity = (before?: number, limit?: number, signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveActivity?.(before, limit, signal));
+  proactiveSettings = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveSettings?.(signal));
+  changeProactiveSettings = (
+    change: import('./types').ProactiveSettingsChange,
+  ) => this.query(() => this.transport.changeProactiveSettings?.(change));
+  addProactiveRule = (rule: import('./types').ProactiveRuleWrite) =>
+    this.query(() => this.transport.addProactiveRule?.(rule));
+  changeProactiveRule = (
+    ruleId: string,
+    rule: import('./types').ProactiveRuleWrite,
+  ) => this.query(() => this.transport.changeProactiveRule?.(ruleId, rule));
+  deleteProactiveRule = (ruleId: string) =>
+    this.query(() => this.transport.deleteProactiveRule?.(ruleId));
+  proactiveDrafts = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveDrafts?.(signal));
+  proactiveDraft = (draftId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.proactiveDraft?.(draftId, signal));
+  saveProactiveDraft = (
+    draftId: string,
+    edit: import('./types').ProactiveDraftEdit,
+  ) => this.query(() => this.transport.saveProactiveDraft?.(draftId, edit));
+  askToSendProactiveDraft = (draftId: string) =>
+    this.query(() => this.transport.askToSendProactiveDraft?.(draftId));
+  answerProactiveDraftSend = (
+    draftId: string,
+    answer: import('./types').ProactiveDraftSendAnswer,
+  ) =>
+    this.query(() =>
+      this.transport.answerProactiveDraftSend?.(draftId, answer),
+    );
+  proactivePreview = (signal?: AbortSignal) =>
+    this.query(() => this.transport.proactivePreview?.(signal));
+  noteProactiveBoundary = (boundary: import('./types').ProactiveBoundary) =>
+    this.query(() => this.transport.noteProactiveBoundary?.(boundary));
+  /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */
+  rowBotSandboxes = (signal?: AbortSignal) =>
+    this.query(() => this.transport.rowBotSandboxes?.(signal));
+  createRowBotSandbox = (body: RowBotSandboxCreate) =>
+    this.query(() => this.transport.createRowBotSandbox?.(body));
+  actOnRowBotSandbox = (
+    sandboxId: string,
+    action: 'start' | 'stop' | 'reset',
+  ) => this.query(() => this.transport.actOnRowBotSandbox?.(sandboxId, action));
+  rowBotSandboxLink = (sandboxId: string) =>
+    this.query(() => this.transport.rowBotSandboxLink?.(sandboxId));
+  deleteRowBotSandbox = (sandboxId: string) =>
+    this.query(() => this.transport.deleteRowBotSandbox?.(sandboxId));
+  /** The brand kit (5.3.1 B3). */
+  videoBrand = (signal?: AbortSignal) =>
+    this.query(() => this.transport.videoBrand?.(signal));
+  saveVideoBrand = (brand: VideoBrand) =>
+    this.query(() => this.transport.saveVideoBrand?.(brand));
+  exportVideoProject = (
+    projectId: string,
+    shape: VideoProjectExport['shape'],
+  ) => this.query(() => this.transport.exportVideoProject?.(projectId, shape));
   /** Every approval waiting for the person, wherever it was raised (B255). */
   pendingApprovals = (signal?: AbortSignal) =>
     this.query(() => this.transport.pendingApprovals?.(signal));
+  /** Posts approved for a time slot, waiting for it (G3). */
+  scheduledPosts = (signal?: AbortSignal) =>
+    this.query(() => this.transport.scheduledPosts?.(signal));
+  cancelScheduledPost = (id: string) =>
+    this.query(() => this.transport.cancelScheduledPost?.(id));
+  /** The person's edit of a post waiting for its time: its text and which files go; it keeps its time. */
+  editScheduledPost = (id: string, edit: XPostEdit) =>
+    this.query(() => this.transport.editScheduledPost?.(id, edit));
+  /** Try again on a scheduled post that didn't go out: it goes now (without its media, when asked). */
+  retryScheduledPost = (id: string, withoutMedia = false) =>
+    this.query(() => this.transport.retryScheduledPost?.(id, withoutMedia));
   monitorLogs = (limit = 200, signal?: AbortSignal) =>
     this.query(() => this.transport.monitorLogs?.(limit, signal));
   systemDiagnosis = (signal?: AbortSignal) =>
@@ -3983,6 +4154,20 @@ export class ClientController {
       throw clientError({ code: 'protocol_incompatible' });
     return result.options;
   };
+  startOpenRouterSignIn = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.startOpenRouterSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.startOpenRouterSignIn(signal);
+    });
+  openRouterSignIn = (flow: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.openRouterSignIn?.(flow, signal));
+  cancelOpenRouterSignIn = (flow: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.cancelOpenRouterSignIn)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.cancelOpenRouterSignIn(flow, signal);
+    });
   cancelSubscriptionStart = (command: string) =>
     this.authenticatedResult((signal) => {
       if (!this.transport.cancelSubscriptionStart)
@@ -4275,6 +4460,7 @@ export class ClientController {
       result.credential?.provider_id !== provider
     )
       throw clientError({ code: 'provider_credential_unconfirmed' });
+    // The result carries no name: the editor keeps the one it shows (I1).
     return { ...result.credential, display_name: provider };
   };
   savedEntities = (
@@ -4513,6 +4699,95 @@ export class ClientController {
     }, signal);
   cancelDataBackupUpload = (upload: string) =>
     this.query(() => this.transport.cancelDataBackupUpload?.(upload));
+  memoryImportSources = (signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryImportSources?.(signal));
+  beginMemoryImport = (signal?: AbortSignal) =>
+    this.query(() => this.transport.beginMemoryImport?.(signal));
+  memoryImport = (batch: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryImport?.(batch, signal));
+  discardMemoryImport = (batch: string) =>
+    this.query(() => this.transport.discardMemoryImport?.(batch));
+  uploadMemoryImportFile = (
+    batch: string,
+    file: File,
+    progress?: (sent: number) => void,
+    signal?: AbortSignal,
+  ) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.uploadMemoryImportFile)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.uploadMemoryImportFile(
+        batch,
+        file,
+        progress,
+        current,
+      );
+    }, signal);
+  removeMemoryImportFile = (batch: string, file: string) =>
+    this.query(() => this.transport.removeMemoryImportFile?.(batch, file));
+  addMemoryImportText = (batch: string, text: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.addMemoryImportText?.(batch, text, signal));
+  memoryImportStep = (
+    batch: string,
+    step: 'scan' | 'conversations' | 'cancel',
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.memoryImportStep?.(batch, step, signal));
+  memoryImportCandidates = (batch: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryImportCandidates?.(batch, signal));
+  previewMemoryImport = (
+    batch: string,
+    items: import('./types').MemoryImportPreviewRequest['items'],
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.previewMemoryImport?.(batch, items, signal),
+    );
+  memoryImportPreview = (batch: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryImportPreview?.(batch, signal));
+  applyMemoryImport = (
+    batch: string,
+    command: Omit<import('./types').MemoryImportApply, 'client_session_id'>,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.applyMemoryImport)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.applyMemoryImport(batch, command, signal);
+    });
+  undoMemoryImport = (batch: string, command: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.undoMemoryImport)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.undoMemoryImport(batch, command, signal);
+    });
+  memoryReviewOverview = (importBatch?: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.memoryReviewOverview?.(importBatch, signal),
+    );
+  beginMemoryReview = (importBatch?: string) =>
+    this.query(() => this.transport.beginMemoryReview?.(importBatch));
+  memoryReview = (run: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryReview?.(run, signal));
+  discardMemoryReview = (run: string) =>
+    this.query(() => this.transport.discardMemoryReview?.(run));
+  cancelMemoryReview = (run: string) =>
+    this.query(() => this.transport.cancelMemoryReview?.(run));
+  memoryReviewProposals = (run: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.memoryReviewProposals?.(run, signal));
+  applyMemoryReview = (
+    run: string,
+    command: Omit<import('./types').MemoryReviewApply, 'client_session_id'>,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.applyMemoryReview)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.applyMemoryReview(run, command, signal);
+    });
+  undoMemoryReview = (run: string, command: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.undoMemoryReview)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.undoMemoryReview(run, command, signal);
+    });
   insights = (signal?: AbortSignal) =>
     this.query(() => this.transport.insights?.(signal));
   insightReceipt = (command: string, signal?: AbortSignal) =>
@@ -4898,50 +5173,6 @@ export class ClientController {
         signal,
       ),
     );
-  saveArtifactExport = (
-    conversation: string,
-    binding: string,
-    exportId: string,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.saveArtifactExport?.(
-        conversation,
-        binding,
-        exportId,
-        signal,
-      ),
-    );
-  revealArtifactExport = (
-    conversation: string,
-    binding: string,
-    exportId: string,
-    body: import('./types').ArtifactExportReveal,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.revealArtifactExport?.(
-        conversation,
-        binding,
-        exportId,
-        body,
-        signal,
-      ),
-    );
-  artifactDownload = (
-    conversation: string,
-    binding: string,
-    descriptor: import('./types').ArtifactExport,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.artifactDownload?.(
-        conversation,
-        binding,
-        descriptor,
-        signal,
-      ),
-    );
   cachedModels = (
     providerId?: string,
     query = '',
@@ -4966,8 +5197,8 @@ export class ClientController {
       return this.transport.updateModelContext(body, signal);
     });
   /**
-   * Favourite or hide a model (F10). The composer's list changes at once and
-   * settles on what the server saved; a failed save puts it back.
+   * Star or unstar a model. The composer's list changes at once and settles on
+   * what the server saved; a failed save puts it back.
    */
   updateModelVisibility = async (
     body: import('./types').ModelVisibilityMutation,
@@ -4991,6 +5222,9 @@ export class ClientController {
           throw clientError({ code: 'capability_unavailable' });
         return this.transport.updateModelVisibility(body, signal);
       });
+      // Only the stars change here: an open picker keeps its rows, so several
+      // models can be starred in a row. A provider's first star narrows its list
+      // to the starred models; the picker shows that the next time it reads it.
       mark((models) => markModels(models, saved));
       return saved;
     } catch (cause) {
@@ -5757,6 +5991,13 @@ export class ClientController {
       signal,
     );
   }
+  /** One file to save, offered by the server for the one save path (5.3.3). */
+  saveOffer = (source: SaveOfferRequest['source'], signal?: AbortSignal) =>
+    this.query(() => {
+      if (!this.transport.createSaveOffer)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.createSaveOffer({ source }, signal);
+    });
   /** Desktop app: a conversation export saved into Exports by the server (B238). */
   saveToExports = (reference: string, signal?: AbortSignal) =>
     this.query(() => this.transport.saveAttachmentExport?.(reference, signal));

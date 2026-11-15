@@ -216,7 +216,7 @@ def _token_key(token: GitHubToken) -> str:
 
 
 def shared_github_status() -> GitHubAccountStatus:
-    """One GitHub status for Settings › Accounts, Apps and Monitor (B118).
+    """One GitHub status for Settings › Apps, Apps and Monitor (B118).
 
     The last verified result (Monitor's check, the start-up check or an
     explicit Check) while it is for the credential in use now; otherwise what
@@ -235,7 +235,8 @@ def shared_github_status() -> GitHubAccountStatus:
                                    or (not token.configured and remembered[1].source == "github_cli")):
         return remembered[1]
     if not token.configured and _github_cli_installed():
-        message = "The GitHub CLI is on this computer. Check GitHub to see whether Row-Bot can use its sign-in."
+        from row_bot.hosting import on_server
+        message = f"The GitHub CLI is {on_server()}. Check GitHub to see whether Row-Bot can use its sign-in."
         return GitHubAccountStatus(
             connected=False,
             source="github_cli",
@@ -502,7 +503,7 @@ def rate_limit_message(rate: GitHubRateLimit | None) -> str:
         wait = f" Retry after {rate.retry_after_seconds}s." if rate.retry_after_seconds else ""
         return "GitHub secondary rate limit reached." + wait
     reset = f" Resets at {rate.reset_display}." if rate.reset_display else ""
-    return "GitHub rate limit reached. Connect GitHub in Settings -> Accounts for a higher limit." + reset
+    return "GitHub rate limit reached. Connect GitHub in Settings › Apps for a higher limit." + reset
 
 
 def _base_headers(user_agent: str = USER_AGENT) -> dict[str, str]:

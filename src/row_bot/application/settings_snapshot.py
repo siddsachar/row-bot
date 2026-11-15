@@ -20,8 +20,9 @@ import sys
 import time
 from typing import Any
 
-from row_bot import account_tokens, x_accounts
+from row_bot import account_tokens, server_memory, x_accounts
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.hosting import hosted_by, trial
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _MAX_ITEMS = 128
@@ -99,14 +100,6 @@ _BUDDY_BUBBLE_OPTIONS = {
     "quiet": "Quiet",
     "normal": "Normal",
     "chatty": "Chatty",
-}
-_BUDDY_REQUIRED_CLIPS = {
-    "idle",
-    "thinking",
-    "working",
-    "approval",
-    "success",
-    "error",
 }
 _LOCAL_EMBEDDING_OPTIONS = {
     "qwen3-0.6b": "Qwen3 0.6B",
@@ -311,17 +304,20 @@ def _buddy_pack_rows(root: Path, selected_id: str) -> list[dict[str, Any]]:
     for pack_id, directory in sorted(pack_dirs.items()):
         manifest = _mapping(_read_json(directory / "manifest.json", default={}))
         runtime = _text(manifest.get("runtime"), 64)
-        if runtime not in {"rive", "generated_still", "generated_motion_pack"}:
+        if runtime not in {"living", "generated_still", "generated_motion_pack"}:
             runtime = (
-                "generated_motion_pack"
+                "living"
+                if manifest.get("rig") or (directory / "rig.json").is_file()
+                else "generated_motion_pack"
                 if isinstance(manifest.get("clips"), Mapping)
                 else "generated_still"
-                if pack_id.startswith("hatch-")
-                else "rive"
             )
         clips = _mapping(manifest.get("clips"))
         preview_name = _text(
-            manifest.get("preview") or manifest.get("preview_path") or "preview.png",
+            manifest.get("preview")
+            or manifest.get("preview_path")
+            or (manifest.get("art") if runtime == "living" else None)
+            or ("art.png" if runtime == "living" else "preview.png"),
             512,
         )
         preview_leaf = Path(preview_name)
@@ -335,15 +331,13 @@ def _buddy_pack_rows(root: Path, selected_id: str) -> list[dict[str, Any]]:
         preview_available = bool(preview and _local_path_is_file(str(preview)))
         status = "available"
         message = "Ready"
-        if (
-            runtime in {"generated_still", "generated_motion_pack"}
-            and not preview_available
+        if not preview_available:
+            status, message = "unavailable", "still image is missing or empty"
+        elif runtime == "living" and not all(
+            _local_path_is_file(str(directory / _text(manifest.get(key) or default, 512)))
+            for key, default in (("art", "art.png"), ("rig", "rig.json"))
         ):
-            status, message = "unavailable", "preview image is missing or empty"
-        if runtime == "generated_motion_pack" and not _BUDDY_REQUIRED_CLIPS.issubset(
-            clips
-        ):
-            status, message = "unavailable", "motion clips need attention"
+            status, message = "unavailable", "art or rig is missing"
         name = _text(manifest.get("name") or "Buddy", 256).strip()
         if name.casefold().startswith("buddy "):
             name = name[6:].strip()
@@ -382,7 +376,9 @@ def _buddy(root: Path) -> dict[str, Any]:
     bubbles = _text(config.get("bubble_verbosity") or "normal", 32)
     if bubbles not in _BUDDY_BUBBLE_OPTIONS:
         bubbles = "normal"
-    pack_id = _text(config.get("pack_id") or "glyph", 128)
+    from row_bot.buddy.config import DEFAULT_PACK_ID
+
+    pack_id = _text(config.get("pack_id") or DEFAULT_PACK_ID, 128)
     packs = _buddy_pack_rows(root, pack_id)
     if packs and not any(item["selected"] for item in packs):
         pack_id = packs[0]["pack_id"]
@@ -597,7 +593,25 @@ def _system(
             "level": log_level,
             "directory_available": (root / "logs").is_dir(),
         },
+        # The company that runs this Row-Bot, from its reviewed entry (H13); None when none is known.
+        "hosted_by": _hosted_by(),
+        "memory": _server_memory(),
     }
+
+
+def _hosted_by() -> dict[str, Any] | None:
+    """The host's reviewed entry (H13), with its trial words while the server has a trial's memory (A4)."""
+    host = hosted_by()
+    if host is None:
+        return None
+    return {**host.to_public_dict(), "trial": trial(host, server_memory.limit_bytes())}
+
+
+def _server_memory() -> dict[str, int] | None:
+    """The server's memory limit and use now (H12), for the host card (U5); None without a limit."""
+    limit = server_memory.limit_bytes()
+    used = server_memory.working_set_bytes() if limit is not None else None
+    return None if limit is None or used is None else {"limit_bytes": limit, "used_bytes": used}
 
 
 def _mobile_access(root: Path) -> dict[str, Any]:
@@ -621,14 +635,26 @@ def _mobile_access(root: Path) -> dict[str, Any]:
                     "active_devices": 0,
                     "active_sessions": 0,
                 }
+            # Counted as Settings › Devices lists them: still signed in (a session not
+            # signed out or run out), and never this computer's own windows (F7).
+            from datetime import datetime, timezone
+
+            from row_bot.access.service import THIS_COMPUTER_ROUTE
+
+            live = (
+                "FROM access_sessions s JOIN access_devices d ON d.id = s.device_id "
+                "WHERE s.revoked_at IS NULL AND d.revoked_at IS NULL "
+                "AND COALESCE(d.access_route, '') != ? AND s.expires_at > ?"
+            )
+            now = datetime.now(timezone.utc).isoformat()
             devices = int(
                 connection.execute(
-                    "SELECT COUNT(*) FROM access_devices WHERE revoked_at IS NULL"
+                    f"SELECT COUNT(DISTINCT d.id) {live}", (THIS_COMPUTER_ROUTE, now)
                 ).fetchone()[0]
             )
             sessions = int(
                 connection.execute(
-                    "SELECT COUNT(*) FROM access_sessions WHERE revoked_at IS NULL"
+                    f"SELECT COUNT(*) {live}", (THIS_COMPUTER_ROUTE, now)
                 ).fetchone()[0]
             )
         finally:
@@ -1751,6 +1777,14 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
 
 
 def _revision(value: Mapping[str, Any]) -> str:
+    # An update check writes its own times by itself, and the server's memory use moves by itself; they
+    # are not a setting the person changed, so they never make a change the person is making stale.
+    value = copy.deepcopy(dict(value))
+    updates = value.get("preferences", {}).get("updates")
+    if isinstance(updates, dict):
+        updates.pop("last_check", None)
+        updates.pop("last_success", None)
+    value.get("system", {}).pop("memory", None)
     return hashlib.sha256(
         json.dumps(
             value, sort_keys=True, ensure_ascii=True, separators=(",", ":")
@@ -1782,14 +1816,52 @@ def read_settings_snapshot(
         "preferences": _preferences(root),
         "learning": _learning(root),
     }
+    from row_bot import tool_configuration
+
+    # The registry keeps every tool off while this file can't be read; Settings says so and offers a reset.
+    unreadable = tool_configuration.unreadable(root / "tools_config.json")
     validate()
     return {
         "schema_version": 1,
         "revision": _revision(sections),
         **sections,
+        "tool_settings_unreadable": unreadable,
+        "tool_settings_reset_workspace": tool_settings_reset_workspace() if unreadable else None,
         # Defaults never change the revision: they are not saved state.
         "defaults": copy.deepcopy(SETTING_DEFAULTS),
     }
+
+
+def workspace_kept_by_tool_settings_reset() -> str | None:
+    """The workspace folder Start from defaults keeps ("" for the default), else None when it can't be known.
+
+    Only this process's loaded setting counts: it was read before tools_config.json became unreadable. When the
+    file was already unreadable at start-up the loaded value is a stand-in, and the unreadable file itself is
+    never read as configuration, not even the parts that still parse.
+    """
+    registry = sys.modules.get("row_bot.tools.registry")
+    if registry is None:
+        return None
+    known, value = registry.loaded_tool_config("filesystem", "workspace_root")
+    if not known:
+        return None
+    return value if type(value) is str else ""
+
+
+def workspace_folder_words(folder: str) -> str:
+    """How Settings names a workspace folder: its own name, or "Documents › Row-Bot" for the default."""
+    from row_bot.data_paths import default_workspace_root
+
+    if folder:
+        return Path(folder).expanduser().name or folder
+    default = default_workspace_root()
+    return f"{default.parent.name} › {default.name}" if default.parent.name else default.name
+
+
+def tool_settings_reset_workspace() -> dict[str, Any]:
+    """Whether Start from defaults keeps the workspace folder, and the folder after it."""
+    kept = workspace_kept_by_tool_settings_reset()
+    return {"kept": kept is not None, "folder": workspace_folder_words(kept or "")[:512]}
 
 
 __all__ = ["SETTING_DEFAULTS", "read_settings_snapshot", "read_tracker_entries"]

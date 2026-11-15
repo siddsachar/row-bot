@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { ModalTask } from '../../ui/overlays';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import {
   Button,
   Field,
@@ -375,9 +376,9 @@ function buildIntent(draft: Draft): McpConfigurationIntent {
 
 type AddMode = 'manual' | 'json';
 
-function transportLabel(transport: string) {
+function transportLabel(transport: string, place: PlaceWords) {
   return transport === 'stdio'
-    ? 'On this computer'
+    ? `On ${place.name}`
     : transport === 'streamable_http'
       ? 'HTTP'
       : transport === 'sse'
@@ -403,6 +404,7 @@ function ServerRow({
   onRename: () => void;
   onRemove: () => void;
 }) {
+  const place = usePlace();
   const missing = (server.requirements ?? []).filter(
     (requirement) => !requirement.available,
   );
@@ -438,7 +440,7 @@ function ServerRow({
         </>
       }
       help={[
-        transportLabel(server.transport),
+        transportLabel(server.transport, place),
         server.tool_count == null
           ? ''
           : `${server.tool_count} ${server.tool_count === 1 ? 'tool' : 'tools'}`,
@@ -455,7 +457,7 @@ function ServerRow({
                   ? `Couldn’t check ${requirement.label}`
                   : requirement.installable
                     ? `Needs ${requirement.label}; install it under Runtimes`
-                    : `Needs ${requirement.label}; set it up on this computer`,
+                    : `Needs ${requirement.label}; set it up ${place.on}`,
               )
               .join(' · ')}
           </StatusLine>
@@ -521,6 +523,7 @@ export default function CapabilitySettings({
   review,
   execute,
 }: CapabilitySettingsProps) {
+  const place = usePlace();
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mode, setMode] = useState<AddMode>(() =>
@@ -1219,7 +1222,7 @@ export default function CapabilitySettings({
                   value={draft.transport}
                   onChange={(transport) => edit({ transport })}
                   options={[
-                    { value: 'stdio', label: 'This computer' },
+                    { value: 'stdio', label: place.label },
                     { value: 'streamable_http', label: 'HTTP' },
                     { value: 'sse', label: 'SSE' },
                   ]}

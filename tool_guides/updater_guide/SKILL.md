@@ -2,7 +2,7 @@
 name: updater_guide
 display_name: Auto-Update Guide
 icon: "⬆"
-description: Guidance for checking for and installing Row-Bot updates.
+description: Is Row-Bot up to date? Checking for and installing Row-Bot updates.
 tools:
   - row_bot_updater
 tags: []

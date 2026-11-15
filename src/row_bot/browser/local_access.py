@@ -221,6 +221,14 @@ def row_bot_server(origin: str, conversation_id: str) -> bool:
     """
 
     try:
+        from row_bot import sandboxes
+
+        # A sandbox this Row-Bot started (5.3.1 B4) is one of its servers too.
+        if on_this_computer(origin) and origin_port(origin) in sandboxes.running_ports():
+            return True
+    except Exception:
+        pass
+    try:
         from row_bot.background_processes import owns_local_origin
     except Exception:
         return False
