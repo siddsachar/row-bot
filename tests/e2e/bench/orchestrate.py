@@ -532,6 +532,8 @@ def build_scores(run_dir: Path) -> dict[str, Any]:
                    "reasoning_effort": config.get("reasoning_effort"), "tools": config.get("tools")},
         "dream": run.get("dream"), "protocol": protocol, "judge_settings": judge_settings,
         "scores": scores, "judge_sensitivity": sensitivity, "paired_subset": paired,
+        # LongMemEval-V2: answers whose box held LaTeX text wrappers, scored on their words (v2_metrics).
+        "normalized_answers": len({item.question_id for item in judgments if item.detail.get("normalized")}),
         "conversations": run.get("conversations") or [], "subset_rule": run.get("subset_rule") or "",
         "tasks": {"done": sum(item.status == "done" for item in memory_runs),
                   "other": [{"task_id": item.task_id, "status": item.status, "reason": item.reason}
@@ -580,6 +582,9 @@ def render_report(scores: Mapping[str, Any]) -> str:
                           for name, value in item["by_category"].items())
         lines.append(f"- {item['key']} / {item['judge']}: {cells}; abstention {_pct(item['abstention'])}, "
                      f"non-abstention {_pct(item['non_abstention'])}; unparsed {item['unparsed_verdicts']}")
+    if scores.get("normalized_answers"):
+        lines.append(f"- {scores['normalized_answers']} answer(s) had LaTeX text wrappers inside the box, removed "
+                     "before the published scorer (the raw box is in each judgment)")
     if scores.get("subset_rule"):
         lines.append(f"- conversations: {scores['subset_rule']}")
     for item in (scores.get("paired_subset") or {}).get("scores", []):

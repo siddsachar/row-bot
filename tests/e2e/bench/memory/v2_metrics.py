@@ -117,6 +117,27 @@ def extract_boxed_answer(text: str) -> str:
     return parsed if parsed else text.strip()
 
 
+_LATEX_TEXT = re.compile(r"\\(?:text|textbf|textit|texttt|textrm|mathrm|mathbf|mathit|mathtt|emph|operatorname)"
+                         r"\s*\{([^{}]*)\}")
+
+
+def normalize_boxed(parsed: str) -> str:
+    """The boxed answer's own words: LaTeX text wrappers (``\\text{False}``, ``\\textbf{…}``, ``\\mathrm{…}``)
+    and enclosing ``$…$`` removed. The benchmark extracts the box's content to score its text; read as is,
+    ``\\text{False}`` normalises to "textfalse" and a right answer scores 0 (P1: 5 of 30 and 7 of 60 for
+    GPT-6.1 Sol). This harness step is not in the published scorer; the raw answer is kept beside it."""
+    text = str(parsed or "")
+    for _ in range(5):  # nested wrappers, innermost first
+        unwrapped = _LATEX_TEXT.sub(r"\1", text)
+        if unwrapped == text:
+            break
+        text = unwrapped
+    text = text.strip()
+    if len(text) >= 2 and text.startswith("$") and text.endswith("$"):
+        text = text.strip("$").strip()
+    return text
+
+
 def is_unknown(parsed: str) -> bool:
     return parsed.strip().lower() == "unknown"
 

@@ -88,6 +88,53 @@ def test_plan_calls_cost_nothing_are_never_capped_and_are_counted_per_day(tmp_pa
     assert totals(ledger.entries)["plan"]["input_tokens"] == 6_000
 
 
+def test_the_usage_book_survives_a_windows_rename_clash_and_side_by_side_writers(tmp_path, monkeypatch) -> None:
+    import os
+    import threading
+
+    from tests.e2e.bench import ledger as ledger_module
+
+    book = UsageBook(tmp_path / "usage-book.json", today=lambda: "2026-11-15")
+    book.add(plan_tokens=1)
+    real_replace, clashes = os.replace, []
+
+    def clashing(source, target):
+        if len(clashes) < 2:  # another process has the book open: WinError 32 on the rename, twice
+            clashes.append(target)
+            raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(ledger_module.os, "replace", clashing)
+    book.add(plan_tokens=10)
+    assert len(clashes) == 2 and book.plan_today() == 11
+    monkeypatch.setattr(ledger_module.os, "replace", real_replace)
+
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            for _ in range(10):
+                UsageBook(tmp_path / "usage-book.json", today=lambda: "2026-11-15").add(plan_tokens=1, paid_usd=0.01)
+        except BaseException as error:  # noqa: BLE001 - reported below
+            errors.append(error)
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    assert book.plan_today() == 11 + 40 and book.paid_total() == pytest.approx(0.4)
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["usage-book.json"]  # no lock or temp file left
+
+    lock = tmp_path / "usage-book.json.lock"
+    lock.write_text("left by a crashed worker", encoding="utf-8")
+    old = lock.stat().st_mtime - UsageBook.STALE_LOCK_SECONDS - 5
+    os.utime(lock, (old, old))
+    book.add(plan_tokens=1)  # the stale lock is taken over
+    assert book.plan_today() == 52 and not lock.exists()
+
+
 def test_caps_come_from_the_environment_and_default_to_no_paid_calls() -> None:
     assert LedgerCaps.from_env({}).max_usd == 0.0
     caps = LedgerCaps.from_env({"ROW_BOT_BENCH_MAX_USD": "12.5", "ROW_BOT_BENCH_PROJECT_USD": "50"})
@@ -544,6 +591,16 @@ def test_the_longmemeval_v2_scorers_match_the_published_ones(tmp_path) -> None:
     assert not v2_metrics.norm_phrase_set_match_ordered("problems then reports", "Reports;Problems", separators=";")
     assert v2_metrics.mc_choice_set_match("Answer: A and C", "C, A")
     assert v2_metrics.extract_boxed_answer("a \\boxed{x} b \\boxed{{y}}") == "{y}"
+    # LaTeX text wrappers inside the box are the answer's formatting, not its words: removed before scoring.
+    false_question = Question(question_id="w9", question="True or false?", answer="false",
+                              category="dynamic-environment",
+                              eval_function="norm_phrase_set_match|lower=true|strip_punct=true")
+    verdict = protocol.judge(false_question, "It is not there: \\boxed{\\text{False}}", "false", never)
+    assert verdict.score == 1.0
+    assert (verdict.detail["parsed"], verdict.detail["parsed_raw"], verdict.detail["normalized"]) == (
+        "False", "\\text{False}", True)
+    assert v2_metrics.normalize_boxed("$\\textbf{\\text{Hot Sellers}}$") == "Hot Sellers"
+    assert v2_metrics.normalize_boxed("Reports; Problems") == "Reports; Problems"
     assert v2_metrics.parse_spec("norm_phrase_set_match|lower=true|separators=,;")[1] == {
         "lower": True, "separators": [",", ";"]}
 
@@ -854,6 +911,51 @@ def test_a_turn_declines_what_stops_for_a_person_on_the_pinned_date(tmp_path, mo
         runtime.turn("thread-1", "again?")
 
 
+def test_the_clock_pin_skips_a_module_that_no_longer_reads_the_clock(monkeypatch) -> None:
+    import row_bot.memory_reconcile as reconcile
+
+    from tests.e2e.bench.runtime import pinned_clock
+
+    monkeypatch.delattr(reconcile, "date")  # as after the product passes the conversation's own date
+    with pinned_clock(datetime(2023, 5, 8, 9)):
+        assert agent._datetime.now() == datetime(2023, 5, 8, 9)
+        assert not hasattr(reconcile, "date")
+    assert agent._datetime is datetime
+
+
+def test_recall_records_every_candidate_it_scored_not_only_the_five_shown(monkeypatch) -> None:
+    from row_bot import memory_policy
+
+    from tests.e2e.bench.runtime import install_recall_recorder
+
+    candidates = [{"id": f"m{index}", "subject": f"memory {index}"} for index in range(8)]
+
+    def build(query, recent, *, thread_id="", **_kwargs):
+        scored = [(memory_policy._candidate_score(candidate, query), candidate) for candidate in candidates]
+        shown = [candidate for (_relevance, rank, _debug), candidate in sorted(scored, key=lambda x: -x[0][1])[:5]]
+        return SimpleNamespace(reason="selected", allowed=True, selected=shown)
+
+    def score(candidate, query, *, semantic_ran=True, semantic_mean=None):
+        value = 0.9 - 0.05 * int(candidate["id"][1:])
+        return value, value, {"semantic": value, "lexical": 0.0}
+
+    monkeypatch.setattr(memory_policy, "build_auto_recall", build)
+    monkeypatch.setattr(memory_policy, "_candidate_score", score)
+    log: dict = {}
+    undo = install_recall_recorder(log)
+    try:
+        decision = memory_policy.build_auto_recall("When did Ana move?", [], thread_id="q1")
+    finally:
+        undo()
+    assert len(decision.selected) == 5 and memory_policy.build_auto_recall is build
+    found = log["q1"]
+    assert (found["reason"], found["candidates"]) == ("selected", 8)
+    assert [item["position"] for item in found["ranked"]] == list(range(1, 9))
+    assert [item["shown"] for item in found["ranked"]] == [True] * 5 + [False] * 3
+    assert found["ranked"][5] == {"id": "m5", "subject": "memory 5", "relevance": 0.65, "rank": 0.65,
+                                  "semantic": 0.65, "lexical": 0.0, "shown": False, "position": 6}
+
+
 def test_a_turns_searches_are_traced_with_their_queries_and_results(tmp_path, reload_for_data_dir) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
@@ -893,11 +995,14 @@ class _ExtractionModel:
     def invoke(self, messages, *_args, **_kwargs):
         prompt = str(messages[-1].content)
         self.prompts.append(prompt)
-        if "CONVERSATION:" not in prompt:
-            return AIMessage(content='{"decision": "new"}')
+        if "CONVERSATION:" not in prompt:  # reconcile: keep the new fact as its own memory
+            return AIMessage(content=json.dumps({"decisions": [
+                {"fact": 1, "action": "add", "memory_id": "", "subject": "Weekly pottery", "text": ""}]}))
+        content = "User joined a pottery class on 7 May 2023."
+        if "22 October 2023" in prompt:  # the second session adds to the saved memory: reconcile is asked
+            content = "User goes to the pottery class every week since October 2023."
         return AIMessage(content=json.dumps({"memories": [
-            {"category": "preference", "subject": "Pottery class", "aliases": "",
-             "content": "User joined a pottery class on 7 May 2023."}]}))
+            {"category": "preference", "subject": "Pottery class", "aliases": "", "content": content}]}))
 
 
 def test_sessions_are_ingested_through_extraction_on_their_own_dates(tmp_path, monkeypatch,
@@ -933,8 +1038,18 @@ def test_sessions_are_ingested_through_extraction_on_their_own_dates(tmp_path, m
     assert "Assistant: Nice! I adopted a dog. [shared an image: a puppy]" in extraction_prompts[0]
     assert [step.kind for step in steps] == ["ingest", "ingest"]
     assert steps[0].metrics["turns"] == 2 and steps[0].metrics["extraction_runs"] == 1
-    assert memory.find_by_subject(None, "Pottery class") is not None
+    saved = memory.find_by_subject(None, "Pottery class")
+    assert saved is not None
     assert steps[-1].metrics["memories_total"] >= 1
+    # No real "today" reaches a model or a memory (H2): every prompt the memory path built (extraction and the
+    # second session's reconcile against the saved memory) and the memory's own dates are the sessions' days.
+    real_today = datetime.now().date()
+    assert any("Today is 2023-10-22" in prompt for prompt in model.prompts)  # reconcile, on the 2nd session's day
+    for prompt in model.prompts:
+        assert real_today.isoformat() not in prompt and real_today.strftime("%d %B %Y") not in prompt
+    assert str(saved.get("created_at", "")).startswith("2023-05-08")
+    weekly = memory.find_by_subject(None, "Weekly pottery")
+    assert weekly is not None and str(weekly.get("created_at", "")).startswith("2023-10-22")
     # Nothing is left unread: another extraction run finds nothing due.
     assert memory_extraction.run_extraction() == 0
     # Each saved session is dated to the session itself, so a search shows the day it was said, not today.

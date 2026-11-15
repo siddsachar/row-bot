@@ -21,14 +21,16 @@ lane's sign-in, not a quota.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from tests.e2e.live_eval.pricing import CallTokens, Rates, price_call, rates_for, upper_bound_usd
 
@@ -101,13 +103,50 @@ def usage_book_path(env: Mapping[str, str] | None = None) -> Path:
 class UsageBook:
     """What the benchmark project has used across runs: paid USD in total, plan tokens per day.
 
-    One small JSON file, rewritten atomically after every call. Runs are sequential (one
-    worker at a time), so there is no cross-process lock.
+    One small JSON file shared by every worker, including side-by-side ones (``--parallel``). Every read
+    and write holds an exclusive lock file (``<book>.lock``, created with O_EXCL), because on Windows a
+    replace fails while another process has the file open (WinError 32, which lost four tasks in P1).
+    Each write goes to its own temporary file and is swapped in with ``os.replace``, retried briefly if
+    something else (a virus scanner) holds the file. A lock left by a crashed worker is taken over after
+    :data:`STALE_LOCK_SECONDS`.
     """
+
+    STALE_LOCK_SECONDS = 60.0
+    LOCK_WAIT_SECONDS = 60.0
 
     def __init__(self, path: Path, *, today: Callable[[], str] | None = None) -> None:
         self.path = Path(path)
         self._today = today or (lambda: date.today().isoformat())
+
+    @contextlib.contextmanager
+    def _locked(self) -> Iterator[None]:
+        lock = self.path.with_name(self.path.name + ".lock")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + self.LOCK_WAIT_SECONDS
+        while True:
+            try:
+                handle = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                break
+            except FileExistsError:
+                try:
+                    if time.time() - lock.stat().st_mtime > self.STALE_LOCK_SECONDS:
+                        lock.unlink()  # a crashed worker's lock
+                        continue
+                except FileNotFoundError:
+                    continue
+                except PermissionError:
+                    pass  # being released right now
+            except PermissionError:
+                pass  # Windows: the lock is being deleted by its holder (a pending delete)
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"the usage book {self.path} stayed locked for {self.LOCK_WAIT_SECONDS:.0f} s")
+            time.sleep(0.002)
+        try:
+            yield
+        finally:
+            os.close(handle)
+            with contextlib.suppress(FileNotFoundError):
+                lock.unlink()
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -122,24 +161,34 @@ class UsageBook:
 
     def _write(self, data: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
+        temporary = self.path.with_name(f"{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         temporary.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
-        temporary.replace(self.path)
+        for attempt in range(50):
+            try:
+                os.replace(temporary, self.path)
+                return
+            except PermissionError:
+                if attempt == 49:
+                    raise
+                time.sleep(0.02)
 
     def paid_total(self) -> float:
-        return float(self._read()["paid_usd_total"])
+        with self._locked():
+            return float(self._read()["paid_usd_total"])
 
     def plan_today(self) -> int:
-        return int(self._read()["plan_tokens_by_day"].get(self._today(), 0))
+        with self._locked():
+            return int(self._read()["plan_tokens_by_day"].get(self._today(), 0))
 
     def add(self, *, paid_usd: float = 0.0, plan_tokens: int = 0) -> None:
         if not paid_usd and not plan_tokens:
             return
-        data = self._read()
-        data["paid_usd_total"] = float(data["paid_usd_total"]) + max(0.0, float(paid_usd))
-        days = data["plan_tokens_by_day"]
-        days[self._today()] = int(days.get(self._today(), 0)) + max(0, int(plan_tokens))
-        self._write(data)
+        with self._locked():
+            data = self._read()
+            data["paid_usd_total"] = float(data["paid_usd_total"]) + max(0.0, float(paid_usd))
+            days = data["plan_tokens_by_day"]
+            days[self._today()] = int(days.get(self._today(), 0)) + max(0, int(plan_tokens))
+            self._write(data)
 
 
 @dataclass

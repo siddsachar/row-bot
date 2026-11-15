@@ -21,6 +21,10 @@ run), and the file's SHA-256 goes into the run's config:
   prompts (published judge ``gpt-5.2``, medium reasoning) and the names of the deterministic
   scorers, which ``v2_metrics`` ports (they are a few lines of matching each; they are not run
   from the download). The final answer is the last ``\\boxed{...}``; ``UNKNOWN`` scores 0.
+  One harness step the published code lacks: LaTeX text wrappers inside the box (``\\text{False}``)
+  are removed before scoring (``v2_metrics.normalize_boxed``), since the scorer would read them as
+  words ("textfalse"). The raw box and the full answer are kept, and each judgment says whether it
+  was normalised; a scored report states the count.
 
 Which judge *model* runs is the operator's choice (``--judge``); a run whose judge is not the
 published one is labelled so in the report.
@@ -148,10 +152,12 @@ class JudgeProtocol:
         return Verdict(ordering["tau_norm"], replies, detail)
 
     def _v2(self, question: Any, response: str, gold: str, call: JudgeCall) -> Verdict:
-        parsed = v2_metrics.extract_boxed_answer(response)
+        raw = v2_metrics.extract_boxed_answer(response)
+        parsed = v2_metrics.normalize_boxed(raw)
         unknown = v2_metrics.is_unknown(parsed)
         name, options = v2_metrics.parse_spec(question.eval_function)
-        detail: dict[str, Any] = {"eval_function": name, "parsed": parsed[:300], "unknown": unknown}
+        detail: dict[str, Any] = {"eval_function": name, "parsed": parsed[:300], "parsed_raw": raw[:300],
+                                  "normalized": parsed != raw, "unknown": unknown}
         replies: list[str] = []
         if name in v2_metrics.LLM_EVAL_FUNCTIONS:
             prediction, final = response.strip(), parsed.strip() or response.strip()

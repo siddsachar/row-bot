@@ -266,6 +266,52 @@ def thread_tool_calls(thread_id: str) -> list[dict[str, Any]]:
     return found
 
 
+RECALL_RANKED = 30
+
+
+def install_recall_recorder(log: dict[str, dict[str, Any]]) -> Callable[[], None]:
+    """Record every candidate automatic recall scores in a turn, not only the five it shows.
+
+    Row-Bot's own recall trace keeps the shown memories and a few rejected ones, so a memory ranked sixth or
+    lower leaves no mark (P1's H4). This wraps ``memory_policy.build_auto_recall`` and its per-candidate
+    scorer (both looked up on the module when a turn runs) and stores, per conversation, the decision and
+    the ranked candidates: id, subject, relevance, rank score, the meaning and word scores, position and
+    whether it was shown. It never changes a score or a decision."""
+    from row_bot import memory_policy
+
+    build, score = memory_policy.build_auto_recall, memory_policy._candidate_score  # noqa: SLF001
+    seen: list[tuple[dict, tuple]] = []
+
+    def scored(candidate: dict, query: str, *args: Any, **kwargs: Any) -> Any:
+        result = score(candidate, query, *args, **kwargs)
+        seen.append((candidate, result))
+        return result
+
+    def recall(*args: Any, **kwargs: Any) -> Any:
+        seen.clear()
+        decision = build(*args, **kwargs)
+        shown = {str(memory.get("id")) for memory in decision.selected or []}
+        ranked = []
+        for candidate, (relevance, rank, debug) in seen:
+            ranked.append({"id": str(candidate.get("id")), "subject": str(candidate.get("subject") or "")[:80],
+                           "relevance": round(float(relevance), 4), "rank": round(float(rank), 4),
+                           "semantic": (debug or {}).get("semantic"), "lexical": (debug or {}).get("lexical"),
+                           "shown": str(candidate.get("id")) in shown})
+        ranked.sort(key=lambda item: -item["rank"])
+        for position, item in enumerate(ranked, start=1):
+            item["position"] = position
+        log[str(kwargs.get("thread_id") or "")] = {"reason": decision.reason, "allowed": bool(decision.allowed),
+                                                   "candidates": len(ranked), "ranked": ranked[:RECALL_RANKED]}
+        return decision
+
+    memory_policy._candidate_score, memory_policy.build_auto_recall = scored, recall  # noqa: SLF001
+
+    def undo() -> None:
+        memory_policy._candidate_score, memory_policy.build_auto_recall = score, build  # noqa: SLF001
+
+    return undo
+
+
 def install_call_gate(ledger: CostLedger) -> Callable[[], None]:
     """Check every model call Row-Bot makes against *ledger* before it is sent (all calls pass
     the usage-ledger callback); a refused call raises :class:`BudgetStop` into the caller."""
@@ -313,22 +359,39 @@ class _PinnedDate(date):
         return cls.moment
 
 
+#: Where Row-Bot's memory path reads a clock whose value ends up in what a model reads or what a memory says:
+#: (module, attribute, kind). Pinned to the benchmark's own date, so no real "today" leaks into a memory.
+PINNED_CLOCKS = (
+    ("row_bot.agent", "_datetime", "datetime"),  # the turn context's "Current date and time"
+    ("row_bot.memory_extraction", "date", "date"),  # extraction's "Today is"
+    ("row_bot.memory_reconcile", "date", "date"),  # reconcile's "Today is" (memory_reconcile.py:177)
+    ("row_bot.knowledge_graph", "datetime", "datetime"),  # saved memories' created/updated (reconcile's saved_on)
+    ("row_bot.memory_evolution", "datetime", "datetime"),  # supersede and evolution timestamps
+)
+
+
 @contextlib.contextmanager
 def pinned_clock(moment: datetime) -> Iterator[None]:
-    """The benchmark's own date, where Row-Bot's memory path reads the clock: the turn context's
-    "Current date and time" (``agent._datetime``) and extraction's "Today is" (``memory_extraction.date``).
-    Storage timestamps (watermarks, journals, the ledger) keep the real clock."""
-    import row_bot.agent as agent
-    import row_bot.memory_extraction as extraction
+    """The benchmark's own date wherever the memory path reads the clock for content (:data:`PINNED_CLOCKS`).
 
-    pinned_dt = type("PinnedDatetime", (_PinnedDatetime,), {"moment": moment})
-    pinned_d = type("PinnedDate", (_PinnedDate,), {"moment": moment.date()})
-    saved = (agent._datetime, extraction.date)
-    agent._datetime, extraction.date = pinned_dt, pinned_d
+    Defence in depth: a module that no longer reads that clock (a product fix that passes the conversation's
+    own date) is simply skipped. Run state keeps the real clock: extraction's watermarks and journal, the
+    usage ledger, Dream's schedule and durations, thread timestamps (dated by ``set_thread_times``)."""
+    import importlib
+
+    pinned = {"datetime": type("PinnedDatetime", (_PinnedDatetime,), {"moment": moment}),
+              "date": type("PinnedDate", (_PinnedDate,), {"moment": moment.date()})}
+    saved: list[tuple[Any, str, Any]] = []
     try:
+        for module_name, attribute, kind in PINNED_CLOCKS:
+            module = importlib.import_module(module_name)
+            if hasattr(module, attribute):
+                saved.append((module, attribute, getattr(module, attribute)))
+                setattr(module, attribute, pinned[kind])
         yield
     finally:
-        agent._datetime, extraction.date = saved
+        for module, attribute, value in reversed(saved):
+            setattr(module, attribute, value)
 
 
 @dataclass
@@ -342,6 +405,7 @@ class BenchRuntime:
     sign_in: SignIn | None = None
     local_model: dict[str, Any] = field(default_factory=dict)
     limits: LimitWatch = field(default_factory=LimitWatch)
+    recall_log: dict[str, dict[str, Any]] = field(default_factory=dict)
     _undo: list[Callable[[], None]] = field(default_factory=list)
     _seen_row: int = 0
 
@@ -394,6 +458,7 @@ class BenchRuntime:
         models.adopt_saved_default(self.config.model_ref)
         self._pin_tools()
         self._undo.append(install_call_gate(self.ledger))
+        self._undo.append(install_recall_recorder(self.recall_log))
         self._seen_row = usage_rows.max_id(self.usage_db())
 
     def _pin_tools(self) -> None:
@@ -504,6 +569,8 @@ class BenchRuntime:
             {"name": call.name, "args": {key: str(value)[:_TOOL_ARGS] for key, value in (call.args or {}).items()}}
             for call in result.tool_calls]
         step.metrics = {"interrupts_declined": result.interrupts, "tool_results": len(result.tool_results)}
+        if thread_id in self.recall_log:
+            step.metrics["recall"] = self.recall_log.pop(thread_id)
         self.drain_calls(step)
         if step.status != "done" and limit_text(" ".join(step.errors)):
             raise ProviderLimit(step.errors[0][:300])
