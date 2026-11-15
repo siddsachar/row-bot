@@ -71,7 +71,7 @@ param(
     [string]$WorkDir,
     [string]$Repository,
     # The Certum code signing certificate (its thumbprint is public).
-    [string]$CertificateSha1 = "2341B4B36A21DF948E538A88BB194FAE4D1CAE51",
+    [string]$CertificateSha1 = "6075BA6528E51B7D33C07AAFF7730CD6A02CD7E8",
     [string]$TimestampUrl = "http://time.certum.pl",
     [string]$SignTool,
     [string]$Iscc,

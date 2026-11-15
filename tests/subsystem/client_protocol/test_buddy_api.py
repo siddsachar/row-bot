@@ -140,20 +140,21 @@ def test_hatch_review_binds_real_policy_nonce_and_captured_auth_before_each_stag
         command = {"command_id": str(uuid4()), "client_session_id": headers["X-Client-Session"], "expected_revision": "0",
                    "type": "buddy.hatch", "payload": {"request": request, "review_id": reviewed.json()["review_id"], "nonce": reviewed.json()["nonce"]}}
         result = client_hatch.HatchResult(1, command["command_id"], "buddy-hatch-" + command["command_id"],
-            "completed", "completed", "hatch-synthetic", True, 6, 6, "", True)
+            "completed", "completed", "hatch-synthetic", True, 7, 7, "", True)
         monkeypatch.setattr(client_hatch, "read_result", lambda *_a, **_kw: result)
         def start(**kwargs):
             started.append(kwargs["command_id"])
-            for media, selection in [("image", "openai/gpt-image-2")] + [("motion", "google/veo-3.1-generate-preview")] * 6:
+            # The painting and its six expressions, all on the reviewed image model.
+            for media, selection in [("image", "openai/gpt-image-2")] * 7:
                 auth = kwargs["validate_provider"](media, selection)
                 assert isinstance(auth, CapturedMediaAuth)
                 assert auth.selection == selection
-            kwargs["checkpoint"](client_hatch.HatchProgress("completed", command["command_id"], result.job_id, result.pack_id, 6, 6))
+            kwargs["checkpoint"](client_hatch.HatchProgress("completed", command["command_id"], result.job_id, result.pack_id, 7, 7))
         monkeypatch.setattr(client_hatch, "start_hatch", start)
         forged = {**command, "payload": {**command["payload"], "nonce": "forged"}}
         response = client.post(BASE + "/commands", headers=headers | {"Idempotency-Key": command["command_id"]}, json=forged)
         assert response.status_code == 409 and not started, response.text
         response = client.post(BASE + "/commands", headers=headers | {"Idempotency-Key": command["command_id"]}, json=command)
-        assert response.status_code == 200 and response.json()["hatch"]["completed_clips"] == 6, response.text
+        assert response.status_code == 200 and response.json()["hatch"]["completed_clips"] == 7, response.text
         assert started == [command["command_id"]]
         assert all(secret not in response.text for secret in policy_env.keys.values())

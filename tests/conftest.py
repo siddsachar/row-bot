@@ -5,6 +5,7 @@ import errno
 import importlib
 import io
 import ipaddress
+import itertools
 import json
 import os
 import pathlib
@@ -376,6 +377,19 @@ def _reset_test_data_env_between_tests():
     _set_default_test_data_env()
     yield
     _set_default_test_data_env()
+
+
+_TEST_WORKSPACES = itertools.count(1)
+
+
+@pytest.fixture(autouse=True)
+def _test_workspace(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory):
+    # The default workspace is a folder of the test's own (not created until something uses it), never the
+    # person's ~/Documents/Row-Bot: the shell and the file tools start there and create it. A test that needs
+    # another one sets ROW_BOT_WORKSPACE itself, or removes it to get the home folder's default.
+    folder = tmp_path_factory.getbasetemp() / "workspaces" / f"workspace-{next(_TEST_WORKSPACES)}"
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(folder))
+    yield
 
 
 @pytest.fixture(autouse=True)

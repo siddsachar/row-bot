@@ -1,0 +1,305 @@
+{
+  "$defs": {
+    "MemoryReviewProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "keep",
+            "remove",
+            "merge",
+            "rewrite",
+            "split"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "category": {
+          "maxLength": 40,
+          "title": "Category",
+          "type": "string"
+        },
+        "into": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryReviewTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "length": {
+          "minimum": 0,
+          "title": "Length",
+          "type": "integer"
+        },
+        "marks": {
+          "items": {
+            "enum": [
+              "long_record",
+              "lesson",
+              "person_record"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Marks",
+          "type": "array"
+        },
+        "memory_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Memory Id",
+          "type": "string"
+        },
+        "proposal_id": {
+          "pattern": "^(?:memory|split):[^\\s]{1,128}$",
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "proposed_text": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed Text"
+        },
+        "reason": {
+          "maxLength": 300,
+          "title": "Reason",
+          "type": "string"
+        },
+        "reason_code": {
+          "enum": [
+            "keep",
+            "unchecked",
+            "person_record",
+            "lesson",
+            "long_record",
+            "document",
+            "outdated",
+            "test_data",
+            "not_about_the_person",
+            "run_log",
+            "duplicate",
+            "rewrite",
+            "merge",
+            "split"
+          ],
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "removable": {
+          "title": "Removable",
+          "type": "boolean"
+        },
+        "selected": {
+          "title": "Selected",
+          "type": "boolean"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryReviewSplit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subject": {
+          "maxLength": 200,
+          "title": "Subject",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "memory_id",
+        "action",
+        "reason_code",
+        "reason",
+        "subject",
+        "category",
+        "text",
+        "length",
+        "marks",
+        "selected",
+        "removable"
+      ],
+      "title": "MemoryReviewProposal",
+      "type": "object"
+    },
+    "MemoryReviewSplit": {
+      "additionalProperties": false,
+      "properties": {
+        "contacts_kept": {
+          "minimum": 0,
+          "title": "Contacts Kept",
+          "type": "integer"
+        },
+        "memories": {
+          "items": {
+            "$ref": "#/$defs/MemoryReviewSplitMemory"
+          },
+          "maxItems": 2000,
+          "title": "Memories",
+          "type": "array"
+        }
+      },
+      "required": [
+        "contacts_kept",
+        "memories"
+      ],
+      "title": "MemoryReviewSplit",
+      "type": "object"
+    },
+    "MemoryReviewSplitMemory": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "add",
+            "update",
+            "skip"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "category": {
+          "maxLength": 40,
+          "title": "Category",
+          "type": "string"
+        },
+        "new_text": {
+          "anyOf": [
+            {
+              "maxLength": 1200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "New Text"
+        },
+        "saved_subject": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Subject"
+        },
+        "saved_text": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Text"
+        },
+        "subject": {
+          "maxLength": 200,
+          "title": "Subject",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 600,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "subject",
+        "text",
+        "action"
+      ],
+      "title": "MemoryReviewSplitMemory",
+      "type": "object"
+    },
+    "MemoryReviewTarget": {
+      "additionalProperties": false,
+      "description": "The other memory a merge, duplicate or replacement names.",
+      "properties": {
+        "memory_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Memory Id",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 200,
+          "title": "Subject",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "memory_id",
+        "subject",
+        "text"
+      ],
+      "title": "MemoryReviewTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/MemoryReviewProposal"
+      },
+      "maxItems": 20000,
+      "title": "Items",
+      "type": "array"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "run_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "revision",
+    "items"
+  ],
+  "title": "MemoryReviewProposals",
+  "type": "object"
+}

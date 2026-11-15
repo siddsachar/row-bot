@@ -1,0 +1,58 @@
+{
+  "additionalProperties": false,
+  "description": "The approval card for sending a reply Row-Bot drafted: always shown, under every approval level.",
+  "properties": {
+    "account": {
+      "maxLength": 300,
+      "title": "Account",
+      "type": "string"
+    },
+    "action": {
+      "maxLength": 300,
+      "title": "Action",
+      "type": "string"
+    },
+    "asked_at": {
+      "maxLength": 40,
+      "title": "Asked At",
+      "type": "string"
+    },
+    "binding": {
+      "maxLength": 300,
+      "title": "Binding",
+      "type": "string"
+    },
+    "destination": {
+      "maxLength": 300,
+      "title": "Destination",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 300,
+      "title": "Reason",
+      "type": "string"
+    },
+    "subject": {
+      "maxLength": 300,
+      "title": "Subject",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 20000,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "binding",
+    "action",
+    "destination",
+    "account",
+    "subject",
+    "text",
+    "reason",
+    "asked_at"
+  ],
+  "title": "ProactiveDraftSendCard",
+  "type": "object"
+}

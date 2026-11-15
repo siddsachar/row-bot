@@ -803,7 +803,7 @@ class McpClientFoundationTests(unittest.TestCase):
              patch.object(runtime, "discover_enabled_servers") as discover_mock:
             result = _update_setting("tool_toggle", "mcp:on")
 
-        self.assertIn("MCP client and tool 'External MCP Tools' enabled", result)
+        self.assertIn("External MCP Tools is on.", result)
         self.assertTrue(cfg.is_globally_enabled())
         self.assertTrue(tool_registry.is_enabled("mcp"))
         discover_mock.assert_called_once()

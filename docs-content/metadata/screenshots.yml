@@ -104,7 +104,7 @@ screenshots:
     title: Approve or deny in place
     output: chat-approval.png
     alt: A conversation waiting for approval to commit a change in a demo code folder, with Details, Deny and Approve on the card in the conversation.
-    docs_pages: [/docs/privacy-safety/, /docs/chat/tools-approvals-and-terminal]
+    docs_pages: [/docs/privacy-safety/, /docs/privacy-safety/agent-in-bounds, /docs/chat/tools-approvals-and-terminal]
     route: /app-v2/conversations/docs-demo-code
     actions:
       - click_selector: button[aria-label="Conversation details"]

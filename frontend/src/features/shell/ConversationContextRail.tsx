@@ -3,12 +3,15 @@ import type {
   ClientPanelSuggestion,
   ClientStatus,
   ResourceView,
+  WorkspaceProjectNote,
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
 import ContextGoal from './ContextGoal';
 import { ContextLive } from './ContextLive';
 import ContextOutputs, { type ConversationOutput } from './ContextOutputs';
+import ProjectNotes from './ProjectNotes';
+import { requestWorkspaceFile } from '../panels/workspace-file-requests';
 import {
   Button,
   Disclosure,
@@ -31,6 +34,8 @@ type ResourceSummary = {
   primary: string;
   secondary: string;
   state: 'ready' | 'unavailable';
+  /** A code folder's project notes (B2): names and states, never text. */
+  notes?: WorkspaceProjectNote[];
 };
 
 type Props = {
@@ -215,6 +220,7 @@ export default function ConversationContextRail({
                 : `${value.status} workspace`,
               secondary: `${running} running · ${value.todos.length} ${value.todos.length === 1 ? 'todo' : 'todos'}`,
               state: value.status === 'unavailable' ? 'unavailable' : 'ready',
+              notes: value.project_notes ?? [],
             },
           ] as const;
         } catch {
@@ -396,6 +402,18 @@ export default function ConversationContextRail({
                       <span>{summary.primary}</span>
                       <small>{summary.secondary}</small>
                     </p>
+                  )}
+                  {!!summary?.notes?.length && (
+                    <ProjectNotes
+                      notes={summary.notes}
+                      onOpenFile={(path) => {
+                        requestWorkspaceFile({
+                          resourceId: resource.binding.resource_id,
+                          path,
+                        });
+                        onOpenResource(resource);
+                      }}
+                    />
                   )}
                 </li>
               );

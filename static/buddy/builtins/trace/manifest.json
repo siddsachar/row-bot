@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "trace",
+  "name": "Buddy Trace",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact Row-Bot desktop companion with a rounded slate-blue tile body, a dark glass face with two glowing cyan eyes, and two small wings made of glowing cyan circuit traces and round nodes, polished 3D, light and quick.",
+  "patches": "patches.png"
+}

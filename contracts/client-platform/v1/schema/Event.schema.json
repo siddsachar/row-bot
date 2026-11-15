@@ -345,6 +345,17 @@
           "title": "Scope",
           "type": "string"
         },
+        "setting_change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingChange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "setup": {
           "anyOf": [
             {
@@ -510,9 +521,72 @@
       "title": "ApprovalSetup",
       "type": "object"
     },
+    "ContextBreakdown": {
+      "additionalProperties": false,
+      "description": "What fills the context after the last reply, in estimated tokens: counts only, no names.",
+      "properties": {
+        "conversation": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Conversation",
+          "type": "integer"
+        },
+        "instructions": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Instructions",
+          "type": "integer"
+        },
+        "memory": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Memory",
+          "type": "integer"
+        },
+        "skills": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Skills",
+          "type": "integer"
+        },
+        "tool_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Tool Count",
+          "type": "integer"
+        },
+        "tools": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Tools",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instructions",
+        "tools",
+        "skills",
+        "memory",
+        "conversation",
+        "tool_count"
+      ],
+      "title": "ContextBreakdown",
+      "type": "object"
+    },
     "ContextUpdated": {
       "additionalProperties": false,
       "properties": {
+        "breakdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextBreakdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "capacity_state": {
           "default": "unavailable",
           "maxLength": 64,
@@ -826,6 +900,20 @@
           "minimum": 0,
           "title": "Input Tokens",
           "type": "integer"
+        },
+        "last_cache_read_percent": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Cache Read Percent"
         },
         "output_tokens": {
           "maximum": 9007199254740991,
@@ -2108,6 +2196,49 @@
       "title": "ResourceChangedEvent",
       "type": "object"
     },
+    "SettingChange": {
+      "additionalProperties": false,
+      "description": "A change to one of Row-Bot's settings, in words: the row's name, where it is, what it was and becomes.",
+      "properties": {
+        "after": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Before",
+          "type": "string"
+        },
+        "href": {
+          "default": "",
+          "maxLength": 200,
+          "pattern": "^(/settings/[A-Za-z0-9/?=&#._:-]{0,189})?$",
+          "title": "Href",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "where": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "after"
+      ],
+      "title": "SettingChange",
+      "type": "object"
+    },
     "SteeringActivity": {
       "additionalProperties": false,
       "properties": {
@@ -2822,7 +2953,8 @@
             "page",
             "request_corrected",
             "linked_conversation",
-            "video_project"
+            "video_project",
+            "setting_change"
           ],
           "title": "Kind",
           "type": "string"
@@ -2914,6 +3046,17 @@
           ],
           "title": "Resource Kind",
           "type": "string"
+        },
+        "setting_change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingChange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "settings_page": {
           "default": "",

@@ -415,6 +415,23 @@ def test_llms_txt_generation_covers_docs_routes(tmp_path: Path) -> None:
         assert public_route_for_doc(path, docs_root) in llms
 
 
+def test_llms_full_keeps_each_guides_lines_steps_and_separators(tmp_path: Path) -> None:
+    """G31: every page used to be one line, with "Settings › System" read as "Settings System"."""
+    docs_root = tmp_path / "docs"
+    docs_root.mkdir()
+    (docs_root / "system.mdx").write_text(
+        "---\ntitle: System\n---\n\nimport Screenshot from '@site/src/components/Screenshot';\n\n"
+        "<Screenshot id=\"x\" alt=\"System\" />\n\n## Logs\n\n1. Open **Settings › System**.\n"
+        "2. Raise **Log detail**.\n",
+        encoding="utf-8",
+    )
+    generate(docs_root, tmp_path / "out")
+    full = (tmp_path / "out" / "llms-full.txt").read_text(encoding="utf-8")
+
+    assert "## Logs\n\n1. Open **Settings › System**.\n2. Raise **Log detail**." in full
+    assert "Screenshot" not in full
+
+
 
 def test_screenshot_manifest_is_real_ui_and_safe() -> None:
     import scripts.docs.capture_real_ui_screenshots as capture
@@ -911,11 +928,13 @@ def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
     ):
         assert phrase in combined
     assert "/docs/settings/buddy" in chat
-    assert "buddy desktop overlay" in readme
+    assert "buddy desktop" in readme
     for obsolete in (
         "enable switches decide whether buddy appears",
         "open and close overlay buttons",
         "toggle buddy visibility or reopen the overlay",
+        "compact always-on-top desktop overlay",
+        "motion clips",
     ):
         assert obsolete not in combined
 

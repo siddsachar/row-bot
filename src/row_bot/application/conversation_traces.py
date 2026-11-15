@@ -27,12 +27,12 @@ TraceGroupKind = Literal["generic", "browser", "computer"]
 TraceSpecializationKind = Literal[
     "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps",
     "background_process", "recording", "video_edit", "delivery", "sandbox_job", "sandbox_unprepared",
-    "question_answered", "page", "request_corrected", "linked_conversation", "video_project",
+    "question_answered", "page", "request_corrected", "linked_conversation", "video_project", "setting_change",
 ]
 CARD_SPECIALIZATIONS = frozenset({
     "resource_created", "resource_bound", "setup_needed", "connect_apps", "background_process", "recording",
     "video_edit", "delivery", "sandbox_job", "sandbox_unprepared", "question_answered", "page",
-    "linked_conversation", "video_project",
+    "linked_conversation", "video_project", "setting_change",
 })
 # A recording of Row-Bot's browser or of the screen a step started or stopped (F2): the result's
 # first line after its approval line names it, and the card follows it by that id.
@@ -180,6 +180,8 @@ class TraceSpecialization:
     link_id: str = ""
     # video_project (5.3.1 B3): the project its card re-reads and opens in the Video panel.
     project_id: str = ""
+    # setting_change (self system): {label, where, href, before, after}, from the result's own Undo line.
+    setting_change: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -736,6 +738,22 @@ def _page_specialization(name: str, content: Any) -> TraceSpecialization | None:
     return TraceSpecialization(kind="page", page_id=match.group(1)) if match else None
 
 
+def _setting_change_specialization(name: str, content: Any) -> TraceSpecialization | None:
+    """A setting Row-Bot changed: what its result's Undo line says, in words, with the row."""
+    if name != "row_bot_update_setting" or not isinstance(content, str):
+        return None
+    from row_bot.self_settings import parse_undo
+
+    found = parse_undo(content)
+    if found is None or not found.get("label") or not found.get("after"):
+        return None
+    href = found.get("href", "")
+    change = {"label": _clean_text(found["label"], 120), "where": _clean_text(found.get("where"), 200),
+              "href": href if re.fullmatch(r"/settings/[A-Za-z0-9/?=&#._:-]{0,189}", href) else "",
+              "before": _clean_text(found.get("before"), 240), "after": _clean_text(found["after"], 240)}
+    return TraceSpecialization(kind="setting_change", display_name=change["label"], setting_change=change)
+
+
 def _video_project_specialization(name: str, content: Any) -> TraceSpecialization | None:
     """The video project a video step made or changed (5.3.1 B3): its card opens the Video panel."""
     if name != "video" or not isinstance(content, str):
@@ -792,6 +810,7 @@ def specialize_tool_result(result: Any, media_prompt: str = "") -> TraceSpeciali
         or _delivery_specialization(name, _content(result))
         or _page_specialization(name, _content(result))
         or _video_project_specialization(name, _content(result))
+        or _setting_change_specialization(name, _content(result))
         or _sandbox_specialization(name, _content(result))
         or _skill_specialization(name, payload)
         or _agent_specialization(name, payload)
@@ -951,6 +970,7 @@ def _public_specialization(
             **({"page_id": specialization.page_id} if specialization.page_id else {}),
             **({"link_id": specialization.link_id} if specialization.link_id else {}),
             **({"project_id": specialization.project_id} if specialization.project_id else {}),
+            **({"setting_change": dict(specialization.setting_change)} if specialization.setting_change else {}),
             **({"outcome": specialization.outcome,
                 "answers": [dict(answer) for answer in specialization.answers]}
                if specialization.kind == "question_answered" else {}),

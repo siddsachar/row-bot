@@ -506,7 +506,7 @@ def check_codex_token_health(*, refresh_if_needed: bool = True, http_client: Any
     if not credentials.access_token and not credentials.refresh_token:
         return CodexTokenHealth(
             "missing",
-            "ChatGPT needs to be connected in Settings -> Providers before Codex models can run.",
+            "ChatGPT needs to be connected in Settings › Models before Codex models can run.",
             credentials,
         )
 
@@ -535,7 +535,7 @@ def check_codex_token_health(*, refresh_if_needed: bool = True, http_client: Any
             if any(marker in lowered for marker in ("invalid_grant", "revoked", "expired")):
                 return CodexTokenHealth(
                     "expired",
-                    "ChatGPT sign-in expired or was revoked. Reconnect ChatGPT in Settings -> Providers.",
+                    "ChatGPT sign-in expired or was revoked. Reconnect ChatGPT in Settings › Models.",
                     credentials,
                 )
             return CodexTokenHealth("error", f"ChatGPT token refresh failed: {text}", credentials)
@@ -543,13 +543,13 @@ def check_codex_token_health(*, refresh_if_needed: bool = True, http_client: Any
     if not credentials.access_token:
         return CodexTokenHealth(
             "missing",
-            "ChatGPT access token is missing and no refresh was possible. Reconnect ChatGPT in Settings -> Providers.",
+            "ChatGPT access token is missing and no refresh was possible. Reconnect ChatGPT in Settings › Models.",
             credentials,
         )
     if not credentials.account_id:
         return CodexTokenHealth(
             "expired",
-            "ChatGPT account id is missing. Reconnect ChatGPT in Settings -> Providers.",
+            "ChatGPT account id is missing. Reconnect ChatGPT in Settings › Models.",
             credentials,
         )
     if _expires_soon(credentials.expires_at):
@@ -557,7 +557,7 @@ def check_codex_token_health(*, refresh_if_needed: bool = True, http_client: Any
             return CodexTokenHealth("refresh_due", "ChatGPT token renews when it's next used.", credentials)
         return CodexTokenHealth(
             "expired",
-            "ChatGPT token is expired and no refresh token is available. Reconnect ChatGPT in Settings -> Providers.",
+            "ChatGPT token is expired and no refresh token is available. Reconnect ChatGPT in Settings › Models.",
             credentials,
         )
     return CodexTokenHealth("valid", "ChatGPT token is valid.", credentials)
@@ -576,7 +576,7 @@ def codex_reconnect_message(detail: str = "") -> str:
     suffix = f" {detail}" if detail else ""
     return (
         "ChatGPT needs to be reconnected before using this Codex model. "
-        "Open Settings -> Providers -> ChatGPT / Codex, reconnect, then try again."
+        "Open Settings › Models › ChatGPT / Codex, reconnect, then try again."
         f"{suffix}"
     )
 

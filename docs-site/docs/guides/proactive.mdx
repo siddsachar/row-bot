@@ -1,0 +1,166 @@
+---
+title: "Proactive Row-Bot"
+description: "How Row-Bot speaks first: what it brings up, the four levels, when it speaks, privacy, Why this?, your rules, the activity log, and turning it down or off."
+---
+
+# Proactive Row-Bot
+
+Proactive Row-Bot speaks first when something is worth your attention: a reply you're still waiting for, a meeting about to start, a birthday coming up, a meeting that moved. It gets things ready in the background, such as a meeting brief or a drafted reply, and tells you at a good moment.
+
+It never sends or changes anything without you. Background work only reads; anything that would send, post or change something goes through the same approval card as in a chat, at your approval level.
+
+Most of the time it stays silent, and that is by design. A quiet day is a short Home.
+
+## What It Brings Up
+
+Each thing Row-Bot brings up is a **moment**: one line, what was prepared, and at most two actions.
+
+| Kind | Example | What Row-Bot prepares |
+| --- | --- | --- |
+| **Follow-ups** | "Priya hasn't replied about the Q3 numbers (4 days)." | A drafted follow-up, saved, not sent |
+| | "Tom asked about the venue on Tuesday." | A drafted reply |
+| | "You said you'd send Ana the deck by Friday." | The file it found |
+| **Meeting prep** | "Design review with Priya and Tom in 10 min." | A brief: who's coming, the last thread, open items and files |
+| **Dates** | "Dad's birthday is Sunday." "Car insurance renews on 2 Dec." | What you've saved about it |
+| **Changes** | "Your 1:1 with Ana moved to 15:30." "The visa appointments page changed." | What changed |
+| | "The weekly report didn't finish." "Gmail needs you to sign in again." | The run, or the fix |
+| **Workflow ideas** | "You've asked for the sales summary 3 Mondays running. Make it a workflow?" | A workflow ready to save; nothing is scheduled until you save it |
+| **Morning brief** | "Good morning. 3 meetings, 2 follow-ups, and Dad's birthday is Sunday." | Your day in a few lines. See [Your Morning Brief](/docs/guides/morning-brief) |
+| **End-of-day wrap** | "Wrap-up: 4 things done, 1 moved to tomorrow." | What got done and what moved. Off until you turn it on |
+
+Row-Bot checks again just before it shows anything. If the meeting was cancelled or the reply arrived in the meantime, the moment is dropped and you never see it. It never acts on a question: asking about a restaurant is not booking it.
+
+## Where You See It
+
+Row-Bot uses one place at a time, the quietest that fits:
+
+1. **Buddy's glance.** Buddy looks up at you with a small, held change of expression. No words, no sound.
+2. **Buddy's bubble.** At a good moment, one line beside Buddy with one or two actions and a **⋯**. It fades by itself; nothing piles up. On a phone, or a narrow window, it shows as a short strip above the tab bar instead.
+3. **A desktop notification**, only when Row-Bot's window isn't in front.
+4. **Your phone**, only when this computer is idle or locked, and only if you turned on notifications on that phone.
+5. **A chat app** such as Telegram, only for kinds you marked urgent, only when you're away.
+
+Every moment also waits on **Home › For you** until it's done or no longer matters, so a bubble that fades is never lost.
+
+Moments are offers, not demands: they never count in **Needs you** or the sidebar's indicator.
+
+### Home › For You
+
+With Proactive on, Home's **Today** becomes **For you**, grouped by time:
+
+- **Now**: due within the hour, such as a meeting brief.
+- **Later today**: things with a time today, including briefs Row-Bot plans to prepare and today's workflow runs.
+- **Ready when you are**: things that can wait, such as follow-ups with drafts and dates ahead.
+
+Choose a row to open what was prepared, or use its icons. **⋯** has **Not now**, **Less like this** and **Why this?**. The list ends with **That's everything for today.** Things that no longer matter leave on their own, without a notice.
+
+### Drafts
+
+Replies Row-Bot drafted wait in **Drafts**, from the **Drafts** link in For you's heading or a draft's own row. Drafts are saved in Row-Bot, never sent and never put in your mailbox by a background run.
+
+1. Choose a draft to read it.
+2. Edit the recipients, subject or text if you like. Your changes are saved as you type.
+3. Choose **Send…**. The normal approval card appears with the exact message; approve it to send, or deny it to go back to the draft.
+
+If someone replied after the draft was written, the draft says so. Drafts older than 14 days are removed.
+
+## The Levels
+
+Choose a level in **Settings › Proactive**. Every install starts at **Quiet**.
+
+| Level | What it means |
+| --- | --- |
+| **Off** | Row-Bot doesn't check anything or speak first. Home shows **Today** as before. |
+| **Quiet** | Things wait on Home. Buddy speaks only for what's about to happen, and once in the morning. Up to 3 a day. |
+| **Balanced** | Buddy speaks at good moments. Desktop notifications when Row-Bot isn't in front; your phone only when you're away. Up to 6 a day. |
+| **Eager** | Row-Bot brings up more, and earlier. Up to 12 a day. |
+
+The daily number counts every bubble, notification and message together. Buddy's glance and Home › For you never count: they don't interrupt. Under the level picker, **Today at _level_ you'd have seen** lists what each level would have shown you today, so you can compare before you choose.
+
+The level is how loud Row-Bot is. **What to bring up** is separate: each kind has its own switch, and changing the level never changes them.
+
+## When It Speaks
+
+Row-Bot waits for a natural break: when you open Row-Bot, come back to your computer, finish a call, finish a chat turn, or start your day. It never speaks:
+
+- while you're typing;
+- while a dialog or sheet is open;
+- in a call, with your microphone or camera in use;
+- in Focus or Do Not Disturb on your computer;
+- in your **Quiet hours** (22:00 to 07:30 to start with).
+
+What came up in the meantime waits on Home. Something urgent, such as a meeting in ten minutes, goes first.
+
+### Desktop Activity
+
+**Use desktop activity for timing**, on by default in the desktop app, lets Row-Bot pick better moments. It checks only whether you're away, locked, in a call or in Focus, and what kind of app is in front. It never reads window titles, contents or screenshots, and it stays on this computer. Turn it off in **Settings › Proactive › When**; Row-Bot then only knows when you open it.
+
+## Privacy
+
+- Watching for changes happens on this computer. Row-Bot compares your mail, calendar, chats, memory and workflows with what it saw last time, and does nothing when nothing changed.
+- To decide what's worth your attention, short summaries of what changed go to your main model. The settings page and the first introduction name the provider. With a main model that runs on this computer, nothing leaves it.
+- Only apps you've connected are used, and each source has its own switch and a line saying what it reads. Row-Bot never asks you to connect more.
+- Instructions inside emails are never followed. When an email asks for something to be done, **Why this?** says so: Row-Bot only noticed it.
+- A phone notification says only what kind of thing is ready, such as "Your meeting brief is ready.", never names or subjects. A message in a chat app goes through that app's servers, as one line.
+- The activity log, your rules and your drafts stay on this computer. There is no telemetry about Proactive.
+
+## Why This?
+
+Every moment explains itself. Choose **⋯ › Why this?** on a bubble, a For you row or a draft to see:
+
+- **What Row-Bot saw**: the email, event, memory or chat it came from, with the part that mattered. Emails show as plain text, without pictures or links you can click. **Open** takes you to the original.
+- When it last checked that it's still true, such as **Still no reply · checked just now**.
+- **Why now**: the timing and the moment it chose.
+- **What let it through**: the kind, your level, how many of today's were used, and any rule that applied.
+- **What Row-Bot prepared**, and the line **Row-Bot only read. Nothing was sent or changed.**
+
+## Less Like This And Your Rules
+
+Choose **⋯ › Less like this** on anything Row-Bot brings up. It asks one question, about what:
+
+- **this person**: "Follow-ups about Priya stay in For you";
+- **this kind**: "All follow-ups stay in For you";
+- **this time of day**: "Nothing before 11:00 on weekdays".
+
+Your choice becomes a rule straight away, with **Undo**. A rule made this way keeps matching moments on Home only: no bubble, notification or message.
+
+**Settings › Proactive › Your rules** lists every rule in words. **Edit** changes who or what it covers, its hours, or makes it **Don't show at all**; **Delete** removes it, with **Undo**.
+
+If you keep skipping one kind, Row-Bot quiets it by itself and says so in **Your rules**, with **Bring back**. **Not now** on a single moment keeps it on Home and stops Row-Bot bringing it up again.
+
+## The Activity Log
+
+**Settings › Proactive › Activity** lists every check Row-Bot made, including the silent ones, for the last 30 days:
+
+- what it checked, and **Nothing to bring up** when nothing was worth it;
+- what it showed, where, and what you did;
+- what it dropped and why, such as **Dropped: Team lunch was cancelled**;
+- what it plans to do, such as a brief for your 14:00, with **Take over** (opens a chat with the work so far) and **Cancel**.
+
+Expand an entry to see what changed, what happened to each candidate, and what went to your main model. The filter above the list shows **All**, **Shown**, **Silent** or **Planned**. The page's **⋯ › Clear activity…** deletes the log.
+
+## Turn It Down Or Off
+
+- **Quieter**: choose **Quiet**, or turn off kinds you don't want under **What to bring up**.
+- **Not at certain times**: set **Quiet hours**, or make a time rule with **Less like this**.
+- **Not about something**: **Less like this** on one of its moments.
+- **Not on your phone**: turn off **Phone notifications** in **Settings › Proactive › Away from your desk**.
+- **Off**: choose **Off**. Row-Bot stops checking at once, and Home shows **Today** again. Your rules and drafts are kept in case you turn it back on.
+
+The command palette (⌘K or Ctrl+K) also has **Turn Proactive off** and **Proactive settings**.
+
+## The First Introduction
+
+Once, after setup, or after the update that adds Proactive, Home shows a short card: what Proactive does, the level picker set to **Quiet**, and where your data goes. Choose **Done** to keep your choice. It doesn't come back.
+
+## Check-ins In A Chat
+
+Proactive Row-Bot is separate from **Check-ins**, an optional skill for people who want Row-Bot to ask questions and check in during a task. See [Check-ins](/docs/skills/#check-ins).
+
+## Troubleshooting
+
+- **Nothing ever comes up.** That can be right: a quiet day has nothing. Check the level isn't **Off**, the kinds are on, and **Activity** shows checks. If the page's status says **Waiting for a model**, choose a main model.
+- **Something came up that wasn't true any more.** Open **Why this?**: it shows when Row-Bot last checked. Use **Less like this** if it keeps happening.
+- **Buddy doesn't glance.** Check **Show Buddy** in [Settings › Buddy](/docs/settings/buddy). With reduced motion on, a small dot by Buddy shows instead.
+- **No phone notifications.** Turn on notifications on the phone first ([Remote access](/docs/operations/remote-access)), then **Phone notifications** in Settings › Proactive. They arrive only when this computer is idle or locked.
+- **A draft didn't send.** Sending needs your approval on the card, and a signed-in account. Check **Needs you** and [Settings › Apps](/docs/settings/apps).

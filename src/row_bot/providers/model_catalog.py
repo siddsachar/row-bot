@@ -142,6 +142,17 @@ def load_ollama_catalog_rows() -> list[dict[str, Any]]:
     return rows
 
 
+def ollama_reported_snapshot(model_id: str) -> dict[str, Any]:
+    """What Ollama's /api/show says one model does, as a capability snapshot; {} when Ollama doesn't answer."""
+    from row_bot.providers.ollama import ollama_model_info
+
+    metadata = _probe_ollama_show_metadata([model_id]).get(model_id)
+    if not metadata:
+        return {}
+    return ollama_model_info(model_id, installed=True, context_window=int(metadata.get("context_window") or 0),
+                             metadata=metadata).capability_snapshot()
+
+
 def _unique_ordered(values: Iterable[str]) -> list[str]:
     ordered: list[str] = []
     seen: set[str] = set()

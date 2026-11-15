@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "maxLength": 512,
+      "title": "Message",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "undone",
+        "changed_since",
+        "unavailable"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "message"
+  ],
+  "title": "SettingChangeUndoResult",
+  "type": "object"
+}

@@ -2946,6 +2946,17 @@ wheels = [
 ]
 
 [[package]]
+name = "py-vapid"
+version = "1.9.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/46/8843d8e00eb4fcece8e12c109ecf5b17a3d4cc9355dab23c2585cb51ed3c/py_vapid-1.9.6-py2.py3-none-any.whl", hash = "sha256:06d775951016f63f0d0d6dd8babd333fc2f831f0769fd5db2e1ec8cfbbccc70f", size = 19428, upload-time = "2026-10-14T19:13:04.404Z" },
+]
+
+[[package]]
 name = "pyasn1"
 version = "0.6.5"
 source = { registry = "https://pypi.org/simple" }
@@ -3726,6 +3737,7 @@ dependencies = [
     { name = "pillow" },
     { name = "plyer" },
     { name = "psutil" },
+    { name = "py-vapid" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "pyobjc-core", marker = "sys_platform == 'darwin'" },
@@ -3946,6 +3958,7 @@ requires-dist = [
     { name = "plotly", marker = "extra == 'media'", specifier = ">=6.0,<7.0" },
     { name = "plyer", specifier = ">=2.1,<3.0" },
     { name = "psutil", specifier = ">=6.0,<8.0" },
+    { name = "py-vapid", specifier = ">=1.9,<2.0" },
     { name = "pydantic", specifier = ">=2.10,<3.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8,<3.0" },
     { name = "pyngrok", marker = "extra == 'all'", specifier = ">=7.0,<8.0" },

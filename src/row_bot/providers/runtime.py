@@ -597,7 +597,7 @@ def require_signed_in(provider_id: str) -> None:
             raise ProviderSignInRequired(
                 "codex", "ChatGPT",
                 "Codex subscription runtime needs an in-app ChatGPT login with runnable OAuth tokens. "
-                "Connect ChatGPT in Settings -> Providers, then try the Codex model again."
+                "Connect ChatGPT in Settings › Models, then try the Codex model again."
             )
     elif provider_id == "claude_subscription":
         from row_bot.providers.claude_subscription import require_claude_plan
@@ -610,7 +610,7 @@ def require_signed_in(provider_id: str) -> None:
             raise ProviderSignInRequired(
                 "xai_oauth", "xAI Grok",
                 "xAI Grok runtime needs Row-Bot-owned OAuth tokens. "
-                "Connect xAI Grok in Settings -> Providers, then try the provider-qualified model again."
+                "Connect xAI Grok in Settings › Models, then try the provider-qualified model again."
             )
 
 
@@ -845,7 +845,7 @@ def _create_chat_model(
 
         api_key = get_provider_secret("ollama_cloud")
         if not api_key:
-            raise ValueError("Ollama Cloud API key not configured. Set it in Settings -> Providers.")
+            raise ValueError("Ollama Cloud API key not configured. Set it in Settings › Models.")
         definition = get_provider_definition("ollama_cloud")
         base_url = definition.base_url if definition and definition.base_url else "https://ollama.com"
         return ChatOllamaCloud(
@@ -867,7 +867,7 @@ def _create_chat_model(
         provider_label = "OpenCode Zen" if provider == "opencode_zen" else "OpenCode Go"
         api_key = get_provider_secret(provider)
         if not api_key:
-            raise ValueError(f"{provider_label} API key not configured. Set it in Settings -> Providers.")
+            raise ValueError(f"{provider_label} API key not configured. Set it in Settings › Models.")
         try:
             route = opencode_model_route(provider, model_name)
         except OpenCodeUnsupportedRouteError:
@@ -1002,7 +1002,7 @@ def _create_chat_model(
         )
         api_key = get_provider_secret("openai")
         if not api_key:
-            raise ValueError("OpenAI API key not configured. Set it in Settings → Providers.")
+            raise ValueError("OpenAI API key not configured. Set it in Settings › Models.")
         # A custom http_client silently turns stream usage off, so ask for it.
         kwargs = {
             "model": model_name,
@@ -1027,7 +1027,7 @@ def _create_chat_model(
         from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
         api_key = get_provider_secret("anthropic")
         if not api_key:
-            raise ValueError("Anthropic API key not configured. Set it in Settings → Providers.")
+            raise ValueError("Anthropic API key not configured. Set it in Settings › Models.")
         return CancellableChatAnthropic(
             model=model_name,
             api_key=api_key,
@@ -1042,7 +1042,7 @@ def _create_chat_model(
         ChatGemini = chat_gemini()
         api_key = get_provider_secret("google")
         if not api_key:
-            raise ValueError("Google AI API key not configured. Set it in Settings → Providers.")
+            raise ValueError("Google AI API key not configured. Set it in Settings › Models.")
         return ChatGemini(
             model=model_name,
             google_api_key=api_key,
@@ -1055,7 +1055,7 @@ def _create_chat_model(
         from row_bot.providers.transports.openai_direct import OpenAIRequestStopped
         api_key = get_provider_secret("xai")
         if not api_key:
-            raise ValueError("xAI API key not configured. Set it in Settings → Providers.")
+            raise ValueError("xAI API key not configured. Set it in Settings › Models.")
         return ChatXAI(
             model=model_name,
             api_key=api_key,
@@ -1070,7 +1070,7 @@ def _create_chat_model(
         from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
         api_key = get_provider_secret("minimax")
         if not api_key:
-            raise ValueError("MiniMax API key not configured. Set it in Settings → Providers.")
+            raise ValueError("MiniMax API key not configured. Set it in Settings › Models.")
         definition = get_provider_definition("minimax")
         api_url = definition.base_url if definition and definition.base_url else "https://api.minimax.io/anthropic"
         return CancellableChatAnthropic(
@@ -1084,7 +1084,7 @@ def _create_chat_model(
 
         api_key = get_provider_secret("atlascloud")
         if not api_key:
-            raise ValueError("Atlas Cloud API key not configured. Set it in Settings → Providers.")
+            raise ValueError("Atlas Cloud API key not configured. Set it in Settings › Models.")
         definition = get_provider_definition("atlascloud")
         base_url = definition.base_url if definition and definition.base_url else "https://api.atlascloud.ai/v1"
         return ChatOpenAICompatible(
@@ -1106,7 +1106,7 @@ def _create_chat_model(
 
         api_key = get_provider_secret(provider)
         if not api_key:
-            raise ValueError(f"{preset.name} API key not configured. Set it in Settings → Models.")
+            raise ValueError(f"{preset.name} API key not configured. Set it in Settings › Models.")
         return ChatOpenAICompatible(
             model_name=model_name,
             api_key=api_key,
@@ -1120,7 +1120,7 @@ def _create_chat_model(
 
         api_key = get_provider_secret("requesty")
         if not api_key:
-            raise ValueError("Requesty API key not configured. Set it in Settings → Providers.")
+            raise ValueError("Requesty API key not configured. Set it in Settings › Models.")
         definition = get_provider_definition("requesty")
         base_url = definition.base_url if definition and definition.base_url else "https://router.requesty.ai/v1"
         return ChatOpenAICompatible(
@@ -1140,7 +1140,7 @@ def _create_chat_model(
     from row_bot.providers.transports.openrouter_cancellable import CancellableChatOpenRouter
     api_key = get_provider_secret("openrouter")
     if not api_key:
-        raise ValueError("OpenRouter API key not configured. Set it in Settings → Providers.")
+        raise ValueError("OpenRouter API key not configured. Set it in Settings › Models.")
     return CancellableChatOpenRouter(
         model_name=model_name,
         openrouter_api_key=api_key,
@@ -1243,7 +1243,7 @@ def ensure_chat_model_compatible(model_name: str, provider_id: str | None = None
     if snapshot and not snapshot_supports_surface(snapshot, "chat"):
         raise ValueError(
             f"{model_name} is not compatible with chat for provider {provider}. "
-            "Choose a chat-capable Quick Choice from Settings -> Providers."
+            "Choose a chat-capable Quick Choice from Settings › Models."
         )
 
 

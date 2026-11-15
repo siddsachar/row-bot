@@ -1,11 +1,14 @@
 """Isolated Buddy preferences, exact private recovery and bounded media contracts."""
 from dataclasses import asdict, replace
+import io
 import json
 import os
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+
+from tests.helpers import buddy_art
 
 from row_bot.buddy import assets, config, client_service as service
 
@@ -192,7 +195,7 @@ def test_pack_pages_continue_and_revision_invalidates_old_cursor(owner):
 def test_pack_media_and_selection_are_exact_contained_and_private(owner):
     path = pack(owner)
     descriptor = service.list_buddy_packs(validate=lambda: None).packs[0]
-    assert descriptor.available and descriptor.assets[0].id == "preview"
+    assert descriptor.available and [asset.id for asset in descriptor.assets] == ["art", "preview", "rig"]
     assert str(owner) not in json.dumps(asdict(descriptor))
     data, content_type = service.read_buddy_media(descriptor.id, "preview", expected_revision=descriptor.revision, validate=lambda: None)
     assert data == (path / "preview.png").read_bytes() and content_type == "image/png"
@@ -201,6 +204,62 @@ def test_pack_media_and_selection_are_exact_contained_and_private(owner):
     (path / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\nchanged")
     with pytest.raises(service.BuddyClientError, match="buddy_revision_conflict"):
         service.read_buddy_media(descriptor.id, "preview", expected_revision=descriptor.revision, validate=lambda: None)
+
+
+def test_legacy_still_is_shown_living_through_a_derived_cutout_without_touching_its_files(owner):
+    from PIL import Image
+    path = pack(owner)
+    (path / "preview.png").write_bytes(buddy_art.painting(256))
+    (path / "motions").mkdir()
+    (path / "motions" / "idle.mp4").write_bytes(bytes.fromhex("0000001866747970") + b"mp42legacy")
+    before = {item.name: item.read_bytes() for item in path.rglob("*") if item.is_file()}
+    descriptor = service.list_buddy_packs(validate=lambda: None).packs[0]
+    assert descriptor.runtime == "living" and descriptor.animation_map == {}
+    assert {asset.id: asset.content_type for asset in descriptor.assets} == {
+        "art": "image/png", "preview": "image/png", "rig": "application/json"}
+    art, art_type = service.read_buddy_media(descriptor.id, "art", expected_revision=descriptor.revision,
+                                             validate=lambda: None)
+    rig, rig_type = service.read_buddy_media(descriptor.id, "rig", expected_revision=descriptor.revision,
+                                             validate=lambda: None)
+    with Image.open(io.BytesIO(art)) as image:
+        assert image.mode == "RGBA" and image.getpixel((2, 2))[3] == 0  # the key colour is gone
+        assert image.getpixel((image.width // 2, image.height // 2))[3] == 255
+    assert art_type == "image/png" and rig_type == "application/json"
+    assert {bone["id"] for bone in json.loads(rig)["bones"]} == {"body", "head"}
+    assert {item.name: item.read_bytes() for item in path.rglob("*") if item.is_file()} == before
+    with pytest.raises(service.BuddyClientError, match="buddy_revision_conflict"):
+        service.read_buddy_media(descriptor.id, "idle", expected_revision=descriptor.revision, validate=lambda: None)
+
+
+def test_legacy_still_that_cannot_be_read_is_unavailable_not_an_error(owner):
+    pack(owner)  # its preview is not a decodable image
+    descriptor = service.list_buddy_packs(validate=lambda: None).packs[0]
+    with pytest.raises(service.BuddyClientError, match="buddy_asset_unavailable"):
+        service.read_buddy_media(descriptor.id, "art", expected_revision=descriptor.revision, validate=lambda: None)
+
+
+def test_living_pack_serves_its_own_files_and_refuses_a_rig_that_is_not_an_object(owner):
+    path = owner / "packs" / "hatch-living"
+    path.mkdir(parents=True)
+    still = buddy_art.painting(64)
+    (path / "art.png").write_bytes(still)
+    (path / "patches.png").write_bytes(still)
+    (path / "rig.json").write_text(json.dumps({"schema": 1, "family": "floater"}))
+    (path / "manifest.json").write_text(json.dumps({"schema": 2, "id": "hatch-living", "name": "Living",
+        "runtime": "living", "art": "art.png", "rig": "rig.json", "patches": "patches.png"}))
+    descriptor = service._pack("hatch-living")[0]
+    assert [asset.id for asset in descriptor.assets] == ["art", "patches", "preview", "rig"]
+    for asset in ("art", "patches", "preview"):
+        data, _ = service.read_buddy_media("hatch-living", asset, expected_revision=descriptor.revision,
+                                           validate=lambda: None)
+        assert data == still
+    (path / "rig.json").write_text("[1, 2]")
+    descriptor = service._pack("hatch-living")[0]
+    with pytest.raises(service.BuddyClientError, match="buddy_asset_unavailable"):
+        service.read_buddy_media("hatch-living", "rig", expected_revision=descriptor.revision, validate=lambda: None)
+    (path / "rig.json").unlink()
+    assert {pack.id: pack.available for pack in service.list_buddy_packs(validate=lambda: None).packs} == {
+        "hatch-living": False}
 
 
 @pytest.mark.parametrize("kind", ["absolute", "parent", "hardlink", "oversize"])

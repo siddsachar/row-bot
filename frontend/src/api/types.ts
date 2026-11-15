@@ -410,6 +410,97 @@ export interface ClientTransport {
     upload: string,
     signal?: AbortSignal,
   ): Promise<Wire.UploadCancelled>;
+  /** Knowledge › Import memories: one batch of files or pasted answers. */
+  memoryImportSources?(signal?: AbortSignal): Promise<Wire.MemoryImportSources>;
+  beginMemoryImport?(signal?: AbortSignal): Promise<Wire.MemoryImportBatch>;
+  memoryImport?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  discardMemoryImport?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  /** Send one export file in chunks; resolves to its file id. */
+  uploadMemoryImportFile?(
+    batch: string,
+    file: File,
+    progress?: (sent: number) => void,
+    signal?: AbortSignal,
+  ): Promise<string>;
+  removeMemoryImportFile?(
+    batch: string,
+    file: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  addMemoryImportText?(
+    batch: string,
+    text: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportStep?(
+    batch: string,
+    step: 'scan' | 'conversations' | 'cancel',
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportCandidates?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportCandidatePage>;
+  previewMemoryImport?(
+    batch: string,
+    items: Wire.MemoryImportPreviewRequest['items'],
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportPreview?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportPreview>;
+  applyMemoryImport?(
+    batch: string,
+    command: Omit<Wire.MemoryImportApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportReceipt>;
+  undoMemoryImport?(
+    batch: string,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportReceipt>;
+  /** Knowledge › Review memory: one run over every memory, or one import's. */
+  memoryReviewOverview?(
+    importBatch?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewOverview>;
+  beginMemoryReview?(
+    importBatch?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  memoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  discardMemoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  cancelMemoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  memoryReviewProposals?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewProposals>;
+  applyMemoryReview?(
+    run: string,
+    command: Omit<Wire.MemoryReviewApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewReceipt>;
+  undoMemoryReview?(
+    run: string,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewReceipt>;
   insights?(signal?: AbortSignal): Promise<Wire.InsightsSnapshot>;
   insightReceipt?(
     command: string,
@@ -703,6 +794,12 @@ export interface ClientTransport {
     body: Wire.SlashCommandRead,
     signal?: AbortSignal,
   ): Promise<Wire.SlashCommandResult>;
+  undoSettingChange?(
+    conversation: string,
+    body: Wire.SettingChangeUndoRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SettingChangeUndoResult>;
+  guidePage?(route: string, signal?: AbortSignal): Promise<Wire.GuidePageView>;
   library?(
     kind: 'artifact' | 'workspace',
     cursor?: string,
@@ -982,6 +1079,52 @@ export interface ClientTransport {
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;
   stopWait?(waitId: string): Promise<Wire.WaitPage>;
+  /** Proactive Row-Bot: moments, "Why this?", feedback, Activity, settings, rules, drafts. */
+  proactiveMoments?(signal?: AbortSignal): Promise<Wire.ProactiveMomentPage>;
+  proactiveMoment?(
+    momentId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveMomentDetail>;
+  proactiveFeedback?(
+    momentId: string,
+    feedback: Wire.ProactiveFeedback,
+  ): Promise<Wire.ProactiveMomentDetail>;
+  proactiveActivity?(
+    before?: number,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveActivityPage>;
+  proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
+  changeProactiveSettings?(
+    change: Wire.ProactiveSettingsChange,
+  ): Promise<Wire.ProactiveSettingsView>;
+  addProactiveRule?(
+    rule: Wire.ProactiveRuleWrite,
+  ): Promise<Wire.ProactiveSettingsView>;
+  changeProactiveRule?(
+    ruleId: string,
+    rule: Wire.ProactiveRuleWrite,
+  ): Promise<Wire.ProactiveSettingsView>;
+  deleteProactiveRule?(ruleId: string): Promise<Wire.ProactiveSettingsView>;
+  proactiveDrafts?(signal?: AbortSignal): Promise<Wire.ProactiveDraftPage>;
+  proactiveDraft?(
+    draftId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveDraftView>;
+  saveProactiveDraft?(
+    draftId: string,
+    edit: Wire.ProactiveDraftEdit,
+  ): Promise<Wire.ProactiveDraftView>;
+  /** Shows the draft's approval card (always); nothing is sent. */
+  askToSendProactiveDraft?(draftId: string): Promise<Wire.ProactiveDraftView>;
+  answerProactiveDraftSend?(
+    draftId: string,
+    answer: Wire.ProactiveDraftSendAnswer,
+  ): Promise<Wire.ProactiveDraftSendOutcome>;
+  proactivePreview?(signal?: AbortSignal): Promise<Wire.ProactivePreview>;
+  noteProactiveBoundary?(
+    boundary: Wire.ProactiveBoundary,
+  ): Promise<Wire.ProactiveBoundaryNoted>;
   /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */
   rowBotSandboxes?(signal?: AbortSignal): Promise<Wire.RowBotSandboxPage>;
   createRowBotSandbox?(
@@ -1452,6 +1595,16 @@ export interface ClientTransport {
     command: string,
     signal?: AbortSignal,
   ): Promise<Wire.SubscriptionFlowSnapshot>;
+  /** Try Row-Bot free: an OpenRouter sign-in. */
+  startOpenRouterSignIn?(signal?: AbortSignal): Promise<Wire.OpenRouterSignIn>;
+  openRouterSignIn?(
+    flow: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.OpenRouterSignIn>;
+  cancelOpenRouterSignIn?(
+    flow: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.OpenRouterSignIn>;
   reviewSubscriptionAction?(
     body: Wire.SubscriptionActionRequest,
     signal?: AbortSignal,

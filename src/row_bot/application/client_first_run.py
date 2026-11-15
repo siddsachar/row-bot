@@ -145,7 +145,7 @@ def import_sources() -> list[dict[str, str]]:
     found = []
     home = Path.home()
     try:
-        if detection._looks_like_hermes(home / ".hermes"):
+        if detection.find_hermes_home() is not None:
             found.append({"id": "hermes", "label": "Hermes Agent"})
         if any(detection._looks_like_openclaw(home / name) for name in (".openclaw", ".clawdbot", ".moltbot")):
             found.append({"id": "openclaw", "label": "OpenClaw"})

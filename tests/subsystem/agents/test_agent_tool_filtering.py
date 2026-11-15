@@ -640,3 +640,29 @@ def test_a_small_window_binds_developer_tools_only_with_a_code_folder(monkeypatc
 
     monkeypatch.setattr(agent, "_has_code_folder", lambda: True)
     assert "developer_read_file" in _bound_tools(agent.get_agent_graph(["developer", "memory"]))
+
+
+def test_a_profile_that_does_not_delegate_is_never_offered_delegate_work(monkeypatch):
+    """R7 (12 Nov): seven workflows' profiles refused delegate_work nine times; it is no longer offered there."""
+    agent = _prepare_graph(monkeypatch)
+    monkeypatch.setattr(
+        agent.tool_registry,
+        "get_tool",
+        lambda name: SimpleNamespace(
+            as_langchain_tools=lambda: [_lc_tool("delegate_work" if name == "agents" else name)],
+            destructive_tool_names=set(),
+        ),
+    )
+    from row_bot.plugins import registry as plugin_registry
+
+    monkeypatch.setattr(plugin_registry, "get_langchain_tools", lambda allow_names=None: [])
+    monkeypatch.setattr(plugin_registry, "get_destructive_names", lambda allow_names=None: set())
+
+    def offered(policy: dict | None) -> bool:
+        agent._current_agent_profile_snapshot_var.set(
+            {} if policy is None else {"slug": "growth", "enabled": True, "tool_policy_json": policy})
+        return "delegate_work" in _bound_tools(agent.get_agent_graph(["agents", "filesystem"]))
+
+    assert offered(None), "a chat without a profile delegates"
+    assert not offered({"capability": "write_capable", "allow_delegation": False})
+    assert offered({"capability": "orchestrator", "allow_delegation": True})

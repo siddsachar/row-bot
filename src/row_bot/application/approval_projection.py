@@ -98,6 +98,11 @@ def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[s
     app = app_of_tool(tool_name, words=True) if len(items) == 1 else None
     if app:  # Shown with its logo and name, so the person knows which app is asking.
         projected["app"] = app
+    change = item.get("change")
+    if isinstance(change, Mapping) and len(items) == 1 and tool_name == "row_bot_update_setting":
+        card = _setting_change_card(change)
+        if card:  # The change in words, with its row (self system).
+            projected["setting_change"] = card
     setup = item.get("setup")
     if isinstance(setup, Mapping) and len(items) == 1:
         projected_setup = _setup_card(setup)
@@ -162,6 +167,20 @@ def _x_post_card(post: Mapping[str, Any]) -> dict[str, Any] | None:
             "target_text": str(post.get("target_text") or "")[:25000], "media": media,
             "limit": limit if isinstance(limit, int) and not isinstance(limit, bool) and 0 <= limit <= 25000 else 0,
             "post_at": str(post.get("post_at") or "") if _SLOT.fullmatch(str(post.get("post_at") or "")) else ""}
+
+
+_SETTINGS_HREF = re.compile(r"^/settings/[A-Za-z0-9/?=&#._:-]{0,189}$")
+
+
+def _setting_change_card(change: Mapping[str, Any]) -> dict[str, Any] | None:
+    """A setting change as its card shows it, checked field by field; None without a name or new value."""
+    label, after = _text(change.get("label"), 120), _text(change.get("after"), 240)
+    if not label or not after:
+        return None
+    href = _text(change.get("href"), 200)
+    return {"label": label, "where": _text(change.get("where"), 200),
+            "href": href if _SETTINGS_HREF.fullmatch(href) else "",
+            "before": _text(change.get("before"), 240), "after": after}
 
 
 def _setup_card(setup: Mapping[str, Any]) -> dict[str, Any] | None:

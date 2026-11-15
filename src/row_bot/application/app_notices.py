@@ -54,11 +54,14 @@ class Notice:
     at: str
     # The conversation it is about, when there is one to open (a file Row-Bot sent to the devices).
     conversation_id: str = ""
+    # The workflow it is about, when there is one to open (a workflow Row-Bot switched off).
+    workflow_id: str = ""
 
     def view(self) -> dict:
         data = asdict(self)
-        if not data["conversation_id"]:
-            del data["conversation_id"]
+        for key in ("conversation_id", "workflow_id"):
+            if not data[key]:
+                del data[key]
         return data
 
 
@@ -74,20 +77,22 @@ class NoticeJournal:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def post(self, *, title: str, message: str, level: Level = "info", source: str = "app",
-             requested: bool = False, startup: bool = False, conversation_id: str = "") -> Notice:
+             requested: bool = False, startup: bool = False, conversation_id: str = "",
+             workflow_id: str = "") -> Notice:
         if level not in ("info", "warning", "error"):
             level = "info"
         title = _clean(title, _TITLE_LIMIT) or "Row-Bot"
         message = _clean(message, _MESSAGE_LIMIT)
         source = _clean(source, _SOURCE_LIMIT) or "app"
         conversation_id = str(conversation_id or "").strip()[:256]
+        workflow_id = str(workflow_id or "").strip()[:128]
         now = self._clock()
-        key = (level, source, title, message, conversation_id)
+        key = (level, source, title, message, conversation_id, workflow_id)
         with self._lock:
             for index in range(len(self._notices) - 1, -1, -1):
                 existing = self._notices[index]
                 if (existing.level, existing.source, existing.title, existing.message,
-                        existing.conversation_id) != key:
+                        existing.conversation_id, existing.workflow_id) != key:
                     continue
                 age = now.timestamp() - datetime.fromisoformat(existing.at).timestamp()
                 if age > COALESCE_SECONDS:
@@ -99,7 +104,7 @@ class NoticeJournal:
                 self._notices[index] = folded
                 return folded
             notice = Notice(self._next, level, title, message, source, bool(requested), bool(startup), 1,
-                            now.isoformat(), conversation_id)
+                            now.isoformat(), conversation_id, workflow_id)
             self._next += 1
             self._notices.append(notice)
             if startup:

@@ -84,13 +84,44 @@ def test_image_thumbnail_is_upright_as_the_camera_meant(service):
             assert thumbnail.size == (80, 160)
 
 
+def _mp4(size: tuple[int, int], seconds: float = 1.0, fps: int = 10) -> bytes:
+    """A clip that opens on black and turns red at half a second, as generated videos often fade in."""
+    av = pytest.importorskip("av")
+    output = BytesIO()
+    with av.open(output, mode="w", format="mp4") as container:
+        stream = container.add_stream("mpeg4", rate=fps)
+        stream.width, stream.height, stream.pix_fmt = size[0], size[1], "yuv420p"
+        for index in range(int(seconds * fps)):
+            colour = "black" if index < fps // 2 else "red"
+            frame = av.VideoFrame.from_image(Image.new("RGB", size, colour))
+            container.mux(stream.encode(frame))
+        container.mux(stream.encode())
+    return output.getvalue()
+
+
+def test_video_thumbnail_is_its_poster_frame_half_a_second_in(service):
+    """I20: Outputs showed every video as the same black tile."""
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation = _conversation(client, headers)
+        reference = _upload(client, headers, conversation, "waves.mp4", _mp4((320, 176)))
+        response = client.get(f"/api/v1/attachments/{reference}/thumbnail", headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "image/png"
+        with Image.open(BytesIO(response.content)) as thumbnail:
+            assert thumbnail.size == (160, 88)
+            red, green, blue, _ = thumbnail.convert("RGBA").getpixel((80, 44))
+            assert red > 180 and green < 80 and blue < 80, "the frame after the black opening"
+
+
 def test_thumbnail_refuses_files_that_are_not_pictures(service):
     with _client(service) as client:
         _, headers = bootstrap(client)
         conversation = _conversation(client, headers)
         text = _upload(client, headers, conversation, "notes.txt", b"plain words")
         broken = _upload(client, headers, conversation, "broken.jpg", b"\xff\xd8\xff" + b"not a picture" * 20)
-        for reference in (text, broken, f"{conversation}:{uuid4()}"):
+        broken_video = _upload(client, headers, conversation, "broken.mp4", b"\x00\x00\x00\x18ftypmp42" + b"x" * 200)
+        for reference in (text, broken, broken_video, f"{conversation}:{uuid4()}"):
             missing = client.get(f"/api/v1/attachments/{reference}/thumbnail", headers=headers)
             assert missing.status_code == 404, missing.text
             assert missing.json()["code"] == "not_found"

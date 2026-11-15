@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -31,12 +32,15 @@ import {
 } from './model';
 import Preferences from './Preferences';
 import LearningSettings from '../learning/LearningSettings';
+import ProactiveSettings from './ProactiveSettings';
 import { useLearning, useLearningPreview } from '../learning/learning-state';
 import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
 import ToolCatalog from './ToolCatalog';
 import CustomToolsSettings from './CustomToolsSettings';
 import MemorySettings from './MemorySettings';
+import { memoryImportIO } from '../knowledge/memory-import-io';
+import { memoryReviewIO } from '../knowledge/memory-review-io';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
@@ -66,6 +70,7 @@ import { useWorkspaceActions } from '../shell/workspace-actions';
 import SettingsShell from './SettingsShell';
 import AccessConnect from './AccessConnect';
 import AccessDevices from './AccessDevices';
+import DeviceNotifications from './DeviceNotifications';
 import AccessNetwork from './AccessNetwork';
 import AccessTailscale from './AccessTailscale';
 import ConnectedPrivacy from './InstallCount';
@@ -144,6 +149,8 @@ export default function SettingRoute() {
   const state = useClientState();
   const learningPreview = useLearningPreview();
   const learningIo = useLearning();
+  const importIO = useMemo(() => memoryImportIO(controller), [controller]);
+  const reviewIO = useMemo(() => memoryReviewIO(controller), [controller]);
   const session = state.handshake?.client_session_id ?? '';
   const settingsDrafts = useRef({
     session,
@@ -528,6 +535,8 @@ export default function SettingRoute() {
           ) : (
             snapshotState
           )
+        ) : leaf.id === 'proactive' ? (
+          <ProactiveSettings />
         ) : leaf.id === 'appearance' ? (
           <AppearanceSettings />
         ) : leaf.id === 'preferences' ||
@@ -542,6 +551,7 @@ export default function SettingRoute() {
               part={leaf.id}
               skillsMoved={learningPreview}
               host={settingsSnapshot?.system.hosted_by}
+              reviewIO={reviewIO}
             />
             {leaf.id === 'data' && <SandboxSettings />}
             {leaf.id === 'data' && settingsSnapshot && (
@@ -807,6 +817,8 @@ export default function SettingRoute() {
             }}
             snapshot={settingsSnapshot?.knowledge}
             refreshToken={knowledgeRefresh}
+            importIO={importIO}
+            reviewIO={reviewIO}
           />
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-snapshot-page settings-documents-flow">
@@ -929,6 +941,7 @@ export default function SettingRoute() {
                     onConnected={() => setDevicesReload((value) => value + 1)}
                   />
                   <AccessDevices reloadKey={devicesReload} />
+                  <DeviceNotifications />
                 </>
               ) : null}
               {leaf.id === 'system' && settingsSnapshot.system.hosted_by ? (

@@ -42,6 +42,7 @@ Problem = Literal["", "ffmpeg_unavailable", "download_failed", "edit_failed", "t
 ACTIVE: frozenset[str] = frozenset({"getting_ffmpeg", "preparing", "editing", "saving"})
 KEEP_PER_CONVERSATION = 100
 PROBE_SECONDS = 30
+FRAMES_PER_OPEN = 8  # Frames taken by opening the video at each time; more are picked in one read.
 _FOLDER = "video-edits"
 _LISTENERS: list[Callable[[], None]] = []
 
@@ -562,7 +563,7 @@ def _run(edit: VideoEdit, request: Request) -> None:
     from row_bot import ffmpeg_runtime
     from row_bot.media_sources import SourceError
     from row_bot.video_editing import (
-        NARRATION, OVERLAYS, EditError, build_plan, frame_times, frames_arguments, graph_option_for,
+        NARRATION, OVERLAYS, EditError, build_plan, frame_times, frames_arguments, graph_option_for, stills_arguments,
     )
 
     folder = working_folder(edit)
@@ -623,7 +624,10 @@ def _run(edit: VideoEdit, request: Request) -> None:
             times = frame_times(info.duration, request.count, request.times)
             names = [f"frame-{index:02d}.jpg" for index in range(1, len(times) + 1)]
             _set(edit, expected_seconds=0.0)
-            _run_process(edit, ffmpeg, frames_arguments(inputs[0].path, times, names), folder, "Video frames")
+            # Each time opens the video once: past a few, one read picks them all (18 to 34 times failed, R5).
+            arguments = (frames_arguments(inputs[0].path, times, names) if len(times) <= FRAMES_PER_OPEN
+                         else stills_arguments(inputs[0].path, times, "frame-%02d.jpg"))
+            _run_process(edit, ffmpeg, arguments, folder, "Video frames")
             _save_frames(edit, folder, names, times)
         _set(edit, status="saved", ended_at=time.time())
     except Stopped:
@@ -804,8 +808,11 @@ def summary(edit: VideoEdit) -> str:
     head = f"Video edit {edit.edit_id}: "
     if edit.status == "saved" and edit.kind == "frames":
         moments = ", ".join(clock(moment) for moment in edit.frame_times[:12])
+        stem = Path(edit.output_name).stem or "frame"
+        last = f"{stem}-{len(edit.frame_refs):02d}.jpg"
         return (head + f"saved {len(edit.frame_refs)} frames (at {moments}) to this chat's files; the person sees "
-                "them on one contact sheet. Look at them with analyze_image, files=['" + edit.edit_id + "'].")
+                "them on one contact sheet. Look at them with analyze_image, files=['" + edit.edit_id + "']. "
+                f"Each is also a full-size still ({stem}-01.jpg to {last}): name one to read small text.")
     if edit.status == "saved":
         from row_bot.recordings import size_words
 

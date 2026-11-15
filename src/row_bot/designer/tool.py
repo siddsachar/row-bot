@@ -832,6 +832,64 @@ def _generate_image(prompt: str, page_index: int = -1,
     )
 
 
+# Paid pictures and clips the agent makes go through the approval gate, as generate_image's do; Designer's
+# own calls (ai_content) are the person's and never ask here.
+
+
+def _will_make(page_index: int, image_source: str = "") -> bool:
+    """The design and the picture to animate are there, so a call would reach the provider."""
+    from row_bot.tools.image_gen_tool import _resolve_image_source
+
+    try:
+        _resolve_page_index(_require_project(), page_index)
+        if image_source:
+            _resolve_image_source(image_source)
+    except Exception:
+        return False
+    return True
+
+
+def _generate_image_tool(prompt: str, page_index: int = -1,
+                         position: str = "bottom", width: int = 800,
+                         height: int = 500, size: str = "auto") -> str:
+    """Generate an AI image from a text prompt and embed it in a page."""
+    from row_bot.tools import image_gen_tool
+
+    line = ""
+    if _will_make(page_index):
+        refusal, line = image_gen_tool.paid_generation_check(
+            "designer_generate_image", "image", image_gen_tool._selection(), "make a picture for this design",
+            prompt)
+        if refusal:
+            return refusal
+    return image_gen_tool._led(line, _generate_image(prompt, page_index, position, width, height, size))
+
+
+def _generate_video_tool(prompt: str, page_index: int = -1,
+                         position: str = "bottom", width: int = 800,
+                         aspect_ratio: str = "", duration: int = 6,
+                         resolution: str = "720p",
+                         image_source: str = "") -> str:
+    """Generate an AI video clip (text-to-video or image-to-video) and embed it in a page.
+
+    ``aspect_ratio`` defaults to the project aspect. ``image_source`` enables
+    image-to-video when set (``"last"``, a filename, or path).
+    """
+    from row_bot.designer.ai_content import VIDEO_PROVIDERS
+    from row_bot.tools import video_gen_tool
+    from row_bot.tools.image_gen_tool import _led, paid_generation_check
+
+    selection, line = video_gen_tool._selection(), ""
+    if selection.partition("/")[0] in VIDEO_PROVIDERS and _will_make(page_index, image_source):
+        refusal, line = paid_generation_check(
+            "designer_generate_video", "video", selection,
+            f"make a video for this design ({int(duration or 6)} seconds, {resolution or '720p'})", prompt)
+        if refusal:
+            return refusal
+    return _led(line, _generate_video(prompt, page_index, position, width, aspect_ratio, duration, resolution,
+                                      image_source))
+
+
 def _refine_text(page_index: int, tag: str, old_text: str,
                  action: str, custom_instruction: str = "") -> str:
     """Refine a text element on a page using AI.
@@ -1795,7 +1853,7 @@ class DesignerTool(BaseTool):
             ),
             # ── Phase 5A: AI Content ─────────────────────────────
             StructuredTool.from_function(
-                func=_generate_image,
+                func=_generate_image_tool,
                 name="designer_generate_image",
                 description=(
                     "Generate an AI image from a text prompt and embed it in a page. "
@@ -1813,7 +1871,7 @@ class DesignerTool(BaseTool):
                 ),
             ),
             StructuredTool.from_function(
-                func=_generate_video,
+                func=_generate_video_tool,
                 name="designer_generate_video",
                 description=(
                     "Generate an AI video clip (MP4) from a text prompt (or image-to-video) and embed it "

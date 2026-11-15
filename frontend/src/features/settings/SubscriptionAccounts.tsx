@@ -169,6 +169,8 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
       'snapshot',
       null,
     );
+  // Accounts re-read after a stale start, used by its one retry.
+  const latest = useRef<SubscriptionAccountsSnapshot | null>(null);
   const [provider, setProvider] = useProviderSettingsValue<
     SubscriptionFlowSnapshot['provider_id']
   >(session, 'provider', 'codex');
@@ -278,11 +280,12 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
     setProvider,
     session,
   ]);
-  async function performDirect(operation: Action) {
+  async function performDirect(operation: Action, retried = false) {
     if (locked || !snapshot) return;
     const intent: Intent = {
       provider_id: provider,
-      provider_revision: snapshot.revision,
+      provider_revision:
+        (retried && latest.current?.revision) || snapshot.revision,
       operation,
       ...(operation === 'submit' ? { value: code } : {}),
       ...(['check', 'submit'].includes(operation) && flow
@@ -313,6 +316,24 @@ export default function SubscriptionAccounts(props: SubscriptionAccountsProps) {
       )
         throw { code: 'revision_conflict' };
     } catch (cause) {
+      // Something else saved the accounts meanwhile (a model list, an expired
+      // sign-in): read them again and start once more, instead of asking.
+      if (
+        operation === 'start' &&
+        !retried &&
+        clientError(cause).code === 'revision_conflict'
+      ) {
+        try {
+          latest.current = await props.load();
+          if (latest.current) {
+            setSnapshot(latest.current);
+            setBusy('');
+            return performDirect(operation, true);
+          }
+        } catch {
+          /* The conflict below is shown instead. */
+        }
+      }
       setError(clientError(cause).message);
       setBusy('');
       if (operation === 'start') props.onStarted?.(null);

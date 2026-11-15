@@ -31,6 +31,7 @@ from fastapi import APIRouter
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from row_bot.access import push as push_notifications
 from row_bot.access import setup_page as setup_words
 from row_bot.access.config import AccessConfig, DeploymentMode
 from row_bot.access.cookies import AccessCookieManager
@@ -235,26 +236,27 @@ def _safe_script_string(value: str) -> str:
     return json.dumps(value).replace("<", "\\u003c").replace(">", "\\u003e")
 
 
+# What only the connect pages need on top of the shared card.
+_CONNECT_STYLE = """
+.steps { margin: 16px 0 0; padding-left: 22px; color: var(--text); font-size: 15px; line-height: 24px; }
+.steps li + li { margin-top: 4px; }
+.aside { margin: 16px 0 0; color: var(--muted); font-size: 13px; line-height: 20px; }
+.code-form input.name { font: inherit; font-size: 16px; letter-spacing: normal; text-transform: none; }
+code { padding: 1px 5px; border-radius: 5px; background: var(--sunken); font: 13px/20px ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+.back { margin: 24px 0 0; text-align: center; }
+"""
+
+
 def _page_shell(title: str, content: str, *, script: str = "") -> str:
+    """A connect page on the same card as /setup, in light and dark (D9)."""
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
   <title>{escape(title)}</title>
-  <style>
-    :root {{ color-scheme: dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }}
-    body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111719; color: #edf5f5; }}
-    main {{ width: min(92vw, 460px); padding: 28px; }}
-    h1 {{ margin: 0 0 12px; font-size: 1.8rem; }}
-    p {{ color: #b3c1c3; line-height: 1.5; }}
-    .detail {{ color: #e5eeee; }}
-    .warning {{ border-left: 3px solid #f6bf54; padding-left: 12px; }}
-    label {{ display: block; margin: 20px 0 8px; }}
-    input {{ box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #3a555a; border-radius: 8px; background: #172225; color: inherit; }}
-    button {{ width: 100%; margin-top: 18px; padding: 13px; border: 0; border-radius: 8px; background: #00b6c7; color: #061114; font-weight: 700; }}
-    code {{ color: #c6f5f8; }}
-  </style>
+  <style>{setup_words.CARD_STYLE}{_CONNECT_STYLE}</style>
   {script}
 </head>
 <body><main>{content}</main></body>
@@ -266,9 +268,17 @@ def _neutral_connect_page() -> str:
         "Connect to Row-Bot",
         """
 <h1>Connect to this Row-Bot</h1>
-<p>This Row-Bot requires approval from its owner. A device that was signed out, or away for more than 30 days, connects again the same way.</p>
-<p class="detail">On the computer running Row-Bot, open Settings › Devices &amp; remote access and choose Connect a phone or computer. Then scan the code with this device, or open its link here.</p>
-<p>Row-Bot running without a screen? Run <code>row-bot access invite --origin &lt;address&gt;</code> on that computer.</p>
+<p class="lead">This Row-Bot requires approval from its owner. To connect this device:</p>
+<ol class="steps">
+  <li>On the computer running Row-Bot, open Settings › Devices &amp; remote access.</li>
+  <li>Choose Connect a phone or computer.</li>
+  <li>Scan its code with this device, or open its link here.</li>
+</ol>
+<p class="aside">A device that was signed out, or away for more than 30 days, connects again the same way.</p>
+<details>
+  <summary>Row-Bot runs without a screen?</summary>
+  <p>Run <code>row-bot access invite --origin &lt;address&gt;</code> on that computer.</p>
+</details>
 """,
     )
 
@@ -281,8 +291,8 @@ def _terminal_connect_page(reason: str) -> str:
         "Invitation unavailable",
         f"""
 <h1>{escape(heading)}</h1>
-<p>{escape(detail)}</p>
-<p><a href="/connect">Return to the connection page</a></p>
+<p class="lead">{escape(detail)}</p>
+<p class="back"><a class="secondary" href="/connect">How to connect</a></p>
 """,
     )
 
@@ -294,11 +304,6 @@ def _available_connect_page(
     next_path: str,
 ) -> str:
     duration = "30 days" if lifetime is SessionLifetime.TRUSTED else "12 hours"
-    layout = "Responsive unified client"
-    warning = (
-        '<p class="warning">This authenticated browser receives full owner '
-        "access to Row-Bot, including files, tools, providers, and settings.</p>"
-    )
     script = f"""<script>
 (() => {{
   const invitation = {_safe_script_string(token)};
@@ -310,18 +315,18 @@ def _available_connect_page(
   }});
 }})();
 </script>"""
+    # What connecting gives stays in the lead, in words: full owner access.
     return _page_shell(
         "Connect to Row-Bot",
         f"""
 <h1>Connect this browser to Row-Bot?</h1>
-<p class="detail">Access: Full owner access<br>Layout: {layout}<br>Duration: {duration}</p>
-{warning}
-<form method="post" action="/api/access/invitations/claim">
+<p class="lead">It gets full owner access to this Row-Bot, including its files, tools, providers and settings, for {duration}.</p>
+<form class="code-form" method="post" action="/api/access/invitations/claim">
   <input id="invitation" name="invitation" type="hidden" value="">
   <input name="next" type="hidden" value="{escape(next_path, quote=True)}">
-  <label for="display_name">Device name</label>
-  <input id="display_name" name="display_name" maxlength="80" autocomplete="nickname" placeholder="This browser">
-  <button type="submit">Connect</button>
+  <label for="display_name">Name this device</label>
+  <input class="name" id="display_name" name="display_name" maxlength="80" autocomplete="nickname" placeholder="This browser">
+  <button class="primary" type="submit">Connect</button>
 </form>
 """,
         script=script,
@@ -1320,6 +1325,113 @@ def build_access_router(
             cookies.clear(response)
         return response
 
+    # Notifications on this device (D8): an encrypted notice when Row-Bot
+    # waits on the person, only for a device signed in over HTTPS.
+    push_store = push_notifications.PushStore()
+
+    def _push_unavailable(context: AccessContext) -> str:
+        if not context.device_id:
+            return "this_computer"
+        if not push_notifications.push_origin_allowed(context.origin):
+            return "needs_https"
+        return ""
+
+    async def push_status(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        reason = _push_unavailable(context)
+        # Whether notices show details is one setting for every device, so
+        # it can be changed from any of them, this computer too.
+        show_details = push_store.show_details()
+        if reason:
+            return _json(
+                {"ok": True, "available": False, "reason": reason, "show_details": show_details}
+            )
+        return _json(
+            {
+                "ok": True,
+                "available": True,
+                "public_key": push_store.public_key(),
+                "subscribed": push_store.subscribed(context.device_id or ""),
+                "show_details": show_details,
+            }
+        )
+
+    async def push_details(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        if not isinstance(payload.get("show_details"), bool):
+            return _error(400, "invalid_push_setting", "Say whether notifications show details.")
+        push_store.set_show_details(payload["show_details"])
+        return _json({"ok": True, "show_details": push_store.show_details()})
+
+    async def push_subscribe(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if not _rate_ok(
+            service,
+            context,
+            bucket="access_management",
+            limit=_MANAGEMENT_RATE_LIMIT,
+        ):
+            return _too_many_requests()
+        if _push_unavailable(context):
+            return _error(
+                409,
+                "push_unavailable",
+                "Notifications need this device signed in over HTTPS.",
+            )
+        try:
+            payload = await _payload(request)
+        except AccessPayloadTooLarge:
+            return _payload_too_large()
+        keys = payload.get("keys") if isinstance(payload.get("keys"), dict) else {}
+        endpoint = str(payload.get("endpoint") or "")
+        p256dh = str(keys.get("p256dh") or "")
+        auth = str(keys.get("auth") or "")
+        if (
+            len(endpoint) > 2048
+            or not 1 <= len(p256dh) <= 128
+            or not 1 <= len(auth) <= 64
+            or not push_notifications.endpoint_allowed(endpoint)
+        ):
+            return _error(
+                400,
+                "invalid_push_subscription",
+                "This browser's notification address isn't one Row-Bot can use.",
+            )
+        push_store.subscribe(
+            push_notifications.PushSubscription(
+                device_id=context.device_id or "",
+                endpoint=endpoint,
+                p256dh=p256dh,
+                auth=auth,
+                origin=context.origin,
+            )
+        )
+        return _json({"ok": True, "subscribed": True})
+
+    async def push_unsubscribe(request: Request) -> JSONResponse:
+        context = _owner_context(request)
+        if context is None:
+            return _error(403, "forbidden", "Owner access is required.")
+        if not _origin_ok(request, context):
+            return _error(403, "origin_required", "Exact same origin is required.")
+        if context.device_id:
+            push_store.unsubscribe(context.device_id)
+        return _json({"ok": True, "subscribed": False})
+
     router.add_api_route("/connect", connect_page, methods=["GET"])
     router.add_api_route(
         "/api/access/invitations/claim",
@@ -1367,6 +1479,16 @@ def build_access_router(
         methods=["POST"],
     )
     router.add_api_route("/api/access/devices", list_devices, methods=["GET"])
+    router.add_api_route("/api/access/devices/push", push_status, methods=["GET"])
+    router.add_api_route(
+        "/api/access/devices/push/subscribe", push_subscribe, methods=["POST"]
+    )
+    router.add_api_route(
+        "/api/access/devices/push/unsubscribe", push_unsubscribe, methods=["POST"]
+    )
+    router.add_api_route(
+        "/api/access/devices/push/details", push_details, methods=["POST"]
+    )
     router.add_api_route(
         "/api/access/devices/{device_id}/revoke",
         revoke_device,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -163,7 +164,30 @@ def detect_source(provider: str | MigrationProvider, root: str | Path | None = N
     return MigrationScan(source=source, metadata={"error": "unsupported provider"})
 
 
+def hermes_homes() -> list[tuple[Path, str]]:
+    """Where Hermes Agent keeps its home, in the order looked at, each with the place shown for it.
+
+    ``~/.hermes`` everywhere; on Windows Hermes may use ``%LOCALAPPDATA%\\hermes`` instead.
+    """
+    homes = [(Path.home() / ".hermes", "~/.hermes")]
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if local:
+        homes.append((Path(local) / "hermes", "%LOCALAPPDATA%\\hermes"))
+    return homes
+
+
+def find_hermes_home() -> tuple[Path, str] | None:
+    """The first of :func:`hermes_homes` that really is Hermes (a real folder, not a link), with its place."""
+    for folder, place in hermes_homes():
+        if folder.is_dir() and not folder.is_symlink() and _looks_like_hermes(folder):
+            return folder, place
+    return None
+
+
 def detect_hermes_source(root: str | Path | None = None) -> MigrationScan:
+    if root is None:
+        found = find_hermes_home()
+        root = found[0] if found else hermes_homes()[0][0]
     source_root = _resolve_root(root, ".hermes")
     if _looks_like_openclaw(source_root) and not _looks_like_hermes(source_root):
         return _provider_mismatch_scan(
@@ -382,9 +406,9 @@ def _warnings_for_scan(root: Path, entries: list[MigrationScanEntry]) -> tuple[s
     if not root.exists():
         warnings.append("source directory does not exist")
     if any(entry.sensitivity == MigrationSensitivity.SECRET for entry in entries):
-        warnings.append("secrets detected; import must be opt-in")
+        warnings.append("API keys and tokens were found. They come over only if you turn on Include API keys and tokens.")
     if any(entry.archive_only for entry in entries):
-        warnings.append("archive-only state detected for manual review")
+        warnings.append("Sessions, logs and other app state are copied into the import's report for you to look at, not imported.")
     return tuple(warnings)
 
 

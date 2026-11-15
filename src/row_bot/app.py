@@ -466,7 +466,7 @@ def _check_oauth_tokens(at_startup: bool = False) -> list[str]:
                 label = "token healthy" if status == "valid" else "token refreshed"
                 _safe_console_print(f"[oauth] ✅ {display} {label}")
             elif status == "expired":
-                msg = f"⚠️ {display} token expired — re-authenticate in Settings → Accounts"
+                msg = f"⚠️ {display} token expired — re-authenticate in Settings › Apps"
                 warnings.append(msg)
                 _safe_console_print(f"[oauth] {msg}")
             elif status == "error":
@@ -729,6 +729,14 @@ async def _run_startup_sequence():
             await asyncio.to_thread(migrate_to_stars)
     except Exception:
         logger.warning("Could not fold the model lists into stars; the old files are kept", exc_info=True)
+
+    # Once (5.3.4): new installs start with Buddy Tile; a profile set up before keeps its Glyph.
+    try:
+        from row_bot.buddy.config import keep_earlier_default_pack
+        with _startup_phase("buddy_default_pack"):
+            await asyncio.to_thread(keep_earlier_default_pack)
+    except Exception:
+        logger.warning("Could not keep this profile's Buddy", exc_info=True)
 
     # Once: Claude now runs the person's own Claude Code; the old Claude sign-in's stored tokens go (N1).
     try:
@@ -1055,7 +1063,21 @@ async def _run_startup_sequence():
                 max_instances=1,
                 next_run_time=datetime.now() + timedelta(minutes=10),
             )
-        _safe_console_print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h)")
+            # Old checkpoints also go hourly while the app is busy: workflows that run all day
+            # would otherwise keep the idle pass waiting while threads.db grows (I32).
+            from row_bot.thread_cleanup import prune_checkpoints_while_busy
+
+            _sched.add_job(
+                prune_checkpoints_while_busy,
+                trigger="interval",
+                hours=1,
+                id="checkpoint_prune",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                next_run_time=datetime.now() + timedelta(minutes=20),
+            )
+        _safe_console_print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h; pruning hourly)")
     except Exception as exc:
         logger.warning("Could not schedule checkpoint cleanup: %s", exc)
 
@@ -1117,6 +1139,13 @@ async def _run_startup_sequence():
             waits.schedule(_get_scheduler())
     except Exception as exc:
         logger.warning("Could not schedule waits: %s", exc)
+    try:
+        from row_bot.proactive import engine as proactive_engine
+        from row_bot.tasks import _get_scheduler
+        with _startup_phase("proactive_scheduler"):
+            proactive_engine.schedule(_get_scheduler())
+    except Exception as exc:
+        logger.warning("Could not schedule Proactive Row-Bot: %s", exc)
     try:
         from row_bot.providers import claude_update
         from row_bot.tasks import _get_scheduler
@@ -1547,12 +1576,6 @@ if __name__ in {"__main__", "__mp_main__"}:
     _static_dir = static_dir()
     if _static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=_static_dir), name="static")
-
-    from row_bot.buddy.assets import buddy_static_dir
-
-    _buddy_static_dir = buddy_static_dir()
-    _buddy_static_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/_buddy", StaticFiles(directory=_buddy_static_dir), name="buddy")
 
     from row_bot.designer.publish import ensure_published_dir
 

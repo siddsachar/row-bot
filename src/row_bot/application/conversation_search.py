@@ -85,7 +85,8 @@ def search(service: Any, query: str, *, conversation_id: str | None = None,
                 raise ClientPlatformError("cursor_expired")
         # The pinned revision fixes this order for every page of one search.
         rows = conn.execute(
-            "SELECT thread_id,name FROM thread_meta " + ("WHERE thread_id=? " if conversation_id else "")
+            "SELECT thread_id,name FROM thread_meta "
+            + ("WHERE thread_id=? " if conversation_id else "WHERE COALESCE(thread_type,'')<>'proactive' ")
             + "ORDER BY CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END DESC,"
             "COALESCE(updated_at,'') DESC,thread_id DESC",
             (conversation_id,) if conversation_id else (),

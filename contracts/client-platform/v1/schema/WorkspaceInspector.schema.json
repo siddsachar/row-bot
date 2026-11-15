@@ -133,6 +133,47 @@
       "title": "WorkspaceProcessStatus",
       "type": "object"
     },
+    "WorkspaceProjectNote": {
+      "additionalProperties": false,
+      "properties": {
+        "characters": {
+          "minimum": 0,
+          "title": "Characters",
+          "type": "integer"
+        },
+        "path": {
+          "maxLength": 256,
+          "title": "Path",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "used",
+            "cut",
+            "not_used_injection",
+            "not_used_secret",
+            "not_used_outside",
+            "too_large",
+            "unreadable"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "used_characters": {
+          "minimum": 0,
+          "title": "Used Characters",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "state",
+        "characters",
+        "used_characters"
+      ],
+      "title": "WorkspaceProjectNote",
+      "type": "object"
+    },
     "WorkspaceTodo": {
       "additionalProperties": false,
       "properties": {
@@ -233,6 +274,14 @@
       },
       "maxItems": 200,
       "title": "Processes",
+      "type": "array"
+    },
+    "project_notes": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceProjectNote"
+      },
+      "maxItems": 8,
+      "title": "Project Notes",
       "type": "array"
     },
     "project_workspace_id": {

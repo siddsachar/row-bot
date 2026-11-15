@@ -252,6 +252,20 @@ def _check_conversation(record: dict[str, Any]) -> Outcome:
 
     target = str(record["spec"].get("conversation_id") or "")
     name = str(record["spec"].get("name") or target)
+    run_id = str(record["spec"].get("run_id") or "")
+    if run_id:
+        # One run, judged by its status: a quick run can end before the wait is set (F3).
+        run = tasks.read_task_run(run_id)
+        if run is not None and run["status"] in tasks.ACTIVE_RUN_STATUSES:
+            return Outcome(False, "")
+        words = f"“{name}” finished its run" + (
+            f": {run['status']}. {run.get('notice') or ''}".rstrip() if run else ".")
+        from row_bot import threads
+
+        last = next((message.content for message in reversed(threads.get_latest_checkpoint_messages(target))
+                     if getattr(message, "type", "") == "ai" and isinstance(message.content, str)
+                     and message.content.strip()), "")
+        return Outcome(True, words + (f"\nIts reply:\n{last.strip()[-_OUTPUT_CHARS:]}" if last else ""))
     if service.registry.active(target) or tasks.active_run_for_conversation(target):
         return Outcome(False, "")
     run = tasks._get_conn().execute(

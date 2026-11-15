@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "hour": {
+      "default": -1,
+      "maximum": 23,
+      "minimum": -1,
+      "title": "Hour",
+      "type": "integer"
+    },
+    "kind": {
+      "default": "",
+      "enum": [
+        "",
+        "follow_up",
+        "meeting_prep",
+        "brief",
+        "date",
+        "change",
+        "workflow_offer"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "topic": {
+      "default": "",
+      "maxLength": 120,
+      "title": "Topic",
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "never_about",
+        "fewer",
+        "not_at_time"
+      ],
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "title": "ProactiveRuleWrite",
+  "type": "object"
+}

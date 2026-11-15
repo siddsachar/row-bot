@@ -817,7 +817,8 @@ class XTool(BaseTool):
         except XAccountChoice as exc:
             return str(exc)
 
-        max_results = max(1, min(max_results, 100))
+        # A model sends null for "the default": that was a TypeError on every read (R7).
+        max_results = max(1, min(int(max_results or 10), 100))
 
         if action == "search":
             if not self._is_op_enabled("x_search"):
@@ -992,7 +993,9 @@ class XTool(BaseTool):
                         "the recommended option, then make the post again. Nothing was sent to X.")
             if post_at and action == "delete":
                 raise x_posting.XPostError("A delete happens at once; leave post_at out.")
-            when = x_posting.slot(post_at)
+            # A time that passed while the card waited goes at once, on a new card that says so (R8).
+            when = x_posting.slot(post_at, late_ok=True)
+            late = bool(post_at) and when is None
         except (x_posting.XPostError, XAccountChoice) as exc:
             return str(exc)
         if action in ("reply", "quote") and x_posting.summoned(chosen, target) is False:
@@ -1030,6 +1033,8 @@ class XTool(BaseTool):
                 sent = str(exc)
         if edited:
             sent = f"The person edited the post on its card, then approved it as edited:\n{words}\n\n{sent}"
+        if late and refusal is None:
+            sent = f"Its time ({post_at}) had passed, so it went out at once.\n{sent}"
         return with_approval(line, sent) if line else sent
 
     # ── Engage operations ────────────────────────────────────────────────────

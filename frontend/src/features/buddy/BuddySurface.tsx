@@ -14,6 +14,7 @@ import {
 } from './BuddyGesture';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 import glyph from '../../assets/row_bot_glyph_256.png';
+import { useProactiveGlance } from '../proactive/SidebarMoment';
 
 export {
   BuddyAvatar,
@@ -34,7 +35,15 @@ function Avatar(props: Omit<Parameters<typeof BuddyAvatar>[0], 'loadMedia'>) {
       ),
     [controller],
   );
-  return <BuddyAvatar {...props} loadMedia={loadMedia} />;
+  // Proactive: a moment waiting gives Buddy its "something for you" face.
+  const glance = useProactiveGlance();
+  return (
+    <BuddyAvatar
+      {...props}
+      glance={!props.preview && glance}
+      loadMedia={loadMedia}
+    />
+  );
 }
 
 function GlobalBuddy() {
@@ -256,6 +265,7 @@ function OwnedBuddy({
         settingsOpen={settings}
         initialPrompt={initialPrompt}
         companionVisible={!settings && buddyPlacement.placement === 'docked'}
+        desktopPet={buddyPlacement.supported}
         onSettings={() => {
           // Navigate before closing (B17): closing first queues a history
           // step back that would land after the push and undo the route.

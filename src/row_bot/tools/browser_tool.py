@@ -124,10 +124,14 @@ class _ScrollInput(BaseModel):
     ref: Optional[str] = Field(default=None, description="Scroll this element into view instead")
 
 
+# How long one browser_wait_for waits (R6): a 30-second cap made a long job 36 waits in a row.
+WAIT_SECONDS = 90
+
+
 class _WaitInput(BaseModel):
     text: Optional[str] = Field(default=None, description="Wait until this text shows")
     gone: Optional[str] = Field(default=None, description="Wait until this text goes")
-    seconds: Optional[float] = Field(default=None, ge=0, le=30, description="Or just wait this long")
+    seconds: Optional[float] = Field(default=None, ge=0, le=WAIT_SECONDS, description="Or just wait this long")
 
 
 class _TabsInput(BaseModel):
@@ -508,6 +512,11 @@ def browser_navigate(url: str) -> str:
     return f"{note}\n{result}" if note else result
 
 
+# A control a click couldn't reach that its key presses the same way.
+_KEYBOARD_PRESS = {"button": "Enter", "link": "Enter", "tab": "Enter", "menuitem": "Enter", "option": "Enter",
+                   "switch": "Space", "checkbox": "Space", "radio": "Space"}
+
+
 def browser_click(ref: str, double: bool = False, right: bool = False) -> str:
     """Click a control on the page by its ref; returns the page after it."""
 
@@ -540,6 +549,16 @@ def browser_click(ref: str, double: bool = False, right: bool = False) -> str:
             if pointed:
                 capture.act_done()
         except Exception as exc:
+            key = _KEYBOARD_PRESS.get(str((info or {}).get("role") or ""))
+            if key and not double and not right and "imeout" in str(exc):
+                # Something lay over it (12 clicks "didn't respond" in one chat; Enter worked): press it (R6).
+                try:
+                    await locator.press(key, timeout=ACTION_TIMEOUT_MS)
+                except Exception:
+                    return _plain_error("click", _what(info, ref), exc)
+                if pointed:
+                    capture.act_done()
+                return f"Clicked {_what(info, ref)} (pressed {key}: something was over it)."
             return _plain_error("click", _what(info, ref), exc)
         return f"Clicked {_what(info, ref)}."
 
@@ -717,16 +736,17 @@ def browser_wait_for(text: str | None = None, gone: str | None = None, seconds: 
 
         try:
             if text:
-                await tab.page.get_by_text(text).first.wait_for(state="visible", timeout=30_000)
+                await tab.page.get_by_text(text).first.wait_for(state="visible", timeout=WAIT_SECONDS * 1000)
                 return f'"{text[:80]}" is showing.'
             if gone:
-                await tab.page.get_by_text(gone).first.wait_for(state="hidden", timeout=30_000)
+                await tab.page.get_by_text(gone).first.wait_for(state="hidden", timeout=WAIT_SECONDS * 1000)
                 return f'"{gone[:80]}" has gone.'
             if seconds:
-                await asyncio.sleep(min(float(seconds), 30.0))
-                return f"Waited {float(seconds):g} seconds."
+                await asyncio.sleep(min(float(seconds), float(WAIT_SECONDS)))
+                return f"Waited {min(float(seconds), float(WAIT_SECONDS)):g} seconds."
         except Exception:
-            return f'Still waiting: "{(text or gone or "")[:80]}" after 30 seconds. Here is the page now.'
+            return (f'Still waiting: "{(text or gone or "")[:80]}" after {WAIT_SECONDS} seconds. Here is the page now.'
+                    " For work that takes minutes, wait_for brings you back when it's done.")
         return ""
 
     return _run(session, thread_id, "Waiting for the page" if (text or gone or seconds) else "Reading the page", step)

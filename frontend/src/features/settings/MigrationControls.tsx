@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, FolderOpen, FolderSearch, RotateCcw } from 'lucide-react';
+import {
+  ArrowRight,
+  FolderOpen,
+  FolderSearch,
+  ListChecks,
+  RotateCcw,
+} from 'lucide-react';
 import type {
   MigrationApplyCommand,
   MigrationApplyReceipt,
@@ -19,6 +25,12 @@ import {
   Toggle,
 } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
+import MemoryImportDialog from '../knowledge/MemoryImportDialog';
+import {
+  memoryImportIO,
+  plural,
+  type MemoryImportIO,
+} from '../knowledge/memory-import-io';
 
 type Owner = {
   scan: (body: MigrationScanRequest) => Promise<MigrationPreview>;
@@ -29,6 +41,8 @@ type Owner = {
   sources?: () => Promise<MigrationSources>;
   /** Browse for the old app's folder in the desktop app (a one-use grant). */
   pick?: () => Promise<string | null>;
+  /** Import memories, where the memories brought over are reviewed. */
+  importIO?: MemoryImportIO;
 };
 
 const pendingKey = 'row-bot:migration:pending:v1';
@@ -70,6 +84,9 @@ export function MigrationControls({
   const [error, setError] = useState('');
   const [missingReceipt, setMissingReceipt] = useState(false);
   const [detected, setDetected] = useState<MigrationSources['sources']>([]);
+  // The memories brought over: reviewing them, and once they are imported.
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
   const active = useRef(false);
   const usual = detected.find((item) => item.provider === provider);
   // A folder picked with Browse: its one-use grant, then the preview that
@@ -144,6 +161,7 @@ export function MigrationControls({
     setSelected([]);
     setReview(null);
     setReceipt(null);
+    setReviewed(false);
     setError('');
   }
 
@@ -426,9 +444,9 @@ export function MigrationControls({
             </p>
           ))}
           <div className="check-field">
-            <span>Overwrite conflicting target files (with backup)</span>
+            <span>Replace what you already have (a backup is kept first)</span>
             <Toggle
-              label="Overwrite conflicting target files"
+              label="Replace what you already have"
               checked={overwrite}
               onChange={(event) => {
                 setOverwrite(event.target.checked);
@@ -531,7 +549,7 @@ export function MigrationControls({
             </p>
           ) : (
             <p>
-              {receipt.summary.migrated} imported; {receipt.summary.errors}{' '}
+              {receipt.summary.migrated} brought over; {receipt.summary.errors}{' '}
               errors. Report: {receipt.report || 'unavailable'}.
             </p>
           )}
@@ -540,10 +558,35 @@ export function MigrationControls({
               {humanizeToken(item.id)}: {item.reason}
             </p>
           ))}
-          <CompactAction label="Scan again" onClick={() => void scan()}>
-            <RotateCcw size={16} aria-hidden />
-          </CompactAction>
+          {receipt.memory_review && (
+            <p>
+              {reviewed
+                ? 'You checked these memories in Import memories.'
+                : `${plural(receipt.memory_review.found, 'memory', 'memories')} ${
+                    receipt.memory_review.found === 1 ? 'is' : 'are'
+                  } ready to review. Nothing is saved to memory until you check them.`}
+            </p>
+          )}
+          <div className="actions">
+            {receipt.memory_review && owner.importIO && !reviewed && (
+              <Button variant="primary" onClick={() => setReviewing(true)}>
+                <ListChecks size={16} aria-hidden /> Review memories
+              </Button>
+            )}
+            <CompactAction label="Scan again" onClick={() => void scan()}>
+              <RotateCcw size={16} aria-hidden />
+            </CompactAction>
+          </div>
         </div>
+      )}
+      {owner.importIO && receipt?.memory_review && (
+        <MemoryImportDialog
+          open={reviewing}
+          onOpenChange={setReviewing}
+          io={owner.importIO}
+          batchId={receipt.memory_review.batch_id}
+          onImported={() => setReviewed(true)}
+        />
       )}
     </div>
   );
@@ -566,6 +609,7 @@ export default function ConnectedMigrationControls() {
     };
   }, [platform]);
   const owner = useRef<Owner>({
+    importIO: memoryImportIO(controller),
     scan: (body) => controller.scanMigration(body),
     review: (body) => controller.reviewMigration(body),
     apply: (body) => controller.applyMigration(body),

@@ -346,9 +346,9 @@ class ChatCodexResponses(BaseChatModel):
         else:
             credentials = codex_auth.codex_runtime_credentials(refresh_if_needed=False,_snapshot=self._captured_snapshot)
         if not credentials.access_token:
-            raise RuntimeError("Codex access token is missing. Connect ChatGPT in Settings -> Providers.")
+            raise RuntimeError("Codex access token is missing. Connect ChatGPT in Settings › Models.")
         if not credentials.account_id:
-            raise RuntimeError("Codex account id is missing. Reconnect ChatGPT in Settings -> Providers.")
+            raise RuntimeError("Codex account id is missing. Reconnect ChatGPT in Settings › Models.")
         return {
             "Authorization": f"Bearer {credentials.access_token}",
             "ChatGPT-Account-ID": credentials.account_id,

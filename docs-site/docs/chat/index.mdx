@@ -165,10 +165,12 @@ Attach files with **+ › Attach file**, by dropping them on the conversation, o
 The small ring beside **Send** shows how much of the model's context the conversation fills. It appears after the first reply, and the mark on it shows where compaction starts.
 
 - **Hover** over the ring for one line, such as "43% of context · compacts at 88% · 1.2M tokens used, 82% from cache". The tokens are what this conversation's model calls have used so far. The share from cache is how much of their input the provider read from its prompt cache, which providers usually charge less for.
-- **Click** the ring for the details: the approximate tokens against the usable amount, where compaction starts, the model's window, and the conversation's total. When a provider reports a cost, as OpenRouter does, the details show it too; Row-Bot keeps no price list of its own.
+- **Click** the ring for the details: the approximate tokens against the usable amount, where compaction starts, what fills the context, and the conversation's total. When a provider reports a cost, as OpenRouter does, the details show it too; Row-Bot keeps no price list of its own. **Details** at the bottom opens the model's window and the more technical lines.
 - On a phone or in a narrow window, the composer is one line, and the context line is in its **+** menu.
 
 For usage beyond one conversation, ask Row-Bot in Agent mode, for example "How many tokens did I use this week?" It answers from its own record: this conversation, the last 24 hours, 7 days and 30 days, with a breakdown by model and by kind of work, such as your chats, compaction, memory extraction and Dream Cycle. The record holds token counts and timings only, never prompts, replies or files. It stays on this computer, counts older than 90 days are removed, and deleting a conversation deletes its counts.
+
+After each reply, the details also show what fills the context, as a thin bar and one line each: **Row-Bot's instructions**, **Tools** (with how many are on), **Skills and guides**, the **Memories** recalled into the conversation, and the **Conversation** itself, including any summary of earlier turns. Each has its approximate tokens and its share, and together they add up to the ring's number. Empty parts are left out, so a Chat Only conversation shows no tools. While a newer count moves the ring, the parts read **As of the last reply**. When the provider reports its prompt cache, a line says how much of the last request came from the cache, and how much over the whole conversation; a local model reports none, and the line is left out. The parts are estimates counted on your computer, and hold numbers only.
 
 ### Long Conversations
 

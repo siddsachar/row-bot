@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "description": "Start a review: of every memory, or of one import's memories and the saved ones closest to them.",
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "import_batch": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Import Batch"
+    }
+  },
+  "required": [
+    "client_session_id"
+  ],
+  "title": "MemoryReviewRequest",
+  "type": "object"
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Button } from '../../ui/primitives';
+import { OpenRouterSignIn } from '../shell/TryFree';
 import ProviderSettingsEditor, {
   type ProviderSettingsEditorProps,
 } from './ProviderSettingsEditor';
@@ -50,7 +51,7 @@ export default function ProviderSettingsPanel({
         <Button onClick={onCancel}>Close</Button>
       </section>
     );
-  return (
+  const editor = (
     <ProviderSettingsEditor
       {...entry}
       providerId={providerId}
@@ -58,5 +59,18 @@ export default function ProviderSettingsPanel({
       onCancel={onCancel}
       compact={compact}
     />
+  );
+  if (providerId !== 'openrouter') return editor;
+  // OpenRouter also signs in, which gives Row-Bot a key of the person's own.
+  return (
+    <div className="stack">
+      <div className="provider-sign-in">
+        <p>
+          No key? Sign in to OpenRouter and Row-Bot saves a key of your own.
+        </p>
+        <OpenRouterSignIn variant="secondary" onConnected={onCancel} />
+      </div>
+      {editor}
+    </div>
   );
 }

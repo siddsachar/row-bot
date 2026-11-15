@@ -6,8 +6,7 @@
         "content_type": {
           "enum": [
             "image/png",
-            "video/mp4",
-            "application/octet-stream"
+            "application/json"
           ],
           "title": "Content Type",
           "type": "string"

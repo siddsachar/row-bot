@@ -9,9 +9,11 @@ import Screenshot from '@site/src/components/Screenshot';
 
 Row-Bot is local-first: the app and its data live on your machine. Local-first does not mean every feature is offline. Hosted models, web search, browser actions, account tools, channels, MCP servers, plugins, realtime voice, and media providers can send data outside the app when you configure and use them.
 
+For how Row-Bot keeps its agent's actions in bounds, and how to report a security problem, read [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds).
+
 ## Local Data
 
-Conversations, memories, documents, workflows, logs, designs, code folder records, skills, plugins, Buddy assets, and settings are stored in the active local Row-Bot data directory. Buddy's native overlay reuses the selected conversation and does not create a second transcript store.
+Conversations, memories, documents, workflows, logs, designs, code folder records, skills, plugins, Buddy assets, and settings are stored in the active local Row-Bot data directory. The desktop Buddy's bubble reuses the selected conversation and does not create a second transcript store. To sit on your windows, the desktop Buddy reads the position and size of the window you are using and where your cursor is; it never reads window titles, app names, contents or pixels, and none of it leaves your computer.
 
 Some things stay on this computer in particular ways:
 - **Sign-ins in Row-Bot's browser**: its cookies are kept in the `browser_profile` folder of Row-Bot's data. **Settings › System › Browser and computer use** lists the sites, with **Sign out**.
@@ -37,6 +39,7 @@ Row-Bot also contacts these on its own, as Settings › System › Privacy lists
 | Claude with your Claude plan | Anthropic, through your own Claude Code | When a chat uses a Claude plan model | The request. Row-Bot runs Claude Code with its telemetry, error reports and own auto-updates turned off |
 | Installing Claude Code | Anthropic's release location (`downloads.claude.ai`), then Claude Code's own installer | When you choose **Use my Claude plan** without Claude Code, or **Update Claude Code**; and about once a day while your Claude plan is set up, to look for a newer version, which Row-Bot installs while Claude isn't answering | Nothing personal; checked against Anthropic's published checksum before it runs |
 | Claude's sign-in | Anthropic, through Claude Code's own sign-in | When you sign in to your Claude plan | What you enter in Claude's sign-in. Row-Bot only carries it to Claude Code and keeps none of it |
+| Try it free (OpenRouter's free models) | OpenRouter's sign-in page, then OpenRouter and the free model's host | When you choose **Sign in with OpenRouter**, then when a chat uses a free model | The sign-in returns a key of your own, saved like a pasted one. Then your prompts, files you attach and tool results for that request; some free hosts may keep or train on what you send |
 | Web search, reading pages, Row-Bot's browser | The search service and the sites involved | When Row-Bot looks something up or browses for you | The search words or the page request |
 | Apps and accounts (GitHub, Google, Outlook through Microsoft Graph, X, MCP servers, plugins) | That service | When a tool of the app runs | What that action needs |
 | Messaging channels | Telegram, Discord, Slack, WhatsApp or your SMS provider | When you or a workflow send through them | The message |
@@ -48,6 +51,7 @@ Row-Bot also contacts these on its own, as Settings › System › Privacy lists
 | ffmpeg, for video editing | The Python Package Index (`files.pythonhosted.org`) | Once, after you approve its card | Nothing personal; checked against its fingerprint |
 | Cua Driver, for computer use | GitHub (the Cua project's releases) | When you choose Install or Repair | Nothing personal; then Cua Driver's own telemetry, described below |
 | The browser runtime | Playwright's download servers | When you choose Install browser runtime | Nothing personal |
+| Notifications on a phone | That phone's browser push service: Google (Chrome, Edge on Android), Apple (an installed iPhone app), Mozilla (Firefox) or Microsoft (Edge on Windows) | Only while **Notifications on this device** is on, when Row-Bot starts waiting for you (an approval or a question) | A short notice, end-to-end encrypted for that phone: a title and one line saying what it's about (or only "Row-Bot is waiting for you" with **Show details in notifications** off). The push service can't read it. See [Notifications On A Phone](#notifications-on-a-phone) |
 
 Computer use is a distinct opt-in boundary: Row-Bot works in an app with your real mouse and keyboard while a Stop bar shows on screen, and it asks before the first use of each app in a chat and before paying, sending, deleting or changing settings. Row-Bot downloads the pinned Cua Driver only after an explicit Install or Repair action, verifies the selected archive, and requires the current telemetry disclosure before any executable invocation. The reviewed 0.20.0 upstream telemetry includes pseudonymous identifiers and bounded product, platform, client, tool/outcome, duration/output, aggregate usage, permission, and lifecycle categories; its tagged event builders exclude prompts, tool arguments/results, typed text, screenshots, accessibility trees, app/window names, URLs, paths, raw values, and raw errors. See [Computer Use](/docs/computer-use/) for the full boundary.
 
@@ -84,6 +88,17 @@ Prefer Tailscale or HTTPS for remote access. Plain LAN HTTP is unencrypted and d
 
 See [Remote Access And Server Mode](/docs/operations/remote-access) for layouts, lifetimes, revocation, Tailscale ownership, server mode, Docker, and recovery.
 
+### Notifications On A Phone
+
+A phone or computer signed in over HTTPS (Tailscale, a tunnel or a hosted Row-Bot) can turn on **Notifications on this device** in Settings › Devices. It's off until you turn it on, and on an iPhone or iPad it needs Row-Bot added to the Home Screen first.
+
+- **When**: only when Row-Bot starts waiting for you, for an approval or a question.
+- **What is sent**: a short notice, through that device's browser push service (Google, Apple, Mozilla or Microsoft, whichever the browser uses): a title of up to 60 characters and one line of up to 120 saying what it's about, such as "Approval needed: Send email to Sam?" or "Row-Bot asked you a question: Which venue?". Tapping it opens the conversation it's about. Secrets such as keys and tokens are removed from the line.
+- **Show details in notifications**: on unless you turn it off, in Settings › Devices. Off, every notice says only "Row-Bot is waiting for you". It's one switch for all your devices. Your phone's own lock-screen preview setting decides whether a notice's words show while the phone is locked.
+- **How it's protected**: each notice is end-to-end encrypted for that one browser under the Web Push standard (RFC 8291) and signed with Row-Bot's own push key (VAPID, RFC 8292). Only that browser can decrypt it.
+- **What is kept**: Row-Bot keeps the device's push address and its encryption keys in `push_subscriptions.json`, its own push key in `push_vapid_key.pem` and, once you change it, the details switch in `push_settings.json`, all in the Row-Bot data folder. Turning the switch off, or signing the device out, stops the notices; a push address the browser drops is forgotten.
+- **What the push service sees**: that an encrypted notice was sent to that browser, when, and about how long it is; it can't read it.
+
 ## Approvals
 
 <Screenshot id="chat-approval" alt="Row-Bot approval card for a file change with Approve and Deny." caption="An approval card names the action and what it affects; Approve and Deny decide it in place." />
@@ -92,11 +107,11 @@ Use approvals to review file writes, command execution, browser actions, account
 
 Approvals wait until you answer; they no longer expire on their own, unless a workflow step sets its own time limit. Every waiting approval shows in its conversation, in the sidebar's attention indicator and on Overview, with **Approve** and **Deny** in place, so background work can't slip past you. Each tool result records whether approval was needed, given or denied, and a denied action never runs.
 
-Approval level is policy: blocked actions stay blocked, **Ask** waits for you, **Auto**'s reviewer approves only what clearly matches your own request (it never sees tool results, files or web pages, and asks you when unsure), and **Hands-off** runs every action and records it. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled.
+Approval level is policy: blocked actions stay blocked, **Ask** waits for you, **Auto**'s reviewer approves only what clearly matches your own request (it never sees tool results, files or web pages, and asks you when unsure), and **Hands-off** runs every action and records it. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled. [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds) tells the whole story, including what is not a boundary.
 
 ### Programs On This Computer Can't Act As You
 
-On this computer, only Row-Bot's own window, or a browser it opens for you from its tray icon (**Open in Browser**), can change anything. Programs Row-Bot runs for you (a shell command, its own browser, a page it reads) connect from the same computer, so being on this computer isn't enough: they can look, never approve Row-Bot's own actions, change its approval level or settings, or pair a device. A Row-Bot tab you open yourself by typing its address shows **View only on this computer** in the sidebar until you open it from the window or the tray. Your phone and every signed-in device keep full access.
+On this computer, only Row-Bot's own window, or a browser it opens for you from its tray icon (**Open in Browser**), can change anything. Programs Row-Bot runs for you can look, never approve its actions or change its settings, and a tab you open by typing Row-Bot's address shows **View only on this computer**. See [Programs On This Computer Can't Act As You](/docs/privacy-safety/agent-in-bounds#programs-on-this-computer-cant-act-as-you).
 
 ## Sharing Logs Or Screenshots
 

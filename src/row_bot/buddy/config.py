@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 _DATA_DIR = get_row_bot_data_dir()
 _BUDDY_CONFIG_PATH = _DATA_DIR / "buddy_config.json"
 
+# A new install's first Buddy (5.3.4). A profile set up before then keeps Glyph, the old default.
+DEFAULT_PACK_ID = "tile"
+_EARLIER_DEFAULT_PACK_ID = "glyph"
+
 _DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
     "placement": BuddyPlacement.DOCKED.value,
@@ -32,7 +36,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "collapsed": False,
     "tear_off_hint_dismissed": False,
     "mode": BuddyMode.SIDEBAR.value,
-    "pack_id": "glyph",
+    "pack_id": DEFAULT_PACK_ID,
     "display_name": "Buddy",
     "personality": "warm_mystical",
     "personality_description": "Warm, curious, encouraging, and not too chatty.",
@@ -105,6 +109,32 @@ def set_buddy_placement_state(state: BuddyPlacementState) -> dict[str, Any]:
     """Persist one canonical placement transition."""
 
     return save_buddy_config(apply_placement_state(get_buddy_config(), state))
+
+
+def keep_earlier_default_pack() -> str | None:
+    """Once (5.3.4): write the Buddy a profile shows, so the new default never swaps it.
+
+    Buddy settings are written only when something is saved, so a profile that never
+    changed Buddy has none and would follow the default. A profile already set up keeps
+    Glyph, the Buddy it has been showing; a new one starts with Tile. Returns the pack
+    written, or None when the profile already has its settings.
+    """
+    if _BUDDY_CONFIG_PATH.exists():
+        return None
+    pack = DEFAULT_PACK_ID
+    try:
+        app = json.loads((_DATA_DIR / "app_config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        app = {}
+    if isinstance(app, dict) and app.get("setup_complete"):
+        pack = _EARLIER_DEFAULT_PACK_ID
+    else:
+        from row_bot.application.client_first_run import saved_default_model
+
+        if saved_default_model():  # Setup also counts as done once a chat model is chosen.
+            pack = _EARLIER_DEFAULT_PACK_ID
+    save_buddy_config({**_DEFAULT_CONFIG, "pack_id": pack})
+    return pack
 
 
 def reset_buddy_config() -> dict[str, Any]:

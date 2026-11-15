@@ -830,7 +830,9 @@ class ClientPlatformService:
             rows = conn.execute(
                 "SELECT thread_id,CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END AS pinned,"
                 "COALESCE(updated_at,'') AS recent FROM thread_meta "
-                + "WHERE COALESCE(deleted_at,'')='' AND (" + _LIST_GROUPS[group] + ") "
+                # Proactive Row-Bot's own preparation threads are never the person's conversations.
+                + "WHERE COALESCE(deleted_at,'')='' AND COALESCE(thread_type,'')<>'proactive' AND ("
+                + _LIST_GROUPS[group] + ") "
                 + ("AND (CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END,COALESCE(updated_at,''),thread_id)"
                    "<(:pinned,:recent,:thread_id) " if after else "")
                 + "ORDER BY pinned DESC,recent DESC,thread_id DESC LIMIT :limit",
@@ -1613,7 +1615,10 @@ class ClientPlatformService:
             if frozen_context is not None
             else runtime_surface
         )
-        if effective_surface not in {"normal_chat", "remote_client"}:
+        # "proactive": the morning brief's and end-of-day wrap's workflow turns, which only read. The server
+        # starts those itself; no route takes a surface from a client.
+        if effective_surface not in {"normal_chat", "remote_client"} and not (
+                effective_surface == "proactive" and followup is not None):
             raise ClientPlatformError("invalid_command")
         config = {"configurable": {"thread_id": conversation_id, "runtime_surface": effective_surface,
                   "runtime_mode": runtime_mode, "generation_id": generation_id,
@@ -1722,6 +1727,9 @@ class ClientPlatformService:
                 _LOG.warning("The sent draft could not be cleared for %s", conversation_id, exc_info=True)
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
         if followup is None and not resume and str(payload.get("text") or "").strip():
+            # The person wrote: a carry-on still pending from the last reply is theirs to steer now (R1).
+            from row_bot.application.conversation_followups import discard as discard_followup
+            discard_followup(conversation_id, "carry_on")
             # The person's message answers a goal that waits on them (B318).
             from row_bot import goals
             try:
@@ -1868,7 +1876,8 @@ class ClientPlatformService:
                     after_platform_turn(conversation_id, generation_id=generation_id, status=status,
                                         assistant_text=final_text, model_ref=model_ref,
                                         goal_id=str((started_goal or {}).get("id") or ""),
-                                        error_text=error_text)
+                                        error_text=error_text,
+                                        followup_kind=followup.kind if followup is not None else "")
                 with _turn_end_step(conversation_id, "the workflow's run"):
                     # A workflow's run moves on when its turn ends: its next message, or its outcome (F31).
                     from row_bot.workflow_turns import after_turn as after_workflow_turn

@@ -405,3 +405,26 @@ def test_memory_policy_records_compact_recall_trace(tmp_path, monkeypatch, reloa
     assert rows[-1]["total_pipeline_ms"] == 12.5
     assert rows[-1]["timings_ms"]["gating"] == 0.2
     assert rows[-1]["top_scores"][0]["sources"] == ["keyword"]
+
+
+def test_a_long_personal_record_shows_only_what_the_turn_is_about_and_no_contact_details():
+    """R11 (12 Nov): the person's own record, 33,000 characters, filled every turn's recall with emails, an account
+    number and family, even in a video edit."""
+    from row_bot.memory_policy import RECALLED_MEMORY_CHARS, format_recall_block
+
+    about = ("User's name is Alex Fixture. Lives in Leeds. Email addresses: alex@example.test and a.f@example.test. "
+             "Phone +44 7700 900123. Married to Sam. Birthday is 2 March. "
+             + "User likes long walks. " * 300
+             + "User wants launch videos full screen, with no captions. ")
+    block = format_recall_block([{"id": "me", "entity_type": "person", "subject": "User", "description": about}],
+                                context_window=200_000, query="Make the launch video full screen")
+    line = block.split("\n- ", 1)[1]
+
+    assert "launch videos full screen" in line
+    assert "@" not in block and "7700" not in block
+    assert "Married" not in line and "long walks" not in line, "only what the turn is about"
+    assert len(line) <= len("[id=me] [person] User: ") + RECALLED_MEMORY_CHARS + 2
+
+    short = format_recall_block([{"id": "m2", "entity_type": "fact", "subject": "Rosebud Code",
+                                  "description": "The user's code word is rosebud."}], query="what is my code")
+    assert short.endswith("[id=m2] [fact] Rosebud Code: The user's code word is rosebud."), "a short memory as it is"

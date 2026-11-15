@@ -44,7 +44,7 @@ const OUTLOOK = open('apps/outlook', 'Outlook');
 const CHANNELS = open('apps?category=communication', 'Apps');
 const PLUGINS = open('apps', 'Apps');
 const MCP = open('apps', 'Apps');
-const RUNTIMES = open('apps?view=advanced', 'Runtimes', 'chats');
+const RUNTIMES = open('apps?view=advanced', 'Runtimes', 'runtimes');
 const SKILLS = open('skills', 'Skills');
 const TOOLS = open('tools', 'Built-in tools', 'built-in-tools');
 const WIKI = open('knowledge', 'Wiki vault', 'wiki-vault');
@@ -943,7 +943,7 @@ const CATALOG: Record<string, Entry> = {
     CUSTOM_ENDPOINTS,
   ],
   provider_recovery_unavailable: [
-    "The provider's settings can't be repaired automatically. Check them in Providers.",
+    "The provider's settings can't be repaired automatically. Check them in Settings › Models.",
     'review',
     PROVIDERS,
   ],
@@ -1035,7 +1035,7 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   subscription_reference_changed: [
-    'The subscription account changed. Refresh Providers, then try again.',
+    'The subscription account changed. Refresh them in Settings › Models, then try again.',
     'retry',
     PROVIDERS,
   ],
@@ -1336,6 +1336,10 @@ const CATALOG: Record<string, Entry> = {
     "This workflow has settings this editor can't change.",
     'review',
   ],
+  task_schedule_too_often: [
+    'Workflows run at most once a minute; choose 1 minute or more.',
+    'review',
+  ],
   task_time_passed: [
     'That time has passed. Pick a later time, or switch the workflow off.',
     'review',
@@ -1364,6 +1368,57 @@ const CATALOG: Record<string, Entry> = {
   ],
   backup_storage_full: [
     "The computer Row-Bot runs on doesn't have room for that backup. Free up space, then try again.",
+    'none',
+  ],
+  import_expired: ['This import was closed. Start it again.', 'review'],
+  import_busy: [
+    'Row-Bot is still working on this import. Wait for it to finish.',
+    'retry',
+    RETRY,
+  ],
+  import_applied: ['These memories were already imported.', 'none'],
+  import_preview_stale: [
+    'Some saved memories changed since the preview. Preview again before importing.',
+    'review',
+  ],
+  import_file_too_large: [
+    'That file is larger than 8 GB, the most Row-Bot imports at once.',
+    'none',
+  ],
+  import_too_many_files: [
+    'One import takes up to 20 files or pasted answers. Import the rest next.',
+    'none',
+  ],
+  import_storage_full: [
+    "The computer Row-Bot runs on doesn't have room for that file. Free up space, then try again.",
+    'none',
+  ],
+  import_storage_unavailable: [
+    "Row-Bot can't write to its data folder to import that.",
+    'none',
+  ],
+  import_model_unavailable: [
+    "Your chat model didn't answer. Check it in Settings, then try again.",
+    'retry',
+    PROVIDERS,
+  ],
+  review_expired: ['This review was closed. Start it again.', 'review'],
+  review_busy: [
+    'Row-Bot is still reviewing your memory. Wait for it to finish.',
+    'retry',
+    RETRY,
+  ],
+  review_stale: [
+    'Some memories changed since this review. Review again before making changes.',
+    'review',
+  ],
+  review_backup_failed: [
+    "Row-Bot couldn't back up your memory first, so nothing was changed. Check there is free space, then try again.",
+    'retry',
+    RETRY,
+  ],
+  review_storage_unavailable: [
+    "Row-Bot can't write to its data folder to review your memory.",
     'none',
   ],
   data_job_running: [
@@ -2216,6 +2271,16 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   buddy_data_policy_denied: ["Buddy isn't allowed to use that data.", 'none'],
+  buddy_image_model_cannot_edit: [
+    "Your image model can only make new pictures, and Buddy's expressions are edits. Choose a GPT Image or Nano Banana model.",
+    'review',
+    IMAGE_MODEL,
+  ],
+  buddy_image_model_unsupported: [
+    "Buddy can't paint with this image model. Choose a GPT Image, Nano Banana or Grok image model.",
+    'review',
+    IMAGE_MODEL,
+  ],
   buddy_media_capability_unavailable: [
     'Generating a Buddy needs an image model. Choose one first.',
     'review',

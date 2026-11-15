@@ -24,6 +24,7 @@ def desktop(tmp_path, monkeypatch, reload_for_data_dir):
     (home / ".row-bot").mkdir()
     (home / ".row-bot" / "threads.db").write_text("", encoding="utf-8")
     monkeypatch.setattr(Path, "home", classmethod(lambda _cls: home))
+    monkeypatch.delenv("ROW_BOT_WORKSPACE", raising=False)  # the home folder's default workspace
     _approval_gate, shell_tool = reload_for_data_dir(
         home / ".row-bot", "row_bot.tools.approval_gate", "row_bot.tools.shell_tool")
     return shell_tool, home, workspace
@@ -40,6 +41,7 @@ def container(tmp_path, monkeypatch, reload_for_data_dir):
     (data / "secret-store-key" / "ROW_BOT_SECRET_STORE_KEY").write_text("00" * 32, encoding="utf-8")
     (data / "exports").mkdir()
     monkeypatch.setattr(Path, "home", classmethod(lambda _cls: data))
+    monkeypatch.delenv("ROW_BOT_WORKSPACE", raising=False)  # the home folder's default workspace
     _approval_gate, shell_tool = reload_for_data_dir(
         data, "row_bot.tools.approval_gate", "row_bot.tools.shell_tool")
     return shell_tool, data, workspace

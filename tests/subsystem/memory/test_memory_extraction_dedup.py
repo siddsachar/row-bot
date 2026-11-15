@@ -215,6 +215,9 @@ def test_dedup_save_creates_updates_and_links_with_provenance(tmp_path, monkeypa
     assert relation["relation_type"] == "works_on"
     assert json.loads(relation["properties"])["evidence"] == "Ada writes tests for Row-Bot."
 
+    # Something new about a saved memory: the reconcile decides how it reads now (here, rewritten).
+    decisions = json.dumps({"decisions": [{"fact": 1, "action": "update", "memory_id": ada["id"],
+                                           "text": "Ada writes tests and maintains coverage."}]})
     updated = memory_extraction._dedup_and_save(
         [
             {
@@ -225,6 +228,7 @@ def test_dedup_save_creates_updates_and_links_with_provenance(tmp_path, monkeypa
             }
         ],
         source="extraction",
+        invoke=lambda _prompt: decisions,
     )
 
     refreshed = kg.get_entity(ada["id"])

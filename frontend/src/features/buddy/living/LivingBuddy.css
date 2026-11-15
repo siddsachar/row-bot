@@ -1,0 +1,23 @@
+/* A living Buddy: a transparent canvas the size of its box, the still beneath until it draws. */
+.living-buddy {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.living-buddy-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: manipulation;
+}
+
+.living-buddy-still {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}

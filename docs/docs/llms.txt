@@ -11,7 +11,7 @@ Public documentation index for Row-Bot.
 - [Installation](/docs/getting-started/installation)
   Route: /docs/getting-started/installation. Install Row-Bot on Windows, macOS or Linux, see where it keeps your data, move from 5.1, uninstall, or run it from source.
 - [Row-Bot In Your Browser](/docs/getting-started/in-your-browser)
-  Route: /docs/getting-started/in-your-browser. Run your own Row-Bot on PikaPods and use it from any browser or your phone: start it, enter the setup code, choose a model, and see what's different from the desktop app.
+  Route: /docs/getting-started/in-your-browser. Run your own Row-Bot on a hosting service and use it from any browser or your phone: start it, sign in, choose a model, and see what's different from the desktop app.
 - [Row-Bot On Railway](/docs/getting-started/on-railway)
   Route: /docs/getting-started/on-railway. Run your own Row-Bot in your own Railway account and open it from any browser: Continue with Railway or the template, sign in, updates, spending, backups, and what it costs.
 - [First Launch](/docs/getting-started/first-launch)
@@ -75,7 +75,7 @@ Public documentation index for Row-Bot.
 - [Settings: Preferences](/docs/settings/preferences)
   Route: /docs/settings/preferences. Set the assistant's name and personality, learning new skills, how Row-Bot opens, the overnight Dream Cycle, and this device's appearance.
 - [Settings: Buddy](/docs/settings/buddy)
-  Route: /docs/settings/buddy. Use Buddy in the sidebar or as a compact desktop overlay, message the selected thread, handle approvals, and configure its appearance.
+  Route: /docs/settings/buddy. Use Buddy in the sidebar or as a desktop pet, message the selected thread from its bubble, handle approvals, make new looks, and configure how it moves.
 - [Settings: Providers](/docs/settings/providers)
   Route: /docs/settings/providers. Connect local, hosted, subscription, and custom model providers.
 - [Settings: Models](/docs/settings/models)

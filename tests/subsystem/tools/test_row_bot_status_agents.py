@@ -174,10 +174,10 @@ def test_row_bot_status_agents_goals_empty_state_and_overview(tmp_path, reload_f
     assert "No Goal Mode records yet." in goals
     assert "Default turn limit: none" in goals
 
+    # The overview stays short (G8) and points to each area instead of repeating it.
     overview = status_tool._row_bot_status("overview")
-    assert "**Agents**" in overview
-    assert "**Agent Profiles**" in overview
-    assert "**Goals**" in overview
+    assert overview.startswith("**Row-Bot v")
+    assert "**Agents**" not in overview and "agents, goals" in overview
 
 
 def test_row_bot_status_tools_names_the_profile_and_the_turns_runtime_list(tmp_path, reload_for_data_dir):
@@ -275,13 +275,13 @@ def test_row_bot_status_model_setting_uses_strict_canonical_refs(tmp_path, monke
     *_modules, agent, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     captured = {}
 
-    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.self_settings.approve", lambda _change: None)
     monkeypatch.setattr("row_bot.models.set_model", lambda value: captured.setdefault("model", value))
     monkeypatch.setattr(agent, "clear_agent_cache", lambda: captured.setdefault("cache_cleared", True))
 
     result = status_tool._update_setting("model", "Fast OpenAI")
 
-    assert result == "Active model changed to: model:openai:gpt-4o-mini"
+    assert result.splitlines()[0] == "Active model changed to: model:openai:gpt-4o-mini"
     assert captured["model"] == "model:openai:gpt-4o-mini"
     assert captured["cache_cleared"] is True
 
@@ -293,7 +293,7 @@ def test_row_bot_status_thread_model_setting_writes_thread_override(tmp_path, mo
     captured = {}
 
     agent._set_active_runtime_context(thread_id=thread_id, runtime_surface="channel")
-    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.self_settings.approve", lambda _change: None)
     monkeypatch.setattr("row_bot.models.set_model", lambda _value: pytest.fail("thread_model must not change global default"))
     monkeypatch.setattr(agent, "clear_agent_cache", lambda: captured.setdefault("cache_cleared", True))
 
@@ -302,7 +302,7 @@ def test_row_bot_status_thread_model_setting_writes_thread_override(tmp_path, mo
     finally:
         agent._set_active_runtime_context()
 
-    assert result == "Thread model override changed to: model:openai:gpt-4o-mini"
+    assert result.splitlines()[0] == "Thread model override changed to: model:openai:gpt-4o-mini"
     assert threads._get_thread_model_override(thread_id) == "model:openai:gpt-4o-mini"
     assert captured["cache_cleared"] is True
 
@@ -315,7 +315,7 @@ def test_row_bot_status_thread_model_default_clears_override(tmp_path, monkeypat
     captured = {}
 
     agent._set_active_runtime_context(thread_id=thread_id, runtime_surface="normal_chat")
-    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.self_settings.approve", lambda _change: None)
     monkeypatch.setattr(agent, "clear_agent_cache", lambda: captured.setdefault("cache_cleared", True))
 
     try:
@@ -333,13 +333,13 @@ def test_row_bot_status_default_model_setting_changes_global_default(tmp_path, m
     *_modules, agent, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     captured = {}
 
-    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.self_settings.approve", lambda _change: None)
     monkeypatch.setattr("row_bot.models.set_model", lambda value: captured.setdefault("model", value))
     monkeypatch.setattr(agent, "clear_agent_cache", lambda: captured.setdefault("cache_cleared", True))
 
     result = status_tool._update_setting("default_model", "Fast OpenAI")
 
-    assert result == "Global default model changed to: model:openai:gpt-4o-mini"
+    assert result.splitlines()[0] == "Global default model changed to: model:openai:gpt-4o-mini"
     assert captured["model"] == "model:openai:gpt-4o-mini"
     assert captured["cache_cleared"] is True
 
@@ -393,7 +393,7 @@ def test_row_bot_status_model_setting_blocks_child_runtime_self_switch_before_ap
     def fail_approval(*_args, **_kwargs):
         raise AssertionError("child model switch should not request approval")
 
-    monkeypatch.setattr(status_tool, "_approval_gate_bool", fail_approval)
+    monkeypatch.setattr("row_bot.self_settings.approve", fail_approval)
     agent._set_active_runtime_context(runtime_surface="agent_child")
     try:
         result = status_tool._update_setting("model", "model:openai:gpt-5.5")
@@ -409,7 +409,7 @@ def test_row_bot_status_model_setting_rejects_unpinned_canonical_ref(tmp_path, m
     *_modules, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     captured = {}
 
-    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.self_settings.approve", lambda _change: None)
     monkeypatch.setattr("row_bot.models.set_model", lambda value: captured.setdefault("model", value))
 
     result = status_tool._update_setting("model", "model:openai:gpt-4o-mini")
@@ -424,7 +424,7 @@ def test_row_bot_status_model_setting_rejects_ambiguous_model(tmp_path, monkeypa
     *_modules, status_tool = _fresh_status_modules(tmp_path, reload_for_data_dir)
     captured = {}
 
-    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.self_settings.approve", lambda _change: None)
     monkeypatch.setattr("row_bot.models.set_model", lambda value: captured.setdefault("model", value))
 
     result = status_tool._update_setting("model", "Shared Model")
