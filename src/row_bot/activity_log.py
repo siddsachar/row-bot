@@ -261,16 +261,41 @@ def record(call: ToolCall) -> None:
     """Note one tool call for the log. Never raises and never waits."""
 
     try:
+        if call.paused and call.thread_id:
+            _waiting_in().add(str(call.thread_id))
         _enqueue("call", call if call.at else replace(call, at=time.time()))
     except Exception:
         logger.debug("Activity log record skipped", exc_info=True)
+
+
+# Conversations that may have a row waiting for the person: a turn's end in any other conversation (most of
+# them) writes nothing. Read from the log once per process, so a card still waiting from before a restart
+# settles too.
+_waiting: set[str] | None = None
+_waiting_lock = threading.Lock()
+
+
+def _waiting_in() -> set[str]:
+    global _waiting
+    with _waiting_lock:
+        if _waiting is None:
+            _waiting = set()
+            path = _existing()
+            if path is not None:
+                try:
+                    with _db_lock, closing(_connect(path)) as connection:
+                        _waiting.update(str(row[0]) for row in connection.execute(
+                            "SELECT DISTINCT conversation_id FROM actions WHERE status = 'pending'"))
+                except Exception:
+                    logger.debug("Activity log could not read its waiting rows", exc_info=True)
+        return _waiting
 
 
 def mark_chat_grant(conversation_id: str) -> None:
     """The person's "Allow in this chat" answered this conversation's waiting cards: their rows say so."""
 
     try:
-        if conversation_id:
+        if conversation_id and str(conversation_id) in _waiting_in():
             _enqueue("grant", str(conversation_id))
     except Exception:
         logger.debug("Activity log grant mark skipped", exc_info=True)
@@ -280,7 +305,9 @@ def settle_pending(conversation_id: str) -> None:
     """The turn ended without waiting: a card it left unanswered is no longer "Waiting for you"."""
 
     try:
-        if conversation_id:
+        waiting = _waiting_in()
+        if conversation_id and str(conversation_id) in waiting:
+            waiting.discard(str(conversation_id))
             _enqueue("settle", str(conversation_id))
     except Exception:
         logger.debug("Activity log settle skipped", exc_info=True)
