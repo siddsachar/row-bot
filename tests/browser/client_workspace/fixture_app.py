@@ -3070,6 +3070,19 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if text.rstrip().endswith("fork fixture"):
+        # Edit and resend, Fork from here (B5): a plain reply naming the message, so each copy is told apart.
+        from langchain_core.messages import HumanMessage
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "fork")
+        thread = call["conversation_id"]
+        try:
+            append_checkpoint_messages(thread, [HumanMessage(
+                content=text, id=call["submission_id"] or fixture_id(f"fork:{call['generation_id']}:user"))])
+            yield from _natural_final(call, thread, f"Noted: {text.strip().removesuffix(' fork fixture')}.", "fork")
+        finally:
+            call["quiesced"] = True
+        return
     if "instant reply fixture" in text:
         # A turn that answers at once, before the app has refreshed after sending.
         from langchain_core.messages import HumanMessage
