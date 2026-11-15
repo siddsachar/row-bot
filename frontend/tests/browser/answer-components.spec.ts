@@ -251,6 +251,27 @@ test('a visual draws in its sandbox with no network, expands, and opens as a pag
   expect(height).toBeGreaterThanOrEqual(120);
   expect(height).toBeLessThanOrEqual(900);
   expect(outside).toEqual([]);
+  // The base look: the controls take Row-Bot's accent, not the browser's.
+  const accent = await slider
+    .getByRole('slider', { name: 'Years' })
+    .evaluate((element) => getComputedStyle(element).accentColor);
+  expect(accent).not.toBe('auto');
+  await slider
+    .getByRole('slider', { name: 'Years' })
+    .evaluate((element) => (element as HTMLElement).blur());
+  // Each frame hugs its content: no empty band under the diagram.
+  for (const index of [0, 1]) {
+    const fit = await frames.nth(index).evaluate((element) => {
+      const frame = element as HTMLIFrameElement;
+      return { frame: frame.getBoundingClientRect().height };
+    });
+    const content = await page
+      .frameLocator('iframe.answer-visual-frame')
+      .nth(index)
+      .locator('html')
+      .evaluate((root) => root.getBoundingClientRect().height);
+    expect(Math.abs(fit.frame - Math.max(120, content))).toBeLessThanOrEqual(2);
+  }
 
   await dismissNotices(page);
   await screens(page, info, 'visual-diagram', () => diagram);

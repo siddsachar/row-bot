@@ -2696,7 +2696,7 @@ _F3_COMPONENTS = "\n\n".join([
         {"label": "Next month's budget", "reply": "Draft next month's budget"}]}),
 ])
 # Two visuals: an SVG diagram, and a small interactive explanation whose probe tries the network.
-_F3_DIAGRAM = """<svg viewBox="0 0 420 150" role="img" aria-label="The water cycle">
+_F3_DIAGRAM = """<svg viewBox="0 0 420 128" role="img" aria-label="The water cycle">
 <title>The water cycle</title>
 <style>text{font:13px system-ui;fill:var(--rb-text-primary)} .box{fill:var(--rb-surface-raised);stroke:var(--rb-border-control)}
 .arrow{stroke:var(--rb-accent-solid);stroke-width:2;fill:none;marker-end:url(#tip)}</style>
