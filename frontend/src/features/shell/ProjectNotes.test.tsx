@@ -133,6 +133,32 @@ it('names the notes in use and those left out, with each reason a keyboard away'
   expect(screen.queryByRole('dialog', { name: 'Project notes' })).toBeNull();
 });
 
+it('names a file the budget pushed out as not shown, without a warning', async () => {
+  const user = userEvent.setup();
+  rail([
+    {
+      path: 'AGENTS.md',
+      state: 'cut',
+      characters: 17_569,
+      used_characters: 8_000,
+    },
+    { path: 'CLAUDE.md', state: 'cut', characters: 159, used_characters: 0 },
+  ]);
+
+  expect(
+    await screen.findByText('Project notes: AGENTS.md · CLAUDE.md not shown'),
+  ).toBeVisible();
+  expect(screen.queryByText(/left out/)).toBeNull();
+
+  await user.click(screen.getByRole('button', { name: 'About project notes' }));
+  const popover = await screen.findByRole('dialog', { name: 'Project notes' });
+  const row = within(popover).getByText('CLAUDE.md').closest('li');
+  expect(row).toHaveAttribute('data-state', 'used');
+  expect(row).toHaveTextContent(
+    'Not shown: the notes are at their 8,000-character limit',
+  );
+});
+
 it('shows nothing for a folder without project notes', async () => {
   rail([]);
 

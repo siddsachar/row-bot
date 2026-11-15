@@ -31,8 +31,12 @@ export function noteState(note: WorkspaceProjectNote): string {
   }
 }
 
+/** Flagged or refused: warned, and named as left out. */
 const left = (note: WorkspaceProjectNote) =>
-  note.state === 'cut' ? !note.used_characters : note.state !== 'used';
+  note.state !== 'used' && note.state !== 'cut';
+/** The budget ran out before this file: named as not shown, without a warning. */
+const unshown = (note: WorkspaceProjectNote) =>
+  note.state === 'cut' && !note.used_characters;
 
 /**
  * The code folder's project notes on the details card: one quiet line naming
@@ -47,10 +51,14 @@ export default function ProjectNotes({
   onOpenFile: (path: string) => void;
 }) {
   if (!notes.length) return null;
-  const used = notes.filter((note) => !left(note)).map((note) => note.path);
+  const used = notes
+    .filter((note) => !left(note) && !unshown(note))
+    .map((note) => note.path);
+  const notShown = notes.filter(unshown).map((note) => note.path);
   const leftOut = notes.filter(left).map((note) => note.path);
   const summary = [
     used.join(', '),
+    notShown.length ? `${notShown.join(', ')} not shown` : '',
     leftOut.length ? `${leftOut.join(', ')} left out` : '',
   ]
     .filter(Boolean)
