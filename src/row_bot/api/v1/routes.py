@@ -318,6 +318,11 @@ _STATUS.update(
 _STATUS.update(
     {
         "goal_library_too_large": 413,
+        # A goal's check that can't be set (B3): it can't run here, the chat only allows checks that read,
+        # or the conversation is a channel's.
+        "goal_check_refused": 422,
+        "goal_check_read_only": 422,
+        "goal_check_unavailable": 422,
         "profile_library_too_large": 413,
         "receipt_unavailable": 404,
         "goal_operation_unconfirmed": 409,

@@ -1,5 +1,126 @@
 {
   "$defs": {
+    "GoalCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "maxLength": 2049,
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GoalCheckResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runs_in": {
+          "maxLength": 257,
+          "title": "Runs In",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "",
+            "pending",
+            "running",
+            "passed",
+            "failed",
+            "error"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "runs_in",
+        "state",
+        "result"
+      ],
+      "title": "GoalCheck",
+      "type": "object"
+    },
+    "GoalCheckPlace": {
+      "additionalProperties": false,
+      "description": "Where a check set now would run, and the code folder's own commands to suggest.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "runs_in": {
+          "maxLength": 257,
+          "title": "Runs In",
+          "type": "string"
+        },
+        "suggestions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Suggestions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "available",
+        "runs_in",
+        "suggestions"
+      ],
+      "title": "GoalCheckPlace",
+      "type": "object"
+    },
+    "GoalCheckResult": {
+      "additionalProperties": false,
+      "properties": {
+        "duration_seconds": {
+          "minimum": 0,
+          "title": "Duration Seconds",
+          "type": "integer"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "finished_at": {
+          "maxLength": 64,
+          "title": "Finished At",
+          "type": "string"
+        },
+        "output_tail": {
+          "maxLength": 8193,
+          "title": "Output Tail",
+          "type": "string"
+        },
+        "started_at": {
+          "maxLength": 64,
+          "title": "Started At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exit_code",
+        "started_at",
+        "finished_at",
+        "duration_seconds",
+        "output_tail"
+      ],
+      "title": "GoalCheckResult",
+      "type": "object"
+    },
     "GoalSummary": {
       "additionalProperties": false,
       "properties": {
@@ -16,10 +137,25 @@
           "title": "Blockers",
           "type": "array"
         },
+        "check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GoalCheck"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "conversation_id": {
           "maxLength": 256,
           "minLength": 1,
           "title": "Conversation Id",
+          "type": "string"
+        },
+        "done_means": {
+          "maxLength": 4097,
+          "title": "Done Means",
           "type": "string"
         },
         "evidence": {
@@ -129,7 +265,9 @@
         "last_reason",
         "evidence",
         "blockers",
-        "active_profile_id"
+        "active_profile_id",
+        "done_means",
+        "check"
       ],
       "title": "GoalSummary",
       "type": "object"
@@ -137,6 +275,9 @@
   },
   "additionalProperties": false,
   "properties": {
+    "check_place": {
+      "$ref": "#/$defs/GoalCheckPlace"
+    },
     "conversation_id": {
       "maxLength": 256,
       "minLength": 1,
@@ -218,7 +359,8 @@
     "items",
     "total",
     "next_cursor",
-    "default_max_turns"
+    "default_max_turns",
+    "check_place"
   ],
   "title": "GoalPage",
   "type": "object"
