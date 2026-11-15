@@ -149,7 +149,9 @@ test('/watch with a page sets a watch at once, with no model call, and the palet
   await composer(page).press('Escape');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(
-    page.getByText('Watching. Row-Bot speaks up here only when it changes.'),
+    page.getByText('Watching. Row-Bot speaks up here only when it changes.', {
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(card(page)).toContainText('Watching https://status.example.com');
   await expect(card(page)).toContainText('every 10 min');
