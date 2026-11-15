@@ -138,6 +138,27 @@ it('applies a tick again when another device moved the state on', async () => {
   ).toBeChecked();
 });
 
+it('saves a tick made before the chat’s state was read, against the revision it then reads', async () => {
+  server.views.set('chat-7', {
+    conversation_id: 'chat-7',
+    revision: 'r9',
+    ticks: {},
+    choices: {},
+  });
+  checklist('chat-7');
+  // Ticked at once, while the first read is still on its way.
+  await act(async () =>
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Book the room' })),
+  );
+  expect(server.saves.at(-1)).toEqual({
+    block_id: LIST,
+    item_id: 'room',
+    done: true,
+    expected_revision: 'r9',
+  });
+  expect(screen.getByRole('checkbox', { name: 'Book the room' })).toBeChecked();
+});
+
 it('takes a tick back when it could not be saved', async () => {
   server.views.set('chat-3', {
     conversation_id: 'chat-3',

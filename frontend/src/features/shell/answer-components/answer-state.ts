@@ -109,29 +109,34 @@ export async function changeAnswerState(
   if (!conversationId) return true;
   const before = entry(conversationId).view;
   publish(conversationId, applied(before, change));
-  if (!controller?.saveAnswerState || !before.revision) return true;
+  if (!controller?.saveAnswerState || !controller.answerState) return true;
+  // Not read yet (a tick made as the chat opens): read it first.
+  let revision = before.revision;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const current = entry(conversationId).view;
+      if (!revision) {
+        const fresh = kept(await controller.answerState(conversationId));
+        publish(conversationId, applied(fresh, change));
+        revision = fresh.revision;
+      }
       const saved = await controller.saveAnswerState(conversationId, {
         ...change,
-        expected_revision:
-          attempt === 0 ? before.revision : (current.revision ?? ''),
+        expected_revision: revision ?? '',
       });
       publish(conversationId, kept(saved));
       return true;
     } catch (error) {
       const code = (error as { code?: string }).code;
+      // A client without this store (a preview) keeps ticks on screen only.
+      if (code === 'capability_unavailable') return true;
       if (code !== 'answer_state_revision_conflict' || attempt) break;
-      try {
-        const fresh = await controller.answerState(conversationId);
-        if (!fresh) break;
-        publish(conversationId, applied(kept(fresh), change));
-      } catch {
-        break;
-      }
+      revision = undefined;
     }
   }
-  publish(conversationId, before);
+  try {
+    publish(conversationId, kept(await controller.answerState(conversationId)));
+  } catch {
+    publish(conversationId, before);
+  }
   return false;
 }
