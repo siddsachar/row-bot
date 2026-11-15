@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type {
   AttachmentView,
   ClientError,
@@ -50,6 +50,7 @@ import {
   ArrowUp,
   Bot,
   Code2,
+  GitBranch,
   ImageOff,
   Layers,
   LifeBuoy,
@@ -484,6 +485,11 @@ export default function Conversation({
     value: ReturnType<typeof controller.getDraft>;
   } | null>(null);
   const firstPromptSent = useRef<string | null>(null);
+  // Edit and resend (B5): the edited text, sent once the new conversation is open.
+  const [forkPrompt, setForkPrompt] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
   useEffect(() => {
     receiptAlive.current = true;
     return () => {
@@ -1832,6 +1838,41 @@ export default function Conversation({
     draft,
     onFirstPromptConsumed,
   ]);
+  // Edit and resend (B5) sends the edited text through the normal send, in
+  // the new conversation, with the edited message's files.
+  const sendForkPrompt = useEffectEvent(() => send());
+  useEffect(() => {
+    if (
+      !forkPrompt ||
+      forkPrompt.conversationId !== id ||
+      !historyReady ||
+      state.status !== 'ready' ||
+      !sendActionReady ||
+      !controls?.model_selection ||
+      busy ||
+      talkBusy ||
+      pendingSubmit ||
+      pendingSteering ||
+      pendingResume ||
+      draft.text !== forkPrompt.text
+    )
+      return;
+    setForkPrompt(null);
+    sendForkPrompt();
+  }, [
+    forkPrompt,
+    id,
+    historyReady,
+    state.status,
+    sendActionReady,
+    controls,
+    busy,
+    talkBusy,
+    pendingSubmit,
+    pendingSteering,
+    pendingResume,
+    draft,
+  ]);
   // Side panels (the Design panel's "Ask Row-Bot to change this…") hand a
   // short request to this composer, which sends it with its model and write
   // targets, queued behind a running turn like any other message.
@@ -3041,6 +3082,58 @@ export default function Conversation({
     };
   });
   const retryLast = useCallback(() => retryAction.current(), []);
+  // Edit and resend, Fork from here (B5): a new conversation from an earlier
+  // message; this one stays as it is. A refusal rejects, for the row to say.
+  const forkAction = useRef<
+    (messageId: string, text?: string) => Promise<void>
+  >(async () => undefined);
+  useLayoutEffect(() => {
+    forkAction.current = async (messageId, text) => {
+      if (!id) return;
+      const source = id;
+      const snapshot = controller.getSnapshot();
+      const receipt = await controller.intent(
+        source,
+        'conversation.fork',
+        {
+          at_message_id: messageId,
+          mode: text === undefined ? 'fork' : 'edit',
+        },
+        snapshot.conversation?.id === source
+          ? snapshot.conversation.revision
+          : '0',
+      );
+      const fork = receipt.forked_conversation_id;
+      if (receipt.status !== 'completed' || !fork)
+        throw { code: receipt.code ?? 'operation_uncertain' };
+      if (text !== undefined) {
+        controller.setDraft(fork, {
+          text,
+          attachments: receipt.draft_attachments ?? [],
+        });
+        setForkPrompt({ conversationId: fork, text });
+      }
+      if (controller.getSnapshot().selectedConversationId !== fork)
+        void controller.selectConversation(fork);
+      navigate(`/conversations/${fork}`);
+      overlay.notify('Forked: the original is unchanged.');
+    };
+  });
+  const editAndResend = useCallback(
+    (messageId: string, text: string) => forkAction.current(messageId, text),
+    [],
+  );
+  const forkFromHere = useCallback(
+    (messageId: string) => forkAction.current(messageId),
+    [],
+  );
+  // A fork's first line: where it came from, while that conversation exists.
+  const forkedFrom =
+    state.conversation?.id === id ? state.conversation?.forked_from : null;
+  const forkedFromTitle = forkedFrom
+    ? (state.conversations.find((item) => item.id === forkedFrom.id)?.title ??
+      forkedFrom.title)
+    : '';
   // A known host runs this Row-Bot (U3, U10): its very first chat suggests one
   // message, and after an answer the phone card shows until dismissed.
   const onHostedServer = Boolean(
@@ -3521,6 +3614,26 @@ export default function Conversation({
                   </Button>
                 </div>
               )}
+              {forkedFrom &&
+                !canLoadEarlier &&
+                !state.history?.previous_cursor &&
+                !state.loadingConversation && (
+                  <div
+                    className="transcript-note"
+                    role="note"
+                    data-note="forked"
+                  >
+                    <GitBranch aria-hidden />
+                    <span>
+                      Forked from “{forkedFromTitle}” ·{' '}
+                      <Link
+                        to={`/conversations/${encodeURIComponent(forkedFrom.id)}`}
+                      >
+                        Open original
+                      </Link>
+                    </span>
+                  </div>
+                )}
               {state.loadingConversation ? (
                 <Skeleton label="Opening conversation" />
               ) : items.length || pending?.conversation === id ? (
@@ -3545,9 +3658,10 @@ export default function Conversation({
                             toolbar={turns.ends[index]}
                             copyText={turns.texts[index]}
                             onRecover={recoverTurn}
-                            onEdit={
-                              item.row.role === 'user' ? editMessage : undefined
+                            onEditResend={
+                              turnInFlight ? undefined : editAndResend
                             }
+                            onFork={turnInFlight ? undefined : forkFromHere}
                           />
                         ) : null,
                       )}
@@ -3590,9 +3704,8 @@ export default function Conversation({
                             ? retryLast
                             : undefined
                         }
-                        onEdit={
-                          item.row.role === 'user' ? editMessage : undefined
-                        }
+                        onEditResend={turnInFlight ? undefined : editAndResend}
+                        onFork={turnInFlight ? undefined : forkFromHere}
                       />
                     ),
                   )}

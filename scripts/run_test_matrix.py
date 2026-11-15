@@ -109,6 +109,7 @@ BROWSER_SMOKE_SPECS = (
     "x-accounts",
     "outlook",
     "incognito",
+    "conversation-fork",
     "live-updates",
     # The activity log (D1): every action and who decided, its filters, CSV and Clear; Monitor's line.
     "activity-log",

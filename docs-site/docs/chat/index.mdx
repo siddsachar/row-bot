@@ -47,6 +47,22 @@ An incognito chat keeps what you say in it out of Row-Bot's memory.
 
   The typesetting ships with Row-Bot and loads only for a message that has maths.
 
+## Edit An Earlier Message Or Fork A Chat
+
+When a chat went the wrong way a few turns ago, go back to that point in a new conversation. The original stays exactly as it was.
+
+- **Edit and resend** (the pencil on one of your messages): your message becomes a text field in place. Change it and press Enter (or the send button) to continue in a new conversation that holds everything before that message, with your edited text sent as its next message. Escape cancels. The message's files go with it.
+- **Fork from here** (the branch icon on a reply): continue in a new conversation that holds everything up to the end of that reply, including the tools it used.
+
+Both actions are hidden while Row-Bot is replying. On a phone, long-press a message to find them.
+
+The new conversation is named after the original with "(fork)" and starts with a line saying where it came from, with **Open original**. It keeps the original's model, profile, skills, apps, approval level and incognito setting, works on the same code folder or design, and has its own copies of the files its messages name. Memory never reads the copied messages a second time.
+
+What a fork does not do:
+
+- It doesn't undo anything. Files changed, messages sent or anything else done after that point in the original stay done. To revert code changes, use **Undo** in the Developer panel.
+- Goals, waiting items, linked conversations and helpers stay with the original. A helper card in the copied history opens the helper's conversation from the original.
+
 ## Composer Controls
 
 - **Model** chooses the model for this conversation. See [Model Picker](/docs/chat/model-picker).
