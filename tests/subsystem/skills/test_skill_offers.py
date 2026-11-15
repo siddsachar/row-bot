@@ -302,27 +302,36 @@ def test_the_judgement_reads_a_redacted_outline_and_never_a_tool_result(offer_st
 
 def test_learning_off_imports_nothing_from_learning_for_an_offer(offer_stack, monkeypatch) -> None:
     threads, model = offer_stack
+    from dataclasses import replace
+
     from row_bot import learning
 
-    monkeypatch.setattr(learning, "is_enabled", lambda: False)
-    # An import of Learning's scope now fails: an offer still appearing shows none happened.
+    monkeypatch.setattr(learning, "read_settings", lambda root=None: replace(learning.DEFAULTS, enabled=False))
+    # An import of Learning's store or scope now fails: an offer still appearing shows none happened.
+    monkeypatch.setitem(sys.modules, "row_bot.learning.store", None)
     monkeypatch.setitem(sys.modules, "row_bot.learning.scope", None)
     assert _offer(threads, model, "c").offered
 
 
-def test_with_learning_on_a_chat_opted_out_of_learning_gets_no_offer(offer_stack, monkeypatch) -> None:
+@pytest.mark.parametrize("paused", [False, True])
+def test_with_learning_on_or_paused_a_chat_opted_out_of_learning_gets_no_offer(
+        offer_stack, monkeypatch, paused) -> None:
     threads, model = offer_stack
-    from types import SimpleNamespace
+    from dataclasses import replace
 
     from row_bot import learning
+    from row_bot.learning.store import LearningStore
 
-    scope = SimpleNamespace(CHAT_OPTED_OUT="chat_opted_out",
-                            check=lambda thread_id: SimpleNamespace(allowed=False, reason="chat_opted_out"))
-    monkeypatch.setattr(learning, "is_enabled", lambda: True)
-    monkeypatch.setitem(sys.modules, "row_bot.learning.scope", scope)
-    monkeypatch.setattr(learning, "scope", scope, raising=False)
+    settings = {"now": replace(learning.DEFAULTS, enabled=True)}
+    monkeypatch.setattr(learning, "read_settings", lambda root=None: settings["now"])
+    LearningStore().set_chat_opt_out("c", True)  # "Don't learn from this chat", while Learning runs
+    settings["now"] = replace(settings["now"], paused=paused)
+
     result = _offer(threads, model, "c")
+
     assert (result.offered, result.reason) == (False, "opted_out")
+    assert model.calls == []
+    assert _offer(threads, model, "everyday").offered  # a chat not opted out still gets its offer
 
 
 @pytest.mark.slow
