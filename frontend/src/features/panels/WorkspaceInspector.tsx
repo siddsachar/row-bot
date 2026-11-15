@@ -32,6 +32,10 @@ import type {
   WorkspaceChangeSetFiles,
 } from '../../api/types';
 import { usePlace } from '../../api/place';
+import {
+  onWorkspaceFileRequest,
+  takeWorkspaceFile,
+} from './workspace-file-requests';
 type WorkspaceChangeSet = WorkspaceChangeSetPage['items'][number];
 import { humanizeToken } from '../../ui/format';
 import {
@@ -622,9 +626,37 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         void loadChanges(result.snapshot_revision);
         void loadFolder('');
         void loadLedger(result.snapshot_revision);
+        openRequestedFile();
       },
     );
   }
+
+  // A file asked for from outside (the details card's project notes) opens
+  // in the Files tab once the summary is read.
+  function openRequestedFile() {
+    const path = takeWorkspaceFile(callbacks.current.resourceId);
+    if (!path) return;
+    setTab({
+      owner: callbacks.current.resourceId,
+      value: 'files',
+      chosen: true,
+    });
+    void loadFile(path);
+  }
+  const openRequested = useRef(openRequestedFile);
+  openRequested.current = openRequestedFile;
+  useEffect(
+    () =>
+      onWorkspaceFileRequest((request) => {
+        if (
+          request.resourceId === callbacks.current.resourceId &&
+          callbacks.current.visible &&
+          owner === request.resourceId
+        )
+          openRequested.current();
+      }),
+    [owner],
+  );
 
   function loadDiff(
     nextPath: string,

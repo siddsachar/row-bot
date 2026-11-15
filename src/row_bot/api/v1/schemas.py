@@ -10314,6 +10314,15 @@ class WorkspaceTodo(WireModel):
     status: str = Field(max_length=80)
 
 
+class WorkspaceProjectNote(WireModel):
+    path: str = Field(max_length=256)
+    state: Literal[
+        "used", "cut", "not_used_injection", "not_used_secret", "not_used_outside", "too_large", "unreadable"
+    ]
+    characters: int = Field(ge=0)
+    used_characters: int = Field(ge=0)
+
+
 class WorkspaceInspector(WireModel):
     resource_id: OpaqueId
     project_workspace_id: OpaqueId
@@ -10332,6 +10341,7 @@ class WorkspaceInspector(WireModel):
     processes: list[WorkspaceProcessStatus] = Field(max_length=200)
     todos: list[WorkspaceTodo] = Field(max_length=200)
     error: str = Field(default="", max_length=128)
+    project_notes: list[WorkspaceProjectNote] = Field(default_factory=list, max_length=8)
 
 
 class WorkspaceChangedFile(WireModel):
