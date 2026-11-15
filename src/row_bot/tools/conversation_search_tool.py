@@ -6,6 +6,9 @@ Exposes two sub-tools:
 
 An incognito conversation (N11) is seen only from itself; one that was
 incognito is seen from elsewhere only after incognito was turned off.
+Hits from a chat other people may have written in (any channel chat, a
+delegated Agent's chat, or one that can't be told) come inside the
+``<EXTERNAL_CONTENT>`` fence, scanned for injection.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from datetime import datetime
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from row_bot.external_content import KNOWN_CATEGORIES, fence, wrap
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 
@@ -45,13 +49,16 @@ class _ListConversationsInput(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 # About 4 characters a token: a message is shown whole up to ~1,500 tokens, and a search's
-# matches together stay under ~6,000 tokens (under a fifth of a 32K local window, and far below
+# matches together take about a tenth of the model's window, at most ~6,000 tokens (far below
 # the 100K tool-result cap). A longer message is cut around where its keywords are.
 _MESSAGE_CHARS = 6_000  # one message, cut markers included
-_RESULTS_CHARS = 24_000  # every match shown, headers included
+_RESULTS_CEILING = 24_000  # every match shown, headers and fences included
 _MIN_MATCH_CHARS = 1_000  # a match with less room left than this is not shown
 _MARKER_ROOM = 80  # the two cut markers of one message
 _SEPARATOR = "\n\n---\n\n"
+_FENCE_SOURCE = "search_conversations"
+_FENCE_ROOM = len(fence(_FENCE_SOURCE, "", tuple(KNOWN_CATEGORIES)))  # the fence and its longest warning
+_FENCE_TAG = re.compile(r"</?\s*EXTERNAL_CONTENT\b[^>\n]*>?", re.IGNORECASE)  # as developer/project_notes.py
 _MAX_THREADS = 200  # safety cap on how many threads to scan
 _LIST_CHARS = 20_000  # list_conversations beyond this is read on with read_tool_output
 
@@ -145,19 +152,58 @@ def _matches_in(messages: list[dict], keywords: list[str]) -> tuple[list[list[di
     return singles, pairs
 
 
-def _render(number: int, match: dict, keywords: list[str], room: int) -> str:
-    """One match in at most *room* characters, each message in at most ``_MESSAGE_CHARS``."""
-    msgs = match["messages"]
+def _render(number: int, match: dict, keywords: list[str], room: int, message_cap: int) -> str:
+    """One match in at most *room* characters, each message in at most *message_cap*.
+
+    A match from a chat others may have written in comes fenced, its own fence tags removed first.
+    """
+    fenced = match["fenced"]
+    if fenced:
+        room -= _FENCE_ROOM
+    msgs = [{**msg, "content": _FENCE_TAG.sub("[fence tag removed]", msg["content"])} if fenced else msg
+            for msg in match["messages"]]
     roles = " + ".join(msg["role"].title() for msg in msgs)
     head = f"[Match {number}] Thread: \"{match['thread']}\" | Date: {match['date']} | {roles}\n"
     if len(msgs) == 1:
-        return head + _excerpt(msgs[0]["content"], keywords, min(_MESSAGE_CHARS, room - len(head)))
-    labels = [f"{msg['role'].title()}: " for msg in msgs]
-    limit = min(_MESSAGE_CHARS, (room - len(head) - sum(map(len, labels)) - 2) // 2)
-    return head + "\n\n".join(
-        label + _excerpt(msg["content"], [kw for kw in keywords if kw in msg["content"].lower()], limit)
-        for label, msg in zip(labels, msgs)
-    )
+        text = head + _excerpt(msgs[0]["content"], keywords, min(message_cap, room - len(head)))
+    else:
+        labels = [f"{msg['role'].title()}: " for msg in msgs]
+        limit = min(message_cap, (room - len(head) - sum(map(len, labels)) - 2) // 2)
+        text = head + "\n\n".join(
+            label + _excerpt(msg["content"], [kw for kw in keywords if kw in msg["content"].lower()], limit)
+            for label, msg in zip(labels, msgs)
+        )
+    return wrap(_FENCE_SOURCE, text) if fenced else text
+
+
+def _others_may_have_written(thread_id: str) -> bool:
+    """Whether a chat's messages may be other people's.
+
+    Any channel chat is (a shared one, a group, or a direct chat whose sender Row-Bot can't
+    always tell apart, as on Slack or Discord), and so is a delegated Agent's chat or one whose
+    origin can't be read. The person's own chats in Row-Bot are not.
+    """
+    try:
+        from row_bot.agent_runs import get_agent_run_for_thread
+        from row_bot.tasks import get_thread_channel_ref
+
+        return get_thread_channel_ref(thread_id) is not None or get_agent_run_for_thread(thread_id) is not None
+    except Exception:
+        logger.debug("Could not read where conversation %s comes from", thread_id, exc_info=True)
+        return True
+
+
+def _results_cap() -> int:
+    """All matches' characters: a tenth of the active model's window (~4 characters a token),
+    at most ``_RESULTS_CEILING``, which is also the cap when the window isn't known."""
+    try:
+        from row_bot.models import get_context_policy
+
+        window = int(get_context_policy(allow_probe=False).effective_limit_tokens or 0)
+    except Exception:
+        logger.debug("Could not read the model's context window", exc_info=True)
+        window = 0
+    return min(_RESULTS_CEILING, window * 4 // 10) if window > 0 else _RESULTS_CEILING
 
 
 # ── Tool functions ───────────────────────────────────────────────────────────
@@ -177,7 +223,7 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
 
     A message holding every keyword ranks before two neighbouring messages that hold them
     between them; within each, newer conversations come first. A message is shown whole up
-    to ``_MESSAGE_CHARS``, and all matches together up to ``_RESULTS_CHARS``.
+    to ``_MESSAGE_CHARS``, and all matches together up to ``_results_cap()``.
     """
     threads, own = _visible_threads()
     if not threads:
@@ -193,13 +239,14 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
     pairs: list[dict] = []
     threads_scanned = 0
 
-    for tid, name, created_at, updated_at, *_cs_rest in threads[:_MAX_THREADS]:
+    for tid, name, _created_at, updated_at, *_cs_rest in threads[:_MAX_THREADS]:
         messages = _get_thread_messages(tid, own=bool(own) and tid == own)
         threads_scanned += 1
         found_alone, found_paired = _matches_in(messages, keywords)
-        date = (updated_at or "")[:10]
-        singles += [{"thread": name, "date": date, "messages": msgs} for msgs in found_alone]
-        pairs += [{"thread": name, "date": date, "messages": msgs} for msgs in found_paired]
+        if found_alone or found_paired:
+            seen = {"thread": name, "date": (updated_at or "")[:10], "fenced": _others_may_have_written(tid)}
+            singles += [{**seen, "messages": msgs} for msgs in found_alone]
+            pairs += [{**seen, "messages": msgs} for msgs in found_paired]
         if len(singles) >= max_results:
             break
 
@@ -210,14 +257,16 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
             f"across {threads_scanned} conversation(s)."
         )
 
+    cap = _results_cap()
+    message_cap = min(_MESSAGE_CHARS, cap)
     parts: list[str] = []
     used = 0
     for match in matches:
         gap = len(_SEPARATOR) if parts else 0
-        room = _RESULTS_CHARS - used - gap
-        if room < _MIN_MATCH_CHARS:
+        room = cap - used - gap
+        if room < min(_MIN_MATCH_CHARS, cap):
             break
-        part = _render(len(parts) + 1, match, keywords, room)
+        part = _render(len(parts) + 1, match, keywords, room, message_cap)
         used += gap + len(part)
         parts.append(part)
 
@@ -229,7 +278,7 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
     if len(parts) < len(matches):
         footer = (
             f"\n\n[{len(matches) - len(parts)} more match(es) not shown: results are limited to "
-            f"{_RESULTS_CHARS:,} characters. Add keywords to narrow the search.]"
+            f"{cap:,} characters. Add keywords to narrow the search.]"
         )
     return header + _SEPARATOR.join(parts) + footer
 
