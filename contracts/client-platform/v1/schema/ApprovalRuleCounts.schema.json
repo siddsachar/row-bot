@@ -1,0 +1,51 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "allowed_in_chat": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Allowed In Chat",
+      "type": "integer"
+    },
+    "approved_by_reviewer": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Approved By Reviewer",
+      "type": "integer"
+    },
+    "approved_by_you": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Approved By You",
+      "type": "integer"
+    },
+    "asked": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Asked",
+      "type": "integer"
+    },
+    "changed": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Changed",
+      "type": "integer"
+    },
+    "denied": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Denied",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "approved_by_you",
+    "denied",
+    "approved_by_reviewer",
+    "allowed_in_chat",
+    "changed",
+    "asked"
+  ],
+  "title": "ApprovalRuleCounts",
+  "type": "object"
+}
