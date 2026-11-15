@@ -1034,6 +1034,16 @@ export interface ClientTransport {
     conversationId: string,
     signal?: AbortSignal,
   ): Promise<Wire.ConversationLinkPage>;
+  /** The person's ticks and sent choices on a chat's answer components (F3). */
+  answerState?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AnswerStateView>;
+  saveAnswerState?(
+    conversationId: string,
+    change: Wire.AnswerStateChange,
+    signal?: AbortSignal,
+  ): Promise<Wire.AnswerStateView>;
   /** One frame address for a page in this theme, loaded once in a sandbox. */
   pageFrame?(
     pageId: string,

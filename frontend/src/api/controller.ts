@@ -15,6 +15,7 @@ import {
 import { isPanelDescriptor } from './types';
 import { sha256Hex } from '../platform/crypto';
 import type {
+  AnswerStateChange,
   ClientState,
   PageDecisionWrite,
   PageTheme,
@@ -2810,6 +2811,16 @@ export class ClientController {
     this.query(() =>
       this.transport.conversationLinks?.(conversationId, signal),
     );
+  /** The person's ticks and sent choices on this chat's answer components (F3). */
+  answerState = (conversationId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.answerState?.(conversationId, signal));
+  /** One tick or sent choice, checked against the revision last read. */
+  saveAnswerState = (conversationId: string, change: AnswerStateChange) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.saveAnswerState)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.saveAnswerState(conversationId, change, signal);
+    });
   /** One frame address for a page, served once to its sandboxed frame. */
   pageFrame = (pageId: string, theme: PageTheme, signal?: AbortSignal) =>
     this.authenticatedResult((current) => {

@@ -9,8 +9,10 @@ import {
   StatGroup,
   type Tone,
 } from '../../../ui/primitives';
+import { useOptionalRuntime } from '../../../runtime';
 import { sendPrompt, usePromptReady } from '../composer-bridge';
 import { SortableTable } from '../SortableTable';
+import { changeAnswerState, useAnswerState } from './answer-state';
 
 type Block = TranscriptRow['blocks'][number];
 type Of<T extends Block['type']> = Extract<Block, { type: T }>;
@@ -44,26 +46,42 @@ export function withUnit(value: number | string, unit: string) {
  */
 export type AnswerTarget = { conversationId?: string; messageId?: string };
 
+/** This chat's ticks and sent choices, and a way to change them. */
+function useAnswers(target: AnswerTarget) {
+  const controller = useOptionalRuntime()?.controller;
+  const state = useAnswerState(controller, target.conversationId);
+  return {
+    state,
+    change: (change: Parameters<typeof changeAnswerState>[2]) =>
+      changeAnswerState(controller, target.conversationId, change),
+  };
+}
+
 /**
  * Reply buttons: a tap sends the button's words as the person's message
  * through the composer's normal send path (same checks, no attachments).
  * Nothing runs by itself and no tool is called. Like the composer's own
  * Send, they wait while Row-Bot is still answering. Once one is sent, the
- * block's buttons show which was picked and stay disabled.
+ * block's buttons show which was picked and stay disabled, on every
+ * device; an older message's buttons read "Sent" the same way.
  */
 function Replies({
+  blockId,
   actions,
   target,
   label,
   variant,
 }: {
+  blockId: string;
   actions: Action[];
   target: AnswerTarget;
   label: string;
   variant: 'choices' | 'actions';
 }) {
   const notify = useNotify();
-  const [picked, setPicked] = useState<string | null>(null);
+  const answers = useAnswers(target);
+  const [sent, setSent] = useState<string | null>(null);
+  const picked = sent ?? answers.state.choices[blockId] ?? null;
   const ready = usePromptReady(target.conversationId);
   if (!actions.length) return null;
   function send(action: Action) {
@@ -84,7 +102,9 @@ function Replies({
       );
       return;
     }
-    setPicked(action.label);
+    // Sent is sent: the buttons stay picked here even if saving that fails.
+    setSent(action.label);
+    void answers.change({ block_id: blockId, choice: action.label });
   }
   return (
     <div
@@ -137,6 +157,7 @@ function Replies({
 }
 
 function Frame({
+  blockId,
   kind,
   title,
   count,
@@ -144,6 +165,7 @@ function Frame({
   actions,
   target,
 }: {
+  blockId: string;
   kind: string;
   title: string;
   count?: string;
@@ -166,6 +188,7 @@ function Frame({
       {children}
       {actions && (
         <Replies
+          blockId={blockId}
           actions={actions}
           target={target}
           label={title ? `Replies for ${title}` : 'Replies'}
@@ -187,6 +210,7 @@ export function AnswerTable({
 }) {
   return (
     <Frame
+      blockId={block.id}
       kind="table"
       title={block.title}
       actions={block.actions}
@@ -209,19 +233,25 @@ export function AnswerChecklist({
   block: Of<'checklist'>;
   target: AnswerTarget;
 }) {
-  const [done, setDone] = useState(
-    () =>
-      new Set(block.items.filter((item) => item.done).map((item) => item.id)),
+  const notify = useNotify();
+  const answers = useAnswers(target);
+  const ticks = answers.state.ticks[block.id] ?? {};
+  const done = new Set(
+    block.items
+      .filter((item) => ticks[item.id] ?? item.done)
+      .map((item) => item.id),
   );
-  const toggle = (id: string, checked: boolean) =>
-    setDone((current) => {
-      const next = new Set(current);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
+  const toggle = async (id: string, checked: boolean) => {
+    const saved = await answers.change({
+      block_id: block.id,
+      item_id: id,
+      done: checked,
     });
+    if (!saved) notify('Couldn’t save that tick. Try again.', 'warning');
+  };
   return (
     <Frame
+      blockId={block.id}
       kind="checklist"
       title={block.title}
       count={`${done.size} of ${block.items.length} done`}
@@ -236,7 +266,7 @@ export function AnswerChecklist({
                 type="checkbox"
                 checked={done.has(item.id)}
                 onChange={(event) =>
-                  toggle(item.id, event.currentTarget.checked)
+                  void toggle(item.id, event.currentTarget.checked)
                 }
               />
               <span>{item.text}</span>
@@ -257,6 +287,7 @@ export function AnswerFigures({
 }) {
   return (
     <Frame
+      blockId={block.id}
       kind="figures"
       title={block.title}
       actions={block.actions}
@@ -295,6 +326,7 @@ export function AnswerProgress({
 }) {
   return (
     <Frame
+      blockId={block.id}
       kind="progress"
       title={block.title}
       actions={block.actions}
@@ -347,6 +379,7 @@ export function AnswerChoices({
     <section className="answer-component" data-kind="choices">
       {block.prompt && <p className="answer-prompt">{block.prompt}</p>}
       <Replies
+        blockId={block.id}
         actions={block.options}
         target={target}
         label={block.prompt || 'Choices'}
@@ -358,14 +391,17 @@ export function AnswerChoices({
 
 /** The chart's reply buttons, under the existing chart card. */
 export function ChartReplies({
+  blockId,
   actions,
   target,
 }: {
+  blockId: string;
   actions: Action[];
   target: AnswerTarget;
 }) {
   return (
     <Replies
+      blockId={blockId}
       actions={actions}
       target={target}
       label="Replies for the chart"

@@ -230,6 +230,9 @@ _STATUS.update(
             "directory_revision_conflict",
             "snapshot_revision_conflict",
             "draft_revision_conflict",
+            "answer_state_revision_conflict",
+            "answer_choice_taken",
+            "answer_state_full",
         ),
         409,
     )
@@ -3264,6 +3267,33 @@ def create_router(
         result = await call(read_draft, service, conversation_id)
         await readable_conversation(conversation_id)
         return await respond(request, dto.DraftView, result)
+
+    @router.get("/conversations/{conversation_id}/answer-state")
+    async def answer_state_view(conversation_id: str, request: Request) -> JSONResponse:
+        """The person's ticks and sent choices on this chat's answer components (F3)."""
+        await session(request)
+        from row_bot.application.answer_state import read_answer_state
+
+        result = await call(read_answer_state, service, conversation_id)
+        return await respond(request, dto.AnswerStateView, result)
+
+    @router.put("/conversations/{conversation_id}/answer-state")
+    async def answer_state_save(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.AnswerStateChange, 4096)
+        from row_bot.application.answer_state import save_answer_state
+
+        return await respond(
+            request,
+            dto.AnswerStateView,
+            await call(
+                save_answer_state,
+                service,
+                conversation_id,
+                body.model_dump(mode="json"),
+                dispatch_validation(request, current),
+            ),
+        )
 
     @router.get("/conversations/{conversation_id}/queue")
     async def queue_view(

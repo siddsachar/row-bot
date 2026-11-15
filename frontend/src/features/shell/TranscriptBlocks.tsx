@@ -519,6 +519,12 @@ export function TranscriptBlocks({
                 copyText={copyText}
                 // Text still arriving: a component's fence waits for its end.
                 streaming={block.type === 'text'}
+                // A saved block's task-list ticks are kept for the person.
+                tasks={
+                  block.type === 'markdown'
+                    ? { conversationId, blockId: block.id }
+                    : undefined
+                }
                 key={key}
               />
             );
@@ -529,7 +535,11 @@ export function TranscriptBlocks({
               <Fragment key={key}>
                 <Chart figure={block.figure_json} label={block.text} />
                 {!!block.actions?.length && (
-                  <ChartReplies actions={block.actions} target={target} />
+                  <ChartReplies
+                    blockId={block.id}
+                    actions={block.actions}
+                    target={target}
+                  />
                 )}
               </Fragment>
             );

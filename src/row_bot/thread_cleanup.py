@@ -157,6 +157,7 @@ def _purge_thread_files(thread_id: str) -> int:
         f"{thread_id}.media.json",
         f"{thread_id}.images.json",
         f"{thread_id}.draft.json",
+        f"{thread_id}.answers.json",
     )
     for name in ui_names:
         path = resolve_managed_path(threads._THREAD_UI_DIR, name)  # noqa: SLF001
@@ -1203,7 +1204,7 @@ def sweep_orphaned_thread_artifacts(
             except (OSError, ValueError):
                 logger.warning("Could not remove orphan media path %s", child, exc_info=True)
 
-    suffixes = (".media.json", ".images.json", ".draft.json")
+    suffixes = (".media.json", ".images.json", ".draft.json", ".answers.json")
     if threads._THREAD_UI_DIR.exists():  # noqa: SLF001
         for candidate in list(threads._THREAD_UI_DIR.iterdir()):  # noqa: SLF001
             matched = next((suffix for suffix in suffixes if candidate.name.endswith(suffix)), "")

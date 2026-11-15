@@ -10358,6 +10358,27 @@ class DraftSave(WireModel):
     attachment_refs: list[Reference] = Field(max_length=32)
 
 
+AnswerBlockId = Annotated[str, StringConstraints(pattern=r"^block:[0-9a-f]{24}$")]
+AnswerItemId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,96}$")]
+
+
+class AnswerStateView(WireModel):
+    """The person's ticks and sent choices on a chat's answer components (F3); never in the transcript."""
+    conversation_id: OpaqueId
+    revision: str = Field(max_length=128)
+    ticks: dict[AnswerBlockId, dict[AnswerItemId, bool]]
+    choices: dict[AnswerBlockId, Annotated[str, StringConstraints(min_length=1, max_length=40)]]
+
+
+class AnswerStateChange(WireModel):
+    """One change: a tick (``item_id`` and ``done``) or the choice a reply button sent (``choice``)."""
+    expected_revision: str = Field(min_length=1, max_length=128)
+    block_id: AnswerBlockId
+    item_id: AnswerItemId | None = None
+    done: bool | None = None
+    choice: Annotated[str, StringConstraints(min_length=1, max_length=40)] | None = None
+
+
 class ResourceChoice(WireModel):
     resource_id: OpaqueId
     kind: Literal["artifact", "workspace"]

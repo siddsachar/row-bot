@@ -111,7 +111,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
-    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "ParentSteeringView", "ClientQueueView",
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange","ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
 
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
@@ -578,6 +578,8 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/queue", None, "ClientQueueView"),
     ("get", "/conversations/{conversation_id}/links", None, "ConversationLinkPage"),
     ("put", "/conversations/{conversation_id}/draft", "DraftSave", "DraftView"),
+    ("get", "/conversations/{conversation_id}/answer-state", None, "AnswerStateView"),
+    ("put", "/conversations/{conversation_id}/answer-state", "AnswerStateChange", "AnswerStateView"),
     ("post", "/resources/commands", "Command", "CommandReceipt"),
     ("post", "/resources/folder-selection", None, "FolderGrantView"),
     ("post", "/resources/folder-selection/claim", "FolderGrantClaim", "FolderGrantView"),
@@ -816,6 +818,11 @@ export const getSteering = (base: string, proof: SessionProof, conversation: str
   jsonRequest(base, `/conversations/${id(conversation)}/steering` + query({generation_id,cursor}), 'ParentSteeringView', proof, 'GET', undefined, undefined, signal);
 export const saveDraft = (base: string, proof: SessionProof, conversation: string, body: DraftSave, signal?: AbortSignal): Promise<DraftView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/draft`, 'DraftView', proof, 'PUT', body, undefined, signal);
+/** The person's ticks and sent choices on a chat's answer components (F3). */
+export const getAnswerState = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<AnswerStateView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/answer-state`, 'AnswerStateView', proof, 'GET', undefined, undefined, signal);
+export const saveAnswerState = (base: string, proof: SessionProof, conversation: string, body: AnswerStateChange, signal?: AbortSignal): Promise<AnswerStateView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/answer-state`, 'AnswerStateView', proof, 'PUT', body, undefined, signal);
 export const getResourceLibrary = (base: string, proof: SessionProof, kind: 'artifact'|'workspace', cursor?: string, signal?: AbortSignal): Promise<ResourceChoicePage> =>
   jsonRequest(base, `/resources/library/${kind}` + query({cursor}), 'ResourceChoicePage', proof, 'GET', undefined, undefined, signal);
 export const getDeckSetup = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<DeckSetupOptions> =>
