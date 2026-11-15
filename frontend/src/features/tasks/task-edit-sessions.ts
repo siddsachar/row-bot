@@ -1,6 +1,10 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { ClientController } from '../../api/controller';
-import type { TaskSaveResult, TaskSettingsSnapshot } from '../../api/types';
+import type {
+  TaskEditableFields,
+  TaskSaveResult,
+  TaskSettingsSnapshot,
+} from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
   DEFINITE_TASK_REFUSALS,
@@ -34,6 +38,10 @@ export class TaskEditSession {
     notice: '',
   };
   private operation: Promise<unknown> | null = null;
+  /** A new workflow's fields to start from (a watch's “Make this a workflow”, B4). */
+  seed: TaskEditableFields | null = null;
+  /** Runs once the seeded workflow is saved. */
+  afterCreate: (() => void) | null = null;
   private reads = new Set<AbortController>();
   private loadedRevision: number | null = null;
   private retry: (() => Promise<unknown>) | null = null;
@@ -305,6 +313,11 @@ export function createTaskEditSessions(
     kind: TaskEditKind,
     taskId = '',
     taskName = '',
+    seed?: {
+      key: string;
+      fields: TaskEditableFields;
+      afterCreate?: () => void;
+    },
   ): TaskEditEntry | null {
     sync();
     if (
@@ -312,10 +325,14 @@ export function createTaskEditSessions(
       !authentication ||
       !['task', 'settings'].includes(kind) ||
       taskId.length > 128 ||
-      (kind !== 'task' && !taskId)
+      (kind !== 'task' && !taskId) ||
+      (seed && (kind !== 'task' || taskId))
     )
       return null;
-    const key = JSON.stringify([kind, taskId]);
+    // A seeded new workflow is its own draft, beside any other new one.
+    const key = JSON.stringify(
+      seed ? [kind, taskId, seed.key] : [kind, taskId],
+    );
     let entry = entries.get(key);
     if (!entry) {
       if (entries.size >= capacity) {
@@ -344,6 +361,10 @@ export function createTaskEditSessions(
           settingsOwner.pending = null;
         },
       );
+      if (seed) {
+        session.seed = structuredClone(seed.fields);
+        session.afterCreate = seed.afterCreate ?? null;
+      }
       entry = {
         label: taskName.trim() || (taskId ? 'Saved workflow' : 'New workflow'),
         session,

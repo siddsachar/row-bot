@@ -508,6 +508,12 @@ export class HttpTransport implements ClientTransport {
   stopWait(waitId: string) {
     return wire.stopWait(this.base, this.session(), waitId);
   }
+  controlWatch(waitId: string, body: wire.WatchControl) {
+    return wire.controlWatch(this.base, this.session(), waitId, body);
+  }
+  setWatch(conversationId: string, body: wire.WatchCreate) {
+    return wire.setWatch(this.base, this.session(), conversationId, body);
+  }
   proactiveMoments(signal?: AbortSignal) {
     return wire.getProactiveMoments(this.base, this.session(), signal);
   }

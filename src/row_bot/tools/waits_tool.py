@@ -2,7 +2,8 @@
 
 wait_for sets one: a background process of this conversation ends (or prints a text), a check every few minutes (a
 command or a web page) shows a text, a time comes, or another conversation or workflow finishes. Nothing runs a
-model while it waits; when it happens a turn starts here, "Checked back: …". waits lists them; wait_stop stops one.
+model while it waits; when it happens a turn starts here, "Checked back: …". A watch (B4) keeps checking a command,
+a page or a question and starts a turn only when the result changes. waits lists them; wait_stop stops one.
 """
 from __future__ import annotations
 
@@ -21,22 +22,28 @@ logger = logging.getLogger(__name__)
 
 
 class _WaitForInput(BaseModel):
-    kind: Literal["process", "check", "time", "conversation"] = Field(
+    kind: Literal["process", "check", "time", "conversation", "watch"] = Field(
         description=("process: a background process ends or prints `text`. check: `command` or `url` every "
                      "`every_minutes` until it shows `text` (a command without text: exits 0). time: `in_minutes` or "
-                     "`at`. conversation: it, or a workflow, finishes."),
+                     "`at`. conversation: it, or a workflow, finishes. watch: `command`, `url` or `question` "
+                     "checked again and again; a turn starts here only when the result changes."),
     )
     label: str = Field(description="What it waits for, as the person sees it: 'CI on PR 590 is green'.")
     then: str = Field(default="", description="What to do then.")
     process_id: str = Field(default="", description="process: from start_process.")
-    command: str = Field(default="", description="check: a read-only command, e.g. 'gh pr checks 590'.")
-    url: str = Field(default="", description="check: a page instead of a command.")
-    text: str = Field(default="", description="process or check: text to watch for.")
-    every_minutes: float = Field(default=5, description="check: minutes between checks (1 or more).")
+    command: str = Field(default="", description="check, watch: a read-only command, e.g. 'gh pr checks 590'.")
+    url: str = Field(default="", description="check, watch: a page instead of a command.")
+    question: str = Field(default="", description=(
+        "watch: instead, a question needing judgement, self-contained: a read-only check with no chat answers it "
+        "each time ('Is PR 590 in org/app approved with checks green?')."))
+    text: str = Field(default="", description="process, check: text to watch for. watch: ends it once shown.")
+    focus: str = Field(default="", description="watch: only lines with this text count.")
+    every_minutes: float = Field(default=0, description=(
+        "Minutes between checks. check: 1 or more (5 if 0). watch: 0 paces itself; a question, 15 or more."))
     in_minutes: float = Field(default=0, description="time: minutes from now.")
     at: str = Field(default="", description="time: local '14:00' or '2026-10-29T09:30'.")
     conversation: str = Field(default="", description="conversation: name or id (a workflow's too).")
-    hours: float = Field(default=2, description="At most this long (up to 24).")
+    hours: float = Field(default=0, description="At most this long: 2 h if 0 (up to 24); a watch 24 h (up to 168).")
 
 
 class _WaitStopInput(BaseModel):
@@ -88,9 +95,35 @@ def _check_approval(command: str, every_minutes: float, label: str) -> str | Non
     return refusal
 
 
+def _watch_approval(here: str, command: str, every_minutes: float, hours: float) -> tuple[str | None, dict]:
+    """A watch's command, approved once when it's set (B3's exact-command review, B4): (the refusal, the approval).
+
+    A command that can't run here or reads Row-Bot's private data is refused, and on Block only one that just
+    reads. One that just reads needs no card; anything else asks by the approval level."""
+    from row_bot import goal_checks, waits
+    from row_bot.tools import approval_gate
+
+    try:
+        approval = waits.command_approval(here, command, "read_only")
+    except goal_checks.CheckRefused as refused:
+        return f"BLOCKED: {refused.words} {command}", {}
+    if approval["classification"].get("read_only"):
+        return None, approval
+    every = f"every {every_minutes:g} min" if every_minutes else "every 5–60 min"
+    refusal, _line = approval_gate.approval_check(
+        {"tool": "wait_for", "label": "Watch with a command",
+         "description": f"Run `{command}` {every} while it watches (up to {hours or waits.WATCH_HOURS:g} h)",
+         "args": {"command": command, "every_minutes": every_minutes}},
+        risks=("runs a command again and again while it watches",),
+        blocked_message=f"BLOCKED: watching with a command needs approval, and this chat is on Block: {command}",
+        cancelled_message="The person didn't allow that watch; nothing watches.",
+    )
+    return refusal, {**approval, "approved_by": "approval"}
+
+
 def _wait_for(kind: str, label: str, then: str = "", process_id: str = "", command: str = "", url: str = "",
-              text: str = "", every_minutes: float = 5, in_minutes: float = 0, at: str = "", conversation: str = "",
-              hours: float = 2) -> str:
+              question: str = "", text: str = "", focus: str = "", every_minutes: float = 0, in_minutes: float = 0,
+              at: str = "", conversation: str = "", hours: float = 0) -> str:
     from row_bot import waits
     from row_bot.linked_conversations import LinkError, resolve
 
@@ -105,13 +138,29 @@ def _wait_for(kind: str, label: str, then: str = "", process_id: str = "", comma
             if record is None or record.conversation_id != here:
                 return f"No background process {process_id!r} in this conversation: check_process lists them."
             spec.update(process_id=process_id, text=text)
+        elif kind == "watch":
+            if sum(map(bool, (command, url, question))) != 1:
+                return "A watch checks a command, a url or a question: give one of them."
+            spec.update(focus=str(focus or "").strip()[:200], ends_when=str(text or "").strip()[:200])
+            if question:
+                spec.update(mode="judged", question=str(question).strip()[:1_000])
+            elif url:
+                refusal = waits.page_refusal(url)
+                if refusal:
+                    return f"Not set: {refusal}"
+                spec.update(mode="page", url=url.strip())
+            else:
+                refusal, approval = _watch_approval(here, command, every_minutes, hours)
+                if refusal:
+                    return refusal
+                spec.update(mode="command", command=command, approval=approval)
         elif kind == "check":
             if bool(command) == bool(url):
                 return "A check runs a command or reads a url: give one of them."
             if url and not text:
                 return "A page check needs the text to look for."
             if command:
-                refusal = _check_approval(command, every_minutes, label)
+                refusal = _check_approval(command, every_minutes or 5, label)
                 if refusal:
                     return refusal
                 from row_bot.data_paths import default_workspace_root
@@ -126,10 +175,14 @@ def _wait_for(kind: str, label: str, then: str = "", process_id: str = "", comma
             from row_bot.linked_conversations import _name
 
             spec.update(conversation_id=target, name=_name(target))
-        record = waits.create(here, kind, label, spec=spec, every_minutes=every_minutes, hours=hours, at=when)
+        minutes = every_minutes or (5 if kind == "check" else 0)
+        record = waits.create(here, kind, label, spec=spec, every_minutes=minutes, hours=hours, at=when)
     except (waits.WaitError, LinkError, ValueError) as error:
         return f"Not set: {error}"
     view = waits.view(record)
+    if kind == "watch":
+        return (f"Watching “{view['label']}” ({view['how']}, until {_until(view)}). It speaks up here only "
+                "when the result changes. End this turn now.")
     return (f"Waiting for “{view['label']}” ({view['how']}, until {view['until'][11:]}). Nothing runs while it "
             "waits; when it happens a turn starts here: carry on then. End this turn now.")
 
@@ -140,8 +193,14 @@ def _waits() -> str:
     found = waits.waiting(_here())
     if not found:
         return "This conversation waits for nothing."
-    return "\n".join(f"- {view['wait_id']}: {view['label']} ({view['how']}, until {view['until'][11:]})"
+    return "\n".join(f"- {view['wait_id']}: {'watching ' if view['kind'] == 'watch' else ''}{view['label']} "
+                     f"({view['how']}, until {_until(view)}{', paused' if view['status'] == 'paused' else ''})"
                      for view in map(waits.view, found))
+
+
+def _until(view: dict) -> str:
+    """"14:00", or "2026-11-16 14:00" for a watch, which may last days."""
+    return view["until"].replace("T", " ") if view["kind"] == "watch" else view["until"][11:]
 
 
 def _wait_stop(wait_id: str) -> str:
@@ -183,7 +242,8 @@ class WaitsTool(BaseTool):
                     "Wait for something, then carry on here: a process ends, a check (CI, a deploy, a page) shows "
                     "a text, a time comes ('check back in 10 minutes'), or another conversation finishes. Use it "
                     "instead of polling or a one-time task. Nothing runs while it waits; when it happens a turn "
-                    "starts here. Then end this turn."
+                    "starts here. A watch keeps checking and speaks up only on a change (the person's /watch or "
+                    "/loop). Then end this turn."
                 ),
                 args_schema=_WaitForInput,
             ),

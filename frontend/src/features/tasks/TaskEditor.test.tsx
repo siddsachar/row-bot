@@ -235,6 +235,33 @@ it('creates a disabled workflow using inherited delivery, without run controls',
   expect(callbacks.onSaved).toHaveBeenCalledWith(snapshot());
 });
 
+it('starts a new workflow from a seed and saves it through the same create (B4)', async () => {
+  const session = new TaskEditSession('task', '');
+  session.seed = {
+    ...fields,
+    name: 'Watch: the deploy',
+    prompts: ['Run `npm test` and compare its output with the last run.'],
+    enabled: true,
+    schedule: 'interval_minutes:10',
+  };
+  const callbacks = props();
+  render(<TaskEditor {...callbacks} session={session} />);
+  expect(screen.getByLabelText('Name')).toHaveValue('Watch: the deploy');
+  expect(screen.getByLabelText('Message 1')).toHaveValue(
+    'Run `npm test` and compare its output with the last run.',
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
+  );
+  expect(callbacks.create).toHaveBeenCalledWith(
+    expect.objectContaining({
+      name: 'Watch: the deploy',
+      schedule: 'interval_minutes:10',
+      enabled: true,
+    }),
+  );
+});
+
 it('saves [] for in-app only once the defaults are unticked', async () => {
   const callbacks = props({ deliveryChannels: channels });
   render(<TaskEditor {...callbacks} />);
