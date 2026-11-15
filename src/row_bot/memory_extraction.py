@@ -231,19 +231,20 @@ def _content_text(content) -> str:
 
 
 def _brings_outside_content(message) -> bool:
-    """Whether *message* brings outside content into the conversation (the trusted-turn rule).
+    """Whether *message* brings outside content into its turn (the trusted-turn rule).
 
-    Any tool call or tool result (a web page, an email, a file, a search, Row-Bot's own tools
-    too), a result marked untrusted, a message Row-Bot added for an event or another run, a file
-    or image the person attached, or a fence tag in any message.
+    A tool result the agent stamped untrusted when it stored it (``row_bot_untrusted``: web pages
+    and searches, mail, the browser, file reads, command output, MCP, plugin and Custom Tools), a
+    fence or untrusted tag in any message (a child Agent's words, a wait's outside text), a file or
+    image the person attached, a message Row-Bot added for an event, or a notice of another run.
+    Decided by those marks, never by a list of tool names, so a new untrusted tool is covered;
+    Row-Bot's own tools (calculator, memory, tasks...) stamp nothing and bring nothing from outside.
     """
     kind = getattr(message, "type", None)
-    if kind == "tool" or getattr(message, "tool_calls", None) or getattr(message, "invalid_tool_calls", None):
-        return True
     kwargs = getattr(message, "additional_kwargs", None)
     kwargs = kwargs if isinstance(kwargs, dict) else {}
     ui = kwargs.get("row_bot_ui")
-    if kwargs.get("row_bot_untrusted") or kwargs.get("tool_calls") or _is_app_event(message):
+    if kwargs.get("row_bot_untrusted") or _is_app_event(message):
         return True
     if isinstance(ui, dict) and ui.get("channel_notification_key"):
         return True  # a notice of another run's result
@@ -263,12 +264,12 @@ def _get_thread_messages(thread_id: str) -> list[dict]:
     An incognito conversation has none, and one that was incognito only those
     said after it was turned off (N11): every memory reader starts here.
 
-    Only trusted turns (the owner's rule): an answer of Row-Bot's is marked
-    ``"trusted": True`` only while nothing from outside has entered the
-    conversation (``_brings_outside_content``). From the first message that
-    brings outside content on, every later answer may quote it, since the model
-    reads the whole conversation each turn, so the conversation gives only the
-    person's messages from then on. Decided here, in code, before any prompt.
+    Only trusted turns (the owner's rule, per turn): a turn runs from one of the
+    person's messages to their next. An answer of Row-Bot's is marked
+    ``"trusted": True`` only when nothing earlier in its own turn brought outside
+    content (``_brings_outside_content``); otherwise the turn gives only the
+    person's message. A later turn starts trusted again. Decided here, in code,
+    before any prompt.
     """
     try:
         from row_bot.threads import get_latest_checkpoint_messages, incognito_state
@@ -277,11 +278,12 @@ def _get_thread_messages(thread_id: str) -> list[dict]:
         messages = get_latest_checkpoint_messages(thread_id)
         readable_from = incognito_state(thread_id).readable_from(messages)
         result = []
-        outside = False
+        outside = False  # something in this turn, so far, came from outside
         for index, m in enumerate(messages):
             if is_turn_context_message(m):
                 continue  # Row-Bot's per-turn context (time, state, recalled memories): its own text.
-            # Counted from the first message, incognito ones too: a later turn's model still read them.
+            if is_person_message(m) and not _is_app_event(m):
+                outside = False  # A new turn.
             outside = outside or _brings_outside_content(m)
             if index < readable_from or _is_app_event(m):
                 # Row-Bot's own events: never a source of new memories, and never something the person said.
