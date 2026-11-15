@@ -426,6 +426,42 @@ describe('Developer inspector', () => {
     );
   });
 
+  it('says when a networked sandbox is running with its network off, and why', async () => {
+    const note =
+      "The sandbox's network is off for now. Row-Bot couldn't start the sandbox's network gate: no python3. Row-Bot tries again with the next command.";
+    const docker = {
+      ...fixture,
+      policy: {
+        ...fixture.policy,
+        execution_mode: 'docker' as const,
+        sandbox_network: 'on' as const,
+      },
+    };
+    const options = props();
+    options.load = vi.fn(async () => ({
+      ...docker,
+      sandbox_network_note: note,
+    }));
+    const { unmount } = render(<WorkspaceInspector {...options} />);
+    const strip = await screen.findByRole('group', {
+      name: 'Repository status',
+    });
+    expect(strip).toHaveTextContent('Docker sandbox · network off for now');
+    expect(
+      screen.getByText(note, { selector: '.dev-network-note span' }),
+    ).toBeInTheDocument();
+    unmount();
+
+    // With its gate running there is no line, and the strip shows the setting.
+    const running = props();
+    running.load = vi.fn(async () => docker);
+    render(<WorkspaceInspector {...running} />);
+    expect(
+      await screen.findByRole('group', { name: 'Repository status' }),
+    ).toHaveTextContent('Docker sandbox · network on');
+    expect(screen.queryByText(/network is off for now/)).toBeNull();
+  });
+
   it('opens on Changes for agent changes in a folder without Git (U34)', async () => {
     const options = props();
     options.load = vi.fn(async () => ({

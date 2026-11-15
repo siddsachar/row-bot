@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -30,8 +31,9 @@ class FakeDocker:
         self.calls: list[list[str]] = []
         self.containers: dict[str, dict] = {}
         self.networks: dict[str, dict] = {}
-        self.images = {IMAGE}
+        self.images = {IMAGE, DEFAULT_SANDBOX_IMAGE}
         self.gate_fails = False
+        self.gate_hangs = False
 
     @staticmethod
     def _ok(stdout: str = "") -> SimpleNamespace:
@@ -44,6 +46,8 @@ class FakeDocker:
     def __call__(self, argv, **_kwargs):
         args = list(argv[1:])
         self.calls.append(args)
+        if self.gate_hangs and any(str(item).startswith("row-bot-egress-") for item in args):
+            raise subprocess.TimeoutExpired(argv, 10)
         if args[:2] == ["image", "inspect"]:
             return self._ok() if args[2] in self.images else self._no()
         if args[:2] == ["network", "inspect"]:
@@ -241,19 +245,82 @@ def test_removing_the_sandbox_removes_its_gate_and_network(sandbox):
     assert env.docker.containers == {} and env.docker.networks == {}
 
 
-def test_a_gate_that_cant_start_leaves_the_command_unrun_and_no_networked_sandbox(sandbox):
+def _offline(env) -> None:
+    """The sandbox runs, with no network at all: never Docker's default one, never the gate's settings."""
+    box = env.docker.runs(env.box)[-1]
+    assert _flag(box, "--network") == "none"
+    assert env.docker.containers[env.box]["networks"] == {"none"}
+    assert not {"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} & set(_env(box))
+
+
+def test_a_gate_that_cant_start_runs_the_sandbox_with_its_network_off_and_says_why(sandbox):
     env = sandbox
     env.docker.gate_fails = True
     outcome = env.runtime.run_docker_sandbox_command(env.workspace, "python app.py", thread_id="thread-1")
-    assert outcome.returncode is None
-    assert "network gate" in outcome.stderr and "python3" in outcome.stderr
-    assert env.box not in env.docker.containers
-    assert not [call for call in env.docker.calls if call[:1] == ["exec"]]
+    # The command still runs, offline, and the agent is told why.
+    assert outcome.returncode == 0
+    assert outcome.stderr.startswith("The sandbox's network is off for now. Row-Bot couldn't start the sandbox's "
+                                     "network gate:")
+    assert "python3" in outcome.stderr and "tries again with the next command" in outcome.stderr
+    assert [call for call in env.docker.calls if call[:1] == ["exec"]]
+    _offline(env)
+    assert env.runtime.network_problem(env.workspace.id) in outcome.stderr
+
+    # Once the gate starts, the sandbox is made again behind it and the note goes.
+    env.docker.gate_fails = False
+    outcome = env.runtime.run_docker_sandbox_command(env.workspace, "python app.py", thread_id="thread-1")
+    assert "network is off" not in outcome.stderr
+    assert env.runtime.network_problem(env.workspace.id) == ""
+    assert env.docker.containers[env.box]["networks"] == {env.network}
+    assert _env(env.docker.runs(env.box)[-1])["HTTPS_PROXY"] == f"http://{env.gate}:3128"
 
 
-def test_the_gate_runs_from_the_default_image_when_it_is_here(sandbox):
+def test_a_started_process_is_told_when_the_sandbox_network_is_off(sandbox):
     env = sandbox
-    env.docker.images.add(DEFAULT_SANDBOX_IMAGE)
+    env.docker.gate_fails = True
+    outcome = env.runtime.start_docker_sandbox_process(env.workspace, "python -m http.server")
+    assert outcome.stderr == env.runtime.network_problem(env.workspace.id) != ""
+    _offline(env)
+
+
+def test_docker_not_answering_for_the_gate_leaves_the_sandbox_offline(sandbox):
+    env = sandbox
+    env.docker.gate_hangs = True
+    env.runtime.ensure_docker_sandbox(env.workspace)
+    _offline(env)
+    assert "Docker didn't answer" in env.runtime.network_problem(env.workspace.id)
+
+
+def test_without_the_default_image_the_gate_never_runs_from_the_folders_own(sandbox):
+    env = sandbox
+    env.docker.images.discard(DEFAULT_SANDBOX_IMAGE)
+    env.runtime.ensure_docker_sandbox(env.workspace)
+    # The folder's own image may hold anything; the gate is the one container with a real network.
+    assert env.docker.runs(env.gate) == []
+    _offline(env)
+    assert f"docker pull {DEFAULT_SANDBOX_IMAGE}" in env.runtime.network_problem(env.workspace.id)
+
+
+def test_a_networked_sandbox_already_running_goes_offline_when_its_gate_cant_start(sandbox):
+    env = sandbox
+    env.runtime.ensure_docker_sandbox(env.workspace)
+    env.docker.containers.pop(env.gate)  # The gate was removed by hand, and can't be made again.
+    env.docker.gate_fails = True
+    env.runtime.ensure_docker_sandbox(env.workspace)
+    _offline(env)
+    assert env.runtime.network_problem(env.workspace.id)
+
+
+def test_turning_the_network_off_clears_the_note(sandbox):
+    env = sandbox
+    env.docker.gate_fails = True
+    env.runtime.ensure_docker_sandbox(env.workspace)
+    env.runtime.ensure_docker_sandbox(dataclasses.replace(env.workspace, sandbox_network="off"))
+    assert env.runtime.network_problem(env.workspace.id) == ""
+
+
+def test_the_gate_always_runs_from_the_default_image(sandbox):
+    env = sandbox
     env.runtime.ensure_docker_sandbox(env.workspace)
     (gate,) = env.docker.runs(env.gate)
     assert DEFAULT_SANDBOX_IMAGE in gate and IMAGE not in gate
@@ -287,6 +354,12 @@ def test_the_gate_runs_from_the_default_image_when_it_is_here(sandbox):
     ("::ffff:169.254.169.254", ["::ffff:169.254.169.254"]),
     ("64:ff9b::a9fe:a9fe", ["64:ff9b::a9fe:a9fe"]),  # NAT64 of the metadata address.
     ("2002:7f00:1::", ["2002:7f00:1::"]),  # 6to4 of loopback.
+    ("::127.0.0.1", ["::127.0.0.1"]),  # IPv4-compatible IPv6 of loopback.
+    ("0:0:0:0:0:ffff:a9fe:a9fe", ["::ffff:169.254.169.254"]),  # Metadata, mapped, written out.
+    ("fd00:ec2::254", ["fd00:ec2::254"]),  # AWS's IPv6 metadata address.
+    ("100.100.100.200", ["100.100.100.200"]),  # Alibaba Cloud's metadata address.
+    ("2130706433", ["127.0.0.1"]),  # Loopback as one decimal number.
+    ("metadata.google.internal.", ["93.184.215.14"]),
     ("rebound.example", ["169.254.169.254"]),  # A public name answering with a metadata address.
     ("split.example", ["93.184.215.14", "10.0.0.7"]),
     ("missing.example", []),
@@ -305,11 +378,12 @@ def test_the_gate_opens_public_internet_addresses(host, addresses):
     assert egress_proxy.refusal(host, 443, addresses) == ""
 
 
-def _scenario(test):
+def _scenario(test, answers=None):
     """Run ``test(proxy_port, upstream)`` against the gate on loopback and a fake upstream server.
 
     The fake resolver maps ``allowed.test`` to the upstream on 127.0.0.1, which only these tests let the
-    gate open; every other address is judged as in the container.
+    gate open, as if it were a public address; every other address is judged as in the container.
+    ``answers`` maps a name to the resolver's successive answers, one per lookup.
     """
 
     async def main():
@@ -327,8 +401,13 @@ def _scenario(test):
         upstream.port = target.sockets[0].getsockname()[1]
         names = {"allowed.test": ["127.0.0.1"], "rebound.test": ["169.254.169.254"],
                  "host.docker.internal": ["127.0.0.1"]}
+        queued = {name: list(found) for name, found in (answers or {}).items()}
+        upstream.lookups = []
 
         async def resolve(host, _port):
+            upstream.lookups.append(host)
+            if host in queued:
+                return queued[host].pop(0)
             return names.get(host, [])
 
         def allow(address):
@@ -406,3 +485,57 @@ def test_the_gate_refuses_requests_it_cant_read_plainly(request_line):
         assert upstream.connections == 0
 
     _scenario(test)
+
+
+@pytest.mark.parametrize("address", [
+    "127.0.0.2", "10.1.2.3", "172.17.0.1", "192.168.65.254", "169.254.169.254", "100.100.100.200",
+    "::ffff:169.254.169.254", "64:ff9b::a9fe:a9fe", "fd00:ec2::254", "fe80::1", "::1",
+])
+def test_the_gate_refuses_connect_to_a_name_that_resolves_to_a_refused_address(address):
+    async def test(port, upstream):
+        reply = await _ask(port, f"CONNECT innocent.test:{upstream.port} HTTP/1.1\r\n\r\n".encode())
+        assert reply.startswith(b"HTTP/1.1 403 Forbidden")
+        assert b"this computer, the local network or a cloud metadata address" in reply
+        assert upstream.connections == 0
+
+    _scenario(test, {"innocent.test": [[address]]})
+
+
+def test_a_name_that_rebinds_to_a_private_address_is_refused_on_the_next_connection():
+    """DNS rebinding: public at the first lookup, this computer at the next. Each connection is checked."""
+
+    async def test(port, upstream):
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(f"CONNECT flip.test:{upstream.port} HTTP/1.1\r\n\r\n".encode())
+        assert await reader.readuntil(b"\r\n\r\n") == b"HTTP/1.1 200 Connection established\r\n\r\n"
+        writer.write(b"GET / HTTP/1.1\r\nHost: flip.test\r\n\r\n")
+        assert (await reader.read()).endswith(b"ok")
+        writer.close()
+        reply = await _ask(port, f"GET http://flip.test:{upstream.port}/ HTTP/1.1\r\n\r\n".encode())
+        assert reply.startswith(b"HTTP/1.1 403 Forbidden")
+        assert upstream.connections == 1
+        assert upstream.lookups == ["flip.test", "flip.test"]
+
+    _scenario(test, {"flip.test": [["127.0.0.1"], ["169.254.169.254"]]})
+
+
+def test_the_gate_connects_to_the_address_it_checked_never_the_name(monkeypatch):
+    """One lookup per connection, and the connection goes to that answer: a second lookup can't re-point it."""
+    dialled: list[tuple[str, int]] = []
+    open_connection = asyncio.open_connection
+
+    async def spy(host, port, *args, **kwargs):
+        dialled.append((host, port))
+        return await open_connection(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(egress_proxy.asyncio, "open_connection", spy)
+
+    async def test(port, upstream):
+        reply = await _ask(port, f"GET http://pinned.test:{upstream.port}/ HTTP/1.1\r\n\r\n".encode())
+        assert reply.startswith(b"HTTP/1.1 200 OK")
+        # Asked of the resolver once; the gate dialled the checked address, not the name.
+        assert upstream.lookups == ["pinned.test"]
+        assert ("127.0.0.1", upstream.port) in dialled
+        assert not [host for host, _port in dialled if host == "pinned.test"]
+
+    _scenario(test, {"pinned.test": [["127.0.0.1"], ["169.254.169.254"]]})
