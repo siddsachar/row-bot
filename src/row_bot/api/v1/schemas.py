@@ -3491,6 +3491,7 @@ SkillAction = Literal[
     "skill.delete",
     "skill.proposal.apply",
     "skill.proposal.reject",
+    "skill.proposal.edit",
 ]
 
 
@@ -3613,6 +3614,69 @@ class SkillProposalPayload(WireModel):
     proposal_id: str = Field(min_length=1, max_length=128)
     reason: str = Field(max_length=1024)
     review_id: str = Field(min_length=1, max_length=128)
+
+
+class SkillProposalEditPayload(WireModel):
+    """The person's edit of a skill drafted from a chat (C1): its words only; the name stays."""
+    revision: str = Field(min_length=1, max_length=128)
+    proposal_id: str = Field(min_length=1, max_length=128)
+    fields: dict[str, Any]
+    review_id: str = Field(min_length=1, max_length=128)
+
+
+SkillDraftLine = Annotated[str, StringConstraints(max_length=600)]
+
+
+class SkillDraftOverlap(WireModel):
+    name: str = Field(max_length=128)
+    display_name: str = Field(max_length=128)
+    score: float = Field(ge=0, le=1)
+
+
+class SkillDraftView(WireModel):
+    """A skill drafted from a chat, for the review sheet: its fields and the SKILL.md they make."""
+    proposal_id: str = Field(min_length=1, max_length=128)
+    proposal_status: str = Field(max_length=64)
+    name: str = Field(max_length=64)
+    display_name: str = Field(max_length=128)
+    icon: str = Field(max_length=32)
+    description: str = Field(max_length=1024)
+    when_to_use: str = Field(max_length=1200)
+    inputs: list[SkillDraftLine] = Field(max_length=12)
+    steps: list[SkillDraftLine] = Field(max_length=12)
+    checks: list[SkillDraftLine] = Field(max_length=12)
+    instructions: str = Field(max_length=16_400)
+    why: str = Field(max_length=400)
+    source_title: str = Field(max_length=200)
+    overlaps: list[SkillDraftOverlap] = Field(max_length=3)
+    errors: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
+    warnings: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
+
+
+class SkillOfferView(WireModel):
+    """"Save as a skill" under one reply (C1): offered, drafted, saved, rejected or dismissed."""
+    id: OpaqueId
+    message_id: str = Field(max_length=256)
+    origin: Literal["offered", "manual"]
+    status: Literal["offered", "drafted", "saved", "rejected", "dismissed"]
+    task_name: str = Field(max_length=80)
+    why: str = Field(max_length=400)
+    created_at: str = Field(max_length=64)
+    proposal_id: str | None = Field(max_length=128)
+    skill_id: str | None = Field(max_length=128)
+    draft: SkillDraftView | None
+
+
+class SkillOfferPage(WireModel):
+    conversation_id: OpaqueId
+    revision: str = Field(min_length=1, max_length=128)
+    items: list[SkillOfferView] = Field(max_length=50)
+
+
+class SkillDraftRequest(WireModel):
+    """Draft a skill from the turn that ends with ``message_id``: an offer taken up, or "Save as skill"."""
+    message_id: str = Field(min_length=1, max_length=256)
+    offer_id: OpaqueId | None = None
 
 
 class SkillReceipt(WireModel):
@@ -8500,6 +8564,7 @@ class Command(WireModel):
         "skill.delete",
         "skill.proposal.apply",
         "skill.proposal.reject",
+        "skill.proposal.edit",
         "goal.control",
         "profile.mutate",
         "developer.repository.branch.create",
@@ -8687,6 +8752,7 @@ COMMAND_PAYLOADS = {
     "skill.delete": SkillDeletePayload,
     "skill.proposal.apply": SkillProposalPayload,
     "skill.proposal.reject": SkillProposalPayload,
+    "skill.proposal.edit": SkillProposalEditPayload,
     "goal.control": GoalCommandWirePayload,
     "profile.mutate": ProfileCommandWirePayload,
     "developer.repository.branch.create": DeveloperRepositoryBranchPayload,

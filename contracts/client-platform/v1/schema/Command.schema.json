@@ -8698,6 +8698,80 @@
       "title": "SkillProposalApplyCommand",
       "type": "object"
     },
+    "SkillProposalEditCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SkillProposalEditPayload"
+        },
+        "type": {
+          "const": "skill.proposal.edit",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "SkillProposalEditCommand",
+      "type": "object"
+    },
+    "SkillProposalEditPayload": {
+      "additionalProperties": false,
+      "description": "The person's edit of a skill drafted from a chat (C1): its words only; the name stays.",
+      "properties": {
+        "fields": {
+          "additionalProperties": true,
+          "title": "Fields",
+          "type": "object"
+        },
+        "proposal_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "review_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Review Id",
+          "type": "string"
+        },
+        "revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "proposal_id",
+        "fields",
+        "review_id"
+      ],
+      "title": "SkillProposalEditPayload",
+      "type": "object"
+    },
     "SkillProposalPayload": {
       "additionalProperties": false,
       "properties": {
@@ -11007,6 +11081,7 @@
       "skill.import": "#/$defs/SkillImportCommand",
       "skill.preference": "#/$defs/SkillPreferenceCommand",
       "skill.proposal.apply": "#/$defs/SkillProposalApplyCommand",
+      "skill.proposal.edit": "#/$defs/SkillProposalEditCommand",
       "skill.proposal.reject": "#/$defs/SkillProposalRejectCommand",
       "task.create": "#/$defs/TaskCreateCommand",
       "task.delete": "#/$defs/TaskDeleteCommand",
@@ -11316,6 +11391,9 @@
     },
     {
       "$ref": "#/$defs/SkillProposalRejectCommand"
+    },
+    {
+      "$ref": "#/$defs/SkillProposalEditCommand"
     },
     {
       "$ref": "#/$defs/GoalControlCommand"

@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "description": "Draft a skill from the turn that ends with ``message_id``: an offer taken up, or \"Save as skill\".",
+  "properties": {
+    "message_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Message Id",
+      "type": "string"
+    },
+    "offer_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Offer Id"
+    }
+  },
+  "required": [
+    "message_id"
+  ],
+  "title": "SkillDraftRequest",
+  "type": "object"
+}
