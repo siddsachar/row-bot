@@ -107,6 +107,13 @@ const mock = vi.hoisted(() => ({
   videoProject: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
+  Link: ({
+    to,
+    children,
+  }: {
+    to: string;
+    children?: import('react').ReactNode;
+  }) => <a href={to}>{children}</a>,
   useNavigate: () => mock.navigate,
   useLocation: () => ({ key: mock.routeKey }),
   useInRouterContext: () => false,
@@ -146,6 +153,11 @@ vi.mock('../../runtime', () => {
       approval: mock.approval,
       pendingApprovals: mock.pendingApprovals,
       waits: async () => ({ schema_version: 1, items: [] }),
+      skillOffers: async (conversation: string) => ({
+        conversation_id: conversation,
+        revision: 'none',
+        items: [],
+      }),
       receipt: mock.receipt,
       showHistory: mock.showHistory,
       showLatest: mock.showLatest,
@@ -3655,6 +3667,52 @@ it('starts a goal at once with /goal and no turn limit unless Agent runtime sets
   expect(mock.drafts.get('conversation-a')?.text).toBe('');
 });
 
+it('asks before /goal … check: starts, saying where the check runs (B3)', async () => {
+  withCommands();
+  mock.goals.mockResolvedValue({
+    conversation_id: 'conversation-a',
+    current_goal_id: null,
+    current_revision: 'none',
+    default_max_turns: 0,
+    items: [],
+  });
+  mock.reviewGoal.mockImplementation(async (_id: string, payload) => ({
+    ...payload,
+    disclosures: [
+      "Each time Row-Bot thinks the goal is done, it runs `npm run build` in Row-Bot's workspace. The goal counts as done only when it exits 0.",
+    ],
+    review_id: 'review-check',
+  }));
+  mock.executeGoal.mockResolvedValue({ status: 'completed' });
+  await sendText('/goal Ship the docs check: npm run build');
+  expect(mock.reviewGoal).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({
+      objective: 'Ship the docs',
+      check_command: 'npm run build',
+    }),
+  );
+  const asked = mock.open.mock.lastCall?.[0];
+  expect(asked).toMatchObject({
+    title: 'Start this goal with a check?',
+    description: 'Ship the docs',
+  });
+  expect(mock.executeGoal).not.toHaveBeenCalled();
+  const shown = render(<>{asked.content}</>);
+  expect(shown.container).toHaveTextContent(
+    "it runs npm run build in Row-Bot's workspace",
+  );
+  await act(async () =>
+    fireEvent.click(
+      within(shown.container).getByRole('button', { name: 'Start goal' }),
+    ),
+  );
+  await waitFor(() => expect(mock.executeGoal).toHaveBeenCalledOnce());
+  expect(mock.executeGoal.mock.calls[0][1]).toMatchObject({
+    payload: { check_command: 'npm run build', review_id: 'review-check' },
+  });
+});
+
 it('removes a default skill from this chat with Undo in the notice (B236)', async () => {
   withCommands();
   const skill = {
@@ -4156,4 +4214,136 @@ it('lists every piece of work under Working on when a chat has several (D7)', as
       resource_ref: 'conversation-a:deck',
     }),
   );
+});
+
+function forkable() {
+  idleConversation();
+  settledRows([
+    row('u1', 'user', 'Plan a trip'),
+    row('a1', 'assistant', 'Where to?'),
+    row('u2', 'user', 'Lisbon'),
+    row('a2', 'assistant', 'May is good.'),
+  ]);
+  mock.intent.mockImplementation(
+    async (target, type, payload, _revision, commandId) =>
+      type === 'conversation.fork'
+        ? {
+            command_id: commandId,
+            conversation_id: target,
+            status: 'completed',
+            forked_conversation_id: 'fork-1',
+            draft_attachments: [],
+          }
+        : {
+            command_id: commandId,
+            conversation_id: target,
+            submission_id: payload.submission_id,
+            status: 'accepted',
+          },
+  );
+  mock.selectConversation.mockImplementation(async (id: string) => {
+    mock.version++;
+    mock.state.selectedConversationId = id;
+    mock.state.conversation = { id, title: id, revision: '4', pinned: false };
+    mock.state.workspace!.conversation_id = id;
+    settledRows([
+      row('u1', 'user', 'Plan a trip'),
+      row('a1', 'assistant', 'Where to?'),
+    ]);
+  });
+}
+
+it('Edit and resend forks before the message, opens the fork and sends the new text there (B5)', async () => {
+  forkable();
+  const rendered = render(<Conversation onPanel={vi.fn()} />);
+  const lisbon = screen
+    .getAllByRole('article', { name: 'You message' })
+    .find((item) => item.textContent?.includes('Lisbon'))!;
+  await userEvent.click(
+    within(lisbon).getByRole('button', { name: 'Edit and resend' }),
+  );
+  const field = within(lisbon).getByRole('textbox', {
+    name: 'Edit your message',
+  });
+  expect(field).toHaveValue('Lisbon');
+  await userEvent.clear(field);
+  await userEvent.type(field, 'Porto{Enter}');
+
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.fork',
+    { at_message_id: 'u2', mode: 'edit' },
+    '1',
+  );
+  expect(mock.selectConversation).toHaveBeenCalledWith('fork-1');
+  expect(mock.navigate).toHaveBeenCalledWith('/conversations/fork-1');
+  expect(mock.notify).toHaveBeenCalledWith(
+    'Forked: the original is unchanged.',
+  );
+  await act(async () => rendered.rerender(<Conversation onPanel={vi.fn()} />));
+  await waitFor(() =>
+    expect(mock.intent).toHaveBeenCalledWith(
+      'fork-1',
+      'conversation.submit',
+      expect.objectContaining({ text: 'Porto', attachment_refs: [] }),
+      '4',
+      expect.any(String),
+      { onReceipt: expect.any(Function) },
+    ),
+  );
+  // Nothing was sent to the original.
+  expect(
+    mock.intent.mock.calls.filter(
+      ([target, type]) =>
+        target === 'conversation-a' && type === 'conversation.submit',
+    ),
+  ).toEqual([]);
+});
+
+it('Fork from here opens a new conversation from a reply, and its first line links back (B5)', async () => {
+  forkable();
+  const rendered = render(<Conversation onPanel={vi.fn()} />);
+  const reply = screen
+    .getAllByRole('article', { name: 'Row-Bot message' })
+    .find((item) => item.textContent?.includes('Where to?'))!;
+  await userEvent.click(
+    within(reply).getByRole('button', { name: 'Fork from here' }),
+  );
+
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.fork',
+    { at_message_id: 'a1', mode: 'fork' },
+    '1',
+  );
+  expect(mock.navigate).toHaveBeenCalledWith('/conversations/fork-1');
+  mock.state.conversation = {
+    id: 'fork-1',
+    title: 'Trip (fork)',
+    revision: '4',
+    pinned: false,
+    forked_from: { id: 'conversation-a', title: 'Trip' },
+  } as typeof mock.state.conversation;
+  await act(async () => rendered.rerender(<Conversation onPanel={vi.fn()} />));
+  const note = screen.getByRole('note');
+  expect(note).toHaveTextContent('Forked from “Trip” · Open original');
+  expect(
+    within(note).getByRole('link', { name: 'Open original' }),
+  ).toHaveAttribute('href', '/conversations/conversation-a');
+  expect(
+    mock.intent.mock.calls.some(([, type]) => type === 'conversation.submit'),
+  ).toBe(false);
+});
+
+it('offers neither action while a reply is under way (B5)', async () => {
+  forkable();
+  mock.state.projection!.generation = {
+    generation_id: 'run-b',
+    quiesced: false,
+    can_stop: true,
+    status: 'running',
+  } as Snapshot['generation'];
+  render(<Conversation onPanel={vi.fn()} />);
+  expect(screen.queryByRole('button', { name: 'Fork from here' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit and resend' })).toBeNull();
 });

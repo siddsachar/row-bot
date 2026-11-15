@@ -55,8 +55,9 @@ def _about(seconds: float) -> str:
         count, unit = math.ceil(seconds / 3600), "hour"
     return f"{count} {unit}{'' if count == 1 else 's'}"
 
-# "proactive": the person acted on a Proactive Row-Bot moment that carries on in this chat.
-FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on", "proactive"]
+# "proactive": the person acted on a Proactive Row-Bot moment that carries on in this chat. "watch": a watch saw a
+# change (B4), apart from a one-time wait's "wait".
+FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on", "proactive", "watch"]
 
 # A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
 # "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.
@@ -104,14 +105,16 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
     saved and that aren't there; never after another carry-on."""
     from row_bot.file_claims import could_claim
 
-    if status != "completed" or followup_kind == "carry_on":
-        return
+    if status != "completed" or followup_kind in ("carry_on", "watch"):
+        return  # A watch's turn says what changed and stops there.
     next_step = stopped_on_next_step(assistant_text)
     if not next_step and not could_claim(assistant_text):
         return
     from row_bot import tasks, waits
-    # A workflow's run moves on by itself, and a wait already brings the conversation back.
-    if tasks.active_run_for_conversation(conversation_id) is not None or waits.waiting(conversation_id):
+    # A workflow's run moves on by itself, and a wait already brings the conversation back. A watch (B4) only speaks
+    # up on a change, which may never come: it doesn't count.
+    if tasks.active_run_for_conversation(conversation_id) is not None or any(
+            record["kind"] != "watch" for record in waits.waiting(conversation_id)):
         return
     if next_step:
         followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE)
@@ -335,7 +338,7 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
                         assistant_text: str, model_ref: str, goal_id: str = "",
-                        error_text: str = "", followup_kind: str = "") -> None:
+                        error_text: str = "", followup_kind: str = "", service: Any = None) -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
@@ -343,7 +346,9 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
     with the reason, so it never reads as working while nothing runs. A turn
     in which the model finished the goal (``goal_id`` was live when it began)
     still counts, so the card reads "Done · Turn 3 of 3". A provider limit
-    with a reset time makes the goal wait instead (``error_text``).
+    with a reset time makes the goal wait instead (``error_text``). A goal
+    that looks done and has a check runs its check now instead of a next
+    turn (B3).
     """
     from row_bot import goals
     if goal_id:
@@ -369,7 +374,9 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
             _RETRIED_AFTER_CUT.discard(str(goal["id"]))
             decision = goals.after_turn(thread_id=conversation_id, turn_id=generation_id,
                                         assistant_text=assistant_text, model_override=model_ref)
-            if decision.should_continue and decision.goal:
+            if decision.goal and decision.goal.get("check_state") == "pending" and service is not None:
+                start_goal_check(service, conversation_id, decision.goal)
+            elif decision.should_continue and decision.goal:
                 schedule(conversation_id, Followup(
                     kind="goal", prompt=decision.continuation_prompt,
                     note=goal_note(decision.goal), goal_id=str(decision.goal.get("id") or "")))
@@ -452,10 +459,45 @@ def _after_limit_reset(service: Any, conversation_id: str) -> None:
     start_goal_turn(service, conversation_id, goal, initial=False)
 
 
+def start_goal_check(service: Any, conversation_id: str, goal: dict[str, Any]) -> None:
+    """The goal looks done and has a check: run it (B3). Exit 0 completes the goal; another exit code starts
+    the turn that fixes what it reported; a check that couldn't run pauses the goal."""
+    from row_bot import goal_checks
+
+    discard(conversation_id, "goal")
+    goal_checks.start(str(goal["id"]), lambda decision: _after_goal_check(service, conversation_id, decision))
+
+
+def _after_goal_check(service: Any, conversation_id: str, decision: Any) -> None:
+    if not decision.should_continue or not decision.goal:
+        return
+    from row_bot import goals
+    from row_bot.application.client_platform import _COMMAND_LOCK
+
+    goal = decision.goal
+    followup = Followup(kind="goal", prompt=decision.continuation_prompt,
+                        note=f"{goal_note(goal)} · fixing what {goal.get('check_command')} reported",
+                        goal_id=str(goal.get("id") or ""))
+    # A turn that is still finishing (or one the person started) goes first: the fix turn follows it.
+    with _COMMAND_LOCK:
+        if service.registry.active(conversation_id):
+            schedule(conversation_id, followup)
+            return
+        started = start(service, conversation_id, followup)
+    if started is None:
+        goals.set_goal_status(str(goal["id"]), "paused",
+                              reason="The goal couldn't continue after its check. Choose a model, then resume it.",
+                              verdict="paused", expected_revision=int(goal.get("revision") or 0))
+
+
 def start_goal_turn(service: Any, conversation_id: str, goal: dict[str, Any], *,
                     initial: bool) -> None:
-    """Begin working on a goal now, or right after the running turn."""
+    """Begin working on a goal now, or right after the running turn; a goal whose check is pending (Row-Bot
+    closed while it ran) runs its check instead (B3)."""
     from row_bot import goals
+    if not initial and goal.get("check_state") == "pending":
+        start_goal_check(service, conversation_id, goal)
+        return
     prompt = (goals.build_initial_goal_prompt(goal) if initial
               else goals.build_continuation_prompt(goal))
     followup = Followup(kind="goal", prompt=prompt, note=goal_note(goal),
@@ -491,6 +533,10 @@ def continue_goals_after_restart(service: Any) -> int:
 def after_goal_change(service: Any, conversation_id: str, operation: str,
                       goal: dict[str, Any] | None) -> None:
     """Start, resume, pause or end the goal's turns after a goal command."""
+    if operation in {"start", "pause", "complete", "clear"}:
+        # The person decides: a check running for the goal stops, a pending one is dropped (B3).
+        from row_bot import goal_checks
+        goal_checks.stop_conversation(conversation_id)
     if operation == "start" and goal:
         from row_bot import threads
         from row_bot.application.conversation_naming import name_first_message

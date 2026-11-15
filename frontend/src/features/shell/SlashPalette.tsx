@@ -17,6 +17,7 @@ import {
   CircleStop,
   Code2,
   Download,
+  Eye,
   Flag,
   HeartPulse,
   MessageSquarePlus,
@@ -44,6 +45,7 @@ const commandIcons: Record<string, LucideIcon> = {
   download: Download,
   help: CircleHelp,
   code: Code2,
+  visibility: Eye,
 };
 
 export type SlashPaletteHandle = {

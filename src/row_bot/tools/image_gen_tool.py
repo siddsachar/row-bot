@@ -1106,13 +1106,16 @@ def _edit_image(
 # Only the agent's tools ask here: Buddy's hatch and Designer call the functions above directly.
 
 
-def paid_generation_check(tool: str, surface: str, selection: str, what: str, prompt: str) -> tuple[str | None, str]:
+def paid_generation_check(tool: str, surface: str, selection: str, what: str, prompt: str, *,
+                          size: str = "auto", quality: str = "auto", seconds: int = 0,
+                          resolution: str = "") -> tuple[str | None, str]:
     """(refusal, approval line) for one picture or video the agent makes on *selection* ("provider/model").
 
     Only a call its provider charges for needs approval (``bills_per_call``), by the level: Ask
     asks the person, Auto the reviewer, Hands-off allows it, Block refuses it. Pictures a plan
     includes, free models and models on this computer run as they always have, with no line.
-    *what* says what the call makes, e.g. "make a picture".
+    *what* says what the call makes, e.g. "make a picture". The card shows its price, roughly
+    (``media_prices``), from the size and quality of a picture or the seconds and resolution of a video.
     """
     from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META, bills_per_call
     from row_bot.tools.approval_gate import approval_check
@@ -1121,6 +1124,8 @@ def paid_generation_check(tool: str, surface: str, selection: str, what: str, pr
         return None, ""
     provider_id, _, model = selection.partition("/")
     label = (IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META)[provider_id]["label"]
+    price = _call_price(surface, provider_id, label, model, size=size, quality=quality, seconds=seconds,
+                        resolution=resolution)
     brief = " ".join(str(prompt or "").split())
     brief = brief if len(brief) <= 300 else brief[:299].rstrip() + "…"
     return approval_check(
@@ -1129,13 +1134,32 @@ def paid_generation_check(tool: str, surface: str, selection: str, what: str, pr
          "description": (f"Row-Bot will {what} with {model} on {label}: \"{brief}\". {label} charges your "
                          "API key for each one, so this costs money."),
          "risk_class": "medium",
-         "args": {"prompt": brief, "model": model, "provider": label}},
+         "args": {"prompt": brief, "model": model, "provider": label},
+         # For the card only: the reviewer and the model never see it.
+         "price": price},
         risks=(f"costs money: {label} charges the person's API key for it",),
         blocked_message=(f"BLOCKED: this would {what} on {label}, which costs money and needs approval, but this "
                          "chat is on Block. Ask the person to change the approval level, or to choose a model "
                          "their plan includes in Settings › Models."),
         cancelled_message=f"The person didn't allow it; nothing was made and nothing was charged on {label}.",
     )
+
+
+def _call_price(surface: str, provider_id: str, label: str, model: str, *, size: str, quality: str,
+                seconds: int, resolution: str) -> dict:
+    """The price of one call, as its approval card shows it, priced by what the provider is sent."""
+    from row_bot.providers.media_prices import price_for
+
+    if surface == "video":
+        return price_for(provider_id, label, model, unit="second", count=max(int(seconds or 0), 0),
+                         choices={"resolution": resolution})
+    choices = {"quality": quality, "size": size}
+    if provider_id == "google":
+        choices["resolution"] = _map_google_params(size, quality)[1] or ""
+    elif provider_id == "xai":
+        plan = _plan_xai_image_request(provider_id, model, quality)
+        choices = {"quality": plan.quality or "", "resolution": plan.resolution or ""}
+    return price_for(provider_id, label, model, unit="picture", choices=choices)
 
 
 def _led(line: str, result: str) -> str:
@@ -1159,7 +1183,8 @@ def _cannot_edit(selection: str) -> bool:
 
 
 def _generate_image_tool(prompt: str, size: str = "auto", quality: str = "auto") -> str:
-    refusal, line = paid_generation_check("generate_image", "image", _selection(), "make a picture", prompt)
+    refusal, line = paid_generation_check("generate_image", "image", _selection(), "make a picture", prompt,
+                                          size=size, quality=quality)
     return refusal or _led(line, _generate_image(prompt, size=size, quality=quality))
 
 
@@ -1172,7 +1197,8 @@ def _edit_image_tool(prompt: str, image_source: str = "last", size: str = "auto"
             _resolve_image_source(image_source)  # Nothing to approve when there is no picture to edit.
         except ValueError as e:
             return str(e)
-        refusal, line = paid_generation_check("edit_image", "image", selection, "edit a picture", prompt)
+        refusal, line = paid_generation_check("edit_image", "image", selection, "edit a picture", prompt,
+                                              size=size, quality=quality)
         if refusal:
             return refusal
     return _led(line, _edit_image(prompt, image_source=image_source, size=size, quality=quality))

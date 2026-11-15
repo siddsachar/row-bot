@@ -861,6 +861,51 @@ def update_proposal_status(
     return False
 
 
+def revise_proposal(
+    proposal_id: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    preview: dict[str, Any] | None = None,
+    title: str | None = None,
+) -> dict[str, Any] | None:
+    """Merge new payload and preview fields into a proposal that isn't settled, and validate it again
+    (a draft that fails validation can't be applied). None when there is no such open proposal."""
+
+    store = _load_store()
+    for proposal in store.get("proposals", []):
+        if proposal.get("id") != proposal_id:
+            continue
+        if proposal.get("status") in TERMINAL_PROPOSAL_STATUSES:
+            return None
+        proposal["payload"] = {**_safe_payload(proposal.get("payload")), **(payload or {})}
+        proposal["preview"] = {**_safe_preview(proposal.get("preview")), **(preview or {})}
+        if title is not None:
+            proposal["title"] = str(title)[:200]
+        validation = validate_proposal(proposal)
+        proposal["preview"]["validation"] = validation
+        if proposal.get("status") in {"draft", "ready"}:
+            proposal["status"] = "ready" if validation.get("ok") else "draft"
+        proposal["updated_at"] = _now()
+        _save_store(store)
+        return proposal
+    return None
+
+
+def remove_unapplied_proposals(proposal_ids: set[str]) -> int:
+    """Remove these proposals unless they were applied (their source chat was deleted). Returns how many."""
+
+    store = _load_store()
+    kept = [
+        proposal for proposal in store.get("proposals", [])
+        if str(proposal.get("id")) not in proposal_ids or proposal.get("status") in ("applied", "verified")
+    ]
+    removed = len(store.get("proposals", [])) - len(kept)
+    if removed:
+        store["proposals"] = kept
+        _save_store(store)
+    return removed
+
+
 def reject_proposal(proposal_id: str, reason: str = "") -> dict[str, Any]:
     store = _load_store()
     for proposal in store.get("proposals", []):

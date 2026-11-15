@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useRef,
@@ -23,6 +24,15 @@ import { useResolvedTheme } from '../../ui/theme';
 import SafeMarkdown from './chat-parity-markdown';
 import { chartLayout, chartTraces, figureTable } from './chart-embed';
 import { CodeBlock } from './CodeBlock';
+import {
+  AnswerChecklist,
+  AnswerChoices,
+  AnswerFigures,
+  AnswerProgress,
+  AnswerTable,
+  ChartReplies,
+} from './answer-components/AnswerComponents';
+import { AnswerVisual } from './answer-components/Visual';
 import { saveProblem, useSaveFile } from './save-file';
 import {
   fileKind,
@@ -324,6 +334,7 @@ function Chart({ figure, label }: { figure: string; label: string }) {
       return '';
     }
   })();
+  const caption = label.split('\n')[0] || 'Chart';
   // The chart as a PNG, saved the one way every download saves (5.3.3).
   async function savePicture() {
     if (!plot || !saveFile || !window.Plotly?.toImage) return;
@@ -349,7 +360,7 @@ function Chart({ figure, label }: { figure: string; label: string }) {
   return (
     <figure className="rich-block rich-chart">
       <div className="rich-block-header">
-        <span className="rich-block-title">{title || label || 'Chart'}</span>
+        <span className="rich-block-title">{title || caption}</span>
         <span className="rich-block-tools">
           <IconButton
             size="sm"
@@ -376,7 +387,7 @@ function Chart({ figure, label }: { figure: string; label: string }) {
             disabled={!plot}
             onClick={() =>
               overlay.open({
-                title: title || label || 'Chart',
+                title: title || caption,
                 description: '',
                 className: 'chart-dialog',
                 content: <Plot figure={figure} className="rich-chart-large" />,
@@ -391,7 +402,10 @@ function Chart({ figure, label }: { figure: string; label: string }) {
         <Plot figure={figure} onFigure={setPlot} />
       </div>
       {showTable && plot && <ChartTable data={plot.data} />}
-      <figcaption className="rich-block-caption">{label || 'Chart'}</figcaption>
+      {/* The text's first line; the rest is the data, for copying. */}
+      {caption !== title && (
+        <figcaption className="rich-block-caption">{caption}</figcaption>
+      )}
     </figure>
   );
 }
@@ -466,6 +480,12 @@ export function publicBlockText(block: Block) {
     case 'markdown':
     case 'mermaid':
     case 'chart':
+    case 'table':
+    case 'checklist':
+    case 'figures':
+    case 'progress':
+    case 'choices':
+    case 'visual':
       return block.text;
     case 'youtube':
       return `${block.title}\n${block.url}`;
@@ -477,27 +497,85 @@ export function publicBlockText(block: Block) {
 export function TranscriptBlocks({
   blocks,
   copyText,
+  conversationId,
+  messageId,
 }: {
   blocks: TranscriptRow['blocks'];
   copyText?: (value: string) => Promise<boolean>;
+  /** Where a reply button's words are sent: this conversation's composer. */
+  conversationId?: string;
+  /** The reply these blocks belong to: a reply button's tap names it. */
+  messageId?: string;
 }) {
+  const target = { conversationId, messageId };
   return (
     <>
       {blocks.map((block, index) => {
         const key = 'id' in block ? block.id : `stream-${index}`;
-        if (block.type === 'text' || block.type === 'markdown')
-          return (
-            <SafeMarkdown text={block.text} copyText={copyText} key={key} />
-          );
-        if (block.type === 'mermaid')
-          return <Mermaid source={block.source} key={key} />;
-        if (block.type === 'chart')
-          return (
-            <Chart figure={block.figure_json} label={block.text} key={key} />
-          );
-        if (block.type === 'youtube')
-          return <YouTube block={block} key={key} />;
-        return <Attachment block={block} key={key} />;
+        switch (block.type) {
+          case 'text':
+          case 'markdown':
+            return (
+              <SafeMarkdown
+                text={block.text}
+                copyText={copyText}
+                // Text still arriving: a component's fence waits for its end.
+                streaming={block.type === 'text'}
+                // A saved block's task-list ticks are kept for the person.
+                tasks={
+                  block.type === 'markdown'
+                    ? { conversationId, blockId: block.id }
+                    : undefined
+                }
+                key={key}
+              />
+            );
+          case 'mermaid':
+            return <Mermaid source={block.source} key={key} />;
+          case 'chart':
+            return (
+              <Fragment key={key}>
+                <Chart figure={block.figure_json} label={block.text} />
+                {!!block.actions?.length && (
+                  <ChartReplies
+                    blockId={block.id}
+                    actions={block.actions}
+                    target={target}
+                  />
+                )}
+              </Fragment>
+            );
+          case 'table':
+            return (
+              <AnswerTable
+                block={block}
+                target={target}
+                copyText={copyText}
+                key={key}
+              />
+            );
+          case 'checklist':
+            return <AnswerChecklist block={block} target={target} key={key} />;
+          case 'figures':
+            return <AnswerFigures block={block} target={target} key={key} />;
+          case 'progress':
+            return <AnswerProgress block={block} target={target} key={key} />;
+          case 'choices':
+            return <AnswerChoices block={block} target={target} key={key} />;
+          case 'visual':
+            return (
+              <AnswerVisual
+                block={block}
+                conversationId={conversationId}
+                copyText={copyText}
+                key={key}
+              />
+            );
+          case 'youtube':
+            return <YouTube block={block} key={key} />;
+          case 'attachment':
+            return <Attachment block={block} key={key} />;
+        }
       })}
     </>
   );

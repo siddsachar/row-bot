@@ -232,6 +232,69 @@ it('names the folder a command runs in and what one approval covers (U7)', async
   expect(screen.queryByText('Affects')).toBeNull();
 });
 
+const picture = {
+  ...view,
+  action_label: 'generate_image',
+  question: 'Make a picture on OpenAI? It costs money on your OpenAI account.',
+  reason:
+    'Row-Bot will make a picture with gpt-image-2 on OpenAI: "a lighthouse".',
+  risk_class: 'medium',
+  safe_argument_summary: '',
+};
+
+it('shows what a paid picture costs and where the price comes from (D4)', async () => {
+  approval.mockResolvedValue({
+    ...picture,
+    price: {
+      status: 'known',
+      low_usd: 0.053,
+      high_usd: 0.053,
+      basis: "OpenAI's list price, checked 15 Nov 2026",
+    },
+  });
+  await renderCard();
+  expect(screen.getByText('About $0.05')).toBeVisible();
+  expect(
+    screen.getByText("(OpenAI's list price, checked 15 Nov 2026)"),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  const price = [...document.querySelectorAll('.approval-detail dt')].find(
+    (term) => term.textContent === 'Price',
+  );
+  expect(price?.nextElementSibling?.textContent).toBe(
+    "About $0.05 (OpenAI's list price, checked 15 Nov 2026)",
+  );
+});
+
+it('says a paid call’s price is unknown rather than guessing it (D4)', async () => {
+  approval.mockResolvedValue({ ...picture, price: { status: 'unknown' } });
+  await renderCard();
+  expect(screen.getByText('Price unknown')).toBeVisible();
+  expect(
+    screen.getByText('(Row-Bot has no list price for this model)'),
+  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+});
+
+it.each([
+  [{ low_usd: 0.006, high_usd: 0.211 }, 'About $0.01–$0.21'],
+  [{ low_usd: 0.004, high_usd: 0.004 }, 'Under $0.01'],
+  [{ low_usd: 2.4, high_usd: 2.4 }, 'About $2.40'],
+])('words a price of %o as %s', async (range, words) => {
+  approval.mockResolvedValue({
+    ...picture,
+    price: { status: 'known', basis: 'Google’s list price', ...range },
+  });
+  await renderCard();
+  expect(screen.getByText(words)).toBeVisible();
+});
+
+it('shows no price on an action that costs nothing', async () => {
+  await renderCard();
+  expect(screen.queryByText(/Price unknown|About \$/)).toBeNull();
+});
+
 it('lists structured arguments in words, never as code', async () => {
   approval.mockResolvedValue({
     ...view,
