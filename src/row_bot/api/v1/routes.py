@@ -821,6 +821,21 @@ _STATUS.update(
     )
 )
 _STATUS.update(dict.fromkeys(("skill_missing", "skill_operation_unavailable"), 404))
+# "Save as a skill" (C1): an offer gone or settled, a draft already being written, a chat that is
+# or was incognito, a reply with no steps, the chat's model unavailable, or a draft refused.
+_STATUS.update(
+    {
+        "skill_offer_missing": 404,
+        "skill_offer_changed": 409,
+        "skill_draft_busy": 409,
+        "skill_draft_private": 409,
+        "skill_draft_no_steps": 409,
+        "skill_draft_unavailable": 503,
+        "skill_draft_failed": 422,
+        "skill_draft_refused": 422,
+        "skill_draft_secret": 422,
+    }
+)
 _STATUS.update(
     {
         "skill_unavailable": 503,
@@ -3295,6 +3310,39 @@ def create_router(
             ),
         )
 
+    @router.get("/conversations/{conversation_id}/skill-offers")
+    async def skill_offers_view(conversation_id: str, request: Request) -> JSONResponse:
+        """This chat's "Save as a skill" offers and drafts (C1)."""
+        await session(request)
+        from row_bot.application.skill_offer_views import read_skill_offers
+
+        result = await call(read_skill_offers, service, conversation_id)
+        return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/conversations/{conversation_id}/skill-offers/draft")
+    async def skill_offer_draft(conversation_id: str, request: Request) -> JSONResponse:
+        """Draft a skill from one reply's turn, on the chat's own model, for the person to review."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillDraftRequest, 4096)
+        from row_bot.application.skill_offer_views import draft_skill
+
+        result = await call(
+            draft_skill, service, conversation_id, body.model_dump(mode="json"),
+            dispatch_validation(request, current),
+        )
+        return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/conversations/{conversation_id}/skill-offers/{offer_id}/dismiss")
+    async def skill_offer_dismiss(conversation_id: str, offer_id: str, request: Request) -> JSONResponse:
+        """"Not now": the offer closes; its task isn't offered again for 30 days."""
+        current = await session(request, lane="mutation")
+        from row_bot.application.skill_offer_views import dismiss_skill_offer
+
+        result = await call(
+            dismiss_skill_offer, service, conversation_id, offer_id, dispatch_validation(request, current)
+        )
+        return await respond(request, dto.SkillOfferPage, result)
+
     @router.get("/conversations/{conversation_id}/queue")
     async def queue_view(
         conversation_id: str,
@@ -5092,6 +5140,7 @@ def create_router(
             "skill.delete",
             "skill.proposal.apply",
             "skill.proposal.reject",
+            "skill.proposal.edit",
         }
         if body.type not in kinds or str(body.client_session_id) != current.id:
             raise ProtocolError("invalid_skill_command", 422)
