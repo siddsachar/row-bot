@@ -505,6 +505,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 blocks={shown}
                 copyText={copyCode}
                 conversationId={conversationId ?? undefined}
+                messageId={row.message_id ?? undefined}
               />
             )}
           </div>

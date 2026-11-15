@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../../api/types';
 import SafeMarkdown from '../chat-parity-markdown';
-import { registerPromptSender } from '../composer-bridge';
+import { registerPromptSender, setPromptReady } from '../composer-bridge';
 import { publicBlockText, TranscriptBlocks } from '../TranscriptBlocks';
 
 type Block = TranscriptRow['blocks'][number];
@@ -11,14 +11,19 @@ let unregister: (() => void) | undefined;
 afterEach(() => unregister?.());
 
 function composer(accepts = true) {
-  const sent = vi.fn((_text: string) => accepts);
+  const sent = vi.fn((_text: string, _tapped?: unknown) => accepts);
   unregister = registerPromptSender('conversation-a', sent);
+  setPromptReady('conversation-a', true);
   return sent;
 }
 
 function show(block: Block, conversationId = 'conversation-a') {
   return render(
-    <TranscriptBlocks blocks={[block]} conversationId={conversationId} />,
+    <TranscriptBlocks
+      blocks={[block]}
+      conversationId={conversationId}
+      messageId="reply-1"
+    />,
   );
 }
 
@@ -129,7 +134,11 @@ it('sends a choice’s words through the composer once, then shows which was pic
   const sent = composer();
   show(CHOICES);
   fireEvent.click(screen.getByRole('button', { name: 'Air' }));
-  expect(sent).toHaveBeenCalledExactlyOnceWith('Tell me more about the Air');
+  // The person's message, marked as a tap on this reply.
+  expect(sent).toHaveBeenCalledExactlyOnceWith('Tell me more about the Air', {
+    message_id: 'reply-1',
+    label: 'Air',
+  });
   const air = screen.getByRole('button', { name: /Air/ });
   expect(air).toHaveAttribute('aria-pressed', 'true');
   expect(air).toHaveTextContent('Sent');
@@ -144,11 +153,38 @@ it('keeps the choices open when the composer can’t take a reply now', () => {
   const sent = composer(false);
   show({ ...CHOICES, id: 'block:choices-busy' });
   fireEvent.click(screen.getByRole('button', { name: 'Pro' }));
-  expect(sent).toHaveBeenCalledExactlyOnceWith('Pro');
+  expect(sent).toHaveBeenCalledExactlyOnceWith('Pro', {
+    message_id: 'reply-1',
+    label: 'Pro',
+  });
   expect(screen.getByRole('button', { name: 'Pro' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Pro' })).not.toHaveTextContent(
     'Sent',
   );
+});
+
+it('keeps the buttons waiting while Row-Bot is still answering, like the composer', () => {
+  const sent = composer();
+  act(() => setPromptReady('conversation-a', false));
+  show({ ...CHOICES, id: 'block:choices-wait' });
+  const pro = screen.getByRole('button', { name: 'Pro' });
+  expect(pro).toBeDisabled();
+  expect(
+    screen.getByText(
+      'Choices open when Row-Bot is ready for your next message.',
+    ),
+  ).toBeVisible();
+  fireEvent.click(pro);
+  expect(sent).not.toHaveBeenCalled();
+  act(() => setPromptReady('conversation-a', true));
+  expect(pro).toBeEnabled();
+  expect(
+    screen.queryByText(
+      'Choices open when Row-Bot is ready for your next message.',
+    ),
+  ).toBeNull();
+  fireEvent.click(pro);
+  expect(sent).toHaveBeenCalledOnce();
 });
 
 it('sends nothing from another conversation’s answer', () => {
@@ -169,7 +205,10 @@ it('puts a component’s reply buttons under it, a chart’s too', () => {
     text: '',
   });
   fireEvent.click(screen.getByRole('button', { name: 'Plan the rest' }));
-  expect(sent).toHaveBeenCalledWith('Plan how I save the rest');
+  expect(sent).toHaveBeenCalledWith('Plan how I save the rest', {
+    message_id: 'reply-1',
+    label: 'Plan the rest',
+  });
 });
 
 it('copies each component as its plain text', () => {

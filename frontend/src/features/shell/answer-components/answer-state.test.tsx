@@ -7,7 +7,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AnswerStateChange, TranscriptRow } from '../../../api/types';
-import { registerPromptSender } from '../composer-bridge';
+import { registerPromptSender, setPromptReady } from '../composer-bridge';
 import { TranscriptBlocks } from '../TranscriptBlocks';
 
 type View = {
@@ -181,8 +181,9 @@ it('keeps a sent choice, and an older answer’s buttons read Sent from the kept
     ticks: {},
     choices: {},
   });
-  const sent = vi.fn(() => true);
+  const sent = vi.fn((_text: string, _tapped?: unknown) => true);
   unregister = registerPromptSender('chat-4', sent);
+  setPromptReady('chat-4', true);
   const block: TranscriptRow['blocks'][number] = {
     id: CHOICES,
     type: 'choices',
@@ -200,7 +201,8 @@ it('keeps a sent choice, and an older answer’s buttons read Sent from the kept
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Pro' })),
   );
-  expect(sent).toHaveBeenCalledExactlyOnceWith('Pro');
+  expect(sent).toHaveBeenCalledOnce();
+  expect(sent.mock.calls[0][0]).toBe('Pro');
   expect(server.views.get('chat-4')!.choices).toEqual({ [CHOICES]: 'Pro' });
   unmount();
 
