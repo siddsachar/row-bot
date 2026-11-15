@@ -44,6 +44,10 @@ def _public_goal(goal: dict[str, Any] | None) -> dict[str, Any]:
         "evidence": goal.get("evidence_json", []),
         "blockers": goal.get("blockers_json", []),
         "active_run_id": goal.get("active_run_id", ""),
+        # What done means and the person's check (B3); read-only here: only the person sets them.
+        **({"done_means": goal["done_means"]} if goal.get("done_means") else {}),
+        **({"check": {"command": goal["check_command"], "state": goal.get("check_state", "")}}
+           if goal.get("check_command") else {}),
     }
 
 
@@ -127,6 +131,12 @@ def _goal_update(
             blockers=blockers or [],
             next_step=next_step,
         )
+        if status == "completed" and goal.get("check_state") == "pending":
+            # The person's check decides whether it is done (B3).
+            return _json_response({
+                "ok": True, "goal": _public_goal(goal),
+                "note": f"Row-Bot runs `{goal['check_command']}` before this goal counts as done; end your turn.",
+            })
         return _json_response({"ok": True, "goal": _public_goal(goal)})
     except Exception as exc:
         return _json_response({"ok": False, "error": str(exc)})

@@ -366,6 +366,16 @@ _COLUMN_DEFINITIONS: dict[str, dict[str, str]] = {
         # tokens_used when the goal's token budget window began (Resume at the
         # budget starts a new window, like the time limit's window_started_at).
         "token_window_start": "INTEGER DEFAULT 0",
+        # What "done" means in the person's words, and the command they set that must exit 0 before the
+        # goal counts as done (B3): the code folder it runs in ('' = the default workspace), the person's
+        # approval of it (JSON: level, classification, approved_by, at), its state ('', pending, running,
+        # passed, failed, error) and its last result (JSON: exit code, times, output tail).
+        "done_means": "TEXT DEFAULT ''",
+        "check_command": "TEXT DEFAULT ''",
+        "check_workspace_id": "TEXT DEFAULT ''",
+        "check_approval": "TEXT DEFAULT ''",
+        "check_state": "TEXT DEFAULT ''",
+        "check_result_json": "TEXT DEFAULT ''",
     },
     "agent_orchestrations": {
         "id": "TEXT PRIMARY KEY",

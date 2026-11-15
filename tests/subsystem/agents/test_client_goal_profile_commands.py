@@ -293,6 +293,73 @@ def test_goal_revision_cas_rejects_a_change_after_review(monkeypatch):
         )
 
 
+@pytest.mark.parametrize(
+    ("fields", "code"),
+    [
+        ({"done_means": 7}, "invalid_fields"),
+        ({"done_means": "x" * 1001}, "invalid_fields"),
+        ({"check_command": "x" * 501}, "invalid_fields"),
+        ({"check_command": ["npm", "test"]}, "invalid_fields"),
+        ({"check_command": "npm test\nrm -rf build"}, "invalid_fields"),
+    ],
+)
+def test_goal_review_validates_done_means_and_the_check(tmp_path, monkeypatch, fields, code):
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
+    with pytest.raises(commands.GoalProfileCommandError, match=code):
+        commands.review_goal_command(_goal_request("conversation-a", "start", **fields), validate=_valid)
+
+
+def test_only_a_goal_start_takes_done_means_or_a_check(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
+    goals.start_goal("conversation-a", "Running")
+    for field in ("done_means", "check_command"):
+        with pytest.raises(commands.GoalProfileCommandError, match="invalid_command"):
+            commands.review_goal_command(_goal_request("conversation-a", "pause", **{field: "npm test"}),
+                                         validate=_valid)
+
+
+def test_goal_review_discloses_the_check_and_the_goal_shows_its_states(tmp_path, monkeypatch):
+    """B3: the review says where the check runs; the card reads every state and the redacted output."""
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
+    request = _goal_request("conversation-a", "start", done_means="  Every link works  ",
+                            check_command="npm test")
+    review = commands.review_goal_command(request, validate=_valid)
+    assert (review["done_means"], review["check_command"]) == ("Every link works", "npm test")
+    assert review["check"]["runs_in"] == "Row-Bot's workspace"
+    assert review["disclosures"] == [
+        "Each time Row-Bot thinks the goal is done, it runs `npm test` in Row-Bot's workspace. "
+        "The goal counts as done only when it exits 0."]
+    page = commands.read_goals("conversation-a", validate=_valid)
+    assert page["check_place"] == {"available": True, "runs_in": "Row-Bot's workspace", "suggestions": []}
+
+    started = _execute_goal(request)["goal"]
+    assert started["done_means"] == "Every link works"
+    assert started["check"] == {"command": "npm test", "runs_in": "Row-Bot's workspace", "state": "",
+                                "result": None}
+
+    def state():
+        return commands.read_goal("conversation-a", started["id"], validate=_valid)["goal"]["check"]
+
+    goal = goals.get_goal(started["id"])
+    goals.request_completion(goal, source="goal_update", reason="Done.")
+    assert state()["state"] == "pending"
+    goals.mark_check_running(started["id"])
+    assert state()["state"] == "running"
+    goals.finish_check(started["id"], state="failed", result={
+        "exit_code": 1, "started_at": "2026-11-15T14:00:00", "finished_at": "2026-11-15T14:02:14",
+        "duration_seconds": 134, "output_tail": "FAIL C:/Users/alice/docs/index.md token=sk-secret123456789"})
+    failed = state()
+    assert failed["state"] == "failed" and failed["result"]["exit_code"] == 1
+    assert failed["result"]["duration_seconds"] == 134
+    assert "alice" not in failed["result"]["output_tail"]
+    assert "sk-secret123456789" not in failed["result"]["output_tail"]
+    goals.request_completion(goals.get_goal(started["id"]), source="goal_update", reason="Done.")
+    goals.mark_check_running(started["id"])
+    goals.finish_check(started["id"], state="passed", result={"exit_code": 0, "duration_seconds": 3})
+    passed = commands.read_goal("conversation-a", started["id"], validate=_valid)["goal"]
+    assert (passed["status"], passed["check"]["state"]) == ("completed", "passed")
+
+
 def test_profile_create_edit_preserves_instruction_and_uses_revision_cas():
     created = _execute_profile(_profile_request("create"))
     assert created["status"] == "completed"

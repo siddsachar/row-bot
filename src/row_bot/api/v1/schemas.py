@@ -3611,6 +3611,48 @@ GoalStatus = Literal[
     "cleared",
 ]
 GoalOperation = Literal["start", "pause", "resume", "complete", "clear"]
+# A goal's check (B3): '' before the goal looks done, then pending, running, passed, failed or error.
+GoalCheckState = Literal["", "pending", "running", "passed", "failed", "error"]
+
+
+class GoalCheckResult(WireModel):
+    exit_code: int | None
+    started_at: str = Field(max_length=64)
+    finished_at: str = Field(max_length=64)
+    duration_seconds: int = Field(ge=0)
+    # The last 2,000 characters of its output, redacted.
+    output_tail: str = Field(max_length=8193)
+
+
+class GoalCheck(WireModel):
+    command: str = Field(min_length=1, max_length=2049)
+    runs_in: str = Field(max_length=257)
+    state: GoalCheckState
+    result: GoalCheckResult | None
+
+
+class GoalCheckPlace(WireModel):
+    """Where a check set now would run, and the code folder's own commands to suggest."""
+
+    available: bool
+    runs_in: str = Field(max_length=257)
+    suggestions: list[str] = Field(max_length=4)
+
+
+class GoalCheckClassification(WireModel):
+    shell: Literal["safe", "needs_approval", "private_data", "blocked"]
+    action: str = Field(max_length=64)
+    read_only: bool
+
+
+class GoalCheckReview(WireModel):
+    """What the person approves with Confirm: this command, in this folder, at this level."""
+
+    command: str = Field(min_length=1, max_length=500)
+    workspace_id: str = Field(max_length=128)
+    runs_in: str = Field(max_length=300)
+    level: Literal["block", "approve", "auto", "full"]
+    classification: GoalCheckClassification
 
 
 class GoalSummary(WireModel):
@@ -3633,6 +3675,9 @@ class GoalSummary(WireModel):
     evidence: list[str] = Field(max_length=10)
     blockers: list[str] = Field(max_length=10)
     active_profile_id: str = Field(max_length=256)
+    # What done means in the person's words, and the check that must pass (B3).
+    done_means: str = Field(max_length=4097)
+    check: GoalCheck | None
 
 
 class GoalPage(WireModel):
@@ -3647,6 +3692,7 @@ class GoalPage(WireModel):
     next_cursor: str | None = Field(max_length=80)
     # The turn limit a new goal starts with (Agent runtime); 0 = no limit.
     default_max_turns: int = Field(ge=0, le=1000)
+    check_place: GoalCheckPlace
 
 
 class GoalDetail(WireModel):
@@ -3663,12 +3709,16 @@ class GoalCommandPayload(WireModel):
     max_turns: int | None = Field(ge=1, le=1000)
     max_minutes: int | None = Field(default=None, ge=1, le=10080)
     reason: str | None = Field(max_length=1024)
+    # A goal's start only (B3): what done means, and the command that must exit 0 first.
+    done_means: str | None = Field(default=None, max_length=1000)
+    check_command: str | None = Field(default=None, max_length=500)
 
 
 class GoalReview(GoalCommandPayload):
     schema_version: Literal[1]
     action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     disclosures: list[str] = Field(max_length=8)
+    check: GoalCheckReview | None = None
     review_id: str = Field(min_length=1, max_length=128)
 
 
