@@ -117,6 +117,15 @@
           "title": "Description",
           "type": "string"
         },
+        "disabled_reason": {
+          "default": "",
+          "enum": [
+            "",
+            "failures"
+          ],
+          "title": "Disabled Reason",
+          "type": "string"
+        },
         "enabled": {
           "title": "Enabled",
           "type": "boolean"

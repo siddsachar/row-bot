@@ -1017,6 +1017,43 @@ it('exposes reviewed direct enable and delete actions', async () => {
   await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
 });
 
+it('says when Row-Bot switched a workflow off after failed runs in a row', async () => {
+  const load = vi.fn(async () =>
+    pageOf([
+      task('Price watch', {
+        notify_only: false,
+        step_count: 1,
+        schedule: 'daily:09:00',
+        last_status: 'failed',
+        disabled_reason: 'failures',
+      }),
+      task('Paused report', { schedule: 'daily:09:00' }),
+    ]),
+  );
+  show(load, { onToggleEnabled: vi.fn() });
+  await screen.findByText('Price watch');
+
+  const off = within(row('Price watch')).getByText(
+    'Off: failed 5 times in a row',
+  );
+  expect(within(row('Price watch')).getByText('Off')).toBeInTheDocument();
+  expect(
+    within(row('Price watch')).getByRole('switch', {
+      name: 'Enable workflow: Price watch',
+    }),
+  ).not.toBeChecked();
+  // A workflow the person paused says only that.
+  expect(within(row('Paused report')).getByText('Paused')).toBeInTheDocument();
+  expect(
+    within(row('Paused report')).queryByText(/failed 5 times/),
+  ).not.toBeInTheDocument();
+
+  act(() => off.closest<HTMLElement>('.workflow-off')!.focus());
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(
+    'Row-Bot switched it off. Turn it back on when it’s fixed.',
+  );
+});
+
 it('runs one row action at a time and reports failures without details', async () => {
   const user = userEvent.setup();
   const toggling = pending<void>();

@@ -429,8 +429,10 @@ export default function Workspace() {
     Boolean(
       state.handshake?.application_capabilities?.includes('native:terminal'),
     );
-  useBackgroundNotices(conversationId, (id) =>
-    navigate(`/conversations/${encodeURIComponent(id)}`),
+  useBackgroundNotices(
+    conversationId,
+    (id) => navigate(`/conversations/${encodeURIComponent(id)}`),
+    (id) => navigate(`/?tab=workflows&workflow=${encodeURIComponent(id)}`),
   );
   const homeTab = new URLSearchParams(location.search).get('tab') ?? '';
   useApprovalNotices(
