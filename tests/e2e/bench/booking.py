@@ -17,6 +17,7 @@ does not start in the night and morning hours other lanes and the owner keep
 """
 from __future__ import annotations
 
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -31,6 +32,23 @@ EVAL_PROFILE = "eval-profile"
 EVAL_PROFILE_TAG = "ChatGPT eval-profile"
 #: No new graphics-card work from 00:25 to 08:00 (another lane's night window, then the owner's Row-Bot).
 GPU_QUIET = (clock(0, 25), clock(8, 0))
+QUIET_ENV = "ROW_BOT_BENCH_GPU_QUIET"
+
+
+def quiet_window(text: str) -> tuple[clock, clock] | None:
+    """``"00:25-08:00"`` -> (00:25, 08:00); ``""`` -> the default; ``"off"`` -> None."""
+    value = str(text or "").strip().lower()
+    if not value:
+        return GPU_QUIET
+    if value in {"off", "none", "0"}:
+        return None
+    start, _, end = value.partition("-")
+    try:
+        return (clock.fromisoformat(start.strip()), clock.fromisoformat(end.strip()))
+    except ValueError as exc:
+        raise ValueError(f"{QUIET_ENV}={text!r} is not HH:MM-HH:MM or off") from exc
+
+
 _LINE = re.compile(r"^\s*(\d{1,2}:\d{2})\s+(\S+)\s+(EXCLUSIVE\s+)?(START|END)\b\s*(.*)$")
 
 
@@ -86,10 +104,15 @@ class BookingFile:
                 if item.lane != self.lane and (item.kind == kind or item.exclusive)]
 
     def quiet_hours(self, kind: str) -> bool:
+        """Whether new card work waits for the hours other lanes and the owner keep. ``ROW_BOT_BENCH_GPU_QUIET``
+        sets them ("00:25-08:00", the default) or turns them off ("off") when the orchestrator clears a night."""
         if kind != GPU:
             return False
+        window = quiet_window(os.environ.get(QUIET_ENV, ""))
+        if window is None:
+            return False
         moment = self.now().time()
-        return GPU_QUIET[0] <= moment < GPU_QUIET[1]
+        return window[0] <= moment < window[1]
 
     def _write(self, line: str) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

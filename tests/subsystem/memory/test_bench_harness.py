@@ -245,6 +245,18 @@ def test_waiting_for_the_card_respects_other_lanes_quiet_hours_and_the_stop_file
     assert not book.wait_for(booking.GPU, stop=lambda: True, sleep=sleep, log=said.append)
 
 
+def test_the_cards_quiet_hours_can_be_set_or_cleared_for_a_night(tmp_path, monkeypatch) -> None:
+    book = booking.BookingFile(tmp_path / "gpu-booking.txt", now=lambda: datetime(2026, 11, 16, 2, 0))
+    assert book.quiet_hours(booking.GPU) and not book.quiet_hours(booking.EVAL_PROFILE)
+    monkeypatch.setenv(booking.QUIET_ENV, "off")
+    assert not book.quiet_hours(booking.GPU)
+    monkeypatch.setenv(booking.QUIET_ENV, "01:00-03:00")
+    assert book.quiet_hours(booking.GPU)
+    monkeypatch.setenv(booking.QUIET_ENV, "nonsense")
+    with pytest.raises(ValueError):
+        book.quiet_hours(booking.GPU)
+
+
 # ── Datasets ────────────────────────────────────────────────────────────────
 
 
@@ -1033,7 +1045,9 @@ def test_sessions_are_ingested_through_extraction_on_their_own_dates(tmp_path, m
 
     extraction_prompts = [prompt for prompt in model.prompts if "CONVERSATION:" in prompt]
     assert len(extraction_prompts) == 2  # one window per session, each read once
-    assert "Today is 08 May 2023" in extraction_prompts[0] and "Today is 22 October 2023" in extraction_prompts[1]
+    # Extraction dates each conversation by its own day (the thread's updated_at, which ingestion sets).
+    assert "This conversation is dated Monday, 8 May 2023." in extraction_prompts[0]
+    assert "This conversation is dated Sunday, 22 October 2023." in extraction_prompts[1]
     assert "User: I joined a pottery class yesterday." in extraction_prompts[0]
     assert "Assistant: Nice! I adopted a dog. [shared an image: a puppy]" in extraction_prompts[0]
     assert [step.kind for step in steps] == ["ingest", "ingest"]
