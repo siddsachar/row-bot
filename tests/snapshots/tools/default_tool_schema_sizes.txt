@@ -82,7 +82,7 @@ row_bot_update_setting: 1060
 row_bot_verify_proposal: 459
 run_command: 902
 save_memory: 732
-search_conversations: 703
+search_conversations: 768
 search_memory: 620
 send_file: 885
 speak: 875
@@ -118,4 +118,4 @@ workspace_read_file: 867
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (120 tools): 90269
+TOTAL (120 tools): 90334
