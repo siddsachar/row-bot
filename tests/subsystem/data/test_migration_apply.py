@@ -143,7 +143,7 @@ class MigrationApplyTests(unittest.TestCase):
 
             self.assertEqual(memories, ["memories:memory.md", "memories:user.md", "memories:daily-notes"])
             self.assertEqual(staged, [["2026-02-27.md", "2026-03-19.md", "2026-04-11.md", "MEMORY.md", "USER.md"]])
-            self.assertEqual(result.memory_review, {"batch_id": "a" * 32, "found": 7})
+            self.assertEqual(result.memory_review, {"batch_id": "a" * 32, "found": 7, "conversations": 0})
             self.assertTrue(all(item.status == MigrationStatus.MIGRATED for item in result.items
                                 if item.category.value == "memories"))
             self.assertFalse((target / "memory").exists())

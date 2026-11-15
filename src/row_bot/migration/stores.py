@@ -6,7 +6,8 @@ Every item lands where Row-Bot reads it, never in a side file:
   personality's limit and passed through :func:`row_bot.identity.sanitize_personality`;
 * agent instructions become a user skill, which nothing pins, so nothing new reaches every chat;
 * memory files go to Import memories as a batch to review (``application.memory_import``): nothing
-  is saved to memory until the person checks it there;
+  is saved to memory until the person checks it there. Past chats (Hermes's ``state.db``), when
+  chosen, join that batch, where the person may look in what they wrote for memories;
 * MCP servers join ``mcp_servers.json`` through :mod:`row_bot.mcp_client.config`, turned off, with
   no setting values copied; one with the same name is never replaced;
 * the default model is saved in ``model_settings.json``, and a model server in ``providers.json`` as
@@ -167,6 +168,13 @@ def count_memories(paths: list[Path]) -> int:
     from row_bot.memory_import import scan_files
 
     return len(scan_files(paths).facts)
+
+
+def count_chats(path: Path) -> int:
+    """How many past chats Hermes's ``state.db`` holds (read only; 0 when it isn't Hermes's database)."""
+    from row_bot.memory_import.agents import count_hermes_chats
+
+    return count_hermes_chats(path)
 
 
 # MCP servers -----------------------------------------------------------------------
