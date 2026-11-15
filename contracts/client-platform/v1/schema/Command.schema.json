@@ -8766,6 +8766,17 @@
           "title": "Submission Id",
           "type": "string"
         },
+        "tapped_choice": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappedChoice"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "text": {
           "maxLength": 200000,
           "minLength": 1,
@@ -8964,6 +8975,38 @@
         "nonce"
       ],
       "title": "SubscriptionProbePayload",
+      "type": "object"
+    },
+    "TappedChoice": {
+      "additionalProperties": false,
+      "description": "The reply whose button the person tapped, and the button's label (F3).",
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "message_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_.-]+$",
+          "title": "Message Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id"
+      ],
+      "title": "TappedChoice",
       "type": "object"
     },
     "TaskCreateCommand": {

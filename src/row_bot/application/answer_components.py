@@ -8,6 +8,7 @@ reply quoting a web page can't put markup or remote content on screen.
 
 Reply buttons (``actions``, and the ``rowbot-choices`` tag) carry only words:
 a tap sends them as the person's own message through the normal send path.
+A reply that starts with "/" is refused, so a button can never run a slash command.
 """
 from __future__ import annotations
 
@@ -207,8 +208,8 @@ def _actions(body: _Component) -> list[dict[str, str]]:
     actions = []
     for action in body.actions:
         label, reply = plain_text(action.label), action.reply.strip()
-        if not label or not reply:
-            raise ValueError("an action is empty")
+        if not label or not reply or reply.startswith("/"):
+            raise ValueError("an action is empty or a slash command")
         actions.append({"label": label, "reply": reply})
     return actions
 
@@ -355,8 +356,8 @@ def _choices(body: ChoicesBody) -> dict[str, Any]:
     options = []
     for option in body.options:
         label, reply = plain_text(option.label), option.reply.strip()
-        if not label or not reply:
-            raise ValueError("an option is empty")
+        if not label or not reply or reply.startswith("/"):
+            raise ValueError("an option is empty or a slash command")
         options.append({"label": label, "reply": reply})
     lines = [f"{index}. {option['label']}" for index, option in enumerate(options, start=1)]
     return {"prompt": prompt, "options": options, "text": _heading(prompt, lines)}

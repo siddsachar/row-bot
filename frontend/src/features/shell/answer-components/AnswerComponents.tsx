@@ -9,7 +9,7 @@ import {
   StatGroup,
   type Tone,
 } from '../../../ui/primitives';
-import { sendPrompt } from '../composer-bridge';
+import { sendPrompt, usePromptReady } from '../composer-bridge';
 import { SortableTable } from '../SortableTable';
 
 type Block = TranscriptRow['blocks'][number];
@@ -38,13 +38,17 @@ export function withUnit(value: number | string, unit: string) {
   return unit === '%' ? `${shown}%` : `${shown} ${unit}`;
 }
 
-/** Where a reply button's words go: the open conversation's own composer. */
-export type AnswerTarget = { conversationId?: string };
+/**
+ * Where a reply button's words go: the open conversation's own composer,
+ * marked as a tap on this reply (``messageId``).
+ */
+export type AnswerTarget = { conversationId?: string; messageId?: string };
 
 /**
  * Reply buttons: a tap sends the button's words as the person's message
  * through the composer's normal send path (same checks, no attachments).
- * Nothing runs by itself and no tool is called. Once one is sent, the
+ * Nothing runs by itself and no tool is called. Like the composer's own
+ * Send, they wait while Row-Bot is still answering. Once one is sent, the
  * block's buttons show which was picked and stay disabled.
  */
 function Replies({
@@ -60,12 +64,19 @@ function Replies({
 }) {
   const notify = useNotify();
   const [picked, setPicked] = useState<string | null>(null);
+  const ready = usePromptReady(target.conversationId);
   if (!actions.length) return null;
   function send(action: Action) {
     if (picked !== null) return;
     if (
       !target.conversationId ||
-      !sendPrompt(target.conversationId, action.reply)
+      !sendPrompt(
+        target.conversationId,
+        action.reply,
+        target.messageId
+          ? { message_id: target.messageId, label: action.label }
+          : undefined,
+      )
     ) {
       notify(
         'Row-Bot can’t take that reply right now. Try again when it’s ready.',
@@ -90,7 +101,7 @@ function Replies({
             key={`${index}:${action.label}`}
             className="answer-reply"
             variant="secondary"
-            disabled={picked !== null}
+            disabled={picked !== null || !ready}
             aria-pressed={picked !== null ? chosen : undefined}
             data-picked={chosen ? 'true' : undefined}
             onClick={() => send(action)}
@@ -116,6 +127,11 @@ function Replies({
           </Hint>
         );
       })}
+      {!ready && picked === null && (
+        <span className="answer-replies-wait">
+          You can choose when Row-Bot has finished.
+        </span>
+      )}
     </div>
   );
 }

@@ -149,6 +149,12 @@ class ConversationSkillPayload(WireModel):
         return self
 
 
+class TappedChoice(WireModel):
+    """The reply whose button the person tapped, and the button's label (F3)."""
+    message_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9:_.-]+$")
+    label: str | None = Field(default=None, min_length=1, max_length=40)
+
+
 class SubmitPayload(WireModel):
     submission_id: UUID
     text: Annotated[str, StringConstraints(min_length=1, max_length=200000)]
@@ -159,6 +165,8 @@ class SubmitPayload(WireModel):
     retry: bool = False
     # Send a page's decisions (N5): the person's click; Row-Bot writes the message from the page itself.
     page_id: str | None = Field(default=None, pattern=r"^page-[0-9a-f]{8}$")
+    # A reply button's tap (F3): the reply that offered it. The text is the button's words, the person's own.
+    tapped_choice: TappedChoice | None = None
 
 
 class RenamePayload(WireModel):

@@ -496,13 +496,16 @@ export function TranscriptBlocks({
   blocks,
   copyText,
   conversationId,
+  messageId,
 }: {
   blocks: TranscriptRow['blocks'];
   copyText?: (value: string) => Promise<boolean>;
   /** Where a reply button's words are sent: this conversation's composer. */
   conversationId?: string;
+  /** The reply these blocks belong to: a reply button's tap names it. */
+  messageId?: string;
 }) {
-  const target = { conversationId };
+  const target = { conversationId, messageId };
   return (
     <>
       {blocks.map((block, index) => {

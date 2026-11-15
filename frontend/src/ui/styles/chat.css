@@ -3182,6 +3182,12 @@
 .answer-reply[data-picked] svg {
   color: var(--accent-solid);
 }
+.answer-replies-wait {
+  grid-column: 1 / -1;
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
 .answer-reply-sent {
   margin-inline-start: auto;
   padding-inline-start: 8px;
