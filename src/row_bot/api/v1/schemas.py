@@ -1436,6 +1436,8 @@ class TaskSummary(WireModel):
     recent_runs: list[TaskRunDigest] = Field(default_factory=list, max_length=10)
     active_run: TaskActiveRun | None = None
     next_run: str | None = Field(default=None, max_length=80)
+    # "failures": Row-Bot switched it off after failed runs in a row (D5).
+    disabled_reason: Literal["", "failures"] = ""
 
 
 class TaskSummaryPage(WireModel):
@@ -7237,6 +7239,8 @@ class TaskEditorSnapshot(WireModel):
     approval_mode: str = Field(max_length=64)
     conversation_id: OpaqueId | None
     legacy_delivery: bool
+    # "failures": Row-Bot switched it off after failed runs in a row (D5).
+    disabled_reason: Literal["", "failures"] = ""
 
 
 class TaskSaveResult(WireModel):
@@ -9514,6 +9518,8 @@ class Notice(WireModel):
     at: str = Field(min_length=1, max_length=64)
     # The conversation it is about, when there is one to open (a file Row-Bot sent to the devices).
     conversation_id: str | None = Field(default=None, min_length=1, max_length=256)
+    # The workflow it is about, when there is one to open (a workflow Row-Bot switched off).
+    workflow_id: OpaqueId | None = None
 
 
 class NoticePage(WireModel):

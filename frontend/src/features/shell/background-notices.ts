@@ -14,7 +14,12 @@ const RECENT_MS = 10 * 60 * 1000;
 export function noticeToShow(
   notice: Notice,
   now = Date.now(),
-): { text: string; tone?: NoticeTone; conversationId?: string } | null {
+): {
+  text: string;
+  tone?: NoticeTone;
+  conversationId?: string;
+  workflowId?: string;
+} | null {
   if (notice.level === 'info' && !notice.requested) return null;
   const at = Date.parse(notice.at);
   if (!notice.startup && Number.isFinite(at) && now - at > RECENT_MS)
@@ -34,6 +39,8 @@ export function noticeToShow(
     ...(notice.conversation_id
       ? { conversationId: notice.conversation_id }
       : {}),
+    // A notice about a workflow (Row-Bot switched it off) opens it.
+    ...(notice.workflow_id ? { workflowId: notice.workflow_id } : {}),
     tone:
       notice.level === 'error'
         ? 'danger'
@@ -46,11 +53,12 @@ export function noticeToShow(
 /**
  * Shows background notices through the app's notice primitive. One about a
  * conversation offers Open, and isn't shown while that conversation is open
- * here (its card is already on screen).
+ * here (its card is already on screen). One about a workflow offers Open too.
  */
 export function useBackgroundNotices(
   openConversationId: string | null = null,
   openConversation?: (conversationId: string) => void,
+  openWorkflow?: (workflowId: string) => void,
 ): void {
   const { controller } = useRuntime();
   const overlay = useOverlay();
@@ -58,12 +66,14 @@ export function useBackgroundNotices(
     notify: overlay.notify,
     openConversationId,
     openConversation,
+    openWorkflow,
   });
   useEffect(() => {
     latest.current = {
       notify: overlay.notify,
       openConversationId,
       openConversation,
+      openWorkflow,
     };
   });
   useEffect(
@@ -71,15 +81,19 @@ export function useBackgroundNotices(
       controller.onNotice((notice) => {
         const shown = noticeToShow(notice);
         if (!shown) return;
-        const { notify, openConversationId, openConversation } = latest.current;
+        const { notify, openConversationId, openConversation, openWorkflow } =
+          latest.current;
         const about = shown.conversationId;
+        const workflow = shown.workflowId;
         if (about && about === openConversationId) return;
         notify(
           shown.text,
           shown.tone,
           about && openConversation
             ? { label: 'Open', onAction: () => openConversation(about) }
-            : undefined,
+            : workflow && openWorkflow
+              ? { label: 'Open', onAction: () => openWorkflow(workflow) }
+              : undefined,
         );
       }),
     [controller],

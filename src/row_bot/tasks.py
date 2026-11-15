@@ -114,7 +114,9 @@ _CREATE_TABLE_SQL = {
             timezone            TEXT DEFAULT '',
             missed_runs         TEXT DEFAULT 'skip',
             always_ask          TEXT DEFAULT '[]',
-            send_results        TEXT DEFAULT 'every_run'
+            send_results        TEXT DEFAULT 'every_run',
+            disabled_reason     TEXT DEFAULT '',
+            re_enabled_at       TEXT DEFAULT ''
         )
     """,
     "task_runs": """
@@ -268,6 +270,11 @@ _COLUMN_MIGRATIONS = {
         ("always_ask", "TEXT DEFAULT '[]'"),
         # When its results go to its channels: after every run, only when it needs the person, or a daily digest.
         ("send_results", "TEXT DEFAULT 'every_run'"),
+        # Why it is off: '' (the person, or never on) or 'failures' (Row-Bot switched it off after
+        # FAILURES_BEFORE_OFF failed runs in a row). Turning it on clears it.
+        ("disabled_reason", "TEXT DEFAULT ''"),
+        # When it was last turned back on: a failure streak counts only the runs since.
+        ("re_enabled_at", "TEXT DEFAULT ''"),
     ],
     "task_runs": [
         ("finished_at", "TEXT"),
@@ -318,6 +325,7 @@ _REQUIRED_COLUMNS = {
         "advanced_mode", "agent_profile_id", "profile_migration_status",
         "profile_migration_note", "profile_migration_snapshot_json",
         "workspace_id", "workspace_name", "timezone", "missed_runs", "always_ask", "send_results",
+        "disabled_reason", "re_enabled_at",
     },
     "task_runs": {
         "id", "task_id", "thread_id", "started_at", "finished_at", "status",
@@ -1401,6 +1409,7 @@ def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
             "THEN json_array_length(t.prompts) ELSE 0 END AS step_count, "
             "substr(t.schedule, 1, 256) AS schedule, substr(t.at, 1, 80) AS at, "
             "substr(t.last_run, 1, 80) AS last_run, t.persistent_thread_id, "
+            "substr(COALESCE(t.disabled_reason, ''), 1, 32) AS disabled_reason, "
             "(SELECT substr(r.status, 1, 80) FROM task_runs r WHERE r.task_id=t.id "
             "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS last_status, "
             # The ten newest saved runs (status and start only), newest first.
@@ -1610,6 +1619,7 @@ def update_task(
         "profile_migration_status", "profile_migration_note",
         "profile_migration_snapshot_json",
         "timezone", "workspace_id", "workspace_name", "missed_runs", "always_ask", "send_results",
+        "disabled_reason",
     }
     if expected_revision is not None and set(kwargs) - {
         "name", "description", "icon", "prompts", "schedule", "at", "enabled",
@@ -1649,6 +1659,14 @@ def update_task(
                 raise TaskMutationError("task_revision_conflict", task_id)
         if validate is not None:
             validate()
+        if kwargs.get("enabled"):
+            # Turned on, by anyone: why it was off no longer holds, and turning it back on starts a new
+            # failure streak.
+            conn.execute(
+                "UPDATE tasks SET disabled_reason = '', "
+                "re_enabled_at = CASE WHEN enabled = 0 THEN ? ELSE re_enabled_at END WHERE id = ?",
+                (datetime.now().isoformat(), task_id),
+            )
         for key, value in kwargs.items():
             if key not in _ALLOWED:
                 continue
@@ -2526,6 +2544,74 @@ def mark_run_waiting(run_id: str, task: Mapping[str, Any]) -> None:
            sound="workflow", toast_type="warning", source="workflow", in_app=False)
 
 
+# A workflow that starts by itself is switched off after this many failed runs in a row (D5), so it doesn't
+# spend model time all night on a run that can't succeed. Run now still works while it is off.
+FAILURES_BEFORE_OFF = 5
+# How a run's ending counts toward that: these count, these end the streak; the rest (stopped, skipped,
+# expired, still going) neither count nor end it.
+_STREAK_COUNTS = frozenset({"failed", "blocked"})
+_STREAK_ENDS = frozenset({"completed", "completed_delivery_failed", "unsure", "denied"})
+OFF_AFTER_FAILURES = (f"It failed {FAILURES_BEFORE_OFF} times in a row, so Row-Bot switched it off. "
+                      "Open it to see why, then turn it back on.")
+OFF_AFTER_FAILURES_LINE = f"Row-Bot switched this workflow off after {FAILURES_BEFORE_OFF} failed runs in a row."
+
+
+@_schema_retry
+def failures_in_a_row(task_id: str) -> int:
+    """How many of the workflow's newest runs since it was last turned on failed, up to the last that worked."""
+    conn = _get_conn()
+    try:
+        row = conn.execute("SELECT COALESCE(re_enabled_at, '') FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        rows = conn.execute(
+            "SELECT status FROM task_runs WHERE task_id = ? AND started_at >= ? "
+            "ORDER BY started_at DESC, id DESC LIMIT 50", (task_id, row[0] if row else ""),
+        ).fetchall()
+    finally:
+        conn.close()
+    count = 0
+    for (status,) in rows:
+        if status in _STREAK_ENDS:
+            break
+        count += status in _STREAK_COUNTS
+    return count
+
+
+def _starts_by_itself(task: Mapping[str, Any]) -> bool:
+    """A schedule, a time, a webhook or another workflow starts it; a manual-only workflow is never switched off."""
+    trigger = task.get("trigger")
+    return bool(task.get("schedule") or task.get("at")) or (
+        isinstance(trigger, Mapping) and trigger.get("type") in {"webhook", "task_complete"})
+
+
+def switches_off_if_this_run_fails(task: Mapping[str, Any]) -> bool:
+    """Whether one more failed run (the one ending now, not yet saved as ended) switches this workflow off."""
+    return bool(task.get("enabled")) and _starts_by_itself(task) and \
+        failures_in_a_row(str(task["id"])) + 1 >= FAILURES_BEFORE_OFF
+
+
+def off_after_failures(task: Mapping[str, Any], status: str, thread_id: str) -> bool:
+    """After a run that ended *status*: switch the workflow off when it failed FAILURES_BEFORE_OFF runs in a row,
+    with one notice in place of the run's own. True when it was switched off."""
+    if status not in _STREAK_COUNTS:
+        return False
+    current = get_task(str(task["id"]))
+    if current is None or not current.get("enabled") or not _starts_by_itself(current):
+        return False
+    if failures_in_a_row(current["id"]) < FAILURES_BEFORE_OFF:
+        return False
+    update_task(current["id"], enabled=False, disabled_reason="failures")
+    _publish_live("runs", "monitor")  # Its card and Monitor say it is off.
+    logger.warning("Workflow %s failed %d runs in a row and was switched off", current["id"], FAILURES_BEFORE_OFF)
+    from row_bot.notifications import notify
+
+    title = f"{current.get('name') or 'A workflow'} is off"
+    _emit_buddy_workflow_event("error", task_id=current["id"], thread_id=thread_id, label=title,
+                               error=OFF_AFTER_FAILURES)
+    notify(title=title, message=OFF_AFTER_FAILURES, sound="workflow", toast_type="warning", source="workflow",
+           workflow_id=str(current["id"]))
+    return True
+
+
 def after_run_finished(task: dict, run_id: str, thread_id: str, status: str, notice: str,
                        delivery_status: str, delivery_detail: str, *, reply: str = "") -> None:
     """What follows a finished run: its notices, the workflows that run after it, a one-time workflow's removal."""
@@ -2535,6 +2621,7 @@ def after_run_finished(task: dict, run_id: str, thread_id: str, status: str, not
         update_task(task["id"], last_run=datetime.now().isoformat())
     # The morning brief and the end-of-day wrap reach the person as one Proactive moment, on one surface.
     own_moment = proactive_day.which(str(task["id"])) is not None
+    switched_off = False
     if status in {"completed", "completed_delivery_failed"}:
         if not own_moment:
             _emit_buddy_workflow_event("done", task_id=task["id"], thread_id=thread_id,
@@ -2547,7 +2634,8 @@ def after_run_finished(task: dict, run_id: str, thread_id: str, status: str, not
             logger.error("Workflows after %s could not start", task["name"], exc_info=True)
     elif status == "stopped":
         _emit_buddy_workflow_event("cancelled", task_id=task["id"], thread_id=thread_id, label=task.get("name", ""))
-    else:
+    # Failed too often in a row: one notice that it is off replaces this run's own.
+    elif not (switched_off := off_after_failures(task, status, thread_id)):
         _emit_buddy_workflow_event("error", task_id=task["id"], thread_id=thread_id,
                                    label=task.get("name", ""), error=notice)
         notify(title=f"{task['name']}: {_RUN_ENDING_WORDS.get(status, 'needs a look')}", message=notice,
@@ -2558,7 +2646,7 @@ def after_run_finished(task: dict, run_id: str, thread_id: str, status: str, not
     try:
         if own_moment:
             proactive_day.finished(task, run_id, status, reply, notice)
-        else:
+        elif not switched_off:  # Its notice already says it is off; no later "didn't finish" moment.
             from row_bot.proactive.changes import workflow_finished
 
             workflow_finished(task, run_id, status, notice)
@@ -3591,8 +3679,9 @@ def run_task_background(
         if refusal:
             _finish_run(run_id, "blocked", status_message=refusal, terminal_reason="code_folder_unavailable",
                         notice=refusal, fix="choose_folder")
-            _emit_buddy_workflow_event("error", task_id=task_id, thread_id=thread_id,
-                                       label="Workflow needs attention", error=refusal)
+            if not off_after_failures(task, "blocked", thread_id):
+                _emit_buddy_workflow_event("error", task_id=task_id, thread_id=thread_id,
+                                           label="Workflow needs attention", error=refusal)
             return
 
     with _active_lock:

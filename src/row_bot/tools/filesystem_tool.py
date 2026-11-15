@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from row_bot.data_paths import is_private_data_path
@@ -161,9 +162,9 @@ def _normalise_path(file_path: str, root_dir: str) -> str:
         fp = "."
 
     # Handle absolute paths inside the workspace. The stripping above drops a POSIX path's leading "/", so an
-    # absolute path resolves from what was given.
+    # absolute path resolves from what was given. The turn context names the workspace in its ``~`` form.
     try:
-        given = Path(file_path.strip())
+        given = Path(file_path.strip()).expanduser()
         resolved = (given if given.is_absolute() else Path(fp)).resolve()
         root_resolved = Path(root_dir).resolve()
         if _within(resolved, root_resolved):
@@ -177,10 +178,11 @@ def _normalise_path(file_path: str, root_dir: str) -> str:
 
 def _is_outside_workspace(value: str, root_dir: str) -> bool:
     """Return True if *value* looks like an absolute path that falls outside
-    the workspace *root_dir*.  Relative paths are assumed to resolve inside."""
+    the workspace *root_dir*.  Relative paths are assumed to resolve inside; ``~`` is the home folder."""
+    import os
     from pathlib import Path
 
-    v = value.replace("\\", "/").strip()
+    v = os.path.expanduser(value.strip()).replace("\\", "/")
     # Only flag absolute paths (Windows drive letter or Unix /)
     if not (v.startswith("/") or (len(v) >= 2 and v[1] == ":")):
         return False
@@ -235,6 +237,32 @@ def _absolute(value: str, root_dir: str) -> Path:
     return (given if given.is_absolute() else Path(root_dir) / _normalise_path(value, root_dir)).resolve()
 
 
+# The operations that leave a file somewhere, and the argument naming where.
+_SAVED_TO = {"write_file": "file_path", "copy_file": "destination_path", "move_file": "destination_path"}
+
+
+def _where_saved(operation: str, result, kwargs: dict, target: Path, root_dir: str):
+    """A write, copy or move result that says where the file now is (A2), so the reply can name it.
+
+    The place is shown as the turn context names folders: ``~/…`` under the home folder, as it is elsewhere.
+    A refusal or error is returned unchanged.
+    """
+    from row_bot.data_paths import display_path
+
+    if not isinstance(result, str) or result.startswith("Error") or not target.is_file():
+        return result
+    inside = _within(target, root_dir)
+    shown = os.path.relpath(target, Path(root_dir).resolve()).replace("\\", "/") if inside else target.name
+    if operation == "write_file":
+        lead = f"Added to {shown}" if kwargs.get("append") else f"Saved {shown}"
+    else:
+        source = str(kwargs.get("source_path") or "").strip()
+        lead = f"{'Copied' if operation == 'copy_file' else 'Moved'} {source} to {shown}"
+    if inside:
+        return f"{lead} in the workspace ({display_path(target)})."
+    return f"{lead} outside the workspace: {display_path(target)}."
+
+
 def _wrap_tool_with_path_fix(tool, root_dir: str):
     """Return a copy of *tool* that:
     1. Rejects absolute paths outside the workspace with a redirect hint.
@@ -281,9 +309,13 @@ def _wrap_tool_with_path_fix(tool, root_dir: str):
         if refusal:
             return refusal
         rooted = type(tool)(root_dir=str(common))
+        given = dict(kwargs)
         for key, path in paths.items():
             kwargs[key] = os.path.relpath(path, common).replace("\\", "/")
-        return rooted._run(**kwargs)
+        result = rooted._run(**kwargs)
+        if operation in _SAVED_TO and _SAVED_TO[operation] in paths:
+            return _where_saved(operation, result, given, paths[_SAVED_TO[operation]], root_dir)
+        return result
 
     def _wrapped(**kwargs):
         # A path outside the workspace asks first (5.3.1 B1); inside it, paths are normalised.
@@ -295,7 +327,11 @@ def _wrap_tool_with_path_fix(tool, root_dir: str):
                 kwargs[key] = _normalise_path(kwargs[key], root_dir)
                 if is_private_data_path(Path(root_dir) / kwargs[key]):
                     return PRIVATE_DATA_PATH_REFUSAL
-        return original_func(**kwargs)
+        result = original_func(**kwargs)
+        target = kwargs.get(_SAVED_TO.get(operation, ""))
+        if isinstance(target, str):
+            return _where_saved(operation, result, kwargs, (Path(root_dir) / target).resolve(), root_dir)
+        return result
 
     # Rename to workspace_* and enrich description with scope
     new_name = f"workspace_{tool.name}"

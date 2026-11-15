@@ -48,6 +48,8 @@ class TaskEditorSnapshot:
     approval_mode: str
     conversation_id: str | None
     legacy_delivery: bool
+    # "failures": Row-Bot switched it off after failed runs in a row (D5).
+    disabled_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -158,6 +160,7 @@ def _snapshot(row: dict, revision: str) -> TaskEditorSnapshot:
         approval_mode=_approval_level(row.get("safety_mode")),
         conversation_id=row.get("persistent_thread_id"),
         legacy_delivery=bool(row.get("delivery_channel") or row.get("delivery_target")),
+        disabled_reason="failures" if row.get("disabled_reason") == "failures" else "",
     )
 
 

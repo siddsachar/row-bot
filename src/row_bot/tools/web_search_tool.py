@@ -38,11 +38,24 @@ class WebSearchTool(BaseTool):
         return {self.name}
 
     def execute(self, query: str) -> str:
+        import requests
         from tavily import TavilyClient
+        from tavily.errors import (ForbiddenError, InvalidAPIKeyError, MissingAPIKeyError, TimeoutError,
+                                   UsageLimitExceededError)
         from row_bot.api_keys import get_key
 
-        client = TavilyClient(api_key=get_key("TAVILY_API_KEY"))
-        response = client.search(query, max_results=8)
+        key = get_key("TAVILY_API_KEY")
+        if not key:
+            # Without a key Tavily isn't asked at all; the keyless search answers instead (A2).
+            return _keyless_fallback(query, "no API key")
+        try:
+            response = TavilyClient(api_key=key).search(query, max_results=8)
+        except (InvalidAPIKeyError, MissingAPIKeyError, ForbiddenError):
+            return _keyless_fallback(query, "its API key was refused")
+        except UsageLimitExceededError:
+            return _keyless_fallback(query, "its usage limit is reached")
+        except (TimeoutError, requests.exceptions.RequestException):
+            return _keyless_fallback(query, "it couldn't be reached")
         results = response.get("results", [])
 
         if not results:
@@ -59,6 +72,29 @@ class WebSearchTool(BaseTool):
                 f"SOURCE_URL: {link}"
             )
         return "\n\n---\n\n".join(parts)
+
+
+def _keyless_fallback(query: str, reason: str) -> str:
+    """Tavily can't answer: search without a key, saying so in one line the model may pass on (A2).
+
+    The keyless search is the DuckDuckGo tool's; when the person switched that off, its engines aren't asked.
+    """
+    from row_bot.tools.duckduckgo_tool import KeylessSearchFailed, keyless_search
+
+    if not registry.is_enabled("duckduckgo"):
+        return (
+            f"Web search couldn't run: Tavily isn't available ({reason}), and the keyless search (DuckDuckGo) "
+            "is switched off. Read a page you know with read_url instead."
+        )
+    try:
+        results = keyless_search(query)
+    except KeylessSearchFailed:
+        return (
+            f"Web search couldn't get results just now: Tavily isn't available ({reason}), and the keyless "
+            "search engines limited requests or found nothing. Try different words in a minute, or read a "
+            "page you know with read_url."
+        )
+    return f"Tavily isn't available ({reason}); results from the keyless search:\n\n{results}"
 
 
 registry.register(WebSearchTool())

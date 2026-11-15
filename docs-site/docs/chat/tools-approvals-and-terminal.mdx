@@ -44,6 +44,8 @@ A new conversation, workflow or Developer workspace starts at the level you last
 
 No level changes these limits: blocked commands, **Block**, capabilities switched off in Settings (such as the data-folder setting, or an app turned off in the chat), plugin isolation, the Developer sandbox's checks and network setting, a read-only helper's refusals, and secrets never being shown. Conversations, profiles and workflows saved with the old **Auto** use the reviewed Auto; nothing moves to Hands-off unless you choose it.
 
+For the whole safety design in one place, and what is not a boundary, see [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds).
+
 An app's tools also follow the access you chose for it in [Settings › Apps](/docs/settings/apps): **Read only**, **Ask before changes** or **Full access**. Deleting, sending, paying, publishing, running code and unknown actions ask first whichever access you choose. An approval card for an app's action shows the app's logo and name above the question, with **Details**, **Deny** and **Approve**. Under **Auto**, these go to the reviewer, which is told the app's access says to ask. Turning an app on or off for a chat, or mentioning it, never skips an approval; see [Apps in a chat](/docs/chat/#apps-in-a-chat).
 
 **Approvals wait until you answer.** They no longer expire after a set time; a workflow step that sets its own time limit still honours it. Each one shows how long it has been waiting.

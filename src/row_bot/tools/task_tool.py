@@ -37,6 +37,8 @@ _SCHEDULE_FORMATS = (
 )
 _TEMPLATE_VARIABLES = "{{date}}, {{day}}, {{time}}, {{month}}, {{year}} and {{task_id}} (this task's own id)"
 _TASK_LIST_CHARS = 30_000  # Beyond this the list is saved, and read on with read_tool_output.
+# Why a workflow is off when Row-Bot switched it off (D5), so it isn't turned back on without the person.
+_OFF_AFTER_FAILURES = f"failed {tasks_db.FAILURES_BEFORE_OFF} times in a row"
 
 
 class _TaskCreateInput(BaseModel):
@@ -242,6 +244,8 @@ def _task_list(include_history: bool = False, task_id: str | None = None) -> str
             "name": f"{t['icon']} {t['name']}",
             "enabled": t.get("enabled", True),
         }
+        if t.get("disabled_reason") == "failures":
+            entry["off"] = _OFF_AFTER_FAILURES
         if t.get("description"):
             entry["description"] = t["description"]
         if t.get("schedule"):
@@ -293,6 +297,7 @@ def _task_detail(task_id: str) -> str:
         "id": t["id"],
         "name": f"{t['icon']} {t['name']}",
         "enabled": t.get("enabled", True),
+        **({"off": _OFF_AFTER_FAILURES} if t.get("disabled_reason") == "failures" else {}),
         "description": t.get("description") or "",
         "schedule": t.get("schedule") or ("once at " + t["at"] if t.get("at") else "manual"),
         "timezone": t.get("timezone") or "local",
