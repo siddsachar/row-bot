@@ -55,8 +55,9 @@ def _about(seconds: float) -> str:
         count, unit = math.ceil(seconds / 3600), "hour"
     return f"{count} {unit}{'' if count == 1 else 's'}"
 
-# "proactive": the person acted on a Proactive Row-Bot moment that carries on in this chat.
-FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on", "proactive"]
+# "proactive": the person acted on a Proactive Row-Bot moment that carries on in this chat. "watch": a watch saw a
+# change (B4), apart from a one-time wait's "wait".
+FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on", "proactive", "watch"]
 
 # A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
 # "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.
@@ -104,14 +105,16 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
     saved and that aren't there; never after another carry-on."""
     from row_bot.file_claims import could_claim
 
-    if status != "completed" or followup_kind == "carry_on":
-        return
+    if status != "completed" or followup_kind in ("carry_on", "watch"):
+        return  # A watch's turn says what changed and stops there.
     next_step = stopped_on_next_step(assistant_text)
     if not next_step and not could_claim(assistant_text):
         return
     from row_bot import tasks, waits
-    # A workflow's run moves on by itself, and a wait already brings the conversation back.
-    if tasks.active_run_for_conversation(conversation_id) is not None or waits.waiting(conversation_id):
+    # A workflow's run moves on by itself, and a wait already brings the conversation back. A watch (B4) only speaks
+    # up on a change, which may never come: it doesn't count.
+    if tasks.active_run_for_conversation(conversation_id) is not None or any(
+            record["kind"] != "watch" for record in waits.waiting(conversation_id)):
         return
     if next_step:
         followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE)

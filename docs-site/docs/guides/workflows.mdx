@@ -60,6 +60,16 @@ Choose **Home**, then the **Workflows** tab. Overview's **New workflow** quick s
 - A run can wait for something and carry on when it happens: a build or check to pass, a page to change, a time, or another workflow to finish. Nothing runs while it waits. **Home › Waiting** and the conversation show what it waits for, with **Stop**. Pictures, clips and voice lines pass through **Library › Media**, where a workflow finds, tags and copies them. For real screenshots and clips, a workflow uses a [sandbox](/docs/operations/#sandboxes), never your own Row-Bot.
 - A run has no step limit to set. It keeps going while it makes progress, and stops when you press **Stop** or when it keeps repeating the same thing. After a very long run of steps it stops and asks **Keep going?**: send **Continue** in its conversation to pick up from there.
 
+## Watch Something From A Chat
+
+For a quick check you don't need a workflow: a **watch** keeps an eye on something from the chat you're in and speaks up there only when it changes.
+
+- Type `/watch` (or `/loop`) and what to watch. `/watch 10m https://status.example.com` watches a page and ``/watch 5m `gh pr checks 590` `` a command, set at once with no model call. Leave out the interval and it paces itself: every 5 minutes, slower while nothing changes, up to an hour.
+- Anything else, such as `/watch is the PR ready to merge? every 30m`, goes to Row-Bot, which sets the watch. A question that needs judgement is checked by the chat's own model, at most every 15 minutes, with read-only tools only. A check that finds nothing new never shows in the chat.
+- A command that only reads is set as it is. Any other command asks first, by the chat's approval level, once, when the watch is set; each check checks it again, and on **Block** only commands that just read run. Pages must be public.
+- The watch's card, above the message box and in Conversation details, shows its last check, its changes and what its checks used, with **Check now**, **Pause**, **Watch 24 hours longer** and **Stop**.
+- A watch lasts 24 hours, and up to 7 days. It stops after 20 changes, and Row-Bot keeps at most 10 watches across your chats. When one ends, or can't be extended any more, **Make this a workflow** on its card opens a new workflow filled in from it, to review and save; saving stops the watch. Choose a workflow for checks that should run for longer, on their own.
+
 ## Workflow Settings
 
 - **Workflow settings** chooses the model and the trigger: manual and scheduled runs only, **When another workflow completes**, or **Webhook (HTTP POST)**. A webhook trigger creates a private secret when you save; download its configuration and keep it private.

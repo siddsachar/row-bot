@@ -1,6 +1,7 @@
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, screenshot, test } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
+import { fixtureHeaders } from './surface-helpers';
 import {
   composer,
   dismissNotices,
@@ -84,6 +85,15 @@ async function ask(page: Page, text: string) {
   await composer(page).fill(text);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
 }
+
+// The scripted turns end with each test, and leave no provider work behind on the
+// shared fixture server: a later spec (the real-host bootstrap) checks nothing ran.
+test.afterEach(async ({ page }) => {
+  const reset = await page.request.post('/__f3_fixture/reset', {
+    headers: fixtureHeaders(),
+  });
+  expect(reset.ok(), await reset.text()).toBe(true);
+});
 
 test('a reply’s components render from the server, and a choice sends the person’s words', async ({
   page,

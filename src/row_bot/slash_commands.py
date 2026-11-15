@@ -60,6 +60,11 @@ BUILTIN_COMMANDS: tuple[SlashCommandSpec, ...] = (
         "Chat", "none", "stop_generation",
     ),
     SlashCommandSpec(
+        "watch", "/watch", ("/loop",), "Watch",
+        "Check a page, a command or a question on a schedule; Row-Bot speaks up only when it changes.",
+        "visibility", "Chat", "prefix", "watch",
+    ),
+    SlashCommandSpec(
         "reasoning", "/reasoning", (), "Reasoning",
         "Show or set reasoning for the active model in this chat.", "psychology",
         "Chat", "prefix", "reasoning",
