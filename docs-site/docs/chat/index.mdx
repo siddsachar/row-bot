@@ -1,6 +1,6 @@
 ---
 title: "Chat"
-description: "Use Row-Bot conversations: the composer, models, incognito chats, attachments, pages, questions, context and token usage, apps and skills in a chat, approvals, the details card, and the conversation library."
+description: "Use Row-Bot conversations: the composer, models, incognito chats, attachments, tables, charts, choices and visuals in answers, pages, questions, context and token usage, apps and skills in a chat, approvals, the details card, and the conversation library."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
@@ -98,6 +98,24 @@ Some apps can show a result as an interactive view, such as a chart, a form or a
 - Anything a view asks to do goes through the app's access and this chat's **Approvals**, like any other call. When it must ask, the approval card appears inside the view.
 - Turn views off for every app with **Settings › Apps › Advanced › Show app views in chat**, or for one app with **Show views in chat** on its page. Both are on for apps whose setup included a view.
 - If a view doesn't open, **Open again** tries again. "Views from this app are off. Turn them on from its page in Apps." means a switch is off: the app's **Show views in chat**, the one in Apps › Advanced, or the app in this chat's **+ › Apps**.
+
+## Tables, Charts And Choices In Answers
+
+When an answer is really data, Row-Bot can show it as a small part of the reply instead of a wall of text: a table, a bar or line chart, a checklist, a few headline numbers, or progress against a target. They follow your light or dark theme and fit a phone.
+
+- **Tables** sort from their headers: click or press Enter on a header for ascending, again for descending, and a third time for the reply's own order. Numbers, money, percentages and dates sort by value. **Copy as CSV** copies the table in the order shown. Every table Row-Bot writes in Markdown sorts the same way.
+- **Checklists** and Markdown task lists (`- [ ]`) tick. Your ticks are kept with the chat and follow you to your other devices, but they're yours: Row-Bot doesn't see them unless you tell it.
+- **Charts** use the same card as other charts in a chat: **Show data table**, **Download PNG** and **Expand**.
+- **Choices**: a reply can end with a few buttons, such as "Groceries · Subscriptions · Next month's budget". A tap sends the button's words as your own message, just as if you'd typed them; nothing else happens and no tool runs. The button you picked shows **Sent**, and the others switch off. Other parts can carry reply buttons too, such as **Find savings** under a table.
+- In Telegram, Slack, WhatsApp and other chat apps, the same parts arrive as plain text: a table as text, a checklist as ticked lines, choices as a numbered list you can answer in words.
+
+### Visuals
+
+When a picture explains something better, Row-Bot can draw it right in the reply: a diagram, or a small interactive explanation such as a slider that shows how savings grow. Each one is labelled **Made by Row-Bot**.
+
+- **Expand** opens it larger, **Open as page** opens it beside the chat as a page, and **Copy source** copies its code.
+- A visual runs apart from Row-Bot, like a page: it has no internet, can't see your chats, files or settings, can't open pop-ups or downloads, and can't send anything. One that tries to open another page is stopped.
+- In a chat app, a visual arrives as a note that it's in the chat in Row-Bot.
 
 ## Pages
 
