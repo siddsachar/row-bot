@@ -33,6 +33,12 @@ Dream Cycle is idle-time knowledge maintenance. When enabled and due, it looks a
 
 Dream Cycle is not an autonomous second assistant and it does not make external facts true. It should run only during the configured window while the app is idle. Inferred relationships use confidence thresholds, but important knowledge still deserves human review.
 
+## Lessons From Learning
+
+With [Learning](/docs/learning/) on, Row-Bot can draft a **lesson** from your work: a short "do it this way" note, such as "When two documents share a title, choose by ID". A lesson is tested before it's offered, and goes into use only when you choose **Use this change** (or, if you chose it, when it passes its test). A lesson in use is saved as a memory of how to work, so recall brings it up like any memory when a request is about what it covers, and the reply says "Used a lesson".
+
+Manage lessons in Home › Learning › [Lessons](/docs/learning/lessons). A lesson's memory also appears in Home › Knowledge; if you delete it there, Lessons shows **Memory removed** and Row-Bot stops using it. Learning's own record of how Row-Bot handled your requests is kept apart from memory, and deleting learning data doesn't delete your memories.
+
 ## What Wiki Vault Does
 
 Wiki Vault writes a readable view of selected graph material. The graph remains the source of truth; the vault is a generated output. If the destination is synced to a cloud drive, repository, or publishing tool, that folder becomes a separate sharing boundary.
@@ -40,7 +46,8 @@ Wiki Vault writes a readable view of selected graph material. The graph remains 
 ## Configure And Review It
 
 - Review memories in [Knowledge](/docs/knowledge/) (Home › Knowledge) and investigate changes in [Monitor](/docs/monitor/).
-- Turn memory on or off, check graph health and configure Wiki output in [Memory Settings](/docs/settings/knowledge); Dream Cycle's hours are in Settings › Preferences.
+- Turn memory on or off, check graph health and configure Wiki output in [Memory Settings](/docs/settings/knowledge); Dream Cycle's hours are in Settings › Preferences, and Learning uses the same hours.
+- Review the lessons Learning uses in [Lessons](/docs/learning/lessons), and set Learning up in [Learning Settings](/docs/settings/learning).
 - Configure indexed files in [Documents Settings](/docs/settings/documents).
 - Set up the export folder in [Wiki Vault](/docs/knowledge/wiki-vault) and correct mistakes with [Provenance And Repair](/docs/knowledge/provenance-repair).
 - Back up the related local data as one set using [Operations, Data, And Recovery](/docs/operations/).

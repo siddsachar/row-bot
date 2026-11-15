@@ -1,0 +1,85 @@
+---
+title: "Learning: Overview"
+description: "The Learning tab's Overview: what needs you, what Learning did overnight, what Row-Bot is learning, and how it learns."
+---
+
+# Learning: Overview
+
+Overview is the first view of the Learning tab. It shows what needs you, what Learning did in last night's quiet hours, where each kind of work stands, and the method Row-Bot learns with.
+
+## Where To Find It
+
+Choose **Home**, then the **Learning** tab. The tab is there while Learning is on or paused. Its views are **Overview**, **Changes**, **Lessons** and **Personal model**.
+
+## The Header
+
+- **Learning** with its status: **On** or **Paused**. While a Pause or Resume is under way, it says **Pausing…** or **Resuming…**.
+- A line with the next look and this month's spending, such as "Next look tonight at 1:00 AM · 240K of 2M tokens this month". With **No limit** it reads "3M tokens this month (no limit)". When the next look is already due, it says "Looks for things to improve once Row-Bot is free".
+- The **⋯** menu (**More for Learning**): **Pause** or **Resume**, **Learning settings**, and **Delete learning data…**.
+
+## Banners
+
+- **Paused**: "Learning is paused. Nothing new is recorded, tested or trained." with **Resume**.
+- **Monthly limit reached**: "Monthly limit reached. Testing resumes on 1 Nov. Local training continues." with **Raise limit**, which opens the limit in Settings › Learning. With **No model calls** as the limit, it says "Your monthly limit is 0, so Learning makes no model calls. Local training continues."
+- **Reading past chats**: "Reading 214 past chats · 61 done", with a progress bar. It adds "waits while you chat" while a chat is replying.
+- **Testing now**: "Testing “Pick documents by ID” on 24 tasks · 9 done", while a change is being tested.
+
+## Needs You
+
+What waits for your choice:
+
+- **A change ready to review**, with **Review**. See [Changes](/docs/learning/changes).
+- **"Personal model v1 is ready to compare"**, with **Review**: the new version's comparison is done. See [Personal Model](/docs/learning/personal-model#compare-a-version).
+- **"Keep v1 for document lookups?"**, with the trial's numbers, and **Keep**, **Not now** and **Undo**.
+- **"A deleted chat was used to train v1."**, with **Retrain without it** and **Not now**. Deleting a chat doesn't remove what a model already learned from it.
+
+When nothing waits: "Nothing needs you. Changes that are ready to review show here."
+
+## Overnight
+
+What Learning did in last night's quiet hours, one line each:
+
+- "Looked for things to improve: nothing new."
+- "Found 3 things to improve · drafted 2"
+- "1 kind of work needs more examples"
+- "1 of them looks like a bug in Row-Bot itself"
+- "Left out 1 idea: Learning needs your feedback first, and never adds addresses, links, passwords or permissions"
+- "Tested 3 ideas: 1 ready, 2 not better"
+- "Testing stopped at this month's limit; the rest wait for next month."
+- "Stopped when you came back to Row-Bot; it carries on when you're away."
+- "Put “Pick documents by ID” into use by itself (lesson)", with **Undo**, for a change that went into use by itself under **Use changes that pass their tests**.
+- "Changed how it learns (method v2): …", with **Undo**, or "Tried a new way of learning; it wasn't better. Kept method v1." See [How Row-Bot Learns](/docs/learning/how-row-bot-learns).
+
+When it couldn't run, it says why:
+
+- "Didn't look for things to improve: this month's limit was reached."
+- "Couldn't look for things to improve: the model wasn't available. Trying again tonight."
+- "Choose a default model in Settings › Models so Learning can look for things to improve."
+- "Learning's improvement work needs a model other than your Claude plan. Choose another default model in Settings › Models."
+
+Before the first night: "Nothing has run yet. What Learning does in quiet hours shows here the next morning."
+
+## What Row-Bot Is Learning
+
+A table of the [kinds of work](/docs/learning/#kinds-of-work) Learning has something for, and where each stands:
+
+| Status | What it means |
+| --- | --- |
+| **A change waits to be tested** | A change for this kind of work is drafted and will be tested. |
+| **A change is ready to review** | Its test passed. Review it in Needs you or Changes. |
+| **Improved · a change in use** | A change for this kind of work is in use. |
+| **Needs more examples** | Learning hasn't seen enough of this kind of work yet. Keep using Row-Bot; **Teach** helps. |
+| **Trying personal model v1** | Your personal model answers this kind of work on trial. |
+| **Personal model v1 in use** | You kept your personal model for this kind of work. |
+
+Before anything is learned: "Nothing learned yet. Row-Bot looks for things to improve during quiet hours. The quickest way to help is **Teach** on a reply that went wrong."
+
+## How Row-Bot Learns
+
+The method in use and this month's record: "Method v1 · since 1 Nov", "Kept 2 of 9 ideas this month · 1.1M tokens". **Details** opens [How Row-Bot Learns](/docs/learning/how-row-bot-learns).
+
+## Troubleshooting
+
+- **Overnight stays empty**: Learning works in quiet hours while Row-Bot is running and you aren't using it. Check the hours in Settings › Preferences › Overnight tidy-up.
+- **"Needs more examples" stays**: Learning needs more of that kind of work. Use Row-Bot for it, and use **Teach** on replies that went wrong.
+- **Testing stopped at the limit**: raise the **Monthly limit** in Settings › Learning, or wait for next month.
