@@ -102,6 +102,7 @@ BROWSER_SMOKE_SPECS = (
     "question-cards",
     "workflow-review",
     "pages",
+    "answer-components",
     "library-media",
     "video-panel",
     "sandboxes",
