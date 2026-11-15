@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "description": "The visual's frame address, served once to a frame with ``sandbox=\"allow-scripts\"``, no network.",
+  "properties": {
+    "frame_url": {
+      "pattern": "^/page-frames/[0-9a-f]{32}$",
+      "title": "Frame Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "frame_url"
+  ],
+  "title": "VisualFrame",
+  "type": "object"
+}

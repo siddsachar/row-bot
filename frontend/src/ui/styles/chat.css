@@ -3204,6 +3204,35 @@
   }
 }
 
+/* An inline visual (F3): Row-Bot's HTML/SVG in a sandboxed frame. */
+.answer-visual-maker {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.answer-visual-frame {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  border: 0;
+  background: transparent;
+  transition: height var(--motion-popover) var(--ease-out);
+}
+.answer-visual-frame[data-expanded] {
+  max-height: min(78vh, 820px);
+}
+@media (min-width: 768px) {
+  .visual-dialog {
+    width: min(94vw, 1180px);
+    max-width: min(94vw, 1180px);
+  }
+}
+
 /* Markdown task lists: real checkboxes the person can tick. */
 .task-list {
   padding-inline-start: 4px;

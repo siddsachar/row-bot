@@ -2695,8 +2695,41 @@ _F3_COMPONENTS = "\n\n".join([
         {"label": "Subscriptions", "reply": "List my subscriptions"},
         {"label": "Next month's budget", "reply": "Draft next month's budget"}]}),
 ])
+# Two visuals: an SVG diagram, and a small interactive explanation whose probe tries the network.
+_F3_DIAGRAM = """<svg viewBox="0 0 420 150" role="img" aria-label="The water cycle">
+<title>The water cycle</title>
+<style>text{font:13px system-ui;fill:var(--rb-text-primary)} .box{fill:var(--rb-surface-raised);stroke:var(--rb-border-control)}
+.arrow{stroke:var(--rb-accent-solid);stroke-width:2;fill:none;marker-end:url(#tip)}</style>
+<defs><marker id="tip" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+<path d="M0 0L8 4L0 8z" fill="var(--rb-accent-solid)"/></marker></defs>
+<rect class="box" x="10" y="50" width="110" height="44" rx="8"/><text x="65" y="77" text-anchor="middle">Sea</text>
+<rect class="box" x="155" y="10" width="110" height="44" rx="8"/><text x="210" y="37" text-anchor="middle">Clouds</text>
+<rect class="box" x="300" y="50" width="110" height="44" rx="8"/><text x="355" y="77" text-anchor="middle">Rivers</text>
+<path class="arrow" d="M90 50 Q120 20 152 30"/><path class="arrow" d="M265 32 Q300 24 330 48"/>
+<path class="arrow" d="M300 92 Q210 140 122 92"/></svg>"""
+_F3_SLIDER = """<title>Compound interest</title>
+<style>label{display:grid;gap:6px;font-size:14px} output{font:600 22px system-ui;color:var(--rb-accent-solid)}
+input{accent-color:var(--rb-accent-solid);width:100%} p{color:var(--rb-text-secondary);margin:6px 0 0}</style>
+<label>Years saved: <input id="years" type="range" min="1" max="40" value="10" aria-label="Years"></label>
+<p>£1,000 at 5% a year grows to <output id="total">£1,629</output></p>
+<p id="probe" data-network="unknown">Network: checking…</p>
+<script>
+const years = document.getElementById('years'), total = document.getElementById('total');
+function show() { total.textContent = '£' + Math.round(1000 * Math.pow(1.05, years.value)).toLocaleString('en-GB'); }
+years.addEventListener('input', show); show();
+const probe = document.getElementById('probe');
+fetch('https://example.com/f3-visual-probe').then(() => { probe.dataset.network = 'reached'; },
+  () => { probe.dataset.network = 'blocked'; }).finally(() => { probe.textContent = 'Network: ' + probe.dataset.network; });
+</script>"""
+_F3_VISUALS = "\n\n".join([
+    "Here's how it works.",
+    f"```rowbot-visual\n{_F3_DIAGRAM}\n```",
+    "And how saving grows over time:",
+    f"```rowbot-visual\n{_F3_SLIDER}\n```",
+])
 _F3_REPLIES = {
     "f3 components fixture": _F3_COMPONENTS,
+    "f3 visuals fixture": _F3_VISUALS,
     "List my subscriptions": "You pay for three: music, cloud storage and a news site.",
 }
 

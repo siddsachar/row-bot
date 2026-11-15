@@ -6181,6 +6181,26 @@ def create_router(
         found = await _page_call(decide, _page_id(page_id), body.id, body.choice, body.note, body.label)
         return await respond(request, dto.PageView, await call(view, found))
 
+    @router.post("/conversations/{conversation_id}/visual-frame")
+    async def visual_frame(conversation_id: str, request: Request) -> JSONResponse:
+        """One frame address for a visual in a reply (F3): served once, sandboxed, with no network."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.VisualFrameRequest, 256 * 1024)
+        from row_bot.application.answer_components import visual_frame as make
+
+        frame_url = await _page_call(make, service, conversation_id, body.html, body.theme.model_dump())
+        return await respond(request, dto.VisualFrame, {"frame_url": frame_url})
+
+    @router.post("/conversations/{conversation_id}/visual-page")
+    async def visual_page(conversation_id: str, request: Request) -> JSONResponse:
+        """The person's "Open as page" on a visual in a reply (F3): the same HTML as a page in that chat."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.VisualPageRequest, 256 * 1024)
+        from row_bot.application.answer_components import visual_page as make
+
+        made = await _page_call(make, service, conversation_id, body.title, body.html)
+        return await respond(request, dto.PageView, made)
+
     def _standalone(page_id: str, theme: dict) -> tuple[str, str]:
         from row_bot.pages import document, download_name, require
 

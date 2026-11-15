@@ -2821,6 +2821,33 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.saveAnswerState(conversationId, change, signal);
     });
+  /** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
+  visualFrame = (
+    conversationId: string,
+    html: string,
+    theme: PageTheme,
+    signal?: AbortSignal,
+  ) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.createVisualFrame)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.createVisualFrame(
+        conversationId,
+        { html, theme },
+        current,
+      );
+    }, signal);
+  /** A visual in a reply as a page beside its chat: the person's "Open as page" (F3). */
+  createVisualPage = (conversationId: string, title: string, html: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.createVisualPage)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.createVisualPage(
+        conversationId,
+        { title, html },
+        signal,
+      );
+    });
   /** One frame address for a page, served once to its sandboxed frame. */
   pageFrame = (pageId: string, theme: PageTheme, signal?: AbortSignal) =>
     this.authenticatedResult((current) => {

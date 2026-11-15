@@ -606,7 +606,45 @@ def render_frame(page_id: str, theme: Any) -> str:
 
     page = require(page_id)
     _rate(page_id, "frame", FRAMES_PER_MINUTE)
-    html = document(page, theme)
+    return _serve_once(document(page, theme))
+
+
+# An inline visual in a reply (F3) reuses the page frame: served once, under ``FRAME_HEADERS`` (no network,
+# sandboxed again). It has no bridge; it only tells the chat its height, and hears which theme is shown.
+MAX_VISUAL_BYTES = 200 * KB
+VISUAL_FRAMES_PER_MINUTE = 120
+_VISUAL_BOOT = (
+    "(function(){var last=0;function send(){var h=Math.ceil(document.documentElement.getBoundingClientRect().height);"
+    "if(h!==last){last=h;parent.postMessage({type:'rowbot-visual-height',h:h},'*');}}"
+    "new ResizeObserver(send).observe(document.documentElement);addEventListener('load',send);"
+    "addEventListener('message',function(e){if(e.source===parent&&e.data&&e.data.type==='rowbot-visual-theme')"
+    "{document.documentElement.dataset.theme=e.data.mode==='dark'?'dark':'light';}});})();"
+)
+_VISUAL_STYLE = (
+    ":root{color-scheme:light}:root[data-theme=\"dark\"]{color-scheme:dark}"
+    "html,body{margin:0;background:transparent}"
+    "body{padding:12px;color:var(--rb-text-primary);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",Roboto,"
+    "sans-serif}svg,img,canvas{max-width:100%;height:auto}"
+)
+
+
+def render_visual_frame(conversation_id: str, html: str, theme: Any) -> str:
+    """One frame address for a visual Row-Bot drew in this chat: its HTML/SVG with the theme's tokens."""
+
+    if not isinstance(html, str) or not html.strip():
+        raise PageError("chat_page_invalid", "The visual is empty.")
+    if len(html.encode("utf-8")) > MAX_VISUAL_BYTES:
+        raise PageError("chat_page_too_large", "The visual is over 200 KB.")
+    _rate(f"visual:{conversation_id}", "frame", VISUAL_FRAMES_PER_MINUTE)
+    tokens = theme_tokens(theme)
+    return _serve_once(
+        f'<!doctype html><html data-theme="{tokens["mode"]}"><head><meta charset="utf-8">'
+        f'<style id="rowbot-tokens">{_token_css(tokens)}{_VISUAL_STYLE}</style>'
+        f"<script>{_VISUAL_BOOT}</script></head><body>\n{html}\n</body></html>"
+    )
+
+
+def _serve_once(html: str) -> str:
     token = secrets.token_hex(16)
     now = time.monotonic()
     with _LOCK:

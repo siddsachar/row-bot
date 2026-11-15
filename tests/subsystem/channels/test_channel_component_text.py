@@ -40,3 +40,8 @@ def test_each_component_reaches_a_chat_app_as_words():
 def test_a_fence_that_does_not_fit_is_sent_as_written():
     broken = "```rowbot-table\n{not json\n```"
     assert assemble_agent_answer(f"Look:\n\n{broken}", []) == f"Look:\n\n{broken}"
+
+
+def test_a_visual_reaches_a_chat_app_as_a_pointer_never_its_code():
+    answer = assemble_agent_answer("See:\n\n```rowbot-visual\n<svg><title>Orbit</title><script>x()</script></svg>\n```", [])
+    assert answer == "See:\n\n[Visual: Orbit: open the chat in Row-Bot to see it]"

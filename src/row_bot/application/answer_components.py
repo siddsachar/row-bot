@@ -21,7 +21,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 
 MAX_COMPONENT_CHARS = 128 * 1024
 MAX_COMPONENT_TEXT_CHARS = 256 * 1024
-TAGS = ("table", "chart", "checklist", "figures", "progress", "choices")
+# An inline visual's HTML/SVG; it only ever runs in the client's sandboxed frame, with no network.
+MAX_VISUAL_CHARS = 200 * 1024
+TAGS = ("table", "chart", "checklist", "figures", "progress", "choices", "visual")
+_VISUAL_TITLE_RE = re.compile(r"<title[^>]*>([\s\S]{0,2000}?)</title>", re.IGNORECASE)
 FENCE_RE = re.compile(
     r"```rowbot-(" + "|".join(TAGS) + r")[ \t]*\n([\s\S]*?)\n```"
 )
@@ -372,6 +375,45 @@ _BUILDERS = {
 }
 
 
+def _visual(source: str) -> tuple[str, dict[str, Any]] | None:
+    """A rowbot-visual: HTML or SVG kept as written, for the client's sandboxed frame only.
+
+    Nothing here renders it. The client draws it in a frame with ``sandbox="allow-scripts"`` (an opaque
+    origin: no cookies, storage, forms, pop-ups or top navigation) under a policy with no network at all.
+    """
+
+    body = source.strip()
+    if not body or len(source) > MAX_VISUAL_CHARS:
+        return None
+    named = _VISUAL_TITLE_RE.search(body)
+    title = plain_text(named.group(1))[:120] if named else ""
+    return "visual", {"title": title, "source": body, "text": f"Visual: {title or 'drawn by Row-Bot'}"}
+
+
+def visual_frame(service: Any, conversation_id: str, html: str, theme: dict[str, Any]) -> str:
+    """A one-time frame address for a visual in this chat (the pages' frame: served once, no network)."""
+
+    from row_bot import pages
+    from row_bot.application.conversation_search import _require_readable
+
+    _require_readable(service, conversation_id)
+    return pages.render_visual_frame(conversation_id, html, theme)
+
+
+def visual_page(service: Any, conversation_id: str, title: str, html: str) -> dict[str, Any]:
+    """The person's "Open as page" on a visual: the same HTML as a page beside the chat (N5's sandbox)."""
+
+    from row_bot import pages
+    from row_bot.application.client_platform import ClientPlatformError
+    from row_bot.application.conversation_search import _require_readable
+
+    _require_readable(service, conversation_id)
+    if not html.strip() or len(html) > MAX_VISUAL_CHARS:
+        raise ClientPlatformError("invalid_command")
+    page = pages.create(conversation_id, plain_text(title)[:120] or "Visual", html)
+    return pages.view(page)
+
+
 def components_as_text(text: str) -> str:
     """The reply with each answer component as its plain text, for places that show only text.
 
@@ -385,7 +427,11 @@ def components_as_text(text: str) -> str:
 
     def words(match: re.Match[str]) -> str:
         component = parse_component(match.group(1), match.group(2))
-        return match.group(0) if component is None else component[1]["text"]
+        if component is None:
+            return match.group(0)
+        if component[0] == "visual":  # A chat app can't draw it: say where it is, never send its code.
+            return f"[{component[1]['text']}: open the chat in Row-Bot to see it]"
+        return component[1]["text"]
 
     return FENCE_RE.sub(words, text)
 
@@ -396,6 +442,8 @@ def parse_component(tag: str, source: str) -> tuple[str, dict[str, Any]] | None:
     Returns the block type (a rowbot-chart becomes the existing ``chart`` block) and its fields.
     """
 
+    if tag == "visual":
+        return _visual(source)
     schema = _SCHEMAS.get(tag)
     if schema is None or len(source) > MAX_COMPONENT_CHARS:
         return None

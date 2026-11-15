@@ -349,6 +349,32 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  createVisualFrame(
+    conversationId: string,
+    request: wire.VisualFrameRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.createVisualFrame(
+      this.base,
+      this.session(),
+      conversationId,
+      request,
+      signal,
+    );
+  }
+  createVisualPage(
+    conversationId: string,
+    request: wire.VisualPageRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.createVisualPage(
+      this.base,
+      this.session(),
+      conversationId,
+      request,
+      signal,
+    );
+  }
   pageFrame(pageId: string, theme: wire.PageTheme, signal?: AbortSignal) {
     return wire.createPageFrame(
       this.base,
