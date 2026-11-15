@@ -9299,10 +9299,92 @@ class MermaidBlock(WireModel):
     text: str = Field(max_length=65600)
 
 
+class AnswerAction(WireModel):
+    """A reply button (F3): tapping it sends ``reply`` as the person's own message, nothing else."""
+    label: str = Field(min_length=1, max_length=40)
+    reply: str = Field(min_length=1, max_length=500)
+
+
 class ChartBlock(WireModel):
     id: OpaqueId
     type: Literal["chart"]
     figure_json: str = Field(max_length=131072)
+    text: str = Field(max_length=4096)
+    actions: list[AnswerAction] = Field(default_factory=list, max_length=4)
+
+
+class TableColumn(WireModel):
+    key: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=200)
+    type: Literal["text", "number", "currency", "percent", "date"]
+
+
+class TableBlock(WireModel):
+    """A rowbot-table component: plain-text cells in column order, sorted in the client."""
+    id: OpaqueId
+    type: Literal["table"]
+    title: str = Field(max_length=200)
+    columns: list[TableColumn] = Field(min_length=1, max_length=12)
+    rows: list[list[Annotated[str, StringConstraints(max_length=200)]]] = Field(min_length=1, max_length=200)
+    note: str = Field(max_length=500)
+    actions: list[AnswerAction] = Field(max_length=4)
+    text: str = Field(max_length=262144)
+
+
+class ChecklistItemView(WireModel):
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,96}$")
+    text: str = Field(min_length=1, max_length=200)
+    done: bool
+
+
+class ChecklistBlock(WireModel):
+    id: OpaqueId
+    type: Literal["checklist"]
+    title: str = Field(max_length=200)
+    items: list[ChecklistItemView] = Field(min_length=1, max_length=50)
+    actions: list[AnswerAction] = Field(max_length=4)
+    text: str = Field(max_length=16384)
+
+
+class FigureView(WireModel):
+    label: str = Field(min_length=1, max_length=60)
+    value: float | Annotated[str, StringConstraints(min_length=1, max_length=40)]
+    unit: str = Field(max_length=12)
+    delta: str = Field(max_length=60)
+    tone: Literal["good", "bad", "neutral"]
+
+
+class FiguresBlock(WireModel):
+    id: OpaqueId
+    type: Literal["figures"]
+    title: str = Field(max_length=200)
+    items: list[FigureView] = Field(min_length=1, max_length=6)
+    actions: list[AnswerAction] = Field(max_length=4)
+    text: str = Field(max_length=4096)
+
+
+class ProgressItemView(WireModel):
+    label: str = Field(min_length=1, max_length=100)
+    value: float = Field(ge=0)
+    target: float = Field(gt=0)
+    unit: str = Field(max_length=12)
+
+
+class ProgressBlock(WireModel):
+    id: OpaqueId
+    type: Literal["progress"]
+    title: str = Field(max_length=200)
+    items: list[ProgressItemView] = Field(min_length=1, max_length=10)
+    actions: list[AnswerAction] = Field(max_length=4)
+    text: str = Field(max_length=8192)
+
+
+class ChoicesBlock(WireModel):
+    """A rowbot-choices component: 2-6 reply buttons; a tap sends that option's words as the person."""
+    id: OpaqueId
+    type: Literal["choices"]
+    prompt: str = Field(max_length=300)
+    options: list[AnswerAction] = Field(min_length=2, max_length=6)
     text: str = Field(max_length=4096)
 
 
@@ -9330,6 +9412,11 @@ TranscriptBlock = Annotated[
         MarkdownBlock,
         MermaidBlock,
         ChartBlock,
+        TableBlock,
+        ChecklistBlock,
+        FiguresBlock,
+        ProgressBlock,
+        ChoicesBlock,
         YouTubeBlock,
         AttachmentBlock,
     ],

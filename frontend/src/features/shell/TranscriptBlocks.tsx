@@ -466,6 +466,11 @@ export function publicBlockText(block: Block) {
     case 'markdown':
     case 'mermaid':
     case 'chart':
+    case 'table':
+    case 'checklist':
+    case 'figures':
+    case 'progress':
+    case 'choices':
       return block.text;
     case 'youtube':
       return `${block.title}\n${block.url}`;
@@ -497,7 +502,10 @@ export function TranscriptBlocks({
           );
         if (block.type === 'youtube')
           return <YouTube block={block} key={key} />;
-        return <Attachment block={block} key={key} />;
+        if (block.type === 'attachment')
+          return <Attachment block={block} key={key} />;
+        // Answer components read as their plain text until their renderers land (F3 WP3).
+        return <SafeMarkdown text={block.text} copyText={copyText} key={key} />;
       })}
     </>
   );
