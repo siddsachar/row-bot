@@ -10084,6 +10084,7 @@ def _stream_graph(agent, input_data, config: dict,
             # answer read back from the checkpoint arrives whole in "done".
             yield ("token", output_limit_notice)
 
+    latest_messages: list = []
     try:
         preparation_inputs = _last_preparation_inputs(config)
         latest_state = agent.get_state(config)
@@ -10116,7 +10117,23 @@ def _stream_graph(agent, input_data, config: dict,
             yield from _platform_output_binding_events(config, output, segment_id=segment_id)
     if str(getattr(latest_ai_message, "id", "")) not in seen_output_ids:
         yield from _platform_output_binding_events(config, latest_ai_message, segment_id=_platform_segment_id)
+    _note_turn_for_skill_offer(
+        config, latest_messages, ended_well=not (_stopped_by_user or _loop_detected or output_limit_notice)
+    )
     yield ("done", _joined_visible_answer(full_answer))
+
+
+def _note_turn_for_skill_offer(config: dict, messages: list, *, ended_well: bool) -> None:
+    """A turn that ended well may be worth a skill (C1); never fails or holds up the reply."""
+    if not ended_well or not messages:
+        return
+    try:
+        from row_bot import skill_offers
+
+        thread_id = str((config.get("configurable") or {}).get("thread_id") or "")
+        skill_offers.note_finished_turn(thread_id, messages, ended_well=True)
+    except Exception:
+        logger.debug("Skill offer check after a turn failed", exc_info=True)
 
 
 def _platform_output_binding_events(config: dict, message: Any, *, segment_id: str = "") -> Iterator[tuple[str, dict]]:
