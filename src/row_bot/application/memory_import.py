@@ -25,10 +25,12 @@ import logging
 import os
 import re
 import shutil
+import sqlite3
 import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -56,6 +58,7 @@ IDLE_SECONDS = 24 * 3600
 KEEP_SECONDS = 7 * 24 * 3600
 _SAFE_NAME = re.compile(r"[^\w .,()+-]")
 _BATCH_ID = re.compile(r"[0-9a-f]{32}")
+_SQLITE_HEADER = b"SQLite format 3\x00"
 _now = time.time
 
 _LOCK = threading.RLock()
@@ -392,9 +395,34 @@ def add_text(session_id: str, batch_id: str, text: str) -> dict:
         return _view(batch)
 
 
+def _is_database(path: Path) -> bool:
+    with open(path, "rb") as source:
+        return source.read(len(_SQLITE_HEADER)) == _SQLITE_HEADER
+
+
+def _copy_database(source: Path, copy: Path) -> None:
+    """One self-contained copy of an SQLite database, with what is still only in its write-ahead log
+    (the other app may be running). The original and the files beside it are only read."""
+    work = copy.parent / "work"
+    work.mkdir(mode=0o700)
+    try:
+        shutil.copyfile(source, work / "db")
+        log = source.with_name(source.name + "-wal")
+        if log.is_file() and not log.is_symlink():
+            shutil.copyfile(log, work / "db-wal")
+        with closing(sqlite3.connect(work / "db")) as read, closing(sqlite3.connect(copy)) as write:
+            read.backup(write)
+            write.execute("PRAGMA journal_mode=DELETE")  # the scan reads this one file, as it is
+    except sqlite3.Error:
+        raise ClientPlatformError("invalid_command") from None
+    finally:
+        _remove(work)
+
+
 def stage_local(session_id: str, paths: list[Path]) -> dict:
-    """Another assistant's memory files on this computer (chosen in Settings › Data's import), copied
-    into a new batch and scanned now, so the person reviews them here like any export.
+    """Another assistant's memory files, or its chats database, on this computer (chosen in Settings ›
+    Data's import), copied into a new batch and scanned now, so the person reviews them here like any
+    export.
 
     Nothing is saved to memory before Apply, and the batch keeps its own copies: the other app's
     folder is only read.
@@ -403,21 +431,30 @@ def stage_local(session_id: str, paths: list[Path]) -> dict:
 
     if not paths or len(paths) > FILES_PER_BATCH:
         raise ClientPlatformError("import_too_many_files" if paths else "invalid_command")
+    databases: set[Path] = set()
     for path in paths:
         if path.is_symlink() or not path.is_file():
             raise ClientPlatformError("invalid_command")
-        if path.stat().st_size > MAX_MEMORY_FILE_BYTES:
+        if _is_database(path):
+            databases.add(path)
+        if path.stat().st_size > (FILE_MAX_BYTES if path in databases else MAX_MEMORY_FILE_BYTES):
             raise ClientPlatformError("import_file_too_large")
     view = begin(session_id)
     with _LOCK:
         batch = _batch(session_id, view["batch_id"])
         try:
+            needed = sum(path.stat().st_size * 2 for path in databases)  # the copy and its working copy
+            if needed and shutil.disk_usage(batch.folder).free < needed + DISK_RESERVE_BYTES:
+                raise ClientPlatformError("import_storage_full")
             for path in paths:
                 file_id = uuid4().hex
                 place = batch.folder / "files" / file_id
                 place.mkdir(parents=True, mode=0o700)
                 copy = place / _safe_name(path.name)
-                shutil.copyfile(path, copy)
+                if path in databases:
+                    _copy_database(path, copy)
+                else:
+                    shutil.copyfile(path, copy)
                 size = copy.stat().st_size
                 batch.files[file_id] = _File(file_id, path.name, size, copy, received=size)
             scans = _scans(batch)
