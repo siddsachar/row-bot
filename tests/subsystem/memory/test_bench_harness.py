@@ -854,6 +854,27 @@ def test_a_turn_declines_what_stops_for_a_person_on_the_pinned_date(tmp_path, mo
         runtime.turn("thread-1", "again?")
 
 
+def test_a_turns_searches_are_traced_with_their_queries_and_results(tmp_path, reload_for_data_dir) -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from tests.e2e.bench.runtime import thread_tool_calls
+
+    (threads,) = reload_for_data_dir(tmp_path / "data", "row_bot.threads")
+    threads.create_thread("q", thread_id="q1", seed_default_skills=False)
+    assert threads.append_checkpoint_messages("q1", [
+        HumanMessage(id="h", content="When did Ana move?"),
+        AIMessage(id="a1", content="", tool_calls=[{"name": "search_conversations", "id": "c1",
+                                                    "args": {"query": "Ana moved"}}]),
+        ToolMessage(id="t1", content="[Match 1] Date: 2023-05-08 | User\nI moved to Lisbon." + "x" * 900,
+                    tool_call_id="c1"),
+        AIMessage(id="a2", content="In May 2023."),
+    ])
+    (call,) = thread_tool_calls("q1")
+    assert (call["name"], call["args"]) == ("search_conversations", {"query": "Ana moved"})
+    assert call["result"].startswith("[Match 1] Date: 2023-05-08") and len(call["result"]) == 600
+    assert thread_tool_calls("no-such-thread") == []
+
+
 # ── Ingestion through the real memory path ──────────────────────────────────
 
 

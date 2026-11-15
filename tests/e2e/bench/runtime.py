@@ -243,6 +243,29 @@ class SignIn:
             self.current = after
 
 
+_TOOL_RESULT = 600
+
+
+def thread_tool_calls(thread_id: str) -> list[dict[str, Any]]:
+    """The turn's tool calls with their arguments and the start of each result, from the conversation's own
+    checkpoint (the event stream leaves arguments out on purpose). The question threads are the run's own."""
+    from row_bot import threads
+
+    try:
+        messages = threads.get_latest_checkpoint_messages(thread_id)
+    except Exception:  # noqa: BLE001 - the stream's names are the fallback
+        return []
+    results = {str(getattr(message, "tool_call_id", "")): str(getattr(message, "content", ""))
+               for message in messages if getattr(message, "type", "") == "tool"}
+    found = []
+    for message in messages:
+        for call in getattr(message, "tool_calls", None) or []:
+            found.append({"name": str(call.get("name") or ""),
+                          "args": {key: str(value)[:_TOOL_ARGS] for key, value in (call.get("args") or {}).items()},
+                          "result": results.get(str(call.get("id") or ""), "")[:_TOOL_RESULT]})
+    return found
+
+
 def install_call_gate(ledger: CostLedger) -> Callable[[], None]:
     """Check every model call Row-Bot makes against *ledger* before it is sent (all calls pass
     the usage-ledger callback); a refused call raises :class:`BudgetStop` into the caller."""
@@ -477,8 +500,9 @@ class BenchRuntime:
         step.status = result.status
         step.answer = result.answer
         step.errors = result.errors[:10]
-        step.tool_calls = [{"name": call.name, "args": {key: str(value)[:_TOOL_ARGS] for key, value in
-                                                         (call.args or {}).items()}} for call in result.tool_calls]
+        step.tool_calls = thread_tool_calls(thread_id) or [
+            {"name": call.name, "args": {key: str(value)[:_TOOL_ARGS] for key, value in (call.args or {}).items()}}
+            for call in result.tool_calls]
         step.metrics = {"interrupts_declined": result.interrupts, "tool_results": len(result.tool_results)}
         self.drain_calls(step)
         if step.status != "done" and limit_text(" ".join(step.errors)):
