@@ -362,6 +362,7 @@ test('training on Hugging Face: a checked model too big to train here trains the
 
   await page.goto('/app-v2/?tab=learning&view=model');
   const model = page.getByRole('group', { name: 'Model to train' });
+  await model.scrollIntoViewIfNeeded(); // on a phone it sits below the sign-in
   await expect(
     model.getByRole('radio', {
       name: /^Qwen3-14B · Apache 2\.0 · Not certified/,
