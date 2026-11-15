@@ -2742,6 +2742,23 @@ def _f3_stream(text: str, config: dict):
         call["quiesced"] = True
 
 
+@app.post("/__f3_fixture/reset")
+def f3_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Once its scripted turns have ended, F3 leaves no provider work behind on the shared server: a later spec
+    (the real-host bootstrap) checks that nothing ran."""
+    predecessor._authorize(x_fixture_token)
+    deadline = time.monotonic() + 30
+    while True:
+        with predecessor._lock:
+            mine = [call for call in predecessor._calls if call["case"] == "f3-components"]
+            if all(call["quiesced"] for call in mine):
+                predecessor._calls[:] = [call for call in predecessor._calls if call["case"] != "f3-components"]
+                return {"forgotten": len(mine)}
+        if time.monotonic() > deadline:
+            raise HTTPException(status_code=409, detail="An F3 turn is still running")
+        threading.Event().wait(0.1)
+
+
 # ── N11: incognito chats ───────────────────────────────────────────────────
 # The model's save_memory call is scripted; its card is the real tool's own in
 # an incognito chat (run in a small graph, so it asks as it does in a turn).

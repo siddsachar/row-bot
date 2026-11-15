@@ -120,13 +120,30 @@ test('/watch with a page sets a watch at once, with no model call, and the palet
 }, info) => {
   await newConversation(page);
   const before = (await fixtureState(page)).calls.length;
-  await composer(page).fill('/wat');
-  const palette = page.getByRole('listbox', { name: 'Slash commands' });
-  const option = palette.getByRole('option', { name: '/watch Watch' });
-  await expect(option).toContainText(
-    '/watch [interval] page, `command` or what to watch',
-  );
-  await everywhere(page, info, 'watch-hint', option);
+  // The palette shows while the composer holds "/wat": dismissing a notice or
+  // resizing can close it, so it is opened again before each picture.
+  const option = page
+    .getByRole('listbox', { name: 'Slash commands' })
+    .getByRole('option', { name: '/watch Watch' });
+  for (const [size, suffix] of [
+    [DESKTOP, ''],
+    [PHONE, '-phone'],
+  ] as const) {
+    await page.setViewportSize(size);
+    await dismissNotices(page);
+    for (const appearance of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: appearance });
+      await composer(page).fill('');
+      await composer(page).fill('/wat');
+      await expect(option).toContainText(
+        '/watch [interval] page, `command` or what to watch',
+      );
+      await assertNoOverflow(page);
+      await screenshot(page, info, `watch-hint${suffix}-${appearance}`);
+    }
+  }
+  await page.setViewportSize(DESKTOP);
+  await page.emulateMedia({ colorScheme: 'light' });
 
   await composer(page).fill('/watch 10m https://status.example.com');
   await composer(page).press('Escape');
