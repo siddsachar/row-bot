@@ -162,6 +162,13 @@ class ReleaseCheck:
         env.update({"ROW_BOT_DATA_DIR": str(data), "ROW_BOT_LEARNING_PREVIEW": "1",
                     "ROW_BOT_DESKTOP_NOTIFICATIONS": "off", "ROW_BOT_AUTO_START_OLLAMA": "0",
                     "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"})
+        # L4b and L4c have their own switches (O179: they ship on only if the release check passes with them on).
+        from row_bot import learning
+
+        if self.args.practice:
+            env.update({learning.PRACTICE_ENV: "1", learning.QUICK_QUESTION_ENV: "1"})
+        if self.args.jobs:
+            env[learning.JOBS_ENV] = "1"
         return env
 
     def run_person(self, tier: str, person: str, spent_before: int, stages: Sequence[str] = ()) -> dict[str, Any]:
@@ -204,7 +211,8 @@ class ReleaseCheck:
     def execute(self) -> dict[str, Any]:
         self.run.setdefault("started_at", time.strftime("%Y-%m-%d %H:%M"))
         self.run.update({"seed": self.args.seed, "days": self.args.days, "people": self.people,
-                         "build": _build(), "cap_tokens": self.args.cap_tokens})
+                         "build": _build(), "cap_tokens": self.args.cap_tokens,
+                         "practice": bool(self.args.practice), "jobs": bool(self.args.jobs)})
         self.run.setdefault("tiers", {})
         self.run.setdefault("people_runs", {})
         self.save_run()
@@ -328,6 +336,10 @@ def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="L4a: during the generations, quiet hours run every this many nights")
     parser.add_argument("--monthly-limit", type=int, default=100_000_000,
                         help="L4a: each person's monthly Learning limit during the generations (trials get 20%%)")
+    parser.add_argument("--practice", action="store_true",
+                        help="L4b: every person's build makes practice tasks and may ask a quick question")
+    parser.add_argument("--jobs", action="store_true",
+                        help="L4c: every person's build lets the personal model take over Learning's own jobs")
     parser.add_argument("--plan", action="store_true", help="print the plan and run nothing")
     parser.add_argument("--report-only", action="store_true", help="write the report from the results so far")
     parser.add_argument("--archive", default="", help="keep a person's run as <person>@<label> and stop")

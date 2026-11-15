@@ -250,6 +250,25 @@ def test_each_person_runs_in_their_own_scratch_profile_and_nothing_is_written_el
     assert "32gb" not in {path.split("/")[1] for path in written if path.startswith("out/") and path.count("/") > 1}
 
 
+def test_practice_and_jobs_reach_every_persons_build_only_when_asked(tmp_path, home):
+    from row_bot import learning
+
+    (tmp_path / "eval-profile").mkdir()
+    switches = (learning.PRACTICE_ENV, learning.QUICK_QUESTION_ENV, learning.JOBS_ENV)
+    plain = FakePerson()
+    release_check.ReleaseCheck(_args(tmp_path, people="mara"), runner=plain, say=lambda _text: None).execute()
+    assert plain.calls and all(not any(key in env for key in switches) for _person, env in plain.calls)
+
+    on = FakePerson()
+    args = release_check.parse(["--out", str(tmp_path / "out-l4"), "--scratch", str(tmp_path / "scratch-l4"),
+                                "--eval-profile", str(tmp_path / "eval-profile"), "--days", "2", "--people", "mara",
+                                "--practice", "--jobs"])
+    release_check.ReleaseCheck(args, runner=on, say=lambda _text: None).execute()
+    assert on.calls and all(all(env.get(key) == "1" for key in switches) for _person, env in on.calls)
+    run = json.loads((tmp_path / "out-l4" / "run.json").read_text(encoding="utf-8"))
+    assert (run["practice"], run["jobs"]) == (True, True)
+
+
 def test_a_planned_crash_starts_the_person_again_and_a_full_cap_stops_cleanly(tmp_path, home):
     (tmp_path / "eval-profile").mkdir()
     fake = FakePerson(exits={"idris": [release_check.EXIT_PLANNED_CRASH, 0], "mara": [release_check.EXIT_TOKEN_CAP]},
