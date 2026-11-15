@@ -255,7 +255,6 @@ def test_hermes_in_its_windows_folder_is_found(tmp_path, monkeypatch):
     assert client_migration.detect_sources()["sources"][0]["place"] == "~/.hermes"
 
 
-@pytest.mark.xfail(strict=True, reason="A4: HERMES_HOME is not read yet")
 def test_the_folder_hermes_home_names_is_the_one_found(tmp_path, monkeypatch):
     from row_bot.application import client_first_run, client_migration
     from row_bot.migration import detect_hermes_source
@@ -293,7 +292,6 @@ def _chat_count(batch: dict) -> int:
     return batch["conversations"]["available"]
 
 
-@pytest.mark.xfail(strict=True, reason="A4: past chats from state.db are not offered yet")
 def test_past_chats_are_offered_unticked_and_wait_with_the_memories_to_review(tmp_path, profile):
     from row_bot.application import memory_import
 
@@ -305,7 +303,7 @@ def test_past_chats_are_offered_unticked_and_wait_with_the_memories_to_review(tm
     chats = _item(preview, "memories:past-chats")
     assert chats["label"].startswith("Past chats from state.db: 3 conversations")
     assert chats["selected"] is False and chats["status"] == "planned"
-    assert "archive:state-db" not in {item["id"] for item in preview["items"]}
+    assert "archive:state.db" not in {item["id"] for item in preview["items"]}
 
     preview, receipt = _import(source, choose=lambda item: item["category"] == "memories")
     assert receipt["status"] == "completed", receipt
@@ -321,7 +319,6 @@ def test_past_chats_are_offered_unticked_and_wait_with_the_memories_to_review(tm
     assert sorted(path.name for path in source.iterdir()) == before  # Hermes's folder is only read
 
 
-@pytest.mark.xfail(strict=True, reason="A4: past chats from state.db are not offered yet")
 def test_chats_still_in_hermes_write_ahead_log_come_over(tmp_path, profile):
     import sqlite3
     from contextlib import closing
@@ -347,7 +344,6 @@ def test_chats_still_in_hermes_write_ahead_log_come_over(tmp_path, profile):
             memory_import.discard("owner", review["batch_id"])
 
 
-@pytest.mark.xfail(strict=True, reason="A4: the import doesn't say cron jobs aren't converted")
 def test_cron_jobs_are_named_as_not_converted(tmp_path, profile):
     source = create_realistic_hermes_home(tmp_path / ".hermes")
     preview, receipt = _import(source, choose=lambda item: item["id"] == "identity:personality")

@@ -80,6 +80,24 @@ class MigrationPlannerTests(unittest.TestCase):
         self.assertTrue(any(item.status == MigrationStatus.SKIPPED for item in plan.items if item.category == MigrationCategory.CHANNELS))
         self.assertGreaterEqual(plan.summary.archive_only, 4)
 
+    def test_past_chats_are_offered_only_for_a_hermes_database_and_this_row_bot(self) -> None:
+        from row_bot.migration import build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = create_realistic_hermes_home(Path(temp_dir) / ".hermes")
+            elsewhere = build_hermes_plan(source, target_root=Path(temp_dir) / "target")
+            _write(source / "state.db", "not a database\n")
+            unreadable = build_hermes_plan(source, target_root=Path(temp_dir) / "target")
+
+        chats = next(item for item in elsewhere.items if item.id == "memories:past-chats")
+        # Outside this Row-Bot's data folder they are listed but can't be chosen.
+        self.assertEqual((chats.action.value, chats.selected), ("manual_review", False))
+        self.assertIn("Leave Target folder empty", chats.reason)
+        ids = {item.id for item in unreadable.items}
+        self.assertNotIn("memories:past-chats", ids)
+        self.assertIn("archive:state.db", ids)  # still copied for a look, as before
+
     def test_malformed_openclaw_config_warns_and_keeps_file_plan(self) -> None:
         from row_bot.migration import MigrationCategory, build_openclaw_plan
 
