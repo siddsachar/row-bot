@@ -186,18 +186,23 @@ test('compact themes, accents and accessibility preferences retain one mounted w
       .getByRole('link', { name: 'Settings', exact: true })
       .click();
   }
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
-  await page
-    .getByRole('combobox', { name: 'Settings section', exact: true })
-    .selectOption('appearance');
+  if (page.viewportSize()!.width < 768) {
+    // A phone opens Settings on its list of pages (D6).
+    await expect(page).toHaveURL(/\/app-v2\/settings$/);
+    await page
+      .getByRole('navigation', { name: 'Settings sections', exact: true })
+      .getByRole('link', { name: 'Appearance', exact: true })
+      .click();
+  } else {
+    await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
+    await page
+      .getByRole('combobox', { name: 'Settings section', exact: true })
+      .selectOption('appearance');
+  }
   await expect(page).toHaveURL(/\/app-v2\/settings\/appearance$/);
   await expect(
     page.getByRole('heading', { name: 'Appearance', exact: true }),
   ).toBeVisible();
-  const appearance = page.getByRole('combobox', {
-    name: 'Appearance',
-    exact: true,
-  });
   const accent = page.getByRole('combobox', {
     name: 'Colour theme',
     exact: true,
@@ -207,7 +212,16 @@ test('compact themes, accents and accessibility preferences retain one mounted w
     ['dark', 'violet'],
     ['system', 'amber'],
   ] as const) {
-    await appearance.selectOption(theme);
+    await page
+      .getByRole('button', {
+        name: {
+          light: 'Light',
+          dark: 'Dark',
+          system: /^System, follows your device/,
+        }[theme],
+        exact: theme !== 'system',
+      })
+      .click();
     await accent.selectOption(colour);
     await expect(page.locator('html')).toHaveAttribute(
       'data-theme',
@@ -259,8 +273,270 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await assertCompactSurface(page, testInfo, 'compact-preferences');
   await captureSurface(page, testInfo, 'compact-theme-preferences');
   await page.goBack();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  // Back to where Settings opened: its list of pages on a phone.
+  await expect(page).toHaveURL(
+    page.viewportSize()!.width < 768
+      ? /\/app-v2\/settings$/
+      : /\/app-v2\/settings\/models$/,
+  );
   await page.goBack();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/p1-browser-a$/);
   await expect(workspace).toHaveAttribute('data-phase5-retained', 'true');
+});
+
+test('touch screens say what Home’s quick starts make and show no keyboard hints', async ({
+  page,
+}) => {
+  await openHome(page);
+  const quickStarts = page.getByRole('group', {
+    name: 'Quick starts',
+    exact: true,
+  });
+  const design = quickStarts.getByRole('button', {
+    name: 'New design',
+    exact: true,
+  });
+  await expect(design).toBeVisible();
+  // No tooltip on touch, so the button carries its own word.
+  expect(
+    await design.evaluate((button) =>
+      getComputedStyle(button, '::after').content.replaceAll('"', ''),
+    ),
+  ).toBe('Design');
+
+  await page
+    .getByRole('button', { name: 'Workspace commands', exact: true })
+    .first()
+    .click();
+  const search = page.getByPlaceholder(
+    'Search conversations, commands, settings…',
+  );
+  await expect(search).toBeVisible();
+  const visibleKeycaps = await page
+    .locator('.kbd, .command-palette-footer')
+    .evaluateAll(
+      (nodes) =>
+        nodes.filter((node) => (node as HTMLElement).offsetParent !== null)
+          .length,
+    );
+  expect(visibleKeycaps).toBe(0);
+  const viewport = page.viewportSize();
+  if (viewport && viewport.width < 768) {
+    // A phone's search sheet has room for every result: none hide behind a
+    // short scroll box.
+    const clipped = await page
+      .locator('.command-palette-results')
+      .evaluate((list) => list.scrollHeight - list.clientHeight);
+    expect(clipped).toBeLessThanOrEqual(1);
+  }
+  await page.keyboard.press('Escape');
+});
+
+test('a phone opens menus as bottom sheets that close with a swipe down', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Menus stay popovers from tablet width up.',
+  );
+  await openSeedConversation(page);
+  await page
+    .getByRole('button', { name: 'Add files and more', exact: true })
+    .first()
+    .click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  const box = await menu.boundingBox();
+  expect(box).not.toBeNull();
+  // Full width, resting on the bottom edge, over a scrim.
+  expect(box!.x).toBeLessThanOrEqual(1);
+  expect(box!.width).toBeGreaterThanOrEqual(viewport!.width - 2);
+  expect(box!.y + box!.height).toBeGreaterThanOrEqual(viewport!.height - 2);
+  expect(
+    await menu.evaluate(
+      (node) => getComputedStyle(node.parentElement!).backgroundColor,
+    ),
+  ).not.toBe('rgba(0, 0, 0, 0)');
+
+  const touch = await page.context().newCDPSession(page);
+  const x = box!.x + box!.width / 2;
+  const y = box!.y + 12;
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y }],
+  });
+  for (let step = 1; step <= 6; step += 1) {
+    await touch.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x, y: y + step * 40 }],
+    });
+  }
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect(menu).toBeHidden();
+});
+
+test('a phone composer gives the text its own full-width row and swaps voice for Send as you type', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Tablets keep the wide composer.',
+  );
+  await openSeedConversation(page);
+  const composer = page.locator('.composer').first();
+  await expect(composer).toHaveAttribute('data-single-line', 'true');
+  const message = page.getByRole('textbox', { name: 'Message', exact: true });
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  // Voice, where the host offers it, shares Send's place: never both.
+  const voice = composer.locator('.composer-voice');
+
+  await message.fill('Check the venue booking before Friday');
+  await expect(send).toBeVisible();
+  await expect(voice).toBeHidden();
+  const [text, field] = await Promise.all([
+    message.boundingBox(),
+    composer.locator('.composer-field').boundingBox(),
+  ]);
+  expect(text!.width / field!.width).toBeGreaterThan(0.85);
+
+  // An empty draft has nothing to send: no Send until there is text.
+  await message.fill('');
+  await expect(send).toBeHidden();
+});
+
+test('a phone reaches Home, Chats, Workflows and Settings from a tab bar that a conversation hides', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Tablets keep the navigation drawer.',
+  );
+  await openHome(page);
+  const tabs = page.getByRole('navigation', { name: 'Main' });
+  await expect(tabs.getByRole('link', { name: 'Home' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  const box = await tabs.boundingBox();
+  expect(box!.y + box!.height).toBeGreaterThanOrEqual(viewport!.height - 1);
+
+  await tabs.getByRole('link', { name: 'Chats' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/library/);
+  await expect(tabs.getByRole('link', { name: 'Chats' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await tabs.getByRole('link', { name: 'Workflows' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/?\?tab=workflows/);
+  await tabs.getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/settings/);
+
+  await openSeedConversation(page);
+  await expect(tabs).toHaveCount(0);
+});
+
+test('a phone opens the conversation list with a swipe in from the left edge', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Tablets keep the button only.',
+  );
+  await openSeedConversation(page);
+  const touch = await page.context().newCDPSession(page);
+  const y = Math.round(viewport!.height / 2);
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: 4, y }],
+  });
+  for (let step = 1; step <= 5; step += 1) {
+    await touch.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: 4 + step * 30, y }],
+    });
+  }
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect(
+    page.getByRole('dialog', { name: 'Conversations' }),
+  ).toBeVisible();
+});
+
+test('a phone opens Settings on its list of pages, and each page goes back to it', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'Tablets keep the section picker.',
+  );
+  await openHome(page);
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Settings' })
+    .click();
+  const list = page.getByRole('navigation', { name: 'Settings sections' });
+  await list.getByRole('link', { name: 'Appearance' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/appearance/);
+  await expect(
+    page.getByRole('heading', { name: 'Appearance', level: 2 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('combobox', { name: 'Settings section' }),
+  ).toHaveCount(0);
+  await page
+    .getByRole('link', { name: 'Back to Settings', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/app-v2\/settings$/);
+  await expect(list.getByRole('link', { name: 'Models' })).toBeVisible();
+});
+
+test('a phone opens a message’s actions when a finger rests on it', async ({
+  page,
+}) => {
+  const viewport = page.viewportSize();
+  test.skip(
+    !viewport || viewport.width >= 768,
+    'A tablet opens the same actions as a popover.',
+  );
+  await openSeedConversation(page);
+  await page
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('instant reply fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const message = page
+    .getByRole('article', { name: 'You message' })
+    .filter({ hasText: 'instant reply fixture' })
+    .last();
+  // An instant reply leaves the chat idle for the tests after this one; the
+  // message's actions are ready once its own toolbar shows them.
+  await expect(
+    message.getByRole('button', { name: 'Copy message' }),
+  ).toBeAttached();
+  const box = await message.locator('.message-text').boundingBox();
+  const touch = await page.context().newCDPSession(page);
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: box!.x + 40, y: box!.y + 16 }],
+  });
+  await page.waitForTimeout(700);
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  const menu = page.getByRole('menu');
+  await expect(
+    menu.getByRole('menuitem', { name: 'Copy message' }),
+  ).toBeVisible();
+  // The press opened the actions, not the system's own text selection.
+  expect(await page.evaluate(() => getSelection()?.toString() ?? '')).toBe('');
 });

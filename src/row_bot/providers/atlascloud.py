@@ -488,6 +488,27 @@ def atlascloud_context_window(model_id: str, metadata: Mapping[str, Any] | None 
     ) or int(fallback or 0)
 
 
+def atlascloud_media_model_info(model_id: str, kind: str, *, display_name: str,
+                                last_verified_at: str = "") -> ModelInfo:
+    """An image or video model from Atlas Cloud's own model list, for the image and video tools."""
+    task = ModelTask.IMAGE_GENERATION if kind == "image" else ModelTask.VIDEO_GENERATION
+    return ModelInfo(
+        provider_id=ATLASCLOUD_PROVIDER_ID,
+        model_id=model_id,
+        display_name=display_name,
+        context_window=0,
+        transport=TransportMode.OPENAI_CHAT,
+        capabilities=frozenset({task.value}),
+        output_modalities=frozenset({kind}),
+        tasks=frozenset({task.value}),
+        tool_calling=False,
+        streaming=False,
+        source="atlascloud_media_list",
+        source_confidence="live_atlascloud_model_list",
+        last_verified_at=last_verified_at,
+    )
+
+
 def atlascloud_model_info_from_metadata(
     model_id: str,
     metadata: Mapping[str, Any] | None = None,

@@ -222,7 +222,7 @@ LEGAL = {
     ("waiting", "preparing"), ("waiting", "planned"), ("waiting", "paused"), ("waiting", "stopped"),
     ("waiting", "failed"),
     ("preparing", "running"), ("preparing", "waiting"), ("preparing", "paused"), ("preparing", "failed"),
-    ("preparing", "stopped"),
+    ("preparing", "stopped"), ("preparing", "unknown_remote"),  # C1: a submission with no answer
     ("running", "pausing"), ("running", "paused"), ("running", "evaluating"), ("running", "failed"),
     ("running", "stopped"), ("running", "unknown_remote"),
     ("pausing", "paused"), ("pausing", "evaluating"), ("pausing", "failed"), ("pausing", "stopped"),

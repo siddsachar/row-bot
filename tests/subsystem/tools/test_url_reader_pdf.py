@@ -61,3 +61,34 @@ def test_a_web_page_still_reads_as_text(web):
 
     assert text.startswith("SOURCE_URL: http://papers.example/rent")
     assert "Rent rises to £1,250." in text and "<p>" not in text
+
+
+def test_a_rate_limited_page_is_read_again_once_after_the_wait_the_site_asks(web, monkeypatch):
+    """U10: a 429 is not the article; the reader waits as asked (at most 10 s) and reads it again."""
+    from row_bot.tools import url_reader_tool
+
+    page = "<html><body><p>Everest is 8,848.86 m high.</p></body></html>".encode()
+    web.routes["papers.example/everest"] = (429, {"Retry-After": "30"}, b"Too many requests")
+    waited: list[float] = []
+
+    def wait(seconds):
+        waited.append(seconds)
+        web.page("http://papers.example/everest", page)
+
+    monkeypatch.setattr(url_reader_tool.time, "sleep", wait)
+    text = url_reader_tool._read_url("http://papers.example/everest")
+
+    assert waited == [10.0] and "Everest is 8,848.86 m high." in text
+
+
+def test_a_blocked_or_still_limited_page_says_so_instead_of_its_error_page(web, monkeypatch):
+    from row_bot.tools import url_reader_tool
+
+    monkeypatch.setattr(url_reader_tool.time, "sleep", lambda seconds: None)
+    web.routes["papers.example/blocked"] = (403, {}, b"Our robot policy forbids this")
+    web.routes["papers.example/busy"] = (429, {}, b"Too many requests")
+
+    for path, status in (("blocked", 403), ("busy", 429)):
+        text = url_reader_tool._read_url(f"http://papers.example/{path}")
+        assert text.startswith(f"The site refused to be read just now ({status}") and "robot" not in text
+        assert "open the page in the browser" in text

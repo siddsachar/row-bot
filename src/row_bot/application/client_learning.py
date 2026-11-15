@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from row_bot import learning
+from row_bot.application import learning_hugging_face as _hugging_face
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
@@ -63,6 +64,9 @@ _VERSION_NUMBER_ACTIONS = frozenset({"compare_version", "use_version", "export_v
 # The personal model's version (L2c): make it ready again (Try again, Check again), or choose where it runs.
 _VERSION_ACTIONS = frozenset({"make_ready", "choose_runtime"})
 # The personal model's download (L2b): the training engine and the starting model.
+_ACTIONS = _ACTIONS | _hugging_face.ACTIONS
+# The Hugging Face commands for one run (the run the person saw).
+_HF_JOB_ACTIONS = frozenset({"hf_start", "hf_cancel", "hf_check_now"})
 _DOWNLOAD_ACTIONS = frozenset({"start_download", "stop_download", "cancel_download", "remove_engine",
                                "delete_starting_model"})
 _DOWNLOAD_ERRORS = {
@@ -87,6 +91,9 @@ _RUNNER_REASONS = frozenset({
     "workflow", "indexing", "dream", "you", "app_closed", "worker_stopped", "out_of_gpu_memory", "out_of_disk",
     "cannot_resume", "data_unreadable", "engine_error", "learning_off", "learning_paused", "extraction",
     "planned", "planning", "up_to_date", "gpu_busy", "memory_busy", "comparing",
+    # C1: training on Hugging Face.
+    "hf_signed_out", "hf_no_model", "hf_unknown", "hf_first_run", "hf_over_cap", "hf_no_credit", "hf_network",
+    "hf_busy", "hf_not_confirmed",
 })
 _VERSION_PHASES = frozenset({"exporting", "export_failed", "making_ready", "ready", "runtime_failed",
                              "waiting_for_you"})
@@ -95,7 +102,8 @@ _VERSION_FAILURES = frozenset({"not_enough_disk", "adapter_missing", "engine_mis
                                "not_loaded", "probe_failed", "tool_turn_failed", "server_missing",
                                "server_unavailable", "server_failed", "load_failed"})
 _FAILURES = frozenset({"out_of_gpu_memory", "out_of_disk", "cannot_resume", "data_unreadable", "engine_error"})
-_SHOWN_STATES = frozenset({"planned", "waiting", "preparing", "running", "pausing", "paused", "evaluating", "failed"})
+_SHOWN_STATES = frozenset({"planned", "waiting", "preparing", "running", "pausing", "paused", "evaluating", "failed",
+                           "unknown_remote"})
 # The owner id each channel needs before its direct chats count as the owner's (O2), in words.
 _OWNER_WORDS = {
     "telegram": "Telegram user ID",
@@ -112,6 +120,7 @@ _NOT_USED = {
     "my_chats_off": "Learning from your chats is off in Settings › Learning.",
     "workflows_and_goals_off": "Learning from workflows and goals is off in Settings › Learning.",
     "incognito_chat": "Learning doesn’t use chats that are or were incognito.",
+    "background_work": "Learning doesn’t use what Row-Bot prepares on its own, such as briefs and drafts.",
 }
 _LESSON_LIMIT = 200
 
@@ -627,7 +636,7 @@ def _downloads_view() -> Any:
 def _personal_model(settings: learning.LearningSettings) -> dict[str, Any]:
     from row_bot.learning.training import hardware
 
-    model = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_2B)
+    model = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B)
     view = _downloads_view()
     engine = _ENGINE_STATES.get(view.engine_state, "not_downloaded") if view is not None else "not_downloaded"
     starting = view.model_state if view is not None else "not_downloaded"
@@ -658,6 +667,9 @@ def _personal_model(settings: learning.LearningSettings) -> dict[str, Any]:
         "runtimes": _runtimes(),
         "examples": _examples(settings, engine == "installed"),
         "version": _version(),
+        # Read only once the person chose Hugging Face: its quote reads Hugging Face's public price list (cached).
+        "hugging_face": _hugging_face.view(settings) if settings.enabled and settings.train_where == "hugging_face"
+        else None,
         "room": _room_view(settings),
         "stronger_model": _stronger_view(settings),
         **_use_parts(),
@@ -1090,7 +1102,8 @@ def _training(settings: learning.LearningSettings) -> dict[str, Any]:
         if job is None or job.state not in _SHOWN_STATES:
             return _no_training(runner_view)
         state, reason = job.state, job.pause_reason
-        if state in LIVE and supervisor.live_job_id() != job.id:
+        remote = job.backend == "hugging_face"
+        if state in LIVE and supervisor.live_job_id() != job.id and not remote:
             # Left running when Row-Bot closed; the runner pauses it when it next starts.
             state, reason = "paused", "app_closed"
         seconds_left = None
@@ -1101,8 +1114,12 @@ def _training(settings: learning.LearningSettings) -> dict[str, Any]:
             resumes = "ask" if reason in HELD else "when_free" if job.trigger == "train_now" else "quiet_hours"
         can_train_now = (
             not settings.paused and supervisor.engine.ready()
-            and state in ("planned", "paused") and settings.train_where == "this_computer"
+            and state in ("planned", "paused") and settings.train_where == "this_computer" and not remote
         )
+        failure = None
+        if state == "failed":
+            failure = _hugging_face.failure(job) if remote else (
+                job.error_code if job.error_code in _FAILURES else "engine_error")
         return {
             "state": state,
             "job_id": job.id,
@@ -1113,11 +1130,13 @@ def _training(settings: learning.LearningSettings) -> dict[str, Any]:
             "seconds_left": seconds_left,
             "pause_reason": reason,
             "resumes": resumes,
-            "failure": (job.error_code if job.error_code in _FAILURES else "engine_error") if state == "failed" else None,
+            "failure": failure,
             "recovered": job.recovered,
             "trigger": job.trigger,
             "can_train_now": bool(can_train_now),
             "runner": runner_view,
+            "where": "hugging_face" if remote else "this_computer",
+            "remote": _hugging_face.run_view(job) if remote else None,
         }
     except Exception:
         logger.debug("Learning could not read its training", exc_info=True)
@@ -1307,9 +1326,18 @@ def read_learning_hardware(*, validate: Callable[[], None], refresh: bool = Fals
         "starting_models": [_model_view(item) for item in found.starting_models],
         "engine_download_bytes": hardware.engine_download_bytes(found.variant),
         "free_bytes": free,
+        # C1 (O131): whether a model trained on Hugging Face could run on this computer afterwards.
+        "hugging_face": bool(_hugging_face_runs_here(found)),
     }
     validate()
     return result
+
+
+def _hugging_face_runs_here(found: Any) -> bool:
+    from row_bot.learning.training import catalog
+
+    gpu = getattr(found, "gpu", None)
+    return found.state != "container" and bool(catalog.for_hugging_face(int(gpu.memory_mib) if gpu else None))
 
 
 def read_learning_conversation(conversation_id: str, *, validate: Callable[[], None]) -> dict[str, Any]:
@@ -1463,7 +1491,7 @@ def read_learning_version(version: int, *, validate: Callable[[], None]) -> dict
     from row_bot.learning.training import recipes
 
     try:
-        recipe_now = recipes.load(str(recipe.get("name") or "8gb-v1").split("-v")[0])
+        recipe_now = recipes.load(str(recipe.get("name") or "16gb-v1").split("-v")[0])
     except Exception:
         recipe_now = recipes.default()
     settings = dict(recipe_now.settings)
@@ -1543,7 +1571,7 @@ def found_job_id(found: Any) -> str:
 
 
 def _trainable_models() -> set[str]:
-    """The starting models setup may choose: the certified ones this computer's card trains (the 8 GB
+    """The starting models setup may choose: the certified ones this computer's card trains (the smallest
     tier's alone before the card was read, or on a computer that can't train)."""
 
     from row_bot.learning.training import hardware
@@ -1856,7 +1884,7 @@ def _move_version(version: int, to: str) -> None:
 
 
 def _download_words(view: Any, model_name: str) -> str:
-    """"Downloading the training engine and Qwen3.5 2B." (what is still missing)."""
+    """"Downloading the training engine and Qwen3.5 9B." (what is still missing)."""
 
     engine = view.engine_state != "installed"
     model = view.model_state != "downloaded"
@@ -1884,8 +1912,8 @@ def _download(action: str) -> str:
 
     task = downloads.get()
     settings = learning.read_settings()
-    model = weights.MODELS.get(settings.starting_model, weights.QWEN35_2B)
-    name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_2B).name
+    model = weights.MODELS.get(settings.starting_model, weights.QWEN35_9B)
+    name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B).name
     try:
         if action == "start_download":
             if _training_runs():
@@ -1930,7 +1958,7 @@ def _answer_download(answer: str) -> str:
     from row_bot.learning.training import downloads, hardware
 
     settings = learning.read_settings()
-    name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_2B).name
+    name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B).name
     try:
         if _training_runs():
             raise downloads.DownloadError("busy")
@@ -1964,6 +1992,15 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
     job_id = _text(command.get("job_id"), 128)
     if action in _TRAINING_ACTIONS - {"train_now"} and not job_id:
         raise ClientPlatformError("invalid_learning_command")
+    if action in _HF_JOB_ACTIONS and not job_id:
+        raise ClientPlatformError("invalid_learning_command")
+    cap = command.get("cap_usd")
+    if action == "hf_set_cap" and type(cap) is not int:
+        raise ClientPlatformError("invalid_learning_command")
+    if action == "hf_choose_model" and not _text(command.get("model"), 128):
+        raise ClientPlatformError("invalid_learning_command")
+    if action == "hf_choose_flavor" and not _text(command.get("flavor"), 64):
+        raise ClientPlatformError("invalid_learning_command")
     runtime = _text(command.get("runtime"), 32)
     if action == "choose_runtime" and runtime not in learning.SERVE_RUNTIMES:
         raise ClientPlatformError("invalid_learning_command")
@@ -1985,7 +2022,7 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
         raise ClientPlatformError("invalid_learning_command")
     if action == "answer_question" and not _text(command.get("answer"), 2000).strip():
         raise ClientPlatformError("invalid_learning_command")
-    model_id = _text(command.get("model"), 32)
+    model_id = _text(command.get("model"), 128)
     if action in ("use_smaller_model", "change_starting_model") and model_id not in learning.STARTING_MODELS:
         raise ClientPlatformError("invalid_learning_command")
     change_id = _text(command.get("change_id"), 128)
@@ -2019,6 +2056,9 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
         "change_id": change_id,
         "text": text[:4000],
         "answer": _text(command.get("answer"), 2000),
+        "cap_usd": cap if type(cap) is int else None,
+        "quote_cost_cents": command.get("quote_cost_cents") if type(command.get("quote_cost_cents")) is int else None,
+        "flavor": _text(command.get("flavor"), 64),
     }
     existing = admissions.read_command_metadata(owner_id, command["command_id"])
     if existing is not None:
@@ -2154,6 +2194,8 @@ def _perform(
         if back is None:
             raise ClientPlatformError("learning_method_changed")
         summary = f"Back to learning method v{back.version}."
+    elif action in _hugging_face.ACTIONS:
+        summary = _hugging_face.perform(action, wire)
     elif action == "delete_data":
         from row_bot.learning.store import LearningStoreError
         from row_bot.learning.training import jobs as training_jobs

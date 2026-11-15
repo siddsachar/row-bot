@@ -16,12 +16,13 @@ from row_bot.application import buddy_policy
 def env(tmp_path, monkeypatch):
     from row_bot import api_keys, tasks
     from row_bot.providers import auth_store, config
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
     from row_bot.tools import profile_policy  # noqa: F401 -- canonical package initialized before fake registry
 
     monkeypatch.setattr(tasks, "_DB_PATH", str(tmp_path / "tasks.db"))
     monkeypatch.setattr(tasks, "_SCHEMA_READY_PATH", None)
     values = {
-        "image_gen": "openai/gpt-image-1.5",
+        "image_gen": "openai/gpt-image-2",
         "video_gen": "google/veo-3.1-generate-preview",
     }
     enabled = {"image_gen": True, "video_gen": True}
@@ -43,8 +44,23 @@ def env(tmp_path, monkeypatch):
         _config_path=lambda: tmp_path / "tools_config.json",
     )
     monkeypatch.setitem(sys.modules, "row_bot.tools.registry", registry)
+    # The media models each provider's own list offers.
+    listed = [
+        ("openai", "gpt-image-2"),
+        ("openai", "gpt-image-2.5-flare"),
+        ("google", "veo-3.1-generate-preview"),
+        ("xai_oauth", "grok-imagine-video"),
+        ("xai_oauth", "grok-imagine-image"),
+        ("google", "imagen-4.0-generate-001"),
+        ("codex", "gpt-image-2"),
+        ("openrouter", "google/gemini-2.5-flash-image"),
+    ]
+    cloud_cache = {
+        f"model:{provider}:{model}": model_info_to_cache_entry(model_info_from_metadata(provider, model))
+        for provider, model in listed
+    }
     monkeypatch.setitem(
-        sys.modules, "row_bot.models", SimpleNamespace(_cloud_model_cache={})
+        sys.modules, "row_bot.models", SimpleNamespace(_cloud_model_cache=cloud_cache)
     )
     monkeypatch.setattr(
         auth_store, "get_provider_secret", lambda provider: keys.get(provider, "")
@@ -84,10 +100,8 @@ def test_passive_capture_is_stable_content_free_and_never_confirms_or_constructs
     )
     first = env.policy.capture_provider_policy("full")
     assert first == env.policy.capture_provider_policy("full")
-    assert (
-        first["image_model"] == env.values["image_gen"]
-        and first["video_model"] == env.values["video_gen"]
-    )
+    # A Hatch paints with the image model alone.
+    assert first["image_model"] == env.values["image_gen"] and first["video_model"] is None
     assert not env.calls
     assert all(secret not in json.dumps(first) for secret in env.keys.values())
     assert not env.path.exists()
@@ -104,10 +118,11 @@ def test_block_rejects_effects_and_cancel_preserves_stop_authority(env, action):
 
 def test_ask_requires_original_confirmation_at_every_provider_boundary(env):
     captured = env.policy.capture_provider_policy("full")
-    for _ in range(2):
+    for _ in range(3):
         env.policy.validate_provider("image", captured["image_model"], captured)
-    env.policy.validate_provider("motion", captured["video_model"], captured)
     assert [row[0] for row in env.calls] == ["full", "full", "full"]
+    with pytest.raises(ValueError, match="buddy_policy_changed"):
+        env.policy.validate_provider("motion", "google/veo-3.1-generate-preview", captured)
     env.policy.validate_action("update")
     assert len(env.calls) == 3
 
@@ -117,7 +132,7 @@ def test_auto_and_full_autonomy_never_create_another_confirmation(env, mode):
     """The person asks Buddy for it in the app themselves: nothing more to approve under Auto or Full."""
     env.context["approval_mode"] = mode
     captured = env.policy.capture_provider_policy("motion")
-    env.policy.validate_provider("motion", captured["video_model"], captured)
+    env.policy.validate_provider("image", captured["image_model"], captured)
     assert not env.calls
 
 
@@ -128,7 +143,7 @@ def test_auto_and_full_autonomy_never_create_another_confirmation(env, mode):
 def test_current_policy_change_rejects_original_capture(env, change):
     captured = env.policy.capture_provider_policy("full")
     if change == "selection":
-        env.values["image_gen"] = "openai/gpt-image-1"
+        env.values["image_gen"] = "openai/gpt-image-2.5-flare"
     elif change == "enabled":
         env.enabled["image_gen"] = False
     elif change == "key":
@@ -169,7 +184,7 @@ def test_profile_dispatch_uses_the_runtime_allowlist_and_readonly_restriction(en
         "tool_policy_json": {"capability": "write_capable"},
     }
     assert env.policy.capture_provider_policy("full")["image_model"]
-    env.context["tool_allowlist"] = ["generate_image"]  # The turn's own list leaves out animating.
+    env.context["tool_allowlist"] = ["web_search"]  # The turn's own list leaves out image generation.
     with pytest.raises(ValueError, match="buddy_tool_policy_denied"):
         env.policy.capture_provider_policy("full")
     env.context.pop("tool_allowlist")
@@ -229,7 +244,7 @@ def test_oauth_capture_uses_same_nonrefreshing_bundle_and_detects_account_change
 ):
     from row_bot.providers import auth_store, xai_oauth
 
-    env.values["video_gen"] = "xai_oauth/grok-imagine-video"
+    env.values["image_gen"] = "xai_oauth/grok-imagine-image"
     env.providers["providers"]["xai_oauth"] = {
         "auth_method": "oauth_pkce",
         "token_health": "valid",
@@ -261,10 +276,10 @@ def test_oauth_capture_uses_same_nonrefreshing_bundle_and_detects_account_change
     )
     captured = env.policy.capture_provider_policy("motion")
     assert credentials.access_token not in json.dumps(captured)
-    env.policy.validate_provider("motion", captured["video_model"], captured)
+    env.policy.validate_provider("image", captured["image_model"], captured)
     credentials.account_id = "replacement-account"
     with pytest.raises(ValueError, match="buddy_policy_changed"):
-        env.policy.validate_provider("motion", captured["video_model"], captured)
+        env.policy.validate_provider("image", captured["image_model"], captured)
 
 
 def test_no_provider_or_registry_import_for_settings_and_cancel(env, monkeypatch):
@@ -306,7 +321,6 @@ assert not {'row_bot.tools', 'row_bot.tools.registry', 'row_bot.tools.image_gen_
     [
         "gpt-image-1",
         "model:openai:gpt-image-1",
-        "foreign/model",
         "openai/",
         "openai/model\n",
     ],
@@ -314,6 +328,13 @@ assert not {'row_bot.tools', 'row_bot.tools.registry', 'row_bot.tools.image_gen_
 def test_noncanonical_or_unknown_media_selection_is_never_guessed(env, selection):
     env.values["image_gen"] = selection
     with pytest.raises(ValueError, match="invalid_media_selection"):
+        env.policy.capture_provider_policy("full")
+
+
+
+def test_a_media_model_its_provider_does_not_list_is_not_admitted(env):
+    env.values["image_gen"] = "openai/gpt-image-1"
+    with pytest.raises(ValueError, match="buddy_media_capability_unavailable"):
         env.policy.capture_provider_policy("full")
 
 
@@ -338,3 +359,93 @@ def test_oversized_or_corrupt_saved_registry_is_not_fallback_authority(env):
         with pytest.raises(ValueError, match="buddy_policy_unavailable"):
             env.policy.capture_provider_policy("full")
         assert env.path.read_bytes() == data
+
+
+def test_an_image_model_that_cannot_edit_is_refused_before_any_effect(env):
+    env.values["image_gen"] = "google/imagen-4.0-generate-001"
+    for action in ("full", "motion"):
+        with pytest.raises(ValueError, match="buddy_image_model_cannot_edit"):
+            env.policy.capture_provider_policy(action)
+    assert env.policy.capture_provider_policy("still")["image_model"] is None
+    assert not env.calls
+
+
+def _codex_signed_in(env, monkeypatch, *, plan="plus"):
+    from row_bot.providers import auth_store, codex
+
+    env.values["image_gen"] = "codex/gpt-image-2"
+    env.providers["providers"]["codex"] = {
+        "auth_method": "oauth_device",
+        "source": "oauth_device",
+        "configured": True,
+        "health": "connected",
+        "account_id_hash": "synthetic-hash",
+        "plan_type": plan,
+        "expires_at": "2099-01-01T00:00:00Z",
+    }
+    credentials = SimpleNamespace(
+        access_token="synthetic-access",
+        refresh_token="synthetic-refresh",
+        account_id="synthetic-account",
+        plan_type=plan,
+    )
+    monkeypatch.setattr(
+        auth_store,
+        "read_provider_oauth_bundle_snapshot",
+        lambda provider: ({}, deepcopy(env.providers["providers"][provider]), "rev"),
+    )
+
+    def read(*, refresh_if_needed, _snapshot):
+        assert refresh_if_needed is False
+        return credentials
+
+    monkeypatch.setattr(codex, "codex_runtime_credentials", read)
+    monkeypatch.setattr(
+        codex, "refresh_codex_token", lambda *a, **k: pytest.fail("unexpected refresh")
+    )
+    return credentials
+
+
+def test_a_chatgpt_image_model_paints_buddy_bound_to_the_signed_in_account(
+    env, monkeypatch
+):
+    credentials = _codex_signed_in(env, monkeypatch)
+    captured = env.policy.capture_provider_policy("full")
+    assert captured["image_model"] == "codex/gpt-image-2"
+    assert credentials.access_token not in json.dumps(captured)
+    auth = env.policy.validate_provider("image", captured["image_model"], captured)
+    assert auth.provider == "codex"
+    assert auth.base_url == "https://chatgpt.com/backend-api/codex"
+    # The token renews while the Hatch paints; the approval still holds.
+    credentials.access_token = "renewed-access"
+    env.providers["providers"]["codex"]["expires_at"] = "2099-02-01T00:00:00Z"
+    env.policy.validate_provider("image", captured["image_model"], captured)
+    # Another ChatGPT account signed in meanwhile does not.
+    credentials.account_id = "replacement-account"
+    with pytest.raises(ValueError, match="buddy_policy_changed"):
+        env.policy.validate_provider("image", captured["image_model"], captured)
+
+
+@pytest.mark.parametrize("plan", ["free", "FREE"])
+def test_a_chatgpt_plan_without_images_is_refused_before_any_effect(
+    env, monkeypatch, plan
+):
+    _codex_signed_in(env, monkeypatch, plan=plan)
+    with pytest.raises(ValueError, match="buddy_account_unavailable"):
+        env.policy.capture_provider_policy("full")
+
+
+def test_chatgpt_images_follow_the_api_key_only_data_policy(env, monkeypatch):
+    _codex_signed_in(env, monkeypatch)
+    env.context["data_policy"] = "allow_api_key"
+    with pytest.raises(ValueError, match="buddy_data_policy_denied"):
+        env.policy.capture_provider_policy("full")
+
+
+@pytest.mark.parametrize(
+    "selection", ["openrouter/google/gemini-2.5-flash-image", "foreign/model"]
+)
+def test_an_image_provider_buddy_cannot_paint_with_says_so(env, selection):
+    env.values["image_gen"] = selection
+    with pytest.raises(ValueError, match="buddy_image_model_unsupported"):
+        env.policy.capture_provider_policy("full")

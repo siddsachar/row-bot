@@ -104,7 +104,7 @@ def test_training_never_sees_a_held_out_correction_or_the_turn_that_redid_it(wor
     redone = store.get("decision", redo[-1]).episode_id
     store.put(replace(store.get("episode", redone), follows_decision_id=second[-1]))
 
-    compiled = dataset.compile_dataset(store, recipes.load("8gb"), lookup=chats, refresh_vault=False,
+    compiled = dataset.compile_dataset(store, recipes.load("16gb"), lookup=chats, refresh_vault=False,
                                        shape="captured")
     text = json.dumps([item.row for item in compiled.train])
 

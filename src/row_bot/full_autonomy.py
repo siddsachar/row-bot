@@ -7,6 +7,10 @@
   chat) runs on reviewed Auto at most: Hands-off is only for the person's own
   chats (``is_shared_conversation`` / ``cap_for_conversation``).
 - Agent-facing tools never set it (``AGENT_SETTABLE_MODES``).
+
+The same file keeps the level new conversations, workflows and Developer
+workspaces start at: the last one the person chose for a conversation, Auto
+until then, and never Hands-off (``new_level`` / ``remember_level``).
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from row_bot.approval_policy import ApprovalMode, normalize_approval_mode
+from row_bot.approval_policy import ApprovalMode, known_approval_mode, normalize_approval_mode, starting_level
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +104,34 @@ def require_choice(mode: object, *, confirmed: bool = False) -> ApprovalMode:
     elif not is_confirmed():
         raise FullAutonomyError("full_autonomy_unconfirmed")
     return normalized
+
+
+def new_level() -> ApprovalMode:
+    """The level a new conversation, workflow or Developer workspace starts at.
+
+    The last level the person chose for a conversation (Hands-off counts as Auto: they turn
+    it on in each conversation), Auto until they choose one. In a sandbox, the level of the
+    chat that made it.
+    """
+
+    if os.environ.get("ROW_BOT_SANDBOX") == "1":
+        return starting_level()
+    with _LOCK:
+        saved = known_approval_mode(_read().get("new_level"))
+    return saved if saved in AGENT_SETTABLE_MODES else "auto"
+
+
+def remember_level(mode: object) -> None:
+    """The person chose *mode* for a conversation: new ones start there (Hands-off as Auto)."""
+
+    level = normalize_approval_mode(mode)
+    level = "auto" if level == "full" else level
+    with _LOCK:
+        settings = _read()
+        if settings.get("new_level") == level:
+            return
+        settings["new_level"] = level
+        _write(settings)
 
 
 def is_shared_conversation(thread_id: str) -> bool:

@@ -196,6 +196,8 @@ export const EXPORT_STEPS: Record<string, { number: number; text: string }> = {
 
 /** Why a version couldn't be prepared or couldn't start (designs/learning-ux.md §9). */
 export const VERSION_FAILURES: Record<string, string> = {
+  download_failed:
+    'Its file couldn’t be downloaded from Hugging Face. It stays there until it’s downloaded, so trying again carries on.',
   not_enough_disk: 'There isn’t enough free disk space to prepare it.',
   adapter_missing:
     'The files its training made are missing, so it can’t be prepared.',
@@ -601,3 +603,65 @@ export function testDetailWords(
   if (test.note) parts.push(test.note);
   return parts.join(' ');
 }
+
+// ── Training on Hugging Face (C1) ────────────────────────────────────────────
+
+/** "$3.10" (always two decimals: what Hugging Face bills). */
+export function moneyWords(dollars: number | null | undefined): string {
+  return `$${(dollars ?? 0).toFixed(2)}`;
+}
+
+/** "about 1 h 40 min" / "about 25 min" (a quote's time). */
+export function durationWords(seconds: number): string {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `about ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `about ${hours} h ${rest} min` : `about ${hours} h`;
+}
+
+export const HF_JOIN_URL = 'https://huggingface.co/join';
+export const HF_BILLING_URL = 'https://huggingface.co/settings/billing';
+export const HF_CONNECTED_APPS_URL =
+  'https://huggingface.co/settings/connected-applications';
+
+/** What Jobs needs, from Hugging Face's own pricing page (checked 26 Oct 2026). */
+export const HF_NEEDS =
+  'You need a Hugging Face account with credit for Jobs. Hugging Face bills by the minute while a run works. PRO ($9 a month) includes $2 of credit each month, and you can add more in Billing.';
+
+/** What the sign-in lets Row-Bot do (its scopes, in words). */
+export const HF_ACCESS =
+  'Row-Bot can run training jobs and make private repositories in your account for them, nothing else. The sign-in stays in this computer’s keychain.';
+
+/** A Hugging Face run's stage, while it runs. */
+export const HF_STAGES: Record<string, string> = {
+  setting_up: 'Setting up training on Hugging Face…',
+  downloading: 'Hugging Face is downloading the starting model…',
+  exporting: 'Building the model file on Hugging Face…',
+  uploading: 'Saving the results on Hugging Face…',
+  done: 'Finished on Hugging Face.',
+};
+
+/** Why a Hugging Face run stopped, and the way out. */
+export const HF_FAILURES: Record<string, { text: string; action: string }> = {
+  upload_failed: {
+    text: 'Couldn’t upload your examples to Hugging Face, so nothing was charged.',
+    action: 'Try again',
+  },
+  not_started: {
+    text: 'Hugging Face didn’t start the run, so nothing was charged.',
+    action: 'Try again',
+  },
+  no_credit: {
+    text: 'Hugging Face needs credit to run training. Add credit in Billing, then try again.',
+    action: 'Try again',
+  },
+  signed_out: {
+    text: 'The Hugging Face sign-in has run out. Sign in again, then try again.',
+    action: 'Try again',
+  },
+  remote_error: {
+    text: 'Training on Hugging Face stopped with an error. Earlier versions are kept.',
+    action: 'Try again',
+  },
+};

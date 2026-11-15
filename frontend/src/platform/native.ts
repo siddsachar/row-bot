@@ -1,4 +1,5 @@
 import type {
+  BuddyPetAnswer,
   BuddyPlacement,
   BuddyTarget,
   CapabilityResult,
@@ -9,6 +10,7 @@ import type {
   SelectionIntent,
 } from './types';
 import {
+  mainWindowTarget,
   nativeConversationId,
   protect,
   safeDownloadName,
@@ -39,11 +41,42 @@ const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const reference = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9:_-]{1,256}$/.test(value);
+// A saved file's own name, as the person typed it: never a path.
+const savedName = (value: unknown): value is string =>
+  typeof value === 'string' && /^[^\\/\p{Cc}]{1,255}$/u.test(value);
 const placementValue = (value: unknown): value is BuddyPlacement =>
   object(value) &&
   ['docked', 'desktop'].includes(String(value.placement)) &&
   typeof value.visible === 'boolean' &&
   Object.keys(value).length === 2;
+const PET_KEYS = new Set([
+  'accepted',
+  'side',
+  'expanded',
+  'width',
+  'height',
+  'petX',
+  'petY',
+  'cursor',
+  'landed',
+  'perched',
+  'following',
+]);
+const petValue = (value: unknown): value is BuddyPetAnswer =>
+  object(value) &&
+  Object.keys(value).length > 0 &&
+  Object.entries(value).every(([key, item]) => {
+    if (!PET_KEYS.has(key)) return false;
+    if (key === 'side') return item === 'left' || item === 'right';
+    if (key === 'cursor')
+      return (
+        item === null ||
+        (object(item) &&
+          ['x', 'y', 'age'].every((part) => Number.isFinite(item[part])) &&
+          Object.keys(item).length === 3)
+      );
+    return typeof item === 'boolean' || Number.isFinite(item);
+  });
 const targetValue = (value: unknown): value is BuddyTarget =>
   object(value) &&
   (value.conversationId === null ||
@@ -250,10 +283,15 @@ export function createPyWebViewPlatform(
         ? call('buddy_follow', { conversationId }, targetValue)
         : Promise.resolve(unavailable('invalid_conversation')),
     readBuddyTarget: () => call('buddy_follow', {}, targetValue),
-    showMainWindow: (conversationId) =>
-      conversationId === null || nativeConversationId(conversationId)
-        ? call('main_window', { conversationId }, nullValue)
-        : Promise.resolve(unavailable('invalid_conversation')),
+    buddyPet: (request) => call('buddy_pet', request, petValue),
+    showMainWindow: (conversationId, target) =>
+      target !== undefined
+        ? conversationId === null && mainWindowTarget(target)
+          ? call('main_window', { conversationId, target }, nullValue)
+          : Promise.resolve(unavailable('invalid_request'))
+        : conversationId === null || nativeConversationId(conversationId)
+          ? call('main_window', { conversationId }, nullValue)
+          : Promise.resolve(unavailable('invalid_conversation')),
     // pywebview binds `.pywebview-drag-region` once, when the page loads,
     // before this client renders; the same move channel serves our header.
     moveWindow: (x, y) => {
@@ -284,13 +322,39 @@ export function createPyWebViewPlatform(
       if (signal?.aborted) return { status: 'cancelled' };
       if (!reference(ref) || !safeDownloadName(name))
         return unavailable('invalid_request');
-      const result = await call('save', { reference: ref, name }, nullValue);
+      const result = await call(
+        'save',
+        { reference: ref, name },
+        (value): value is { saved: string; name?: string } | null =>
+          value === null ||
+          (object(value) &&
+            Object.keys(value).every(
+              (key) => key === 'saved' || key === 'name',
+            ) &&
+            typeof value.saved === 'string' &&
+            /^[0-9a-f]{32}$/.test(value.saved) &&
+            (value.name === undefined || savedName(value.name))),
+      );
       // Discard late completion; this cannot undo an already performed host save.
       if (signal?.aborted) return { status: 'cancelled' };
-      // The host answers ok only once the chosen file is written.
-      return result.status === 'ok'
-        ? { status: 'ok', value: { kind: 'file' } }
-        : result;
+      if (result.status !== 'ok') return result;
+      // The host answers ok only once the chosen file is written; Show in
+      // folder finds it by a token, never by the path chosen. The notice
+      // names the file as the person named it in the dialog.
+      const saved = result.value?.saved;
+      const fileName = result.value?.name;
+      return {
+        status: 'ok',
+        value: saved
+          ? {
+              kind: 'file',
+              ...(fileName ? { fileName } : {}),
+              reveal: async () =>
+                (await call('reveal_saved', { saved }, nullValue)).status ===
+                'ok',
+            }
+          : { kind: 'file' },
+      };
     },
   };
 }

@@ -9,7 +9,7 @@ Setup:
     1. Create a Twilio account at https://www.twilio.com/
     2. Get your **Account SID** and **Auth Token** from the console
     3. Buy or use a Twilio phone number
-    4. Enter credentials in Settings → Channels → SMS and start the channel:
+    4. Enter credentials in Settings › Apps › SMS and start the channel:
        it opens the main-app tunnel and registers ``<public-url>/sms`` with
        Twilio (or set that webhook in Twilio yourself)
 
@@ -767,7 +767,7 @@ async def start_bot() -> bool:
                     log.warning("SMS tunnel enabled but unavailable: %s", detail)
                     log.info(
                         "Main-app tunnel not active — check the public "
-                        "address in Settings → Devices & remote access, or "
+                        "address in Settings › Devices & remote access, or "
                         "set the Twilio webhook URL manually."
                     )
                     _webhook_public_url = None

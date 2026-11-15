@@ -208,3 +208,21 @@ it('sends realtime SDP only through the selected authenticated conversation cont
     signal,
   );
 });
+
+it('a one-tap Talk opens straight into ordinary Talk, even after realtime was chosen', () => {
+  const { props, view } = setup();
+  expect(talk.startOnMount).toBeUndefined();
+  fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
+
+  view.rerender(<ConversationVoice {...props} startOnOpen />);
+  fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Talk mode' }), {
+    target: { value: 'realtime' },
+  });
+  expect(screen.getByText('Realtime voice controls')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
+
+  expect(screen.getByText('Local voice controls')).toBeVisible();
+  expect(talk.startOnMount).toBe(true);
+});

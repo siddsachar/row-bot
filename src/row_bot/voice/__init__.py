@@ -271,8 +271,6 @@ class VoiceService:
     # ── Pipeline ─────────────────────────────────────────────────────────
 
     def _run(self) -> None:
-        import sounddevice as sd
-
         try:
             self._ensure_selected_stt_model()
         except Exception as exc:
@@ -281,10 +279,13 @@ class VoiceService:
             self._set_state("stopped")
             return
 
-        # Pre-check: is there any input device at all?
+        # Pre-check: is there any input device at all? Importing sounddevice already fails where no sound
+        # system answers (a Linux machine without PulseAudio).
         try:
+            import sounddevice as sd
+
             sd.query_devices(kind="input")
-        except sd.PortAudioError:
+        except Exception:
             msg = "No microphone detected on this system"
             self.status_queue.put(msg)
             logger.warning(msg)

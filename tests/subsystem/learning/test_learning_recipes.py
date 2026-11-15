@@ -1,5 +1,6 @@
 """Training recipes (L2c): one data file per tier, read strictly; only certified recipes are ever
-chosen (the 8 GB tier today, O23), so a larger card trains with the best certified one it fits."""
+chosen (the 16, 24 and 32 GB tiers; O124: the 8 GB tier went in T1), so a larger card trains with the best
+certified one it fits."""
 
 from __future__ import annotations
 
@@ -20,12 +21,12 @@ def _card(mib: int, driver: str = "596.08") -> hardware.HardwareCheck:
 def test_every_shipped_recipe_reads_and_the_measured_tiers_are_certified():
     found = {recipe.id: recipe for recipe in recipes.all_recipes()}
 
-    assert list(found) == ["8gb", "16gb", "24gb", "32gb"]
-    assert {recipe.id for recipe in found.values() if recipe.certified} == {"8gb", "16gb", "24gb", "32gb"}  # L2x
-    eight = found["8gb"]
-    assert eight.name == "8gb-v1" and eight.starting_model == "qwen3.5-2b"
-    assert eight.max_seq_length == 16_384 and eight.serve_context == 32_768  # O23, O30
-    assert (eight.quantization, eight.reasoning) == ("Q8_0", "off")  # O26, O24
+    assert list(found) == ["16gb", "24gb", "32gb"]  # O124: no 8 GB tier
+    assert {recipe.id for recipe in found.values() if recipe.certified} == {"16gb", "24gb", "32gb"}  # L2x
+    smallest = found["16gb"]
+    assert smallest.name == "16gb-v1" and smallest.starting_model == "qwen3.5-9b"
+    assert smallest.max_seq_length == 16_384 and smallest.serve_context == 32_768  # O23, O30
+    assert (smallest.quantization, smallest.reasoning) == ("Q8_0", "off")  # O26, O24
     # The 16, 24 and 32 GB tiers train the 9B as QLoRA (O111, O121); a 9B Q8_0 serves comfortably there (O26).
     assert all((recipe.starting_model, recipe.settings["bits"], recipe.quantization) == ("qwen3.5-9b", 4, "Q8_0")
                for recipe in (found["16gb"], found["24gb"], found["32gb"]))
@@ -38,30 +39,30 @@ def test_every_shipped_recipe_reads_and_the_measured_tiers_are_certified():
 
 
 def test_a_computer_trains_with_the_best_certified_recipe_its_card_fits():
-    assert recipes.for_hardware(_card(8_188)).id == "8gb"
     assert recipes.for_hardware(_card(16_376)).id == "16gb"
     assert recipes.for_hardware(_card(24_564)).id == "24gb"
-    assert recipes.for_hardware(_card(4_096)) is None  # too small
-    assert recipes.for_hardware(_card(8_188, driver="551.23")) is None  # O25: driver too old
+    assert recipes.for_hardware(_card(8_188)) is None  # O124: too small for the 9B
+    assert recipes.for_hardware(_card(12_288)) is None
+    assert recipes.for_hardware(_card(16_376, driver="551.23")) is None  # O25: driver too old
     assert recipes.for_hardware(hardware.HardwareCheck("no_gpu")) is None
     assert recipes.for_hardware(hardware.HardwareCheck("container")) is None
-    assert recipes.default().id == "8gb"
+    assert recipes.default().id == "16gb"
 
 
 def test_steps_checkpoints_and_the_protocol_spec():
-    recipe = recipes.load("8gb")
+    recipe = recipes.load("16gb")
 
     # O114: three passes over the examples (one moved nothing on 90 rows; three lifted own work).
     assert recipe.rows_per_step == 4 and recipe.steps_for(154) == 39 * 3 and recipe.steps_for(0) == 1
     assert recipe.checkpoint_interval(39) == 10 and recipe.checkpoint_interval(3) == 3
     spec = recipe.spec()
-    assert spec["name"] == "8gb-v1" and spec["settings"]["report_to"] == "none"
+    assert spec["name"] == "16gb-v1" and spec["settings"]["report_to"] == "none"
     assert spec["settings"]["max_seq_length"] == 16_384
     assert spec["settings"]["passes"] == 3  # each pass's adapter kept, so an earlier one can be used (O119)
 
 
 def _text(**changes) -> str:
-    data = json.loads((recipes.FOLDER / "8gb.json").read_text(encoding="utf-8"))
+    data = json.loads((recipes.FOLDER / "16gb.json").read_text(encoding="utf-8"))
     for key, value in changes.items():
         if value is None:
             data.pop(key)
@@ -91,7 +92,7 @@ def _text(**changes) -> str:
 ])
 def test_a_recipe_file_is_read_strictly(changes):
     with pytest.raises(recipes.RecipeError) as error:
-        recipes.parse(_text(**changes), source="8gb.json")
+        recipes.parse(_text(**changes), source="16gb.json")
     assert error.value.code == "invalid_recipe"
 
 
@@ -130,19 +131,19 @@ def test_the_recipe_follows_the_starting_model_the_person_chose(data_dir):
         # A smaller tier's model trains with the largest recipe for it the card fits.
         assert recipes.current(data_dir, card) == next(recipe for recipe in certified if recipe.starting_model == model)
     # A model this card has no certified recipe for (or none chosen): the card's own recipe.
-    small = _card(8_188)
+    smaller = _card(16_376)
     save_learning_settings(data_dir, enabled=True, starting_model=certified[0].starting_model)
-    assert recipes.current(data_dir, small).id == "8gb"
+    assert recipes.current(data_dir, smaller).id == "16gb"
 
 
 def test_a_recipe_says_what_it_needs_of_the_computers_memory_on_each_system():
     # O105: Windows charges what a run holds on the card to its commit limit, so its figure is measured
     # there; a system without a figure isn't checked.
-    recipe = recipes.parse(_text(system_memory_mib={"windows": 15_360, "linux": 9_216}), source="8gb.json")
+    recipe = recipes.parse(_text(system_memory_mib={"windows": 15_360, "linux": 9_216}), source="16gb.json")
 
     assert recipe.system_memory_need("win32") == 15_360 and recipe.system_memory_need("linux") == 9_216
     assert recipe.system_memory_need("darwin") is None
-    windows_only = recipes.parse(_text(system_memory_mib={"windows": 15_360}), source="8gb.json")
+    windows_only = recipes.parse(_text(system_memory_mib={"windows": 15_360}), source="16gb.json")
     assert windows_only.system_memory_need("linux") is None
     for shipped in recipes.all_recipes():
         assert not shipped.certified or shipped.system_memory_need("win32")  # every certified tier measured
@@ -162,11 +163,11 @@ def test_a_model_trains_with_the_largest_recipe_whose_need_fits_the_cards_free_m
 
 
 def test_a_runs_cap_on_a_larger_card_is_the_recipes_need_less_the_cuda_context():
-    recipe = recipes.load("8gb")
+    recipe = recipes.load("16gb")
 
-    on_8gb = recipe.spec(8_151)["settings"]["vram_cap"]
+    on_16gb = recipe.spec(16_376)["settings"]["vram_cap"]
     on_32gb = recipe.spec(32_607)["settings"]["vram_cap"]
 
-    assert on_8gb == recipe.settings["vram_cap"]  # the card it fills keeps its certified cap
+    assert on_16gb == recipe.settings["vram_cap"]  # the card it fills keeps its certified cap
     assert on_32gb == round((recipe.memory_mib - recipes.CONTEXT_MIB) / 32_607, 4)  # never more than was free
     assert recipe.spec()["settings"]["vram_cap"] == recipe.settings["vram_cap"]

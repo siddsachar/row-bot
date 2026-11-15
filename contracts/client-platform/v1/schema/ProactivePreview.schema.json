@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "ProactivePreviewItem": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maxLength": 40,
+          "title": "At",
+          "type": "string"
+        },
+        "in_brief": {
+          "title": "In Brief",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "follow_up",
+            "meeting_prep",
+            "brief",
+            "date",
+            "change",
+            "workflow_offer"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "moment_id": {
+          "pattern": "^[0-9a-f]{16}$",
+          "title": "Moment Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "where": {
+          "enum": [
+            "buddy",
+            "home"
+          ],
+          "title": "Where",
+          "type": "string"
+        }
+      },
+      "required": [
+        "moment_id",
+        "kind",
+        "title",
+        "at",
+        "where",
+        "in_brief"
+      ],
+      "title": "ProactivePreviewItem",
+      "type": "object"
+    },
+    "ProactivePreviewLevel": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ProactivePreviewItem"
+          },
+          "maxItems": 500,
+          "title": "Items",
+          "type": "array"
+        },
+        "level": {
+          "enum": [
+            "off",
+            "quiet",
+            "balanced",
+            "eager"
+          ],
+          "title": "Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "items"
+      ],
+      "title": "ProactivePreviewLevel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What each level would have brought up today, from today's moments; ``example`` when there were none.",
+  "properties": {
+    "example": {
+      "title": "Example",
+      "type": "boolean"
+    },
+    "levels": {
+      "items": {
+        "$ref": "#/$defs/ProactivePreviewLevel"
+      },
+      "maxItems": 4,
+      "title": "Levels",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "example",
+    "levels"
+  ],
+  "title": "ProactivePreview",
+  "type": "object"
+}

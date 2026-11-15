@@ -51,11 +51,11 @@ describe('clockTime', () => {
 });
 
 describe('cronDays', () => {
-  it('uses the scheduler numbering where Monday is 0', () => {
-    expect(cronDays('0')).toEqual(['mon']);
-    expect(cronDays('1')).toEqual(['tue']);
-    expect(cronDays('6')).toEqual(['sun']);
-    expect(cronDays('0-4')).toEqual(['mon', 'tue', 'wed', 'thu', 'fri']);
+  it('reads numbers as standard cron, where 0 and 7 are Sunday', () => {
+    expect(cronDays('0')).toEqual(['sun']);
+    expect(cronDays('1')).toEqual(['mon']);
+    expect(cronDays('7')).toEqual(['sun']);
+    expect(cronDays('1-5')).toEqual(['mon', 'tue', 'wed', 'thu', 'fri']);
   });
 
   it('expands names, lists, and ranges in weekday order', () => {
@@ -71,7 +71,7 @@ describe('cronDays', () => {
     expect(cronDays('sun-sun')).toEqual(['sun']);
   });
 
-  it.each(['', '7', 'funday', 'mon-', '1-2-3', '*', '*/2', '0-4/2'])(
+  it.each(['', '8', 'funday', 'mon-', '1-2-3', '*', '*/2', '0-4/2'])(
     'rejects %j instead of guessing',
     (field) => {
       expect(cronDays(field)).toBeNull();
@@ -96,11 +96,12 @@ describe('scheduleWords', () => {
     ['interval_minutes:30', 'Every 30 minutes'],
     ['cron:0 9 * * *', `Every day at ${nine}`],
     ['cron:0 9 * * mon-fri', `Weekdays at ${nine}`],
-    ['cron:0 9 * * 0-4', `Weekdays at ${nine}`],
+    ['cron:0 9 * * 1-5', `Weekdays at ${nine}`],
     ['cron:0 9 * * sat,sun', `Weekends at ${nine}`],
     ['cron:0 9 * * 0-6', `Every day at ${nine}`],
     ['cron:0 9 * * mon', `Every Monday at ${nine}`],
-    ['cron:0 9 * * 1', `Every Tuesday at ${nine}`],
+    ['cron:0 9 * * 1', `Every Monday at ${nine}`],
+    ['cron:0 9 * * 7', `Every Sunday at ${nine}`],
     ['cron:0 9 * * mon,wed', `Every Monday, Wednesday at ${nine}`],
     ['cron:5 * * * *', 'Every hour at :05'],
     ['  cron:30 18 * * fri  ', `Every Friday at ${clockTime(18, 30)}`],
@@ -127,7 +128,6 @@ describe('scheduleWords', () => {
     'cron:60 9 * * *',
     'cron:*/5 * * * *',
     'cron:5 * * * mon',
-    'cron:0 9 * * 7',
     'cron:0 9 * * 0-4/2',
     'cron:0 9 * *',
     'hourly',

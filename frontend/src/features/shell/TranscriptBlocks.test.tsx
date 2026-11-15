@@ -6,8 +6,10 @@ import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 const download = vi.fn();
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({ controller: { download } }),
+  useOptionalRuntime: () => ({ controller: { download } }),
 }));
 vi.mock('../../ui/overlays', () => ({
+  useNotify: () => () => {},
   useOverlay: () => ({
     open: vi.fn(),
     close: vi.fn(),

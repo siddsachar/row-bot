@@ -718,6 +718,10 @@ def _extract_video_poster_bytes(video_bytes: bytes) -> tuple[bytes, str] | None:
             pass
 
 
+# The video providers Designer makes clips with (below); any other says so without a request.
+VIDEO_PROVIDERS = frozenset({"google", "xai"})
+
+
 def _call_video_tool_and_collect_bytes(
     *,
     enriched_prompt: str,

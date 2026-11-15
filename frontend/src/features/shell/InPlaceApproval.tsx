@@ -176,22 +176,29 @@ function PendingApprovalsReview() {
  * device: "‘Daily News’ needs your approval · Review" opens the list. An
  * approval in the conversation on screen is not announced: its card is there.
  */
-export function useApprovalNotices(openConversationId: string | null): void {
+/**
+ * Announce new approvals once on this device. Home's overview lists them in
+ * "Needs you" already, so there they count as seen without a notice.
+ */
+export function useApprovalNotices(
+  openConversationId: string | null,
+  homeListsThem = false,
+): void {
   const { controller } = useRuntime();
   const overlay = useOverlay();
-  const latest = useRef({ overlay, openConversationId });
+  const latest = useRef({ overlay, openConversationId, homeListsThem });
   useEffect(() => {
-    latest.current = { overlay, openConversationId };
+    latest.current = { overlay, openConversationId, homeListsThem };
   });
   const { page } = usePendingApprovals(controller.pendingApprovals);
   useEffect(() => {
     if (!page) return;
-    const { overlay, openConversationId } = latest.current;
+    const { overlay, openConversationId, homeListsThem } = latest.current;
     const fresh = unannounced(page.items).filter(
       (item) =>
         !openConversationId || item.conversation_id !== openConversationId,
     );
-    if (!fresh.length) return;
+    if (!fresh.length || homeListsThem) return;
     overlay.notify(
       fresh.length === 1
         ? waitingWords({ ...fresh[0], title: `‘${fresh[0].title}’` })

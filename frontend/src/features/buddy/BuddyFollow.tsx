@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ClientController } from '../../api/controller';
 import type { ClientPlatform } from '../../platform';
-import { nativeConversationId } from '../../platform';
+import { mainWindowTarget, nativeConversationId } from '../../platform';
 
 /**
  * Main windows tell the native host which conversation they show; the
@@ -53,6 +53,22 @@ export function OpenConversationRequests() {
     };
     window.addEventListener('row-bot-open-conversation', open);
     return () => window.removeEventListener('row-bot-open-conversation', open);
+  }, [navigate]);
+  useEffect(() => {
+    // A Proactive place from the desktop pet's bubble: For you, Drafts, a
+    // draft or a moment's Why this (only those, by id).
+    const open = (event: Event) => {
+      const target = (event as CustomEvent<unknown>).detail;
+      if (!mainWindowTarget(target)) return;
+      if (target === 'for-you') navigate('/?tab=overview#for-you');
+      else if (target === 'drafts') navigate('/?tab=overview&draft=all');
+      else {
+        const [kind, id] = target.split(':');
+        navigate(`/?tab=overview&${kind}=${encodeURIComponent(id)}`);
+      }
+    };
+    window.addEventListener('row-bot-open-target', open);
+    return () => window.removeEventListener('row-bot-open-target', open);
   }, [navigate]);
   return null;
 }

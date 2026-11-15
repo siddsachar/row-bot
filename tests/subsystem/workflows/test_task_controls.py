@@ -41,7 +41,7 @@ def test_create_exact_saved_fields_without_execution(owner, fields):
     assert result.created and not result.replayed
     assert result.task.fields == fields
     assert result.task.id == "command-task-1"
-    assert result.task.approval_mode == "block"
+    assert result.task.approval_mode == "auto"  # Where new workflows start until the person picks a level.
     assert result.task.conversation_id is None
     assert len(result.task.revision) == 64
     assert owner.get_recent_runs() == []
@@ -148,7 +148,7 @@ def test_revocation_before_commit_rolls_back_all_fields(owner, fields, operation
 
 @pytest.mark.parametrize("schedule", ["garbage", "daily:25:00", "daily:12:00:30", "weekly:no:10:00",
                                      "interval:nan", "interval:inf", "interval:-1",
-                                     "interval_minutes:0.5", "cron:nope"])
+                                     "interval_minutes:1.5", "cron:nope"])
 def test_invalid_schedule_never_saves(owner, fields, schedule):
     with pytest.raises(control.TaskControlError, match="invalid_task_schedule"):
         create(replace(fields, schedule=schedule))

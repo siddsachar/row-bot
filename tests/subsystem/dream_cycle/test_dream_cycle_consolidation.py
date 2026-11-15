@@ -52,7 +52,8 @@ def test_enrichment_accepts_grounded_update_and_rejects_cross_entity_contaminati
         lambda _prompt, **_kwargs: "Alice likes tea and writes tests for Row-Bot during late work.",
     )
 
-    result = dream_cycle._enrich_entity(alice, excerpts, other_subjects={"Bob", "Row-Bot"})
+    # Row-Bot is named in the excerpts, so naming it is not contamination.
+    result = dream_cycle._enrich_entity(alice, excerpts, other_names={"bob", "row-bot"})
 
     assert result is not None
     assert result["new_length"] > result["old_length"]
@@ -63,7 +64,7 @@ def test_enrichment_accepts_grounded_update_and_rejects_cross_entity_contaminati
         "_llm_call",
         lambda _prompt, **_kwargs: "Alice likes tea. Bob owns unrelated deployment decisions.",
     )
-    assert dream_cycle._enrich_entity(alice, excerpts, other_subjects={"Bob"}) is None
+    assert dream_cycle._enrich_entity(alice, excerpts, other_names={"bob"}) is None
 
 
 def test_relation_inference_accepts_high_confidence_json_and_tracks_evidence(tmp_path, monkeypatch, reload_for_data_dir) -> None:

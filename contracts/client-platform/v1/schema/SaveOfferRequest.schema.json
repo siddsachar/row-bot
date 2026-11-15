@@ -1,0 +1,228 @@
+{
+  "$defs": {
+    "PageTheme": {
+      "additionalProperties": false,
+      "description": "Row-Bot's colours for both themes (token name to colour) and the one in use.",
+      "properties": {
+        "dark": {
+          "additionalProperties": {
+            "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+            "type": "string"
+          },
+          "maxProperties": 64,
+          "title": "Dark",
+          "type": "object"
+        },
+        "light": {
+          "additionalProperties": {
+            "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+            "type": "string"
+          },
+          "maxProperties": 64,
+          "title": "Light",
+          "type": "object"
+        },
+        "mode": {
+          "enum": [
+            "light",
+            "dark"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "PageTheme",
+      "type": "object"
+    },
+    "SaveContentSource": {
+      "additionalProperties": false,
+      "description": "Something the chat shows that only the page holds: a code block's text or a chart's picture.",
+      "properties": {
+        "content_base64": {
+          "maxLength": 12582912,
+          "minLength": 1,
+          "title": "Content Base64",
+          "type": "string"
+        },
+        "kind": {
+          "const": "content",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "content_base64"
+      ],
+      "title": "SaveContentSource",
+      "type": "object"
+    },
+    "SaveDeliverySource": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_id": {
+          "pattern": "^send-[0-9a-f]{8}$",
+          "title": "Delivery Id",
+          "type": "string"
+        },
+        "index": {
+          "maximum": 99,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "delivery",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "delivery_id",
+        "index"
+      ],
+      "title": "SaveDeliverySource",
+      "type": "object"
+    },
+    "SaveDesignExportSource": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "export_id": {
+          "maxLength": 36,
+          "minLength": 36,
+          "title": "Export Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "design_export",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "conversation_id",
+        "binding_id",
+        "export_id"
+      ],
+      "title": "SaveDesignExportSource",
+      "type": "object"
+    },
+    "SavePageSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "page",
+          "title": "Kind",
+          "type": "string"
+        },
+        "page_id": {
+          "pattern": "^page-[0-9a-f]{8}$",
+          "title": "Page Id",
+          "type": "string"
+        },
+        "theme": {
+          "$ref": "#/$defs/PageTheme"
+        }
+      },
+      "required": [
+        "kind",
+        "page_id",
+        "theme"
+      ],
+      "title": "SavePageSource",
+      "type": "object"
+    },
+    "SaveWorkflowWebhookSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "workflow_webhook",
+          "title": "Kind",
+          "type": "string"
+        },
+        "revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Revision",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "task_id",
+        "revision"
+      ],
+      "title": "SaveWorkflowWebhookSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Ask for one file to save, the one way every Download and Export button saves (5.3.3).",
+  "properties": {
+    "source": {
+      "discriminator": {
+        "mapping": {
+          "content": "#/$defs/SaveContentSource",
+          "delivery": "#/$defs/SaveDeliverySource",
+          "design_export": "#/$defs/SaveDesignExportSource",
+          "page": "#/$defs/SavePageSource",
+          "workflow_webhook": "#/$defs/SaveWorkflowWebhookSource"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SavePageSource"
+        },
+        {
+          "$ref": "#/$defs/SaveDeliverySource"
+        },
+        {
+          "$ref": "#/$defs/SaveDesignExportSource"
+        },
+        {
+          "$ref": "#/$defs/SaveWorkflowWebhookSource"
+        },
+        {
+          "$ref": "#/$defs/SaveContentSource"
+        }
+      ],
+      "title": "Source"
+    }
+  },
+  "required": [
+    "source"
+  ],
+  "title": "SaveOfferRequest",
+  "type": "object"
+}

@@ -34,6 +34,7 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from row_bot.hosting import on_server, where_row_bot_runs
 from row_bot.integrations import apps, facts, inputs, presets, safe, sources
 from row_bot.integrations.safe import public_url as public_link
 from row_bot.mcp_client.safety import saved_schema_digest
@@ -320,12 +321,14 @@ def _checkable(row: dict) -> bool:
     return row["parent_id"] is None and bool((capabilities.get("test") or {}).get("available"))
 
 
-def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = False) -> dict | None:
+def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = False,
+            remote: bool = False) -> dict | None:
     """The plan for one entry and intent, or None when nothing needs doing.
 
     ``reference`` carries what the owners need: ``cfg`` (an installed MCP
     configuration), ``entry`` (a catalog MCP record), or a skill or package
-    catalog reference. ``cleanup`` (Remove only) also deletes saved keys and data.
+    catalog reference. ``cleanup`` (Remove only) also deletes saved keys and data. ``remote``: the
+    request comes from another device, so its words say where Row-Bot runs (U7).
     """
     kind, available, action = row["kind"], row["lifecycle"] == "available", row["next_action"]["kind"]
     if kind == "builtin":
@@ -383,7 +386,7 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         declaration = {key: reference.get(key) for key in ("reference", "pin", "identity", "revision", "entry_id", "install_ref",
                                                             "link", "upload")}
     elif intent == "fix" and kind == "plugin" and _checkable(row):
-        steps = [_step("consent", title="Finish setting up " + name), _step("test", title="Check it on this computer"),
+        steps = [_step("consent", title="Finish setting up " + name), _step("test", title="Check it " + on_server(remote=remote)),
                  _step("enable", title="Turn on " + name)]
     else:
         steps = [_step("consent", title="Turn on " + name), _step("enable", title="Turn on " + name)]
@@ -479,7 +482,7 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
     """Admit one consented plan and run it (in the background when asked) to its first pause."""
     from row_bot.runtime import admissions
     open_plan(ctx, row["id"])  # An abandoned pause on this item expires here, freeing it.
-    plan = compute(row, reference, intent=intent, cleanup=cleanup)
+    plan = compute(row, reference, intent=intent, cleanup=cleanup, remote=ctx.remote)
     if plan is None or plan["digest"] != digest:
         raise PlanError("plan_changed")
     if not plan["supported"]:
@@ -870,15 +873,16 @@ def _observe_sign_in(ctx: Context, record: dict, step: dict) -> str:
 PACKAGES = {"npm_package", "pypi_package", "oci_image", "mcpb"}
 
 
-def _package_problem(code: str) -> str:
+def _package_problem(code: str, remote: bool = False) -> str:
     """A package that can't be prepared, in plain words."""
     return {"mcp_package_node_required": "Set up Node.js first.", "mcp_package_uv_required": "Set up uv first.",
-            "mcp_package_docker_required": "Docker Desktop isn't running on this computer. Open it, then try again.",
+            "mcp_package_docker_required": f"Docker Desktop isn't running {on_server(remote=remote)}. Open it, then try again.",
             "mcp_package_docker_credentials": ("Docker couldn't use its sign-in helper to get this image. Open Docker "
                                                "Desktop (and sign in there if the image is private), then try again."),
             "mcp_package_integrity_changed": "The package changed since you checked it. Try again to review the new version.",
             "mcp_package_version_required": "It doesn't name an exact version to review.",
-            "mcp_package_container_access_unsupported": "It asks Docker for access to this computer that Row-Bot doesn't grant.",
+            "mcp_package_container_access_unsupported": (f"It asks Docker for access to {where_row_bot_runs(remote=remote)} "
+                                                         "that Row-Bot doesn't grant."),
             "mcp_bundle_unavailable": "The bundle file is no longer here. Add it from the file again.",
             }.get(code.split(":", 1)[0], "The package couldn't be prepared. Try again, or check it in advanced settings.")
 
@@ -943,8 +947,8 @@ def _hermes_recipe(ctx: Context, record: dict, step: dict) -> str | None:
         record["_hermes"] = found
     cfg = next(iter(json.loads(found["import_json"])["mcpServers"].values()))
     lines = ([f"Connects to {cfg['url']}."] if cfg.get("url") else
-             [f"Runs {' '.join([cfg['command'], *cfg.get('args', [])])[:200]} on this computer."])
-    lines += [f"Asks for {', '.join(i['name'] for i in cfg.get('inputs', []))}, kept in your system keychain."] if cfg.get("inputs") else []
+             [f"Runs {' '.join([cfg['command'], *cfg.get('args', [])])[:200]} {on_server(remote=ctx.remote)}."])
+    lines += [f"Asks for {', '.join(i['name'] for i in cfg.get('inputs', []))}, {_kept_secret(ctx.remote)}."] if cfg.get("inputs") else []
     fixed = [name for name, value in (cfg.get("env") or {}).items() if "{" not in value]
     lines += [f"Sets {', '.join(fixed)} for it."] if fixed else []
     step["review"] = {"summary": f"{record['name']} recipe at {reference['pin'][:12]}", "lines": [line[:256] for line in lines],
@@ -996,7 +1000,7 @@ def _bundle_recipe(ctx: Context, record: dict) -> None:
         install = bundle_install(staged["upload"], staged["bundle"])
         install["bundle"]["url"] = bundle["url"]  # Where it came from, so its record can be checked again.
     except (ValueError, OSError) as error:
-        raise PlanError("bundle_unsupported", "Row-Bot can't run this bundle on this computer.") from error
+        raise PlanError("bundle_unsupported", f"Row-Bot can't run this bundle {on_server(remote=ctx.remote)}.") from error
     record["_bundle_entry"] = {**record["reference"]["entry"], "install": install, "transport": "stdio"}
     _save(record)
 
@@ -1309,9 +1313,9 @@ def _mcp_runtime(ctx: Context, record: dict, step: dict) -> str:
             try:
                 lock = packages.resolve(_saved(record["target"], record["server_id"])[1], check=ctx.validate)
             except (ValueError, OSError, TimeoutError) as error:
-                raise PlanError("package_unresolved", _package_problem(str(error))) from None
+                raise PlanError("package_unresolved", _package_problem(str(error), ctx.remote)) from None
             record["_locks"][step["id"]] = lock
-        step["review"] = packages.review(lock)
+        step["review"] = packages.review(lock, remote=ctx.remote)
         if ctx.review_digest != lock["digest"] and step["id"] + ":package" not in record["_commands"]:
             step["message"] = "Check what will be installed, then continue."
             return "digest_changed"  # The person sees exactly what will be installed before it is.
@@ -1323,7 +1327,7 @@ def _mcp_runtime(ctx: Context, record: dict, step: dict) -> str:
                 inspected = inspect_mcp_package(owner_id=ctx.owner_id, server_id=record["server_id"], configuration_revision=revision,
                                                 target=record["target"], validate=ctx.validate, lock=lock)
             except ValueError as error:
-                raise PlanError("package_unavailable", _package_problem(str(error))) from None
+                raise PlanError("package_unavailable", _package_problem(str(error), ctx.remote)) from None
             return {"command_id": str(uuid4()), "revision": revision, "preview_id": inspected["preview_id"],
                     "digest": inspected["digest"], "action_digest": inspected["action_digest"]}, inspected
         saved, review = _once(record, step["id"] + ":package", build)
@@ -1716,16 +1720,23 @@ def _hub_record_named(name: str):
 
 _PERMISSIONS = {"network": "use the internet", "files": "read and change files", "account": "use your accounts",
                 "external_send": "send messages or posts for you", "messaging": "use your messaging channels",
-                "memory_documents": "read your memory and documents", "shell_processes": "run programs on this computer"}
+                "memory_documents": "read your memory and documents"}
 
 
-def _package_review(summary: dict) -> dict:
+def _kept_secret(remote: bool) -> str:
+    """Where a key is kept: this computer's keychain, or encrypted on the server (U7)."""
+    return f"kept encrypted {on_server(remote=True)}" if remote else "kept in your system keychain"
+
+
+def _package_review(summary: dict, remote: bool) -> dict:
     """What a package declares, shown in place before it is added: the code it runs, what it starts or
     connects to, what it may do, and its skills. Only that exact package (its tree digest) is added."""
-    lines = [f"Runs its own code on this computer for: {', '.join(summary['tools'])}."] if summary["tools"] else []
+    where = on_server(remote=remote)
+    lines = [f"Runs its own code {where} for: {', '.join(summary['tools'])}."] if summary["tools"] else []
     lines += [f"Connects to {server['url']}." if server["url"] else
-              f"Runs {' '.join([server['command'], *server['args']])} on this computer." for server in summary["servers"]]
-    lines += ["Asks to " + ", ".join(_PERMISSIONS.get(name, name) for name in summary["permissions"]) + "."]         if summary["permissions"] else []
+              f"Runs {' '.join([server['command'], *server['args']])} {where}." for server in summary["servers"]]
+    permissions = {**_PERMISSIONS, "shell_processes": "run programs " + where}
+    lines += ["Asks to " + ", ".join(permissions.get(name, name) for name in summary["permissions"]) + "."]         if summary["permissions"] else []
     lines += ["Adds skills: " + ", ".join(skill["name"] for skill in summary["skills"]) + "."] if summary["skills"] else []
     lines += [f"Says it comes from {summary['publisher']}; Row-Bot hasn't checked that."] if summary["publisher"] else []
     return {"summary": f"{summary['name']} {summary['version']}", "lines": [line[:256] for line in lines], "items": [],
@@ -1773,7 +1784,7 @@ def _package_test(ctx: Context, record: dict, step: dict) -> str:
                                   local=bool(reference.get("upload")))
     record["_inspected"] = summary
     record["_package"] = {"preview_id": summary["preview_id"], "plugin_id": summary["plugin_id"]}
-    step["review"] = _package_review(summary)
+    step["review"] = _package_review(summary, ctx.remote)
     if ctx.review_digest != summary["tree_digest"]:
         step["message"] = "Check what this package does, then continue."
         return "digest_changed"

@@ -16,6 +16,7 @@ import {
   newConversation,
 } from './unified-helpers';
 import type { Locator, Page } from '@playwright/test';
+import { captureBrowserDownload } from './download-helpers';
 import { installDesktopFolderBridge } from './surface-helpers';
 
 function fixtureHeaders() {
@@ -422,21 +423,19 @@ for (const [mode, label] of [
       name: 'Design export',
       exact: true,
     });
-    // One click: this computer's owner gets a copy in the workspace's
-    // Exports folder with Open / Show in folder (never clicked here: they
-    // open the person's own apps).
-    await exporting
-      .getByRole('button', { name: 'Export as HTML', exact: true })
-      .click();
-    await expect(exporting.getByRole('status')).toContainText(
-      `Saved · ${renamed}.html in `,
+    // One click saves it the one way Row-Bot saves (a download in a
+    // browser); the panel then keeps only that line and Export again.
+    const exported = captureBrowserDownload(page, () =>
+      exporting
+        .getByRole('button', { name: 'Export as HTML', exact: true })
+        .click(),
     );
-    await expect(exporting.getByRole('status')).toContainText('› Exports');
+    expect((await exported).name).toBe(`${renamed}.html`);
+    await expect(exporting.getByRole('status')).toContainText(
+      `Saved · ${renamed}.html`,
+    );
     await expect(
-      exporting.getByRole('button', { name: 'Show in folder', exact: true }),
-    ).toBeVisible();
-    await expect(
-      exporting.getByRole('button', { name: 'Open', exact: true }),
+      exporting.getByRole('button', { name: 'Export again', exact: true }),
     ).toBeVisible();
     await screenshot(page, info, `${mode}-html-export`);
     await accessibility(page, info, `${mode}-html-export`, {

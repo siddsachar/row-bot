@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "description": "The person's edit of an X post on its card (G2): the new text, and the files kept by their SHA-256 start.",
+  "properties": {
+    "media": {
+      "items": {
+        "pattern": "^[0-9a-f]{12}$",
+        "type": "string"
+      },
+      "maxItems": 4,
+      "title": "Media",
+      "type": "array"
+    },
+    "text": {
+      "maxLength": 25000,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "title": "XPostEdit",
+  "type": "object"
+}

@@ -36,6 +36,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
+  // Close the app first: restoring turns Learning's start-up flag off, and a
+  // poll still due (download, training) would get a 404 a real app never sees.
+  await page.close();
   await fixture(page, 'restore');
 });
 
@@ -95,12 +98,12 @@ async function turnOn(
   await page.getByRole('button', { name: 'Turn on Learning' }).click();
   const sheet = page.getByRole('dialog', { name: 'Turn on Learning' });
   await expect(
-    sheet.getByText('NVIDIA GeForce RTX 5070 Laptop (8 GB)'),
+    sheet.getByText('NVIDIA GeForce RTX 5080 Laptop (16 GB)'),
   ).toBeVisible();
   if (screens) await shoot(page, info, 'setup-gpu');
   await sheet.getByRole('button', { name: 'Turn on Learning' }).click();
   const ask = page.getByRole('dialog', {
-    name: 'Download the training engine and Qwen3.5 2B?',
+    name: 'Download the training engine and Qwen3.5 9B?',
   });
   await expect(ask).toBeVisible();
   if (screens) await shoot(page, info, 'download-ask');
@@ -284,13 +287,13 @@ test('the Learning tab: paused, limit reached, reading past chats, its other vie
     page.getByRole('heading', { name: 'No personal model yet' }),
   ).toBeVisible();
   await expect(
-    page.getByText('NVIDIA GeForce RTX 5070 Laptop (8 GB)'),
+    page.getByText('NVIDIA GeForce RTX 5080 Laptop (16 GB)'),
   ).toBeVisible();
   await shoot(page, info, 'model-not-set-up');
   await page.getByRole('button', { name: 'Download…' }).click();
   await page
     .getByRole('dialog', {
-      name: 'Download the training engine and Qwen3.5 2B?',
+      name: 'Download the training engine and Qwen3.5 9B?',
     })
     .getByRole('button', { name: 'Download', exact: true })
     .click();
@@ -337,18 +340,45 @@ test('Learning data says how much of it is browser and computer pictures', async
   await shoot(page, info, 'settings-learning-data-pictures');
 });
 
-test('without a suitable graphics card the setup sheet offers Hugging Face', async ({
+test('without an NVIDIA graphics card the setup sheet says Learning still improves Row-Bot (O131)', async ({
   page,
 }, info) => {
+  // A model trained on Hugging Face runs here after, so with no card to run one it isn't offered.
   await fixture(page, 'preview');
   await fixture(page, 'no-gpu');
   await openSettings(page, 'learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();
   const sheet = page.getByRole('dialog', { name: 'Turn on Learning' });
   await expect(
-    sheet.getByText(/^This computer can’t train a model\./),
+    sheet.getByText(
+      'A personal model runs on an NVIDIA graphics card with 8 GB or more, and this computer has none.',
+    ),
   ).toBeVisible();
+  await expect(
+    sheet.getByText(
+      'Learning still improves Row-Bot with lessons and ways of working.',
+    ),
+  ).toBeVisible();
+  await expect(
+    sheet.getByRole('button', { name: 'Use Hugging Face' }),
+  ).toHaveCount(0);
   await shoot(page, info, 'setup-no-gpu');
+});
+
+test('a graphics card too small to train offers Hugging Face in setup (O124)', async ({
+  page,
+}, info) => {
+  await fixture(page, 'preview');
+  await fixture(page, 'small-gpu');
+  await openSettings(page, 'learning');
+  await page.getByRole('button', { name: 'Turn on Learning' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Turn on Learning' });
+  await expect(
+    sheet.getByText(
+      /A personal model needs a graphics card with 16\sGB to train here\.$/,
+    ),
+  ).toBeVisible();
+  await shoot(page, info, 'setup-small-gpu');
   await sheet.getByRole('button', { name: 'Use Hugging Face' }).click();
   await expect(
     sheet.getByText(/will train on Hugging Face, in your own account/),
@@ -360,6 +390,5 @@ test('without a suitable graphics card the setup sheet offers Hugging Face', asy
   await expect(
     page.getByRole('heading', { name: 'Training on Hugging Face' }),
   ).toBeVisible();
-  await expect(page.getByText('No NVIDIA graphics card')).toBeVisible();
   await shoot(page, info, 'model-hugging-face');
 });

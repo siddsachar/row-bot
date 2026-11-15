@@ -15,6 +15,7 @@ import os
 import re
 import stat
 import threading
+import time
 import uuid
 import sys
 from typing import Any, Callable, Iterator
@@ -303,13 +304,25 @@ def load_config() -> dict[str, Any]:
         _config_cache = normalize_config({})
         return _safe_copy(_config_cache)
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-        _config_cache = normalize_config(raw)
+        _config_cache = normalize_config(_read_settled())
     except Exception as exc:
         log_event("mcp.config.load_failed", level=30, path=str(CONFIG_PATH), error=str(exc))
         _config_cache = normalize_config({})
     return _safe_copy(_config_cache)
+
+
+def _read_settled(attempts: int = 5) -> Any:
+    """The saved file as JSON. This first read takes no lock (taking ``_CONFIG_LOCK`` here would invert the
+    runtime→config lock order), so a save replacing the file at that moment (Windows refuses the open, B409)
+    is waited out with a short retry instead of reading as no apps at all."""
+    for attempt in range(attempts):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def save_config(config: dict[str, Any]) -> None:

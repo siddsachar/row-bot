@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { AccessClient, AccessDevice } from '../../api/access';
+import { placeWords } from '../../api/place';
 import { OverlayProvider } from '../../ui/overlays';
 import AccessDevices, { addressInWords } from './AccessDevices';
 
@@ -27,7 +28,7 @@ const device: AccessDevice = {
       device_id: 'device-a',
       created_at: '2026-09-20T00:00:00Z',
       last_seen_at: null,
-      expires_at: '2026-10-20T00:00:00Z',
+      expires_at: '2099-10-20T00:00:00Z',
       revoked_at: null,
       lifetime: 'trusted' as const,
       current: true,
@@ -73,6 +74,31 @@ it('marks the device the server says is making the request (B141)', async () => 
   expect(rows[1]).not.toHaveTextContent('This device');
 });
 
+it('leaves out a browser whose temporary sign-in ran out (F7)', async () => {
+  const expired: AccessDevice = {
+    ...device,
+    id: 'device-c',
+    display_name: 'Borrowed browser',
+    current: false,
+    sessions: [
+      {
+        ...device.sessions[0],
+        id: 'session-c',
+        device_id: 'device-c',
+        expires_at: '2020-01-01T12:00:00Z',
+        lifetime: 'temporary',
+        current: false,
+      },
+    ],
+  };
+  const client = fixture();
+  client.devices = vi.fn().mockResolvedValue([device, laptop, expired]);
+  show(client);
+  const list = await screen.findByRole('list', { name: 'Your devices' });
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+  expect(list).not.toHaveTextContent('Borrowed browser');
+});
+
 it('signs a device out only after a confirmation', async () => {
   const client = show();
   fireEvent.click(
@@ -112,8 +138,17 @@ it('says when and where a device was last seen in words, never raw timestamps (U
     document.querySelector('time[datetime="2026-09-20T01:00:00.000Z"]'),
   ).not.toBeNull();
   expect(screen.getByText(/on your network \(192\.168\.1\.40\)/)).toBeVisible();
-  expect(addressInWords('100.101.2.3')).toBe('over Tailscale (100.101.2.3)');
-  expect(addressInWords('203.0.113.9')).toBe('from the internet (203.0.113.9)');
-  expect(addressInWords('127.0.0.1')).toBe('via this computer');
-  expect(addressInWords(null)).toBe('');
+  const here = placeWords({ kind: 'this_computer' });
+  expect(addressInWords('100.101.2.3', here)).toBe(
+    'over Tailscale (100.101.2.3)',
+  );
+  expect(addressInWords('203.0.113.9', here)).toBe(
+    'from the internet (203.0.113.9)',
+  );
+  expect(addressInWords('127.0.0.1', here)).toBe('via this computer');
+  expect(addressInWords(null, here)).toBe('');
+  // Seen from a phone, the loopback address is the computer Row-Bot runs on (U7).
+  expect(addressInWords('127.0.0.1', placeWords({ kind: 'server' }))).toBe(
+    'via your Row-Bot server',
+  );
 });

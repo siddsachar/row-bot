@@ -135,6 +135,17 @@ def test_sending_to_your_devices_never_asks_and_shows_in_every_open_window(chat,
     assert notice.view()["conversation_id"] == chat.conversation
 
 
+def test_a_picture_or_video_sent_from_the_workspace_is_kept_with_the_chat(chat):
+    # Library › Media lists a chat's media: a GIF Row-Bot made in the workspace and sent is one of them.
+    from row_bot import media_library
+
+    (chat.workspace / "fernleaf-square.gif").write_bytes(b"GIF89a" + b"x" * 64)
+    chat.send(files=["fernleaf-square.gif", "docs/notes.txt", "report.pdf"], to="devices")
+
+    names = [item["name"] for item in media_library.items()]
+    assert names == ["fernleaf-square.gif"], "media only, and a chat file isn't kept twice"
+
+
 def test_a_downloaded_copy_stays_the_file_as_sent(chat):
     result = chat.send(files=["docs/notes.txt"])
     (chat.workspace / "docs" / "notes.txt").write_bytes(b"Changed afterwards.\n")

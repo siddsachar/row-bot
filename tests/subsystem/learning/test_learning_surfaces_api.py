@@ -140,7 +140,7 @@ def test_with_the_preview_flag_the_app_offers_learning_off_with_the_setup_defaul
                                        "next_look_at": None}
     assert snapshot["past_chats"] == {"state": "none", "total": 0, "done": 0}
     model = snapshot["personal_model"]
-    assert model["starting_model"]["name"] == "Qwen3.5 2B" and model["download"] == "not_asked"
+    assert model["starting_model"]["name"] == "Qwen3.5 9B" and model["download"] == "not_asked"
     assert model["engine"] == "not_downloaded"
     assert snapshot["data"] == {"exists": False, "bytes": 0, "picture_bytes": 0, "picture_cap_bytes": 10_000_000_000}
     # Reading Learning creates nothing.
@@ -403,9 +403,18 @@ def test_only_delete_data_ever_deletes_learning_data(api, no_channels, chats, mo
                if action != "delete_data"]
     actions.sort(key=lambda action: action in ("turn_off", "pause"))  # everything else while Learning is on
     fields = {"version": 1, "kind": "document_lookups", "job_id": "job_unknown", "runtime": "ollama",
-              "folder": "C:/nowhere", "item_id": "item_unknown", "model": "qwen3.5-2b", "download": "not_now",
+              "folder": "C:/nowhere", "item_id": "item_unknown", "model": "qwen3.5-9b", "download": "not_now",
               "conversation_id": "chat-b", "message_id": "run-msg-3", "signal_id": "sig_unknown",
-              "category": "wrong_answer", "change_id": "proposal_unknown", "text": "Use the ID", "answer": "The newest"}
+              "category": "wrong_answer", "change_id": "proposal_unknown", "text": "Use the ID", "answer": "The newest", "cap_usd": 20,
+              "quote_cost_cents": 100, "flavor": "a100-large"}
+    # Hugging Face (C1) is a fake here: its commands reach their own checks, never the network.
+    from row_bot.learning.remote import training as remote_training
+    from tests.fixtures.hugging_face import FakeHub, FakeSignIn
+
+    hub = FakeHub()
+    monkeypatch.setattr(remote_training, "_trainer", remote_training.RemoteTrainer(
+        data, hub=hub, sign_in=FakeSignIn(signed_in=False), card_mib=lambda: 32_607, start_threads=False,
+        flavors=lambda: []))
     extra = {"turn_on": {"setup": SETUP},
              "save_advanced": {"advanced": {"rank": 16, "learning_rate": 0.0002, "epochs": 3, "context": 16384}}}
 
@@ -437,7 +446,7 @@ def test_the_hardware_read_reports_the_check_and_free_space(api, monkeypatch):
 
     def fake_check(*, refresh: bool = False, detector=None):
         checks.append(refresh)
-        return hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 5070 Laptop GPU", 8151, "596.08")])
+        return hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 5060 Ti GPU", 16311, "596.08")])
 
     monkeypatch.setattr(hardware, "check", fake_check)
 
@@ -446,9 +455,9 @@ def test_the_hardware_read_reports_the_check_and_free_space(api, monkeypatch):
 
     assert response.status_code == 200 and again.status_code == 200
     value = LearningHardware.model_validate_json(response.text)
-    assert value.state == "gpu" and value.gpu and value.gpu.label == "NVIDIA GeForce RTX 5070 Laptop (8\u00a0GB)"
-    assert value.tier and value.tier.certified and value.tier.summary.startswith("Can train small models")
-    assert [model.name for model in value.starting_models] == ["Qwen3.5 2B"]
+    assert value.state == "gpu" and value.gpu and value.gpu.label == "NVIDIA GeForce RTX 5060 Ti (16\u00a0GB)"
+    assert value.tier and value.tier.certified and value.tier.summary.startswith("Can train models up to about 9B")
+    assert [model.name for model in value.starting_models] == ["Qwen3.5 9B"]
     assert value.free_bytes is not None and value.free_bytes > 0
     assert checks == [False, True]
 

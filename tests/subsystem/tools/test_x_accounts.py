@@ -214,7 +214,7 @@ def test_a_reply_card_links_the_post_it_answers(x, person):
     fake, tool = x
     asked, _ = person
     x_accounts.add(fake.sign_in(*ROWBOT))
-    original = fake.post("999", "What does Row-Bot do?")
+    original = fake.post("999", "@rowbot_ai What does Row-Bot do?")
 
     result = tool._x_post("reply", text="It keeps your data local.", tweet_id=original["id"])
 
@@ -682,6 +682,198 @@ def test_a_scheduled_post_never_goes_out_cancelled_changed_or_long_missed(x, per
                                                "A scheduled post as @rowbot_ai didn't go out"]
 
 
+def test_the_person_edits_a_scheduled_post_and_it_goes_out_as_edited_at_its_time(x, person, notices, tmp_path):
+    """Home › Review's Edit: the text and which files go change; the time and the approval stay."""
+    from datetime import datetime, timedelta
+
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    chart, photo = _picture(tmp_path / "chart.png"), _picture(tmp_path / "photo.png", "navy")
+    when = (datetime.now() + timedelta(hours=2)).replace(second=0, microsecond=0)
+    tool._x_post("post", text="Tonight's chart", media_paths=[str(chart), str(photo)], account="@rowbot_ai",
+                 post_at=when.isoformat(timespec="minutes"))
+    [waiting] = x_posting.scheduled_posts()
+    kept = waiting["media"][1]["sha256"]
+
+    assert x_posting.edit_scheduled(waiting["id"], "Tonight's chart, with the photo", [kept])
+    with pytest.raises(x_posting.XPostError, match="@rowbot_ai can post up to 280"):
+        x_posting.edit_scheduled(waiting["id"], "x" * 281, [kept])
+    with pytest.raises(x_posting.XPostError, match="Give the text to post"):
+        x_posting.edit_scheduled(waiting["id"], "  ", [kept])
+    assert not x_posting.edit_scheduled("xs-000000000000", "Nothing waits here", [])
+
+    [edited] = x_posting.scheduled_posts()
+    assert (edited["text"], edited["post_at"]) == ("Tonight's chart, with the photo", waiting["post_at"])
+    assert [item["name"] for item in edited["media"]] == ["photo.png"]
+    [sent] = x_posting.send_due(when)
+    assert sent["status"] == "posted" and fake.posts[0]["text"].startswith("Tonight's chart, with the photo")
+    assert len(fake.posts[0]["media_ids"]) == 1
+    assert not x_posting.edit_scheduled(waiting["id"], "Too late", []), "a post that went out can't be edited"
+
+
+def test_a_picture_goes_up_through_xs_v2_upload_and_a_video_waits_for_its_processing(x, person, tmp_path):
+    """29 Oct: every picture post failed on v1.1's upload, which refuses an OAuth 2.0 sign-in."""
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    picture = _picture(tmp_path / "chart.png")
+    video = tmp_path / "demo.mp4"
+    video.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"0" * 4096)
+
+    shown = tool._x_post("post", text="Tonight's chart", media_paths=[str(picture)], account="@rowbot_ai")
+    clip = tool._x_post("post", text="The demo", media_paths=[str(video)], account="@rowbot_ai")
+
+    assert "Posted as @rowbot_ai" in shown and "Posted as @rowbot_ai" in clip
+    steps = [path for method, path in fake.requests if "/media/upload" in path]
+    image_id, video_id = list(fake.uploaded)
+    assert steps == ["/2/media/upload/initialize", f"/2/media/upload/{image_id}/append",
+                     f"/2/media/upload/{image_id}/finalize",
+                     "/2/media/upload/initialize", f"/2/media/upload/{video_id}/append",
+                     f"/2/media/upload/{video_id}/finalize", "/2/media/upload"]  # The video's STATUS.
+    assert fake.categories == {image_id: "tweet_image", video_id: "tweet_video"}
+    assert [post["media_ids"] for post in fake.posts] == [[image_id], [video_id]]
+
+
+@pytest.fixture
+def chats(tmp_path, monkeypatch):
+    """Two chats with real attachment storage in the test's folder, as Library › Media reads them; the tool runs in
+    the second."""
+    import sqlite3
+
+    from row_bot import threads, tool_outputs
+
+    monkeypatch.setattr(threads, "DB_PATH", str(tmp_path / "threads.db"))
+    monkeypatch.setattr(threads, "_MEDIA_DIR", tmp_path / "media")
+    threads._ensure_thread_db()
+    with sqlite3.connect(threads.DB_PATH) as connection:
+        connection.executemany("INSERT INTO thread_meta(thread_id,name) VALUES(?,?)",
+                               [("growth-assets", "Growth | Assets"), ("growth-x", "Growth | X content")])
+    monkeypatch.setattr(tool_outputs, "current_thread_id", lambda: "growth-x")
+
+
+def test_a_post_attaches_a_library_item_by_its_reference_or_a_chat_file_by_its_name(x, person, chats, tmp_path):
+    """29 Oct: the growth run's screenshots were in Library › Media, but x_post took only file paths."""
+    from row_bot.application.attachments import register_attachment
+
+    fake, tool = x
+    asked, _ = person
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    screenshot = _picture(tmp_path / "a.png").read_bytes()
+    card = _picture(tmp_path / "b.png", "navy").read_bytes()
+    shot = register_attachment("growth-assets", "screenshot-2026-10-29-115700.png", screenshot)
+    register_attachment("growth-x", "launch-card.png", b"an older card")
+    # Each file in a chat has its own name: the second card is kept as launch-card-2.png.
+    assert register_attachment("growth-x", "launch-card.png", card)["name"] == "launch-card-2.png"
+
+    by_ref = tool._x_post("post", text="Memory that lasts", media_paths=[shot["attachment_ref"]],
+                          account="@rowbot_ai")
+    by_name = tool._x_post("post", text="Launch", media_paths=["launch-card-2.png"], account="@rowbot_ai")
+
+    assert "Posted as @rowbot_ai" in by_ref and "Posted as @rowbot_ai" in by_name
+    shown = [payload["x_post"]["media"] for payload in asked]
+    assert [(item["name"], item["sha256"]) for [item] in shown] == [
+        ("screenshot-2026-10-29-115700.png", hashlib.sha256(screenshot).hexdigest()[:12]),
+        ("launch-card-2.png", hashlib.sha256(card).hexdigest()[:12])]
+    assert [post["media_ids"] for post in fake.posts] == [[media_id] for media_id in fake.uploaded]
+    assert str(tmp_path) not in json.dumps(asked)
+
+    missing = tool._x_post("post", text="Nothing", media_paths=["chart.png"], account="@rowbot_ai")
+    assert missing == ("chart.png isn't a file Row-Bot can read, a file in this chat or a Library › Media item "
+                       "(media_find gives its reference), so nothing was posted.")
+    assert len(asked) == 2 and _creates(fake) == 2
+
+
+def test_a_scheduled_post_finds_its_library_item_again_at_its_time(x, person, notices, chats, tmp_path):
+    from datetime import datetime, timedelta
+
+    from row_bot.application.attachments import register_attachment
+
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    shot = register_attachment("growth-assets", "screenshot-2026-10-29-115700.png",
+                               _picture(tmp_path / "a.png").read_bytes())
+    when = (datetime.now() + timedelta(hours=1)).replace(second=0, microsecond=0)
+
+    tool._x_post("post", text="At noon", media_paths=[shot["attachment_ref"]], account="@rowbot_ai",
+                 post_at=when.isoformat(timespec="minutes"))
+
+    [waiting] = x_posting.scheduled_posts()
+    assert [item["name"] for item in waiting["media"]] == ["screenshot-2026-10-29-115700.png"]
+    assert str(tmp_path) not in json.dumps(waiting)
+    [sent] = x_posting.send_due(when)
+    assert sent["status"] == "posted" and fake.posts[0]["media_ids"] == list(fake.uploaded)
+
+
+def test_an_account_connected_before_pictures_is_asked_to_reconnect_before_any_card(x, person, tmp_path):
+    from tests.helpers.fake_x_api import OLD_SCOPE
+
+    fake, tool = x
+    asked, _ = person
+    x_accounts.add(fake.sign_in(*ROWBOT, scope=OLD_SCOPE))
+
+    refused = tool._x_post("post", text="Tonight's chart", media_paths=[str(_picture(tmp_path / "c.png"))],
+                           account="@rowbot_ai")
+
+    assert refused.startswith("@rowbot_ai was connected before Row-Bot could post pictures and videos. Sign in to "
+                              "it once more in Settings › Apps › X")
+    assert "Nothing was sent to X." in refused and asked == []
+    assert not [path for _, path in fake.requests if "media" in path]
+    # Text alone still goes; signing in again (with media.write now) lets the picture go too.
+    assert "Posted as @rowbot_ai" in tool._x_post("post", text="Words only", account="@rowbot_ai")
+    x_accounts.add(fake.sign_in(*ROWBOT, access="access-rowbot-again"))
+    assert "Posted as @rowbot_ai" in tool._x_post("post", text="Now with it", account="@rowbot_ai",
+                                                   media_paths=[str(_picture(tmp_path / "c.png"))])
+
+
+def test_a_refused_upload_says_xs_own_reason(x, person, tmp_path, monkeypatch):
+    import httpx
+
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    real = fake.handle
+
+    def refuse(request):
+        if str(request.url).endswith("/2/media/upload/initialize"):
+            return httpx.Response(400, json={"title": "Invalid Request", "detail": "media_type is not supported"})
+        return real(request)
+
+    monkeypatch.setattr(x_accounts, "transport", httpx.MockTransport(refuse))
+    result = tool._x_post("post", text="Chart", media_paths=[str(_picture(tmp_path / "c.png"))])
+
+    assert ("Uploading c.png to X failed (start), so nothing was posted. X refused it (400): media_type is not "
+            "supported.") in result
+    assert fake.posts == []
+
+
+def test_a_scheduled_post_that_didnt_go_out_stays_in_review_with_why_and_goes_when_tried_again(
+        x, person, notices, tmp_path):
+    from datetime import datetime, timedelta
+    from tests.helpers.fake_x_api import OLD_SCOPE
+
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    when = (datetime.now() + timedelta(hours=1)).replace(second=0, microsecond=0)
+    for text in ("With its picture", "Dismissed"):
+        tool._x_post("post", text=text, account="@rowbot_ai", post_at=when.isoformat(timespec="minutes"),
+                     media_paths=[str(_picture(tmp_path / f"{text[:4]}.png"))])
+    # The sign-in loses media.write before the slot (an account from before 5.3.1, say).
+    x_accounts.add(fake.sign_in(*ROWBOT, access="access-old", scope=OLD_SCOPE))
+    x_posting.send_due(when)
+
+    failed, dismissed = x_posting.scheduled_posts()
+    assert (failed["status"], failed["text"]) == ("failed", "With its picture")
+    assert failed["reason"].startswith("Nothing was sent: @rowbot_ai was connected before Row-Bot could post")
+    assert notices[0][1].endswith("It's in Home › Review, where you can try it again.")
+    assert x_posting.cancel_scheduled(dismissed["id"])  # Dismiss: it leaves Review.
+    assert [item["id"] for item in x_posting.scheduled_posts()] == [failed["id"]]
+
+    # Post without the picture: the text goes now.
+    assert x_posting.retry_scheduled(failed["id"], without_media=True)
+    x_posting.send_due(datetime.now() + timedelta(minutes=1))
+    [post] = fake.posts
+    assert post["text"] == "With its picture" and post["media_ids"] == []
+    assert x_posting.scheduled_posts() == [] and not x_posting.retry_scheduled(failed["id"])
+
+
 def test_a_delete_has_no_time_slot(x, person):
     fake, tool = x
     asked, _ = person
@@ -707,3 +899,147 @@ def test_an_accounts_recent_posts_come_with_their_numbers_and_totals(x):
             "Most viewed: ") in read
     assert "1,200 views · 30 likes · 2 reposts · 1 reply · 0 quotes · 5 bookmarks" in read
     assert "340 views · 1 like · 2 reposts · 1 reply" in read
+
+
+# ── X's reply rule (23 Feb 2026) ─────────────────────────────────────────────
+# X's self-serve API takes a reply or quote only where the post's author summoned the account: mentioned it, quoted
+# one of its posts, or is the account. Row-Bot checks by the posting account's own user ID, before any card.
+
+
+def test_a_reply_or_quote_asks_only_where_the_posts_author_summoned_that_account(x, person):
+    fake, tool = x
+    asked, _ = person
+    for user in (ROWBOT, PERSONAL):
+        x_accounts.add(fake.sign_in(*user))
+    for_sidd = fake.post("999", "@sidd what do you make of local-first apps?")
+    launch = fake.post("111", "Row-Bot 5.3 is out")
+    quoting = fake.post("999", "Look at this", references=[{"type": "quoted", "id": launch["id"]}])
+
+    allowed = [tool._x_post("reply", text="They keep your data yours.", tweet_id=for_sidd["id"], account="@sidd"),
+               tool._x_post("quote", text="Thanks for sharing!", tweet_id=quoting["id"], account="@rowbot_ai"),
+               tool._x_post("reply", text="Release notes inside.", tweet_id=launch["id"], account="@rowbot_ai")]
+    assert len(asked) == 3 and all("https://x.com/" in result for result in allowed)
+    assert [post["text"] for post in fake.posted_by("222")] == ["They keep your data yours."]
+
+    blocked = {"reply as rowbot": tool._x_post("reply", text="Row-Bot does that too.", tweet_id=for_sidd["id"],
+                                               account="@rowbot_ai"),
+               "quote as sidd": tool._x_post("quote", text="Worth a read.", tweet_id=quoting["id"], account="@sidd")}
+
+    assert len(asked) == 3 and _creates(fake) == 3, "an unsummoned reply or quote never reaches X"
+    reply, quote = blocked.values()
+    assert reply.startswith("Nothing was sent to X: X allows this reply only from its own app or website. Through "
+                            "other apps, X allows a reply or quote only when the post's author mentioned @rowbot_ai "
+                            "or quoted one of @rowbot_ai's posts.")
+    assert f"Reply to it there: https://x.com/i/status/{for_sidd['id']}" in reply
+    assert "The draft, ready to copy:\nRow-Bot does that too." in reply
+    assert "mentioned @sidd" in quote and f"Quote it there: https://x.com/i/status/{quoting['id']}" in quote
+    assert "The draft, ready to copy:\nWorth a read." in quote
+
+
+def test_an_unsummoned_reply_is_never_scheduled(x, person):
+    from datetime import datetime, timedelta
+
+    fake, tool = x
+    asked, _ = person
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    question = fake.post("999", "Which local AI assistant should I try?")
+    when = (datetime.now() + timedelta(hours=2)).replace(second=0, microsecond=0)
+
+    result = tool._x_post("reply", text="Try Row-Bot.", tweet_id=question["id"], account="@rowbot_ai",
+                          post_at=when.isoformat(timespec="minutes"))
+
+    assert asked == [] and x_posting.scheduled_posts() == []
+    assert "Nothing was sent to X" in result and "The draft, ready to copy:\nTry Row-Bot." in result
+
+
+def test_a_reply_x_refuses_by_its_rule_gives_the_draft_and_is_not_offered_again(x, person):
+    """Row-Bot couldn't read the post first (X down for reads), so it asked; X then refused the reply."""
+    fake, tool = x
+    asked, _ = person
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    question = fake.post("999", "Which local AI assistant should I try?")
+    fake.fail_reads = True
+
+    result = tool._x_post("reply", text="Try Row-Bot.", tweet_id=question["id"], account="@rowbot_ai")
+
+    assert len(asked) == 1 and _creates(fake) == 1 and fake.posted_by("111") == []
+    assert "Nothing was posted as @rowbot_ai. X refused it: X allows this reply only from its own app" in result
+    assert f"https://x.com/i/status/{question['id']}" in result and "ready to copy:\nTry Row-Bot." in result
+    assert [item["status"] for item in x_posting.operations()] == ["failed"], "nothing left to check or resend"
+
+
+def test_a_scheduled_reply_x_wont_take_settles_with_its_draft_and_no_try_again(x, notices):
+    """Replies scheduled before Row-Bot checked X's rule: checked at their time, or refused by X if it couldn't."""
+    from datetime import datetime, timedelta
+
+    fake, _ = x
+    rowbot, sidd = (x_accounts.add(fake.sign_in(*user)) for user in (ROWBOT, PERSONAL))
+    question = fake.post("999", "@sidd which local AI assistant should I try?")
+    when = (datetime.now() + timedelta(hours=1)).replace(second=0, microsecond=0)
+    checked = x_posting.schedule(rowbot, "reply", "Try Row-Bot.", question["id"], [], when)
+    welcome = x_posting.schedule(sidd, "reply", "Row-Bot, I'd say.", question["id"], [], when)
+
+    done = {item["id"]: item for item in x_posting.send_due(when)}
+    assert done[welcome["id"]]["status"] == "posted", "@sidd was mentioned"
+    assert done[checked["id"]]["status"] == "by_hand" and _creates(fake) == 1, "@rowbot_ai's never reached X"
+
+    refused = x_posting.schedule(rowbot, "quote", "Good question.", question["id"], [], when)
+    fake.fail_reads = True  # Row-Bot can't check first: X refuses it.
+    [sent] = x_posting.send_due(when)
+    assert sent["status"] == "by_hand" and _creates(fake) == 2 and fake.posted_by("111") == []
+    fake.fail_reads = False
+
+    shown = {item["id"]: item for item in x_posting.scheduled_posts()}
+    assert set(shown) == {checked["id"], refused["id"]}
+    assert shown[checked["id"]]["reason"].startswith("Nothing was sent to X: X allows this reply only from its own")
+    assert shown[refused["id"]]["reason"].startswith("Nothing was posted as @rowbot_ai. X refused it: X allows this "
+                                                     "quote only from its own app or website.")
+    assert (shown[refused["id"]]["text"], shown[refused["id"]]["target_url"]) == (
+        "Good question.", f"https://x.com/i/status/{question['id']}")
+    assert not x_posting.retry_scheduled(refused["id"]), "trying again would fail again"
+    assert notices[-1] == ("A scheduled post as @rowbot_ai didn't go out",
+                           f"{shown[refused['id']]['reason']} It's in Home › Review, with the draft to copy.")
+    assert x_posting.cancel_scheduled(refused["id"]) and refused["id"] not in {
+        item["id"] for item in x_posting.scheduled_posts()}
+
+
+def test_a_post_whose_time_passed_while_its_card_waited_is_asked_for_now(x, person):
+    """R8 (12 Nov): a post approved at 16:06 for 16:00 was dropped ("16:00 has passed, so nothing was posted"),
+    and the person had to say "Post it now". Its time passed: a new card asks to post it now."""
+    from datetime import datetime, timedelta
+
+    fake, tool = x
+    asked, _ = person
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    passed = (datetime.now() - timedelta(minutes=6)).replace(second=0, microsecond=0)
+
+    result = tool._x_post("post", text="Pick Qwen locally for this chat.", account="@rowbot_ai",
+                          post_at=passed.isoformat(timespec="minutes"))
+
+    [card] = asked
+    assert card["x_post"]["post_at"] == "", "the card says it goes out now, not at a time that has gone"
+    assert f"Its time ({passed.isoformat(timespec='minutes')}) had passed, so it went out at once." in result
+    assert _creates(fake) == 1
+
+
+def test_a_late_approval_never_moves_a_post_to_tomorrow_or_sends_a_long_missed_one():
+    from datetime import datetime
+
+    now = datetime(2026, 11, 11, 16, 6)
+    assert x_posting.slot("16:00", now, late_ok=True) is None, "just passed: today's, at once"
+    assert x_posting.slot("09:00", now, late_ok=True) == datetime(2026, 11, 12, 9, 0), "this morning's is tomorrow's"
+    assert x_posting.slot("16:00", now) == datetime(2026, 11, 12, 16, 0), "without a card waiting, as before"
+    with pytest.raises(x_posting.XPostError, match="has passed"):
+        x_posting.slot("2026-11-11T03:00", now, late_ok=True)
+
+
+def test_a_read_with_no_count_uses_the_default(x, person):
+    """R7 (12 Nov): a model sends max_results null for "the default"; every such read was a TypeError."""
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    tool._x_post("post", text="Hello from Row-Bot")
+    [post] = fake.posted_by("111")
+
+    result = tool._x_read("read_tweet", tweet_id=post["id"], max_results=None)
+
+    assert post["id"] in result and "Error" not in result

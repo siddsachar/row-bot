@@ -17,8 +17,10 @@ def connections(platform, monkeypatch):
     from row_bot import threads
 
     # Keep operation failures separate from schema setup in the older checks.
-    # The dedicated pressure tests below restore the real initializer.
-    ensure_schema = threads._ensure_thread_db
+    # The dedicated pressure tests below run the real initializer on every call
+    # (a process otherwise sets the schema up once, I29).
+    def ensure_schema():
+        threads._init_thread_db(raise_on_error=True)
     monkeypatch.setattr(threads, "_ensure_thread_db", lambda: None)
     monkeypatch.setattr(threads, "_thread_write_blocked", lambda _thread_id: False)
     original = sqlite3.connect

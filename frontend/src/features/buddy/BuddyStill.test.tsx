@@ -109,3 +109,20 @@ it('leaves a read already under way to the Buddy that started it', async () => {
   await act(async () => new Promise((done) => setTimeout(done, 0)));
   expect(mock.session.load).not.toHaveBeenCalled();
 });
+
+it('gives the turn markers no blob: still while the page unloads', async () => {
+  mock.set({ snapshot: {}, selectedPack: pack('tide') });
+  render(<Still />);
+  expect(await screen.findByText('blob:still-1')).toBeVisible();
+  // A render as the page unloads: a blob: image started now loads as a ping,
+  // which the page's connect-src refuses.
+  act(() => {
+    window.dispatchEvent(new Event('pagehide'));
+    mock.set({ busy: true });
+  });
+  expect(screen.getByText('glyph')).toBeVisible();
+  act(() => {
+    window.dispatchEvent(new Event('pageshow'));
+  });
+  expect(screen.getByText('blob:still-1')).toBeVisible();
+});

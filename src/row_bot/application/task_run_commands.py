@@ -96,6 +96,10 @@ def execute_task_run_command(*, owner_id: str, key: str, command: dict,
             if workflow is None:
                 raise task_execution.TaskExecutionError("task_not_found")
             conversation = tasks._prepare_task_thread(workflow)
+            # A first run records the conversation it just made; the review still stands.
+            task_revision = task_execution.revision_with_conversation(
+                task_id, reviewed_revision=payload["task_revision"],
+                reviewed_thread_id=workflow.get("persistent_thread_id"))
             if admissions.deletion_state(conversation) != "active":
                 raise ClientPlatformError("task_run_target_conflict")
             if not threads._thread_exists(conversation):  # A reminder has no conversation of its own.
@@ -105,7 +109,7 @@ def execute_task_run_command(*, owner_id: str, key: str, command: dict,
             validate()
             authority()
             task_execution.start_reviewed_task_run(task_id,
-                expected_task_revision=payload["task_revision"], expected_policy_revision=payload["policy_revision"],
+                expected_task_revision=task_revision, expected_policy_revision=payload["policy_revision"],
                 stable_run_id=run_id, conversation_id=conversation, enabled_tool_names=tools,
                 validate=authority, record_commit=record_commit, refresh_enabled_tool_names=enabled_tools)
             progress.update(status="completed", task_run_reserved=True)

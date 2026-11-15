@@ -277,6 +277,7 @@ class TrainingSupervisor:
                 checkpoint_every=int(self.jobs.plan_of(job)["checkpoint_every"]),
                 recipe=dict(RECOMMENDED_RECIPE),
                 version=job.version,
+                backend=job.backend,  # a Hugging Face run is tried again there (C1)
             )
             jobs_module.remove_run(job.id, self.jobs.root)
             self._notify()

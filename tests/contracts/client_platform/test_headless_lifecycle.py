@@ -158,6 +158,35 @@ def test_f_p01_exact_submission_and_native_assistant_identity(platform):
     assert fake.external_call_count == 0
 
 
+def test_a_message_moves_its_chat_to_the_top_of_the_list_as_does_the_reply(platform):
+    """The chats list follows activity: yesterday's chat that gets a message comes first (5.3.1)."""
+    from row_bot import threads
+
+    def order() -> list[str]:  # The chats list's own order (thread_meta by updated_at).
+        with sqlite3.connect(threads.DB_PATH) as connection:
+            return [row[0] for row in connection.execute("SELECT thread_id FROM thread_meta ORDER BY updated_at DESC")]
+
+    with sqlite3.connect(threads.DB_PATH) as connection:
+        connection.execute("UPDATE thread_meta SET updated_at='2026-10-28T09:00:00' WHERE thread_id='conversation-a'")
+        connection.execute("UPDATE thread_meta SET updated_at='2026-10-29T08:00:00' WHERE thread_id='conversation-b'")
+    assert order()[:2] == ["conversation-b", "conversation-a"]
+    native_id = fixture_id("native-assistant")
+    barrier = StreamBarrier()  # The reply waits until the list is checked.
+    fake = ScriptedAgentStream((barrier, ("token", "Synthetic output"),
+                               CheckpointCommit((AIMessage(content="Synthetic output", id=native_id),), native_id),
+                               ("done", "Synthetic output")))
+    receipt = submit(platform, fake)
+    handle = platform.registry.get(receipt["execution_id"])
+    assert barrier.entered.wait(10)
+    assert order()[:2] == ["conversation-a", "conversation-b"]  # On sending.
+    with sqlite3.connect(threads.DB_PATH) as connection:  # The other chat moves past it meanwhile.
+        connection.execute("UPDATE thread_meta SET updated_at='2026-10-28T09:00:00' WHERE thread_id='conversation-a'")
+    assert order()[:2] == ["conversation-b", "conversation-a"]
+    barrier.release.set()
+    assert handle.producer_done.wait(10)
+    assert order()[:2] == ["conversation-a", "conversation-b"]  # The reply brings it up again.
+
+
 def test_f_p03_snapshot_during_stream_keeps_public_delta_and_no_reexecution(platform):
     barrier = StreamBarrier()
     fake = ScriptedAgentStream((("token", "Visible before checkpoint"), barrier))

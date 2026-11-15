@@ -445,7 +445,8 @@ export default function InsightsHome({
         <InlineEmpty icon={<Lightbulb size={15} />}>
           {filter === 'pinned'
             ? 'No pinned insights.'
-            : 'No active insights. New ones appear after analysis.'}
+            : // What an insight is, and how to get one (U41).
+              'No insights yet. They point out skills that overlap or could do better; Analyze skill library looks now.'}
         </InlineEmpty>
       )}
       {items.length > 0 && (

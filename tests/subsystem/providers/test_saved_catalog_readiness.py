@@ -165,14 +165,23 @@ def test_custom_endpoint_is_agent_ready_only_for_the_probed_model(providers):
 
     assert rows["model-a"].runtime_mode == "agent"
     assert rows["model-a"].status_reason == ""
-    assert rows["model-b"].runtime_mode == "chat_only"
+    # Never checked: it can't answer until it is, so it isn't ready either.
+    assert rows["model-b"].runtime_ready is False
+    assert "hasn't checked this server" in rows["model-b"].status_reason
+
+
+def test_custom_endpoint_never_checked_is_not_ready(providers):
+    row = _custom_row(providers)["model-a"]
+
+    assert (row.runtime_ready, row.runtime_mode) == (False, "")
+    assert row.status_reason == "Row-Bot hasn't checked this server yet. Probe it in Settings › Models."
 
 
 @pytest.mark.parametrize(
     ("probe", "ready", "mode", "reason"),
     [
         ({"chat_ok": True, "tool_calling": False}, True, "chat_only", "tool round trip"),
-        ({"chat_ok": False}, False, "blocked", "did not verify chat"),
+        ({"chat_ok": False}, False, "blocked", "didn't pass Row-Bot's check"),
     ],
 )
 def test_custom_endpoint_probe_without_a_tool_round_trip_is_not_agent_ready(providers, probe, ready, mode, reason):

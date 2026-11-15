@@ -16,7 +16,17 @@ class ProviderErrorKind(StrEnum):
     TIMEOUT = "timeout"
     PROVIDER_OUTAGE = "provider_outage"
     CREDENTIAL_MISSING = "credential_missing"
+    # Connection refused or reset, the name not found: the provider (Ollama, say) isn't there.
+    CONNECTION_FAILED = "connection_failed"
     UNKNOWN = "unknown"
+
+
+_CONNECTION_MARKERS = (
+    "connection refused", "actively refused", "failed to connect", "connection error", "connecterror",
+    "connection reset", "forcibly closed", "failed to establish a new connection",
+    "all connection attempts failed", "getaddrinfo failed", "name or service not known",
+    "network is unreachable", "server disconnected", "peer closed connection",
+)
 
 
 @dataclass(frozen=True)
@@ -41,10 +51,12 @@ def normalize_provider_error(exc: BaseException) -> NormalizedProviderError:
         return NormalizedProviderError(ProviderErrorKind.QUOTA_EXHAUSTED, text, "Choose another model or add provider credits.")
     if "rate" in lower and "limit" in lower:
         return NormalizedProviderError(ProviderErrorKind.RATE_LIMITED, text, "Retry later or switch to another configured provider.")
+    if any(part in lower for part in _CONNECTION_MARKERS):
+        return NormalizedProviderError(ProviderErrorKind.CONNECTION_FAILED, text, "Start the provider or check the connection.")
+    if "timeout" in lower or "timed out" in lower:
+        return NormalizedProviderError(ProviderErrorKind.TIMEOUT, text, "Retry or choose a faster route.")
     if "context" in lower or "token" in lower and "maximum" in lower:
         return NormalizedProviderError(ProviderErrorKind.CONTEXT_EXCEEDED, text, "Reduce context or choose a larger-context model.")
-    if "timeout" in lower:
-        return NormalizedProviderError(ProviderErrorKind.TIMEOUT, text, "Retry or choose a faster route.")
     if "5" in lower and ("server" in lower or "unavailable" in lower):
         return NormalizedProviderError(ProviderErrorKind.PROVIDER_OUTAGE, text, "Retry later or switch providers.")
     return NormalizedProviderError(ProviderErrorKind.UNKNOWN, text, "Check provider status and credentials.")

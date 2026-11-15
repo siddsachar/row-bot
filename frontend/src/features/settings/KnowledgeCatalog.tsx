@@ -168,6 +168,13 @@ export function SavedCatalog<P extends SavedPage>({
     page && initialPageSize && visibleLimit < page.items.length,
   );
 
+  // Nothing saved and nothing searched for: the empty state alone, without a
+  // search box, a filter and a "0 matching" count around it (U39).
+  const empty =
+    page?.availability === 'available' &&
+    page.total === 0 &&
+    !applied.query &&
+    !applied.selected;
   return (
     <div
       className="stack settings-saved-catalog"
@@ -188,55 +195,57 @@ export function SavedCatalog<P extends SavedPage>({
           </CompactAction>
         </header>
       )}
-      <form
-        className="settings-list-toolbar"
-        role="search"
-        aria-label={`Search ${noun}`}
-        onSubmit={(event) => {
-          event.preventDefault();
-          clearTimeout(typing.current);
-          setApplied({ query: draft.trim(), selected: selected.trim() });
-        }}
-      >
-        <label className="settings-inline-search">
-          <span className="visually-hidden">Search {noun}</span>
-          <Search size={14} aria-hidden />
-          <Input
-            type="search"
-            maxLength={256}
-            placeholder={`Search ${noun}`}
-            value={draft}
-            onChange={(event) => {
-              const value = event.target.value;
-              setDraft(value);
-              clearTimeout(typing.current);
-              typing.current = setTimeout(
-                () =>
-                  setApplied({
-                    query: value.trim(),
-                    selected: selected.trim(),
-                  }),
-                350,
-              );
-            }}
-          />
-        </label>
-        {filter(selected, (value) => {
-          setSelected(value);
-          clearTimeout(typing.current);
-          setApplied({ query: draft.trim(), selected: value.trim() });
-        })}
-        {headless && (
-          <IconButton
-            size="sm"
-            label={`Reload ${noun}`}
-            disabled={loading}
-            onClick={() => setReload((value) => value + 1)}
-          >
-            <RefreshCw size={14} aria-hidden />
-          </IconButton>
-        )}
-      </form>
+      {!empty && (
+        <form
+          className="settings-list-toolbar"
+          role="search"
+          aria-label={`Search ${noun}`}
+          onSubmit={(event) => {
+            event.preventDefault();
+            clearTimeout(typing.current);
+            setApplied({ query: draft.trim(), selected: selected.trim() });
+          }}
+        >
+          <label className="settings-inline-search">
+            <span className="visually-hidden">Search {noun}</span>
+            <Search size={14} aria-hidden />
+            <Input
+              type="search"
+              maxLength={256}
+              placeholder={`Search ${noun}`}
+              value={draft}
+              onChange={(event) => {
+                const value = event.target.value;
+                setDraft(value);
+                clearTimeout(typing.current);
+                typing.current = setTimeout(
+                  () =>
+                    setApplied({
+                      query: value.trim(),
+                      selected: selected.trim(),
+                    }),
+                  350,
+                );
+              }}
+            />
+          </label>
+          {filter(selected, (value) => {
+            setSelected(value);
+            clearTimeout(typing.current);
+            setApplied({ query: draft.trim(), selected: value.trim() });
+          })}
+          {headless && (
+            <IconButton
+              size="sm"
+              label={`Reload ${noun}`}
+              disabled={loading}
+              onClick={() => setReload((value) => value + 1)}
+            >
+              <RefreshCw size={14} aria-hidden />
+            </IconButton>
+          )}
+        </form>
+      )}
       {loading && <Skeleton label={`Loading saved ${noun}`} />}
       {error && (
         <ErrorState title={`${title} could not be loaded`}>{error}</ErrorState>
@@ -253,13 +262,15 @@ export function SavedCatalog<P extends SavedPage>({
       )}
       {page?.availability === 'available' && (
         <>
-          <p role="status">
-            {page.total == null
-              ? 'Matching count unknown'
-              : initialPageSize
-                ? `Showing ${Math.min(page.items.length, visibleLimit).toLocaleString()} of ${page.total.toLocaleString()}`
-                : `${page.total.toLocaleString()} matching saved entries`}
-          </p>
+          {!empty && (
+            <p role="status">
+              {page.total == null
+                ? 'Matching count unknown'
+                : initialPageSize
+                  ? `Showing ${Math.min(page.items.length, visibleLimit).toLocaleString()} of ${page.total.toLocaleString()}`
+                  : `${page.total.toLocaleString()} matching saved entries`}
+            </p>
+          )}
           {earlierCount > 0 && (
             <p role="status">
               {earlierCount.toLocaleString()} earlier loaded entries are outside

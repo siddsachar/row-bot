@@ -6,6 +6,7 @@ import {
   type AccessDevice,
 } from '../../api/access';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
@@ -26,11 +27,14 @@ function ipv4(address: string): number[] | null {
 }
 
 /** Where a device was last seen from, in words (parity row 48). */
-export function addressInWords(address: string | null | undefined): string {
+export function addressInWords(
+  address: string | null | undefined,
+  place: PlaceWords,
+): string {
   if (!address) return '';
   const lower = address.toLowerCase();
   const v4 = ipv4(address);
-  if (lower === '::1' || (v4 && v4[0] === 127)) return 'via this computer';
+  if (lower === '::1' || (v4 && v4[0] === 127)) return `via ${place.name}`;
   if (
     (v4 && v4[0] === 100 && v4[1] >= 64 && v4[1] <= 127) ||
     lower.startsWith('fd7a:115c:a1e0:')
@@ -59,6 +63,19 @@ function isPhone(device: AccessDevice) {
  * Signing out ends every session of that device at once; it needs a new code
  * to come back. Signed-out devices are not listed.
  */
+/**
+ * Still signed in: not signed out, and a session left that hasn't run out. A
+ * temporary browser's 12 hours ending signs it out (F7).
+ */
+function signedIn(device: AccessDevice) {
+  if (device.revoked_at) return false;
+  if (device.sessions.length === 0) return true;
+  return device.sessions.some(
+    (session) =>
+      !session.revoked_at && Date.parse(session.expires_at) > Date.now(),
+  );
+}
+
 export default function AccessDevices({
   client = accessClient,
   reloadKey = 0,
@@ -67,6 +84,7 @@ export default function AccessDevices({
   /** Changes when a device connected elsewhere on the page. */
   reloadKey?: number;
 }) {
+  const place = usePlace();
   const overlay = useOverlay();
   const nameId = useId();
   const [devices, setDevices] = useState<AccessDevice[] | null>(null);
@@ -123,7 +141,7 @@ export default function AccessDevices({
     });
   }
 
-  const listed = devices?.filter((device) => !device.revoked_at) ?? [];
+  const listed = devices?.filter(signedIn) ?? [];
   return (
     <section
       className="settings-section-flat access-devices"
@@ -161,7 +179,7 @@ export default function AccessDevices({
       {listed.length > 0 && (
         <EntityList label="Your devices">
           {listed.map((device) => {
-            const where = addressInWords(device.last_address);
+            const where = addressInWords(device.last_address, place);
             return (
               <EntityRow
                 key={device.id}

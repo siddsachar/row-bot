@@ -1,0 +1,28 @@
+# The relay for row-bot.ai/railway/ ("Continue with Railway"): see README.md for what it does and the
+# owner's deploy steps. Nothing here identifies an account or holds a secret; Wrangler takes the account
+# from `wrangler login` (or CLOUDFLARE_ACCOUNT_ID).
+name = "row-bot-railway"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+preview_urls = false
+
+# Nothing about a request is kept: no Workers Logs or traces, no Logpush, no source maps, and no
+# storage of any kind (no KV, D1, R2, Durable Objects, queues or analytics bindings). The rate limiter
+# below only counts, inside Cloudflare, for a minute.
+logpush = false
+upload_source_maps = false
+
+[observability]
+enabled = false
+
+# Calls from one address in a minute, counted by Cloudflare's rate limiter; never stored or logged.
+# namespace_id is this account's own number for the limiter (the install count uses 1001).
+[[ratelimits]]
+name = "LIMIT"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+[vars]
+# The pages allowed to call the relay, separated by spaces. Only the published page.
+ALLOWED_ORIGINS = "https://row-bot.ai"

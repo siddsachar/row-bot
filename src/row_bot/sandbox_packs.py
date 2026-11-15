@@ -8,7 +8,7 @@ from __future__ import annotations
 
 PACKS: dict[str, str] = {
     "empty": "Empty",
-    "shop": "A small shop, with its own web app",
+    "shop": "A small shop, with its own web app and inbox",
     "charity": "A charity's documents",
     "paperwork": "Household paperwork",
     "code": "Sample code",
@@ -19,7 +19,9 @@ FILES: dict[str, dict[str, str]] = {
     "shop": {
         "README.md": (
             "# Fernleaf Teas\n\nA made-up tea shop for trying Row-Bot. Its web app is in `app/`: open\n"
-            "`app/index.html`, or run `python -m http.server 8765` in `app/` and visit localhost:8765.\n"
+            "`app/index.html`, or run `python -m http.server 8765` in `app/` and visit localhost:8765.\n\n"
+            "Customers' emails are in `inbox/`. The shop has no mail account here: a reply is saved in\n"
+            "`outbox/`, named after the email it answers.\n"
         ),
         "app/index.html": (
             "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
@@ -66,6 +68,22 @@ FILES: dict[str, dict[str, str]] = {
             "order,date,customer,items,total\n1041,2026-10-02,Ada Brook,Morning Mist x2,13.00\n"
             "1042,2026-10-05,Sam Patel,Smoky Ember,8.00\n1043,2026-10-09,Lee Moreau,Fernleaf Green x3,21.75\n"
             "1044,2026-10-14,Ada Brook,Quiet Chamomile,5.75\n"
+        ),
+        # A customer inbox, so answering one (the obvious first thing to try) has something to answer (U15).
+        "inbox/2026-10-21-where-is-my-order.md": (
+            "From: Sam Patel <sam.patel@example.com>\nTo: hello@fernleaf.example\nDate: 21 Oct 2026\n"
+            "Subject: Where is my order?\n\nHi, I ordered Smoky Ember on 5 October (order 1042) and it still "
+            "hasn't arrived. Can you check where it is?\n\nThanks,\nSam\n"
+        ),
+        "inbox/2026-10-23-wrong-tea.md": (
+            "From: Lee Moreau <lee.moreau@example.com>\nTo: hello@fernleaf.example\nDate: 23 Oct 2026\n"
+            "Subject: Wrong tea in my parcel\n\nHello, order 1043 should be three Fernleaf Green, but one of the "
+            "tins is Morning Mist. It's unopened. Can I swap it?\n\nLee\n"
+        ),
+        "inbox/2026-10-26-wholesale.md": (
+            "From: Ada Brook <ada.brook@example.com>\nTo: hello@fernleaf.example\nDate: 26 Oct 2026\n"
+            "Subject: Tea for our café\n\nHi! I run a small café and love your Quiet Chamomile. Do you sell it in "
+            "larger bags, and is there a price for ordering 10 at a time?\n\nBest,\nAda\n"
         ),
     },
     "charity": {

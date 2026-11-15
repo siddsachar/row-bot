@@ -68,3 +68,19 @@ def test_a_pull_request_changing_the_landing_page_needs_the_landing_label(monkey
 def test_a_publish_is_a_change_to_the_built_site(monkeypatch, capsys):
     assert _guard(monkeypatch, capsys, ["docs-site/docs/chat/index.mdx"], "--published")[1].strip() == "false"
     assert _guard(monkeypatch, capsys, ["docs/docs/chat/index.html"], "--published")[1].strip() == "true"
+
+
+def test_a_docs_change_is_checked_against_generated_pages_only_when_published(monkeypatch):
+    """Generated reference pages are refreshed at a release, so a pull request editing a page isn't failed by them."""
+    from scripts.docs import validate_public_docs as validate
+
+    monkeypatch.setattr(validate, "build_inventory", lambda: {})
+    monkeypatch.setattr(validate, "render_pages", lambda inventory: {})
+    monkeypatch.setattr(validate, "check_pages", lambda pages: ["Stale generated page: cli.mdx"])
+    monkeypatch.delenv("ROW_BOT_DOCS_PUBLISH", raising=False)
+    errors: list[str] = []
+    validate._validate_generated_pages(errors)
+    assert errors == []
+    monkeypatch.setenv("ROW_BOT_DOCS_PUBLISH", "1")
+    validate._validate_generated_pages(errors)
+    assert errors == ["Stale generated page: cli.mdx"]

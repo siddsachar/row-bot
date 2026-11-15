@@ -48,6 +48,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
+  // Close the app first: restoring turns Learning's start-up flag off, and a
+  // poll still due (download, training) would get a 404 a real app never sees.
+  await page.close();
   await l2c(page, 'restore');
   await l1a(page, 'restore');
 });
@@ -81,7 +84,7 @@ function notice(page: Page, text: string | RegExp) {
   return page.locator('.toast-message').filter({ hasText: text });
 }
 
-const GPU = 'NVIDIA GeForce RTX 5070 Laptop (8 GB)';
+const GPU = 'NVIDIA GeForce RTX 5080 Laptop (16 GB)';
 
 async function turnOn(page: Page) {
   await l1a(page, 'preview');
@@ -93,7 +96,7 @@ async function turnOn(page: Page) {
   await sheet.getByRole('button', { name: 'Turn on Learning' }).click();
   await page
     .getByRole('dialog', {
-      name: 'Download the training engine and Qwen3.5 2B?',
+      name: 'Download the training engine and Qwen3.5 9B?',
     })
     .getByRole('button', { name: 'Not now', exact: true })
     .click();
@@ -315,10 +318,10 @@ test('O49: the download names both parts with its bytes, and Monitor’s Stop sa
   const card = page.getByRole('region', { name: 'Download' });
   await expect(
     card.getByText(
-      'Downloading the training engine and Qwen3.5 2B · 1.2 of 6.8 GB',
+      'Downloading the training engine and Qwen3.5 9B · 1.2 of 21.5 GB',
     ),
   ).toBeVisible();
-  await expect(card.getByText('17% · now the training engine')).toBeVisible();
+  await expect(card.getByText('5% · now the training engine')).toBeVisible();
   await shoot(page, info, 'download-title');
 
   await page.goto('/app-v2/?tab=monitor');

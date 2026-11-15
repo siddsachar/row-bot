@@ -9,9 +9,9 @@ export const settingsGroups = [
   {
     id: 'general',
     label: 'General',
-    leaves: ['preferences', 'appearance', 'buddy'],
+    leaves: ['preferences', 'appearance', 'buddy', 'proactive'],
   },
-  { id: 'models', label: 'Models', leaves: ['providers', 'models', 'voice'] },
+  { id: 'models', label: 'Models', leaves: ['models', 'voice'] },
   {
     id: 'knowledge',
     label: 'Knowledge',
@@ -48,7 +48,7 @@ const leafLabels: Record<ListedLeafId, string> = {
   preferences: 'Preferences',
   appearance: 'Appearance',
   buddy: 'Buddy',
-  providers: 'Providers',
+  proactive: 'Proactive',
   models: 'Models',
   voice: 'Voice',
   knowledge: 'Memory',
@@ -72,10 +72,10 @@ export const settingsKeywords: Record<ListedLeafId, string> = {
   preferences: 'identity name personality launch window dream cycle',
   appearance: 'theme dark light accent colour color density transparency',
   buddy: 'companion avatar pack motion desktop',
-  providers:
-    'api key credentials ollama openai anthropic claude chatgpt codex grok xai gemini subscription sign in cloud connect',
+  proactive:
+    'proactive speak first moments for you morning brief quiet hours focus drafts follow-ups meeting prep rules activity why',
   models:
-    'default model brain thinking reasoning catalog pin vision camera image video reading limit context steps helpers',
+    'main model default brain thinking reasoning catalog star favourite vision camera image video reading limit context steps helpers providers api key credentials ollama openai anthropic claude chatgpt codex grok xai gemini subscription sign in cloud connect',
   voice: 'dictation talk speech microphone tts read aloud whisper',
   knowledge: 'knowledge memories wiki graph vault',
   documents: 'files upload pdf library embedding index search model',
@@ -156,7 +156,9 @@ export const settingsRedirects: Record<
   mcp: { leaf: 'apps' },
   wiki: { leaf: 'knowledge', anchor: 'wiki-vault' },
   memory: { leaf: 'knowledge' },
-  cloud: { leaf: 'providers' },
+  cloud: { leaf: 'models', anchor: 'connections' },
+  // Providers merged into Models (5.3.3).
+  providers: { leaf: 'models', anchor: 'connections' },
   migration: { leaf: 'data', anchor: 'migration' },
   backup: { leaf: 'data', anchor: 'backup' },
   search: { leaf: 'tools', anchor: 'search-tools' },
@@ -361,26 +363,81 @@ export const settingsRows: SettingsRow[] = [
     keywords: 'avatar pack',
   },
   {
-    leaf: 'providers',
+    leaf: 'proactive',
+    anchor: 'level',
+    label: 'Proactive level',
+    keywords: 'off quiet balanced eager speak first how much',
+  },
+  {
+    leaf: 'proactive',
+    anchor: 'quiet-hours',
+    label: 'Quiet hours',
+    keywords: 'night do not disturb focus',
+  },
+  {
+    leaf: 'proactive',
+    anchor: 'desktop-context',
+    label: 'Desktop context for timing',
+    keywords: 'idle locked call focus activity privacy',
+  },
+  {
+    leaf: 'proactive',
+    anchor: 'sources',
+    label: 'Sources',
+    keywords: 'mail calendar chats memory workflows monitor privacy',
+  },
+  {
+    leaf: 'proactive',
+    anchor: 'kinds',
+    label: 'What to bring up',
+    keywords:
+      'follow-ups meeting prep morning brief dates changes workflow ideas quieted',
+  },
+  {
+    leaf: 'proactive',
+    anchor: 'wrap',
+    label: 'End-of-day wrap',
+    keywords: 'evening summary done moved tomorrow day end',
+  },
+  {
+    leaf: 'proactive',
+    anchor: 'urgent',
+    label: 'Urgent in chat apps',
+    keywords: 'telegram slack discord away channel',
+  },
+  {
+    leaf: 'proactive',
+    anchor: 'rules',
+    label: 'Your rules',
+    keywords: 'less like this never about fewer not at time',
+  },
+  {
+    leaf: 'proactive',
+    anchor: 'activity',
+    label: 'Proactive activity',
+    keywords: 'log checks silent planned take over cancel why',
+  },
+  {
+    leaf: 'models',
     anchor: 'providers-local',
-    label: 'On this device',
+    label: 'On this computer',
     keywords: 'ollama local models computer',
   },
   {
-    leaf: 'providers',
+    leaf: 'models',
     anchor: 'providers-subscription',
     label: 'Subscriptions',
     keywords: 'claude chatgpt codex grok xai sign in plan account',
   },
   {
-    leaf: 'providers',
+    leaf: 'models',
     anchor: 'providers-api',
     label: 'API providers',
     keywords:
       'api key credentials openai anthropic claude gemini google openrouter mistral groq deepseek',
   },
   {
-    leaf: 'providers',
+    leaf: 'models',
     anchor: 'custom-endpoints',
     label: 'Custom endpoints',
     keywords: 'base url openai compatible self-hosted',
@@ -388,8 +445,14 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'models',
     anchor: 'default-model',
-    label: 'Brain model',
-    keywords: 'default model chat main',
+    label: 'Main model',
+    keywords: 'default model chat brain',
+  },
+  {
+    leaf: 'models',
+    anchor: 'backup-model',
+    label: 'Backup model',
+    keywords: 'fallback outage down offline failover',
   },
   {
     leaf: 'models',
@@ -674,6 +737,12 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'access',
+    anchor: 'notification-details',
+    label: 'Show details in notifications',
+    keywords: 'phone push notifications lock screen preview privacy',
+  },
+  {
+    leaf: 'access',
     anchor: 'network',
     label: 'Network access',
     keywords: 'listen wifi lan allowed addresses origins',
@@ -701,6 +770,12 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'migration',
     label: 'Import from another assistant',
     keywords: 'hermes openclaw migration',
+  },
+  {
+    leaf: 'data',
+    anchor: 'sandboxes',
+    label: 'Sandboxes',
+    keywords: 'sandbox demo try test made-up data second copy',
   },
 ];
 
@@ -771,6 +846,43 @@ export function settingsRowHref(row: SettingsRow) {
   return (
     settingsHref(row.leaf, row.anchor) ?? `/settings/${row.leaf}#${row.anchor}`
   );
+}
+
+/** A Settings row or page a link in a chat names, as its chip shows it. */
+export type SettingsLink = { to: string; label: string };
+
+/**
+ * Where a link Row-Bot wrote goes in Settings, with the row's own name
+ * ("Preferences › Dream Cycle"), never the words the model wrote. Accepts
+ * `/settings/…` and `/app-v2/settings/…`. Null when the page or row isn't
+ * there, so a stale link reads as plain text instead of landing nowhere.
+ */
+export function settingsLink(href: string): SettingsLink | null {
+  const path = href.replace(/^\/app-v2(?=\/settings\/)/, '');
+  const match = /^\/settings\/([a-z-]+)(\/[^?#]*)?(\?[^#]*)?(?:#(.+))?$/.exec(
+    path,
+  );
+  if (!match) return null;
+  const [, page, rest = '', query = '', anchor = ''] = match;
+  const leaf = resolveSetting(page);
+  if (!leaf) return null;
+  if (rest) {
+    const own = settingsRows.find(
+      (row) => row.href === `/settings/${page}${rest}`,
+    );
+    return own
+      ? { to: own.href!, label: `${labelOf(own.leaf)} › ${own.label}` }
+      : null;
+  }
+  if (anchor) {
+    const row = settingsRows.find(
+      (item) => item.leaf === leaf.id && item.anchor === anchor,
+    );
+    return row
+      ? { to: settingsRowHref(row), label: `${leaf.label} › ${row.label}` }
+      : null;
+  }
+  return { to: `${leaf.href}${query}`, label: leaf.label };
 }
 
 /** Whether every word of a search names the Agent profile library. */

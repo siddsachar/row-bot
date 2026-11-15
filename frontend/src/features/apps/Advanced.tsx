@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import type {
   AppViewSettings,
   CatalogSchedule,
@@ -233,6 +234,7 @@ function AppViews() {
 /** Apps › Advanced: app-wide switches first, then catalogs and their schedule, runtimes and a custom connection. */
 export default function Advanced() {
   const { controller } = useRuntime();
+  const place = usePlace();
   const [sources, setSources] = useState<IntegrationSourceView[]>([]);
   const [schedule, setSchedule] = useState<CatalogSchedule | null>(null);
   const [error, setError] = useState('');
@@ -306,9 +308,9 @@ export default function Advanced() {
       <SettingsGroup title="Catalogs" anchor="catalogs">
         <div className="app-section">
           <p className="settings-help">
-            Row-Bot searches copies kept on this computer. Updating fetches the
-            latest copy; what you type leaves this computer only when you choose
-            Search online catalogs in an Apps search.
+            Row-Bot searches copies kept {place.on}. Updating fetches the latest
+            copy; what you type leaves {place.again} only when you choose Search
+            online catalogs in an Apps search.
           </p>
           <ul className="catalog-list">
             {listed.map((source) => (
@@ -388,7 +390,7 @@ export default function Advanced() {
           {error && <StatusLine tone="danger">{error}</StatusLine>}
         </div>
       </SettingsGroup>
-      <SettingsGroup title="On this computer" anchor="runtimes">
+      <SettingsGroup title={`On ${place.name}`} anchor="runtimes">
         <RuntimeInstallations />
       </SettingsGroup>
       <SettingsGroup title="Your own connection" anchor="custom">

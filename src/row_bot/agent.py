@@ -5,6 +5,7 @@ import hashlib
 import inspect
 import json
 import math
+import os
 import threading
 import time
 import re
@@ -22,6 +23,8 @@ from row_bot.prompt_cache import (
     prompt_cache_lifetime,
     with_conversation_cache,
 )
+from row_bot.providers import backup as backup_model
+from row_bot.providers import deferred_tools
 from row_bot.providers.capabilities import PROMPT_CACHE_SYSTEM_BREAKPOINT_ROUTES, prompt_cache_route
 from row_bot import prompt_prefix_diff
 # Learning (preview): only the switch. Its seams call learning.is_enabled() first and import
@@ -47,7 +50,7 @@ from langgraph.types import interrupt, Command
 from row_bot.threads import pick_or_create_thread, checkpointer
 import logging
 
-from row_bot.approval_policy import DEFAULT_APPROVAL_MODE, decision_for_action, normalize_approval_mode
+from row_bot.approval_policy import DEFAULT_APPROVAL_MODE, approval_label, decision_for_action, normalize_approval_mode
 from row_bot.agent_budget import (
     AgentNoProgress,
     claim_budget_finalization,
@@ -107,6 +110,8 @@ class ContextUsage:
     checkpoint_message_digest: str = ""
     last_confirmed_input_tokens: int | None = None
     status: str = "ready"
+    # What fills the context, in the estimate's tokens (see _context_breakdown); settled snapshots only.
+    breakdown: dict[str, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -134,6 +139,8 @@ class PreparationInputs:
     tool_fingerprint: str
     policy_fingerprint: str
     execution_budget: Any = None
+    # Characters of the system prompt's skill and tool-guide sections, for the context breakdown.
+    skill_prompt_chars: int = 0
 
 
 apply_keys()
@@ -777,6 +784,11 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
                             "kind": str(fallback.get("kind") or "")[:64],
                             "reason": str(fallback.get("reason") or "")[:64],
                         }
+                    # The backup model taking over a turn (#140): the chat shows only its note.
+                    backup_note = (item.get("row_bot_ui") or {}).get("backup_model") if isinstance(
+                        item.get("row_bot_ui"), dict) else None
+                    if isinstance(backup_note, dict) and isinstance(backup_note.get("text"), str):
+                        ui["backup_model"] = {"text": backup_note["text"][:300]}
                     event_messages.append(
                         HumanMessage(content=content, additional_kwargs={"row_bot_ui": ui})
                     )
@@ -927,10 +939,10 @@ def _custom_tool_builder_disabled_response(
     if not _looks_like_custom_tool_creation_request(user_input):
         return None
     return (
-        "Custom Tool Builder is off in Settings -> Tools, so I can't "
+        "Custom Tool Builder is off in Settings › Tools, so I can't "
         "create a Custom Tool from chat right now. I also won't use read_url or "
         "shell commands as a workaround for this workflow. Turn on Custom Tool "
-        "Builder, or add the tool in Settings -> Tools -> Custom tools."
+        "Builder, or add the tool in Settings › Tools › Custom tools."
     )
 
 def _content_to_str(content) -> str:
@@ -1110,6 +1122,11 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
         return "⚠️ I got stuck in a tool loop and had to stop. Try rephrasing your request or starting a new conversation."
     if "insufficient_quota" in s or "exceeded your current quota" in s:
         return "⚠️ API quota exceeded — please check your billing dashboard."
+    if any(marker in s for marker in (
+        "no credits", "insufficient balance", "insufficient credit", "out of credits", "credit card",
+        "payment required", "http 402", "status code: 402", "error code: 402",
+    )):
+        return "⚠️ Out of credits — add credits with the provider, or switch to another model."
     if "rate_limit" in s or "rate limit" in s or "429" in s:
         # Keep the provider's own wait, so a goal can wait for the reset (B244).
         wait = re.search(r"(?:try again|retry|resets?)\s+(?:in|after)\s+(?:\d+(?:\.\d+)?\s*[a-z]*\s?)+",
@@ -1117,7 +1134,7 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
         hint = f" The provider says: {wait.group(0).strip()}." if wait else ""
         return "⚠️ Rate limit reached — please wait a moment and try again." + hint
     if "invalid_api_key" in s or "incorrect api key" in s or "authentication" in s or "unauthorized" in s:
-        return "⚠️ Authentication failed — please verify your API key in Settings → Providers."
+        return "⚠️ Authentication failed — please verify your API key in Settings › Models."
     if "billing" in s:
         return "⚠️ Billing limit reached — please review your plan at the provider dashboard."
     if "context_length_exceeded" in s or "context length" in s or "maximum context" in s:
@@ -1131,13 +1148,20 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     if "timeout" in s or "timed out" in s:
         return "⚠️ Request timed out — please try again."
     if _tool_support_error(s) or ("tool" in s and "status code: 400" in s):
-        return f"⚠️ {_model_label_for_error(model_name)} does not support tool calling — switch to a compatible model in Settings → Models."
+        return f"⚠️ {_model_label_for_error(model_name)} does not support tool calling — switch to a compatible model in Settings › Models."
     # Fallback — expose the raw error so nothing is silently swallowed
     return f"⚠️ API error: {exc_str}"
 
 
+# A rate limit, never an overflow: Cerebras' 429 says "too many tokens processed" per minute (I21).
+_RATE_LIMIT_MARKERS = ("http 429", "status code: 429", "error code: 429", "rate limit", "rate_limit",
+                       "per minute", "too many requests")
+
+
 def _is_context_overflow_error(exc: object) -> bool:
     text = str(exc or "").lower()
+    if any(marker in text for marker in _RATE_LIMIT_MARKERS):
+        return False
     return any(marker in text for marker in (
         "context_length_exceeded",
         "context length",
@@ -1187,8 +1211,41 @@ def _refused_by_caller(exc: BaseException) -> bool:
     return False
 
 
+def _provider_refusal(exc: BaseException) -> list[tuple] | None:
+    """The events for a provider that said why it can't answer (signed out, a plan's limit), possibly
+    wrapped: ``provider_refusal`` with a code the chat shows instead of "interrupted", then the error."""
+    from row_bot.providers.claude_subscription import ClaudePlanUnavailable
+    from row_bot.providers.runtime import ProviderSignInRequired
+    current: BaseException | None = exc
+    for _ in range(8):
+        if current is None:
+            return None
+        if isinstance(current, ProviderSignInRequired):
+            refusal = {"code": "sign_in_required", "provider": current.label}
+        elif isinstance(current, ClaudePlanUnavailable):
+            refusal = {"code": "provider_unavailable", "message": str(current)[:400]}
+        else:
+            current = current.__cause__ or current.__context__
+            continue
+        return [("provider_refusal", refusal), ("error", str(current))]
+    return None
+
+
+def _readiness_refusal(provider_id: str) -> list[tuple] | None:
+    """A sign-in provider's own reason its readiness check failed (signed out, Claude Code missing), as
+    ``_provider_refusal``'s events; None for any other provider or reason."""
+    from row_bot.providers.runtime import require_signed_in
+    try:
+        require_signed_in(provider_id)
+    except Exception as exc:
+        return _provider_refusal(exc)
+    return None
+
+
 def _notify_api_error(friendly_msg: str) -> None:
     """Fire a persistent desktop notification for an API error."""
+    if backup_model.hold_notice(friendly_msg):
+        return  # shown only if the backup model doesn't answer
     try:
         from row_bot.notifications import notify
         # An open conversation already shows its own error with a next step;
@@ -1211,6 +1268,20 @@ def _is_browser_tool_name(tool_name: str) -> bool:
     """Return True for native browser tools and MCP-prefixed browser tools."""
     name = str(tool_name or "")
     return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
+
+
+# How many browser actions one turn may take before it is stopped as a runaway loop; filming a demo (its browser
+# recording) is a long run of deliberate page actions, so it may take more.
+BROWSER_TOOL_LIMIT = 80
+RECORDING_BROWSER_TOOL_LIMIT = 400
+
+
+def _browser_tool_limit(thread_id: str) -> int:
+    """The browser actions this turn may take: more while this chat's browser is being recorded."""
+    from row_bot import recordings
+
+    recording = bool(thread_id) and recordings.active_for(thread_id, "browser") is not None
+    return RECORDING_BROWSER_TOOL_LIMIT if recording else BROWSER_TOOL_LIMIT
 
 
 def _browser_action_name(tool_name: str) -> str:
@@ -1329,8 +1400,36 @@ def _setup_guidance(tool_names: list[str]) -> str:
     return (" " + " ".join(parts)) if parts else ""
 
 
+def _code_folder() -> str:
+    """The code folder bound to this conversation, where its shell starts, or ''."""
+    try:
+        from row_bot.developer import tool_context
+        from row_bot.developer.storage import get_workspace
+
+        thread_id = _current_thread_id_var.get("")
+        workspace_id = tool_context.get_workspace_id() or tool_context.infer_workspace_id_from_thread(thread_id)
+        workspace = get_workspace(workspace_id) if workspace_id else None
+    except Exception:
+        logger.debug("Code folder for the turn context skipped (non-fatal)", exc_info=True)
+        return ""
+    return workspace.path if workspace and workspace.path and os.path.isdir(workspace.path) else ""
+
+
+def _workspace_line() -> str:
+    """Where the file tools and the shell start, ``~/…`` under the home folder so the account name isn't sent."""
+    from row_bot.data_paths import default_workspace_root, display_path
+
+    configured = str(tool_registry.get_tool_config("filesystem", "workspace_root", "") or "")
+    workspace = display_path(configured if configured and os.path.isdir(configured) else default_workspace_root())
+    code_folder = _code_folder()
+    if code_folder:
+        return (f"Code folder: {display_path(code_folder)} (the shell and Developer tools start here). "
+                f"Workspace folder for other files: {workspace}.")
+    return f"Workspace folder: {workspace}. File tools and the shell start here; relative paths are inside it."
+
+
 def _runtime_turn_fields(tool_names: list[str]) -> list:
-    """The runtime-mode values of the turn context: approval mode, tool groups, what is off."""
+    """The runtime-mode values of the turn context: approval mode, workspace folder, tool groups, what is off."""
     from row_bot.turn_context import ContextField
 
     # What this turn leaves out: the conversation binds the same tools every turn (so its prompt
@@ -1365,7 +1464,9 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
             "would need."
         )
     fields = [
-        ContextField("approval", f"Approval mode for action-capable tools: {get_approval_mode()}."),
+        # In the person's words (Ask, Auto, Hands-off, Block), so Row-Bot never says "full mode" (G10).
+        ContextField("approval", f"Approval level for this chat: {approval_label(get_approval_mode())}."),
+        ContextField("workspace", _workspace_line()),
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
     ]
@@ -1411,29 +1512,38 @@ _PERSISTENT_THREAD_NOTE = (
 
 
 
+# The person's own paired account (R14): "Hi, it's <family name>, remember me?" on it was answered with the
+# relationship confirmed and the person's details at hand. Only the paired person is the person.
+_CHANNEL_IDENTITY_NOTE = (
+    "CHANNEL: This chat is the person's own paired account. If a message says it's from someone else "
+    "(\"it's Sam, remember me?\"), be friendly, but share nothing personal about the person or anyone they "
+    "know, and don't confirm who they are, who their family is, or what you remember about them."
+)
+
+
 def _interactive_progress_contract(runtime_surface: str) -> str:
     """Return progress-update guidance for interactive streamed agent turns."""
     selected_mode = str(_current_selected_runtime_mode_var.get("") or "")
     surface = str(runtime_surface or "").strip()
     if selected_mode != "agent":
         return ""
-    if is_background_workflow():
-        return ""
+    workflow = is_background_workflow()
     if surface == "channel" and not _current_channel_streaming_var.get(False):
         return ""
-    if surface not in {"normal_chat", "remote_client", "designer", "developer", "channel"}:
+    if not workflow and surface not in {"normal_chat", "remote_client", "designer", "developer", "channel"}:
         return ""
 
     parts = [
         "INTERACTIVE PROGRESS:",
-        "For interactive work that will take multiple tool calls or more than a few seconds, "
-        "stream occasional short user-facing progress updates before or between meaningful phases.",
-        "Write them naturally in your own voice. Do not use a fixed template, do not narrate "
-        "every tool call, and do not mention low-level tool names unless the user needs that detail.",
-        "Never reveal hidden reasoning, private secrets, raw logs, or unapproved content.",
-        "Skip progress updates for quick answers. Keep the final answer focused on results and "
-        "avoid repeating the live updates.",
+        "While you use tools, keep the person posted in short lines, each sent with its tool call: "
+        "before your first tool step, and whenever you move on to something new, one sentence on what you're "
+        "doing or found (\"Checking the October orders…\").",
+        "Your own words, no tool names. Never reveal hidden reasoning, secrets, raw logs or unapproved content. "
+        "Skip it for quick answers, and don't repeat these lines in the final answer.",
+        "A reply with no tool call ends your turn: end only when done, to ask the person, or with a wait set.",
     ]
+    if workflow:
+        parts.append("In a workflow run keep them sparse: a line as you start each part of the work.")
     if surface == "channel":
         parts.append(
             "For channel conversations, keep progress updates especially sparse because message "
@@ -1972,6 +2082,51 @@ def _ways_of_working_text(budget: Any) -> str:
     return text
 
 
+# The code folder's project notes (B2), read once per turn: a file edited mid-turn applies from the next turn.
+_PROJECT_NOTES: dict[tuple[str, str], str] = {}
+
+
+def _read_project_notes_section(small_profile: bool) -> str:
+    try:
+        from pathlib import Path
+
+        from row_bot.developer import project_notes
+        from row_bot.developer.storage import get_workspace
+        from row_bot.developer.tool_context import get_thread_id, get_workspace_id, infer_workspace_id_from_thread
+
+        workspace_id = get_workspace_id() or infer_workspace_id_from_thread(get_thread_id())
+        workspace = get_workspace(workspace_id) if workspace_id else None
+        if workspace is None:
+            return ""
+        budget = project_notes.budget_for(small=small_profile)
+        notes = project_notes.read_project_notes(Path(workspace.path), budget=budget)
+        return project_notes.render_section(notes, workspace.name, budget=budget)
+    except Exception as exc:
+        logger.debug("Project notes skipped (non-fatal): %s", exc)
+        return ""
+
+
+def _project_notes_text(budget: Any, small_profile: bool) -> str:
+    """The code folder's project notes section, as read at this turn's first model call; "" without the
+    Developer tools (no code folder, or Chat Only)."""
+    if "developer" not in _offered_tool_parents() or not _has_code_folder():
+        return ""
+    turn_id = _turn_id_from_budget(budget)
+    if not turn_id:
+        return _read_project_notes_section(small_profile)
+    key = (_current_thread_id_var.get() or "", turn_id)
+    with _TURN_CONTEXT_VALUES_LOCK:
+        cached = _PROJECT_NOTES.get(key)
+    if cached is not None:
+        return cached
+    text = _read_project_notes_section(small_profile)
+    with _TURN_CONTEXT_VALUES_LOCK:
+        _PROJECT_NOTES[key] = text
+        while len(_PROJECT_NOTES) > _TURN_CONTEXT_VALUES_MAX:
+            _PROJECT_NOTES.pop(next(iter(_PROJECT_NOTES)))
+    return text
+
+
 def _agent_summary_state(messages: list) -> dict | None:
     """The validated compaction summary in force for this Agent thread, or None."""
     thread_id = _current_thread_id_var.get() or ""
@@ -2051,7 +2206,7 @@ def _turn_recall(messages: list, max_tokens: int) -> tuple[list[dict], Any]:
     )
 
     def recall_block(memories: list[dict]) -> str:
-        return format_recall_block(memories, context_window=context_window)
+        return format_recall_block(memories, context_window=context_window, query=human_texts[0])
 
     selected = list(decision.selected) if decision.allowed and decision.selected else []
     if small_profile and len(selected) > _SMALL_PROFILE_RECALL_MEMORIES:
@@ -2441,6 +2596,7 @@ def _render_tool_results(
     *,
     boundary: int,
     shrink_budget: int | None = None,
+    clear: frozenset[int] = frozenset(),
 ) -> dict[int, Any]:
     """The model-facing content of each tool result, by position.
 
@@ -2452,7 +2608,7 @@ def _render_tool_results(
     inner: dict[int, str] = {}
     rescan: set[int] = set()
     for view in views:
-        if _is_cleared(view, marks):
+        if _is_cleared(view, marks) or view.position in clear:
             inner[view.position] = _browser_stub(view) if view.browser else _summarize_tool_result(
                 view.name or "tool", view.text
             )
@@ -2571,9 +2727,13 @@ def _apply_history_hygiene(
     *history* is the raw history (summary validation); *visible* the same messages as they appear
     in *trimmed* (index-aligned, turn-context tags neutralized).
     """
+    newest_person = max((index for index, message in enumerate(visible) if is_person_message(message)), default=0)
     views = _tool_result_views(visible)
     if not views:
-        return trimmed
+        current = _without_earlier_reasoning(visible, before=newest_person)
+        replacements = {id(visible[position]): current[position] for position in range(len(visible))
+                        if current[position] is not visible[position]}
+        return [replacements.get(id(message), message) for message in trimmed] if replacements else trimmed
     thread_id = _current_thread_id_var.get() or ""
     marks = history_hygiene.load_marks(thread_id, visible)
     summary = _agent_summary_state(history) or {}
@@ -2622,27 +2782,61 @@ def _apply_history_hygiene(
     if rendered is None:
         rendered = _render_tool_results(views, marks, boundary=boundary)
         current = _with_rendered_results(visible, rendered)
+    current = _without_earlier_reasoning(current, before=newest_person)
+    # The part only clearing can shorten: the turn in flight, or under pressure (compaction couldn't make room, or
+    # the provider refused the request) every turn a jump keeps whole.
+    kept_whole = max(boundary, history_hygiene.protected_start(visible)) if pressure else newest_person
     if compact_at:
-        newest = max(
-            (index for index, message in enumerate(visible) if is_person_message(message)),
-            default=0,
-        )
-        emergency = request_size("", current[newest:]) >= compact_at
+        emergency = request_size("", current[kept_whole:]) >= compact_at
     else:
         emergency = request_size(summary_text, current[boundary:]) >= max_tokens
     if emergency:
-        logger.debug("History hygiene: emergency shrink of tool results (thread=%s)", thread_id[:8])
-        rendered = _render_tool_results(views, marks, boundary=boundary, shrink_budget=int(max_tokens * 0.65))
-        current = _with_rendered_results(visible, rendered)
+        # The turn in flight alone reaches the limit (compaction can't shorten it): send only the newest step's
+        # reasoning, then clear this turn's earlier results, oldest first, until it fits (a page outline from ten
+        # steps ago is stale), keeping the newest few whole; shrinking every result is the last resort.
+        logger.debug("History hygiene: emergency in the turn in flight (thread=%s)", thread_id[:8])
+        current = _without_earlier_reasoning(current, before=len(visible))
+        limit = compact_at or max_tokens
+        stale = sorted(view.position for view in views if view.position >= kept_whole)[:-_KEEP_NEWEST_RESULTS]
+        cleared: set[int] = set()
+        for position in stale:
+            if request_size("", current[kept_whole:]) < limit:
+                break
+            cleared.add(position)
+            rendered = _render_tool_results(views, marks, boundary=boundary, clear=frozenset(cleared))
+            current = _without_earlier_reasoning(_with_rendered_results(visible, rendered), before=len(visible))
+        if request_size("", current[kept_whole:]) >= limit:
+            rendered = _render_tool_results(views, marks, boundary=boundary, shrink_budget=int(max_tokens * 0.65),
+                                            clear=frozenset(cleared))
+            current = _without_earlier_reasoning(_with_rendered_results(visible, rendered), before=len(visible))
 
     replacements = {
         id(visible[position]): current[position]
-        for position in rendered
+        for position in range(len(visible))
         if current[position] is not visible[position]
     }
     if not replacements:
         return trimmed
     return [replacements.get(id(message), message) for message in trimmed]
+
+
+# Results of the turn in flight that stay whole when the turn alone reaches the limit.
+_KEEP_NEWEST_RESULTS = 3
+
+
+def _without_earlier_reasoning(messages: list, *, before: int) -> list:
+    """*messages* without the kept reasoning (``reasoning_content``, sent back as Ollama's ``thinking``) of the
+    steps before *before*, but always the newest step's: a model's templates leave an earlier turn's reasoning
+    out anyway, and under pressure one long turn of a thinking model keeps room to answer (compaction can't
+    shorten the turn in flight). Nothing is changed in the conversation itself."""
+    carrying = [index for index, message in enumerate(messages)
+                if isinstance(message, AIMessage) and (message.additional_kwargs or {}).get("reasoning_content")]
+    kept = list(messages)
+    for index in [index for index in carrying[:-1] if index < before]:
+        message = messages[index]
+        kept[index] = _copy_message(message, additional_kwargs={
+            key: value for key, value in message.additional_kwargs.items() if key != "reasoning_content"})
+    return kept
 
 
 def _root_system_prompt(small_profile: bool) -> str:
@@ -2864,6 +3058,10 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
         _section = stable_section("agent.interactive_progress", progress_contract, source="agent")
         if _section is not None:
             _stable_injection_sections.append(_section)
+    if str(_current_runtime_surface_var.get("") or "") == "channel":
+        _section = stable_section("channel.identity", _CHANNEL_IDENTITY_NOTE, source="agent")
+        if _section is not None:
+            _stable_injection_sections.append(_section)
 
     # Background-mode override
     if is_background_workflow():
@@ -2901,6 +3099,11 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
     if _section is not None:
         _stable_injection_sections.append(_section)
 
+    # The code folder's own notes for agents (B2): read at the turn's start, bounded, scanned and fenced.
+    _section = stable_section("developer.project_notes", _project_notes_text(budget, small_profile), source="developer")
+    if _section is not None:
+        _stable_injection_sections.append(_section)
+
     try:
         from row_bot.skill_discovery import render_active_skills_prompt
 
@@ -2932,6 +3135,9 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
     _stable_fingerprint = stable_prefix_fingerprint(_prompt_sections)
     for _ii, _section_message in enumerate(_section_messages):
         trimmed.insert(insert_idx + _ii, _section_message.message)
+    _skill_prompt_chars = sum(
+        len(_section.content) for _section in _injection_sections if _section.section_id.startswith("skills.")
+    )
 
     # Section texts for the DEBUG prefix diff (pre_model_trim); collected only when it runs.
     _prefix_sections: list[tuple[str, str]] = []
@@ -3009,6 +3215,7 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
                         anthropic_messages=True,
                     ),
                     "execution_budget": budget,
+                    "skill_prompt_chars": _skill_prompt_chars,
                 }
     except Exception as exc:
         # Non-fatal: the request goes out without the cache marker. Said once per thread, so a
@@ -3022,7 +3229,7 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
         # A model that isn't a cloud model runs on local Ollama (ChatOllama).
         ollama_chat=not _provider_id,
     )
-    return {"llm_input_messages": trimmed, "execution_budget": budget}
+    return {"llm_input_messages": trimmed, "execution_budget": budget, "skill_prompt_chars": _skill_prompt_chars}
 
 
 _CONTEXT_USAGE_SCHEMA_VERSION = 2
@@ -3111,8 +3318,14 @@ _THINKING_BLOCK_TYPES = frozenset({"thinking", "redacted_thinking"})
 
 
 def _counted_message(message: BaseMessage) -> BaseMessage:
-    """*message* as it is counted: a thinking block by its text, not by its repr and signature (F29)."""
+    """*message* as it is counted: a thinking block by its text, not by its repr and signature (F29); reasoning
+    kept beside the reply (``reasoning_content``, sent back as Ollama's ``thinking``) counts too."""
     content = getattr(message, "content", None)
+    reasoning = (getattr(message, "additional_kwargs", None) or {}).get("reasoning_content")
+    if isinstance(message, AIMessage) and isinstance(reasoning, str) and reasoning:
+        blocks = list(content) if isinstance(content, list) else ([{"type": "text", "text": content}] if content else [])
+        return _counted_message(_copy_message(message, content=[*blocks, {"type": "text", "text": reasoning}],
+                                              additional_kwargs={}))
     if not isinstance(message, AIMessage) or not isinstance(content, list):
         return message
     if not any(isinstance(block, dict) and block.get("type") in _THINKING_BLOCK_TYPES for block in content):
@@ -3381,6 +3594,7 @@ def _collect_agent_preparation_inputs(
         tool_fingerprint=_stable_json_hash(tuple(_current_canonical_tools_var.get() or ())),
         policy_fingerprint=_policy_fingerprint(policy),
         execution_budget=collected.get("execution_budget"),
+        skill_prompt_chars=int(collected.get("skill_prompt_chars") or 0),
     )
     _remember_preparation_inputs(config, inputs)
     return inputs
@@ -3775,6 +3989,15 @@ def _compaction_failure_boundary_digest(inputs: PreparationInputs) -> str:
     })
 
 
+def _size_is_a_guess(prepared: PreparedModelInput) -> bool:
+    """No source knows the model's context: its limit is Row-Bot's own cautious guess (I33).
+
+    Row-Bot still compacts at the guess, but never refuses on it: the provider takes the request or
+    says why not. A refusal on a guessed 128K or 200K blocked chats with 1M models.
+    """
+    return prepared.usage.capacity_source == "app_fallback"
+
+
 def _terminal_compaction_failure(
     inputs: PreparationInputs,
     prepared: PreparedModelInput,
@@ -3824,6 +4047,68 @@ def _fixed_prompt_tool_envelope_tokens(inputs: PreparationInputs) -> int:
         provider_id=inputs.provider_id,
         model_ref=inputs.model_ref,
     )
+
+
+def _recall_block_chars(messages: list[BaseMessage]) -> int:
+    """Characters of the recall blocks in the turn contexts these messages carry.
+
+    A recall block is the last block of its turn context, so it runs from its header to the
+    closing tag. Foreign turn-context tags are neutralized before this, so every tag is Row-Bot's.
+    """
+    from row_bot.memory_policy import RECALL_BLOCK_HEADER
+
+    total = 0
+    for message in messages:
+        if isinstance(message, SystemMessage):
+            continue
+        text = _content_to_str(getattr(message, "content", ""))
+        start = text.find(turn_context.OPEN_TAG)
+        while start >= 0:
+            end = text.find(turn_context.CLOSE_TAG, start)
+            if end < 0:
+                break
+            recall = text.find(RECALL_BLOCK_HEADER, start, end)
+            if recall >= 0:
+                total += len(text[recall:end].rstrip())
+            start = text.find(turn_context.OPEN_TAG, end)
+    return total
+
+
+def _context_breakdown(inputs: PreparationInputs, prepared: PreparedModelInput) -> dict[str, int] | None:
+    """What fills the prepared request, in the estimate's tokens: counts only, never text or names.
+
+    Row-Bot's instructions (the system messages but their skill and tool-guide sections), the bound
+    tools, the skills and guides, the memories recalled into the turn contexts in view, and the
+    conversation (everything else, a compaction summary included). The approximate counter adds up
+    message by message, so the buckets partition the uncalibrated count; scaled by the calibration
+    with largest-remainder rounding, they add up to ``estimated_input_tokens`` exactly. Counted once
+    per settled turn, never on a model call; nothing here changes what is sent.
+    """
+    total = prepared.raw_estimated_input_tokens
+    target = prepared.usage.estimated_input_tokens
+    if total <= 0:
+        return None
+    system = _count_prepared_tokens(
+        [message for message in prepared.messages if isinstance(message, SystemMessage)], ()
+    )
+    tool_tokens = _count_prepared_tokens([], inputs.canonical_tools)
+    # Four characters a token, as the approximate counter reckons text.
+    skills = min(system, math.ceil(max(0, inputs.skill_prompt_chars) / 4))
+    rest = max(0, total - system - tool_tokens)
+    memory = min(rest, math.ceil(_recall_block_chars(prepared.messages) / 4))
+    raw = {
+        "instructions": system - skills,
+        "tools": tool_tokens,
+        "skills": skills,
+        "memory": memory,
+        "conversation": rest - memory,
+    }
+    basis = sum(raw.values())
+    scaled = {key: value * target // basis for key, value in raw.items()}
+    remainders = sorted(raw, key=lambda key: raw[key] * target % basis, reverse=True)
+    for key in remainders[: target - sum(scaled.values())]:
+        scaled[key] += 1
+    return {**scaled, "tool_count": len(inputs.canonical_tools)}
 
 
 # ── Failed compactions are not retried until the turn or the input changes (F26) ─────────────
@@ -3939,7 +4224,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
         _emit_context_event("context_usage", _usage_event_payload(unavailable.usage))
         return unavailable
     fixed_envelope = _fixed_prompt_tool_envelope_tokens(inputs)
-    if fixed_envelope > usable:
+    if fixed_envelope > usable and not _size_is_a_guess(prepared):
         raise _terminal_compaction_failure(
             inputs,
             _with_status(prepared, "failed"),
@@ -3954,7 +4239,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
     attempt = _compaction_attempt(inputs, summary_state)
     if not force and _compaction_blocked(thread_id, inputs, attempt):
         # It failed for this input already in this turn: no summarizer call on every iteration.
-        if prepared.usage.estimated_input_tokens <= usable:
+        if prepared.usage.estimated_input_tokens <= usable or _size_is_a_guess(prepared):
             warned = _with_status(prepared, "failed")
             _emit_context_event("compaction_failed", {
                 **_usage_event_payload(warned.usage),
@@ -4117,7 +4402,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
             log_reason = reason if isinstance(exc, ContextCompactionError) else type(exc).__name__
             logger.warning("Context compaction failed: %s", log_reason)
             failed = _with_status(prepared, "failed")
-            if prepared.usage.estimated_input_tokens <= usable:
+            if prepared.usage.estimated_input_tokens <= usable or _size_is_a_guess(prepared):
                 failure_event = _record_compaction_event(
                     inputs,
                     event_type="context_compaction_failed",
@@ -4193,6 +4478,7 @@ def _persist_settled_context_usage(
         tool_fingerprint=inputs.tool_fingerprint,
         policy_fingerprint=inputs.policy_fingerprint,
         execution_budget=inputs.execution_budget,
+        skill_prompt_chars=inputs.skill_prompt_chars,
     )
     summary_state = _validated_summary_for_inputs(settled_inputs)
     prepared = _prepare_model_input(
@@ -4206,6 +4492,7 @@ def _persist_settled_context_usage(
         "snapshot_kind": "settled",
         "checkpoint_message_digest": checkpoint_message_digest,
         "last_confirmed_input_tokens": last_confirmed_input_tokens,
+        "breakdown": _context_breakdown(settled_inputs, prepared),
     })
     _current_last_preparation_var.set(settled_inputs)
     _persist_context_usage(thread_id, usage)
@@ -4239,7 +4526,13 @@ def _prepare_agent_request(
         prepared = _prepare_with_compaction(inputs, force=True)
     else:
         inputs = _collect_agent_preparation_inputs(state, config)
-        prepared = _prepare_with_compaction(inputs)
+        try:
+            prepared = _prepare_with_compaction(inputs)
+        except ContextCompactionError:
+            # Compaction couldn't make room (the latest turns, kept whole, are too large to summarize): once more
+            # under pressure, which clears their stale results, oldest first.
+            inputs = _collect_agent_preparation_inputs(state, config, pressure=True)
+            prepared = _prepare_with_compaction(inputs)
     _current_compaction_succeeded_var.set(False)
     # A summary stands in for older turn contexts: this turn gets a full snapshot. Checked on every
     # call, so a compaction made outside this hook (an overflow retry, a resumed call) is followed
@@ -4269,6 +4562,45 @@ def _prepare_agent_request(
     return llm_messages, created, inputs, prepared
 
 
+# After this many tool rounds in a turn without a word to the person, one short note asks for a line (owner,
+# 28 Oct): models that batch tool calls (GPT) often work in silence. It's added to this request only, at its
+# end: never stored, never in the cached prefix, and marked so Learning's capture can tell it apart.
+SILENT_ROUNDS = 3
+_SILENT_AGAIN = 5
+PROGRESS_NOTE = ("Row-Bot note, not from the person: you've worked through several tools without a word to the "
+                 "person. Before your next step, say in one short line what you found and what's next.")
+
+
+def _silent_rounds(messages: list) -> int:
+    """Tool rounds since the person's (or the turn's) last message in which the assistant wrote no text."""
+    rounds = 0
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            break
+        if not isinstance(message, AIMessage) or not getattr(message, "tool_calls", None):
+            continue
+        content = message.content
+        said = content.strip() if isinstance(content, str) else "".join(
+            str(block.get("text") or "") for block in content if isinstance(block, dict)
+            and block.get("type") == "text").strip()
+        if said:
+            break
+        rounds += 1
+    return rounds
+
+
+def _with_progress_note(messages: list, conversation: list) -> list:
+    """*messages* (the request) with the progress note at its end when *conversation*'s silent rounds call for
+    one."""
+    rounds = _silent_rounds(conversation)
+    if rounds < SILENT_ROUNDS or (rounds - SILENT_ROUNDS) % _SILENT_AGAIN:
+        return messages
+    if not _interactive_progress_contract(_current_runtime_surface_var.get("")):
+        return messages
+    return [*messages, HumanMessage(content=PROGRESS_NOTE,
+                                    additional_kwargs={"ephemeral": True, "row_bot_note": "progress"})]
+
+
 def _pre_model_trim(state: dict, config: dict | None = None) -> dict:
     """Prepare every Agent model/tool-loop call through one accounting path."""
     from row_bot.runtime.executions import current_execution, generation_registry
@@ -4282,22 +4614,33 @@ def _pre_model_trim(state: dict, config: dict | None = None) -> dict:
             segment_id = admissions.start_segment(execution.pass_id) if execution.invocation_started else execution.segment_id
             execution.invocation_started = True
             _emit_context_event("platform_segment", {"segment_id": segment_id})
+    waiting: list = []
+    steered: list = []
+    if execution is not None:
+        # What the person sent while this turn works is read now, as their own words (5.3.1). It is taken
+        # only once this request is prepared, so a failed preparation leaves it waiting.
+        from row_bot.application.client_queue import waiting_for
+        waiting = waiting_for(execution)
+        if waiting:
+            state = {**state, "messages": [*state["messages"], *(message for *_, message in waiting)]}
     llm_messages, created, inputs, prepared = _prepare_agent_request(state, config)
     _remember_request_estimate(config, getattr(prepared, "raw_estimated_input_tokens", 0))
     # A model that sees images gets the browser page's picture right after the action that took it.
     from row_bot.browser.model_view import with_page_picture
     llm_messages = with_page_picture(llm_messages, str(((config or {}).get("configurable") or {}).get("thread_id") or ""))
+    llm_messages = _with_progress_note(llm_messages, list(state.get("messages") or []))
     if execution is not None:
         generation_registry.check_dispatch(execution)
-        from row_bot.application.client_queue import acknowledge_consumed
+        from row_bot.application.client_queue import acknowledge_consumed, take
         acknowledge_consumed(execution, [str(getattr(message, "id", "") or "") for message in prepared.messages])
+        steered = take(execution, waiting)
         generation_registry.check_dispatch(execution)
     update: dict[str, Any] = {
         "llm_input_messages": llm_messages,
         "execution_budget": inputs.execution_budget,
     }
-    if created:
-        update["messages"] = created
+    if created or steered:
+        update["messages"] = [*steered, *(created or [])]
     return update
 
 
@@ -4384,7 +4727,8 @@ def _request_after_overflow(exc: BaseException, config: dict | None) -> list | N
         return None
     retried = int(getattr(prepared, "raw_estimated_input_tokens", 0) or 0)
     if estimate and retried >= estimate:
-        logger.warning("Context overflow: compaction found nothing to shorten; not retrying")
+        logger.warning("Context overflow: compaction found nothing to shorten; not retrying (the provider said: %s)",
+                       str(exc)[:400])
         return None
     logger.warning(
         "Context overflow: compacted and retrying once (~%d estimated tokens, was ~%d, thread=%s)",
@@ -4654,6 +4998,17 @@ _current_learning_turn_var: _contextvars.ContextVar[Any] = _contextvars.ContextV
 _current_learning_tool_call_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "current_learning_tool_call", default=""
 )
+# The turn's messages as the graph holds them while one of its tools runs. The Auto reviewer reads
+# the person's newest words here: the checkpoint is written in the background and may still be the
+# previous turn's.
+_current_turn_messages_var: _contextvars.ContextVar[tuple] = _contextvars.ContextVar(
+    "current_turn_messages", default=()
+)
+
+
+def current_turn_messages() -> tuple:
+    """The running turn's messages while one of its tools runs; empty outside a tool call."""
+    return _current_turn_messages_var.get()
 # Surfaces where a turn starts with the person's own message (a next-message marker).
 _LEARNING_PERSON_SURFACES = frozenset({"normal_chat", "remote_client", "channel"})
 # The stream's last event says how the turn ended.
@@ -5179,7 +5534,9 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                            else {"input": args[0] if len(args) == 1 else list(args)}), **sent}
             description = approval_fields(sent) or "Nothing else is sent with it."
         else:
-            args_str = ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
+            # One value says itself ("Delete file: summary.md"); several name what each is.
+            args_str = (_argument(next(iter(given.values()))) if len(given) == 1 and not args else
+                        ", ".join(f"{key}={_argument(value)}" for key, value in given.items()))
             if args:
                 args_str = _argument(args[0]) if len(args) == 1 else _argument(args)
                 if given:
@@ -5546,11 +5903,17 @@ RARELY_USED_TOOL_GROUPS = frozenset({
 RARELY_USED_TOOLS = frozenset({
     "agent_profiles", "agent_profile_save", "agent_promote", "agent_retry",
     "row_bot_create_skill", "row_bot_patch_skill", "row_bot_send_feedback", "row_bot_apply_proposal",
-    "row_bot_reject_proposal", "row_bot_verify_proposal", "row_bot_review_skill_library",
+    "row_bot_reject_proposal", "row_bot_verify_proposal", "row_bot_review_skill_library", "row_bot_fix",
 })
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
     "current_on_demand_tools", default={}
 )
+
+
+def _tool_group_label(entry: dict[str, Any]) -> str:
+    """The name the person sees for a built-in tool's group ("🧮 Calculator"): tool search finds the tool by it."""
+    owner = tool_registry.get_tool(str(entry["parent"])) if entry["source"] == "core" else None
+    return str(getattr(owner, "display_name", "") or "")
 
 
 def _has_code_folder() -> bool:
@@ -5572,6 +5935,7 @@ def _has_code_folder() -> bool:
 def _activate_agent_cache_metadata(cache_key: frozenset[str]) -> None:
     metadata = _agent_cache_metadata.get(cache_key, {})
     _current_on_demand_tools_var.set(dict(metadata.get("on_demand_tools") or {}))
+    deferred_tools.offer(metadata.get("deferred_tool_names") or ())
     _current_effective_tool_parent_names_var.set(tuple(metadata.get("tool_parents") or ()))
     _current_bound_tool_schema_tokens_var.set(int(metadata.get("bound_schema_tokens") or 0))
     _current_canonical_tools_var.set(tuple(metadata.get("canonical_tools") or ()))
@@ -5634,16 +5998,17 @@ def _resolve_active_skill_records(authorized_records: tuple, *, include_turn_sco
     authorized_by_id = {record.canonical_id: record for record in authorized_records}
 
     selected: list[str] = []
-    if profile:
-        skill_policy = profile.get("skill_policy_json") or {}
-        if isinstance(skill_policy, dict):
-            selected.extend(str(name) for name in (skill_policy.get("skills_override") or []))
+    skill_policy = (profile.get("skill_policy_json") or {}) if profile else {}
+    named = skill_policy.get("skills_override") if isinstance(skill_policy, dict) else None
+    if named:
+        selected.extend(str(name) for name in named)
     elif override is not None:
+        # The conversation's own skills (a workflow's, kept for every run), under a profile that names none.
         selected.extend(str(name) for name in override)
 
     if not is_background and not profile and surface != "designer":
         selected.extend(str(name) for name in state.get("pinned", []))
-    if not is_background and include_turn_scoped:
+    if include_turn_scoped:
         selected.extend(str(name) for name in state.get("auto_loaded", []))
         # Mentioned in this message: loaded for this turn only, and only if already authorized above.
         selected.extend(str(name) for name in (_current_app_scope_var.get(None) or {}).get("skills") or [])
@@ -5683,25 +6048,17 @@ def _build_runtime_skill_snapshot(
     is_child = surface.startswith("agent_child")
     background = is_background_workflow()
 
-    if profile and not is_child:
-        skill_policy = profile.get("skill_policy_json") or {}
-        selected = {
-            str(name)
-            for name in (skill_policy.get("skills_override") or [])
-        } if isinstance(skill_policy, dict) else set()
-        authorized = tuple(record for record in all_records if record.canonical_id in selected)
-    elif background:
-        try:
-            from row_bot.threads import get_thread_skills_override
-
-            selected = set(get_thread_skills_override(_current_thread_id_var.get("") or "") or [])
-        except Exception:
-            selected = set()
+    # A profile that names skills keeps a run to them; one that names none (Default) leaves the person's
+    # skills, as in a chat. A workflow run is a chat turn (F31): the same skills, and its own pinned ones.
+    skill_policy = (profile.get("skill_policy_json") or {}) if profile and not is_child else {}
+    named = skill_policy.get("skills_override") if isinstance(skill_policy, dict) else None
+    if named:
+        selected = {str(name) for name in named}
         authorized = tuple(record for record in all_records if record.canonical_id in selected)
     else:
         authorized = all_records
 
-    if tool_parents and not background:
+    if tool_parents:
         known = {record.canonical_id for record in authorized}
         try:
             authorized = authorized + tuple(
@@ -5716,8 +6073,7 @@ def _build_runtime_skill_snapshot(
     active_ids = tuple(record.canonical_id for record in active_records)
     smart_off = is_smart_off(_current_thread_id_var.get("") or "default")
     discoverable = bool(
-        not background
-        and not smart_off
+        not smart_off
         and any(record.canonical_id not in set(active_ids) for record in authorized)
     )
     fingerprint = skill_snapshot_fingerprint(
@@ -5773,6 +6129,14 @@ def _bind_profile_tool(tool: Any, *, source: str, parent: str,
             out_of_turn = _turn_scope_refusal(tool.name, source=source, parent=parent)
             if out_of_turn is not None:
                 return out_of_turn
+            if _current_runtime_surface_var.get("") == "proactive":
+                # Proactive Row-Bot's background preparation only reads, whatever the approval level.
+                from row_bot.tools.profile_policy import read_only_refusal
+
+                read_only = read_only_refusal(tool.name, call_arguments(argument_function or function, args, kwargs),
+                                              source=source, parent=parent)
+                if read_only is not None:
+                    return read_only
             profile = _dispatch_profile_snapshot()
             allowlist = (_current_tool_allowlist_var.get(())
                          if _current_tool_allowlist_active_var.get(False) else None)
@@ -6095,14 +6459,27 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             "forced_resume": force_external_discovery,
         },
     )
-    offered_parents = tuple(sorted({str(entry["parent"]) for entry in eager_core_entries}))
+    # The groups the tool-guide index names (effective_parent_names below): MCP tools come as external ones, so
+    # without "mcp" here the index offered mcp_guide and skill_load refused it.
+    offered = {str(entry["parent"]) for entry in eager_core_entries}
+    if any(record.parent == "mcp" or record.source.startswith("mcp") for record in external_records):
+        offered.add("mcp")
+    offered_parents = tuple(sorted(offered))
     (
         authorized_skill_records,
         active_skill_ids,
         skill_discovery_enabled,
         skill_fingerprint,
     ) = _call_with_tool_parents(_build_runtime_skill_snapshot, offered_parents, guides=True)
+    # A profile that doesn't allow delegation is never offered delegate_work: it was refused 9 times in 7
+    # workflows (R7). The dispatch refusal stays for a call that names it anyway.
+    profile_policy = (_dispatch_profile_snapshot() or {}).get("tool_policy_json")
+    no_delegation = isinstance(profile_policy, dict) and not profile_policy.get("allow_delegation")
+    if no_delegation:
+        eager_core_entries = [entry for entry in eager_core_entries
+                              if not (entry["tool"].name == "delegate_work" and entry["source"] == "core")]
     cache_key = frozenset(enabled_tool_names) | frozenset({
+        f"no_delegation:{no_delegation}",
         f"ctx:{effective_context}",
         f"model:{model_label}",
         f"provider:{readiness.provider_id}",
@@ -6260,6 +6637,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 eager_core_entries = [entry for entry in eager_core_entries if entry not in on_demand_entries]
                 eager_core_tools = [entry["tool"] for entry in eager_core_entries]
             on_demand_tools = [entry["tool"] for entry in on_demand_entries]
+            deferred_names: frozenset[str] = frozenset()  # offered only through the bridge
             if on_demand_entries or (effective_loading_mode == "auto" and (external_tools or force_external_discovery)):
                 try:
                     from row_bot.tools.discovery import build_tool_discovery_tools
@@ -6269,6 +6647,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                             entry["tool"],
                             source=entry["source"],
                             parent=entry["parent"],
+                            label=_tool_group_label(entry),
                         )
                         for entry in on_demand_entries + (
                             external_entries if effective_loading_mode == "auto" else [])
@@ -6290,6 +6669,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     lc_tools = eager_core_tools + bridges
                     if effective_loading_mode != "auto":
                         lc_tools += external_tools
+                    deferred_names = frozenset(record.name for record in bridge_records)
                 except Exception as exc:
                     logger.warning(
                         "External tool discovery assembly failed; using eager compatibility snapshot: %s",
@@ -6385,6 +6765,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     for entry in on_demand_entries
                     if str(getattr(entry["tool"], "name", "") or "") not in bound_names
                 },
+                "deferred_tool_names": frozenset(name for name in deferred_names if name not in bound_names),
                 "tool_parents": tuple(sorted(effective_parent_names)),
                 "bound_schema_tokens": estimate_bound_tool_schema_tokens(lc_tools),
                 "canonical_tools": tuple(convert_to_openai_tool(tool) for tool in lc_tools),
@@ -6951,12 +7332,14 @@ class ToolCallPayload(str):
         args: dict[str, Any] | None = None,
         call_id: str = "",
         runtime_name: str = "",
+        media_prompt: str = "",
     ):
         obj = str.__new__(cls, str(name or "tool"))
         obj.raw_name = str(raw_name or "")
         obj.runtime_name = str(runtime_name or raw_name or "")
         obj.args = dict(args or {})
         obj.call_id = str(call_id or "")
+        obj.media_prompt = str(media_prompt or "")
         return obj
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -6970,6 +7353,8 @@ class ToolCallPayload(str):
             return self.args
         if key == "id":
             return self.call_id
+        if key == "media_prompt":
+            return self.media_prompt
         return default
 
     def as_dict(self) -> dict[str, Any]:
@@ -7005,14 +7390,21 @@ def _wrap_platform_tool_call(request: Any, execute: Any) -> Any:
     exact ToolMessage in parallel tool batches. With Learning (preview) on, the call and its
     capped result are captured too.
     """
-    turn = _current_learning_turn_var.get() if learning.is_enabled() else None
-    if turn is None:
-        return _platform_tool_call(request, execute, None)
-    token = _current_learning_tool_call_var.set(str((request.tool_call or {}).get("id") or ""))
+    state = getattr(request, "state", None)
+    messages = state if isinstance(state, list) else (
+        state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None))
+    messages_token = _current_turn_messages_var.set(tuple(messages or ()))
     try:
-        return _platform_tool_call(request, execute, turn)
+        turn = _current_learning_turn_var.get() if learning.is_enabled() else None
+        if turn is None:
+            return _platform_tool_call(request, execute, None)
+        token = _current_learning_tool_call_var.set(str((request.tool_call or {}).get("id") or ""))
+        try:
+            return _platform_tool_call(request, execute, turn)
+        finally:
+            _current_learning_tool_call_var.reset(token)
     finally:
-        _current_learning_tool_call_var.reset(token)
+        _current_turn_messages_var.reset(messages_token)
 
 
 def _learning_tool_call(turn: Any, request: Any, result: Any = None, *, untrusted: bool = False,
@@ -7066,6 +7458,20 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
 
         # The conversation is found as read_tool_output finds it; the source decides its read-back fence.
         result = cap_tool_message(result, source=_tool_call_runtime_name(request.tool_call or {}))
+        media: list[dict] = []
+        media_failed = False
+        if caches is not None:
+            # A made picture or video becomes a chat file here, so the result names it the way every
+            # media tool finds it, never by its private path (R2).
+            from row_bot.application.generated_media import capture_generated_media, name_saved_files
+            names: list[str] = []
+            try:
+                media = capture_generated_media(caches.conversation_id, caches, names=names,
+                                                label=_media_label(request.tool_call or {}))
+            except ValueError:
+                media_failed = True
+            if names and isinstance(result.content, str):
+                result = result.model_copy(update={"content": name_saved_files(result.content, names)})
         stamp_failed = False
         try:
             call = dict(request.tool_call or {})
@@ -7084,18 +7490,28 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
             _learning_tool_call(learning_turn, request, result, untrusted=stamp is not None or stamp_failed)
         if caches is None:
             return result
-        from row_bot.application.generated_media import capture_generated_media
         additional = dict(result.additional_kwargs)
-        try:
-            media = capture_generated_media(caches.conversation_id, caches)
-            if media:
-                additional["platform_media"] = media
-        except ValueError:
+        if media:
+            additional["platform_media"] = media
+        if media_failed:
             additional["platform_media_error"] = "media_unavailable"
         return result.model_copy(update={"additional_kwargs": additional})
 
 
+def _media_label(call: dict[str, Any]) -> str:
+    """A made file's name from its prompt: "waves-on-a-beach-at-dusk" (R2); "" when there's none."""
+    import re
+
+    args = call.get("args") if isinstance(call.get("args"), dict) else {}
+    if str(call.get("name") or "") == "tool_invoke" and isinstance(args.get("arguments"), dict):
+        args = args["arguments"]
+    words = re.findall(r"[a-z0-9]+", str(args.get("prompt") or "").lower())[:6]
+    return "-".join(words)[:48].strip("-")
+
+
 def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
+    from row_bot.application.conversation_traces import media_prompt
+
     raw_name = str(tc.get("name") or "")
     args = tc.get("args")
     effective_name = _tool_call_runtime_name(tc)
@@ -7105,6 +7521,8 @@ def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
         args=_safe_tool_call_args(args),
         call_id=str(tc.get("id") or raw_name),
         runtime_name=effective_name,
+        # A picture's or video's prompt names it in the chat's Outputs (5.3.3); no other argument rides along.
+        media_prompt=media_prompt(effective_name, args.get("prompt") if isinstance(args, dict) else None),
     )
 
 
@@ -7303,7 +7721,8 @@ def _chat_only_request_after_overflow(
         logger.warning("Context overflow: the request could not be compacted (%s)", type(retry_exc).__name__)
         return None
     if retried.raw_estimated_input_tokens >= prepared.raw_estimated_input_tokens:
-        logger.warning("Context overflow: compaction found nothing to shorten; not retrying")
+        logger.warning("Context overflow: compaction found nothing to shorten; not retrying (the provider said: %s)",
+                       str(exc)[:400])
         return None
     logger.warning(
         "Context overflow: compacted and retrying once (~%d estimated tokens, was ~%d)",
@@ -7385,7 +7804,7 @@ def _stream_chat_only_events(
         time.perf_counter() - _readiness_started
     ) * 1000.0
     if not readiness.ready:
-        yield ("error", readiness.user_message())
+        yield from _readiness_refusal(readiness.provider_id) or [("error", readiness.user_message())]
         return
     _current_runtime_reason_var.set("chat_only_ready")
     _log_runtime_decision(
@@ -7413,6 +7832,7 @@ def _stream_chat_only_events(
             time.perf_counter() - _llm_started
         ) * 1000.0
     except Exception as exc:
+        backup_model.note_failure(exc)
         yield ("error", _friendly_api_error(str(exc), model_label))
         return
     _messages_started = time.perf_counter()
@@ -7603,6 +8023,7 @@ def _stream_chat_only_events(
             if _is_context_overflow_error(exc):
                 _mark_context_overflow(preparation_inputs)
             learn(exc)
+            backup_model.note_failure(exc)
             yield ("error", _friendly_api_error(str(exc), model_label))
             return
         break
@@ -7741,7 +8162,18 @@ NO_MODEL_CHANNEL_REPLY = (
 
 
 def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
-                  *, stop_event: threading.Event | None = None):
+                 *, stop_event: threading.Event | None = None):
+    """:func:`stream_agent_without_backup`, finished by the backup model when the turn's model can't
+    answer (#140). It also yields ``("backup_model", {note, reason, model_ref})`` when it switches."""
+    return backup_model.stream(
+        lambda: stream_agent_without_backup(user_input, enabled_tool_names, config, stop_event=stop_event),
+        lambda handed: stream_agent_without_backup(user_input, enabled_tool_names, handed, stop_event=stop_event),
+        config, user_input, stop_event=stop_event, notify=_notify_api_error,
+    )
+
+
+def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], config: dict,
+                                *, stop_event: threading.Event | None = None):
     """Stream the agent response as structured events.
 
     Yields tuples of ``(event_type, payload)`` where *event_type* is one of:
@@ -7864,7 +8296,9 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                 reason=runtime_readiness.selection_reason,
                 context_window=_readiness_context_window(runtime_readiness, "chat"),
             )
-            yield ("error", runtime_readiness.selection_reason)
+            backup_model.note_failure(backup_model.MainModelNotReady(runtime_readiness.selection_reason))
+            yield from (_readiness_refusal(runtime_readiness.chat.provider_id)
+                        or [("error", runtime_readiness.selection_reason)])
             return
         _current_selected_runtime_mode_var.set("agent")
         _current_runtime_reason_var.set(runtime_readiness.selection_reason)
@@ -7931,7 +8365,9 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
             tool_allowlist=_tool_allowlist,
         )
     except AgentCompatibilityError as exc:
-        yield ("error", str(exc))
+        # The model can't run (its server isn't running, its provider isn't connected): the backup's case.
+        backup_model.note_failure(backup_model.MainModelNotReady(str(exc)))
+        yield from _readiness_refusal(exc.result.provider_id) or [("error", str(exc))]
         return
     phase_timings["generation.graph_build_ms"] = (
         time.perf_counter() - _graph_build_started
@@ -8081,6 +8517,21 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
                         *, interrupt_ids: list[str] | None = None,
                         resume_values: Mapping[str, Any] | None = None,
                         stop_event: threading.Event | None = None):
+    """:func:`_resume_stream_agent_turn`, finished by the backup model when the turn's model can't
+    answer after the approval (#140)."""
+    return backup_model.stream(
+        lambda: _resume_stream_agent_turn(enabled_tool_names, config, approved, interrupt_ids=interrupt_ids,
+                                          resume_values=resume_values, stop_event=stop_event),
+        lambda handed: stream_agent_without_backup("", enabled_tool_names, handed, stop_event=stop_event),
+        config, str((config.get("configurable") or {}).get("root_objective") or ""),
+        stop_event=stop_event, notify=_notify_api_error,
+    )
+
+
+def _resume_stream_agent_turn(enabled_tool_names: list[str], config: dict, approved: bool,
+                              *, interrupt_ids: list[str] | None = None,
+                              resume_values: Mapping[str, Any] | None = None,
+                              stop_event: threading.Event | None = None):
     """Resume an interrupted agent graph after user approval/denial.
 
     ``resume_values`` (a question's answer, by its interrupt id) resumes only
@@ -8124,7 +8575,9 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
             tool_allowlist=_tool_allowlist,
         )
     except AgentCompatibilityError as exc:
-        yield ("error", str(exc))
+        # The model can't run (its server isn't running, its provider isn't connected): the backup's case.
+        backup_model.note_failure(backup_model.MainModelNotReady(str(exc)))
+        yield from _readiness_refusal(exc.result.provider_id) or [("error", str(exc))]
         return
     try:
         config = _resume_agent_graph_config(agent, config)
@@ -8774,7 +9227,7 @@ def _stream_graph(agent, input_data, config: dict,
     # (a multi-step form) takes dozens of page actions; this only stops a
     # runaway loop.
     _loop_detected = False
-    _BROWSER_TOOL_LIMIT = 80
+    _browser_thread = str((config.get("configurable") or {}).get("thread_id") or "")
     _browser_tool_count = 0
     _recent_browser_actions: list[str] = []
     _browser_budget_exceeded = False
@@ -8811,6 +9264,11 @@ def _stream_graph(agent, input_data, config: dict,
         return
     except Exception as exc:
         exc_str = str(exc)
+        refusal = _provider_refusal(exc)
+        if refusal:
+            logger.warning("The provider can't answer: %s", exc_str)
+            yield from refusal
+            return
         # Auto-repair orphaned tool calls and retry once. A provider overflow reaching here already
         # had its one compacted retry inside the model call (_AgentModelCall): the graph is not replayed.
         if _is_context_overflow_error(exc):
@@ -8856,7 +9314,7 @@ def _stream_graph(agent, input_data, config: dict,
                 exc_info=True,
             )
             yield ("error", f"{_model_label_for_error()} does not support tool calling. "
-                   "Please switch to a compatible model in Settings → Models.")
+                   "Please switch to a compatible model in Settings › Models.")
             return
         else:
             logger.error(
@@ -8936,12 +9394,14 @@ def _stream_graph(agent, input_data, config: dict,
                                 _browser_tool_count += 1
                                 _recent_browser_actions.append(_browser_action_name(runtime_tool_name))
                                 _recent_browser_actions = _recent_browser_actions[-8:]
-                                # Only looking, never acting, many times in a row: stuck.
+                                # Only looking, never acting, many times in a row: stuck. Waiting isn't
+                                # looking: a long job is waited for (R6).
                                 _snapshot_heavy = len(_recent_browser_actions) >= 8 and all(
-                                    action in {"snapshot", "take_screenshot", "screenshot", "wait_for"}
+                                    action in {"snapshot", "take_screenshot", "screenshot"}
                                     for action in _recent_browser_actions[-8:]
                                 )
-                                if _browser_tool_count >= _BROWSER_TOOL_LIMIT or _snapshot_heavy:
+                                if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
+                                                       >= _browser_tool_limit(_browser_thread)):
                                     _browser_budget_exceeded = True
 
                     # Tool result returned
@@ -9067,6 +9527,13 @@ def _stream_graph(agent, input_data, config: dict,
             logger.info("A model call was refused by its caller's limit: %s", exc_str)
             yield ("error", exc_str)
             return
+        backup_model.note_failure(exc)
+        refusal = _provider_refusal(exc)
+        if refusal:
+            logger.warning("The provider can't answer: %s", exc_str)
+            _notify_api_error(refusal[-1][1])
+            yield from refusal
+            return
         # Auto-repair orphaned tool calls and retry once. Never replay overflow (its retry was in the call).
         if _is_context_overflow_error(exc):
             _mark_context_overflow(_last_preparation_inputs(config))
@@ -9150,6 +9617,7 @@ def _stream_graph(agent, input_data, config: dict,
                     logger.info("A model call was refused by its caller's limit: %s", retry_exc)
                     yield ("error", str(retry_exc))
                     return
+                backup_model.note_failure(retry_exc)
                 _rmsg = _friendly_api_error(str(retry_exc))
                 logger.error(
                     "_stream_graph retry failed during iteration: %s diagnostics=%s",
@@ -9220,13 +9688,14 @@ def _stream_graph(agent, input_data, config: dict,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
-            repair_orphaned_tool_calls(config=config, agent_graph=agent)
+            # Its unfinished step says why it stopped: not the person.
+            repair_orphaned_tool_calls(config=config, agent_graph=agent,
+                                       orphan_message="[Stopped: too many browser actions in one turn]")
         except Exception:
             pass
         _browser_msg = (
-            "⚠️ I used too many browser actions without reaching a stable result, "
-            "so I stopped before getting stuck in a longer loop. Try narrowing the request, "
-            "or use a site/search page that is less likely to block automation."
+            "⚠️ I took a long run of browser steps in this turn without settling, so I stopped to check "
+            "with you before going round again. Say carry on and I'll pick up from here, or tell me what to change."
         )
         _notify_api_error(_browser_msg)
         if full_answer:

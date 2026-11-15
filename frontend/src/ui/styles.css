@@ -492,18 +492,6 @@ svg {
   color: var(--status-warning-text);
   font-size: var(--type-size-metadata);
 }
-.context-output {
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface);
-}
-.context-output summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
 .context-resource-title span,
 .context-resource-title small,
 .context-resource-summary span,
@@ -1966,27 +1954,6 @@ progress {
 }
 .workflow-bulk-actions > [role='status'] {
   margin-right: auto;
-}
-.workflow-card {
-  position: relative;
-}
-.workflow-select-control {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1;
-  display: grid;
-  min-width: var(--control-size);
-  min-height: var(--control-size);
-  place-items: center;
-}
-.workflow-select-control input,
-.workflow-enabled-control input {
-  width: 20px;
-  height: 20px;
-}
-.workflow-enabled-control {
-  font-size: var(--type-size-metadata);
 }
 
 .knowledge-home {
@@ -4347,10 +4314,6 @@ details[open] > summary > .settings-disclosure-chevron {
 .buddy-hatch-heading p {
   max-width: 72ch;
 }
-.settings-buddy-preferences .buddy-look .buddy-avatar {
-  width: 80px;
-  height: 80px;
-}
 @media (max-width: 600px) {
   .settings-buddy-visibility-grid,
   .settings-buddy-behavior-grid,
@@ -4363,10 +4326,6 @@ details[open] > summary > .settings-disclosure-chevron {
   }
   .settings-buddy-preferences .buddy-look-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .settings-buddy-preferences .buddy-look .buddy-avatar {
-    width: 88px;
-    height: 88px;
   }
   .settings-voice-page > .settings-snapshot-section,
   .settings-system-page > .settings-snapshot-section {
@@ -5133,24 +5092,11 @@ details[open] > summary > .settings-disclosure-chevron {
 
 /* Activity rows retain their established full target while menus stay compact. */
 
-.buddy-avatar {
-  width: 80px;
-  height: 80px;
-  object-fit: contain;
-  border-radius: var(--radius-control);
-}
-
 .buddy-look {
   flex-direction: column;
   min-width: 112px;
 }
 
-.navigation .buddy-avatar {
-  width: 132px;
-  height: 132px;
-  border: 0;
-  border-radius: 50%;
-}
 .navigation .buddy-companion {
   display: grid;
   justify-items: center;

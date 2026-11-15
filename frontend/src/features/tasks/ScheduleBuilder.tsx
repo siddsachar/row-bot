@@ -257,7 +257,7 @@ export default function ScheduleBuilder({
 }: {
   schedule: string | null;
   at: string | null;
-  /** The saved zone; a new schedule starts with the Row-Bot computer's. */
+  /** The saved zone; a new schedule starts with this device's. */
   timezone?: string | null;
   enabled: boolean;
   onChange: (value: ScheduleValue) => void;

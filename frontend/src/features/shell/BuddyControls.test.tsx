@@ -117,6 +117,35 @@ describe('Buddy shared companion and preferences', () => {
     expect(input.onSettings).toHaveBeenCalledOnce();
   });
 
+  it('hides Buddy from its peek, with an Undo that brings it back', async () => {
+    const input = props();
+    const hidden = {
+      ...snapshot,
+      revision: 'revision-two',
+      preferences: { ...snapshot.preferences, visible: false },
+    };
+    input.save = vi.fn(async () => hidden);
+    render(<BuddyControls {...input} settingsOpen={false} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Buddy' }));
+    const peek = await screen.findByRole('dialog', { name: 'Buddy' });
+    fireEvent.click(within(peek).getByRole('button', { name: 'Hide' }));
+    await waitFor(() =>
+      expect(input.save).toHaveBeenCalledWith(
+        { visible: false },
+        'revision-one',
+      ),
+    );
+    await notice('Buddy is hidden.');
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(input.save).toHaveBeenLastCalledWith(
+        { visible: true },
+        'revision-two',
+      ),
+    );
+  });
+
   it('keeps name and compact size in Advanced and shows the looks as a grid of tiles (B258)', () => {
     const input = props();
     render(<BuddyControls {...input} />);
@@ -125,10 +154,10 @@ describe('Buddy shared companion and preferences', () => {
     expect(advanced).not.toHaveAttribute('open');
     // The page status line names the look; each tile says whether it's ready.
     expect(screen.getByText('Shown')).toBeVisible();
-    expect(screen.getByText('motion ready')).toBeVisible();
+    expect(screen.getByText('alive')).toBeVisible();
     const looks = screen.getByRole('group', { name: 'Buddy looks' });
     const glyph = within(looks).getByRole('button', {
-      name: 'Glyph — 2 clips · Ready',
+      name: 'Glyph · Ready',
     });
     expect(glyph).toHaveAttribute('aria-pressed', 'true');
     expect(glyph).toHaveTextContent('GlyphReady');
@@ -325,7 +354,7 @@ describe('Buddy shared companion and preferences', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More Buddy looks' }));
     expect(
       await screen.findByRole('button', {
-        name: 'Missing — 2 clips · Unavailable',
+        name: 'Missing · Unavailable',
       }),
     ).toBeDisabled();
     expect(input.loadPacks).toHaveBeenCalledWith('next');

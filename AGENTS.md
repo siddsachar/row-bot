@@ -70,6 +70,9 @@ Priorities, in order:
 - `src/row_bot/designer/`: Designer Studio state, export, templates, rendering,
   previews, thumbnails, and AI content.
 - `src/row_bot/plugins/`, `skills_hub/`, `skills.py`: plugin and skill systems.
+- `src/row_bot/proactive/`: Proactive Row-Bot: watchers, the moment store
+  (`proactive.db`), the attention budget and timing, desktop context, feedback
+  rules and the Activity log; its client API is `application/client_proactive.py`.
 - `src/row_bot/learning/`: Learning (preview): the switch (`is_enabled`), versioned
   records, the `learning.db` store and blobs, scope (what may be recorded), capture
   (the seams' queue and writer, with redaction), the past-chat import, evaluation
@@ -180,8 +183,8 @@ tiers.
 
 Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
 `contracts`, `subsystem`, `installer-contracts`, `dependency-integrity`,
-`app-smoke`, `docs`. CI splits the `python` tier across jobs with
-`ROW_BOT_TEST_SHARD=k/N`.
+`app-smoke`, `docs`. CI splits the `python` and `browser-smoke` tiers across
+jobs with `ROW_BOT_TEST_SHARD=k/N`.
 
 ## Where To Put Tests
 
@@ -193,6 +196,8 @@ Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
 - Apps & Skills (catalogs, plans, access, the safe fetcher, apps in chats):
   `tests/subsystem/integrations/`.
 - Agents, approvals, goals: `tests/subsystem/agents/`.
+- Proactive Row-Bot (watchers, budget, timing, the restraint suite):
+  `tests/subsystem/proactive/`.
 - Workflows/tasks/approvals: `tests/subsystem/workflows/`.
 - Memory, knowledge graph, wiki vault, documents, Dream Cycle:
   `tests/subsystem/knowledge_graph/`, `tests/subsystem/dream_cycle/`,
@@ -284,6 +289,12 @@ Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
    `scripts/release_windows.ps1` on the Windows signing machine: it signs and
    packs Windows locally, writes the SHA-256 block and publishes after a typed
    confirmation, refusing while macOS is not stapled or a file is missing.
+
+For hosts that package the image, before tagging (`docs/RELEASING.md`, Hosting
+checklist): the hosting smoke in `container.yml` is green on amd64 and arm64
+with its memory high-water mark under 3.2 GB, the version's "For Hosts" notes
+are written (the release refuses `TODO:`), and breaking changes for hosts were
+announced at least 7 days before the tag.
 
 Manual checks outside default PR CI: real provider accounts, real MCP servers,
 real channels, clean-machine installer UX, repair/upgrade/uninstall, Windows

@@ -18,7 +18,11 @@ import type {
   VideoScene,
   VideoSceneWrite,
 } from '../../api/types';
-import { saveBrowserDownload } from '../../platform/download';
+import {
+  type CapabilityResult,
+  type SavedFile,
+  unavailable,
+} from '../../platform/types';
 import { useRuntime } from '../../runtime';
 import {
   Button,
@@ -31,11 +35,13 @@ import {
   StatusDot,
   Toggle,
 } from '../../ui/primitives';
+import { useNotify } from '../../ui/overlays';
 import { shortTime } from '../shell/conversation-groups';
+import { announceSaved } from '../shell/save-file';
 import { editLive } from '../shell/video-edits';
 import { LivePreview } from './LivePreview';
 import { acquire, release } from './media-urls';
-import { VideoBrandEditor } from './VideoBrandEditor';
+import { useVoiceChoices, VideoBrandEditor } from './VideoBrandEditor';
 import { VideoTimeline } from './VideoTimeline';
 import {
   SHAPES,
@@ -52,7 +58,12 @@ import {
 const FRAME = 1 / 30;
 const POLL_MS = 1500;
 
-type Draft = { scenes: VideoSceneWrite[]; captions: boolean; brand: boolean };
+type Draft = {
+  scenes: VideoSceneWrite[];
+  captions: boolean;
+  brand: boolean;
+  voice: string;
+};
 /** Unsaved edits per project and version, so they outlive the panel moving between side and full screen. */
 const drafts = new Map<string, Draft>();
 const WIDE = '(min-width: 768px)';
@@ -126,7 +137,8 @@ export default function VideoPanel({
   projectId: string;
   visible: boolean;
 }) {
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
+  const notify = useNotify();
   const [view, setView] = useState<VideoProjectView | null>(null);
   const [shown, setShown] = useState<number | undefined>();
   const [draft, setStoredDraft] = useState<Draft | null>(null);
@@ -140,6 +152,7 @@ export default function VideoPanel({
   const [mode, setMode] = useState<'scenes' | 'timeline'>('scenes');
   // The brand kit loads the first time its section opens.
   const [brandOpen, setBrandOpen] = useState(false);
+  const voices = useVoiceChoices();
   const [time, setTime] = useState(0);
   const history = useRef<Draft[]>([]);
   const wide = useWide();
@@ -269,6 +282,7 @@ export default function VideoPanel({
             scenes: edited.scenes,
             captions: edited.captions,
             brand: edited.brand,
+            voice: edited.voice,
             note: 'Edited in the panel',
           }),
         )
@@ -310,21 +324,26 @@ export default function VideoPanel({
     }
   }
 
+  // The desktop app's Save dialog (Exports while it reconnects), or a browser download.
   async function download(edit = view?.edit) {
     if (!edit?.media_ref) return;
     const name = edit.output_name || 'video.mp4';
-    const reference = edit.media_ref;
-    const result = await saveBrowserDownload(
-      () => controller.download(reference),
-      name,
-    );
-    if (
-      result.status === 'unavailable' &&
-      result.reason === 'desktop_download_unavailable'
-    )
-      setNotice('This window can’t download: use Save to workspace.');
-    else if (result.status === 'unavailable')
-      setError(`Couldn't download ${name}. Try again.`);
+    const result = await platform
+      .save(edit.media_ref, name)
+      .catch((): CapabilityResult<SavedFile> =>
+        unavailable('operation_failed'),
+      );
+    if (result.status === 'cancelled') return;
+    if (result.status !== 'ok') {
+      setError(
+        result.reason === 'user_gesture_required'
+          ? 'Press Download again to save the video.'
+          : `Couldn't download ${name}. Try again.`,
+      );
+      return;
+    }
+    setError('');
+    announceSaved(notify, result.value, name);
   }
 
   function step(by: number) {
@@ -531,11 +550,26 @@ export default function VideoPanel({
           />
           <span aria-hidden>Brand</span>
         </label>
+        <Select
+          aria-label="Voice for this video"
+          className="video-voice"
+          value={edited.voice}
+          disabled={!latest}
+          onChange={(event) => edit({ ...edited, voice: event.target.value })}
+        >
+          <option value="">Brand kit's voice</option>
+          {voices.map((voice) => (
+            <option key={voice.value} value={voice.value}>
+              {voice.label}
+            </option>
+          ))}
+        </Select>
       </div>
       {wide && mode === 'timeline' && (
         <VideoTimeline
           scenes={edited.scenes}
           made={scenes}
+          narration={view.narration}
           music={view.music}
           url={url}
           playhead={url && !dirty ? time : null}
@@ -621,20 +655,41 @@ export default function VideoPanel({
                   }
                 />
                 <div className="video-scene-controls">
-                  <Select
-                    aria-label={`Scene ${number} speed`}
-                    value={String(scene.speed ?? 1)}
-                    disabled={!latest}
-                    onChange={(event) =>
-                      change(index, { speed: Number(event.target.value) })
-                    }
-                  >
-                    {SPEEDS.map((speed) => (
-                      <option key={speed} value={speed}>
-                        {speed}×
-                      </option>
-                    ))}
-                  </Select>
+                  {scene.source ? (
+                    <Select
+                      aria-label={`Scene ${number} speed`}
+                      value={String(scene.speed ?? 1)}
+                      disabled={!latest}
+                      onChange={(event) =>
+                        change(index, { speed: Number(event.target.value) })
+                      }
+                    >
+                      {SPEEDS.map((speed) => (
+                        <option key={speed} value={speed}>
+                          {speed}×
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    // A title card has no video to speed up: only how long it shows.
+                    <label className="video-scene-seconds">
+                      <input
+                        className="input"
+                        type="number"
+                        min={0.5}
+                        step={0.5}
+                        aria-label={`Scene ${number} lasts, in seconds`}
+                        value={scene.end ?? 3}
+                        disabled={!latest}
+                        onChange={(event) =>
+                          change(index, {
+                            end: Math.max(0.5, Number(event.target.value) || 3),
+                          })
+                        }
+                      />
+                      s
+                    </label>
+                  )}
                   <input
                     className="input video-scene-card"
                     aria-label={`Scene ${number} card`}
@@ -673,47 +728,55 @@ export default function VideoPanel({
                     </IconButton>
                   </span>
                 </div>
-                <Disclosure summary="Trim" className="video-scene-trim">
-                  <label>
-                    From
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      step={0.1}
-                      aria-label={`Scene ${number} starts at, seconds into ${scene.source}`}
-                      value={scene.start ?? 0}
-                      disabled={!latest}
-                      onChange={(event) =>
-                        change(index, {
-                          start: Math.max(0, Number(event.target.value) || 0),
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    To
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      step={0.1}
-                      placeholder="End"
-                      aria-label={`Scene ${number} ends at, seconds into ${scene.source}`}
-                      value={scene.end ?? ''}
-                      disabled={!latest}
-                      onChange={(event) =>
-                        change(index, {
-                          end:
-                            event.target.value === ''
-                              ? null
-                              : Math.max(0, Number(event.target.value)),
-                        })
-                      }
-                    />
-                  </label>
-                  <span className="video-scene-source">of {scene.source}</span>
-                </Disclosure>
+                {scene.source ? (
+                  <Disclosure summary="Trim" className="video-scene-trim">
+                    <label>
+                      From
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        aria-label={`Scene ${number} starts at, seconds into ${scene.source}`}
+                        value={scene.start ?? 0}
+                        disabled={!latest}
+                        onChange={(event) =>
+                          change(index, {
+                            start: Math.max(0, Number(event.target.value) || 0),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      To
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        placeholder="End"
+                        aria-label={`Scene ${number} ends at, seconds into ${scene.source}`}
+                        value={scene.end ?? ''}
+                        disabled={!latest}
+                        onChange={(event) =>
+                          change(index, {
+                            end:
+                              event.target.value === ''
+                                ? null
+                                : Math.max(0, Number(event.target.value)),
+                          })
+                        }
+                      />
+                    </label>
+                    <span className="video-scene-source">
+                      of {scene.source}
+                    </span>
+                  </Disclosure>
+                ) : (
+                  <span className="video-scene-source">
+                    A title card on your brand colour
+                  </span>
+                )}
               </div>
             </li>
           );

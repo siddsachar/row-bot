@@ -85,4 +85,7 @@ it('says there is nothing yet, not that a search missed, before anything is adde
   );
   expect(await screen.findByText('No documents yet')).toBeVisible();
   expect(screen.queryByText(/Try another search/)).toBeNull();
+  // Only the empty state: no search box, filter or "0 matching" count (U39).
+  expect(screen.queryByRole('searchbox')).toBeNull();
+  expect(screen.queryByText(/matching saved entries/)).toBeNull();
 });

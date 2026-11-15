@@ -690,6 +690,13 @@ def test_xai_api_key_discovery_merges_model_endpoints_and_curated_composer(monke
                     {"quality": "medium", "resolution": "2k", "price_per_image": 8},
                 ],
             }]})
+        if url.endswith("/video-generation-models"):
+            # A video model named without "video", priced by quality and resolution like an image model.
+            return _XAIResponse({"models": [{
+                "id": "future-motion",
+                "display_name": "Future Motion",
+                "pricing": [{"quality": "standard", "resolution": "720p", "price_per_second": 5}],
+            }]})
         raise AssertionError(url)
 
     monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(get=_get))
@@ -709,9 +716,11 @@ def test_xai_api_key_discovery_merges_model_endpoints_and_curated_composer(monke
         "https://api.x.ai/v1/models",
         "https://api.x.ai/v1/language-models",
         "https://api.x.ai/v1/image-generation-models",
+        "https://api.x.ai/v1/video-generation-models",
     ]
-    assert count == 5
-    assert {"grok-4.3", "grok-imagine-image-quality", "grok-imagine-video", "future-renderer", XAI_COMPOSER_MODEL_ID} <= set(cached)
+    assert count == 6
+    assert {"grok-4.3", "grok-imagine-image-quality", "grok-imagine-video", "future-renderer", "future-motion",
+            XAI_COMPOSER_MODEL_ID} <= set(cached)
     assert cached["grok-4.3"]["vision"] is True
     assert cached[XAI_COMPOSER_MODEL_ID]["provider"] == "xai"
     assert cached[XAI_COMPOSER_MODEL_ID]["transport"] == "openai_chat"
@@ -719,6 +728,8 @@ def test_xai_api_key_discovery_merges_model_endpoints_and_curated_composer(monke
     assert cached["grok-imagine-image-quality"]["capabilities_snapshot"]["tasks"] == ["image_generation"]
     assert cached["grok-imagine-image-quality"]["capabilities_snapshot"]["output_modalities"] == ["image"]
     assert cached["grok-imagine-video"]["capabilities_snapshot"]["tasks"] == ["video_generation"]
+    assert cached["future-motion"]["capabilities_snapshot"]["tasks"] == ["video_generation"]
+    assert cached["future-motion"]["capabilities_snapshot"]["output_modalities"] == ["video"]
     assert cached["future-renderer"]["capabilities_snapshot"]["generation_parameters"]["valid_combinations"][-1] == {
         "quality": "medium",
         "resolution": "2k",
@@ -1147,34 +1158,6 @@ def test_xai_oauth_runtime_factory_and_probe(tmp_path, monkeypatch):
         assert provider_entry["last_error"] == ""
     finally:
         _set_backend_for_tests(None)
-
-
-def test_xai_oauth_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypatch):
-    import row_bot.api_keys as api_keys
-    from row_bot.providers.selection import add_quick_choice_for_model, list_quick_model_ids
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    monkeypatch.setattr("row_bot.providers.runtime.provider_status", lambda provider_id: {
-        "configured": True,
-        "runtime_enabled": False,
-    })
-
-    add_quick_choice_for_model(
-        "grok-4",
-        provider_id="xai_oauth",
-        display_name="Grok 4",
-        capabilities_snapshot={
-            "tasks": ["responses"],
-            "input_modalities": ["text"],
-            "output_modalities": ["text"],
-            "tool_calling": True,
-            "streaming": True,
-            "transport": "openai_responses",
-        },
-    )
-
-    assert list_quick_model_ids("chat") == []
 
 
 def test_xai_oauth_status_cards_expose_client_id_and_probe_state(tmp_path, monkeypatch):

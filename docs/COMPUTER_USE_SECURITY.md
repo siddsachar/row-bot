@@ -117,8 +117,11 @@ and maintenance surfaces are forbidden and never model-visible.
 
 ## Security invariants
 
-- Computer use is off by default and unavailable to schedules, channels,
-  background workflows, helper agents, and headless/server callers. Its picture
+- Computer use is off by default and runs only on Windows and macOS. A chat,
+  a workflow (scheduled or run by hand), a goal or a helper agent may use it
+  (5.3.1 B4), each under its approval level; a channel chat (Telegram, Slack
+  and the like) never can, since the person is usually away from the screen,
+  and nothing without a conversation can. Its picture
   and Stop in the conversation are on this computer's desktop app only; the
   chat's Stop works from any signed-in device.
 - One session at a time: it belongs to one chat's turn and ends with it (a turn

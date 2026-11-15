@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "MemoryImportModel": {
+      "additionalProperties": false,
+      "description": "The default chat model that finding memories in conversations and the preview use.",
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "title": "Name",
+          "type": "string"
+        },
+        "on_this_computer": {
+          "title": "On This Computer",
+          "type": "boolean"
+        },
+        "provider": {
+          "maxLength": 120,
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "provider",
+        "on_this_computer"
+      ],
+      "title": "MemoryImportModel",
+      "type": "object"
+    },
+    "MemoryReviewReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "applied_at": {
+          "maxLength": 40,
+          "title": "Applied At",
+          "type": "string"
+        },
+        "backup": {
+          "maxLength": 120,
+          "title": "Backup",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "failed": {
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "merged": {
+          "minimum": 0,
+          "title": "Merged",
+          "type": "integer"
+        },
+        "removed": {
+          "minimum": 0,
+          "title": "Removed",
+          "type": "integer"
+        },
+        "rewritten": {
+          "minimum": 0,
+          "title": "Rewritten",
+          "type": "integer"
+        },
+        "run_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "split": {
+          "minimum": 0,
+          "title": "Split",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "undone"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "undo_until": {
+          "maxLength": 40,
+          "title": "Undo Until",
+          "type": "string"
+        },
+        "undone_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Undone At"
+        }
+      },
+      "required": [
+        "run_id",
+        "command_id",
+        "status",
+        "applied_at",
+        "undo_until",
+        "removed",
+        "merged",
+        "rewritten",
+        "split",
+        "added",
+        "failed",
+        "backup"
+      ],
+      "title": "MemoryReviewReceipt",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What a review would read, shown before it runs.",
+  "properties": {
+    "import_batch": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Import Batch"
+    },
+    "many": {
+      "title": "Many",
+      "type": "boolean"
+    },
+    "memories": {
+      "minimum": 0,
+      "title": "Memories",
+      "type": "integer"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryImportModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model_calls": {
+      "minimum": 0,
+      "title": "Model Calls",
+      "type": "integer"
+    },
+    "recent": {
+      "items": {
+        "$ref": "#/$defs/MemoryReviewReceipt"
+      },
+      "maxItems": 10,
+      "title": "Recent",
+      "type": "array"
+    }
+  },
+  "required": [
+    "memories",
+    "model_calls",
+    "many",
+    "recent"
+  ],
+  "title": "MemoryReviewOverview",
+  "type": "object"
+}

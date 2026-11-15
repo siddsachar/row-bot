@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 import os
+import re
 from typing import Iterable, Mapping
 from urllib.parse import urlsplit
 
@@ -180,6 +181,8 @@ class AccessConfig:
     untrusted_forwarded_action: UntrustedForwardedAction = (
         UntrustedForwardedAction.REJECT
     )
+    # A known host's proxy header naming the visitor (hosting.Host.client_address_header), never a setting.
+    client_address_header: str | None = None
 
     @classmethod
     def build(
@@ -192,6 +195,7 @@ class AccessConfig:
         untrusted_forwarded_action: UntrustedForwardedAction | str = (
             UntrustedForwardedAction.REJECT
         ),
+        client_address_header: str | None = None,
     ) -> AccessConfig:
         mode = (
             deployment_mode
@@ -223,12 +227,17 @@ class AccessConfig:
             if origin not in normalized_origins:
                 normalized_origins.append(origin)
 
+        header = str(client_address_header or "").strip().lower() or None
+        if header is not None and not re.fullmatch(r"[a-z0-9-]+", header):
+            raise AccessConfigError("client address header must be a header name")
+
         return cls(
             deployment_mode=mode,
             trusted_proxy_cidrs=parse_trusted_proxy_cidrs(trusted_proxy_cidrs),
             allowed_hosts=tuple(normalized_hosts),
             public_origins=tuple(normalized_origins),
             untrusted_forwarded_action=forwarded_action,
+            client_address_header=header,
         )
 
     @classmethod
@@ -254,6 +263,9 @@ class AccessConfig:
                 normalized = host_without_port(origin_host)
                 if normalized not in allowed_hosts:
                     allowed_hosts.append(normalized)
+        from row_bot.hosting import hosted_by
+
+        host = hosted_by(env)
         return cls.build(
             deployment_mode=env.get("ROW_BOT_DEPLOYMENT_MODE", "desktop"),
             trusted_proxy_cidrs=_split_csv(
@@ -266,6 +278,7 @@ class AccessConfig:
                 "ROW_BOT_UNTRUSTED_FORWARDED_ACTION",
                 UntrustedForwardedAction.REJECT.value,
             ),
+            client_address_header=host.client_address_header if host else None,
         )
 
     def host_allowed(self, authority: object) -> bool:

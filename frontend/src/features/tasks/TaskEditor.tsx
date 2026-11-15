@@ -5,7 +5,15 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { ArrowUp, Check, GripVertical, Plus, X } from 'lucide-react';
+import {
+  ArrowUp,
+  Check,
+  GripVertical,
+  Plus,
+  Power,
+  PowerOff,
+  X,
+} from 'lucide-react';
 import {
   useTaskEditSession,
   useTaskEditValue,
@@ -52,6 +60,8 @@ export interface TaskEditorProps {
   }>;
   /** Open the saved workflow's model and approval settings. */
   onTaskSettings?: () => void;
+  /** Open the saved workflow's runs, newest first. */
+  onLastRun?: () => void;
 }
 
 const emptyFields = (): TaskEditableFields => ({
@@ -92,6 +102,7 @@ export default function TaskEditor({
   onCancel,
   deliveryChannels = [],
   onTaskSettings,
+  onLastRun,
   session: injectedSession,
 }: TaskEditorProps) {
   const formId = useId();
@@ -184,8 +195,17 @@ export default function TaskEditor({
     else go();
   };
 
-  async function submit(event: { preventDefault(): void }, after?: () => void) {
+  // The note that Row-Bot switched it off (D5) can be put away for this visit.
+  const [offNoteHidden, setOffNoteHidden] = useState(false);
+
+  async function submit(
+    event: { preventDefault(): void },
+    after?: () => void,
+    // Saved with the draft: "Turn back on" saves it switched on.
+    override?: Partial<TaskEditableFields>,
+  ) {
     event.preventDefault();
+    const draft = override ? { ...fields, ...override } : fields;
     if (
       pending.current ||
       meta.busy ||
@@ -198,11 +218,11 @@ export default function TaskEditor({
     // Saving never starts a run (B133): a one-off in the past is refused
     // unless it is unchanged (the server knows whether it already ran).
     if (
-      fields.enabled &&
-      fields.at &&
-      (onceAt(fields.at, fields.timezone || defaultZone())?.getTime() ??
+      draft.enabled &&
+      draft.at &&
+      (onceAt(draft.at, draft.timezone || defaultZone())?.getTime() ??
         Date.now()) <= Date.now() &&
-      (!snapshot?.fields.enabled || snapshot.fields.at !== fields.at)
+      (!snapshot?.fields.enabled || snapshot.fields.at !== draft.at)
     ) {
       setError(
         'That time has passed. Pick a later time, or switch the workflow off.',
@@ -210,7 +230,7 @@ export default function TaskEditor({
       return;
     }
     if (
-      fields.prompts.reduce((total, prompt) => total + prompt.length, 0) > 65536
+      draft.prompts.reduce((total, prompt) => total + prompt.length, 0) > 65536
     ) {
       setError(
         'The combined prompts exceed the supported limit of 65,536 characters.',
@@ -222,12 +242,12 @@ export default function TaskEditor({
     setSaving(true);
     setError('');
     try {
-      const submitted = fields.notify_only
+      const submitted = draft.notify_only
         ? {
-            ...fields,
-            prompts: fields.prompts.filter((prompt) => prompt.trim()),
+            ...draft,
+            prompts: draft.prompts.filter((prompt) => prompt.trim()),
           }
-        : fields;
+        : draft;
       const next = meta.uncertain
         ? await session.retryOperation<TaskSaveResult>()
         : await session.run(() =>
@@ -261,6 +281,10 @@ export default function TaskEditor({
   const legacyDelivery = snapshot?.legacy_delivery ?? false;
   const locked =
     saving || loading || meta.uncertain || stale || (!!taskId && !snapshot);
+  // Row-Bot switched it off after failed runs in a row (D5); switching it on
+  // in the draft answers the note too.
+  const switchedOff =
+    snapshot?.disabled_reason === 'failures' && !fields.enabled;
   if (loading) return <Skeleton label="Loading saved task" />;
   if (!meta.active)
     return (
@@ -330,6 +354,53 @@ export default function TaskEditor({
           >
             Keep editing
           </Button>
+        </div>
+      )}
+      {switchedOff && !offNoteHidden && (
+        <div
+          className="task-builder-off"
+          role="group"
+          aria-label="Row-Bot switched this workflow off"
+        >
+          <span className="task-builder-off-icon" aria-hidden>
+            <PowerOff size={16} />
+          </span>
+          <div className="task-builder-off-text">
+            <strong>Row-Bot switched it off</strong>
+            <p>
+              It failed 5 times in a row. See the last run to find out why, then
+              turn it back on.
+            </p>
+            {onLastRun && (
+              <Button
+                variant="ghost"
+                className="small task-builder-off-link"
+                onClick={leaveTo(onLastRun)}
+              >
+                See the last run
+              </Button>
+            )}
+          </div>
+          <div className="task-builder-off-actions">
+            <IconButton
+              size="sm"
+              variant="primary"
+              label="Turn it back on"
+              disabled={locked}
+              onClick={(event) =>
+                void submit(event, undefined, { enabled: true })
+              }
+            >
+              <Power size={15} aria-hidden />
+            </IconButton>
+            <IconButton
+              size="sm"
+              label="Hide this note"
+              onClick={() => setOffNoteHidden(true)}
+            >
+              <X size={15} aria-hidden />
+            </IconButton>
+          </div>
         </div>
       )}
       {error && (
@@ -434,7 +505,17 @@ export default function TaskEditor({
               timezone={fields.timezone ?? null}
               enabled={fields.enabled}
               onChange={(next) =>
-                setFields((current) => ({ ...current, ...next }))
+                setFields((current) => ({
+                  ...current,
+                  ...next,
+                  // Giving a workflow that had none a time to run turns it on: a
+                  // schedule nobody switched on would never run (U20).
+                  enabled:
+                    current.enabled ||
+                    (!current.schedule &&
+                      !current.at &&
+                      !!(next.schedule || next.at)),
+                }))
               }
             />
             <div className="task-rail-switch">

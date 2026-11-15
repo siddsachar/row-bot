@@ -14,6 +14,19 @@
       "default": null,
       "title": "Downloads"
     },
+    "last_activity_at": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Activity At"
+    },
     "official": {
       "default": false,
       "title": "Official",

@@ -104,7 +104,7 @@ def test_conversation_actions_review_replay_and_local_export(service):
         )
         assert exported.status_code == 200, exported.text
         descriptor = exported.json()["export"]
-        assert descriptor["file_name"] == "conversation-export.md"
+        assert descriptor["file_name"] == "Reviewed action owner.md"
         assert set(descriptor) == {
             "attachment_ref",
             "file_name",

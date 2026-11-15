@@ -21,6 +21,11 @@ more (:data:`SETTLE_SECONDS`), and only when the message came within :data:`MAX_
 reply. Imported past chats (partial) get them too: they are evidence for diagnosis, never hidden
 problems (O89).
 
+**Messages read mid-turn (5.3.1).** A message the person sends while a turn works is read by that turn
+at its next step. Capture starts the next episode there, following the step before it, so it is judged
+here exactly as it was when it started a turn of its own; one read before the turn's first step joins
+the message the turn started with (``opening_texts``), and can still take its correction back.
+
 **Redos.** A corrected decision's *corrected action* is what Row-Bot did next, once the person was
 happy: the first model call of the turn that redid it (after a confirmed next-message correction or
 the app's Retry), when that turn finished and nothing corrected, stopped or retried it in turn
@@ -171,6 +176,25 @@ def withdraws(text: str) -> bool:
 
 
 _TURN_CONTEXT_KEY = "row_bot_turn_context"
+_NOTE_KEY = "row_bot_note"  # Row-Bot's own note to the model (5.3.1's progress nudge), never the person's
+_MID_TURN_KEY = "mid_turn"  # 5.3.1: what the person sent while a turn worked, read at its next step
+_REPLIES = frozenset({"ai", "AIMessageChunk"})
+
+
+def _kwargs(message: Any) -> Mapping[str, Any]:
+    if isinstance(message, Mapping):
+        data = message.get("data") if isinstance(message.get("data"), Mapping) else message
+        kwargs = data.get("additional_kwargs")
+    else:
+        kwargs = getattr(message, "additional_kwargs", None)
+    return kwargs if isinstance(kwargs, Mapping) else {}
+
+
+def is_row_bot_note(message: Any) -> bool:
+    """Whether a message (captured, ``message_to_dict``, or as sent) is a note Row-Bot sent the model itself:
+    kept in the request exactly as sent, but never the person's words."""
+
+    return bool(_kwargs(message).get(_NOTE_KEY))
 
 
 def _content_text(content: Any) -> str:
@@ -185,22 +209,32 @@ def _content_text(content: Any) -> str:
     return (text[:cut] if cut >= 0 else text).strip()
 
 
-def person_texts(request: Mapping[str, Any] | None) -> list[str]:
-    """What the person sent, oldest first, from a captured request (``capture.read_request``): human
-    messages without Row-Bot's turn context (its own message, or a block it appended)."""
+def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool]]:
+    """Each message the person sent in a captured request: (where it is, its text, whether they sent it while
+    the turn worked). Human messages without Row-Bot's turn context (its own message, or a block it
+    appended), its notes or the page's picture after an action."""
 
-    found: list[str] = []
-    for item in (request or {}).get("messages") or ():
-        if not isinstance(item, Mapping) or item.get("type") != "human":
+    from row_bot.learning.pictures import is_page_picture
+
+    found: list[tuple[int, str, bool]] = []
+    for index, item in enumerate((request or {}).get("messages") or ()):
+        if (not isinstance(item, Mapping) or item.get("type") != "human" or is_row_bot_note(item)
+                or is_page_picture(item)):
+            continue
+        kwargs = _kwargs(item)
+        if kwargs.get(_TURN_CONTEXT_KEY):
             continue
         data = item.get("data") or {}
-        kwargs = data.get("additional_kwargs") if isinstance(data, Mapping) else None
-        if isinstance(kwargs, Mapping) and kwargs.get(_TURN_CONTEXT_KEY):
-            continue
         text = _content_text(data.get("content") if isinstance(data, Mapping) else None)
         if text:
-            found.append(text)
+            found.append((index, text, bool(kwargs.get(_MID_TURN_KEY))))
     return found
+
+
+def person_texts(request: Mapping[str, Any] | None) -> list[str]:
+    """What the person sent, oldest first, from a captured request (``capture.read_request``)."""
+
+    return [text for _index, text, _mid in _persons(request)]
 
 
 def person_text(request: Mapping[str, Any] | None) -> str:
@@ -208,6 +242,27 @@ def person_text(request: Mapping[str, Any] | None) -> str:
 
     texts = person_texts(request)
     return texts[-1] if texts else ""
+
+
+def opening_texts(request: Mapping[str, Any] | None) -> list[str]:
+    """What the person sent that a captured request's work starts from, in the order they sent it: their
+    messages since its last reply (their newest when there are none since).
+
+    A message they sent while the turn worked (5.3.1, read at its next step) comes after the one the turn
+    started with. When the request's work starts with such messages (the steps after one), it starts with
+    the first of them, as the turn of its own it used to be would have."""
+
+    messages = list((request or {}).get("messages") or ())
+    found = _persons(request)
+    last = max((index for index, item in enumerate(messages)
+                if isinstance(item, Mapping) and item.get("type") in _REPLIES), default=-1)
+    since = [(text, mid) for index, text, mid in found if index > last]
+    if not since:
+        return [found[-1][1]] if found else []
+    own = [text for text, mid in since if not mid]
+    if own:
+        return [own[-1], *(text for text, mid in since if mid)]
+    return [text for text, _mid in since]
 
 
 class Book:
@@ -246,21 +301,27 @@ class Book:
                 self.signalled[item.decision_id].append(item)
             if item.episode_id:
                 self.signalled_episodes[item.episode_id].append(item)
-        self._texts: dict[str, str] = {}
+        self._openings: dict[str, list[str]] = {}
 
-    def text_of(self, episode: Episode) -> str:
-        """What the person wrote to start ``episode`` (its first model call's newest person message)."""
+    def opening_of(self, episode: Episode) -> list[str]:
+        """What the person sent to start ``episode``, in order (its first model call's ``opening_texts``)."""
 
-        if episode.id in self._texts:
-            return self._texts[episode.id]
+        if episode.id in self._openings:
+            return self._openings[episode.id]
         calls = self.calls.get(episode.id) or []
-        text = ""
+        found: list[str] = []
         if calls:
             from row_bot.learning import capture
 
-            text = person_text(capture.read_request(self.store, calls[0]))
-        self._texts[episode.id] = text
-        return text
+            found = opening_texts(capture.read_request(self.store, calls[0]))
+        self._openings[episode.id] = found
+        return found
+
+    def text_of(self, episode: Episode) -> str:
+        """What the person wrote to start ``episode`` (the first of ``opening_of``)."""
+
+        found = self.opening_of(episode)
+        return found[0] if found else ""
 
     def next_episode(self, episode: Episode) -> Episode | None:
         """The turn the person started right after ``episode``'s reply, if any."""
@@ -339,7 +400,9 @@ def confirm(store: LearningStore, *, clock: Callable[[], float] | None = None,
             continue
         if verdict != "correction":
             continue
-        if after is not None and withdraws(book.text_of(after)):
+        # Taken back in the next message, or in one sent with it before Row-Bot's next step (5.3.1).
+        later = [*book.opening_of(episode)[1:], *([book.text_of(after)] if after is not None else [])]
+        if any(withdraws(text) for text in later):
             withdrawn += 1
             continue
         if reply.id in known:
@@ -487,7 +550,9 @@ __all__ = [
     "confirm",
     "corrected_decisions",
     "first_call",
+    "is_row_bot_note",
     "judge",
+    "opening_texts",
     "person_text",
     "precision",
     "problem_call",

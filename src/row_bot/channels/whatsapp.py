@@ -6,7 +6,7 @@ Communicates with the Node.js process over stdin/stdout JSON-RPC.
 No browser required — connects via WebSocket directly.
 
 Setup:
-    1. Click **▶️ Start** in Settings → Channels → WhatsApp
+    1. Click **▶️ Start** in Settings › Apps › WhatsApp
        (Node.js is auto-downloaded if not found on first start)
     2. Scan the QR code displayed in the Row-Bot UI with your phone
        (WhatsApp → Linked Devices → Link a Device)
@@ -1643,7 +1643,7 @@ class WhatsAppChannel(Channel):
             "1. Click **▶️ Start** below\n"
             "   _(Node.js is auto-installed if not found — first start may take ~30s)_\n"
             "2. Scan the **QR code** with your phone:\n"
-            "   WhatsApp → Settings → Linked Devices → Link a Device\n"
+            "   WhatsApp → Settings › Devices & remote access › Link a Device\n"
             "3. Once authenticated, messages will be bridged to Row-Bot\n"
             "4. (Optional) Set your phone number below for auto-auth"
         )

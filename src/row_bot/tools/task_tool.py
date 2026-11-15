@@ -33,10 +33,12 @@ _FULL_AUTONOMY_REFUSAL = (
 ApprovalModeChoice = Literal["block", "approve", "auto"]
 _SCHEDULE_FORMATS = (
     "'daily:HH:MM', 'weekly:DAY:HH:MM' (e.g. 'weekly:monday:09:00'), 'interval:H' (every H hours), "
-    "'interval_minutes:M' or 'cron:EXPR' (e.g. 'cron:0 9 * * mon-fri')"
+    "'interval_minutes:M' (every M minutes, 1 or more) or 'cron:EXPR' (e.g. 'cron:0 9 * * mon-fri')"
 )
 _TEMPLATE_VARIABLES = "{{date}}, {{day}}, {{time}}, {{month}}, {{year}} and {{task_id}} (this task's own id)"
 _TASK_LIST_CHARS = 30_000  # Beyond this the list is saved, and read on with read_tool_output.
+# Why a workflow is off when Row-Bot switched it off (D5), so it isn't turned back on without the person.
+_OFF_AFTER_FAILURES = f"failed {tasks_db.FAILURES_BEFORE_OFF} times in a row"
 
 
 class _TaskCreateInput(BaseModel):
@@ -92,10 +94,12 @@ class _TaskCreateInput(BaseModel):
             "otherwise it asks the person)."
         ),
     )
+    timezone: str | None = Field(default=None, description="IANA zone, e.g. 'Europe/London' (default: local).")
 
 
 class _TaskListInput(BaseModel):
     include_history: bool = Field(default=False, description="Also show each task's recent runs.")
+    task_id: str | None = Field(default=None, description="One task in full: messages, notes, conversation.")
 
 
 class _TaskRunNowInput(BaseModel):
@@ -129,6 +133,7 @@ class _TaskUpdateInput(BaseModel):
         default=None,
         description="A workflow's notes for its next run, replacing the old ones; '' clears them.",
     )
+    timezone: str | None = Field(default=None, description="IANA zone, e.g. 'Europe/London' (default: local).")
 
 
 # ── Tool functions ───────────────────────────────────────────────────────────
@@ -164,6 +169,7 @@ def _task_create(
     agent_profile: str | None = None,
     approval_mode: str | None = None,
     safety_mode: str | None = None,
+    timezone: str | None = None,
 ) -> str:
     """Create a new task or quick timer."""
     try:
@@ -171,7 +177,8 @@ def _task_create(
         # Default to notify_only for a timer or a one-off time with no prompts
         if (delay_minutes or at) and not prompts:
             notify_only = True
-        effective_approval_mode = legacy_safety_mode_to_approval_mode(approval_mode or safety_mode or "block")
+        effective_approval_mode = (legacy_safety_mode_to_approval_mode(approval_mode or safety_mode)
+                                   if approval_mode or safety_mode else "")
         if effective_approval_mode == "full":
             return _FULL_AUTONOMY_REFUSAL
 
@@ -191,6 +198,7 @@ def _task_create(
             safety_mode=effective_approval_mode,
             agent_profile_id=agent_profile or tasks_db.DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
             apply_default_skills=False,
+            timezone=timezone or None,
         )
 
         task = tasks_db.get_task(task_id)
@@ -201,7 +209,7 @@ def _task_create(
         parts.append(f"  ID: {task_id}")
         parts.append(f"  Name: {task['icon']} {task['name']}")
         if task.get("schedule"):
-            parts.append(f"  Schedule: {task['schedule']}")
+            parts.append(f"  Schedule: {task['schedule']} ({task.get('timezone') or 'this computer’s time'})")
         if task.get("at"):
             parts.append(f"  Fires at: {task['at']}")
         if task.get("notify_only"):
@@ -221,8 +229,10 @@ def _task_create(
         return f"Error creating task: {exc}"
 
 
-def _task_list(include_history: bool = False) -> str:
-    """List all tasks with their status."""
+def _task_list(include_history: bool = False, task_id: str | None = None) -> str:
+    """List all tasks with their status, or one in full."""
+    if task_id:
+        return _task_detail(task_id)
     all_tasks = tasks_db.list_tasks()
     if not all_tasks:
         return "No tasks configured yet. Use task_create to set one up."
@@ -234,10 +244,13 @@ def _task_list(include_history: bool = False) -> str:
             "name": f"{t['icon']} {t['name']}",
             "enabled": t.get("enabled", True),
         }
+        if t.get("disabled_reason") == "failures":
+            entry["off"] = _OFF_AFTER_FAILURES
         if t.get("description"):
             entry["description"] = t["description"]
         if t.get("schedule"):
             entry["schedule"] = t["schedule"]
+            entry["timezone"] = t.get("timezone") or "local"
         if t.get("at"):
             entry["fires_at"] = t["at"]
         if t.get("notify_only"):
@@ -271,6 +284,45 @@ def _task_list(include_history: bool = False) -> str:
     return bounded(compact_json(entries), tool_name="task_list", max_chars=_TASK_LIST_CHARS)
 
 
+def _task_detail(task_id: str) -> str:
+    """One workflow in full: what each run sends and keeps, when, how it may act and where it talks."""
+    from row_bot import workflow_turns
+    from row_bot.threads import _thread_exists
+
+    t = tasks_db.get_task(task_id)
+    if not t:
+        return f"Task '{task_id}' not found. Use task_list to see available tasks."
+    conversation = str(t.get("persistent_thread_id") or "")
+    detail = {
+        "id": t["id"],
+        "name": f"{t['icon']} {t['name']}",
+        "enabled": t.get("enabled", True),
+        **({"off": _OFF_AFTER_FAILURES} if t.get("disabled_reason") == "failures" else {}),
+        "description": t.get("description") or "",
+        "schedule": t.get("schedule") or ("once at " + t["at"] if t.get("at") else "manual"),
+        "timezone": t.get("timezone") or "local",
+        "approval_mode": t.get("safety_mode") or "block",
+        "messages": list(t.get("prompts") or []),
+        "notes": workflow_turns.notes(t["id"]),
+        "delivery": (f"{t['delivery_channel']} → {t.get('delivery_target', 'default')}"
+                     if t.get("delivery_channel") else "in Row-Bot only"),
+        "model": t.get("model_override") or "the Brain model",
+        # Its conversation: send to it by this workflow's name or id (it's made when first needed).
+        "conversation": (f"⚡ {t['name']}" if conversation and _thread_exists(conversation)
+                         else "not yet: made by its first run or the first message sent to it"),
+        "recent_runs": [
+            {"status": r["status"], "started": r["started_at"][:16], "outcome": r.get("notice") or "",
+             "actions": _run_actions(r)}
+            for r in tasks_db.get_run_history(t["id"], limit=3)
+        ],
+    }
+    if t.get("notify_only"):
+        detail = {**detail, "type": "notification_only", "messages": [t.get("notify_label") or t["name"]]}
+    from row_bot.tool_outputs import bounded, compact_json
+
+    return bounded(compact_json(detail), tool_name="task_list", max_chars=_TASK_LIST_CHARS)
+
+
 def _run_actions(run: dict) -> list[str]:
     try:
         saved = json.loads(run.get("actions_json") or "[]")
@@ -302,6 +354,7 @@ def _task_update(
     agent_profile: str | None = None,
     run_at: str | None = None,
     notes: str | None = None,
+    timezone: str | None = None,
 ) -> str:
     """Update fields on an existing task."""
     task = tasks_db.get_task(task_id)
@@ -339,12 +392,18 @@ def _task_update(
         updates["model_override"] = model if model else None
     if agent_profile is not None:
         updates["agent_profile_id"] = agent_profile or tasks_db.DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+    if timezone is not None:
+        from row_bot import schedule_zones
+
+        if timezone and not schedule_zones.is_zone(timezone):
+            return f"Error updating task: timezone must be an IANA zone such as Europe/London, not {timezone!r}."
+        updates["timezone"] = timezone
 
     if not updates:
         if noted:
             return f"Updated task '{task['icon']} {task['name']}'.\n{noted}"
         return ("No fields to update. Provide at least one of: name, schedule, prompts, approval_mode, enabled, "
-                "model, notes.")
+                "model, notes, timezone.")
 
     try:
         tasks_db.update_task(task_id, **updates)
@@ -356,6 +415,8 @@ def _task_update(
             parts.append(f"  Fires at: {task.get('at')}")
         elif "schedule" in updates:
             parts.append(f"  Schedule: {task.get('schedule') or 'manual'}")
+        if "timezone" in updates:
+            parts.append(f"  Time zone: {task.get('timezone') or 'this computer’s'}")
         if "prompts" in updates:
             parts.append(f"  Messages: {len(task['prompts'])}")
         if "safety_mode" in updates:
@@ -374,6 +435,30 @@ def _task_update(
         return f"Error updating task: {exc}"
 
 
+def _report_back(task: dict, thread_id: str) -> bool:
+    """The chat that started a run hears back once when that run ends, even if it ends first (F3)."""
+    from row_bot import waits
+    from row_bot.linked_conversations import LinkError, origin
+
+    try:
+        here = origin().conversation_id
+    except LinkError:
+        return False
+    if here == thread_id or tasks_db.active_run_for_conversation(here) is not None:
+        return False  # Its own conversation, or a workflow's run: runs carry on by themselves.
+    history = tasks_db.get_run_history(str(task["id"]), limit=1)
+    if not history:
+        return False
+    try:
+        waits.create(here, "conversation", f"{task['name']} finishes its run",
+                     spec={"conversation_id": thread_id, "name": task["name"], "run_id": history[0]["id"],
+                           "then": "Tell the person in a few lines how the run went and what it produced."},
+                     hours=waits.MAX_HOURS)
+    except waits.WaitError:
+        return False
+    return True
+
+
 def _task_run_now(task_id: str) -> str:
     """Trigger immediate execution of an existing task."""
     from row_bot.tools import registry as tool_registry
@@ -386,10 +471,11 @@ def _task_run_now(task_id: str) -> str:
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     tasks_db.run_task_background(task_id, thread_id, enabled, trigger="Run now")
 
-    return (
-        f"Task '{task['icon']} {task['name']}' started in its own conversation.\n"
-        f"task_list(include_history=true) shows how it ended and what it posted or sent."
-    )
+    started = f"Task '{task['icon']} {task['name']}' started in its own conversation.\n"
+    if not task.get("notify_only") and _report_back(task, thread_id):
+        return started + ("This chat hears back by itself when the run ends: end this turn now, without "
+                          "checking on it or setting a wait.")
+    return started + "task_list(include_history=true) shows how it ended and what it posted or sent."
 
 
 # ── Tool class ───────────────────────────────────────────────────────────────
@@ -431,8 +517,10 @@ class TaskTool(BaseTool):
                 name="task_create",
                 # The one home for scheduling guidance; the system prompt only points here.
                 description=(
-                    "Create a reminder, timer, scheduled task or monitor. "
-                    "Reminders: 'in N minutes' uses delay_minutes; a stated time uses run_at in local time "
+                    "Create a reminder, timer, scheduled task or monitor. To come back to THIS conversation "
+                    "later ('check back in 10 minutes and tell me…', 'look again at 3pm'), use wait_for instead: "
+                    "a task runs in its own conversation. "
+                    "Reminders: 'remind me in N minutes' uses delay_minutes; a stated time uses run_at in local time "
                     "('remind me at 9am on 8 October' -> run_at='2026-10-08T09:00'), never minutes worked out "
                     "from now; add notify_only=true for a plain notification. To move a reminder, use "
                     "task_update with run_at instead of deleting and re-creating it. "
@@ -450,7 +538,7 @@ class TaskTool(BaseTool):
             StructuredTool.from_function(
                 func=_task_list,
                 name="task_list",
-                description="List tasks with their ids, schedules and last runs.",
+                description="List tasks with their ids, schedules and last runs, or one in full.",
                 args_schema=_TaskListInput,
             ),
             StructuredTool.from_function(

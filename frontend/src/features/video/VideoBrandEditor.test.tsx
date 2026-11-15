@@ -15,12 +15,21 @@ const KIT: VideoBrand = {
   intro: '',
   outro: '',
   music_mood: 'calm',
+  framing: 'framed',
+  camera: 'follow',
+  voice: '',
+  voice_speed: 1,
 };
 
 it('edits the brand kit with pictures from Media as logos, and saves it only when something changed', async () => {
   const controller = {
     videoBrand: vi.fn(async () => KIT),
     saveVideoBrand: vi.fn(async (brand: VideoBrand) => brand),
+    settingsSnapshot: vi.fn(async () => ({
+      voice: {
+        tts_voice_options: [{ value: 'bm_george', label: 'George (British)' }],
+      },
+    })),
     media: vi.fn(async () => ({
       items: [
         {
@@ -60,6 +69,19 @@ it('edits the brand kit with pictures from Media as logos, and saves it only whe
     'Bold, outlined',
   );
   await userEvent.type(screen.getByLabelText('Outro'), 'row-bot.ai');
+  // How recordings show and who says the lines are the person's choice too.
+  await userEvent.selectOptions(
+    screen.getByLabelText('Footage'),
+    'Edge to edge',
+  );
+  await userEvent.selectOptions(screen.getByLabelText('Camera'), 'Stays still');
+  await userEvent.selectOptions(
+    await screen
+      .findByRole('option', { name: 'George (British)' })
+      .then(() => screen.getByLabelText('Voice')),
+    'George (British)',
+  );
+  await userEvent.selectOptions(screen.getByLabelText('Voice speed'), 'Slower');
   await userEvent.click(save);
   expect(controller.saveVideoBrand).toHaveBeenCalledWith({
     ...KIT,
@@ -67,6 +89,10 @@ it('edits the brand kit with pictures from Media as logos, and saves it only whe
     logo_corner: 'bottom-right',
     captions: 'bold',
     outro: 'row-bot.ai',
+    framing: 'full',
+    camera: 'still',
+    voice: 'bm_george',
+    voice_speed: 0.9,
   });
   expect(saved).toHaveBeenCalled();
   expect(save).toBeDisabled();

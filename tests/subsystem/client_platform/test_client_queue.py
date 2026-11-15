@@ -315,16 +315,26 @@ def test_preparation_failure_has_no_receipt_and_prepared_ids_ack_exactly(platfor
         monkeypatch.setattr(agent, "_prepare_with_compaction", lambda value: (_ for _ in ()).throw(RuntimeError("preparation rejected")))
         with pytest.raises(RuntimeError, match="preparation rejected"):
             agent._pre_model_trim({"messages": []})
-        assert settle(platform).items[0].state == "paused"
+        # A preparation that fails takes nothing: what the person sent meanwhile still waits.
+        assert [item.state for item in settle(platform).items] == ["paused", "queued"]
         prepared = [HumanMessage(content="Same A", id=one["submission_id"])]
         monkeypatch.setattr(agent, "_prepare_with_compaction", lambda value: SimpleNamespace(messages=prepared))
-        agent._pre_model_trim({"messages": []})
-        assert [item.state for item in settle(platform).items] == ["consumed", "queued"]
-        assert [message.id for message in client_queue._staged("conversation-a")[1]["messages"]] == [two["submission_id"]]
+        update = agent._pre_model_trim({"messages": []})
+        # The running turn reads what was sent while it works (5.3.1), as the person's own words, once.
+        assert [item.state for item in settle(platform).items] == ["consumed", "steered"]
+        assert [(m.type, m.id, m.additional_kwargs) for m in update["messages"]] == [
+            ("human", two["submission_id"], {"mid_turn": True})], "marked as arrived mid-turn, for Learning"
+        assert client_queue._staged("conversation-a")[1]["messages"] == []
+        assert "messages" not in agent._pre_model_trim({"messages": []}), "taken once"
+        listed = client_queue.read_queue(platform, "conversation-a", waiting=True).items
+        assert [(item.state, item.editable) for item in listed if item.id == two["submission_id"]] == [
+            ("steered", False)], "listed as read while its turn runs"
     finally:
         platform.registry.stop("conversation-a")
         barrier.release.set()
         assert handle.producer_done.wait(10)
+    listed = client_queue.read_queue(platform, "conversation-a", waiting=True).items
+    assert two["submission_id"] not in [item.id for item in listed], "the transcript shows it once its turn ends"
 
 
 @pytest.mark.parametrize("preparation_fails", [False, True])
@@ -568,3 +578,36 @@ def test_the_first_queue_read_never_races_a_writer_into_database_is_locked(tmp_p
         release.join()
         writer.close()
         saver.conn.close()
+
+
+def test_a_message_the_turn_read_never_waits_again_after_a_restart(platform):
+    """A message sent while Row-Bot worked was read by that turn and answered. After the app restarted, it was
+    listed again as "Continues when you resume" for good: recovery marked it paused, though it had nothing to
+    resume and couldn't be removed. Found on the owner's profile (3 Nov)."""
+    barrier = StreamBarrier()
+    receipt = submit(platform, ScriptedAgentStream((barrier,)), "read-initial")
+    assert barrier.entered.wait(10)
+    handle = platform.registry.get(receipt["execution_id"])
+    sent = enqueue(platform, "read-mid-turn", "Also make the workflow autonomous")
+    try:
+        assert [message.id for message in client_queue.take(handle, client_queue.waiting_for(handle))] == [
+            sent["submission_id"]]
+    finally:
+        platform.registry.stop("conversation-a")
+        barrier.release.set()
+        assert handle.producer_done.wait(10)
+
+    def waiting():
+        return [item.id for item in client_queue.read_queue(platform, "conversation-a", waiting=True).items]
+
+    with admissions.transaction() as conn:  # the process that read it is gone
+        conn.execute("UPDATE generation_passes SET queue_epoch='old-process' WHERE submission_id=?",
+                     (sent["submission_id"],))
+    client_queue.recover_queue(platform.server_epoch)
+    assert waiting() == []
+    with admissions.transaction() as conn:  # as an earlier recovery left it
+        conn.execute("UPDATE generation_passes SET queue_state='paused' WHERE submission_id=?", (sent["submission_id"],))
+    assert waiting() == [sent["submission_id"]]
+    client_queue.recover_queue(platform.server_epoch)
+    assert waiting() == []
+    assert client_queue.dispatch(platform, "conversation-a", automatic=True) is None

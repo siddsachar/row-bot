@@ -131,6 +131,7 @@ def test_all_saved_pages_and_filters_preserve_ids_and_private_field_boundary(api
             "recent_runs",
             "active_run",
             "next_run",
+            "disabled_reason",
         }
         assert items[0]["recent_runs"] == [] and items[0]["active_run"] is None
         enabled = _read(client, headers, query="TASK 20", enabled="true", limit=1)
@@ -400,6 +401,8 @@ def test_response_and_sqlite_batches_remain_bounded_with_large_saved_metadata(
         # Saved run status, start time, id and step counts only.
         "recent_runs_json",
         "active_run_json",
+        # Why it is off, when Row-Bot switched it off (D5).
+        "disabled_reason",
     }
 
     class ObservedCursor:

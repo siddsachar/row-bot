@@ -64,11 +64,8 @@
           "$ref": "#/$defs/LearningSourcesSnapshot"
         },
         "starting_model": {
-          "default": "qwen3.5-2b",
-          "enum": [
-            "qwen3.5-2b",
-            "qwen3.5-9b"
-          ],
+          "const": "qwen3.5-9b",
+          "default": "qwen3.5-9b",
           "title": "Starting Model",
           "type": "string"
         },
@@ -171,7 +168,16 @@
         "delete_lesson",
         "undo_method",
         "answer_question",
-        "dismiss_question"
+        "dismiss_question",
+        "hf_sign_in",
+        "hf_cancel_sign_in",
+        "hf_sign_out",
+        "hf_choose_model",
+        "hf_choose_flavor",
+        "hf_set_cap",
+        "hf_start",
+        "hf_cancel",
+        "hf_check_now"
       ],
       "title": "Action",
       "type": "string"
@@ -192,6 +198,20 @@
       "maxLength": 2000,
       "title": "Answer",
       "type": "string"
+    },
+    "cap_usd": {
+      "anyOf": [
+        {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cap Usd"
     },
     "category": {
       "anyOf": [
@@ -249,6 +269,13 @@
       "default": null,
       "title": "Download"
     },
+    "flavor": {
+      "default": "",
+      "maxLength": 64,
+      "pattern": "^$|^[a-z0-9][a-z0-9-]{0,63}$",
+      "title": "Flavor",
+      "type": "string"
+    },
     "folder": {
       "default": "",
       "maxLength": 1024,
@@ -293,11 +320,8 @@
     },
     "model": {
       "default": "",
-      "enum": [
-        "",
-        "qwen3.5-2b",
-        "qwen3.5-9b"
-      ],
+      "maxLength": 128,
+      "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
       "title": "Model",
       "type": "string"
     },
@@ -306,6 +330,20 @@
       "maxLength": 2000,
       "title": "Note",
       "type": "string"
+    },
+    "quote_cost_cents": {
+      "anyOf": [
+        {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quote Cost Cents"
     },
     "revision": {
       "pattern": "^[0-9a-f]{64}$",

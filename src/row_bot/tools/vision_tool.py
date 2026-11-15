@@ -229,7 +229,11 @@ def _analyze_image(
     if source == "browser":
         return _analyze_browser_page(question)
     if source == "file":
-        return _get_vision_service().capture_and_analyze(question, source="file", file_path=file_path)
+        answer = _get_vision_service().capture_and_analyze(question, source="file", file_path=file_path)
+        if file_path and answer.startswith("Image file not found:"):
+            # A chat file by name (a review sheet, a made picture) is found the way files finds it (R2).
+            return _analyze_files(question, [file_path], False, 0)
+        return answer
     if source not in _CAPTURES:
         # Any other value used to reach the webcam capture without the approval below.
         return f"Unknown source {source!r}: use 'camera', 'screen', 'file' or 'browser'."

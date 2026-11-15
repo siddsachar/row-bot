@@ -19,6 +19,8 @@ on:
       - "scripts/docs/**"
       - "scripts/smoke_docker_server.py"
       - "tests/docs/**"
+      # The Railway page's tests check its calls against the relay's allow-list.
+      - "services/railway-relay/src/**"
       - "scripts/marketing/**"
       - "tests/marketing/**"
       - "README.md"
@@ -33,6 +35,8 @@ on:
       - "scripts/docs/**"
       - "scripts/smoke_docker_server.py"
       - "tests/docs/**"
+      # The Railway page's tests check its calls against the relay's allow-list.
+      - "services/railway-relay/src/**"
       - "scripts/marketing/**"
       - "tests/marketing/**"
       - "README.md"
@@ -103,6 +107,8 @@ jobs:
         run: python scripts/docs/capture_real_ui_screenshots.py --validate-only
 
       - name: Validate docs source
+        env:
+          ROW_BOT_DOCS_PUBLISH: ${{ steps.change.outputs.publish }}
         run: python scripts/docs/validate_public_docs.py
 
       - name: Build docs review report

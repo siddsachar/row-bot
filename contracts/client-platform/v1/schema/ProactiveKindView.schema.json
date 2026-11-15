@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "ProactiveKindCounts": {
+      "additionalProperties": false,
+      "description": "A kind's last 30 days: reached a surface, acted on, dismissed, left alone. Kept on this computer.",
+      "properties": {
+        "acted": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Acted",
+          "type": "integer"
+        },
+        "dismissed": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Dismissed",
+          "type": "integer"
+        },
+        "ignored": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Ignored",
+          "type": "integer"
+        },
+        "shown": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Shown",
+          "type": "integer"
+        }
+      },
+      "title": "ProactiveKindCounts",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "enum": [
+        "follow_up",
+        "meeting_prep",
+        "brief",
+        "date",
+        "change",
+        "workflow_offer"
+      ],
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 60,
+      "title": "Label",
+      "type": "string"
+    },
+    "last_30_days": {
+      "$ref": "#/$defs/ProactiveKindCounts"
+    },
+    "on": {
+      "title": "On",
+      "type": "boolean"
+    },
+    "quieted": {
+      "title": "Quieted",
+      "type": "boolean"
+    },
+    "urgent": {
+      "title": "Urgent",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "on",
+    "urgent",
+    "quieted"
+  ],
+  "title": "ProactiveKindView",
+  "type": "object"
+}

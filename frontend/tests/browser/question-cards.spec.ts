@@ -115,6 +115,28 @@ test('Row-Bot asks with options, the answer goes on, and the card collapses to t
   await everywhere(page, info, 'question-answered');
 });
 
+test('a message typed while a question waits answers it in those words, and the turn goes on', async ({
+  page,
+}, info) => {
+  await page.setViewportSize(DESKTOP);
+  await newConversation(page);
+  const card = await ask(page, 'n4 question fixture');
+  await composer(page).fill('Next week, after the nightly');
+  await everywhere(page, info, 'question-typed-answer');
+  await composer(page).press('Enter');
+  const transcript = page.getByRole('log', { name: 'Conversation' });
+  await expect(
+    transcript.getByText("Thanks. I'll plan the beta that way.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(card).toHaveCount(0);
+  await expect(
+    transcript.getByRole('group', { name: /Next week, after the nightly/ }),
+  ).toBeVisible();
+  await expect(composer(page)).toHaveValue('');
+});
+
 test('several questions are steps in one card, with checkboxes where several may be picked', async ({
   page,
 }, info) => {

@@ -17,7 +17,7 @@ Setup:
        messages tab"*
     6. Install the app to your workspace
     7. Copy the **Bot Token** (``xoxb-…``) and **App Token** (``xapp-…``)
-    8. Paste both in Settings → Channels → Slack
+    8. Paste both in Settings › Apps › Slack
 
 Required keys (stored via api_keys):
     SLACK_BOT_TOKEN  – Bot user OAuth token (xoxb-…)

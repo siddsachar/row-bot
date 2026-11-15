@@ -1,7 +1,6 @@
 import type { ClientController } from '../../api/controller';
 import type { ArtifactExport, Command, CommandReceipt } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { saveBrowserDownload } from '../../platform/download';
 import type { ArtifactExportOptions } from './ArtifactExports';
 
 export function artifactExports(
@@ -126,24 +125,5 @@ export function artifactExports(
       });
     return attempt.result;
   };
-  const download = async (exportId: string) => {
-    const value = exports.get(exportId);
-    if (!value) throw { code: 'export_unavailable' };
-    const result = await saveBrowserDownload(
-      () => controller.artifactDownload(conversation, bindingId, value),
-      value.filename,
-    );
-    if (result.status !== 'ok') throw { code: 'export_unavailable' };
-  };
-  // A copy in the workspace's Exports folder, then Open / Show in folder: the
-  // panel offers them in the desktop app on the computer Row-Bot runs on.
-  const save = (exportId: string) =>
-    controller.saveArtifactExport(conversation, bindingId, exportId);
-  const reveal = async (exportId: string, action: 'open' | 'show') =>
-    (
-      await controller.revealArtifactExport(conversation, bindingId, exportId, {
-        action,
-      })
-    ).status === 'opened';
-  return { create, download, save, reveal };
+  return { create };
 }

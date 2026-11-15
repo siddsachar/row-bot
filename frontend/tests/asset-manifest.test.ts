@@ -28,6 +28,10 @@ const ownedNames = [
   'service-worker.js',
   'icon-192.png',
   'icon-512.png',
+  'icon-maskable-192.png',
+  'icon-maskable-512.png',
+  'screenshot-phone.webp',
+  'screenshot-wide.webp',
   'private.txt',
 ];
 // Vite emits worker bundles without a manifest entry of their own.
@@ -49,6 +53,10 @@ beforeEach(() => {
     'service-worker.js',
     'icon-192.png',
     'icon-512.png',
+    'icon-maskable-192.png',
+    'icon-maskable-512.png',
+    'screenshot-phone.webp',
+    'screenshot-wide.webp',
   ])
     writeFileSync(join(build, name), `public ${name} fixture`);
   writeFileSync(

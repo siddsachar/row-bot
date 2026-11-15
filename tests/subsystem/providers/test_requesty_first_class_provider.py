@@ -174,7 +174,13 @@ def test_requesty_model_facade_fetches_provider_qualified_catalog(monkeypatch):
                 ]
             }
 
+    class _ImageList(_Response):
+        def json(self):
+            return {"object": "list", "data": [{"api": "image", "id": "openai/gpt-image-2", "object": "model"}]}
+
     def _fake_get(url, **kwargs):
+        if url.endswith("/models/image"):
+            return _ImageList()
         captured["url"] = url
         captured["headers"] = dict(kwargs.get("headers") or {})
         return _Response()
@@ -185,8 +191,10 @@ def test_requesty_model_facade_fetches_provider_qualified_catalog(monkeypatch):
         models._cloud_model_cache.clear()
         count = models.fetch_cloud_models("requesty")
 
-        assert count == 2
+        assert count == 3
         assert captured["url"] == "https://router.requesty.ai/v1/models"
+        image = models._cloud_model_cache["model:requesty:openai/gpt-image-2"]["capabilities_snapshot"]
+        assert snapshot_supports_surface(image, "image") and not snapshot_supports_surface(image, "chat")
         assert captured["headers"]["Authorization"] == "Bearer requesty-key"
         assert "openai/gpt-4o-mini" not in models._cloud_model_cache
         requesty_ref = "model:requesty:openai/gpt-4o-mini"

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import closing
 
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
@@ -47,13 +48,14 @@ def reply(text: str, *before):
     return (*before, CheckpointCommit((AIMessage(content=text, id=native_id),), native_id), ("done", text))
 
 
-def posted(label: str = "posted"):
-    """A turn whose x_post call went through: its call, X's answer and the reply, as the chat saves them."""
+def posted(label: str = "posted", approval: str = ""):
+    """A turn whose x_post call went through: its call, X's answer and the reply, as the chat saves them;
+    ``approval`` is the line an approved call's result opens with."""
     call_id = fixture_id(label + ":call")
     call = AIMessage(content="", id=fixture_id(label + ":call-message"),
                      tool_calls=[{"name": "x_post", "args": {"account": "@row_bot_ai", "text": POST_TEXT},
                                   "id": call_id}])
-    result = ToolMessage(content=f"Posted on X as @row_bot_ai: {POST_LINK}", name="x_post",
+    result = ToolMessage(content=f"{approval}Posted on X as @row_bot_ai: {POST_LINK}", name="x_post",
                          tool_call_id=call_id, id=fixture_id(label + ":result"))
     final = AIMessage(content="Posted.", id=fixture_id(label + ":assistant"))
     return (CheckpointCommit((call, result, final), final.id), ("done", "Posted."))
@@ -162,6 +164,18 @@ def test_a_post_asks_on_its_full_card_and_the_run_ends_with_the_posts_link(workf
     assert json.loads(done["actions_json"])[0]["link"] == POST_LINK
 
 
+def test_an_approved_posts_run_says_what_went_out_not_how_it_was_approved(workflows, platform):  # noqa: F811
+    """9 Nov: "Growth | X content finished: Approval: asked; approved by you. The reviewer asked you: …"."""
+    approval = "Approval: asked; approved by you. The reviewer asked you: Only you can approve what goes out on X\n"
+    fake = Recording((("interrupt", X_POST),), posted(approval=approval))
+    task = create(workflows)
+    waiting = run(workflows, platform, fake, task)
+    resolve(platform, pending_approval(workflows, waiting["thread_id"]), "approve", "approve-post")
+    settle(platform, waiting["thread_id"])
+
+    assert latest(workflows, task["id"])["notice"] == f"Posted on X as @row_bot_ai: {POST_LINK}"
+
+
 def test_saying_no_on_the_card_ends_the_run_as_denied(workflows, platform):  # noqa: F811
     fake = Recording((("interrupt", X_POST),), reply("Stopped.", ("tool_done", {
         "name": "x_post", "tool_call_id": "call-1", "content": "Action cancelled by user."})))
@@ -170,7 +184,11 @@ def test_saying_no_on_the_card_ends_the_run_as_denied(workflows, platform):  # n
     resolve(platform, pending_approval(workflows, waiting["thread_id"]), "deny", "deny-post")
     settle(platform, waiting["thread_id"])
     done = latest(workflows, task["id"])
-    assert (done["status"], done["notice"]) == ("denied", "You said no, so it stopped there.")
+    assert done["status"] == "denied"
+    assert done["notice"].startswith("You said no to “") and done["notice"].endswith("”, so it stopped there.")
+    from row_bot import workflow_turns
+    kept = workflow_turns.notes(task["id"])
+    assert "the person said no to “" in kept and "Don't do it another way" in kept, "the next run knows"
 
 
 def test_a_new_run_replaces_one_still_waiting_on_its_card(workflows, platform):  # noqa: F811
@@ -233,9 +251,10 @@ def test_workflow_notes_are_cut_to_their_limit_and_cleared_with_empty_text(workf
     from row_bot.tools.task_tool import _task_update
     task = create(workflows, "Check the release.")
 
-    cut = _task_update(task["id"], notes="x" * 2_500)
-    assert cut.endswith("Notes: 2,000 characters kept for the next run (cut to 2,000)")
-    assert len(workflow_turns.notes(task["id"])) == 2_000
+    # 2,000 squeezed a workflow's notes into run-together words (R8): it holds 6,000.
+    cut = _task_update(task["id"], notes="x" * 6_500)
+    assert cut.endswith("Notes: 6,000 characters kept for the next run (cut to 6,000)")
+    assert len(workflow_turns.notes(task["id"])) == workflow_turns.NOTES_LIMIT == 6_000
     assert _task_update(task["id"], notes="").endswith("Notes: cleared")
     assert workflow_turns.notes(task["id"]) == ""
 
@@ -336,8 +355,16 @@ def test_a_daily_digest_sends_one_line_per_run_once_a_day_from_six(workflows, pl
     resolve(platform, pending_approval(workflows, waiting["thread_id"]), "approve", "approve-post")
     settle(platform, waiting["thread_id"])
     assert delivered == [], "a digest workflow sends nothing per run"
-    finished = datetime.fromisoformat(latest(workflows, task["id"])["finished_at"]).astimezone()
-    evening = finished.replace(hour=18, minute=5) + (timedelta(days=1) if finished.hour >= 18 else timedelta())
+    assert first["status"] == "completed"
+    # A fixed clock: both runs end just after six, and the first digest goes the next evening (I34: its
+    # window was the last 24 hours, so these two fell outside it).
+    with closing(workflows._get_conn()) as conn, conn:
+        run_ids = [row[0] for row in conn.execute(
+            "SELECT id FROM task_runs WHERE task_id = ? ORDER BY started_at", (task["id"],)).fetchall()]
+        for run_id, ended in zip(run_ids, ("2026-06-10T18:02:00", "2026-06-10T18:04:00")):
+            conn.execute("UPDATE task_runs SET finished_at = ? WHERE id = ?", (ended, run_id))
+    read, finished = datetime(2026, 6, 10, 18, 2).astimezone(), datetime(2026, 6, 10, 18, 4).astimezone()
+    evening = datetime(2026, 6, 11, 18, 5).astimezone()
 
     assert workflows.send_due_digests(evening.replace(hour=17, minute=59)) == 0, "not before six"
     assert workflows.send_due_digests(evening) == 1
@@ -347,7 +374,75 @@ def test_a_daily_digest_sends_one_line_per_run_once_a_day_from_six(workflows, pl
         return f"{moment:%H:%M}" if moment.date() == evening.date() else f"{moment:%a %H:%M}"
 
     [digest] = delivered
-    read = stamp(datetime.fromisoformat(first["finished_at"]).astimezone())
-    assert first["status"] == "completed"
-    assert digest == (f"Daily digest · 2 runs\n{read} · Finished · nothing was posted or sent\n"
+    assert digest == (f"Daily digest · 2 runs\n{stamp(read)} · Finished · nothing was posted or sent\n"
                       f"{stamp(finished)} · Sent · Posted on X as @row_bot_ai: {POST_LINK}")
+
+
+def test_a_workflow_reads_in_full_with_its_messages_notes_time_zone_and_conversation(workflows):
+    """W1/W4: rewriting a workflow starts from what it says and keeps, not from a message count."""
+    import json
+
+    from row_bot.tools.task_tool import _task_list, _task_update
+    task = create(workflows, "Check the release.", "Then say what's new.")
+    workflows.update_task(task["id"], schedule="daily:09:00")
+    _task_update(task["id"], notes="Release 5.3.0 checked.")
+
+    assert _task_update(task["id"], timezone="Mars/Olympus").startswith(
+        "Error updating task: timezone must be an IANA zone such as Europe/London")
+    assert "Time zone: Europe/London" in _task_update(task["id"], timezone="Europe/London")
+    detail = json.loads(_task_list(task_id=task["id"]))
+
+    assert detail["messages"] == ["Check the release.", "Then say what's new."]
+    assert (detail["notes"], detail["schedule"], detail["timezone"]) == (
+        "Release 5.3.0 checked.", "daily:09:00", "Europe/London")
+    assert detail["conversation"].startswith("not yet"), "it hasn't run, so it has no conversation yet"
+    listed = json.loads(_task_list())
+    assert [entry["timezone"] for entry in listed if entry["id"] == task["id"]] == ["Europe/London"]
+
+
+def test_a_one_off_run_is_not_asked_to_keep_notes_for_a_next_run(workflows, platform):  # noqa: F811
+    """U21: a workflow that runs once has no next run, so its message comes without notes or the ask to keep them."""
+    fake = Recording(reply("The workspace holds 3 files."))
+    task = create(workflows, "List the files in the workspace.")
+    workflows.update_task(task["id"], at="2027-01-01T10:00", schedule=None)
+
+    done = run(workflows, platform, fake, workflows.get_task(task["id"]))
+
+    assert fake.prompts[0] == "List the files in the workspace."
+    assert done["status"] == "completed"
+
+
+def test_a_run_the_main_model_cant_answer_is_finished_by_the_backup_model(workflows, platform, monkeypatch, tmp_path):  # noqa: F811
+    """#140: the 7am run when the main model's provider is down: the backup answers it."""
+    import row_bot.agent as agent
+    from row_bot import threads
+    from row_bot.providers import backup, saved_model_settings
+    from row_bot.tools import registry as tool_registry
+
+    backup_ref = "model:openai:gpt-5-mini"
+    monkeypatch.setattr(saved_model_settings, "SETTINGS_PATH", tmp_path / "model_settings.json")
+    backup.save_setting(enabled=True, ref=backup_ref)
+    fake = Recording(reply("Here is today's research."))
+    models: list[str] = []
+
+    def run_on(text, enabled, config, *, stop_event=None):
+        models.append(config["configurable"].get("model_override") or "")
+        if models[-1] != backup_ref:
+            backup.note_failure(ConnectionError("Failed to connect to Ollama."))
+            yield ("error", "⚠️ API error: Failed to connect to Ollama.")
+            return
+        yield from fake.stream(text, enabled, config, stop_event=stop_event)
+
+    monkeypatch.setattr(agent, "stream_agent_without_backup", run_on)
+    task = create(workflows, "Summarise what's new.")
+    platform.stream_factory = agent.stream_agent  # the real wrapper, over the fake run
+    thread_id = workflows._prepare_task_thread(workflows.get_task(task["id"]))
+    with sqlite3.connect(threads.DB_PATH) as connection:
+        connection.execute("UPDATE thread_meta SET model_override='model:ollama:qwen3:8b' WHERE thread_id=?",
+                           (thread_id,))
+    workflows.run_task_background(task["id"], thread_id, [t.name for t in tool_registry.get_enabled_tools()])
+    settle(platform, thread_id)
+
+    record = latest(workflows, task["id"])
+    assert models == ["model:ollama:qwen3:8b", backup_ref]
+    assert (record["status"], record["notice"]) == ("completed", "Here is today's research.")

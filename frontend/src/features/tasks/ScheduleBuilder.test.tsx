@@ -702,7 +702,7 @@ describe('ScheduleBuilder', () => {
       at: null,
       timezone: ZONE,
     });
-    expect(preview()).toHaveTextContent(`Every Tuesday at ${clockTime(9, 0)}`);
+    expect(preview()).toHaveTextContent(`Every Monday at ${clockTime(9, 0)}`);
     expect(preview()?.querySelector('time')).toBeNull();
     fireEvent.change(expression, { target: { value: '*/10 * * * *' } });
     expect(onChange).toHaveBeenLastCalledWith({
@@ -751,7 +751,7 @@ describe('ScheduleBuilder', () => {
         expect(
           screen.getByLabelText('Cron expression', { exact: false }),
         ).toHaveValue('0 9 * * 1');
-        expect(preview()).toHaveTextContent('Every Tuesday');
+        expect(preview()).toHaveTextContent('Every Monday');
       },
     ],
     [
@@ -853,8 +853,11 @@ describe('a schedule in its own timezone (N9)', () => {
     );
   });
 
-  it('starts a new schedule in the Row-Bot computer zone', () => {
-    setServerTimezone('America/New_York');
+  it("starts a new schedule in this device's zone, not the Row-Bot server's", () => {
+    // A hosted server runs on UTC; the person is where this browser is.
+    setServerTimezone(
+      ZONE === 'Pacific/Chatham' ? 'Asia/Tokyo' : 'Pacific/Chatham',
+    );
     const onChange = vi.fn();
     render(
       <ScheduleBuilder
@@ -869,7 +872,7 @@ describe('a schedule in its own timezone (N9)', () => {
     expect(onChange).toHaveBeenLastCalledWith({
       schedule: 'daily:09:00',
       at: null,
-      timezone: 'America/New_York',
+      timezone: ZONE,
     });
   });
 

@@ -4,28 +4,43 @@ import {
   HatGlasses,
   Pencil,
   Power,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
+  SquareArrowOutUpRight,
+  X,
 } from 'lucide-react';
 import type {
   ApprovalAnswer,
   ApprovalQuestion,
   ApprovalSetup,
   ApprovalView,
+  SettingChange,
   XPostEdit,
 } from '../../api/types';
+import { AppLink } from '../../ui/app-link';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Hint, IconButton, Kbd, Skeleton } from '../../ui/primitives';
+import {
+  Button,
+  Hint,
+  IconButton,
+  Kbd,
+  Menu,
+  Skeleton,
+  type MenuAction,
+} from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
+import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
 import FolderSetupCard from './FolderSetupCard';
 import { BrowserThumbnail } from '../browser/BrowserThumbnail';
 import { ComputerThumbnail } from './ComputerStep';
 import { requestBrowserPane } from '../browser/open-pane';
 import QuestionCard from './QuestionCard';
 import XPostDetails, { XPostEditor } from './XPostDetails';
+import { resolveApproval } from './resolve-approval';
 import { AppIcon } from '../apps/parts';
 import { WaitingSince } from './waiting-since';
 import { readPendingApprovalsNow } from './pending-approvals';
@@ -41,28 +56,13 @@ import {
 // The Ctrl ↵ hint only where a hardware keyboard is likely: a fine pointer on a wide layout, never a phone
 // or a touch screen (B389). The shortcut itself works wherever a keyboard is.
 const KEYBOARD_LAYOUT = '(pointer: fine) and (min-width: 641px)';
-function useKeyboardLayout() {
-  const read = () =>
-    typeof matchMedia === 'function'
-      ? matchMedia(KEYBOARD_LAYOUT).matches
-      : false;
-  const [keyboard, setKeyboard] = useState(read);
-  useEffect(() => {
-    if (typeof matchMedia !== 'function') return;
-    const media = matchMedia(KEYBOARD_LAYOUT);
-    const changed = () => setKeyboard(media.matches);
-    media.addEventListener('change', changed);
-    changed();
-    return () => media.removeEventListener('change', changed);
-  }, []);
-  return keyboard;
-}
 
 type Hint_ = {
   action_label?: string;
   reason?: string;
   risk_class?: string;
   setup?: ApprovalSetup | null;
+  setting_change?: SettingChange | null;
   reviewer_reason?: string;
   question?: string;
   questions?: ApprovalQuestion[];
@@ -137,7 +137,21 @@ function fieldsWritten(view: ApprovalView): boolean {
   return Boolean(view.app?.tool && !/^mcp_/.test(view.reason || ''));
 }
 
-function ApprovalDetails({ view }: { view: ApprovalView }) {
+const ALLOW_IN_CHAT =
+  'Approves this, and actions like it later in this chat, without asking. Sending, posting, deleting and paying still ask.';
+const AUTO_IN_CHAT =
+  'Approves this and switches this chat to Auto: a reviewer approves what matches your request, and anything else still asks you.';
+
+function ApprovalDetails({
+  view,
+  approveLabel = 'Approve',
+  decide,
+}: {
+  view: ApprovalView;
+  approveLabel?: string;
+  /** On a phone the details answer too, so reading them never means going back. */
+  decide?: (decision: 'approve' | 'reject') => void;
+}) {
   const risk = RISK[view.risk_class ?? ''];
   const reason = reasonWords(view);
   const action = approvalAction(view.action_label || '', view.app);
@@ -205,6 +219,14 @@ function ApprovalDetails({ view }: { view: ApprovalView }) {
           </>
         )}
       </dl>
+      {decide && (
+        <div className="approval-card-decide">
+          <Button onClick={() => decide('reject')}>Deny</Button>
+          <Button variant="primary" onClick={() => decide('approve')}>
+            {approveLabel}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -302,13 +324,11 @@ export default function ApprovalCard({
     setBusy(true);
     try {
       if (allow) await onAllowInChat?.();
-      await controller.intent(
+      await resolveApproval(
+        controller,
         id,
-        'approval.resolve',
-        scope === 'chat'
-          ? { decision, nonce: view.nonce, scope }
-          : { decision, nonce: view.nonce },
-        view.revision,
+        view,
+        scope === 'chat' ? { decision, scope } : { decision },
       );
       setResolution(
         decision === 'approve' ? 'Approval submitted.' : 'Denial submitted.',
@@ -325,12 +345,7 @@ export default function ApprovalCard({
     if (!view || busy || resolution) return;
     setBusy(true);
     try {
-      await controller.intent(
-        id,
-        'approval.resolve',
-        { decision: 'edit', nonce: view.nonce, edit },
-        view.revision,
-      );
+      await resolveApproval(controller, id, view, { decision: 'edit', edit });
       setEditing(false);
       setResolution('Edited. Row-Bot asks again with your version.');
       readPendingApprovalsNow(controller.pendingApprovals);
@@ -345,13 +360,11 @@ export default function ApprovalCard({
     if (!view || busy || resolution) return;
     setBusy(true);
     try {
-      await controller.intent(
+      await resolveApproval(
+        controller,
         id,
-        'approval.resolve',
-        answers
-          ? { decision: 'approve', nonce: view.nonce, answers }
-          : { decision: 'reject', nonce: view.nonce },
-        view.revision,
+        view,
+        answers ? { decision: 'approve', answers } : { decision: 'reject' },
       );
       setResolution(
         answers
@@ -399,7 +412,10 @@ export default function ApprovalCard({
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   });
-  const keyboard = useKeyboardLayout();
+  const keyboard = useMedia(KEYBOARD_LAYOUT);
+  // A phone shows Deny and Approve as two full-width buttons and keeps the
+  // rest of the choices under More choices (D4).
+  const phone = useMedia(PHONE_LAYOUT);
   const action = view?.action_label || hint?.action_label || '';
   // The app asking, shown as the catalog knows it.
   const app = view?.app ?? null;
@@ -416,6 +432,99 @@ export default function ApprovalCard({
     post || (view && fieldsWritten(view))
       ? ''
       : keyArgument(view?.safe_argument_summary);
+  const settled = busy || Boolean(resolution);
+  const approveLabel = post?.post_at ? 'Approve for then' : 'Approve';
+  const canEditPost = Boolean(post && post.action !== 'delete' && !notice);
+  const deny = (
+    <Button disabled={settled} onClick={() => void resolve('reject')}>
+      Deny
+    </Button>
+  );
+  const approve = (
+    <Button
+      variant="primary"
+      aria-label={approveLabel}
+      aria-keyshortcuts={
+        notice || !shortcut ? undefined : 'Control+Enter Meta+Enter'
+      }
+      disabled={settled}
+      onClick={() => void resolve('approve')}
+    >
+      {approveLabel}
+      {!notice && shortcut && keyboard && (
+        <span aria-hidden className="approval-card-kbd">
+          <Kbd keys="Mod+Enter" />
+        </span>
+      )}
+    </Button>
+  );
+  const details = view && (
+    <Button
+      variant="ghost"
+      disabled={settled}
+      onClick={() =>
+        overlay.open({
+          title: question,
+          description: 'What Row-Bot wants to do, and what it affects.',
+          content: (
+            <ApprovalDetails
+              view={view}
+              approveLabel={approveLabel}
+              decide={
+                phone
+                  ? (decision) => {
+                      overlay.close();
+                      void resolve(decision);
+                    }
+                  : undefined
+              }
+            />
+          ),
+        })
+      }
+    >
+      Details
+    </Button>
+  );
+  // On a phone the choices beyond Deny and Approve, each saying what it does.
+  const moreChoices: MenuAction[] = [
+    ...(onLater
+      ? [
+          {
+            label: 'Not now',
+            description: 'It keeps waiting under Needs you',
+            onSelect: onLater,
+          },
+        ]
+      : []),
+    ...(canEditPost
+      ? [
+          {
+            label: 'Edit the post',
+            icon: <Pencil size={16} />,
+            onSelect: () => setEditing(true),
+          },
+        ]
+      : []),
+    ...(view?.repeatable
+      ? [
+          {
+            label: 'Allow in this chat',
+            description: ALLOW_IN_CHAT,
+            onSelect: () => void resolve('approve', false, 'chat'),
+          },
+        ]
+      : []),
+    ...(onAllowInChat
+      ? [
+          {
+            label: 'Use Auto in this chat',
+            description: AUTO_IN_CHAT,
+            onSelect: () => void resolve('approve', true),
+          },
+        ]
+      : []),
+  ];
   if (answered)
     return (
       <p className="approval-card-answered">
@@ -501,39 +610,74 @@ export default function ApprovalCard({
         )}
       </aside>
     );
-  if (setup)
+  // A setting Row-Bot would change, or a tool it would turn on: the change in
+  // words with its row, one primary button, and icons for Settings and Not now.
+  const change = view?.setting_change ?? hint?.setting_change ?? null;
+  if (change || setup?.kind === 'tool') {
+    const turnOn = setup?.kind === 'tool' ? setup.label : '';
+    const title = turnOn ? `Turn on ${turnOn}?` : `Change ${change?.label}?`;
+    // A change's reason is the change itself, shown above in words; only Turn on says why.
+    const reason = turnOn
+      ? view?.reason || hint?.reason || `Row-Bot needs ${turnOn} for this.`
+      : '';
+    const settled = !view || busy || Boolean(resolution);
     return (
       <aside
         className="approval-card"
-        data-kind="setup"
-        aria-label={`Turn on ${setup.label}`}
+        data-kind="setting"
+        data-layout={phone ? 'phone' : undefined}
+        aria-label={turnOn ? `Turn on ${turnOn}` : `Change ${change?.label}`}
       >
         <span className="approval-card-icon" aria-hidden>
-          <Power />
+          {turnOn ? <Power /> : <Settings2 />}
         </span>
         <div className="approval-card-context">
-          <strong>Turn on {setup.label}?</strong>
-          <span className="approval-card-reason">
-            {view?.reason ||
-              hint?.reason ||
-              `Row-Bot needs ${setup.label} for this.`}
-          </span>
+          <strong>{title}</strong>
+          {change && !turnOn && (
+            <span className="approval-card-change">
+              {change.before && (
+                <>
+                  <span className="approval-card-before">{change.before}</span>
+                  <span aria-label="becomes"> → </span>
+                </>
+              )}
+              <span className="approval-card-after">{change.after}</span>
+            </span>
+          )}
+          {reason && <span className="approval-card-reason">{reason}</span>}
+          <ReviewerNote
+            reason={view?.reviewer_reason || hint?.reviewer_reason}
+          />
         </div>
         <div className="approval-card-actions">
-          <Button
-            disabled={!view || busy || Boolean(resolution)}
+          {change?.href && (
+            <Hint label="Show in Settings">
+              <AppLink
+                className="button ghost icon-button icon-action"
+                to={change.href}
+                aria-label="Show in Settings"
+              >
+                <SquareArrowOutUpRight size={16} aria-hidden />
+              </AppLink>
+            </Hint>
+          )}
+          <IconButton
+            label="Not now"
+            disabled={settled}
             onClick={() => void resolve('reject')}
           >
-            Not now
-          </Button>
+            <X size={16} aria-hidden />
+          </IconButton>
           <Button
             variant="primary"
-            aria-keyshortcuts="Control+Enter Meta+Enter"
-            disabled={!view || busy || Boolean(resolution)}
+            aria-keyshortcuts={
+              shortcut ? 'Control+Enter Meta+Enter' : undefined
+            }
+            disabled={settled}
             onClick={() => void resolve('approve')}
           >
-            Turn on
-            {keyboard && (
+            {turnOn ? 'Turn on' : 'Change'}
+            {keyboard && shortcut && (
               <span aria-hidden className="approval-card-kbd">
                 <Kbd keys="Mod+Enter" />
               </span>
@@ -542,9 +686,13 @@ export default function ApprovalCard({
         </div>
         {resolution && (
           <p role="status" className="approval-card-status">
-            {resolution === 'Approval submitted.'
-              ? `Turning on ${setup.label}…`
-              : `${setup.label} stays off.`}
+            {resolution !== 'Approval submitted.'
+              ? turnOn
+                ? `${turnOn} stays off.`
+                : `${change?.label} stays as it was.`
+              : turnOn
+                ? `Turning on ${turnOn}…`
+                : `Changing ${change?.label}…`}
           </p>
         )}
         {error && (
@@ -554,6 +702,7 @@ export default function ApprovalCard({
         )}
       </aside>
     );
+  }
   return (
     <aside
       className="approval-card"
@@ -613,84 +762,72 @@ export default function ApprovalCard({
               </small>
             )}
           </div>
-          <div className="approval-card-actions" hidden={editing}>
-            {onLater && (
-              <Button
-                variant="ghost"
-                disabled={busy || Boolean(resolution)}
-                onClick={onLater}
-              >
-                Not now
-              </Button>
-            )}
-            {post && post.action !== 'delete' && !notice && (
-              <IconButton
-                label="Edit the post"
-                disabled={busy || Boolean(resolution)}
-                onClick={() => setEditing(true)}
-              >
-                <Pencil size={16} aria-hidden />
-              </IconButton>
-            )}
-            <Button
-              variant="ghost"
-              disabled={busy || Boolean(resolution)}
-              onClick={() =>
-                overlay.open({
-                  title: question,
-                  description: 'What Row-Bot wants to do, and what it affects.',
-                  content: <ApprovalDetails view={view} />,
-                })
-              }
+          {phone ? (
+            <div
+              className="approval-card-actions"
+              data-layout="phone"
+              hidden={editing}
             >
-              Details
-            </Button>
-            <Button
-              disabled={busy || Boolean(resolution)}
-              onClick={() => void resolve('reject')}
-            >
-              Deny
-            </Button>
-            <Button
-              variant="primary"
-              aria-label={post?.post_at ? 'Approve for then' : 'Approve'}
-              aria-keyshortcuts={
-                notice || !shortcut ? undefined : 'Control+Enter Meta+Enter'
-              }
-              disabled={busy || Boolean(resolution)}
-              onClick={() => void resolve('approve')}
-            >
-              {post?.post_at ? 'Approve for then' : 'Approve'}
-              {!notice && shortcut && keyboard && (
-                <span aria-hidden className="approval-card-kbd">
-                  <Kbd keys="Mod+Enter" />
-                </span>
+              <div className="approval-card-decide">
+                {deny}
+                {approve}
+              </div>
+              <div className="approval-card-more">
+                {moreChoices.length > 0 && (
+                  <Menu
+                    label="More choices"
+                    variant="ghost"
+                    disabled={settled}
+                    actions={moreChoices}
+                  />
+                )}
+                {details}
+              </div>
+            </div>
+          ) : (
+            <div className="approval-card-actions" hidden={editing}>
+              {onLater && (
+                <Button variant="ghost" disabled={settled} onClick={onLater}>
+                  Not now
+                </Button>
               )}
-            </Button>
-            {view.repeatable && (
-              <Hint label="Approves this, and actions like it later in this chat, without asking. Sending, posting, deleting and paying still ask.">
-                <Button
-                  variant="ghost"
-                  disabled={busy || Boolean(resolution)}
-                  onClick={() => void resolve('approve', false, 'chat')}
+              {canEditPost && (
+                <IconButton
+                  label="Edit the post"
+                  disabled={settled}
+                  onClick={() => setEditing(true)}
                 >
-                  Allow in this chat
-                </Button>
-              </Hint>
-            )}
-            {onAllowInChat && (
-              <Hint label="Approves this and switches this chat to Auto: a reviewer approves what matches your request, and anything else still asks you.">
-                <Button
-                  variant="ghost"
-                  className="approval-card-allow"
-                  disabled={busy || Boolean(resolution)}
-                  onClick={() => void resolve('approve', true)}
-                >
-                  Use Auto in this chat
-                </Button>
-              </Hint>
-            )}
-          </div>
+                  <Pencil size={16} aria-hidden />
+                </IconButton>
+              )}
+              {details}
+              {deny}
+              {approve}
+              {view.repeatable && (
+                <Hint label={ALLOW_IN_CHAT}>
+                  <Button
+                    variant="ghost"
+                    disabled={settled}
+                    onClick={() => void resolve('approve', false, 'chat')}
+                  >
+                    Allow in this chat
+                  </Button>
+                </Hint>
+              )}
+              {onAllowInChat && (
+                <Hint label={AUTO_IN_CHAT}>
+                  <Button
+                    variant="ghost"
+                    className="approval-card-allow"
+                    disabled={settled}
+                    onClick={() => void resolve('approve', true)}
+                  >
+                    Use Auto in this chat
+                  </Button>
+                </Hint>
+              )}
+            </div>
+          )}
         </>
       ) : (
         <div className="approval-card-context">

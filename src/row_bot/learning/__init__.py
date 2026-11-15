@@ -23,7 +23,13 @@ Settings live in ``learning_config.json`` in the data folder::
      "sources": {"my_chats": true, "workflows_and_goals": true, "past_chats": true},
      "apply_mode": "ask_first", "monthly_token_limit": 2000000,
      "train_in_quiet_hours": true, "train_where": "this_computer",
-     "starting_model": "qwen3.5-2b", "model_download": "not_asked"}
+     "starting_model": "qwen3.5-9b", "model_download": "not_asked",
+     "hugging_face": {"model": "", "monthly_cap_usd": 0, "runs_confirmed": false}}
+
+**Training on Hugging Face** (C1, O130-O134): ``hugging_face.model`` is the model it trains there (empty: the
+strongest certified one this computer can run, ``training/catalog.py``); ``monthly_cap_usd`` the spend cap the
+person chose with the first run's quote (0: not chosen yet, so nothing runs on its own); ``runs_confirmed``
+whether the person has started a first run (until then every run asks, O132).
 
 **The preview flag (O34).** Until the 5.4 cut, Learning exists only in a build
 started with ``ROW_BOT_LEARNING_PREVIEW=1``. The flag is read once, when this
@@ -58,10 +64,10 @@ FOLDER = "learning"
 
 APPLY_MODES = ("ask_first", "automatic")
 TRAIN_PLACES = ("this_computer", "hugging_face")
-# Starting models a personal model can be trained from (``training/hardware.py`` describes them,
-# ``training/weights.py`` pins them): the 8 GB tier's first (the default, O23), then the larger tiers'
-# (L2x, O90). A card trains only the certified ones it fits (``HardwareCheck.starting_models``).
-STARTING_MODELS = ("qwen3.5-2b", "qwen3.5-9b")
+# Starting models a personal model can be trained from on this computer (``training/hardware.py``
+# describes them, ``training/weights.py`` pins them). O124: Qwen3.5 9B is the smallest personal model
+# (the 2B tier went in T1); a card trains only the certified ones it fits (``HardwareCheck.starting_models``).
+STARTING_MODELS = ("qwen3.5-9b",)  # a saved model no build trains any more (the 2B) reads as the 9B
 # The answer to the download ask after turning Learning on: not asked yet, Download
 # ("waiting": the person agreed; L2b downloads when they tap it, and an old answer reads
 # as "Ready to download", O36) or Not now.
@@ -71,6 +77,8 @@ MODEL_DOWNLOADS = ("not_asked", "waiting", "not_now")
 # person starts (LM Studio, llama.cpp server, vLLM on Linux) with one command Row-Bot shows.
 SERVE_RUNTIMES = ("row_bot", "ollama", "lmstudio", "llama_cpp", "vllm")
 DEFAULT_MONTHLY_TOKEN_LIMIT = 2_000_000
+# The most a monthly Hugging Face cap may be (dollars); the choices the quote offers are in the client.
+MAX_HUGGING_FACE_CAP_USD = 1_000
 MAX_MONTHLY_TOKEN_LIMIT = 1_000_000_000
 _MAX_SETTINGS_BYTES = 64 * 1024
 
@@ -95,6 +103,12 @@ class LearningSettings:
     starting_model: str = STARTING_MODELS[0]
     model_download: str = "not_asked"
     serve_runtime: str = SERVE_RUNTIMES[0]
+    # C1: Hugging Face training (see the module's docstring).
+    hf_model: str = ""
+    # The Hugging Face card the person chose in the quote (empty: the recipe's own).
+    hf_flavor: str = ""
+    hf_monthly_cap_usd: int = 0
+    hf_runs_confirmed: bool = False
     # False when a saved file exists but could not be read; Learning is then off.
     readable: bool = True
 
@@ -184,6 +198,14 @@ def _normalise(document: Any) -> LearningSettings:
     if type(limit) is not int or not 0 <= limit <= MAX_MONTHLY_TOKEN_LIMIT:
         limit = DEFAULT_MONTHLY_TOKEN_LIMIT
     paused = document.get("paused", False)
+    hugging = document.get("hugging_face")
+    hugging = hugging if isinstance(hugging, dict) else {}
+    hf_model = hugging.get("model")
+    hf_model = hf_model if isinstance(hf_model, str) and len(hf_model) <= 128 else ""
+    hf_flavor = hugging.get("flavor")
+    hf_flavor = hf_flavor if isinstance(hf_flavor, str) and len(hf_flavor) <= 64 else ""
+    cap = hugging.get("monthly_cap_usd")
+    cap = cap if type(cap) is int and 0 <= cap <= MAX_HUGGING_FACE_CAP_USD else 0
     return LearningSettings(
         # Only an explicit true turns Learning on.
         enabled=document.get("enabled") is True,
@@ -199,6 +221,10 @@ def _normalise(document: Any) -> LearningSettings:
         starting_model=starting_model if starting_model in STARTING_MODELS else DEFAULTS.starting_model,
         model_download=model_download if model_download in MODEL_DOWNLOADS else DEFAULTS.model_download,
         serve_runtime=serve_runtime if serve_runtime in SERVE_RUNTIMES else DEFAULTS.serve_runtime,
+        hf_model=hf_model,
+        hf_flavor=hf_flavor,
+        hf_monthly_cap_usd=cap,
+        hf_runs_confirmed=hugging.get("runs_confirmed") is True,
     )
 
 
@@ -321,6 +347,11 @@ def settings_saved(field: str, value: Any) -> None:
         start_past_chat_import()
     if (field == "enabled" and value is True) or (field == "paused" and value is False):
         start_runner()
+    if field == "train_where" and runner is not None:
+        try:
+            runner.place_changed(str(value))
+        except Exception:
+            logger.warning("Learning could not set aside a run planned for the other place", exc_info=True)
 
 
 def start_past_chat_import() -> None:

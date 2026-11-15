@@ -71,6 +71,25 @@ def test_the_next_run_is_named_in_the_schedules_zone(tasks):
     assert tasks.estimate_next_run({**task, "timezone": "Asia/Tokyo"}, now) == "2026-10-23T09:00:00+09:00"
 
 
+@pytest.mark.parametrize(("days", "expected"), [
+    ("1-5", ["Mon 02", "Tue 03", "Wed 04", "Thu 05", "Fri 06", "Mon 09"]),
+    ("mon-fri", ["Mon 02", "Tue 03", "Wed 04", "Thu 05", "Fri 06", "Mon 09"]),
+    ("0,6", ["Sun 01", "Sat 07", "Sun 08", "Sat 14", "Sun 15", "Sat 21"]),
+    ("7", ["Sun 01", "Sun 08", "Sun 15", "Sun 22", "Sun 29", "Sun 06"]),
+    ("1-5/2", ["Mon 02", "Wed 04", "Fri 06", "Mon 09", "Wed 11", "Fri 13"]),
+])
+def test_cron_days_are_read_as_standard_cron(tasks, days, expected):
+    # "Every weekday" written as cron's 1-5 runs Monday to Friday, not Tuesday to Saturday.
+    trigger = tasks._build_trigger({"schedule": f"cron:0 8 * * {days}", "timezone": "Europe/London"})
+    fire = trigger.get_next_fire_time(None, datetime(2026, 11, 1, 0, 0, tzinfo=UTC))  # A Sunday.
+    seen = []
+    for _ in range(6):
+        seen.append(fire.strftime("%a %d"))
+        fire = trigger.get_next_fire_time(fire, fire + timedelta(seconds=1))
+
+    assert seen == expected
+
+
 def test_a_one_time_run_is_at_its_wall_clock_time_in_its_zone(tasks):
     now = datetime(2026, 11, 1, 0, 0, tzinfo=UTC)
     trigger = tasks._build_trigger({"at": "2026-12-01T09:00:00", "timezone": "Asia/Tokyo"}, now=now)

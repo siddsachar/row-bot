@@ -142,7 +142,8 @@ def docs_capture_provider_cards() -> list[dict[str, Any]]:
             "media_count": 0,
             "risk_label": "subscription",
             "claude_plan": {"state": "signed_out", "version": "2.1.282", "minimum_version": "2.1.263",
-                            "plan": "", "detail": "", "set_up_again": False},
+                            "plan": "", "detail": "", "set_up_again": False,
+                            "signed_in_before": False},
         },
         {
             "provider_id": "xai_oauth",

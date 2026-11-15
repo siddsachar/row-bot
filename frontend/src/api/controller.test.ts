@@ -184,7 +184,7 @@ describe('accepted protocol recordings', () => {
 it.each([
   ['approval_expired', 'expired'],
   ['approval_already_resolved', 'already answered'],
-  ['model_configuration_required', 'Choose a model before sending'],
+  ['model_configuration_required', "This model isn't ready"],
 ])(
   'offers explicit review for %s without exposing server details',
   (code, text) => {
@@ -2000,6 +2000,71 @@ describe('event order, atomic reset and commands', () => {
       compact_at_tokens: 75,
     });
     expect(value.getSnapshot().projection?.projection_revision).toBe('1');
+  });
+  it("keeps the last reply's context breakdown through live per-call counts of the same model", async () => {
+    class ContextFixture extends FixtureTransport {
+      async workspace(id: string) {
+        const template = validateWire<wire.ConversationWorkspace>(
+          'ConversationWorkspace',
+          structuredClone(
+            thinkingRecording.records.find(
+              (item) => item.schema === 'ConversationWorkspace',
+            )!.value,
+          ),
+        );
+        return { ...template, conversation_id: id };
+      }
+    }
+    const transport = new ContextFixture();
+    const initial = recorded<SubscriptionView>('F-P03', 'SubscriptionView')[0]
+      .snapshot;
+    transport.setSnapshot(initial);
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    const breakdown = {
+      instructions: 10,
+      tools: 40,
+      skills: 5,
+      memory: 0,
+      conversation: 25,
+      tool_count: 12,
+    };
+    const usage = {
+      conversation_id: 'conversation-a',
+      state: 'live' as const,
+      freshness: 'current' as const,
+      status: 'ready' as const,
+      estimated_input_tokens: 80,
+      usable_input_tokens: 100,
+      compact_at_tokens: 75,
+      native_window_tokens: 128,
+      effective_limit_tokens: 100,
+      last_confirmed_input_tokens: null,
+      model_ref: 'fixture/model',
+      scope: 'agent' as const,
+      capacity_state: 'ready',
+    };
+    const emit = (sequence: number, payload: wire.ContextUpdated) => {
+      const record = eventRecord(initial, sequence);
+      record.event = { ...record.event, type: 'context.updated', payload };
+      transport.emit(record);
+    };
+    emit(1, { ...usage, breakdown });
+    await flush();
+    emit(2, { ...usage, estimated_input_tokens: 90 });
+    await flush();
+    expect(value.getSnapshot().workspace?.context_usage).toMatchObject({
+      estimated_input_tokens: 90,
+      breakdown,
+    });
+    // Another model's count: the old parts no longer describe it.
+    emit(3, { ...usage, model_ref: 'fixture/other' });
+    await flush();
+    expect(value.getSnapshot().workspace?.context_usage?.breakdown).toBe(
+      undefined,
+    );
   });
   it('resubscribes on a source sequence gap and atomically installs a new snapshot cut', async () => {
     const { value, transport, initial } = await observed();

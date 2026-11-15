@@ -2,9 +2,9 @@
 
 Row-Bot asks the NVIDIA driver's own ``nvidia-smi`` for the graphics cards and their memory
 (no network, 15 s at most, no console window) and maps the largest card to a recipe
-tier. Only the 8 GB tier is certified so far (O23: Qwen3.5 2B, bf16 LoRA at 16K, measured on an
-RTX 5070 Laptop in L0d); a larger card can use it too, and its own larger tier shows as "measured
-soon" until a recipe is certified for it (the RTX 5090 results, ``scripts/learning_gpu_check.py``).
+tier. The tiers are 16, 24 and 32 GB, each certified on the RTX 5090 (L2x: Qwen3.5 9B QLoRA at 16K).
+O124: the 9B is the smallest personal model, so a card under 16 GB (``small_gpu``) trains on Hugging Face
+or keeps lessons and ways of working only (the 8 GB tier and its 2B went in T1).
 The answer is kept for the life of the process: a graphics card doesn't change while Row-Bot runs,
 and the setup sheet can ask again.
 
@@ -50,15 +50,15 @@ def _starting(pinned: _weights.PinnedModel) -> StartingModel:
     return StartingModel(pinned.id, pinned.name, pinned.licence, pinned.download_bytes)
 
 
-# Qwen/Qwen3.5-2B at the revision L0d measured: 4.57 GB of weights (D5, D13), and the larger tiers'
-# starting models (L2x, O90); every file pinned in ``weights.py``.
-QWEN35_2B = _starting(_weights.QWEN35_2B)
+# The tiers' starting model (L2x, O90, O124); every file pinned in ``weights.py``.
 QWEN35_9B = _starting(_weights.QWEN35_9B)
 # The training engine's download when its lock can't be read (CUDA PyTorch, Unsloth, TRL, PEFT,
 # and llama.cpp's tools for the export): 2.3 GB on Windows (L0d, L2c). The real figure comes from
 # the lock and the pinned tools (``engine_download_bytes``).
 ENGINE_DOWNLOAD_BYTES = 2_280_000_000
-STARTING_MODELS = {model.id: model for model in (QWEN35_2B, QWEN35_9B)}
+STARTING_MODELS = {model.id: model for model in (QWEN35_9B,)}
+# The card memory a personal model needs to train here (O124: the 9B's 16 GB tier).
+SMALLEST_TIER_GB = 16
 # Drivers (O25): CUDA 13.0 needs 580, CUDA 12.8 needs 570.
 CUDA13_DRIVER = 580
 MIN_DRIVER = 570
@@ -100,10 +100,9 @@ def _tier(tier_id: str, label: str, min_memory_mib: int, summary: str, model: St
 
 
 TIERS: tuple[Tier, ...] = (
-    _tier("8gb", "8 GB", 7_600, "Can train small models (up to about 2B) on your tasks.", QWEN35_2B),
-    # O111: Qwen3.5 4B left 5.4 (its training diverged in this engine); the 9B is the 16 GB candidate, as
-    # QLoRA there and on 24 and 32 GB cards (O121; O107, O122: the 27B needed a card with nothing else on
-    # it, so it isn't offered).
+    # O124: the 9B is the smallest personal model (the 8 GB tier's 2B went in T1). O111: Qwen3.5 4B left 5.4
+    # (its training diverged in this engine). The 9B trains as QLoRA on 16, 24 and 32 GB cards (O121; O107,
+    # O122: the 27B needs a card with nothing else on it, so it trains on Hugging Face instead, C1).
     _tier("16gb", "16 GB", 15_000, "Can train models up to about 9B on your tasks.", QWEN35_9B),
     _tier("24gb", "24 GB", 23_000, "Can train models up to about 9B on your tasks.", QWEN35_9B),
     _tier("32gb", "32 GB", 30_000, "Can train models up to about 9B on your tasks.", QWEN35_9B),
@@ -555,7 +554,8 @@ __all__ = [
     "Gpu",
     "HardwareCheck",
     "SystemMemory",
-    "QWEN35_2B",
+    "QWEN35_9B",
+    "SMALLEST_TIER_GB",
     "STARTING_MODELS",
     "StartingModel",
     "TIERS",

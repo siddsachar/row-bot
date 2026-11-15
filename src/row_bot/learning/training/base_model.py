@@ -64,7 +64,7 @@ def read(model_id: str, root: Path | None = None) -> BaseState | None:
         return None
 
 
-def _write(state: BaseState, root: Path | None = None) -> BaseState:
+def write(state: BaseState, root: Path | None = None) -> BaseState:
     target = folder(state.model_id, root)
     target.mkdir(parents=True, exist_ok=True)
     temporary = target / f".{STATE_FILE}.{uuid.uuid4().hex}.tmp"
@@ -87,7 +87,11 @@ def ensure(*, root: Path | None = None, engine_status: Any = None, model: Any = 
     if runtime not in serving.AUTOMATED:
         runtime = "ollama"
 
-    if model is None or weights_folder is None:
+    if model is None:
+        return None, "engine_missing"
+    built = read(model.id, root)
+    if weights_folder is None and not (built is not None and built.gguf and (folder(model.id, root) / built.gguf).is_file()):
+        # No starting model here to export from, and no copy a Hugging Face run built for it (C1).
         return None, "engine_missing"
     if recipe is None:
         from row_bot.learning.training import recipes
@@ -120,17 +124,17 @@ def ensure(*, root: Path | None = None, engine_status: Any = None, model: Any = 
                 engine=engine_status, weights=weights_folder, weights_bytes=weights_bytes, adapter=target,
                 folder=target, name=BASE_NAME, quantization=recipe.quantization, untouched=True)
         except export.ExportError as error:
-            _write(BaseState(model.id, "failed", failure=error.code, at=float(clock())), root)
+            write(BaseState(model.id, "failed", failure=error.code, at=float(clock())), root)
             return None, error.code
         gguf = result.gguf
     options: dict[str, Any] = {"ollama": ollama} if runtime == "ollama" else {"managed": managed}
     outcome = (server or serving.serve)(runtime, version=1, gguf=gguf, serve_context=recipe.serve_context,
                                         folder=target, root=root, tag=name, tool_turn=False, **options)
     if outcome.state != "ready" or not outcome.model_ref:
-        _write(BaseState(model.id, "failed", gguf=gguf.name, failure=outcome.reason or "failed", at=float(clock()),
+        write(BaseState(model.id, "failed", gguf=gguf.name, failure=outcome.reason or "failed", at=float(clock()),
                          runtime=runtime), root)
         return None, outcome.reason or "failed"
-    _write(BaseState(model.id, "ready", model_ref=outcome.model_ref, gguf=gguf.name, gguf_bytes=gguf.stat().st_size,
+    write(BaseState(model.id, "ready", model_ref=outcome.model_ref, gguf=gguf.name, gguf_bytes=gguf.stat().st_size,
                      quantization=recipe.quantization, at=float(clock()), runtime=runtime), root)
     return outcome.model_ref, None
 
@@ -170,4 +174,4 @@ def withdraw(model_id: str, *, root: Path | None = None, ollama: Any = None, rem
         shutil.rmtree(folder(model_id, root), ignore_errors=True)
 
 
-__all__ = ["BASE_NAME", "BaseState", "ensure", "folder", "read", "tag", "withdraw"]
+__all__ = ["BASE_NAME", "BaseState", "ensure", "folder", "read", "tag", "withdraw", "write"]

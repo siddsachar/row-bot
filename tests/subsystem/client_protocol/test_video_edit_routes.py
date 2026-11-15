@@ -8,8 +8,12 @@ from __future__ import annotations
 import threading
 
 import pytest
+from fastapi.testclient import TestClient
 
 from row_bot import video_edits
+from row_bot.api.v1.routes import create_client_platform_app
+from row_bot.api.v1.security import ClientSecurity, ProtocolError
+from tests.helpers.access import person_window
 from tests.subsystem.client_protocol.test_protocol_application import _client, service  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 
@@ -95,6 +99,28 @@ def test_edits_are_listed_read_and_stopped_by_the_person(service, jobs):  # noqa
         assert client.post("/api/v1/video-edits/edit-00000000/stop", headers=headers).status_code == 404
 
 
+def test_the_card_follows_its_edit_after_background_reads_use_up_their_budget(service, jobs):  # noqa: F811
+    """The card the person is looking at reads its edit as a view, never behind background reads."""
+    from row_bot import threads
+
+    chat = threads.create_thread("Demo cut", seed_default_skills=False)
+    running = _start(chat)
+    security = ClientSecurity("fixture-instance", clock=lambda: 10)
+    app = create_client_platform_app(service, security=security, choices=lambda: {"models": [], "capabilities": []},
+                                     session_authenticator=person_window)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 1234)) as client:
+        handshake, headers = bootstrap(client)
+        current = security._sessions[handshake["client_session_id"]]
+        with pytest.raises(ProtocolError, match="rate_limited"):
+            for _ in range(31):
+                security.rate(current, "query")
+        page = client.get("/api/v1/video-edits", params={"conversation_id": chat}, headers=headers)
+        assert page.status_code == 200, page.text
+        assert [item["edit_id"] for item in page.json()["items"]] == [running.edit_id]
+        one = client.get(f"/api/v1/video-edits/{running.edit_id}", headers=headers)
+        assert one.status_code == 200, one.text
+
+
 def test_an_edit_video_step_shows_its_edit_s_card():
     from row_bot.application.conversation_traces import _public_specialization, specialize_tool_result
 
@@ -102,6 +128,11 @@ def test_an_edit_video_step_shows_its_edit_s_card():
                     "Approval: asked; approved by you\nVideo edit edit-0a1b2c3d: getting ffmpeg, 3 MB of 30 MB."):
         specialization = specialize_tool_result({"name": "edit_video", "content": content})
         public = _public_specialization(specialization)
-        assert (public["kind"], public["edit_id"]) == ("video_edit", "edit-0a1b2c3d")
+        assert (public["kind"], public["edit_id"], public["media_kind"]) == ("video_edit", "edit-0a1b2c3d", "")
+    # Stills are marked, so the chat never folds a video under them.
+    for content in ("Video edit edit-0a1b2c3d: saved 4 frames (at 0:01, 0:02) to this chat's files; …",
+                    "Video edit edit-0a1b2c3d: taking the frames. It carries on in the background …"):
+        public = _public_specialization(specialize_tool_result({"name": "edit_video", "content": content}))
+        assert (public["kind"], public["media_kind"]) == ("video_edit", "frames")
     assert specialize_tool_result({"name": "run_command", "content": "Video edit edit-0a1b2c3d: x"}) is None
     assert specialize_tool_result({"name": "edit_video", "content": "Couldn't find demo.mp4."}) is None

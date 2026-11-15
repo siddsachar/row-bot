@@ -797,7 +797,7 @@ def start_update_scheduler() -> None:
     if _scheduler_thread is not None and _scheduler_thread.is_alive():
         return
     if external_mode():
-        logger.info("Updater: the host applies updates (ROW_BOT_UPDATES=external) — scheduler disabled")
+        logger.info("Updater: the host applies updates — scheduler disabled")
         return
     if is_dev_install():
         logger.info("Updater: dev install detected — scheduler disabled")

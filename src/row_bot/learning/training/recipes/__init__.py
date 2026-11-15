@@ -5,9 +5,13 @@ the trainer's settings (``learning_engine/trainer.py`` clamps each to its limits
 passes over the examples (each pass's adapter is kept, so a version that can't finish a short task
 falls back to the pass before, O119), how often a checkpoint is saved, the fewest examples worth training
 on, the context it is served at (O30), its quantization (O26) and that it is non-thinking
-(O24). Only **certified** recipes are ever chosen: today the 8 GB tier (Qwen3.5 2B, bf16 LoRA
-at 16K, measured in L0d and L2b). The larger tiers are listed, uncertified, until the RTX 5090
-results certify them (L2c2); a larger card trains with the best certified recipe that fits it.
+(O24). Only **certified** recipes are ever chosen: the 16, 24 and 32 GB tiers (Qwen3.5 9B QLoRA at
+16K, measured on the RTX 5090 in L2x); a larger card trains with the best certified recipe that fits it.
+O124: the 8 GB tier (Qwen3.5 2B) went in T1, so the 16 GB recipe is the default.
+
+**Hugging Face recipes** (C1, ``hf-9b.json``, ``hf-27b.json``, tier ``hf``) train the same way (the same trainer,
+settings, passes and serving shape) in a Hugging Face job, and carry a ``remote`` block: the GPU flavour, its
+price when measured, and the measured times the quote is made from (setup, seconds per step, export per pass).
 
 The files are package data (``pyproject.toml``), so every install carries them.
 """
@@ -27,7 +31,18 @@ from typing import Any
 
 FORMAT = "row-bot-recipe"
 FOLDER = Path(__file__).resolve().parent
-ORDER = ("8gb", "16gb", "24gb", "32gb")
+ORDER = ("16gb", "24gb", "32gb")
+# The Hugging Face recipes (C1): trained in a job in the person's own account, run on this computer after.
+REMOTE = ("hf-9b", "hf-27b")
+REMOTE_TIER = "hf"
+# A remote block's keys (all required): the flavour, its hourly price when measured (Hugging Face's live price
+# wins in the quote), the image, and the measured times the quote is made from.
+REMOTE_KEYS = frozenset({"flavor", "price_per_hour", "image", "setup_seconds", "seconds_per_step",
+                         "export_seconds_per_pass", "upload_seconds"})
+# Optional: other single cards reviewed for the recipe (Hugging Face may have none of its own free: the run
+# then waits in its queue). Each names its flavour and hourly price, and may give its own time a step;
+# otherwise the main card's times stand (an estimate until measured there).
+ALTERNATIVE_KEYS = frozenset({"flavor", "price_per_hour", "seconds_per_step"})
 METHODS = frozenset({"lora_sft"})
 QUANTIZATIONS = frozenset({"Q8_0", "Q4_K_M"})
 # The trainer's own settings (``trainer.DEFAULTS``); anything else in a file is refused.
@@ -93,6 +108,12 @@ class Recipe:
     # The computer's memory a run needs free (RAM and virtual memory), per system, measured as the
     # commit it added at its peak (O105). A system without a figure isn't checked.
     system_memory_mib: Mapping[str, int] = MappingProxyType({})
+    # C1: a Hugging Face recipe's job: flavour, price and measured times (None for a card tier's recipe).
+    remote: Mapping[str, Any] | None = None
+
+    @property
+    def is_remote(self) -> bool:
+        return self.remote is not None
 
     def system_memory_need(self, platform: str | None = None) -> int | None:
         """MiB of RAM and virtual memory a run needs free on this system, or None (not measured)."""
@@ -102,7 +123,7 @@ class Recipe:
 
     @property
     def name(self) -> str:
-        """The recipe as the training protocol names it ("8gb-v1")."""
+        """The recipe as the training protocol names it ("16gb-v1")."""
 
         return f"{self.id}-v{self.version}"
 
@@ -159,10 +180,16 @@ def parse(text: str, *, source: str = "") -> Recipe:
         raise RecipeError("invalid_recipe", f"{source} is not JSON") from error
     if not isinstance(data, dict) or data.get("format") != FORMAT or data.get("version") != 1:
         raise RecipeError("invalid_recipe", f"{source} format")
+    data = dict(data)
+    remote = data.pop("remote", None)
     unknown = sorted(set(data) - _KEYS)
     missing = sorted(_KEYS - set(data))
     if unknown or missing:
         raise RecipeError("invalid_recipe", f"{source} keys {unknown or missing}")
+    if remote is not None:
+        remote = _remote(remote, source)
+    elif data.get("tier") == REMOTE_TIER:
+        raise RecipeError("invalid_recipe", f"{source}: a Hugging Face recipe says where it trains")
     settings = data["settings"]
     if not isinstance(settings, dict) or set(settings) - SETTING_NAMES or "max_seq_length" not in settings:
         raise RecipeError("invalid_recipe", f"{source} settings")
@@ -181,7 +208,7 @@ def parse(text: str, *, source: str = "") -> Recipe:
         raise RecipeError("invalid_recipe", "system_memory_mib")
     for key, value in system.items():
         _number(value, f"system_memory_mib.{key}", integer=True, low=1024, high=1_048_576)
-    if data["certified"] and "windows" not in system:
+    if data["certified"] and "windows" not in system and remote is None:
         raise RecipeError("invalid_recipe", "a certified recipe says what it needs of the computer's memory (O105)")
     recipe = Recipe(
         id=data["id"], version=int(data["version"]), tier=data["tier"], certified=data["certified"],
@@ -198,6 +225,7 @@ def parse(text: str, *, source: str = "") -> Recipe:
         sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         memory_mib=_number(data["memory_mib"], "memory_mib", integer=True, low=1024, high=262_144),
         system_memory_mib=MappingProxyType(dict(system)),
+        remote=MappingProxyType(remote) if remote is not None else None,
     )
     if recipe.certified and recipe.max_seq_length < MIN_TRAINING_CONTEXT:
         raise RecipeError("invalid_recipe", "a certified recipe trains on at least 16K tokens (O23)")
@@ -206,11 +234,36 @@ def parse(text: str, *, source: str = "") -> Recipe:
     return recipe
 
 
+def _remote(value: Any, source: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) - {"alternatives"} != REMOTE_KEYS:
+        raise RecipeError("invalid_recipe", f"{source} remote")
+    alternatives = value.get("alternatives", [])
+    if not isinstance(alternatives, list) or len(alternatives) > 4:
+        raise RecipeError("invalid_recipe", f"{source} remote.alternatives")
+    seen = {value.get("flavor")}
+    for item in alternatives:
+        if not isinstance(item, dict) or not {"flavor", "price_per_hour"} <= set(item) <= ALTERNATIVE_KEYS:
+            raise RecipeError("invalid_recipe", f"{source} remote.alternatives")
+        if not isinstance(item["flavor"], str) or not item["flavor"] or len(item["flavor"]) > 64 or \
+                item["flavor"] in seen:
+            raise RecipeError("invalid_recipe", f"{source} remote.alternatives.flavor")
+        seen.add(item["flavor"])
+        for key in set(item) - {"flavor"}:
+            _number(item[key], f"remote.alternatives.{key}", low=0.0, high=1_000_000.0)
+    if not isinstance(value["flavor"], str) or not value["flavor"] or len(value["flavor"]) > 64:
+        raise RecipeError("invalid_recipe", f"{source} remote.flavor")
+    if not isinstance(value["image"], str) or not value["image"] or len(value["image"]) > 256:
+        raise RecipeError("invalid_recipe", f"{source} remote.image")
+    for key in REMOTE_KEYS - {"flavor", "image"}:
+        _number(value[key], f"remote.{key}", low=0.0, high=1_000_000.0)
+    return dict(value)
+
+
 @functools.cache
 def load(recipe_id: str) -> Recipe:
     """The recipe with this id, from its data file beside this module."""
 
-    if recipe_id not in ORDER:
+    if recipe_id not in ORDER and recipe_id not in REMOTE:
         raise RecipeError("unknown_recipe", recipe_id)
     path = FOLDER / f"{recipe_id}.json"
     try:
@@ -218,7 +271,8 @@ def load(recipe_id: str) -> Recipe:
     except OSError as error:
         raise RecipeError("recipe_missing", recipe_id) from error
     recipe = parse(text, source=path.name)
-    if recipe.id != recipe_id or recipe.tier != recipe_id:
+    tier = REMOTE_TIER if recipe_id in REMOTE else recipe_id
+    if recipe.id != recipe_id or recipe.tier != tier or (recipe_id in REMOTE) != recipe.is_remote:
         raise RecipeError("invalid_recipe", f"{path.name} names another tier")
     return recipe
 
@@ -231,7 +285,7 @@ def all_recipes() -> tuple[Recipe, ...]:
 
 def for_hardware(check: Any) -> Recipe | None:
     """The recipe this computer trains with: its tier's when certified, else the best certified
-    one its card fits (a 24 GB card trains the 8 GB recipe until 24 GB is certified). None when
+    one its card fits (a 32 GB card trains the 24 GB recipe if 32 GB weren't certified). None when
     the computer can't train."""
 
     if check is None or not getattr(check, "can_train", False):
@@ -276,7 +330,7 @@ def for_model(model_id: str, check: Any) -> Recipe | None:
 
 def current(root: Any = None, check: Any = None) -> Recipe:
     """The recipe the person's choices train with: the one for their starting model when this card
-    trains it, else the card's own (``for_hardware``), else the 8 GB recipe."""
+    trains it, else the card's own (``for_hardware``), else the 16 GB recipe."""
 
     from row_bot import learning
     from row_bot.learning.training import hardware
@@ -287,9 +341,9 @@ def current(root: Any = None, check: Any = None) -> Recipe:
 
 
 def default() -> Recipe:
-    """The certified 8 GB recipe (used before the hardware check has run)."""
+    """The certified 16 GB recipe, the smallest (used before the hardware check has run, O124)."""
 
-    return load("8gb")
+    return load("16gb")
 
 
 __all__ = [
@@ -302,6 +356,8 @@ __all__ = [
     "ORDER",
     "Recipe",
     "RecipeError",
+    "REMOTE",
+    "REMOTE_TIER",
     "SYSTEMS",
     "all_recipes",
     "default",

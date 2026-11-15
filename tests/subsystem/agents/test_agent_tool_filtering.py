@@ -598,6 +598,23 @@ def test_a_rare_tool_called_by_its_own_name_still_runs(monkeypatch):
     assert [tool.name for tool in seen] == ["row_bot_status"]
 
 
+def test_the_tools_offered_only_through_tool_search_are_recorded_for_the_transport(monkeypatch):
+    """A local Ollama transport stubs these when Ollama drops a call to one (providers/deferred_tools)."""
+    from contextvars import copy_context
+
+    from row_bot.providers import deferred_tools
+
+    agent = _prepare_graph(monkeypatch)
+    status, memory = _lc_tool("row_bot_status"), _lc_tool("search_memory")
+    _registry_with(monkeypatch, agent, {"row_bot_status": [status], "memory": [memory]})
+
+    context = copy_context()
+    graph = context.run(agent.get_agent_graph, ["row_bot_status", "memory"])
+
+    assert "row_bot_status" not in _bound_tools(graph)
+    assert context.run(deferred_tools.offered) == {"row_bot_status"}
+
+
 def test_a_large_window_binds_every_group_and_developer_tools_with_a_code_folder(monkeypatch):
     agent = _prepare_graph(monkeypatch)
     monkeypatch.setattr(agent, "get_context_size", lambda model_name=None: 262_144)
@@ -623,3 +640,29 @@ def test_a_small_window_binds_developer_tools_only_with_a_code_folder(monkeypatc
 
     monkeypatch.setattr(agent, "_has_code_folder", lambda: True)
     assert "developer_read_file" in _bound_tools(agent.get_agent_graph(["developer", "memory"]))
+
+
+def test_a_profile_that_does_not_delegate_is_never_offered_delegate_work(monkeypatch):
+    """R7 (12 Nov): seven workflows' profiles refused delegate_work nine times; it is no longer offered there."""
+    agent = _prepare_graph(monkeypatch)
+    monkeypatch.setattr(
+        agent.tool_registry,
+        "get_tool",
+        lambda name: SimpleNamespace(
+            as_langchain_tools=lambda: [_lc_tool("delegate_work" if name == "agents" else name)],
+            destructive_tool_names=set(),
+        ),
+    )
+    from row_bot.plugins import registry as plugin_registry
+
+    monkeypatch.setattr(plugin_registry, "get_langchain_tools", lambda allow_names=None: [])
+    monkeypatch.setattr(plugin_registry, "get_destructive_names", lambda allow_names=None: set())
+
+    def offered(policy: dict | None) -> bool:
+        agent._current_agent_profile_snapshot_var.set(
+            {} if policy is None else {"slug": "growth", "enabled": True, "tool_policy_json": policy})
+        return "delegate_work" in _bound_tools(agent.get_agent_graph(["agents", "filesystem"]))
+
+    assert offered(None), "a chat without a profile delegates"
+    assert not offered({"capability": "write_capable", "allow_delegation": False})
+    assert offered({"capability": "orchestrator", "allow_delegation": True})

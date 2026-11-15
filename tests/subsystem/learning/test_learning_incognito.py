@@ -89,7 +89,7 @@ def test_a_chat_that_turns_incognito_midway_records_nothing_more_and_keeps_what_
     assert statuses == ["completed", "running"]  # the cut turn never settles, so it never trains
 
     # What was recorded before the chat turned incognito still trains.
-    compiled = dataset.compile_dataset(store, recipes.load("8gb"), lookup=chats, refresh_vault=False)
+    compiled = dataset.compile_dataset(store, recipes.load("16gb"), lookup=chats, refresh_vault=False)
     assert compiled.conversations == ("chat-1",)
     assert "not_in_scope" not in compiled.left_out
 

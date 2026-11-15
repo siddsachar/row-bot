@@ -31,12 +31,39 @@
       "title": "Kind",
       "type": "string"
     },
+    "labels": {
+      "anyOf": [
+        {
+          "items": {
+            "enum": [
+              "official",
+              "reviewed",
+              "built_in",
+              "community"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Labels"
+    },
     "limit": {
       "default": 50,
       "maximum": 96,
       "minimum": 1,
       "title": "Limit",
       "type": "integer"
+    },
+    "no_sign_in": {
+      "default": false,
+      "title": "No Sign In",
+      "type": "boolean"
     },
     "query": {
       "default": "",
@@ -48,6 +75,16 @@
       "default": false,
       "title": "Refresh",
       "type": "boolean"
+    },
+    "runs": {
+      "default": "anywhere",
+      "enum": [
+        "anywhere",
+        "hosted",
+        "local"
+      ],
+      "title": "Runs",
+      "type": "string"
     },
     "sources": {
       "anyOf": [

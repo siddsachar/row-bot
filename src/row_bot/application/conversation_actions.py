@@ -14,6 +14,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any
 from uuid import UUID, uuid5
 
@@ -35,13 +36,30 @@ def _export_summary(fields: dict[str, Any]) -> str:
     return _EXPORT_SUMMARY["pdf" if fields.get("format") == "pdf" else "markdown"]
 
 
+_UNTITLED = {"", "new conversation"}
+_EXPORT_STEM_CHARS = 80
+
+
+def export_file_name(title: str, extension: str) -> str:
+    """The name a conversation's export is offered under: the chat's title made a plain, bounded file
+    name (letters, digits, space, dot, dash, underscore), or ``conversation-export`` for an untitled chat."""
+    from row_bot.application.save_offers import plain_name
+
+    words = " ".join(str(title or "").split())
+    if words.casefold() not in _UNTITLED:
+        stem = " ".join(re.sub(r"[^A-Za-z0-9 ._-]+", " ", words).split())[:_EXPORT_STEM_CHARS]
+        if re.match(r"[A-Za-z0-9]", stem.lstrip(" .-_")):
+            return plain_name(f"{stem}.{extension}")
+    return f"conversation-export.{extension}"
+
+
 def _export_file(conversation_id: str, fields: dict[str, Any], checkpoint_revision: str, *,
                  validate: Callable[[], None]) -> tuple[bytes, str]:
     """The reviewed export's bytes and file name."""
     title = str(fields["title"])
     data = _export_markdown(conversation_id, title, checkpoint_revision, validate=validate)
     if fields.get("format") != "pdf":
-        return data, "conversation-export.md"
+        return data, export_file_name(title, "md")
     from row_bot.application.conversation_pdf import PdfUnavailable, render_pdf
 
     try:
@@ -51,7 +69,7 @@ def _export_file(conversation_id: str, fields: dict[str, Any], checkpoint_revisi
     if len(pdf) > _MAX_EXPORT_BYTES:
         raise _error("conversation_export_too_large")
     validate()
-    return pdf, "conversation-export.pdf"
+    return pdf, export_file_name(title, "pdf")
 _MAX_EXPORT_MESSAGES = 20_000
 
 
@@ -211,12 +229,29 @@ def _export_markdown(conversation_id: str, title: str, checkpoint_revision: str,
 
     validate()
     count = 0
+    speaker = ""
+
+    def section(role: str, body: str) -> None:
+        # One heading per speaker's turn: a tool-only step adds no empty "## Row-Bot" (I18).
+        nonlocal speaker
+        if role != speaker:
+            append("## You\n\n" if role == "user" else "## Row-Bot\n\n")
+            speaker = role
+        append(body.rstrip("\n") + "\n\n")
+
     try:
         with open_checkpoint(conversation_id, checkpoint_revision) as reader:
             if checkpoint_revision and reader is None:
                 raise _error("conversation_transcript_changed")
             if reader is not None:
                 for _index, record in reader.records():
+                    if record["role"] == "tool" and record.get("media"):
+                        # What a tool made shows where it was made; the file stays with the conversation.
+                        section("assistant", "\n".join(
+                            f"_[{'Video' if str(item['payload'].get('mime_type', '')).startswith('video/') else 'Image'}"
+                            " made in this conversation, "
+                            "kept in Row-Bot]_" for item in record["media"]))
+                        continue
                     if record["role"] not in {"user", "assistant"}:
                         continue
                     count += 1
@@ -224,10 +259,9 @@ def _export_markdown(conversation_id: str, title: str, checkpoint_revision: str,
                         raise _error("conversation_export_too_large")
                     if count % 32 == 1:
                         validate()
-                    append("## You\n\n" if record["role"] == "user" else "## Row-Bot\n\n")
-                    for chunk in reader.public_text_chunks(record):
-                        append(chunk)
-                    append("\n")
+                    text = "".join(reader.public_text_chunks(record))
+                    if text.strip():
+                        section(record["role"], text)
     except ConversationActionError:
         raise
     except Exception:

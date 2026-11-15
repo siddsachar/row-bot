@@ -132,3 +132,28 @@ it('is not shown while its conversation is open here: the card is on screen', ()
     undefined,
   );
 });
+
+it('a workflow Row-Bot switched off offers Open, which opens that workflow', () => {
+  const off = notice({
+    id: 5,
+    level: 'warning',
+    requested: false,
+    title: 'Price watch is off',
+    message:
+      'It failed 5 times in a row, so Row-Bot switched it off. Open it to see why, then turn it back on.',
+    workflow_id: 'task-a',
+    at: new Date().toISOString(),
+  });
+  const openWorkflow = vi.fn();
+  renderHook(() => useBackgroundNotices(null, vi.fn(), openWorkflow));
+  act(() => runtime.listener?.(off));
+
+  const [[text, tone, action]] = runtime.notify.mock.calls;
+  expect([text, tone, action.label]).toEqual([
+    'Price watch is off: It failed 5 times in a row, so Row-Bot switched it off. Open it to see why, then turn it back on.',
+    'warning',
+    'Open',
+  ]);
+  action.onAction();
+  expect(openWorkflow).toHaveBeenCalledWith('task-a');
+});

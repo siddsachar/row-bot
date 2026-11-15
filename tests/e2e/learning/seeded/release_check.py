@@ -1,6 +1,6 @@
 """The Learning release check (S1, PLAN.md O92): one command, seeded people, the whole loop.
 
-    uv run python scripts/learning_release_check.py --people all --days 30 --tiers 8gb \\
+    uv run python scripts/learning_release_check.py --people all --days 30 --tiers 16gb \\
         --out <folder> --scratch <folder> --eval-profile <folder> --runtimes-from <folder>
 
 For each made-up person (``people/``) and each tier it runs ``live.py`` in its own process with its own
@@ -304,7 +304,7 @@ def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Row-Bot Learning's release check on seeded people (S1)")
     parser.add_argument("--people", default="all", help="all, or ids separated by commas")
     parser.add_argument("--days", type=int, default=30)
-    parser.add_argument("--tiers", default="8gb", help="tiers separated by commas (an uncertified tier is reported)")
+    parser.add_argument("--tiers", default="16gb", help="tiers separated by commas (an uncertified tier is reported)")
     parser.add_argument("--out", required=True, help="where the results and the report go")
     parser.add_argument("--scratch", required=True, help="where the people's scratch profiles go")
     parser.add_argument("--eval-profile", default=os.environ.get("ROW_BOT_LIVE_EVAL_CODEX_PROFILE", ""),

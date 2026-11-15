@@ -45,7 +45,11 @@ POSTING RULES:
 - The result gives the post's link: share it with the person.
 - If a result says "Not sure it went through", Row-Bot has already checked the
   account's latest posts. Report what it says; never send the post again.
-- Tweets have a 280-character limit for text content.
+- How long a post may be, and its media, depend on the account: x_accounts says (25,000 characters for
+  an account with long posts, else 280). x_post checks the length before the card.
+- A post for later: x_post with post_at ('13:00' or '2026-10-29T09:30'). Its card waits for the person
+  in Home › Review, where they edit, approve or say no; approved, it goes out at that time. Make a run's
+  posts in one step (several x_post calls at once) so they wait there together.
 - When replying, always include the tweet_id of the tweet being replied to.
 - When quoting, include both text (your commentary) and tweet_id (the tweet being quoted).
 
@@ -54,6 +58,6 @@ ENGAGEMENT PATTERNS:
 - Always confirm with the user before engaging with tweets on their behalf.
 
 BACKGROUND TASK EXAMPLES:
-- For monitoring tasks, use search with start_time='1h' to check recent tweets
-  since the last poll. Use persistent_thread to track what was already seen.
+- For monitoring tasks, search with start_time since the last check and keep the newest id you saw in the
+  workflow's notes, so the next run starts from there.
 - For engagement tasks, combine x_read search with x_engage actions.

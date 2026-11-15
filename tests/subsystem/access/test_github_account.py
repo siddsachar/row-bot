@@ -219,7 +219,7 @@ def test_rate_limit_headers_parse_primary_limit():
     assert not rate.secondary
     assert rate.limit == 60
     assert rate.remaining == 0
-    assert "Settings -> Accounts" in github_account.rate_limit_message(rate)
+    assert "Settings › Apps" in github_account.rate_limit_message(rate)
 
 
 def test_rate_limit_headers_parse_secondary_limit():

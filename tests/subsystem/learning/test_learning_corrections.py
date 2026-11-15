@@ -271,7 +271,7 @@ def test_drafting_datasets_and_practice_never_see_a_held_out_correction(work, le
     evaluation.refresh_audit(store=store, asked_by="nightly")
 
     assert second[-1] in store.held_out_ids() and second[0] not in store.held_out_ids()
-    compiled = dataset.compile_dataset(store, recipes.load("8gb"), lookup=chats, refresh_vault=False,
+    compiled = dataset.compile_dataset(store, recipes.load("16gb"), lookup=chats, refresh_vault=False,
                                        shape="captured")
     rows = str([item.row for item in compiled.train])
     assert "crates are 8 each" not in rows  # the redo of a held-out correction never trains (O87)

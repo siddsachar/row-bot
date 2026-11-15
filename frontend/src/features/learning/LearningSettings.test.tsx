@@ -12,10 +12,11 @@ import LearningSettings from './LearningSettings';
 import {
   downloadState,
   fakeIO,
-  GPU_8GB,
+  GPU_16GB,
   installedModel,
   learningSnapshot,
   NO_GPU,
+  SMALL_GPU,
   personalModel,
 } from './test-data';
 import type { LearningIO } from './learning-state';
@@ -128,12 +129,10 @@ it('the setup sheet fills in every default, turns on with one tap and then asks 
   fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
   const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
   expect(
-    await within(sheet).findByText('NVIDIA GeForce RTX 5070 Laptop (8 GB)'),
+    await within(sheet).findByText('NVIDIA GeForce RTX 5060 Ti (16 GB)'),
   ).toBeVisible();
   expect(
-    within(sheet).getByText(
-      'Can train small models (up to about 2B) on your tasks.',
-    ),
+    within(sheet).getByText('Can train models up to about 9B on your tasks.'),
   ).toBeVisible();
   for (const name of [
     /^My chats/,
@@ -152,7 +151,7 @@ it('the setup sheet fills in every default, turns on with one tap and then asks 
   ).toBeChecked();
   expect(
     within(sheet).getByRole('combobox', { name: 'Starting model' }),
-  ).toHaveDisplayValue('Qwen3.5 2B · Apache 2.0 · 4.6 GB download');
+  ).toHaveDisplayValue('Qwen3.5 9B · Apache 2.0 · 19.3 GB download');
   expect(
     within(sheet).getByRole('combobox', { name: 'Monthly limit' }),
   ).toHaveDisplayValue('2M tokens');
@@ -170,7 +169,7 @@ it('the setup sheet fills in every default, turns on with one tap and then asks 
   );
 
   const ask = await screen.findByRole('dialog', {
-    name: 'Download the training engine and Qwen3.5 2B?',
+    name: 'Download the training engine and Qwen3.5 9B?',
   });
   expect(io.run).toHaveBeenCalledWith('turn_on', {
     setup: {
@@ -179,11 +178,11 @@ it('the setup sheet fills in every default, turns on with one tap and then asks 
       monthly_token_limit: 2_000_000,
       train_in_quiet_hours: true,
       train_where: 'this_computer',
-      starting_model: 'qwen3.5-2b',
+      starting_model: 'qwen3.5-9b',
     },
   });
   expect(ask).toHaveAccessibleDescription(
-    'The training engine (2.2 GB) and Qwen3.5 2B (4.6 GB). 512 GB free on this computer.',
+    'The training engine (2.2 GB) and Qwen3.5 9B (19.3 GB). 512 GB free on this computer.',
   );
   fireEvent.click(within(ask).getByRole('button', { name: 'Download' }));
   await act(async () => undefined);
@@ -202,7 +201,7 @@ it('Not now records the answer and nothing downloads', async () => {
   show(io);
   fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
   const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  await within(sheet).findByText('NVIDIA GeForce RTX 5070 Laptop (8 GB)');
+  await within(sheet).findByText('NVIDIA GeForce RTX 5060 Ti (16 GB)');
   fireEvent.click(
     within(sheet).getByRole('button', { name: 'Turn on Learning' }),
   );
@@ -216,9 +215,30 @@ it('Not now records the answer and nothing downloads', async () => {
   });
 });
 
-it('without a suitable GPU the sheet says so plainly and offers Hugging Face', async () => {
+it('with no NVIDIA card the sheet says lessons still work and offers no Hugging Face (O131)', async () => {
+  const io = fakeIO(learningSnapshot(), { hardware: NO_GPU });
+  show(io);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
+  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
+  expect(
+    await within(sheet).findByText(
+      'A personal model runs on an NVIDIA graphics card with 8 GB or more, and this computer has none.',
+    ),
+  ).toBeVisible();
+  expect(
+    within(sheet).getByText(
+      'Learning still improves Row-Bot with lessons and ways of working.',
+    ),
+  ).toBeVisible();
+  expect(
+    within(sheet).queryByRole('button', { name: 'Use Hugging Face' }),
+  ).toBeNull();
+});
+
+it('a card too small to train says so plainly and offers Hugging Face (O124)', async () => {
   const io = fakeIO(learningSnapshot(), {
-    hardware: NO_GPU,
+    hardware: SMALL_GPU,
     after: (action) => (action === 'turn_on' ? { state: 'on' } : {}),
   });
   show(io);
@@ -227,7 +247,7 @@ it('without a suitable GPU the sheet says so plainly and offers Hugging Face', a
   const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
   expect(
     await within(sheet).findByText(
-      'This computer can’t train a model. You can train on Hugging Face (your account, priced before each run) or skip this for now.',
+      'You can train one on Hugging Face instead (your own account, priced before each run), or skip it: Learning still improves Row-Bot with lessons and ways of working.',
     ),
   ).toBeVisible();
   fireEvent.click(
@@ -349,7 +369,7 @@ it('the hardware check that fails offers Check again', async () => {
   io.hardware = vi
     .fn()
     .mockResolvedValueOnce({ ...NO_GPU, state: 'unknown' })
-    .mockResolvedValueOnce(GPU_8GB);
+    .mockResolvedValueOnce(GPU_16GB);
   show(io);
   fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
   const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
@@ -360,7 +380,7 @@ it('the hardware check that fails offers Check again', async () => {
   ).toBeVisible();
   fireEvent.click(within(sheet).getByRole('button', { name: 'Check again' }));
   expect(
-    await within(sheet).findByText('NVIDIA GeForce RTX 5070 Laptop (8 GB)'),
+    await within(sheet).findByText('NVIDIA GeForce RTX 5060 Ti (16 GB)'),
   ).toBeVisible();
   expect(io.hardware).toHaveBeenLastCalledWith(true);
 });
@@ -388,7 +408,7 @@ it('the engine and starting model on disk show their sizes, and Remove and Delet
 
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
   const remove2 = await screen.findByRole('alertdialog', {
-    name: 'Delete Qwen3.5 2B?',
+    name: 'Delete Qwen3.5 9B?',
   });
   expect(remove2).toHaveTextContent('It frees 4.6 GB.');
   fireEvent.click(within(remove2).getByRole('button', { name: 'Delete' }));
@@ -398,7 +418,7 @@ it('the engine and starting model on disk show their sizes, and Remove and Delet
 
 it('an NVIDIA driver older than 570 says to update it, in the setup sheet', async () => {
   const io = fakeIO(learningSnapshot(), {
-    hardware: { ...GPU_8GB, state: 'old_driver' },
+    hardware: { ...GPU_16GB, state: 'old_driver' },
   });
   show(io);
 
@@ -414,7 +434,7 @@ it('an NVIDIA driver older than 570 says to update it, in the setup sheet', asyn
 
 it('a 32 GB card offers its own tier’s model first, the smaller tiers’ as choices (L2x)', async () => {
   const GPU_32GB = {
-    ...GPU_8GB,
+    ...GPU_16GB,
     gpu: {
       name: 'NVIDIA GeForce RTX 5090',
       memory_gb: 32,
@@ -433,9 +453,14 @@ it('a 32 GB card offers its own tier’s model first, the smaller tiers’ as ch
         licence: 'Apache 2.0',
         download_bytes: 19_331_993_000,
       },
-      ...GPU_8GB.starting_models,
+      {
+        id: 'test-small',
+        name: 'A small model',
+        licence: 'Apache 2.0',
+        download_bytes: 4_570_000_000,
+      },
     ],
-  } satisfies typeof GPU_8GB;
+  } satisfies typeof GPU_16GB;
   const io = fakeIO(learningSnapshot(), {
     hardware: GPU_32GB,
     after: (action) => (action === 'turn_on' ? { state: 'on' } : {}),
@@ -457,10 +482,10 @@ it('a 32 GB card offers its own tier’s model first, the smaller tiers’ as ch
   );
   expect(
     within(starting).getByRole('option', {
-      name: /^Qwen3\.5 2B · Apache 2\.0 · 4\.6\sGB download$/,
+      name: /^A small model · Apache 2\.0 · 4\.6\sGB download$/,
     }),
   ).toBeInTheDocument();
-  fireEvent.change(starting, { target: { value: 'qwen3.5-2b' } });
+  fireEvent.change(starting, { target: { value: 'test-small' } });
   fireEvent.click(
     within(sheet).getByRole('button', { name: 'Turn on Learning' }),
   );
@@ -468,14 +493,14 @@ it('a 32 GB card offers its own tier’s model first, the smaller tiers’ as ch
   expect(io.run).toHaveBeenCalledWith(
     'turn_on',
     expect.objectContaining({
-      setup: expect.objectContaining({ starting_model: 'qwen3.5-2b' }),
+      setup: expect.objectContaining({ starting_model: 'test-small' }),
     }),
   );
 });
 
 it('the setup sheet says what training needs of the computer’s memory, and what to do when it can’t hold a tier (O105)', async () => {
   const GPU_32GB = {
-    ...GPU_8GB,
+    ...GPU_16GB,
     gpu: {
       name: 'NVIDIA GeForce RTX 5090',
       memory_gb: 32,
@@ -498,7 +523,7 @@ it('the setup sheet says what training needs of the computer’s memory, and wha
       },
     ],
     memory: { limit_gb: 36, free_gb: 20, system: 'windows' as const },
-  } satisfies typeof GPU_8GB;
+  } satisfies typeof GPU_16GB;
   const io = fakeIO(learningSnapshot(), { hardware: GPU_32GB });
   show(io);
 
@@ -522,9 +547,9 @@ it('the setup sheet says what training needs of the computer’s memory, and wha
 it('a computer whose memory can’t hold training says so up front, with what to do (O105)', async () => {
   const io = fakeIO(learningSnapshot(), {
     hardware: {
-      ...GPU_8GB,
+      ...GPU_16GB,
       state: 'low_memory',
-      tier: { ...GPU_8GB.tier!, system_memory_gb: 15 },
+      tier: { ...GPU_16GB.tier!, system_memory_gb: 15 },
       starting_models: [],
       memory: { limit_gb: 12, free_gb: 5, system: 'linux' },
     },
@@ -552,7 +577,7 @@ it('a computer whose memory can’t hold training says so up front, with what to
 it('setup says why it recommends a smaller model when the graphics card has little free (O112)', async () => {
   const io = fakeIO(learningSnapshot(), {
     hardware: {
-      ...GPU_8GB,
+      ...GPU_16GB,
       gpu: {
         name: 'NVIDIA GeForce RTX 4080',
         memory_gb: 16,
@@ -565,16 +590,22 @@ it('setup says why it recommends a smaller model when the graphics card has litt
         summary: 'Can train models up to about 9B on your tasks.',
         card_need_gb: 15.3,
       },
-      recommended: { ...GPU_8GB.tier!, card_need_gb: 8 },
+      recommended: {
+        id: 'small',
+        label: 'small',
+        certified: true,
+        summary: '',
+        card_need_gb: 8,
+      },
       card_free_gb: 9.6,
       starting_models: [
-        GPU_8GB.starting_models[0],
         {
-          id: 'qwen3.5-9b',
-          name: 'Qwen3.5 9B',
+          id: 'test-small',
+          name: 'A small model',
           licence: 'Apache 2.0',
-          download_bytes: 19_300_000_000,
+          download_bytes: 4_570_000_000,
         },
+        GPU_16GB.starting_models[0],
       ],
     },
   });
@@ -584,12 +615,12 @@ it('setup says why it recommends a smaller model when the graphics card has litt
   const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
   expect(
     await within(sheet).findByText(
-      'Your graphics card has about 9 GB free now (your display and other apps use the rest), so Row-Bot recommends Qwen3.5 2B. Larger models need about 16 GB free on it.',
+      'Your graphics card has about 9 GB free now (your display and other apps use the rest), so Row-Bot recommends A small model. Larger models need about 16 GB free on it.',
     ),
   ).toBeVisible();
   expect(
     within(sheet).getByRole('combobox', { name: 'Starting model' }),
-  ).toHaveDisplayValue(/^Qwen3\.5 2B/);
+  ).toHaveDisplayValue(/^A small model/);
 });
 
 it('the learning data line says how much of it is browser and computer pictures', () => {

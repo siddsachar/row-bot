@@ -44,7 +44,8 @@ def _row(ref: str, name: str, *, app_ref: str, lifecycle: str, blockers: list[di
     row = facts.entry("builtin", ref, name, app=app.ref() if app else None, source="builtin",
                       publisher="Row-Bot", description=description, installed=lifecycle != "available",
                       enabled=lifecycle == "installed", lifecycle=lifecycle, blockers=list(blockers),
-                      canonical_identity="builtin:" + ref, compatibility="supported", evidence_stage="inspected")
+                      canonical_identity="builtin:" + ref, compatibility="supported", evidence_stage="inspected",
+                      sign_in="required")  # An account, a channel or a key.
     row["tools"] = list(tools)  # The chat tools this way brings, for app identity and chat switches.
     facts.finish(row)
     if not tools and row["next_action"]["kind"] == "try":

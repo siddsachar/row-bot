@@ -70,6 +70,9 @@ class RecordingFeed {
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     if (this.listeners.size === 1) {
+      // A card shown again after the last one went (moved in the transcript)
+      // brings this feed back, so the next render finds it, not a new empty one.
+      feeds.set(this.scope ?? '*', this);
       document.addEventListener('visibilitychange', this.onVisibility);
       this.schedule(0);
     }
@@ -159,7 +162,7 @@ class RecordingFeed {
     clearTimeout(this.timer);
     this.reading?.abort();
     document.removeEventListener('visibilitychange', this.onVisibility);
-    feeds.delete(this.scope ?? '*');
+    if (feeds.get(this.scope ?? '*') === this) feeds.delete(this.scope ?? '*');
   }
 }
 

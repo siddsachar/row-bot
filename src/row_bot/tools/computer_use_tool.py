@@ -295,8 +295,8 @@ def computer_record(action: str, minutes: int = 0) -> str:
 
 
 DESCRIPTION = (
-    "Use an app on this computer with the real mouse and keyboard while the person watches (Esc stops you). "
-    "Start with list_apps, then screenshot or open_app with app=. Each action returns what it did, the "
+    "Use an app on this computer with the real mouse and keyboard while the person watches (Esc stops you); only "
+    "for a task on the desktop. Start with list_apps, then screenshot or open_app with app=. Each action returns what it did, the "
     "window's controls with their x,y and, if you see images, its picture: check it before the next step. "
     "x,y are in the latest screenshot. Click a field before you type. For websites use the browser tools "
     "unless the person asks for their own browser."

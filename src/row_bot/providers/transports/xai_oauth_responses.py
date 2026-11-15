@@ -336,7 +336,7 @@ class ChatXAIOAuthResponses(BaseChatModel):
         self._validate_probe()
         credentials = xai_auth.xai_oauth_runtime_credentials(refresh_if_needed=self._probe_snapshot is None, _snapshot=self._probe_snapshot)
         if not credentials.access_token:
-            raise RuntimeError("xAI OAuth access token is missing. Connect xAI Grok in Settings -> Providers.")
+            raise RuntimeError("xAI OAuth access token is missing. Connect xAI Grok in Settings › Models.")
         return {
             "Authorization": f"Bearer {credentials.access_token}",
             "Accept": "text/event-stream" if stream else "application/json",
@@ -406,9 +406,9 @@ def _normalized_error(status_code: int, detail: str) -> str:
     suffix = f": {detail}" if detail else ""
     lowered = str(detail or "").lower()
     if status_code == 401:
-        return "xAI OAuth login expired. Reconnect xAI Grok in Settings -> Providers."
+        return "xAI OAuth login expired. Reconnect xAI Grok in Settings › Models."
     if status_code == 403:
-        return f"xAI OAuth access denied or subscription not eligible. The separate xAI API key provider remains available in Settings -> Providers{suffix}"
+        return f"xAI OAuth access denied or subscription not eligible. The separate xAI API key provider remains available in Settings › Models{suffix}"
     if status_code == 429:
         return f"xAI OAuth rate or usage limit reached{suffix}"
     if "credit" in lowered or ("usage" in lowered and "exhaust" in lowered):

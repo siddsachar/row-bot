@@ -2,7 +2,8 @@
 
 Row-Bot runs no checks, downloads or staging, the agent's update tool is off,
 Settings shows the host's status file, and Update now / Skip / Pause become
-requests in the shared folder.
+requests in the shared folder. A known hosting company (H3) means the same,
+even without the image's setting.
 """
 
 from __future__ import annotations
@@ -12,17 +13,25 @@ from uuid import uuid4
 
 import pytest
 
+from row_bot.hosting import HOSTED_BY_ENV
 from row_bot.updates import external
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture
-def host(tmp_path, monkeypatch, reload_for_data_dir):
+def host(request, tmp_path, monkeypatch, reload_for_data_dir):
     folder = tmp_path / "host-updates"
-    monkeypatch.setenv("ROW_BOT_UPDATES", "external")
+    if getattr(request, "param", "image setting") == "image setting":
+        monkeypatch.setenv("ROW_BOT_UPDATES", "external")
+        monkeypatch.delenv(HOSTED_BY_ENV, raising=False)
+    else:
+        monkeypatch.delenv("ROW_BOT_UPDATES", raising=False)
+        monkeypatch.setenv(HOSTED_BY_ENV, "pikapods")
     monkeypatch.setenv(external.UPDATES_DIR_ENV, str(folder))
     (updater,) = reload_for_data_dir(tmp_path / "data", "row_bot.updater")
+    # An install that would otherwise check, download and switch versions by itself.
+    monkeypatch.setattr(updater, "is_dev_install", lambda: False)
     monkeypatch.setattr(updater, "_fetch_releases_payload", lambda _channel: pytest.fail("no checks in external mode"))
     from row_bot.application import client_updates
 
@@ -30,6 +39,7 @@ def host(tmp_path, monkeypatch, reload_for_data_dir):
     return folder, updater, client_updates
 
 
+@pytest.mark.parametrize("host", ["image setting", "known host alone"], indirect=True)
 def test_external_mode_runs_no_checks_downloads_or_scheduler(host, monkeypatch):
     _folder, updater, _api = host
     assert updater.update_mode() == "external"
@@ -41,6 +51,7 @@ def test_external_mode_runs_no_checks_downloads_or_scheduler(host, monkeypatch):
     assert updater._scheduler_thread is None
 
 
+@pytest.mark.parametrize("host", ["image setting", "known host alone"], indirect=True)
 def test_the_agents_update_tool_is_off(host):
     from row_bot.tools import registry
 
@@ -112,3 +123,28 @@ def test_a_missing_or_hostile_status_file_reads_as_unknown(host):
     assert external.read_status(folder)["state"] == "unknown"
     with pytest.raises(ValueError):
         external.write_request("install_anything", folder=folder)  # type: ignore[arg-type]
+
+
+def test_settings_links_a_known_hosts_release_notes(tmp_path, monkeypatch, reload_for_data_dir):
+    monkeypatch.delenv("ROW_BOT_UPDATES", raising=False)
+    monkeypatch.setenv(HOSTED_BY_ENV, "pikapods")
+    monkeypatch.setenv(external.UPDATES_DIR_ENV, str(tmp_path / "host-updates"))
+    reload_for_data_dir(tmp_path / "data", "row_bot.updater")
+    from row_bot.application import client_updates
+
+    # The host reports nothing to Row-Bot: What's new is the version it runs.
+    snapshot = client_updates.read_updates()
+    assert snapshot["mode"] == "external"
+    assert snapshot["host"]["notes_url"] == (
+        f"https://github.com/siddsachar/row-bot/releases/tag/v{snapshot['current_version']}"
+    )
+
+    # Plain Docker: no host to name and no link.
+    monkeypatch.setenv("ROW_BOT_UPDATES", "external")
+    monkeypatch.delenv(HOSTED_BY_ENV)
+    assert client_updates.read_updates()["host"]["notes_url"] is None
+
+    # A host Row-Bot can't name changes nothing about how this install updates.
+    monkeypatch.delenv("ROW_BOT_UPDATES")
+    monkeypatch.setenv(HOSTED_BY_ENV, "somewhere-else")
+    assert client_updates.read_updates()["host"] is None

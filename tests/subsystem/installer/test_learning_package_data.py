@@ -39,4 +39,4 @@ def test_installs_carry_the_training_engines_project_and_the_recipes(tmp_path, m
     assert {"row_bot.learning_engine/pyproject.toml", "row_bot.learning_engine/uv.lock",
             "row_bot.learning_engine/entry.py", "row_bot.learning_engine/trainer.py"} <= engine
     recipes = {name for name in files if name.startswith("row_bot.learning.training.recipes/")}
-    assert {f"row_bot.learning.training.recipes/{tier}.json" for tier in ("8gb", "16gb", "24gb", "32gb")} <= recipes
+    assert {f"row_bot.learning.training.recipes/{tier}.json" for tier in ("16gb", "24gb", "32gb")} <= recipes

@@ -111,60 +111,40 @@ export default function AppearanceSettings({
         className="appearance-preview"
         aria-label={`Preview: ${appearanceLabels[preference.appearance]} appearance, ${accentLabels[preference.accent]} accent, ${preference.density} density`}
       >
-        {/* Each look is also a choice: choosing one keeps it, instead of
-            following the device. */}
-        <div className="appearance-preview-pair">
-          {(['light', 'dark'] as const).map((mode) => (
+        {/* The looks are the choice: System follows the device, Light and
+            Dark keep one (U37: no second control for the same thing). */}
+        <div className="appearance-preview-pair" data-count={3}>
+          {(['system', 'light', 'dark'] as const).map((choice) => (
             <button
-              key={mode}
+              key={choice}
               type="button"
               className="appearance-choice"
               aria-label={
-                preference.appearance === 'system' && resolved === mode
-                  ? `${appearanceLabels[mode]}, in use now`
-                  : appearanceLabels[mode]
+                choice === 'system'
+                  ? `System, follows your device (${resolved === 'dark' ? 'Dark' : 'Light'} now)`
+                  : appearanceLabels[choice]
               }
-              aria-pressed={preference.appearance === mode}
-              onClick={() => update({ appearance: mode })}
+              aria-pressed={preference.appearance === choice}
+              onClick={() => update({ appearance: choice })}
             >
               <MiniApp
-                mode={mode}
+                mode={choice === 'system' ? resolved : choice}
                 accent={preference.accent}
                 density={preference.density}
                 opaque={opaque}
               />
               <span className="appearance-choice-label">
-                {appearanceLabels[mode]}
-                {preference.appearance === 'system' && resolved === mode && (
-                  <small aria-hidden> · in use now</small>
+                {appearanceLabels[choice]}
+                {choice === 'system' && (
+                  <small aria-hidden> · follows your device</small>
                 )}
               </span>
             </button>
           ))}
         </div>
-        <figcaption>
-          {preference.appearance === 'system'
-            ? 'System follows your device: whichever look it uses. Choose one to keep it.'
-            : 'Changes apply immediately on this device.'}
-        </figcaption>
+        <figcaption>Changes apply immediately on this device.</figcaption>
       </figure>
       <SettingsSection title="Look" anchor="theme">
-        <Field
-          label="Appearance"
-          hint="System follows your device setting."
-          layout="row"
-        >
-          <Select
-            value={preference.appearance}
-            onChange={(event) =>
-              update({ appearance: event.target.value as Appearance })
-            }
-          >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </Select>
-        </Field>
         <div data-setting-anchor="accent">
           <Field
             label="Colour theme"

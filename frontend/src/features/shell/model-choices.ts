@@ -19,6 +19,13 @@ export function splitModelLabel(label: string): {
     : { name: label.trim(), provider: '' };
 }
 
+/** A provider's sheet in Settings › Models (its connection and models), or the page. */
+export function providerSheetPath(providerId?: string | null): string {
+  return providerId
+    ? `/settings/models?provider=${encodeURIComponent(providerId)}`
+    : '/settings/models';
+}
+
 /** A short display name for a model reference outside the catalog. */
 export function modelRefName(ref: string | undefined | null): string {
   if (!ref) return '';
@@ -47,7 +54,7 @@ export function groupModels(models: readonly ModelChoice[]): ModelGroup[] {
           splitModelLabel(model.label).provider ||
           humanizeToken(model.provider_id),
         connected: false,
-        local: isLocalProvider(model.provider_id),
+        local: model.billing === 'local' || isLocalProvider(model.provider_id),
         models: [],
       };
       groups.set(model.provider_id, group);
@@ -63,21 +70,159 @@ export function groupModels(models: readonly ModelChoice[]): ModelGroup[] {
 }
 
 /**
- * Favourites first, in their order, then the rest as listed, then hidden
- * models (F10): for lists that can't group, such as a workflow's model.
+ * Your starred models first, in their order, then the rest as listed: for
+ * lists that can't group, such as a workflow's model.
  */
-export function favouritesFirst<
-  T extends Pick<ModelChoice, 'favourite_rank' | 'hidden'>,
->(models: readonly T[]): T[] {
+export function favouritesFirst<T extends Pick<ModelChoice, 'favourite_rank'>>(
+  models: readonly T[],
+): T[] {
   const favourites = models
     .filter((model) => model.favourite_rank != null)
     .sort((a, b) => (a.favourite_rank ?? 0) - (b.favourite_rank ?? 0));
-  const others = models.filter((model) => model.favourite_rank == null);
   return [
     ...favourites,
-    ...others.filter((model) => !model.hidden),
-    ...others.filter((model) => model.hidden),
+    ...models.filter((model) => model.favourite_rank == null),
   ];
+}
+
+/** One model reached through several providers: the route shown, then the rest. */
+export type ModelRoutes<T extends ModelChoice = ModelChoice> = {
+  first: T;
+  others: T[];
+};
+
+// Prefixes that name where a model runs, not who made it: Requesty's
+// "vertex/claude-fable-5", "fireworks/qwen3.8-max"; Fireworks' own paths.
+const HOSTS = new Set([
+  'accountsfireworksmodels',
+  'accountsfireworksrouters',
+  'azure',
+  'bedrock',
+  'deepinfra',
+  'fireworks',
+  'groq',
+  'nebius',
+  'novita',
+  'parasail',
+  'runware',
+  'tensorx',
+  'together',
+  'vertex',
+]);
+// One maker, several spellings across providers.
+const MAKERS: Record<string, string> = {
+  alibaba: 'qwen',
+  deepseekai: 'deepseek',
+  metallama: 'meta',
+  minimaxai: 'minimax',
+  mistralai: 'mistral',
+  moonshotai: 'moonshot',
+  spacexai: 'xai',
+  zai: 'zai',
+  zhipu: 'zai',
+  zhipuai: 'zai',
+};
+
+/**
+ * "anthropic/claude-opus-4.7" → maker "anthropic", name "claudeopus47"; a
+ * host prefix ("vertex/…") and a region ("…@us-east-1") are not part of it.
+ */
+function routeName(ref: string): { maker: string; name: string } | null {
+  if (!ref.startsWith('model:')) return null;
+  const id = ref.split(':').slice(2).join(':').toLowerCase();
+  const slash = id.lastIndexOf('/');
+  const name = id
+    .slice(slash + 1)
+    .replace(/@.*$/, '')
+    .replace(/[^a-z0-9]/g, '');
+  if (!name) return null;
+  const clean = (part: string) => part.replace(/[^a-z0-9]/g, '');
+  const prefix = slash > 0 ? id.slice(0, slash) : '';
+  // "groq/openai/gpt-oss-120b": the maker is the last part that isn't a host.
+  const maker = HOSTS.has(clean(prefix))
+    ? ''
+    : (prefix
+        .split('/')
+        .map(clean)
+        .filter((part) => part && !HOSTS.has(part))
+        .at(-1) ?? '');
+  return { maker: MAKERS[maker] ?? maker, name };
+}
+
+/** Your plan, this computer, the maker's own API, then a router; unavailable last. */
+function routeOrder(model: ModelChoice, maker: string) {
+  if (!model.available) return 4;
+  if (model.billing === 'subscription') return 0;
+  if (model.billing === 'local') return 1;
+  return maker ? 3 : 2;
+}
+
+/**
+ * Folds the same model offered by several providers into one entry (§4.4):
+ * "claude-opus-4-7", "anthropic/claude-opus-4.7" and Requesty's
+ * "vertex/claude-opus-4-7@us-east-1" are one model, but two
+ * makers' models of one name stay apart. The route shown is the current
+ * one, then a starred one, then by `routeOrder`. Display only: each route
+ * keeps its own reference, and nothing switches routes by itself.
+ */
+export function foldRoutes<T extends ModelChoice>(
+  models: readonly T[],
+  current?: string,
+): ModelRoutes<T>[] {
+  const named = new Map<string, { model: T; maker: string }[]>();
+  const alone: T[] = [];
+  for (const model of models) {
+    const parsed = routeName(model.model_ref);
+    if (!parsed) alone.push(model);
+    else
+      named
+        .set(parsed.name, named.get(parsed.name) ?? [])
+        .get(parsed.name)!
+        .push({ model, maker: parsed.maker });
+  }
+  const sets: { model: T; maker: string }[][] = [];
+  for (const routes of named.values()) {
+    const makers = new Set(routes.map((route) => route.maker).filter(Boolean));
+    if (makers.size <= 1) sets.push(routes);
+    else
+      for (const maker of makers)
+        sets.push(routes.filter((route) => route.maker === maker));
+    // With two makers, a route that names none could be either: it stays alone.
+    if (makers.size > 1)
+      alone.push(...routes.filter((route) => !route.maker).map((r) => r.model));
+  }
+  const rank = (route: { model: T; maker: string }) => [
+    route.model.model_ref === current ? 0 : 1,
+    route.model.favourite_rank != null && route.model.available
+      ? route.model.favourite_rank
+      : Infinity,
+    routeOrder(route.model, route.maker),
+  ];
+  const byRank = (
+    a: { model: T; maker: string },
+    b: { model: T; maker: string },
+  ) => {
+    const [x, y] = [rank(a), rank(b)];
+    return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+  };
+  const folded = new Map<T, ModelRoutes<T>>();
+  for (const routes of sets) {
+    // One route per provider: Requesty's other hosts and regions of the
+    // same model stay rows of their own rather than look-alike routes.
+    const seen = new Set<string>();
+    const [first, ...others] = [...routes]
+      .sort(byRank)
+      .map((r) => r.model)
+      .filter((model) => {
+        if (!seen.has(model.provider_id)) return seen.add(model.provider_id);
+        alone.push(model);
+        return false;
+      });
+    folded.set(routes[0].model, { first, others });
+  }
+  for (const model of alone) folded.set(model, { first: model, others: [] });
+  // In the order the models came, by each one's first appearance.
+  return models.flatMap((model) => folded.get(model) ?? []);
 }
 
 export function matchesModel(model: ModelChoice, query: string) {

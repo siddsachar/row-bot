@@ -16,6 +16,8 @@ channels/whatsapp_bridge/node_modules/
 src/row_bot/channels/whatsapp_bridge/node_modules/
 services/install-count/node_modules/
 services/install-count/.wrangler/
+services/railway-relay/node_modules/
+services/railway-relay/.wrangler/
 
 # Secrets
 api_keys.json

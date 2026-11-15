@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from row_bot import environment_secrets
 from row_bot import install_layout as layout
 from row_bot.install_layout import InstallKind, InstallState
 
@@ -470,6 +471,8 @@ def test_direct_mode_stops_gracefully_and_exits_with_the_relaunch_code(monkeypat
     monkeypatch.setattr(launcher, "_claim_instance", lambda: True)
     monkeypatch.setattr(launcher, "_write_launcher_state", lambda **_kwargs: None)
     monkeypatch.setattr(launcher, "_clear_launcher_state", lambda: None)
+    # Server mode makes its process non-dumpable for good; this one is the test worker.
+    monkeypatch.setattr(environment_secrets, "keep_environment_private", lambda: None)
 
     def run_direct(_args):
         launcher.quit_for_relaunch()

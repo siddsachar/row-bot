@@ -5,8 +5,9 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { ProviderSettingsSnapshot } from '../../api/types';
+import { setPlace } from '../../api/place';
 import ProviderSettingsEditor from './ProviderSettingsEditor';
 import { ProviderSettingsSession } from './provider-settings-sessions';
 
@@ -71,6 +72,41 @@ it('saves a key from the compact provider dialog with one explicit action', asyn
   expect(input).toHaveValue('');
   expect(options.onSaved).toHaveBeenCalledOnce();
   expect(document.body.textContent).not.toContain('synthetic-private-input');
+});
+
+it('keeps the provider’s name after a save, and says the state once (I1)', async () => {
+  const options = {
+    ...props(),
+    providerId: 'deepseek',
+    load: vi.fn().mockResolvedValue({
+      ...snapshot,
+      provider_id: 'deepseek',
+      display_name: 'DeepSeek',
+    }),
+    review: vi.fn().mockResolvedValue({
+      ...snapshot,
+      provider_id: 'deepseek',
+      display_name: 'DeepSeek',
+    }),
+    // A save's result names the provider by its id.
+    apply: vi.fn().mockResolvedValue({
+      ...snapshot,
+      provider_id: 'deepseek',
+      display_name: 'deepseek',
+      revision: 'b'.repeat(64),
+    }),
+  };
+  render(<ProviderSettingsEditor {...options} compact />);
+  fireEvent.change(await screen.findByLabelText('API key'), {
+    target: { value: 'synthetic-private-input' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Replace key' }));
+  await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
+  expect(
+    await screen.findByRole('heading', { name: 'DeepSeek API key' }),
+  ).toBeVisible();
+  // Read out for screen readers, but the visible state line already says it.
+  expect(screen.getByText('API key saved.')).toHaveClass('sr-only');
 });
 
 it('retains the private draft across a full editor remount', async () => {
@@ -424,4 +460,49 @@ it('never checks a custom endpoint key with a public provider', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Replace key' }));
   await waitFor(() => expect(options.apply).toHaveBeenCalledOnce());
   expect(check).not.toHaveBeenCalled();
+});
+
+afterEach(() => setPlace(null));
+
+it('says where a saved key is kept: this computer’s keychain, or encrypted on the server (U7)', async () => {
+  const show = () =>
+    render(
+      <ProviderSettingsEditor
+        {...props()}
+        load={vi
+          .fn()
+          .mockResolvedValue({ ...snapshot, source: 'encrypted_file' })}
+        compact
+      />,
+    );
+  const desktop = show();
+  expect(
+    await screen.findByText(
+      "Saving sends the key to OpenAI to check it, then keeps it in this computer's keychain.",
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText('Connected · Key saved · encrypted on this device'),
+  ).toBeVisible();
+  desktop.unmount();
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  const hosted = show();
+  expect(
+    await screen.findByText(
+      'Saving sends the key to OpenAI to check it, then keeps it encrypted on your Row-Bot server at PikaPods.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      'Connected · Key saved · encrypted on your Row-Bot server',
+    ),
+  ).toBeVisible();
+  hosted.unmount();
+  setPlace({ kind: 'server' });
+  show();
+  expect(
+    await screen.findByText(
+      'Saving sends the key to OpenAI to check it, then keeps it encrypted on the computer Row-Bot runs on.',
+    ),
+  ).toBeVisible();
 });

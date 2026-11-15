@@ -505,6 +505,9 @@ class ManagedServer:
                 self._fail("start_failed")
                 raise ServerError("start_failed")
             time.sleep(0.1)
+        # Recorded again now it answers: just after it starts, on macOS it can still carry Row-Bot's own
+        # name (before it replaces itself), and a record with the wrong name is never acted on.
+        self._record(process.pid)
         self._connection = connection
         self._state = "running"
         self.last_failure = None

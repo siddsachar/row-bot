@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { DictationHandle } from '../../api/types';
 import type { DictationScope } from './VoiceControls';
 import { Button } from '../../ui/primitives';
+import { followBuddyVoice, wavEnvelope } from '../buddy/living/voice';
 
 export type TalkSnapshot = {
   schema_version: 1;
@@ -57,6 +58,8 @@ export type TalkControlsProps = {
   };
   onBusy?(busy: boolean): void;
   onSubmitted?(result: TalkResult): void;
+  /** Start Talk as soon as the controls appear: the tap that showed them. */
+  startOnMount?: boolean;
 };
 
 type Stage =
@@ -162,6 +165,11 @@ export default function TalkControls(props: TalkControlsProps) {
     props.scope.selectionKey,
     props.available,
   ]);
+  const startOnMount = useRef(props.startOnMount);
+  const startNow = useEffectEvent(() => void start());
+  useEffect(() => {
+    if (startOnMount.current) startNow();
+  }, []);
 
   function live(a: Attempt) {
     return current.current === a && !a.stopped;
@@ -421,6 +429,8 @@ export default function TalkControls(props: TalkControlsProps) {
     }
     setStage('speaking');
     void (async () => {
+      // Buddy's mouth follows the clip's loudness while it plays.
+      let stopVoice = () => {};
       try {
         const blob = await latest.current.output(
           a.handle!,
@@ -435,10 +445,13 @@ export default function TalkControls(props: TalkControlsProps) {
           blob.size > 8_388_608
         )
           throw new Error('invalid_voice_audio');
+        const envelope = wavEnvelope(await blob.arrayBuffer());
+        if (!live(a) || !speechEnabled.current) return;
         const url = URL.createObjectURL(blob);
         a.audioUrl = url;
         const audio = new Audio(url);
         a.audio = audio;
+        if (envelope) stopVoice = followBuddyVoice(audio, envelope);
         await new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(
             () => reject(new Error('audio_playback_timeout')),
@@ -465,6 +478,7 @@ export default function TalkControls(props: TalkControlsProps) {
             'Speech playback unavailable. The response remains in the conversation.',
           );
       } finally {
+        stopVoice();
         releaseAudio(a);
         if (live(a)) void listen(a);
       }

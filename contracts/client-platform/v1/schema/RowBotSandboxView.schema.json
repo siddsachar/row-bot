@@ -8,6 +8,11 @@
       "title": "Name",
       "type": "string"
     },
+    "needs_model": {
+      "default": false,
+      "title": "Needs Model",
+      "type": "boolean"
+    },
     "pack": {
       "enum": [
         "empty",

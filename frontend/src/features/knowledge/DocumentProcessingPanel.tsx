@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { humanizeToken } from '../../ui/format';
 import type { ClientController } from '../../api/controller';
 import { clientError } from '../../api/errors';
+import { usePlace, type PlaceWords } from '../../api/place';
 import { Button, ErrorState } from '../../ui/primitives';
 
 /**
@@ -304,10 +305,11 @@ export type DocumentProcessingOwner = ReturnType<
 >;
 
 // Stable ids stay in the review; people read titles, models and places.
-const LOCATION: Record<string, string> = {
-  local: 'on this device',
-  remote: 'cloud',
-};
+function location(value: string, place: PlaceWords) {
+  if (value === 'remote') return 'cloud';
+  if (value !== 'local') return value;
+  return place.kind === 'this_computer' ? 'on this device' : `on ${place.name}`;
+}
 function modelName(ref: string) {
   return ref.replace(/^model:[^:]+:/, '');
 }
@@ -323,6 +325,7 @@ export function DocumentProcessingPanel({
   conversationTitle?: (id: string) => string | undefined;
 }) {
   const state = useSyncExternalStore(owner.subscribe, owner.getSnapshot);
+  const place = usePlace();
   useEffect(() => {
     if (onAdmitted && !state.revoked && state.receipt?.status === 'completed')
       owner.notifyAdmitted(onAdmitted);
@@ -383,18 +386,16 @@ export function DocumentProcessingPanel({
           <p title={state.review.chat.model_ref}>
             Chat model: {modelName(state.review.chat.model_ref)} ·{' '}
             {humanizeToken(state.review.chat.provider_id)} ·{' '}
-            {LOCATION[state.review.chat.execution_location] ??
-              state.review.chat.execution_location}
+            {location(state.review.chat.execution_location, place)}
           </p>
           <p>
             Embeddings: {humanizeToken(state.review.embedding.provider)} ·{' '}
-            {LOCATION[state.review.embedding.execution_location] ??
-              state.review.embedding.execution_location}
+            {location(state.review.embedding.execution_location, place)}
           </p>
           <p>
             {state.review.chat.execution_location === 'local' &&
             state.review.embedding.execution_location === 'local'
-              ? 'Everything runs on this device. Results update your saved knowledge.'
+              ? `Everything runs ${place.kind === 'this_computer' ? 'on this device' : place.on}. Results update your saved knowledge.`
               : 'Processing sends the content of these documents to the cloud models above. Results update your saved knowledge.'}
           </p>
         </div>

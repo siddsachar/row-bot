@@ -802,12 +802,13 @@ class ReplaySet:
 
 def _last_person_text(messages: Sequence[Mapping[str, Any]]) -> str:
     """The text of the person's last message: its text parts, never image data, and never the page's
-    picture after a browser or computer action (A8)."""
+    picture after a browser or computer action (A8), nor a note Row-Bot sent the model itself."""
 
+    from row_bot.learning.corrections import is_row_bot_note
     from row_bot.learning.pictures import is_page_picture
 
     for item in reversed(messages):
-        if item.get("type") != "human" or is_page_picture(item):
+        if item.get("type") != "human" or is_page_picture(item) or is_row_bot_note(item):
             continue
         content = (item.get("data") or {}).get("content")
         if isinstance(content, str):
@@ -1446,7 +1447,7 @@ def compare(arms: Sequence[Arm], *, tasks: Sequence[PackTask] = (), replay: Sequ
             suite: Literal["replay", "pack", "practice"] | None = None, runner: PackRunner | None = None,
             cache: ArmCache | None = None, on_case: Callable[[str, CaseResult], None] | None = None,
             repeats: int = 1, seed: int = ANALYSIS_SEED, kind_key: Callable[[str], str] | None = None,
-            pairs: Sequence[tuple[str, str]] = ()) -> Comparison:
+            pairs: Sequence[tuple[str, str]] = (), order: str = "interleaved") -> Comparison:
     """Run every arm on the same pack tasks and replayed decisions, with the same budget.
 
     The first arm is the baseline the others are compared with. A judge is used only
@@ -1455,14 +1456,15 @@ def compare(arms: Sequence[Arm], *, tasks: Sequence[PackTask] = (), replay: Sequ
     and reuses the results of arms marked ``cache`` (O31); ``on_case(arm, case)`` follows progress.
     ``repeats`` runs every problem that many times per arm (O88); the paired analysis uses ``seed``
     and groups kinds of work with ``kind_key``. ``pairs`` ((baseline, arm) names) adds the analysis
-    of more pairs than each arm against the first (an ablation's own contrasts).
+    of more pairs than each arm against the first (an ablation's own contrasts). ``order="model"`` runs one
+    arm's problems after the other's, for models that can't stay loaded together (the same results).
     """
 
     return _compare(arms, list(tasks), list(replay), client=client, judge=judge, calibration=calibration,
                     budget=budget, meter=meter, store=store, save=save, clock=clock, backend=backend,
                     suite=suite or ("replay" if replay and not tasks else "pack"), aggregate_only=False,
                     runner=runner, cache=cache, on_case=on_case, repeats=repeats, seed=seed, kind_key=kind_key,
-                    pairs=pairs)
+                    pairs=pairs, order=order)
 
 
 def _compare(arms: Sequence[Arm], tasks: list[PackTask], replay: list[ReplayCase], *, client: ModelClient | None,
@@ -1473,7 +1475,8 @@ def _compare(arms: Sequence[Arm], tasks: list[PackTask], replay: list[ReplayCase
              seed: int = ANALYSIS_SEED, combine_with: Comparison | None = None,
              kind_key: Callable[[str], str] | None = None,
              pairs: Sequence[tuple[str, str]] = (),
-             inspect: Callable[[Mapping[str, list[CaseResult]]], None] | None = None) -> Comparison:
+             inspect: Callable[[Mapping[str, list[CaseResult]]], None] | None = None,
+             order: str = "interleaved") -> Comparison:
     """``inspect`` sees every arm's per-problem results before they are dropped: only this module's own
     analyses pass it (the freeze evaluation), so no per-problem result leaves an audit run (E10)."""
 
@@ -1505,53 +1508,66 @@ def _compare(arms: Sequence[Arm], tasks: list[PackTask], replay: list[ReplayCase
     signature = str(getattr(runner, "signature", "") or "in-process-1")
     stopped = ""
     items: list[PackTask | ReplayCase] = [*tasks, *replay]
-    # Every problem runs ``repeats`` times per arm, the arms interleaved run by run (O88).
+    # Every problem runs ``repeats`` times per arm, the arms interleaved run by run (O88), or (``order="model"``,
+    # when the models can't stay loaded together) every run of one arm, then the next arm's: the same runs, kept
+    # in the same order per arm, so the results and their pairing are exactly the interleaved ones (C1).
     units = [(item, repeat) for item in items for repeat in range(repeats)]
-    for index, (item, repeat) in enumerate(units):
-        round_results: dict[str, CaseResult] = {}
-        try:
-            for arm in arms:
-                left = None if budget.arm_tokens is None else budget.arm_tokens - spent[arm.name]
-                if left is not None and left <= 0:
-                    case_id = item.id if isinstance(item, PackTask) else item.decision_id
-                    kind = item.kind_of_work
-                    round_results[arm.name] = CaseResult(case_id, "pack" if isinstance(item, PackTask) else "replay",
-                                                         kind, "budget", "budget", detail="the arm's budget was spent")
-                    continue
-                key = (ArmCache.key(arm, item, budget, signature, repeat=repeat)
-                       if cache is not None and arm.cache and isinstance(item, PackTask) else None)
-                kept = cache.get(key, item) if key is not None and cache is not None else None
-                if kept is not None:
-                    round_results[arm.name] = kept
-                    cached_count[arm.name] += 1
-                    if on_case is not None:
-                        on_case(arm.name, kept)
-                    continue  # nothing spent: the result is from an earlier test (O31)
-                if isinstance(item, PackTask) and runner is not None:
-                    result = runner.run(item, arm, budget=budget, meter=meter, arm_left=left)
-                elif isinstance(item, PackTask):
-                    result = run_pack_task(item, arm, client=client, budget=budget, meter=meter, arm_left=left,
-                                           backend=backend)
-                else:
-                    result = run_replay_case(item, arm, client=client, budget=budget, meter=meter, judge=judge,
-                                             arm_left=left)
-                if key is not None and cache is not None:
-                    cache.put(key, result)
-                round_results[arm.name] = result
-                spent[arm.name] += result.tokens
-                spent_local[arm.name] += result.local_tokens
-                if on_case is not None:
-                    on_case(arm.name, result)
-        except _LimitReached:
-            stopped = meter.note()
-            for later, _repeat in units[index:]:
-                case_id = later.id if isinstance(later, PackTask) else later.decision_id
-                for arm in arms:
-                    results[arm.name].append(CaseResult(case_id, "pack" if isinstance(later, PackTask) else "replay",
-                                                        later.kind_of_work, "not_run", "none", detail=stopped))
-            break
+
+    def run_one(arm: Arm, item: PackTask | ReplayCase, repeat: int) -> CaseResult:
+        left = None if budget.arm_tokens is None else budget.arm_tokens - spent[arm.name]
+        if left is not None and left <= 0:
+            case_id = item.id if isinstance(item, PackTask) else item.decision_id
+            return CaseResult(case_id, "pack" if isinstance(item, PackTask) else "replay", item.kind_of_work,
+                              "budget", "budget", detail="the arm's budget was spent")
+        key = (ArmCache.key(arm, item, budget, signature, repeat=repeat)
+               if cache is not None and arm.cache and isinstance(item, PackTask) else None)
+        kept = cache.get(key, item) if key is not None and cache is not None else None
+        if kept is not None:
+            cached_count[arm.name] += 1
+            if on_case is not None:
+                on_case(arm.name, kept)
+            return kept  # nothing spent: the result is from an earlier test (O31)
+        if isinstance(item, PackTask) and runner is not None:
+            result = runner.run(item, arm, budget=budget, meter=meter, arm_left=left)
+        elif isinstance(item, PackTask):
+            result = run_pack_task(item, arm, client=client, budget=budget, meter=meter, arm_left=left,
+                                   backend=backend)
+        else:
+            result = run_replay_case(item, arm, client=client, budget=budget, meter=meter, judge=judge,
+                                     arm_left=left)
+        if key is not None and cache is not None:
+            cache.put(key, result)
+        spent[arm.name] += result.tokens
+        spent_local[arm.name] += result.local_tokens
+        if on_case is not None:
+            on_case(arm.name, result)
+        return result
+
+    rows: list[dict[str, CaseResult]] = [{} for _unit in units]
+    reached = len(units)  # the first run the token limit stopped (every arm's later runs are not run)
+    if order == "model":
         for arm in arms:
-            results[arm.name].append(round_results[arm.name])
+            for index, (item, repeat) in enumerate(units[:reached]):
+                try:
+                    rows[index][arm.name] = run_one(arm, item, repeat)
+                except _LimitReached:
+                    stopped, reached = meter.note(), index
+                    break
+    else:
+        for index, (item, repeat) in enumerate(units):
+            try:
+                rows[index] = {arm.name: run_one(arm, item, repeat) for arm in arms}
+            except _LimitReached:
+                stopped, reached = meter.note(), index
+                break
+    for index, (item, _repeat) in enumerate(units):
+        for arm in arms:
+            if index < reached:
+                results[arm.name].append(rows[index][arm.name])
+            else:
+                case_id = item.id if isinstance(item, PackTask) else item.decision_id
+                results[arm.name].append(CaseResult(case_id, "pack" if isinstance(item, PackTask) else "replay",
+                                                    item.kind_of_work, "not_run", "none", detail=stopped))
     ended = max(float(clock()), started)
     comparison_set = new_id("cmp")
     packs = sorted({task.pack for task in tasks})
@@ -1854,7 +1870,7 @@ def audit_check(arms: Sequence[Arm], *, asked_by: str, client: ModelClient | Non
                 seed: int = ANALYSIS_SEED, combine_with: Comparison | None = None,
                 kind_key: Callable[[str], str] | None = None, pairs: Sequence[tuple[str, str]] = (),
                 corrected: bool | None = None, focus: Focus | None = None,
-                leave_out: str | None = None) -> Comparison:
+                leave_out: str | None = None, order: str = "interleaved") -> Comparison:
     """Run the arms on the vault's hidden tasks. Only aggregates come back: counts per kind of
     work and tokens per arm, and the paired analysis; no task, id or text (E10).
 
@@ -1904,7 +1920,7 @@ def audit_check(arms: Sequence[Arm], *, asked_by: str, client: ModelClient | Non
     return _compare(arms, tasks, replay, client=client, judge=judge, calibration=calibration, budget=budget,
                     meter=meter, store=saved, save=save, clock=clock, backend=backend, suite="audit",
                     aggregate_only=True, runner=runner, cache=cache, on_case=counted, repeats=repeats, seed=seed,
-                    combine_with=combine_with, kind_key=kind_key, pairs=pairs)
+                    combine_with=combine_with, kind_key=kind_key, pairs=pairs, order=order)
 
 
 def audit_size(*, asked_by: str, store: Any | None = None, packs: Iterable[str] | None = None,
@@ -2106,7 +2122,7 @@ def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts:
                  store: Any | None = None, runner: PackRunner | None = None, cache: ArmCache | None = None,
                  packs: Iterable[str] | None = None, verifiers: Iterable[str] | None = None, repeats: int = 3,
                  seed: int = ANALYSIS_SEED, on_progress: Callable[[int, int], None] | None = None,
-                 clock: Callable[[], float] = time.time) -> dict[str, Any]:
+                 clock: Callable[[], float] = time.time, order: str = "interleaved") -> dict[str, Any]:
     """The pre-registered freeze evaluation (§7): the arms on every hidden problem the vault holds from
     before ``as_of`` (real work, by its captured time) and the packs' hidden tasks, ``repeats`` runs per arm,
     one budget, this module's checker. Returns aggregates only: per arm and split, counts, mean scores, run
@@ -2144,7 +2160,7 @@ def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts:
     comparison = _compare(arms, tasks, replay, client=client, judge=None, calibration=None, budget=budget,
                           meter=meter, store=saved, save=False, clock=clock, backend="auto", suite="audit",
                           aggregate_only=True, runner=runner, cache=cache, on_case=counted, repeats=repeats,
-                          seed=seed, inspect=inspect)
+                          seed=seed, inspect=inspect, order=order)
     for item in comparison.arms:
         found["arms"][item.arm.name].update({
             "tokens": int(item.measured_tokens), "cloud_tokens": int(item.measured_cloud_tokens),

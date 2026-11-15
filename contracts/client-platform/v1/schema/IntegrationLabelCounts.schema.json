@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "built_in": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Built In",
+      "type": "integer"
+    },
+    "community": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Community",
+      "type": "integer"
+    },
+    "official": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Official",
+      "type": "integer"
+    },
+    "reviewed": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Reviewed",
+      "type": "integer"
+    }
+  },
+  "title": "IntegrationLabelCounts",
+  "type": "object"
+}

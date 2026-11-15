@@ -1007,6 +1007,520 @@
       "title": "LearningExamples",
       "type": "object"
     },
+    "LearningHuggingFace": {
+      "additionalProperties": false,
+      "description": "Training on Hugging Face (C1): sign-in, the models it can train for this computer, the quote, the cap.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "cap_choices": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 8,
+          "title": "Cap Choices",
+          "type": "array"
+        },
+        "cap_usd": {
+          "minimum": 0,
+          "title": "Cap Usd",
+          "type": "integer"
+        },
+        "card_gb": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Card Gb"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearningHuggingFaceLastRun"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "model": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Model",
+          "type": "string"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/LearningHuggingFaceModel"
+          },
+          "maxItems": 8,
+          "title": "Models",
+          "type": "array"
+        },
+        "month_spent_usd": {
+          "minimum": 0,
+          "title": "Month Spent Usd",
+          "type": "number"
+        },
+        "planned": {
+          "title": "Planned",
+          "type": "boolean"
+        },
+        "quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearningHuggingFaceQuote"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recent_runs": {
+          "items": {
+            "$ref": "#/$defs/LearningHuggingFaceRunCost"
+          },
+          "maxItems": 6,
+          "title": "Recent Runs",
+          "type": "array"
+        },
+        "runs_confirmed": {
+          "title": "Runs Confirmed",
+          "type": "boolean"
+        },
+        "sign_in": {
+          "$ref": "#/$defs/LearningHuggingFaceSignIn"
+        }
+      },
+      "required": [
+        "available",
+        "sign_in",
+        "planned",
+        "cap_usd",
+        "month_spent_usd",
+        "runs_confirmed"
+      ],
+      "title": "LearningHuggingFace",
+      "type": "object"
+    },
+    "LearningHuggingFaceGpu": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_usd": {
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "flavor": {
+          "maxLength": 64,
+          "title": "Flavor",
+          "type": "string"
+        },
+        "gpu_memory_gb": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gpu Memory Gb"
+        },
+        "label": {
+          "maxLength": 128,
+          "title": "Label",
+          "type": "string"
+        },
+        "price_per_hour": {
+          "minimum": 0,
+          "title": "Price Per Hour",
+          "type": "number"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "flavor",
+        "label",
+        "price_per_hour",
+        "seconds",
+        "cost_usd"
+      ],
+      "title": "LearningHuggingFaceGpu",
+      "type": "object"
+    },
+    "LearningHuggingFaceLastRun": {
+      "additionalProperties": false,
+      "properties": {
+        "cleaned": {
+          "title": "Cleaned",
+          "type": "boolean"
+        },
+        "cleanup_failed": {
+          "title": "Cleanup Failed",
+          "type": "boolean"
+        },
+        "cost_usd": {
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "minutes": {
+          "minimum": 0,
+          "title": "Minutes",
+          "type": "integer"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "error",
+                "canceled",
+                "not_started"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "cost_usd",
+        "minutes",
+        "cleaned",
+        "cleanup_failed"
+      ],
+      "title": "LearningHuggingFaceLastRun",
+      "type": "object"
+    },
+    "LearningHuggingFaceModel": {
+      "additionalProperties": false,
+      "properties": {
+        "certified": {
+          "title": "Certified",
+          "type": "boolean"
+        },
+        "download_bytes": {
+          "minimum": 0,
+          "title": "Download Bytes",
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "licence": {
+          "maxLength": 64,
+          "title": "Licence",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "params_b": {
+          "minimum": 0,
+          "title": "Params B",
+          "type": "number"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "runs_here_gb": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runs Here Gb"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "licence",
+        "params_b",
+        "certified",
+        "recommended",
+        "download_bytes"
+      ],
+      "title": "LearningHuggingFaceModel",
+      "type": "object"
+    },
+    "LearningHuggingFaceQuote": {
+      "additionalProperties": false,
+      "description": "A run's price before it starts (O133): GPU, time, cost, the most it can cost, what is uploaded and where.",
+      "properties": {
+        "cap_usd": {
+          "minimum": 0,
+          "title": "Cap Usd",
+          "type": "integer"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/LearningHuggingFaceGpu"
+          },
+          "maxItems": 4,
+          "title": "Choices",
+          "type": "array"
+        },
+        "cost_usd": {
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "dataset_repo": {
+          "maxLength": 256,
+          "title": "Dataset Repo",
+          "type": "string"
+        },
+        "download_bytes": {
+          "minimum": 0,
+          "title": "Download Bytes",
+          "type": "integer"
+        },
+        "examples": {
+          "minimum": 0,
+          "title": "Examples",
+          "type": "integer"
+        },
+        "fits_cap": {
+          "title": "Fits Cap",
+          "type": "boolean"
+        },
+        "flavor": {
+          "maxLength": 64,
+          "title": "Flavor",
+          "type": "string"
+        },
+        "flavor_label": {
+          "maxLength": 128,
+          "title": "Flavor Label",
+          "type": "string"
+        },
+        "gpu_memory_gb": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gpu Memory Gb"
+        },
+        "max_cost_usd": {
+          "minimum": 0,
+          "title": "Max Cost Usd",
+          "type": "number"
+        },
+        "measured": {
+          "title": "Measured",
+          "type": "boolean"
+        },
+        "model_id": {
+          "maxLength": 128,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_name": {
+          "maxLength": 128,
+          "title": "Model Name",
+          "type": "string"
+        },
+        "month_spent_usd": {
+          "minimum": 0,
+          "title": "Month Spent Usd",
+          "type": "number"
+        },
+        "price_per_hour": {
+          "minimum": 0,
+          "title": "Price Per Hour",
+          "type": "number"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "minimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "upload_bytes": {
+          "minimum": 0,
+          "title": "Upload Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_name",
+        "flavor",
+        "flavor_label",
+        "price_per_hour",
+        "seconds",
+        "cost_usd",
+        "timeout_seconds",
+        "max_cost_usd",
+        "examples",
+        "upload_bytes",
+        "download_bytes",
+        "dataset_repo",
+        "measured",
+        "month_spent_usd",
+        "cap_usd",
+        "fits_cap"
+      ],
+      "title": "LearningHuggingFaceQuote",
+      "type": "object"
+    },
+    "LearningHuggingFaceRunCost": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_usd": {
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "final": {
+          "title": "Final",
+          "type": "boolean"
+        },
+        "job_id": {
+          "maxLength": 128,
+          "title": "Job Id",
+          "type": "string"
+        },
+        "minutes": {
+          "minimum": 0,
+          "title": "Minutes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "cost_usd",
+        "minutes",
+        "final"
+      ],
+      "title": "LearningHuggingFaceRunCost",
+      "type": "object"
+    },
+    "LearningHuggingFaceSignIn": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "enum": [
+                "expired",
+                "denied",
+                "refused"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure"
+        },
+        "state": {
+          "enum": [
+            "signed_out",
+            "signing_in",
+            "signed_in",
+            "expired"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "user": {
+          "maxLength": 96,
+          "title": "User",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "user"
+      ],
+      "title": "LearningHuggingFaceSignIn",
+      "type": "object"
+    },
     "LearningKindState": {
       "additionalProperties": false,
       "description": "Where Learning stands on a kind of work (UX \u00a73 \"What Row-Bot is learning\"), besides models in use.",
@@ -1656,6 +2170,17 @@
           "title": "Export Folder",
           "type": "string"
         },
+        "hugging_face": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearningHuggingFace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "room": {
           "anyOf": [
             {
@@ -1857,6 +2382,106 @@
       "title": "LearningQuietHours",
       "type": "object"
     },
+    "LearningRemoteRun": {
+      "additionalProperties": false,
+      "description": "A Hugging Face run's own facts (C1): its stage, cost so far, lost contact, cleanup. Never a token.",
+      "properties": {
+        "cleaned": {
+          "title": "Cleaned",
+          "type": "boolean"
+        },
+        "cleanup_failed": {
+          "title": "Cleanup Failed",
+          "type": "boolean"
+        },
+        "cost_usd": {
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "flavor": {
+          "maxLength": 32,
+          "title": "Flavor",
+          "type": "string"
+        },
+        "gpu_label": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Gpu Label",
+          "type": "string"
+        },
+        "lost": {
+          "title": "Lost",
+          "type": "boolean"
+        },
+        "minutes": {
+          "minimum": 0,
+          "title": "Minutes",
+          "type": "integer"
+        },
+        "phase": {
+          "enum": [
+            "uploading",
+            "submitting",
+            "running",
+            "downloading",
+            "downloaded",
+            "cleaned"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "enum": [
+                "setting_up",
+                "downloading",
+                "training",
+                "exporting",
+                "uploading",
+                "done"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "waiting_for_gpu": {
+          "default": false,
+          "title": "Waiting For Gpu",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "phase",
+        "cost_usd",
+        "minutes",
+        "lost",
+        "flavor",
+        "cleaned",
+        "cleanup_failed"
+      ],
+      "title": "LearningRemoteRun",
+      "type": "object"
+    },
     "LearningRunnerStatus": {
       "additionalProperties": false,
       "properties": {
@@ -1892,7 +2517,16 @@
                 "up_to_date",
                 "gpu_busy",
                 "memory_busy",
-                "comparing"
+                "comparing",
+                "hf_signed_out",
+                "hf_no_model",
+                "hf_unknown",
+                "hf_first_run",
+                "hf_over_cap",
+                "hf_no_credit",
+                "hf_network",
+                "hf_busy",
+                "hf_not_confirmed"
               ],
               "type": "string"
             },
@@ -2168,7 +2802,14 @@
                 "out_of_disk",
                 "cannot_resume",
                 "data_unreadable",
-                "engine_error"
+                "engine_error",
+                "upload_failed",
+                "not_started",
+                "remote_error",
+                "no_credit",
+                "signed_out",
+                "model_mismatch",
+                "export_failed"
               ],
               "type": "string"
             },
@@ -2229,6 +2870,17 @@
           "default": null,
           "title": "Recovered"
         },
+        "remote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearningRemoteRun"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "resumes": {
           "anyOf": [
             {
@@ -2272,7 +2924,8 @@
             "pausing",
             "paused",
             "evaluating",
-            "failed"
+            "failed",
+            "unknown_remote"
           ],
           "title": "State",
           "type": "string"
@@ -2323,6 +2976,15 @@
           ],
           "default": null,
           "title": "Version"
+        },
+        "where": {
+          "default": "this_computer",
+          "enum": [
+            "this_computer",
+            "hugging_face"
+          ],
+          "title": "Where",
+          "type": "string"
         }
       },
       "required": [
@@ -2593,7 +3255,8 @@
               "enum": [
                 "merge",
                 "convert",
-                "quantize"
+                "quantize",
+                "download"
               ],
               "type": "string"
             },

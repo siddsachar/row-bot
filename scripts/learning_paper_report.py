@@ -20,6 +20,14 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
   analyses. Needs the graphics card and Ollama; about 15-60 minutes.
 - ``--thinking``: O97's recheck, ``scripts/learning_shape_ablation.py --thinking both`` on the copy, its
   results reduced to the same kind of aggregates. About 3 hours of the graphics card.
+- ``--freeze ... --hugging-face-27b`` (amendment A10, exploratory, opt-in): the build's certified Hugging Face
+  recipe for Qwen3.8 27B trains on exactly the rows the newest local version was trained on (rebuilt from the
+  copy and checked against that version's own record of them, SHA-256), in the participant's own Hugging Face
+  account, after they sign in there and type ``upload`` to agree to the upload the script shows them first
+  (how many rows, how big, where, the price). The rows go to a private dataset there and are deleted, with the
+  job's files, once the model is downloaded and checked. The version runs on this computer and is measured
+  like the other arms (the same hidden problems, checker, budget and repeats), reported apart under
+  ``exploratory_27b``, outside Holm. If it can't run, or the participant says no, it is reported as not run.
 
 Every mode:
 
@@ -65,6 +73,14 @@ ALPHA = 0.05
 MARGIN = 0.10
 #: What the freeze may spend on cloud models (the main model's reference, H2's arms), at most.
 CLOUD_CAP = 5_000_000
+#: A10: the exploratory arm's model (the build's certified Hugging Face recipe for it) and the word the
+#: participant types to agree to the upload.
+EXPLORATORY_MODEL = "qwen3.8-27b"
+UPLOAD_WORD = "upload"
+#: A10's three local arms run model by model (``evaluation.freeze_check(order=...)``); the results are the same.
+EXPLORATORY_ORDER = "model"
+#: How often the run on Hugging Face is read while the confirmatory evaluation and then the wait go on.
+POLL_SECONDS = 60.0
 #: The product code whose SHA-256 is printed before every run (with this script).
 CODE_DIRS = ("src/row_bot/learning",)
 CODE_FILES = ("scripts/learning_shape_ablation.py",)
@@ -443,6 +459,14 @@ VERSION_STATES = enum("ready", "couldnt_start", "not_ready")
 SPLITS = enum("real_uncorrected", "real_corrected", "packs")
 ARMS = enum("start", "personal", "main", "learning")
 CONTRASTS = enum("personal vs start", "main vs start", "learning vs main")
+# A10 (exploratory): the 27B trained on Hugging Face, its untouched 27B, and the local personal model.
+EXPLORATORY_ARMS = enum("start27", "personal27", "personal")
+EXPLORATORY_CONTRASTS = enum("personal27 vs start27", "personal27 vs personal")
+EXPLORATORY_REASONS = enum("declined", "rows_not_reproducible", "rows_changed", "source_deleted", "no_version",
+                           "not_signed_in", "unavailable",
+                           "no_model", "over_cap", "upload_failed", "not_started", "remote_error", "no_credit",
+                           "signed_out", "export_failed", "download_failed", "couldnt_start", "no_starting_model",
+                           "runtime_unavailable", "stopped", "too_few_problems")
 RUNTIMES = enum("row_bot", "ollama", "lmstudio", "llama_cpp", "vllm")
 
 RUN = Obj({
@@ -554,7 +578,19 @@ FREEZE = Obj({
     "hypotheses": Obj({"H1": HYPOTHESIS, "H2": HYPOTHESIS, "H3": H3}),
     "holm": Obj({"family": Seq(enum(*FAMILIES["v2"]), 3), "alpha": SHARE, "untested_enter_as": SHARE,
                  "adjusted": Map(enum(*FAMILIES["v2"]), Maybe(SHARE))}),
-})
+    # A10: reported apart, exploratory, outside the confirmatory family and without Holm.
+    "exploratory_27b": Obj({
+        "state": enum("not_requested", "not_run", "run"), "reason": Maybe(EXPLORATORY_REASONS),
+        "model": enum(EXPLORATORY_MODEL), "recipe": Maybe(Text(pattern=re.compile(r"^hf-[0-9a-z]+-v\d+$"))),
+        "rows": Obj({"examples": COUNT, "validation": COUNT, "matched": BOOL}),
+        "upload_bytes": COUNT, "cost_usd": Maybe(HOURS), "minutes": Maybe(COUNT), "uploads_deleted": Maybe(BOOL),
+        "kept_pass": Maybe(COUNT), "passes": Maybe(COUNT),
+        "arms": Map(EXPLORATORY_ARMS, Obj({"tokens": COUNT, "cloud_tokens": COUNT, "seconds": HOURS, "ran": COUNT,
+                                           "cached": COUNT, "identical": Obj({"problems": COUNT, "identical": COUNT}),
+                                           "splits": Map(SPLITS, ARM_SPLIT)})),
+        "contrasts": Map(EXPLORATORY_CONTRASTS, Map(SPLITS, SPLIT_ANALYSIS)),
+    }),
+}, optional=frozenset({"exploratory_27b"}))
 
 THINKING_MODELS = enum("start", "B", "A", "A32")
 THINKING_PART = Obj({"overall": ANALYSIS, "by_kind": Map(FAMILY_KEYS, ANALYSIS)})
@@ -827,6 +863,13 @@ class Hooks:
     installed: Callable[[], bool] = installed_app_running
     # The eval profile's sign-in bridge (``tests.e2e.live_eval.eval_profile.run_bridge``); a test passes a fake.
     bridge: Callable[..., dict[str, Any]] | None = None
+    # A10: the Hugging Face backend on the copy (a test passes one with a fake Hub and sign-in), how the made
+    # version is served for its ready check, and the wait between reads of the run.
+    hugging_face: Callable[[Path], Any] | None = None
+    release_server: Callable[..., Any] | None = None
+    sleep: Callable[[float], None] = time.sleep
+    # Which conversations still exist (``scope``'s lookup over the copy's own chats; a test passes a fake).
+    lookup: Any = None
     # H3's final set: a trial arm's tester for a learning method (``changes.Tester``); a test passes a fake.
     tester: Callable[[Any], Any] | None = None
 
@@ -905,9 +948,296 @@ def _worker_runner(arms: Sequence[Any], copy: Path) -> Iterator[Any]:
         worker.stop()
 
 
+# ── A10: the exploratory 27B trained on Hugging Face ────────────────────────
+
+
+def rebuild_rows(copy: Path, newest: Mapping[str, Any], *, lookup: Any = None) -> tuple[list[Any], list[Any], bool]:
+    """The rows the newest local version was trained on, rebuilt from the copy's records by the product's own
+    compiler and its recipe, chosen by the version's own list of them, and checked against the SHA-256 the
+    version recorded: (train, validation, matched). Unmatched rows are never trained on."""
+
+    from row_bot.learning.store import LearningStore
+    from row_bot.learning.training import dataset as dataset_module
+    from row_bot.learning.training import planner, recipes, releases
+
+    folder = releases.version_dir(int(newest["version"]), copy)
+    manifest = _read_json(folder / releases.DATASET_FILE)
+    wanted_train = list(manifest.get("example_ids") or ())
+    wanted_validation = set(manifest.get("validation_ids") or ())
+    name = str(manifest.get("recipe") or "")
+    try:
+        recipe = recipes.load(name.rsplit("-v", 1)[0])
+    except recipes.RecipeError:
+        return [], [], False
+    from dataclasses import replace as _replace
+
+    max_seq = int(manifest.get("max_seq_length") or recipe.max_seq_length)
+    recipe = _replace(recipe, settings={**dict(recipe.settings), "max_seq_length": max_seq})
+    every = lambda rows, _max: [(1, 1)] * len(rows)  # noqa: E731 - every candidate: the version's list chooses
+    compiled = dataset_module.compile_dataset(LearningStore(copy), recipe, lookup=lookup, measure=every,
+                                              workspace_roots=planner.workspace_roots(), refresh_vault=False)
+    candidates = (*compiled.train, *compiled.validation)
+    by_id = {item.id: item for item in candidates}
+    if not wanted_train or any(item not in by_id for item in (*wanted_train, *wanted_validation)):
+        return [], [], False
+    keep = set(wanted_train) | wanted_validation
+    ordered = [item for item in candidates if item.id in keep]  # the compiler's own order
+    train = [item for item in ordered if item.id not in wanted_validation]
+    validation = [item for item in ordered if item.id in wanted_validation]
+    body = {"compiler": dataset_module.COMPILER_VERSION, "recipe": name, "max_seq_length": max_seq,
+            "rendering": compiled.rendering.get("name"),
+            "train": [item.row for item in train], "validation": [item.row for item in validation]}
+    digest = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False,
+                                       separators=(",", ":")).encode("utf-8")).hexdigest()
+    return train, validation, digest == manifest.get("sha256")
+
+
+def rows_for_upload(copy: Path, newest: Mapping[str, Any], *, lookup: Any = None
+                    ) -> tuple[list[Any], list[Any], bool, str | None]:
+    """The rows A10 uploads: the newest version's own kept rows (``kept_rows``), when they still match its
+    SHA-256 and every conversation they came from still exists; a version from before rows were kept is rebuilt
+    (``rebuild_rows``), which only matches on the build and settings it trained with. ``(train, validation,
+    matched, reason)``; the reason names why nothing can be uploaded (``rows_changed``, ``source_deleted``,
+    ``rows_not_reproducible``)."""
+
+    from types import SimpleNamespace
+
+    from row_bot.learning import scope
+    from row_bot.learning.training import kept_rows, releases
+
+    folder = releases.version_dir(int(newest["version"]), copy)
+    manifest = _read_json(folder / releases.DATASET_FILE)
+    source = lookup or scope.SavedThreads()
+    state, train, validation = kept_rows.read(folder, manifest, exists=lambda item: bool(source.thread(item).exists))
+    if state == "kept":
+        return ([SimpleNamespace(row=row) for row in train], [SimpleNamespace(row=row) for row in validation],
+                True, None)
+    if state != "not_kept":
+        return [], [], False, "rows_changed" if state == "changed" else "source_deleted"
+    train, validation, matched = rebuild_rows(copy, newest, lookup=lookup)
+    return train, validation, matched, None if matched else "rows_not_reproducible"
+
+
+@dataclass
+class Exploratory:
+    """A10's run, from its typed agreement to its report section (counts, a cost, verdicts; never an id)."""
+
+    state: str = "not_requested"
+    reason: str | None = None
+    recipe: str | None = None
+    examples: int = 0
+    validation: int = 0
+    matched: bool = False
+    upload_bytes: int = 0
+    job_id: str | None = None
+    trainer: Any = None
+    section: dict[str, Any] = field(default_factory=dict)
+
+    def fail(self, reason: str) -> Exploratory:
+        self.state, self.reason = "not_run", reason
+        return self
+
+
+def _hugging_face_trainer(copy: Path) -> Any:
+    """The product's Hugging Face backend on the copy, signed in for this run only: the participant signs in on
+    Hugging Face's own page with a code; the tokens live in this process's memory, never in a file, the copy's
+    keychain or the profile's."""
+
+    from row_bot import secret_store
+    from row_bot.learning.remote import auth
+    from row_bot.learning.remote import training as remote_training
+    from row_bot.learning.training import jobs as jobs_module
+
+    secret_store.use_memory_backend()
+    sign_in = auth.HuggingFaceSignIn()
+    state = sign_in.start()
+    say(f"Sign in to Hugging Face: open {state.code.verification_uri} and enter the code {state.code.user_code},")
+    say("then click Authorize. Waiting ...")
+    while True:
+        outcome = sign_in.poll()
+        if outcome == "signed_in":
+            break
+        if outcome in ("expired", "denied", "refused", "none"):
+            raise _ModeFailed("the Hugging Face sign-in didn't finish")
+        time.sleep(state.code.interval)
+    return remote_training.RemoteTrainer(copy, jobs=jobs_module.TrainingJobs(copy), sign_in=sign_in)
+
+
+def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Hooks,
+                      rows: tuple[list[Any], list[Any], bool, str | None] | None = None) -> Exploratory:
+    """Rebuild the rows, show exactly what would be uploaded and its price, take the typed ``upload``, then
+    submit the run on Hugging Face (it trains while the confirmatory evaluation runs here)."""
+
+    from row_bot.application.settings_commands import write_learning_settings
+    from row_bot.learning.remote.training import RemoteError
+    from row_bot.learning.training import dataset as dataset_module
+    from row_bot.learning.training import jobs as jobs_module
+    from row_bot.learning.training import recipes
+
+    found = Exploratory(state="not_run")
+    if newest is None:
+        return found.fail("no_version")
+    train, validation, matched, reason = rows if rows is not None else rows_for_upload(copy, newest,
+                                                                                      lookup=hooks.lookup)
+    found.examples, found.validation, found.matched = len(train), len(validation), matched
+    if not matched:
+        return found.fail(reason or "rows_not_reproducible")
+    recipe = recipes.load("hf-27b")
+    found.recipe = recipe.name
+    write_learning_settings({"hugging_face.model": EXPLORATORY_MODEL})
+    trainer = (hooks.hugging_face or _hugging_face_trainer)(copy)
+    found.trainer = trainer
+    from row_bot.learning.remote import training as remote_training
+
+    remote_training.configure(trainer)  # the release maker downloads the version's file through this one
+    if trainer.choice() is None or trainer.choice().id != EXPLORATORY_MODEL:
+        return found.fail("no_model")
+    steps = recipe.steps_for(len(train))
+    job = trainer.jobs.plan(steps_total=steps, checkpoint_every=recipe.checkpoint_interval(steps),
+                            recipe=recipe.spec(None), dataset={"id": "ds_exploratory", "examples": len(train)},
+                            backend="hugging_face")
+    data = jobs_module.run_dir(job.id, copy) / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    for name, items in ((dataset_module.EXAMPLES_FILE, train), (dataset_module.VALIDATION_FILE, validation)):
+        (data / name).write_text("".join(json.dumps(item.row, ensure_ascii=False, sort_keys=True) + "\n"
+                                         for item in items), encoding="utf-8")
+    examples, size = trainer._upload_size(job)  # noqa: SLF001
+    found.upload_bytes = int(size)
+    quote = trainer.quote(examples=examples, upload_bytes=size, steps=steps)
+    write_learning_settings({"hugging_face.monthly_cap_usd": max(1, math.ceil(quote.max_cost_usd) + 1)})
+    quote = trainer.quote(examples=examples, upload_bytes=size, steps=steps)
+    say()
+    say("The exploratory 27B (A10) uploads, to a new private dataset in your own Hugging Face account:")
+    say(f"  {examples} training rows and {len(validation)} validation rows ({size:,} bytes): exactly the rows your")
+    say(f"  newest local personal model (v{int(newest['version'])}) was trained on, checked against its own record.")
+    say(f"  It trains Qwen3.8 27B there on {quote.flavor_label}: about {round(quote.seconds / 60)} minutes and about "
+        f"${quote.cost_usd:.2f} (at most ${quote.max_cost_usd:.2f}), billed to your Hugging Face account.")
+    say("  The upload and the job's files are deleted once the model is downloaded and checked.")
+    try:
+        answer = hooks.ask(f"Type {UPLOAD_WORD} to agree to this upload (anything else: not run): ")
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() != UPLOAD_WORD:
+        trainer.jobs.move(job.id, "stopped", reason="you")
+        jobs_module.remove_run(job.id, copy)
+        return found.fail("declined")
+    try:
+        trainer.start(job, "train_now", confirmed=True)
+    except RemoteError as error:
+        return found.fail(error.code if error.code in ("over_cap", "no_model", "signed_out") else "unavailable")
+    found.job_id = job.id
+    say("Uploaded; the run is on Hugging Face. The confirmatory evaluation runs here meanwhile.")
+    return found
+
+
+def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: Hooks, client: Any,
+                       budget: Any, meter: Any, packs: Sequence[str], verifiers: Any, repeats: int,
+                       container: bool) -> Exploratory:
+    """Wait for the run, make its version ready like the product does (download, check, Row-Bot's own server),
+    measure it on the same hidden problems, checker, budget and repeats, delete the uploads, report apart."""
+
+    from row_bot.learning import evaluation
+    from row_bot.learning.remote import training as remote_training
+    from row_bot.learning.store import LearningStore
+    from row_bot.learning.training import releases
+
+    trainer, job_id = found.trainer, found.job_id
+    if trainer is None or job_id is None:
+        return found
+    while True:
+        trainer.tick()
+        job = trainer.jobs.get(job_id)
+        if job is None or job.state in ("evaluating", "failed", "stopped"):
+            break
+        hooks.sleep(POLL_SECONDS)
+    record = remote_training.read_record(job_id, copy)
+    if job is None or job.state != "evaluating":
+        found.section.update(_cost(record))
+        return found.fail(str((job.error_code if job is not None else None) or "remote_error"))
+    maker = releases.ReleaseMaker(copy, jobs=trainer.jobs, server=hooks.release_server, runtime=lambda: "row_bot",
+                                  start_threads=False)
+    maker.start(job)
+    trainer.tick()  # the version is settled: the uploads and the job's files go (O133)
+    state = releases.read_state(releases.version_dir(int(job.version), copy))
+    record = remote_training.read_record(job_id, copy)
+    found.section.update(_cost(record))
+    if state is None or state.phase != releases.READY:
+        return found.fail("couldnt_start")
+    row = next((item for item in _versions(copy) if item["version"] == int(job.version)), None)
+    prepared = hooks.prepare(copy, row) if row is not None else Prepared({}, None, "row_bot", reason="no_version")
+    try:
+        if not prepared.refs:
+            return found.fail(prepared.reason or "runtime_unavailable")
+        local = hooks.prepare(copy, found.section["_newest"])
+        try:
+            if not local.refs:
+                return found.fail(local.reason or "runtime_unavailable")
+            arms = [evaluation.Arm("start27", model_ref=prepared.refs["start"], subject_kind="baseline",
+                                   serve_context=prepared.serve_context),
+                    evaluation.Arm("personal27", model_ref=prepared.refs["personal"], subject_kind="release",
+                                   serve_context=prepared.serve_context),
+                    evaluation.Arm("personal", model_ref=local.refs["personal"], subject_kind="release",
+                                   serve_context=local.serve_context)]
+            with (contextlib.nullcontext(hooks.runner(arms)) if hooks.runner is not None
+                  else _worker_runner(arms, copy)) as runner:
+                # Model by model: two 27Bs and the 9B can't stay loaded together on a 32 GB card, so interleaved
+                # runs would load a model for every run (28 Oct: about 16 s a run). The same runs, budget,
+                # checker, repeats and pairing; local models spend no tokens, so no limit can stop it midway.
+                result = evaluation.freeze_check(
+                    arms, as_of=as_of, asked_by="the paper's exploratory 27B (A10)",
+                    contrasts=[("start27", "personal27"), ("personal", "personal27")], client=client,
+                    budget=budget, meter=meter, store=LearningStore(copy), runner=runner,
+                    cache=evaluation.ArmCache(copy), packs=packs, verifiers=verifiers, repeats=repeats,
+                    on_progress=_Progress(time.monotonic()), order=EXPLORATORY_ORDER)
+        finally:
+            local.cleanup()
+    finally:
+        prepared.cleanup()
+    found.state, found.reason = "run", ("stopped" if result.get("stopped") else None)
+    kept = dict(state.kept_pass or {})
+    found.section.update({
+        "kept_pass": int(kept["pass"]) if isinstance(kept.get("pass"), int) else None,
+        "passes": int(kept["of"]) if isinstance(kept.get("of"), int) else None,
+        "_result": result,
+    })
+    return found
+
+
+def _cost(record: Any) -> dict[str, Any]:
+    if record is None:
+        return {}
+    return {"cost_usd": round(float(record.cost_usd), 4), "minutes": math.ceil(int(record.running_seconds) / 60),
+            "uploads_deleted": record.cleaned_at is not None}
+
+
+def exploratory_section(found: Exploratory) -> dict[str, Any]:
+    """A10's report section: exploratory, apart from the confirmatory family."""
+
+    result = found.section.get("_result") or {}
+    arms = {}
+    for name, row in (result.get("arms") or {}).items():
+        arms[name] = {key: row[key] for key in ("tokens", "cloud_tokens", "seconds", "ran", "cached", "identical")}
+        arms[name]["splits"] = {split: {**part, "runs": _counts(Counter(part["runs"]).elements(), RUN_STATUS),
+                                        "causes": _counts(Counter(part["causes"]).elements(), CAUSES)}
+                                for split, part in row["splits"].items()}
+    return {
+        "state": found.state, "reason": found.reason if found.reason in EXPLORATORY_REASONS.values else (
+            "remote_error" if found.reason else None),
+        "model": EXPLORATORY_MODEL, "recipe": found.recipe,
+        "rows": {"examples": found.examples, "validation": found.validation, "matched": found.matched},
+        "upload_bytes": found.upload_bytes, "cost_usd": found.section.get("cost_usd"),
+        "minutes": found.section.get("minutes"), "uploads_deleted": found.section.get("uploads_deleted"),
+        "kept_pass": found.section.get("kept_pass"), "passes": found.section.get("passes"),
+        "arms": arms,
+        "contrasts": {name: {split: _split(part) for split, part in value.items()}
+                      for name, value in (result.get("contrasts") or {}).items()},
+    }
+
+
 def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool = False,
                   eval_profile: Path | None = None, cap_tokens: int = CLOUD_CAP, repeats: int = 3,
-                  paper: str = "v1", h2: bool = False, h3_final: bool = False) -> dict[str, Any]:
+                  paper: str = "v1", h2: bool = False, h3_final: bool = False,
+                  hugging_face_27b: bool = False) -> dict[str, Any]:
     from row_bot.learning import evaluation
     from row_bot.learning.contracts import LessonRecord, Release
     from row_bot.learning.packs import PACKS
@@ -917,11 +1247,14 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
     started = time.monotonic()
     store = LearningStore(copy)
     # The vault takes its share of decisions it hasn't considered yet, by the product's own rule (on the copy).
-    refreshed = evaluation.refresh_audit(store=store, asked_by="the paper's freeze evaluation")
     versions = _versions(copy)
     candidates = [row for row in versions if not row["pilot"] and row["_ready_once"] and row["_gguf"] is not None
                   and Path(row["_gguf"]).is_file()]
     newest = max(candidates, key=lambda row: row["version"]) if candidates else None
+    # A10 rebuilds the newest version's rows before the vault takes anything new.
+    exploratory_rows = (rows_for_upload(copy, newest, lookup=hooks.lookup) if hugging_face_27b and newest is not None
+                        else None)
+    refreshed = evaluation.refresh_audit(store=store, asked_by="the paper's freeze evaluation")
     lessons = sum(1 for item in store.find("lesson", limit=1_000_000)
                   if isinstance(item, LessonRecord) and item.status == "in_use")
     behaviours = sum(1 for item in store.find("release", limit=1_000_000)
@@ -930,6 +1263,10 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
     container = bool((hooks.container or _container)())
     packs = [pack for pack in PACKS if container or pack != "small_coding"]
     verifiers = None if container else ["answer", "json_answer", "file", "app_state"]
+    # A10 (exploratory, opt-in): the run on Hugging Face starts first, after the participant's typed agreement,
+    # and trains while the confirmatory evaluation runs here (rebuilt before the vault takes anything new).
+    exploratory = (start_exploratory(copy, newest, hooks=hooks, rows=exploratory_rows) if hugging_face_27b
+                   else Exploratory())
     prepared = hooks.prepare(copy, newest) if newest is not None else Prepared({}, None, "ollama", reason="no_version")
     result: dict[str, Any] | None = None
     try:
@@ -965,6 +1302,12 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
                     repeats=repeats, on_progress=progress)
     finally:
         prepared.cleanup()
+    if exploratory.job_id is not None:
+        # A10's uploads are deleted as soon as its version is made, before anything else may stop the run.
+        exploratory.section["_newest"] = newest
+        finish_exploratory(copy, exploratory, as_of=cutoff, hooks=hooks, client=hooks.client,
+                           budget=evaluation.Budget(task_tokens=150_000), meter=TokenMeter(cap_tokens), packs=packs,
+                           verifiers=verifiers, repeats=repeats, container=container)
     final = None
     if h3_final:
         if eval_profile is None:
@@ -972,10 +1315,13 @@ def freeze_report(copy: Path, as_of: date, *, hooks: Hooks, main_reference: bool
         _sign_in(eval_profile, hooks)
         say("Running H3's final set: every generation and the frozen control at the same budget ...")
         final = _final_set(copy, store, hooks=hooks, cap_tokens=cap_tokens)
-    return assemble_freeze(result, as_of=as_of, versions=versions, newest=newest, prepared=prepared,
-                           refreshed=refreshed, container=container, main_reference=main_reference,
-                           lessons=lessons, behaviours=behaviours, hours=(time.monotonic() - started) / 3600,
-                           paper=paper, h3=h3_report(store, final_state=final, ran_final=h3_final))
+    report = assemble_freeze(result, as_of=as_of, versions=versions, newest=newest, prepared=prepared,
+                             refreshed=refreshed, container=container, main_reference=main_reference,
+                             lessons=lessons, behaviours=behaviours, hours=(time.monotonic() - started) / 3600,
+                             paper=paper, h3=h3_report(store, final_state=final, ran_final=h3_final))
+    if hugging_face_27b:
+        report["exploratory_27b"] = exploratory_section(exploratory)
+    return report
 
 
 _SIGNED_IN: list[Path] = []
@@ -1398,6 +1744,9 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--keep-copy", action="store_true", help="keep the scratch copy (it is deleted otherwise)")
     parser.add_argument("--main-reference", action="store_true",
                         help="--freeze: also score the main model (a reference, not a hypothesis arm; cloud tokens)")
+    parser.add_argument("--hugging-face-27b", action="store_true",
+                        help="--freeze: also the exploratory 27B on Hugging Face (A10; you sign in there and type "
+                             "'upload' to agree to the upload first)")
     parser.add_argument("--eval-profile",
                         help="--main-reference, --h2, --h3-final: the eval profile whose ChatGPT sign-in the main "
                              "model uses (never the profile's own)")
@@ -1426,6 +1775,8 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
             parser.error("--freeze needs --as-of YYYY-MM-DD")
     elif args.as_of:
         parser.error("--as-of goes with --freeze")
+    if args.hugging_face_27b and not args.freeze:
+        parser.error("--hugging-face-27b goes with --freeze")
     return args
 
 
@@ -1555,7 +1906,7 @@ def _run_mode(mode: str, copy: Path, target: Path, args: argparse.Namespace, hoo
     return freeze_report(copy, args.as_of_date, hooks=hooks, main_reference=bool(args.main_reference),
                          eval_profile=Path(args.eval_profile).resolve() if args.eval_profile else None,
                          cap_tokens=int(args.cloud_cap), paper=str(args.paper), h2=bool(args.h2),
-                         h3_final=bool(args.h3_final))
+                         h3_final=bool(args.h3_final), hugging_face_27b=bool(args.hugging_face_27b))
 
 
 if __name__ == "__main__":

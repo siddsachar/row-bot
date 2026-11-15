@@ -57,7 +57,6 @@ export function BrowserThumbnail({
 /** What Row-Bot is doing in the browser, in a few words. */
 export function browserDoing(state: BrowserPaneState | null) {
   if (!state) return '';
-  if (state.control === 'person') return 'You have control';
   if (state.sign_in) return 'Waiting for you to sign in';
   if (state.waiting) return state.waiting;
   return state.acting ? actingWords(state.acting) : '';

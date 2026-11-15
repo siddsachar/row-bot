@@ -1,0 +1,13 @@
+{
+  "additionalProperties": false,
+  "description": "Try again on a post that didn't go out, now; ``without_media`` posts its text alone.",
+  "properties": {
+    "without_media": {
+      "default": false,
+      "title": "Without Media",
+      "type": "boolean"
+    }
+  },
+  "title": "ScheduledPostRetry",
+  "type": "object"
+}

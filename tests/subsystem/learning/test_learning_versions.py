@@ -220,7 +220,7 @@ def test_retrain_without_plans_even_without_new_examples(learning_on):
 
 
 def test_advanced_starts_at_the_recommended_values(data_dir):
-    recipe = recipes.load("8gb")
+    recipe = recipes.load("16gb")
     found = advanced.view(recipe, data_dir)
 
     assert found["values"] == found["recommended"] == {
@@ -231,7 +231,7 @@ def test_advanced_starts_at_the_recommended_values(data_dir):
 
 
 def test_advanced_values_are_clamped_to_the_engines_limits_and_the_recipes_bounds(data_dir):
-    recipe = recipes.load("8gb")
+    recipe = recipes.load("16gb")
     low, high = advanced.engine_limits()["rank"]
 
     chosen = advanced.clamp({"rank": 10_000, "learning_rate": 5.0, "epochs": 99, "context": 131072,
@@ -244,7 +244,7 @@ def test_advanced_values_are_clamped_to_the_engines_limits_and_the_recipes_bound
 
 
 def test_saved_choices_change_the_next_runs_recipe_and_reset_goes_back(data_dir):
-    recipe = recipes.load("8gb")
+    recipe = recipes.load("16gb")
 
     advanced.save({"rank": 32, "learning_rate": 1e-4, "epochs": 2}, recipe, data_dir)
     changed = advanced.apply(recipe, data_dir)
@@ -260,7 +260,7 @@ def test_saved_choices_change_the_next_runs_recipe_and_reset_goes_back(data_dir)
 def test_the_planner_trains_with_the_saved_choices(data_dir):
     from row_bot.learning.training.planner import Planner
 
-    recipe = recipes.load("8gb")
+    recipe = recipes.load("16gb")
     advanced.save({"rank": 64}, recipe, data_dir)
     planner = Planner(data_dir, jobs=SimpleNamespace(), engine=SimpleNamespace(), recipe_for=lambda: recipe)
 
@@ -377,7 +377,7 @@ def test_the_starting_model_is_exported_once_and_served_with_only_the_probe(data
             return {"model": name}
 
     options = dict(root=data_dir, engine_status=object(), model=model, weights_folder=tmp_path, weights_bytes=10,
-                   recipe=recipes.load("8gb"), exporter=exporter, server=server, ollama=Ollama())
+                   recipe=recipes.load("16gb"), exporter=exporter, server=server, ollama=Ollama())
     ref, reason = base_model.ensure(**options)
     again, _ = base_model.ensure(**options)
 

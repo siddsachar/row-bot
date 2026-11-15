@@ -41,7 +41,7 @@ async function holdThenQueue(page: Page, conversation: string, text: string) {
     exact: true,
   });
   await expect(waiting).toContainText(
-    '1 message waiting · sends when Row-Bot finishes',
+    '1 message waiting · Row-Bot reads it at its next step',
   );
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await releaseProducer(page, first);

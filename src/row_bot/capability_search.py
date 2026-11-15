@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 import re
 from typing import Iterable, Sequence
@@ -11,6 +12,10 @@ from typing import Iterable, Sequence
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
+_VOWELS = "aeiou"
+_NOT_PLURAL = frozenset({"news"})
+# Marks a word's stem, so it never meets a word written that way.
+_STEM = "~"
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +38,59 @@ def normalize_tokens(value: str) -> tuple[str, ...]:
     return tuple(token.lower() for token in _NON_ALNUM.split(expanded) if token)
 
 
+def _is_vowel(word: str, index: int) -> bool:
+    """A vowel, or a "y" after a consonant (the "y" of "typing")."""
+    letter = word[index]
+    return letter in _VOWELS or (letter == "y" and index > 0 and word[index - 1] not in _VOWELS)
+
+
+def _without(word: str, suffix: str, *, undouble: bool = False) -> str | None:
+    """*word* without *suffix*, when what stays is a stem (three letters or more, with a vowel); else None."""
+    base = word[: -len(suffix)]
+    if not word.endswith(suffix) or len(base) < 3 or not any(_is_vowel(base, index) for index in range(len(base))):
+        return None
+    last = len(base) - 1
+    if undouble and len(base) >= 4 and base[-1] == base[-2] and base[-1] not in "lsz" and not _is_vowel(base, last):
+        return base[:-1]  # "running" -> "run"
+    if len(base) == 3 and not _is_vowel(base, 0) and _is_vowel(base, 1) and not _is_vowel(base, 2) \
+            and base[2] not in "wxy":
+        return base + "e"  # "noted" -> "note", never "not"
+    return base
+
+
+@lru_cache(maxsize=8192)
+def _stem(token: str) -> str:
+    """The stem a word shares with its other forms: a light rule-based stemmer (plural, -ing, -ed, -er, -or,
+    -ion after t or s, a final -e), so "calculator", "calculates", "calculating" and "calculation" all give
+    "calculat". Short words, numbers and ids stay as they are."""
+
+    if len(token) <= 3 or not token.isalpha() or token in _NOT_PLURAL:
+        return token
+    word = token
+    if word.endswith("ies"):
+        word = word[:-3] + "y"
+    elif word.endswith(("sses", "xes", "ches", "shes")):
+        word = word[:-2]
+    elif word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        word = word[:-1]
+    if word.endswith("ied") and len(word) > 4:
+        word = word[:-3] + "y"
+    else:
+        word = _without(word, "ing", undouble=True) or _without(word, "ed", undouble=True) or word
+    if word.endswith(("tion", "sion")):
+        word = _without(word, "ion") or word
+    else:
+        word = _without(word, "er") or _without(word, "or") or word
+    if len(word) >= 5 and word.endswith("e"):
+        word = word[:-1]
+    return word
+
+
+def _with_word_forms(tokens: tuple[str, ...]) -> tuple[str, ...]:
+    """Each token and its stem: the word as written scores twice, another form of it once."""
+    return (*tokens, *(_STEM + _stem(token) for token in tokens))
+
+
 def _document_tokens(document: CapabilityDocument) -> tuple[str, ...]:
     fields: Iterable[str] = (
         document.canonical_id,
@@ -43,7 +101,7 @@ def _document_tokens(document: CapabilityDocument) -> tuple[str, ...]:
         *document.parameter_names,
         *document.aliases,
     )
-    return tuple(token for field in fields for token in normalize_tokens(field))
+    return _with_word_forms(tuple(token for field in fields for token in normalize_tokens(field)))
 
 
 def _name_match_tier(document: CapabilityDocument, query: str) -> int:
@@ -67,13 +125,14 @@ def search_capabilities(
     *,
     limit: int = 3,
 ) -> list[CapabilityDocument]:
-    """Rank documents locally using explicit name tiers then BM25-style text score."""
+    """Rank documents locally using explicit name tiers then BM25-style text score over words and their
+    stems, so another form of a word ("calculator" for "calculate") still matches."""
 
     query_text = str(query or "").strip()
     if not query_text:
         return []
     bounded_limit = min(5, max(1, int(limit or 1)))
-    query_tokens = normalize_tokens(query_text)
+    query_tokens = _with_word_forms(normalize_tokens(query_text))
     if not query_tokens:
         return []
 

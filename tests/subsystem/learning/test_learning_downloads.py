@@ -178,7 +178,7 @@ def test_nothing_downloads_without_the_preview_flag(world, monkeypatch):
 
 @pytest.mark.parametrize("found", [
     hardware.HardwareCheck("no_gpu"),
-    hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 5070 Laptop GPU", 8151, "560.94")]),
+    hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 4080", 16_376, "560.94")]),
 ])
 def test_a_computer_that_cant_train_downloads_no_engine(world, found):
     assert found.state in {"no_gpu", "old_driver"}

@@ -56,7 +56,11 @@ TOOL_GUIDES_DIR = tool_guides_dir()
 CONFIG_PATH = DATA_DIR / "skills_config.json"
 BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY = "bundled_manual_defaults_v2_applied"
 SKILL_PINS_CONFIG_KEY = "skill_pins_v1_applied"
-DEFAULT_PINNED_SKILL_NAMES = ("proactive_agent",)
+# 5.3.4: nothing is pinned by default. "Check-ins" (proactive_agent, pinned since 5.0) made Row-Bot stop to
+# check in, ask scoping questions and re-confirm sends, against "end only when done" and the person's
+# approval level; it was unpinned once everywhere it was pinned and stays available to pin.
+CHECK_INS_UNPINNED_CONFIG_KEY = "check_ins_unpinned_v1"
+CHECK_INS_SKILL_NAME = "proactive_agent"
 
 # ── Data Model ───────────────────────────────────────────────────────────────
 
@@ -242,6 +246,8 @@ def _save_config(metadata: dict | None = None):
 # ── In-Memory Cache ─────────────────────────────────────────────────────────
 
 _skills_cache: dict[str, Skill] = {}  # name → Skill
+# The user skills folder as last loaded: each SKILL.md's folder, change time and size (#630).
+_user_skills_seen: tuple[tuple[str, int, int], ...] | None = None
 
 
 def _discover_skills() -> dict[str, Skill]:
@@ -293,16 +299,33 @@ def _ordered_unique(names: Iterable[str]) -> list[str]:
     return result
 
 
+def _user_skills_state() -> tuple[tuple[str, int, int], ...]:
+    """What the user skills folder holds now: one directory listing and a stat per skill."""
+    found = []
+    try:
+        children = list(USER_SKILLS_DIR.iterdir())
+    except OSError:
+        return ()
+    for child in children:
+        try:
+            info = (child / "SKILL.md").stat()
+        except OSError:
+            continue
+        found.append((child.name, info.st_mtime_ns, info.st_size))
+    return tuple(sorted(found))
+
+
 @_serialized
 def load_skills():
     """Discover all skills, apply persisted enable/disable state, populate cache."""
-    global _skills_cache, _enabled, _pinned
+    global _skills_cache, _enabled, _pinned, _user_skills_seen
 
     from row_bot.docs_capture import is_docs_real_data_capture
 
     if not is_docs_real_data_capture():
         USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
+    _user_skills_seen = _user_skills_state()  # Before the scan: a change during it is seen next time.
     _skills_cache = _discover_skills()
 
     config = _load_config()
@@ -313,7 +336,7 @@ def load_skills():
     if not isinstance(saved_pinned, list):
         saved_pinned = []
     migrate_bundled_manual_defaults = not bool(config.get(BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY))
-    migrate_skill_pins = not bool(config.get(SKILL_PINS_CONFIG_KEY))
+    unpin_check_ins = not bool(config.get(CHECK_INS_UNPINNED_CONFIG_KEY))
 
     # Merge saved state with discovered skills
     new_enabled: dict[str, bool] = {}
@@ -334,13 +357,12 @@ def load_skills():
     }
     new_pinned = [
         name for name in _ordered_unique(saved_pinned)
-        if name in manual_names
+        if name in manual_names and not (unpin_check_ins and name == CHECK_INS_SKILL_NAME)
     ]
-    if migrate_skill_pins:
-        for name in DEFAULT_PINNED_SKILL_NAMES:
-            skill = _skills_cache.get(name)
-            if skill and not is_tool_guide(skill) and name not in new_pinned:
-                new_pinned.append(name)
+    if unpin_check_ins and not is_docs_real_data_capture():
+        from row_bot.skills_activation import retire_default_seeded_skill
+
+        retire_default_seeded_skill(CHECK_INS_SKILL_NAME)
 
     for name in new_pinned:
         _enabled[name] = True
@@ -354,6 +376,7 @@ def load_skills():
         _save_config({
             BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True,
             SKILL_PINS_CONFIG_KEY: True,
+            CHECK_INS_UNPINNED_CONFIG_KEY: True,
         })
 
     manual_count = sum(1 for skill in _skills_cache.values() if not skill.tools)
@@ -521,8 +544,9 @@ def get_manual_skills() -> list[Skill]:
 
 
 def _ensure_skills_loaded():
-    """Populate the in-memory cache on first read for status/reporting paths."""
-    if not _skills_cache:
+    """Populate the in-memory cache on first read, and again when the user skills folder changed outside
+    Row-Bot (a skill dropped in by an admin tool or a sync, #630): no restart needed."""
+    if not _skills_cache or _user_skills_state() != _user_skills_seen:
         load_skills()
 
 
@@ -967,8 +991,8 @@ def _read_client_skills_uncached() -> dict:
             True if not config.get(BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY) and _is_bundled_manual_skill(skill)
             else saved.get(name, skill.enabled_by_default))
     pinned = [name for name in _ordered_unique(config.get('pinned', [])) if name in found and not is_tool_guide(found[name]['skill'])]
-    if not config.get(SKILL_PINS_CONFIG_KEY):
-        pinned = _ordered_unique([*pinned, *(name for name in DEFAULT_PINNED_SKILL_NAMES if name in found)])
+    if not config.get(CHECK_INS_UNPINNED_CONFIG_KEY):  # Read as load_skills will write it (5.3.4).
+        pinned = [name for name in pinned if name != CHECK_INS_SKILL_NAME]
     for name in pinned:
         enabled[name] = True
     revision = hashlib.sha256(json.dumps([config_file[1:3], proofs], sort_keys=True).encode()).hexdigest()

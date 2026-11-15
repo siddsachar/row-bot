@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "retried": {
+      "const": true,
+      "title": "Retried",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "retried"
+  ],
+  "title": "ScheduledPostRetried",
+  "type": "object"
+}

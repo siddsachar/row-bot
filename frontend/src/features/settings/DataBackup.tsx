@@ -7,12 +7,15 @@ import {
 } from 'lucide-react';
 import type {
   DataBackupCommand,
+  DataBackupJob,
   DataBackupReceipt,
   DataBackupSignIn,
   DataBackupState,
   DataRestoreReview,
+  SettingsSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import { saveBrowserDownload } from '../../platform/download';
 import { useRuntime } from '../../runtime';
 import { Button } from '../../ui/primitives';
@@ -21,14 +24,18 @@ import { When } from '../../ui/When';
 
 type Action = DataBackupCommand['action'];
 type Extra = { file_grant?: string; review_id?: string; upload_id?: string };
+type Host = SettingsSnapshot['system']['hosted_by'];
 
 export type DataBackupOwner = {
   read: () => Promise<DataBackupState>;
   send: (action: Action, extra?: Extra) => Promise<DataBackupReceipt>;
   /** The desktop pick of one backup archive, or null (cancelled or no desktop). */
   pick: () => Promise<string | null | 'unavailable'>;
-  /** Save the named last backup on this device: null once saved, else why not. */
-  download: (name: string) => Promise<string | null>;
+  /**
+   * Save a backup on this device: the named one, or the one a promise names
+   * once it is made (the save starts at the click). Null once saved, else why not.
+   */
+  download: (name: string | (() => Promise<string>)) => Promise<string | null>;
   /** Send an archive to restore from (no desktop picker); its upload id. */
   upload: (
     file: File,
@@ -40,6 +47,8 @@ export type DataBackupOwner = {
 };
 
 const POLL_MS = 1000;
+// A backup for moving that wasn't made: its waiting save just stops.
+const NOT_MADE = new Error('backup_not_made');
 
 const JOB_FAILED: Record<string, string> = {
   backup_failed: "The backup didn't finish. Try again.",
@@ -95,17 +104,33 @@ const RESTORE_IN_DESKTOP_APP =
   'Restoring picks the backup file in the Row-Bot desktop app on the computer Row-Bot runs on.';
 
 /**
+ * What the host does about backups of the server (F3), in its own words: one
+ * quiet line under the server's own copy. PikaPods keeps its own; Railway
+ * does only on its Pro plan.
+ */
+function HostBackups({ note }: { note: string }) {
+  return <p className="muted data-backup-host">{note}</p>;
+}
+
+/**
  * Settings › Data: Back up now, and Restore from backup on the next start,
  * from any signed-in device. A device that can't open the Backups folder
- * downloads the backup, and sends the file it restores from.
+ * downloads the backup, and sends the file it restores from. Away from the
+ * computer Row-Bot runs on (a hosted Row-Bot, or a server), Download backup
+ * comes first: it makes a fresh backup and saves it on this device, then says
+ * what that backup's own manifest leaves out and what to sign in to again
+ * (U9). Back up now keeps its copy on the server, and says so (F3).
  */
 export function DataBackup({
   owner,
   canPick = true,
+  host = null,
 }: {
   owner: DataBackupOwner;
   /** The desktop app picks a backup file to restore; other devices send one. */
   canPick?: boolean;
+  /** The company that runs this Row-Bot (H13), which may back up the server too. */
+  host?: Host;
 }) {
   const [state, setState] = useState<DataBackupState | null>(null);
   const [review, setReview] = useState<DataRestoreReview | null>(null);
@@ -115,13 +140,40 @@ export function DataBackup({
     null,
   );
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  // Back up now finished: the backup's name and the files it couldn't read.
+  const [notice, setNotice] = useState<{
+    name: string;
+    skipped: string[];
+  } | null>(null);
+  // Download backup (away from the computer Row-Bot runs on): the backup made
+  // for it, and whether it was saved on this device.
+  const [moved, setMoved] = useState<DataBackupJob | null>(null);
+  const [saved, setSaved] = useState(false);
+  const place = usePlace();
+  // A hosted Row-Bot, or a server: Back up now keeps its copy over there (F3).
+  const remote = place.kind !== 'this_computer';
+  const hosted = place.kind === 'hosted';
+  const server = hosted ? 'your Row-Bot server' : place.noun;
   const alive = useRef(true);
   const watched = useRef<string | null>(null);
+  const moving = useRef(false);
   const files = useRef<HTMLInputElement>(null);
   const transfer = useRef<AbortController | null>(null);
   // The archive this page sent, until its restore is confirmed or let go.
   const uploaded = useRef<string | null>(null);
+  // The backup Download backup is making, which its save waits for.
+  const making = useRef<{
+    resolve: (name: string) => void;
+    reject: (cause: Error) => void;
+  } | null>(null);
+  const settleMaking = useCallback((name: string | null) => {
+    const pending = making.current;
+    making.current = null;
+    if (pending) {
+      if (name) pending.resolve(name);
+      else pending.reject(NOT_MADE);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -131,25 +183,31 @@ export function DataBackup({
       const job = next.job;
       if (job && job.status !== 'running' && watched.current === job.kind) {
         watched.current = null;
-        if (job.status === 'failed')
+        const forMove = moving.current && job.kind === 'backup';
+        moving.current = false;
+        if (job.status === 'failed') {
+          if (forMove) settleMaking(null);
           setError(
             (job.code &&
               (JOB_FAILED[job.code] ??
                 clientError({ code: job.code }).message)) ||
               JOB_FAILED[`${job.kind}_failed`],
           );
-        else if (job.kind === 'backup')
-          setNotice(
-            `Saved “${job.name ?? next.last_backup_name}” in ${next.folder}.` +
-              (job.skipped?.length
-                ? ` Left out ${job.skipped.length === 1 ? 'a file' : `${job.skipped.length} files`} that couldn't be read: ${job.skipped.join(', ')}.`
-                : ''),
-          );
+        } else if (forMove) {
+          // Its save started at the click and has waited for this backup.
+          setMoved(job);
+          setSaved(false);
+          settleMaking(job.name ?? null);
+        } else if (job.kind === 'backup')
+          setNotice({
+            name: job.name ?? next.last_backup_name ?? '',
+            skipped: job.skipped ?? [],
+          });
       }
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
     }
-  }, [owner]);
+  }, [owner, settleMaking]);
 
   const forget = useCallback(() => {
     const upload = uploaded.current;
@@ -164,8 +222,9 @@ export function DataBackup({
       alive.current = false;
       transfer.current?.abort();
       forget();
+      settleMaking(null);
     };
-  }, [refresh, forget]);
+  }, [refresh, forget, settleMaking]);
 
   const running = state?.job?.status === 'running';
   useEffect(() => {
@@ -177,7 +236,7 @@ export function DataBackup({
   async function send(action: Action, extra?: Extra) {
     setBusy(true);
     setError('');
-    setNotice('');
+    setNotice(null);
     try {
       const receipt = await owner.send(action, extra);
       if (!alive.current) return null;
@@ -193,18 +252,29 @@ export function DataBackup({
     }
   }
 
-  async function download() {
-    const name = state?.last_backup_name;
+  async function download(
+    name:
+      | string
+      | (() => Promise<string>)
+      | null
+      | undefined = state?.last_backup_name,
+  ) {
     if (!name) return;
     setError('');
     setDownloading(true);
     try {
       // Called straight from the click: the browser saves only for a gesture.
       const reason = await owner.download(name);
-      if (reason && alive.current)
-        setError(DOWNLOAD_FAILED[reason] ?? DOWNLOAD_FAILED.operation_failed);
-    } catch (cause) {
       if (!alive.current) return;
+      // A browser that wouldn't save even from the click: the backup's own
+      // line offers the click that saves it, once it is made.
+      if (reason === 'user_gesture_required' && typeof name !== 'string')
+        return;
+      if (reason)
+        setError(DOWNLOAD_FAILED[reason] ?? DOWNLOAD_FAILED.operation_failed);
+      else if (typeof name !== 'string' || name === moved?.name) setSaved(true);
+    } catch (cause) {
+      if (!alive.current || cause === NOT_MADE) return;
       setError(problem(cause));
       // Gone, or a newer backup since: show the one there is now.
       if (clientError(cause).code === 'backup_unavailable') void refresh();
@@ -213,9 +283,31 @@ export function DataBackup({
     }
   }
 
+  /**
+   * Move Row-Bot: make a fresh backup and save it, in one click. The save
+   * starts now, while the click counts, and waits for the backup to be made.
+   * A backup made for moving that the browser wouldn't save is saved instead.
+   */
+  function moveOut() {
+    if (moved?.name && !saved) {
+      void download(moved.name);
+      return;
+    }
+    moving.current = true;
+    const made = new Promise<string>((resolve, reject) => {
+      making.current = { resolve, reject };
+    });
+    void download(() => made);
+    void send('backup').then((receipt) => {
+      if (receipt?.status === 'accepted') return;
+      moving.current = false;
+      settleMaking(null);
+    });
+  }
+
   async function chooseBackup() {
     setError('');
-    setNotice('');
+    setNotice(null);
     const picked = await owner.pick();
     if (!alive.current || picked === null) return;
     if (picked === 'unavailable') {
@@ -228,7 +320,7 @@ export function DataBackup({
 
   async function sendBackup(file: File) {
     setError('');
-    setNotice('');
+    setNotice(null);
     setReview(null);
     forget();
     const control = new AbortController();
@@ -321,13 +413,57 @@ export function DataBackup({
           </Button>
         </div>
       )}
+      {remote && (
+        <div className="settings-inline-row data-backup-row">
+          <div>
+            <strong>Download a backup</strong>
+            <p>
+              Makes a fresh backup and saves it on this device.
+              {hosted &&
+                ' To move Row-Bot to your computer, install Row-Bot there, open Settings › Data and choose Restore from backup.'}
+            </p>
+            {moved && (
+              <div className="data-backup-moved" role="status">
+                <p>
+                  {saved
+                    ? `Downloaded “${moved.name}”.`
+                    : downloading
+                      ? `Saving “${moved.name}”…`
+                      : `“${moved.name}” is ready. Choose Download backup to save it.`}
+                </p>
+                {Boolean(moved.left_out?.length) && (
+                  <p>Not in the backup: {moved.left_out!.join(' · ')}</p>
+                )}
+                {Boolean(moved.sign_in_again?.length) && (
+                  <>
+                    <p>After restoring it, set these up again:</p>
+                    <SignInList items={moved.sign_in_again!} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <Button
+            variant="primary"
+            disabled={locked || downloading}
+            onClick={moveOut}
+          >
+            <Download size={16} aria-hidden />
+            {running && state.job?.kind === 'backup'
+              ? 'Backing up…'
+              : downloading
+                ? 'Downloading…'
+                : 'Download backup'}
+          </Button>
+        </div>
+      )}
       <div className="settings-inline-row data-backup-row">
         <div>
           <strong>Back up now</strong>
           <p>
-            Saves conversations, memories, workflows, designs and settings to
-            the {state.folder} folder. Passwords, keys, sign-ins, caches and
-            logs are left out.
+            Saves conversations, memories, workflows, designs and settings{' '}
+            {remote ? `on ${server}` : `to the ${state.folder} folder`}.
+            Passwords, keys, sign-ins, caches and logs are left out.
           </p>
           <p className="muted">
             Last backup:{' '}
@@ -348,9 +484,12 @@ export function DataBackup({
               </Button>
             )}
           </p>
+          {remote && host?.backups_note && (
+            <HostBackups note={host.backups_note} />
+          )}
         </div>
         <Button
-          variant="primary"
+          variant={remote ? 'secondary' : 'primary'}
           disabled={locked}
           onClick={() => void send('backup')}
         >
@@ -362,9 +501,13 @@ export function DataBackup({
       </div>
       {notice && (
         <p className="settings-saved-note" role="status">
-          {notice}
-          {notice.startsWith('Saved') &&
-            state.last_backup_name &&
+          {remote
+            ? `Saved on ${server}. Download it to keep a copy somewhere else.`
+            : `Saved “${notice.name}” in ${state.folder}.`}
+          {notice.skipped.length > 0 &&
+            // The file's name, never its path inside Row-Bot's folder (U11).
+            ` Left out ${notice.skipped.length === 1 ? `${notice.skipped[0].split('/').pop()}, which` : `${notice.skipped.length} files that`} couldn't be read.`}
+          {state.last_backup_name &&
             // The file manager opens on the computer Row-Bot runs on.
             state.reveal_available && (
               <Button
@@ -385,6 +528,9 @@ export function DataBackup({
             {canPick
               ? 'Checks the backup first.'
               : 'Sends the backup file to Row-Bot and checks it first.'}{' '}
+            {hosted
+              ? 'A backup from Row-Bot on your computer works too.'
+              : 'A backup from a hosted Row-Bot works too.'}{' '}
             Your current profile is kept aside, and nothing changes until
             Row-Bot restarts.
           </p>
@@ -480,7 +626,7 @@ export function DataBackup({
   );
 }
 
-export default function ConnectedDataBackup() {
+export default function ConnectedDataBackup({ host = null }: { host?: Host }) {
   const { controller, platform } = useRuntime();
   const [desktop, setDesktop] = useState(false);
   useEffect(() => {
@@ -520,14 +666,19 @@ export default function ConnectedDataBackup() {
     download: async (name) => {
       // The server's own refusal says more than "the download failed".
       let refused: unknown;
-      const saved = await saveBrowserDownload(async () => {
-        try {
-          return await controller.downloadDataBackup(name);
-        } catch (cause) {
-          refused = cause;
-          throw cause;
-        }
-      }, name);
+      let chosen = typeof name === 'string' ? name : '';
+      const saved = await saveBrowserDownload(
+        async () => {
+          try {
+            if (typeof name !== 'string') chosen = await name();
+            return await controller.downloadDataBackup(chosen);
+          } catch (cause) {
+            refused = cause;
+            throw cause;
+          }
+        },
+        typeof name === 'string' ? name : () => chosen,
+      );
       if (refused !== undefined) throw refused;
       return saved.status === 'unavailable' ? saved.reason : null;
     },
@@ -535,5 +686,5 @@ export default function ConnectedDataBackup() {
       controller.uploadDataBackup(file, progress, signal),
     discard: (upload) => controller.cancelDataBackupUpload(upload),
   });
-  return <DataBackup owner={owner.current} canPick={desktop} />;
+  return <DataBackup owner={owner.current} canPick={desktop} host={host} />;
 }

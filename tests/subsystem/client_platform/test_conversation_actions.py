@@ -9,6 +9,7 @@ import pytest
 from row_bot.application.conversation_actions import (
     ConversationActionError,
     execute_conversation_action,
+    export_file_name,
     read_conversation_action_receipt,
     read_conversation_actions,
     review_conversation_action,
@@ -175,7 +176,7 @@ def test_export_is_local_opaque_excludes_internal_messages_and_recovers_admissio
     }
     metadata, data = read_attachment(exported["export"]["attachment_ref"])
     text = data.decode()
-    assert metadata["name"] == "conversation-export.md"
+    assert exported["export"]["file_name"] == metadata["name"] == "Export title.md"
     assert "# Export title" in text
     assert "## You\n\nPublic question" in text
     assert "## Row-Bot\n\nPublic answer" in text
@@ -287,9 +288,9 @@ def test_pdf_export_is_the_reviewed_transcript_rendered_offline(isolated_service
     command["payload"]["export_format"] = "pdf"
     exported = _execute(isolated_service, conversation, command)
     assert exported["status"] == "completed", exported
-    assert exported["export"]["file_name"] == "conversation-export.pdf"
+    assert exported["export"]["file_name"] == "PDF title.pdf"
     metadata, data = read_attachment(exported["export"]["attachment_ref"])
-    assert metadata["name"] == "conversation-export.pdf"
+    assert metadata["name"] == "PDF title.pdf"
     assert data.startswith(b"%PDF-")
     text = "\n".join(page.extract_text() for page in pypdf.PdfReader(io.BytesIO(data)).pages)
     assert "PDF title" in text and "the plan" in text and "second step" in text
@@ -325,3 +326,47 @@ def test_pdf_export_says_so_when_no_pdf_renderer_is_installed(isolated_service, 
     command["payload"]["export_format"] = "pdf"
     with pytest.raises(ConversationActionError, match="conversation_export_pdf_unavailable"):
         _execute(isolated_service, conversation, command)
+
+
+@pytest.mark.parametrize(("title", "expected"), [
+    ("Trip to Lisbon: the plan?", "Trip to Lisbon the plan.md"),
+    ("..\\..\\secrets/notes", "secrets notes.md"),
+    ("  CON  ", "export-CON.md"),
+    ("x" * 300, "x" * 80 + ".md"),
+    ("", "conversation-export.md"),
+    ("New conversation", "conversation-export.md"),
+    ("\u65c5\u884c\u306e\u8a08\u753b", "conversation-export.md"),
+])
+def test_an_export_is_offered_under_the_chats_title_as_a_safe_name(title: str, expected: str) -> None:
+    """The Save dialog suggests the chat's title, never a folder, device name or overlong name; an
+    untitled chat (or one with no letters a file name keeps) keeps ``conversation-export``."""
+    assert export_file_name(title, "md") == expected
+    assert export_file_name(title, "pdf") == expected[:-3] + ".pdf"
+
+
+def test_an_export_says_where_an_image_was_made_and_leaves_out_empty_steps(isolated_service):
+    """The bicycle chat (9 Nov) exported three empty "## Row-Bot" sections and no sign of its two images."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from row_bot import threads
+    from row_bot.application.attachments import read_attachment
+
+    conversation = threads.create_thread("Bicycle", seed_default_skills=False)
+    image = {"type": "media.available", "payload": {"media_ref": "attachment:" + "a" * 32, "mime_type": "image/png"}}
+    threads.append_checkpoint_messages(conversation, [
+        HumanMessage(id="ask", content="Make an image of a red bicycle by a canal."),
+        AIMessage(id="plan", content="I'll create it.", tool_calls=[{"id": "c1", "name": "generate_image", "args": {}}]),
+        ToolMessage(id="made", tool_call_id="c1", content="Image generated",
+                    additional_kwargs={"platform_media": [image]}),
+        AIMessage(id="step", content="", tool_calls=[{"id": "c2", "name": "row_bot_status", "args": {}}]),
+        ToolMessage(id="status", tool_call_id="c2", content="private status"),
+        AIMessage(id="done", content="Here you are."),
+    ])
+    review = _review(isolated_service, conversation, "conversation.export", "0", {})
+
+    exported = _execute(isolated_service, conversation, _command("conversation.export", review, {}))
+
+    text = read_attachment(exported["export"]["attachment_ref"])[1].decode()
+    assert text.count("## Row-Bot") == 1
+    assert ("## Row-Bot\n\nI'll create it.\n\n_[Image made in this conversation, kept in Row-Bot]_\n\n"
+            "Here you are.") in text
+    assert "private status" not in text

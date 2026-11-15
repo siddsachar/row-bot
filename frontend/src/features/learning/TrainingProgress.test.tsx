@@ -371,3 +371,41 @@ it('words the time left in minutes and hours', () => {
   expect(timeLeftWords(6000)).toBe('about 1 h 40 min left');
   expect(timeLeftWords(7200)).toBe('about 2 h left');
 });
+
+it('says plainly while Hugging Face waits for a free card, and that cancelling then costs nothing', () => {
+  show(
+    trainingRun({
+      state: 'running',
+      job_id: 'job_9',
+      version: 24,
+      where: 'hugging_face',
+      remote: {
+        phase: 'running',
+        stage: 'setting_up',
+        cost_usd: 0,
+        minutes: 0,
+        lost: false,
+        flavor: 'l40sx1',
+        waiting_for_gpu: true,
+        gpu_label: '1x Nvidia L40S',
+        cleaned: false,
+        cleanup_failed: false,
+        url: null,
+      },
+    }),
+  );
+
+  expect(
+    screen.getByText(
+      'Hugging Face is waiting for a free 1x Nvidia L40S. No charge while it waits.',
+      SHOWN,
+    ),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      'Training v24 starts as soon as one is free; cancelling now costs nothing.',
+      SHOWN,
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+});

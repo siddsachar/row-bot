@@ -43,17 +43,44 @@ from urllib.parse import urlsplit
 logger = logging.getLogger(__name__)
 
 ROW_BOT = "row_bot"
-RUNTIMES = (ROW_BOT, "ollama", "lmstudio", "llama_cpp", "vllm")
-RUNTIME_NAMES = {ROW_BOT: "Row-Bot", "ollama": "Ollama", "lmstudio": "LM Studio", "llama_cpp": "llama.cpp server",
-                 "vllm": "vLLM"}
+
+
+@dataclass(frozen=True)
+class Runtime:
+    """Where a version runs ("Runs in"): one descriptor per runtime, the same shape whether it is on this computer
+    or (later) remote (O139).
+
+    ``automated``: Row-Bot registers the version itself; otherwise Row-Bot shows a command and registers an
+    OpenAI-compatible endpoint (``profile``) once the model answers at ``port``. Every runtime in 5.4 is on this
+    computer (O131). A remote one (a Hugging Face endpoint, planned later) is one more entry here, served by a
+    branch of :func:`serve` beside ``_serve_row_bot`` that registers its endpoint and runs the same checks into the
+    same :class:`ServeOutcome`, so a remote version is judged and offered (D24) exactly like a local one."""
+
+    id: str
+    name: str
+    automated: bool = False
+    port: int | None = None
+    profile: str | None = None
+    linux_only: bool = False
+
+
+RUNTIME_TABLE = (
+    Runtime(ROW_BOT, "Row-Bot", automated=True),
+    Runtime("ollama", "Ollama", automated=True),
+    Runtime("lmstudio", "LM Studio", port=1234, profile="lmstudio"),
+    Runtime("llama_cpp", "llama.cpp server", port=8181, profile="llama_cpp"),
+    Runtime("vllm", "vLLM", port=8000, profile="vllm", linux_only=True),
+)
+RUNTIMES = tuple(item.id for item in RUNTIME_TABLE)
+RUNTIME_NAMES = {item.id: item.name for item in RUNTIME_TABLE}
 # Runtimes Row-Bot registers a version in by itself (the others show a command to run).
-AUTOMATED = frozenset({ROW_BOT, "ollama"})
+AUTOMATED = frozenset(item.id for item in RUNTIME_TABLE if item.automated)
 # Why Row-Bot's own server couldn't make a version ready, as the version's failure.
 SERVER_FAILURES = {"unavailable": "server_unavailable", "not_installed": "server_missing",
                    "load_failed": "load_failed", "unknown_model": "load_failed"}
 # Where each manual runtime serves on this computer, and Row-Bot's endpoint profile for it.
-PORTS = {"lmstudio": 1234, "llama_cpp": 8181, "vllm": 8000}
-PROFILES = {"lmstudio": "lmstudio", "llama_cpp": "llama_cpp", "vllm": "vllm"}
+PORTS = {item.id: item.port for item in RUNTIME_TABLE if item.port}
+PROFILES = {item.id: item.profile for item in RUNTIME_TABLE if item.profile}
 NAME_PREFIX = "row-bot-personal"
 # The check turn: a real Agent turn on a throwaway conversation with one harmless tool.
 CHECK_PROMPT = "Use the calculator to work out 1234 * 5678, then reply with just the result."
@@ -108,8 +135,8 @@ def available_runtimes(check: Any = None) -> tuple[str, ...]:
     """The runtimes this computer can offer: Row-Bot's own server where it has a build, and vLLM on
     Linux (or in WSL)."""
 
-    return tuple(item for item in RUNTIMES if (item != "vllm" or sys.platform.startswith("linux"))
-                 and (item != ROW_BOT or row_bot_here(check)))
+    return tuple(item.id for item in RUNTIME_TABLE if (not item.linux_only or sys.platform.startswith("linux"))
+                 and (item.id != ROW_BOT or row_bot_here(check)))
 
 
 def effective_runtime(choice: str | None, check: Any = None) -> str:
@@ -634,6 +661,8 @@ __all__ = [
     "RUNTIMES",
     "ROW_BOT",
     "RUNTIME_NAMES",
+    "RUNTIME_TABLE",
+    "Runtime",
     "RowBotVerifier",
     "ServeOutcome",
     "Verifier",
