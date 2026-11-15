@@ -12,7 +12,7 @@ Setup:
        permissions: ``Send Messages``, ``Attach Files``, ``Read Message History``,
        ``Add Reactions``, ``Use Slash Commands``
     5. Use the generated URL to invite the bot to your server
-    6. Paste the **Bot Token** in Settings → Channels → Discord
+    6. Paste the **Bot Token** in Settings › Apps › Discord
     7. (Optional) Set your Discord User ID for DM-only access control
 
 Required keys (stored via api_keys):

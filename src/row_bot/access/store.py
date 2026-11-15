@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -31,6 +32,11 @@ CLAIM_FAILURE_LIMIT = 5
 CLAIM_LOCK_DURATION = timedelta(minutes=5)
 MAX_EVENT_DETAIL_BYTES = 2048
 MAX_EVENT_ROWS = 2000
+# Setup codes (H1), as salted verifiers only: the one code that may sign in now, settled at
+# each start, and the newest codes that signed someone in (a code works once).
+SETUP_CODE_ACTIVE_KEY = "setup_code_active"
+SETUP_CODES_USED_KEY = "setup_codes_used"
+SETUP_CODES_USED_MAX = 8
 
 _SENSITIVE_DETAIL_KEYS = {
     "authorization",
@@ -101,9 +107,12 @@ class AccessStore:
         self.db_path = Path(db_path) if db_path is not None else get_access_db_path()
         self._migration_hook = migration_hook
         self._optional_columns_checked = False
+        # The database file this store last found at the current schema: (device, inode).
+        self._schema_current: tuple[int, int] | None = None
 
     def _connect(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._schema_current is None:  # Once the schema is current, its folder is there.
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
@@ -131,8 +140,29 @@ class AccessStore:
         finally:
             connection.close()
 
+    def _file_identity(self) -> tuple[int, int] | None:
+        try:
+            status = os.stat(self.db_path)
+        except OSError:
+            return None
+        return status.st_dev, status.st_ino
+
     def ensure_schema(self) -> None:
-        """Create or migrate the schema under a cross-process write lock."""
+        """Create or migrate the schema under a cross-process write lock.
+
+        Every read calls this. Once the schema is found current it is checked again only when the database
+        file is a different one (removed, restored or replaced): taking the write lock on every read kept an
+        open page's event stream busy, several times a second (5.3.1).
+        """
+        identity = self._file_identity()
+        if identity is not None and identity == self._schema_current:
+            return
+        self._schema_current = None
+        self._check_schema()
+        # Committed: this file is current now, whichever way it got there.
+        self._schema_current = self._file_identity()
+
+    def _check_schema(self) -> None:
         with self._immediate_transaction() as connection:
             current_version = int(
                 connection.execute("PRAGMA user_version").fetchone()[0]
@@ -901,6 +931,98 @@ class AccessStore:
         assert claimed_invitation is not None
         return device, session, claimed_invitation
 
+    def claim_setup_code_atomic(
+        self,
+        *,
+        device: AccessDevice,
+        session: AccessSession,
+        used_verifier: Mapping[str, str],
+        allow_recovery: bool,
+        effective_client: str | None = None,
+        user_agent: str | None = None,
+        now: datetime | None = None,
+    ) -> tuple[AccessDevice, AccessSession, bool] | None:
+        """Sign a browser in with a setup code, retiring the code in the same commit.
+
+        When someone already owns this Row-Bot, only a recovery code (``allow_recovery``) may sign in,
+        and it first signs out every other device and session; otherwise this returns ``None``.
+        Returns the device, the session and whether it was a recovery.
+        """
+        self.ensure_schema()
+        current = normalize_datetime(now)
+        stamp = to_iso(current)
+        with self._immediate_transaction() as connection:
+            owned = (
+                connection.execute(
+                    "SELECT 1 FROM access_devices WHERE revoked_at IS NULL LIMIT 1"
+                ).fetchone()
+                is not None
+            )
+            if owned and not allow_recovery:
+                return None
+            signed_out = 0
+            if owned:
+                signed_out = connection.execute(
+                    "UPDATE access_devices SET revoked_at = ? WHERE revoked_at IS NULL",
+                    (stamp,),
+                ).rowcount
+                connection.execute(
+                    "UPDATE access_sessions SET revoked_at = ? WHERE revoked_at IS NULL",
+                    (stamp,),
+                )
+                # An open invitation would let whoever made it back in after the recovery.
+                connection.execute(
+                    "UPDATE access_invitations SET cancelled_at = ? "
+                    "WHERE cancelled_at IS NULL AND claimed_at IS NULL",
+                    (stamp,),
+                )
+            connection.execute(
+                """
+                INSERT INTO access_devices(
+                    id, display_name, profile, created_at, last_seen_at,
+                    revoked_at, user_agent, paired_from, access_route,
+                    legacy_source_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                _device_values(device),
+            )
+            connection.execute(
+                """
+                INSERT INTO access_sessions(
+                    id, device_id, token_hash, token_salt, token_format,
+                    created_at, last_seen_at, expires_at, revoked_at, lifetime,
+                    replaced_by_session_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                _session_values(session),
+            )
+            row = connection.execute(
+                "SELECT value_json FROM access_meta WHERE key = ?",
+                (SETUP_CODES_USED_KEY,),
+            ).fetchone()
+            earlier = json.loads(row["value_json"]) if row else []
+            used = [
+                {"salt": used_verifier["salt"], "hash": used_verifier["hash"], "used_at": stamp},
+                *(item for item in earlier if isinstance(item, dict)),
+            ][:SETUP_CODES_USED_MAX]
+            self._set_meta_on_connection(connection, SETUP_CODES_USED_KEY, used, current)
+            connection.execute(
+                "DELETE FROM access_meta WHERE key = ?", (SETUP_CODE_ACTIVE_KEY,)
+            )
+            self._insert_event_on_connection(
+                connection,
+                "setup_code_signed_in",
+                device_id=device.id,
+                session_id=session.id,
+                effective_client=effective_client,
+                user_agent=user_agent,
+                detail={"recovery": owned, "signed_out_devices": signed_out},
+                now=current,
+            )
+        return device, session, owned
+
     @staticmethod
     def _invitation_failure_locked_on_connection(
         connection: sqlite3.Connection,
@@ -974,6 +1096,25 @@ class AccessStore:
         with self._read_connection() as connection:
             rows = connection.execute(query).fetchall()
         return [_device_from_row(row) for row in rows]
+
+    def active_device_count(self, *, excluding_route: str = "") -> int:
+        """Devices signed in now (not revoked), read only: nothing is created, migrated or
+        locked, and a store that doesn't exist yet has none."""
+        if not self.db_path.exists():
+            return 0
+        try:
+            connection = sqlite3.connect(f"{self.db_path.as_uri()}?mode=ro", uri=True)
+            try:
+                row = connection.execute(
+                    "SELECT COUNT(*) FROM access_devices WHERE revoked_at IS NULL"
+                    " AND (access_route IS NULL OR access_route != ?)",
+                    (excluding_route,),
+                ).fetchone()
+            finally:
+                connection.close()
+        except sqlite3.Error:
+            return 0
+        return int(row[0]) if row else 0
 
     def get_session(self, session_id: str) -> AccessSession | None:
         self.ensure_schema()

@@ -112,6 +112,27 @@ it('follows a running process: what runs, for how long, where it serves', async 
   expect(card).not.toHaveTextContent('4321');
 });
 
+it('keeps following the process when the settled card replaces the live one', async () => {
+  const processes = io([view()]);
+  const shown = (place: string) => (
+    <ProcessIoContext.Provider value={processes}>
+      <ProcessCard
+        key={place}
+        processId="proc-1a2b3c4d"
+        conversationId="conversation-a"
+      />
+    </ProcessIoContext.Provider>
+  );
+  const { rerender } = render(shown('live'));
+  await screen.findByRole('group', {
+    name: 'Background process npm run dev: Running · 1m 12s',
+  });
+  rerender(shown('settled'));
+  await screen.findByRole('group', {
+    name: 'Background process npm run dev: Running · 1m 12s',
+  });
+});
+
 it('opens the output and stops it with everything it started', async () => {
   const processes = io([view({ name: 'Dev server' })]);
   renderCard(processes);

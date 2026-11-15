@@ -25,7 +25,16 @@ _PRIVATE = ("asset-manifest.json", ".vite/manifest.json")
 _SHELL_DOCUMENTS = frozenset({"index.html", "buddy-overlay.html"})
 _HASHED = re.compile(r"assets/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|png|jpg|jpeg|webp|ico|woff2?)$")
 _PUBLIC_SHELL = frozenset(
-    {"app.webmanifest", "service-worker.js", "icon-192.png", "icon-512.png"}
+    {
+        "app.webmanifest",
+        "service-worker.js",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-maskable-192.png",
+        "icon-maskable-512.png",
+        "screenshot-phone.webp",
+        "screenshot-wide.webp",
+    }
 )
 _DIGEST = re.compile(r"[a-f0-9]{64}")
 

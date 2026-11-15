@@ -1,18 +1,15 @@
 {
   "additionalProperties": false,
   "properties": {
-    "control": {
-      "enum": [
-        "agent",
-        "person"
-      ],
-      "title": "Control",
+    "copied": {
+      "default": "",
+      "maxLength": 65536,
+      "title": "Copied",
       "type": "string"
     },
     "status": {
       "enum": [
         "ok",
-        "agent_acting",
         "no_page"
       ],
       "title": "Status",
@@ -20,8 +17,7 @@
     }
   },
   "required": [
-    "status",
-    "control"
+    "status"
   ],
   "title": "BrowserInputResult",
   "type": "object"

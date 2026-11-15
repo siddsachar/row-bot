@@ -92,14 +92,9 @@ async function assertQueuedControlsReachable(
         ...geometry,
         notificationState: geometry.notices.length ? 'visible' : 'not-present',
         method:
-          'The first queued sample requires a real visible notification. Identical notifications are deduplicated and may expire after six seconds; later samples retain their actual notice count and action geometry.',
+          'A queued message shows in the waiting list above the composer, with no notice repeating it; any notice still showing must leave the action uncovered.',
       },
     );
-    if (sample.endsWith('-1'))
-      expect(
-        geometry.notices.length,
-        'The first queued sample has a real visible notification',
-      ).toBeGreaterThan(0);
     expect(
       geometry.overlapsNotice,
       'Notifications must not cover the action',
@@ -151,7 +146,7 @@ test('ordinary queued messages support edit and removal before one accepted disp
       exact: true,
     });
     await expect(queue).toContainText(
-      '2 messages waiting · sends when Row-Bot finishes',
+      '2 messages waiting · Row-Bot reads them at its next step',
     );
     await expect(queue.getByRole('listitem')).toHaveCount(2);
     // While Row-Bot answers, waiting messages go by themselves.

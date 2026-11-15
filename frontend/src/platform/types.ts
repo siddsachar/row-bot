@@ -48,7 +48,13 @@ export interface MediaTransport {
  * window reconnects, a copy the server wrote into the Exports folder.
  */
 export type SavedFile =
-  | { kind: 'file' }
+  | {
+      kind: 'file';
+      /** The chosen file's own name (never its folder), when the host says. */
+      fileName?: string;
+      /** Show the file chosen in the Save dialog in the file manager. */
+      reveal?(): Promise<boolean>;
+    }
   | { kind: 'download' }
   | {
       kind: 'exports';
@@ -75,12 +81,53 @@ export type BuddyPlacement = {
   placement: 'docked' | 'desktop';
   visible: boolean;
 };
+/**
+ * The desktop pet's own window (D5–D9). The page reports its layout (bubble or
+ * menu open) and which pixels take clicks (Buddy's silhouette as 24×24 cells,
+ * base64, plus the open bubble or menu), says when a drag starts and ends,
+ * and reads where the cursor is and whether Buddy just landed.
+ */
+export type BuddyPetRequest =
+  | { action: 'layout'; expanded: boolean }
+  | {
+      action: 'hit';
+      pet: [number, number, number, number];
+      cells: string;
+      bubble?: [number, number, number, number] | null;
+      menu?: [number, number, number, number] | null;
+    }
+  | { action: 'drag'; phase: 'start' | 'end' }
+  | { action: 'state' };
+export type BuddyPetState = {
+  side: 'left' | 'right';
+  expanded: boolean;
+  width: number;
+  height: number;
+  /** Buddy's box inside the window, in CSS pixels. */
+  petX: number;
+  petY: number;
+  /** The cursor relative to Buddy's box, and seconds since it last moved. */
+  cursor: { x: number; y: number; age: number } | null;
+  landed: number;
+  perched: boolean;
+  following: boolean;
+};
+export type BuddyPetAnswer = Partial<BuddyPetState> & { accepted?: boolean };
+
 /** The conversation the desktop Buddy follows, as the native host last heard it. */
 export type BuddyTarget = { conversationId: string | null; revision: number };
 
 /** Conversation ids accepted by the native host (its `_SCOPE_VALUE`). */
 export const nativeConversationId = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9:_.-]{1,256}$/.test(value);
+
+/** A Proactive place the desktop Buddy may open in the main window (the host's `MAIN_TARGET`). */
+export type MainWindowTarget =
+  'for-you' | 'drafts' | `draft:${string}` | `why:${string}`;
+
+export const mainWindowTarget = (value: unknown): value is MainWindowTarget =>
+  typeof value === 'string' &&
+  /^(?:for-you|drafts|draft:[0-9a-f]{16}|why:[0-9a-f]{16})$/.test(value);
 
 export interface ClientPlatform {
   discover(): Promise<CapabilityResult<PlatformInfo>>;
@@ -99,9 +146,15 @@ export interface ClientPlatform {
   ): Promise<CapabilityResult<BuddyTarget>>;
   /** Desktop Buddy: the conversation the main window has open. */
   readBuddyTarget(): Promise<CapabilityResult<BuddyTarget>>;
-  /** Desktop Buddy: bring the main window forward on a conversation. */
+  /** Desktop Buddy: its own pet window (layout, hit mask, drags, state). */
+  buddyPet(request: BuddyPetRequest): Promise<CapabilityResult<BuddyPetAnswer>>;
+  /**
+   * Desktop Buddy: bring the main window forward on a conversation, or on a
+   * Proactive place (`target`: For you, Drafts, a draft or a moment's Why this).
+   */
   showMainWindow(
     conversationId: string | null,
+    target?: MainWindowTarget,
   ): Promise<CapabilityResult<null>>;
   /**
    * Frameless windows: move this window's top-left corner to a screen point

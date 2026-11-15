@@ -23,7 +23,7 @@ direct, curious, and respectful.
 
 ## Enforcement
 
-Reports can be sent privately to siddsachar@gmail.com.
+Reports can be sent privately to syd@row-bot.ai.
 
 Maintainers may remove comments, close issues, block users, or take other
 reasonable action to protect the community. Enforcement decisions are made in

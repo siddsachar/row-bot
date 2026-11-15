@@ -15,6 +15,7 @@ import * as Toast from '@radix-ui/react-toast';
 import { PanelLeftClose, X } from 'lucide-react';
 import { Button, Hint, IconButton } from './primitives';
 import { DialogFooterContext, type FooterSlot } from './dialog-footer';
+import { installSheetSwipe } from './sheet-swipe';
 
 type Overlay = {
   key?: string;
@@ -26,6 +27,8 @@ type Overlay = {
   /** A palette has no header or footer chrome; Escape closes it. */
   kind?: 'dialog' | 'sheet' | 'drawer' | 'alert' | 'palette';
   confirmLabel?: string;
+  /** The alert's way out when "Cancel" would read as the action itself ("Cancel the run?" › "Keep running"). */
+  cancelLabel?: string;
   onConfirm?: () => void;
   returnFocusTo?: HTMLElement | null;
 };
@@ -153,6 +156,8 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const resumeFocus = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const current = confirmation ?? task;
+  // Phone sheets close with a swipe down too (menus, popovers, sheet tasks).
+  useEffect(() => installSheetSwipe(), []);
   // Handlers inside an overlay's content were created when it opened; closing
   // and dismissing act on the overlays shown now, not on that render's state.
   const shown = useRef({ task, confirmation });
@@ -350,7 +355,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                     {confirmation ? (
                       <>
                         <Button ref={cancelRef} onClick={() => close()}>
-                          Cancel
+                          {confirmation.cancelLabel ?? 'Cancel'}
                         </Button>
                         <Button
                           variant="danger"
@@ -674,4 +679,9 @@ export function useOverlay() {
   const context = useContext(OverlayContext);
   if (!context) throw new Error('OverlayProvider is required');
   return context;
+}
+
+/** The overlays, or null outside the app (a message rendered on its own). */
+export function useOptionalOverlay() {
+  return useContext(OverlayContext);
 }

@@ -39,3 +39,11 @@ def test_only_the_draft_job_writes_to_releases_and_never_in_a_dry_run() -> None:
     # A draft only ever holds a complete set of builds.
     for name in ("build-windows", "build-linux", "build-macos", "checksums-and-manifest"):
         assert f"needs.{name}.result == 'success'" in jobs["draft-release"]["if"]
+
+
+def test_the_gate_refuses_unwritten_release_notes_before_anything_builds() -> None:
+    steps = _workflow("release.yml")["jobs"]["release-gate"]["steps"]
+    notes = [step for step in steps if "scripts/build_update_parts.py release-notes" in step.get("run", "")]
+
+    assert len(notes) == 1
+    assert notes[0]["if"] == "${{ !inputs.dry_run }}"

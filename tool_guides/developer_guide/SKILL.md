@@ -14,6 +14,8 @@ tags:
 
 Use the Developer tools whenever the active conversation has a code folder. They are scoped to the selected workspace, follow the workspace approval mode, and keep the Developer Inspector in sync.
 
+Project notes, when the folder has them (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.github/copilot-instructions.md`), are already in the prompt under PROJECT NOTES; read the rest of a cut file with `developer_read_file`.
+
 ## Default Workflow
 
 1. Start with `developer_workspace_info` for repo, branch, approval mode, execution mode, dirty state, and available context.

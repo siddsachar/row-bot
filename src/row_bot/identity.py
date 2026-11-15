@@ -19,7 +19,7 @@ _DATA_DIR = get_row_bot_data_dir()
 _USER_CONFIG_PATH = _DATA_DIR / "user_config.json"
 
 _DEFAULT_NAME = APP_DISPLAY_NAME
-_PERSONALITY_MAX_LEN = 200
+PERSONALITY_MAX_LEN = 200  # characters (Settings also caps it at 200 bytes)
 
 # Patterns that look like prompt-injection attempts
 _INJECTION_PATTERNS = [
@@ -37,8 +37,8 @@ _INJECTION_PATTERNS = [
 def sanitize_personality(text: str) -> str:
     """Sanitize personality text: trim, enforce length, strip injection patterns."""
     text = text.strip()
-    if len(text) > _PERSONALITY_MAX_LEN:
-        text = text[:_PERSONALITY_MAX_LEN].rstrip()
+    if len(text) > PERSONALITY_MAX_LEN:
+        text = text[:PERSONALITY_MAX_LEN].rstrip()
     for pat in _INJECTION_PATTERNS:
         text = pat.sub("", text)
     # Collapse double spaces left by removals
@@ -79,7 +79,9 @@ def get_identity_config() -> dict:
 def save_identity_config(identity: dict) -> None:
     """Persist identity dict into user_config.json (merges with existing data)."""
     config = _load_user_config()
+    # Other identity keys ("Learn new skills") stay as they are.
     config["identity"] = {
+        **(config.get("identity") if isinstance(config.get("identity"), dict) else {}),
         "name": (identity.get("name") or _DEFAULT_NAME).strip() or _DEFAULT_NAME,
         "personality": sanitize_personality(identity.get("personality", "")),
     }
@@ -100,12 +102,3 @@ def is_self_improvement_enabled() -> bool:
     """Return whether the self-improvement features are enabled."""
     raw = _load_user_config().get("identity", {})
     return raw.get("self_improvement", True)
-
-
-def set_self_improvement_enabled(enabled: bool) -> None:
-    """Persist the self-improvement toggle."""
-    config = _load_user_config()
-    identity = config.get("identity", {})
-    identity["self_improvement"] = bool(enabled)
-    config["identity"] = identity
-    _save_user_config(config)

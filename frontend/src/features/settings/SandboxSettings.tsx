@@ -246,6 +246,14 @@ export function SandboxSettings() {
                 {sandbox.problem && (
                   <small className="sandbox-problem">{sandbox.problem}</small>
                 )}
+                {!sandbox.problem &&
+                  sandbox.needs_model &&
+                  sandbox.status === 'running' && (
+                    <small className="sandbox-hint">
+                      No model yet: open it and sign in to a provider once, so
+                      its chats can answer.
+                    </small>
+                  )}
               </li>
             );
           })}

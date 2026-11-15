@@ -61,6 +61,14 @@
     min-height: 44px;
   }
 }
+/* On a narrow screen the tabs scroll: the right edge fades so the hidden ones
+   read as more to come, not as cut off. */
+@media (max-width: 640px) {
+  .home-view .home-tabs > .tabs {
+    padding-right: 40px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  }
+}
 .home-view .home-tabs > .tab-content {
   flex: 1;
   min-height: 0;
@@ -322,8 +330,8 @@
   font-size: var(--text-15);
   line-height: var(--leading-15);
 }
-/* Buddy's live avatar with a status ring: amber while something waits,
-   green when all is calm. */
+/* Buddy, living, beside the greeting, with a status dot: amber while
+   something waits, green when all is calm. */
 .overview-buddy {
   position: relative;
   flex: none;
@@ -331,8 +339,6 @@
   place-items: center;
   width: 76px;
   height: 76px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-solid) 10%, transparent);
 }
 .overview-buddy > .buddy-avatar-frame {
   width: 100%;
@@ -501,6 +507,32 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A scheduled post's pictures and videos: small tiles that open full size. */
+.overview-scheduled-media {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 6px;
+}
+.overview-scheduled-media img,
+.overview-scheduled-media .x-post-media-icon {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+  object-fit: cover;
+}
+.overview-scheduled-media .x-post-media-icon {
+  display: grid;
+  place-items: center;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+/* A scheduled post whose video has no sound: a warning, not a muted fact. */
+.overview-row-meta.x-post-media-silent {
+  color: var(--status-warning-text);
+}
 .overview-row-time {
   color: var(--text-muted);
   font-size: var(--text-12);
@@ -565,6 +597,11 @@
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  white-space: normal;
+}
+/* Why a scheduled post didn't go out, in full: it often says what to do. */
+.overview-not-sent-reason {
+  color: var(--status-warning-text);
   white-space: normal;
 }
 .overview-needs-more {
@@ -926,6 +963,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Row-Bot switched it off after failed runs in a row (D5). */
+.workflow-row .workflow-off {
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 4px;
+}
+.workflow-row .workflow-off .status-indicator {
+  max-width: 100%;
+  color: var(--status-warning-text);
+  font-weight: var(--weight-medium);
+}
+.workflow-row .workflow-off:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 .workflow-next {
   flex: none;
   width: 104px;
@@ -1028,9 +1081,25 @@
     opacity: 1;
   }
 }
+/* Selecting workflows: a checkbox leads each row, and a chosen row is tinted. */
+.workflow-select-control {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-inline-start: -6px;
+  cursor: pointer;
+}
 .workflow-select-control input {
   width: 16px;
   height: 16px;
+  margin: 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.workflow-row[data-selected='true'] {
+  background: var(--accent-subtle);
 }
 .workflow-more-rows {
   justify-self: center;
@@ -1137,6 +1206,53 @@
 }
 .task-builder-reload {
   justify-self: start;
+}
+/* Row-Bot switched this workflow off after failed runs in a row (D5). */
+.task-builder-off {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 10px;
+  background: var(--status-warning-background);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--status-warning-text) 22%, transparent);
+  color: var(--text-primary);
+  font-size: var(--text-13);
+}
+.task-builder-off-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--status-warning-text);
+}
+.task-builder-off-text {
+  display: grid;
+  flex: 1 1 auto;
+  justify-items: start;
+  gap: 2px;
+  min-width: 0;
+  padding-block: 2px;
+}
+.task-builder-off-text strong {
+  font-weight: var(--weight-medium);
+}
+.task-builder-off-text p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.task-builder-off-link.button {
+  margin-block-start: 2px;
+  margin-inline-start: -6px;
+  padding-inline: 6px;
+  color: var(--status-warning-text);
+}
+.task-builder-off-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
 }
 .task-steps {
   display: grid;
@@ -3942,4 +4058,16 @@
 .workflow-chart-title .app-icon {
   flex: none;
   align-self: center;
+}
+
+/* Monitor when everything passes: one line, details on request (U38). */
+.monitor-all-good {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
 }

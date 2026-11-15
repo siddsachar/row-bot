@@ -57,6 +57,15 @@ export function versionView(version: LearningVersion): VersionView {
       : [];
   switch (version.phase) {
     case 'exporting': {
+      if (version.step === 'download')
+        // Trained on Hugging Face (C1): the file the run built downloads, and is checked, before it runs here.
+        return {
+          title: `Downloading ${name} from Hugging Face…`,
+          detail:
+            'Row-Bot checks the file when it arrives, then starts it on this computer.',
+          actions: [],
+          announce: `Downloading ${name}.`,
+        };
       const step = EXPORT_STEPS[version.step ?? 'merge'] ?? EXPORT_STEPS.merge;
       return {
         title: `Preparing ${name} to run on this computer…`,

@@ -5,6 +5,7 @@ from typing import Any
 
 from row_bot.providers.catalog import get_provider_definition, infer_provider_id
 from row_bot.providers.models import TransportMode
+from row_bot.providers.presets import get_preset, preset_endpoint
 from row_bot.providers.selection import model_ref, parse_model_ref, provider_display_label, provider_icon_label
 
 
@@ -80,6 +81,7 @@ def resolve_provider_config(
         except Exception:
             pass
     execution_location = "local" if risk_label == "local_private" else "remote"
+    preset = get_preset(provider)
     return ResolvedProviderConfig(
         selection_ref=model_ref(provider, model_id),
         provider_id=provider,
@@ -92,6 +94,7 @@ def resolve_provider_config(
         execution_location=execution_location,
         risk_label=risk_label,
         source=source,
+        endpoint=preset_endpoint(preset) if preset else {},
     )
 
 

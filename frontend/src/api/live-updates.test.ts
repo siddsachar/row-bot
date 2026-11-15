@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fallbackDue, LIVE_FALLBACK_MS, LiveUpdates } from './live-updates';
 import { ClientController } from './controller';
 import { FixtureTransport } from './fixtures';
-import type { ConversationPage, LiveFrame } from './types';
+import type { ConversationPage, LiveFrame, NoticePage } from './types';
 
 const frame = (
   revision: number,
@@ -212,6 +212,54 @@ describe('live updates (B407)', () => {
     );
     expect(listing).toHaveBeenCalled();
     expect(controller.getSnapshot().loadingConversations).toBe(false);
+    controller.dispose();
+  });
+
+  it('shows "Row-Bot sent you …" at once in a window with no conversation open', async () => {
+    const live = stream();
+    const epoch = '00000000-0000-4000-8000-00000000e90f';
+    let sent = false;
+    const transport = Object.assign(
+      new FixtureTransport({ scenario: 'normal' }),
+      live.transport,
+      {
+        async notices(): Promise<NoticePage> {
+          return {
+            server_epoch: epoch,
+            latest: sent ? 1 : 0,
+            notices: sent
+              ? [
+                  {
+                    id: 1,
+                    level: 'info' as const,
+                    title: 'Row-Bot sent you q3-report.pdf',
+                    message: 'Open the chat to download it.',
+                    source: 'deliveries',
+                    requested: false,
+                    startup: false,
+                    count: 1,
+                    at: '2026-10-28T22:00:00Z',
+                  },
+                ]
+              : [],
+            startup_warnings: [],
+          };
+        },
+      },
+    );
+    localStorage.clear();
+    const controller = new ClientController(transport);
+    const shown: string[] = [];
+    controller.onNotice((notice) => shown.push(notice.title));
+    await controller.start();
+    live.send(frame(1));
+    await flush();
+    sent = true;
+    // Not at the next half-minute read: the notices topic moving on reads them now.
+    live.send(frame(2, { notices: 1 }));
+    await vi.waitFor(() =>
+      expect(shown).toEqual(['Row-Bot sent you q3-report.pdf']),
+    );
     controller.dispose();
   });
 });

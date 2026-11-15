@@ -42,14 +42,6 @@
       "title": "Acting",
       "type": "string"
     },
-    "control": {
-      "enum": [
-        "agent",
-        "person"
-      ],
-      "title": "Control",
-      "type": "string"
-    },
     "conversation_id": {
       "maxLength": 128,
       "minLength": 1,
@@ -128,7 +120,6 @@
     "schema_version",
     "conversation_id",
     "status",
-    "control",
     "acting",
     "waiting",
     "url",

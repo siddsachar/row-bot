@@ -115,6 +115,13 @@
   background: rgba(17, 24, 39, 0.84);
   transform: translate(-50%, -50%);
 }
+/* Over a picture the card sits in the lower third on the left, as the made video has it. */
+.video-preview-card[data-over='picture'] {
+  top: 68%;
+  left: 4.5%;
+  text-align: left;
+  transform: translateY(-50%);
+}
 .video-preview-caption {
   bottom: 6%;
   font-size: var(--type-size-body);
@@ -260,6 +267,7 @@
   display: inline-flex;
   margin-left: auto;
 }
+.video-scene-seconds,
 .video-scene-trim label {
   display: inline-flex;
   align-items: center;
@@ -268,6 +276,7 @@
   color: var(--text-secondary);
   font-size: var(--type-size-metadata);
 }
+.video-scene-seconds input,
 .video-scene-trim input {
   width: 84px;
 }

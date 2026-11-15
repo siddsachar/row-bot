@@ -255,6 +255,18 @@ def test_summaries_split_by_model_and_purpose_with_the_cache_share(ledger):
     assert usage_ledger.usage_summary(since=time.time() + 60)["calls"] == 0
 
 
+def test_the_last_turn_requests_cache_share_skips_background_calls(ledger):
+    from row_bot.prompt_cache import ModelUsage
+
+    _record(created_at=100.0)  # 800 of 1,000 read from the cache
+    _record(purpose="compaction", created_at=200.0,
+            usage=ModelUsage(input_tokens=1000, output_tokens=50, cache_read_tokens=0))
+    assert usage_ledger.conversation_usage("thread-a")["last_cache_read_percent"] == 80
+
+    _record(purpose="chat_only", created_at=300.0, usage=ModelUsage(input_tokens=500, output_tokens=20))
+    assert usage_ledger.conversation_usage("thread-a")["last_cache_read_percent"] is None
+
+
 def test_old_rows_are_pruned_and_the_table_is_capped(ledger):
     now = time.time()
     _record(created_at=now - 91 * 86_400)

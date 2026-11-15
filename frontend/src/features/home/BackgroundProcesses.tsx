@@ -101,6 +101,22 @@ export default function BackgroundProcesses({
     );
   }
 
+  async function cancelRemote() {
+    if (!learning || !trainingRow) return;
+    setStoppingTraining(true);
+    setError('');
+    try {
+      notify(
+        (await learning.run('hf_cancel', { job_id: trainingRow.job_id ?? '' }))
+          .summary,
+      );
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setStoppingTraining(false);
+    }
+  }
+
   async function stopDownload() {
     if (!learning || !downloadRow) return;
     setStoppingDownload(true);
@@ -116,6 +132,22 @@ export default function BackgroundProcesses({
 
   async function stopTraining() {
     if (!learning || !trainingRow) return;
+    if (trainingRow.where === 'hugging_face') {
+      // C1: Cancel on Hugging Face loses the run's progress, so it asks first.
+      const spent = trainingRow.remote?.cost_usd ?? 0;
+      overlay.open({
+        kind: 'alert',
+        title: 'Cancel this run on Hugging Face?',
+        description: `Billing stops now${spent > 0 ? ` ($${spent.toFixed(2)} so far)` : ''}. What it trained so far is lost, and the uploaded examples are deleted from Hugging Face. Earlier versions are kept.`,
+        confirmLabel: 'Cancel the run',
+        cancelLabel: 'Keep running',
+        onConfirm: () => {
+          overlay.close();
+          void cancelRemote();
+        },
+      });
+      return;
+    }
     setStoppingTraining(true);
     setError('');
     try {
@@ -223,7 +255,9 @@ export default function BackgroundProcesses({
                 onConfirm: () => {
                   overlay.close();
                   void stop(running);
-                  if (trainingRow) void stopTraining();
+                  // A run on Hugging Face isn't on this computer: it is cancelled from its own row.
+                  if (trainingRow && trainingRow.where !== 'hugging_face')
+                    void stopTraining();
                   if (downloadRow) void stopDownload();
                 },
               })

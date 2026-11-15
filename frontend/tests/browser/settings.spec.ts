@@ -70,6 +70,19 @@ async function chooseFromMenu(scope: Locator, trigger: string, item: string) {
 }
 
 async function openHomeThroughNavigation(page: Page) {
+  // A phone moves between its places with the tab bar (D1); a conversation
+  // hides it, and its header's navigation button opens the drawer instead.
+  const tabHome = page
+    .getByRole('navigation', { name: 'Main', exact: true })
+    .getByRole('link', { name: 'Home', exact: true });
+  if (await tabHome.isVisible()) {
+    await tabHome.click();
+    await expect(page).toHaveURL(/\/app-v2\/?$/);
+    await expect(
+      page.getByRole('heading', { name: 'Home', exact: true }),
+    ).toBeVisible();
+    return;
+  }
   const home = page
     .getByRole('navigation', { name: 'Workspace navigation', exact: true })
     .getByRole('link', { name: 'Home', exact: true });
@@ -125,12 +138,27 @@ async function openSettingsRouteFromHome(
     name: 'Settings',
     exact: true,
   });
+  if ((page.viewportSize()?.width ?? 0) < 768) {
+    // A phone opens Settings on its list of pages, one tap from each (D6).
+    await activateRoute(page, settings, {
+      path: '/app-v2/settings',
+      headingName: 'Settings',
+    });
+    await activateRoute(
+      page,
+      page
+        .getByRole('navigation', { name: 'Settings sections' })
+        .getByRole('link', { name: route.linkName, exact: true }),
+      route,
+    );
+    return;
+  }
   await activateRoute(page, settings, {
-    path: '/app-v2/settings/providers',
-    headingName: 'Providers',
+    path: '/app-v2/settings/models',
+    headingName: 'Models',
   });
 
-  if (route.path === '/app-v2/settings/providers') return;
+  if (route.path === '/app-v2/settings/models') return;
 
   if ((page.viewportSize()?.width ?? 0) < 900) {
     await page
@@ -224,7 +252,6 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'preferences',
     'appearance',
     'buddy',
-    'providers',
     'models',
     'voice',
     'knowledge',
@@ -246,7 +273,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/app-v2/settings');
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   const settingsNavigation = page.getByRole('navigation', {
     name: 'Settings sections',
   });
@@ -292,13 +319,18 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   await expect(settingsHeading).toHaveText('Tracker');
   await expect(settingsHeading).toBeVisible();
 
+  // A phone's page keeps only the search above it and goes back to the
+  // list of pages, one tap from each (D6).
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/app-v2/settings/providers');
-  await expect(settingsNavigation).toBeHidden();
-  const picker = page.getByRole('combobox', { name: 'Settings section' });
-  await expect(picker).toBeVisible();
-  expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  await picker.selectOption('knowledge');
+  await page.goto('/app-v2/settings/models');
+  await expect(settingsNavigation.getByRole('link')).toHaveCount(0);
+  const back = page.getByRole('link', { name: 'Back to Settings' });
+  expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await back.click();
+  await expect(page).toHaveURL(/\/app-v2\/settings$/);
+  await settingsNavigation
+    .getByRole('link', { name: 'Memory', exact: true })
+    .click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge$/);
   await expect(settingsHeading).toHaveText('Memory');
   await expect(settingsHeading).toBeFocused();
@@ -313,7 +345,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   ).toHaveAttribute('aria-selected', 'true');
 });
 
-test('Owner-review narrow Settings keeps representative owners behind one accessible picker', async ({
+test('Owner-review phone Settings reach representative owners from one list of pages', async ({
   context,
   page,
 }, info) => {
@@ -331,28 +363,28 @@ test('Owner-review narrow Settings keeps representative owners behind one access
       }),
     );
   });
-  // The accessible picker replaces the side navigation below 1024px.
+  // A phone opens Settings on its list of pages, and each page goes back
+  // to it (D6).
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/app-v2/settings/providers');
+  await page.goto('/app-v2/settings');
   const settings = page.getByRole('region', {
     name: 'Settings',
     exact: true,
   });
   const heading = settings.locator('.settings-pane-header h2');
-  const picker = page.getByRole('combobox', { name: 'Settings section' });
-  await expect(
-    page.getByRole('navigation', { name: 'Settings sections' }),
-  ).toBeHidden();
-  await expect(picker).toBeVisible();
-  expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  for (const id of ['providers', 'documents', 'apps', 'preferences'] as const) {
-    if ((await picker.inputValue()) !== id) await picker.selectOption(id);
+  const list = page.getByRole('navigation', { name: 'Settings sections' });
+  for (const id of ['models', 'documents', 'apps', 'preferences'] as const) {
     const label = id[0].toUpperCase() + id.slice(1);
+    const link = list.getByRole('link', { name: label, exact: true });
+    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await link.click();
     await expect(page).toHaveURL(new RegExp(`/app-v2/settings/${id}$`));
     await expect(heading).toHaveText(label);
     await assertNoOverflow(page);
     await screenshot(page, info, `settings-shell-phone-${id}`);
     await accessibility(page, info, `settings-shell-phone-${id}`);
+    await page.getByRole('link', { name: 'Back to Settings' }).click();
+    await expect(page).toHaveURL(/\/app-v2\/settings$/);
   }
 });
 
@@ -1248,10 +1280,12 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
+  // Buddy's avatar opens its peek; Settings is there on every device.
+  await navigation.getByRole('button', { name: /^Open / }).click();
   await activateRoute(
     page,
-    navigation.getByRole('button', {
-      name: 'Buddy settings',
+    page.getByRole('dialog').getByRole('button', {
+      name: 'Settings',
       exact: true,
     }),
     { path: '/app-v2/settings/buddy', headingName: 'Buddy' },
@@ -1361,13 +1395,9 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
   ).toHaveAttribute('aria-checked', 'true');
 });
 
-test('Buddy plays the saved bundled motion and switches to its still for reduced motion', async ({
+test('Buddy draws its bundled look from this server and holds still for reduced motion', async ({
   page,
 }, info) => {
-  test.skip(
-    info.project.name === 'chromium-phone',
-    'Headless mobile emulation does not autoplay the muted motion; playback is the same at every width.',
-  );
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
     Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
@@ -1376,13 +1406,8 @@ test('Buddy plays the saved bundled motion and switches to its still for reduced
     (await page.request.post('/__p4_fixture/buddy', { headers })).ok(),
   ).toBe(true);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  const bundledStill = page.waitForResponse((response) =>
-    new URL(response.url()).pathname.endsWith(
-      '/buddy/packs/glyph/media/preview',
-    ),
-  );
-  const bundledMotion = page.waitForResponse((response) =>
-    new URL(response.url()).pathname.endsWith('/buddy/packs/glyph/media/idle'),
+  const bundledArt = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith('/buddy/packs/glyph/media/art'),
   );
   await page.goto('/app-v2/conversations/p1-browser-a');
   await expect(
@@ -1397,151 +1422,28 @@ test('Buddy plays the saved bundled motion and switches to its still for reduced
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   await expect(navigation).toBeVisible();
-  await expect(
-    navigation.getByRole('button', { name: 'Buddy settings', exact: true }),
-  ).toBeVisible();
-  const [stillResponse, motionResponse] = await Promise.all([
-    bundledStill,
-    bundledMotion,
-  ]);
-  const expectedOrigin = new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin;
-  expect(new URL(stillResponse.url()).origin).toBe(expectedOrigin);
-  expect(new URL(motionResponse.url()).origin).toBe(expectedOrigin);
-  expect(stillResponse.ok()).toBe(true);
-  expect(motionResponse.ok()).toBe(true);
-  expect(stillResponse.headers()['content-type']).toContain('image/png');
-  expect(motionResponse.headers()['content-type']).toContain('video/mp4');
-  const requestHeaders = await motionResponse.request().allHeaders();
-  const clientSession = requestHeaders['x-client-session'];
-  const csrfToken = requestHeaders['x-csrf-token'];
-  expect(clientSession).toBeTruthy();
-  expect(csrfToken).toBeTruthy();
-  const mediaHeaders = {
-    'X-Client-Session': clientSession,
-    'X-CSRF-Token': csrfToken,
-  };
-  const [verifiedStill, verifiedMotion] = await Promise.all([
-    page.request.get(stillResponse.url(), { headers: mediaHeaders }),
-    page.request.get(motionResponse.url(), { headers: mediaHeaders }),
-  ]);
-  expect(verifiedStill.ok()).toBe(true);
-  expect(verifiedMotion.ok()).toBe(true);
-  expect(verifiedStill.headers()['content-type']).toContain('image/png');
-  expect(verifiedMotion.headers()['content-type']).toContain('video/mp4');
-  const stillBytes = await verifiedStill.body();
-  const motionBytes = await verifiedMotion.body();
-  expect(stillBytes.subarray(0, 8)).toEqual(
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  // The art comes from this server, asked for with the page's own session.
+  const art = await bundledArt;
+  expect(new URL(art.url()).origin).toBe(
+    new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
   );
-  expect(motionBytes.subarray(4, 8).toString('ascii')).toBe('ftyp');
-  const video = navigation.locator('video.buddy-avatar');
-  const playback = await page.evaluate(async (encoded) => {
-    const binary = atob(encoded);
-    const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
-    const blob = new Blob([bytes], { type: 'video/mp4' });
-    const url = URL.createObjectURL(blob);
-    const probe = document.createElement('video');
-    probe.muted = true;
-    probe.playsInline = true;
-    probe.style.position = 'fixed';
-    probe.style.width = '1px';
-    probe.style.height = '1px';
-    probe.style.opacity = '0';
-    document.body.append(probe);
-    return await new Promise<{ supported: boolean; reason: string }>(
-      (resolve) => {
-        let complete = false;
-        const finish = (supported: boolean, reason: string) => {
-          if (complete) return;
-          complete = true;
-          clearTimeout(timeout);
-          // A removed video keeps reading its source: release it first (as
-          // BuddyAvatar does), or its reads of the revoked URL log
-          // ERR_FILE_NOT_FOUND console errors.
-          probe.pause();
-          probe.removeAttribute('src');
-          probe.load();
-          probe.remove();
-          URL.revokeObjectURL(url);
-          resolve({ supported, reason });
-        };
-        const timeout = window.setTimeout(
-          () => finish(false, 'playback-timeout'),
-          5_000,
-        );
-        probe.addEventListener('playing', () => finish(true, 'playing'), {
-          once: true,
-        });
-        probe.addEventListener(
-          'error',
-          () => finish(false, `media-error-${probe.error?.code ?? 0}`),
-          { once: true },
-        );
-        probe.src = url;
-        void probe
-          .play()
-          .catch(() =>
-            finish(false, `play-rejected-${probe.error?.code ?? 0}`),
-          );
-      },
-    );
-  }, motionBytes.toString('base64'));
-  await info.attach('buddy-motion-playback-capability', {
-    body: Buffer.from(JSON.stringify(playback, null, 2)),
-    contentType: 'application/json',
-  });
-  let motionSafety:
-    | {
-        muted: boolean;
-        defaultMuted: boolean;
-        autoplay: boolean;
-        controls: boolean;
-        ariaHidden: string | null;
-      }
-    | undefined;
-  if (playback.supported) {
-    await expect(video).toBeVisible();
-    await expect
-      .poll(() =>
-        video.evaluate(
-          (node: HTMLVideoElement) =>
-            node.readyState >= 2 && !node.paused && node.videoWidth > 0,
-        ),
-      )
-      .toBe(true);
-    motionSafety = await video.evaluate((node: HTMLVideoElement) => ({
-      muted: node.muted,
-      defaultMuted: node.defaultMuted,
-      autoplay: node.autoplay,
-      controls: node.controls,
-      ariaHidden: node.getAttribute('aria-hidden'),
-    }));
-    expect(motionSafety).toMatchObject({
-      muted: true,
-      autoplay: true,
-      controls: false,
-      ariaHidden: 'true',
-    });
-  } else {
-    await expect(video).toHaveCount(0);
-    await expect(
-      navigation.locator('img.buddy-avatar[src^="blob:"]'),
-    ).toBeVisible();
-  }
-  await screenshot(page, info, 'buddy-bundled-motion');
+  expect(art.ok()).toBe(true);
+  expect(art.headers()['content-type']).toContain('image/png');
+  const requestHeaders = await art.request().allHeaders();
+  expect(requestHeaders['x-client-session']).toBeTruthy();
+  expect(requestHeaders['x-csrf-token']).toBeTruthy();
+  const buddy = navigation.locator('.buddy-avatar-frame').first();
+  await expect(buddy).toHaveAttribute('data-media', 'living');
+  const living = buddy.locator('.living-buddy');
+  await expect(living).toHaveAttribute('data-reduced-motion', 'false');
+  await expect(navigation.locator('video')).toHaveCount(0);
+  await screenshot(page, info, 'buddy-bundled-living');
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(video).toHaveCount(0);
-  const still = navigation.locator('img.buddy-avatar[src^="blob:"]');
-  await expect(still).toBeVisible();
-  await expect
-    .poll(() => still.evaluate((node: HTMLImageElement) => node.naturalWidth))
-    .toBeGreaterThan(0);
+  await expect(living).toHaveAttribute('data-reduced-motion', 'true');
   await writeEvidence(info, 'buddy-motion-safety', {
-    motionSafety,
-    playbackSupported: playback.supported,
-    reducedMotionRemovesAutoplayVideo: (await video.count()) === 0,
+    runtime: await living.getAttribute('data-runtime'),
     policy:
-      'Decorative Buddy motion is aria-hidden and muted whenever autoplay is supported; reduced motion removes the video and uses the still image.',
+      'Buddy draws itself from its bundled art and rig (no video); reduced motion stops its movement.',
   });
   await assertNoOverflow(page);
   await accessibility(page, info, 'buddy-reduced-motion');
@@ -1558,7 +1460,7 @@ test.beforeEach(async ({ context, page }) => {
   });
 });
 
-test('Models catalog applies a default and retains it across Providers navigation', async ({
+test('Models catalog applies a default and retains it across navigation', async ({
   page,
 }, info) => {
   await seed(page, 'populated');
@@ -1573,7 +1475,10 @@ test('Models catalog applies a default and retains it across Providers navigatio
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   // The default is a searchable picker (U12): its button names the model.
-  const defaultPicker = models.getByRole('button', { name: 'Brain model' });
+  const defaultPicker = models.getByRole('button', {
+    name: 'Main model',
+    exact: true,
+  });
   await expect(defaultPicker).toBeVisible();
   const index = /Saved example 104\b/.test(
     (await defaultPicker.textContent()) ?? '',
@@ -1587,28 +1492,22 @@ test('Models catalog applies a default and retains it across Providers navigatio
     .click();
   await models.getByRole('button', { name: 'Show more models' }).click();
   const row = models
-    .locator('.settings-model-row-list > li')
+    .locator('.settings-model-catalog .settings-model-row-list > li')
     .filter({ hasText: label });
   await expect(row).toBeVisible();
   await row
-    .getByRole('button', { name: 'Add ' + label + ' to favourites' })
+    .getByRole('button', { name: 'Add ' + label + ' to your models' })
     .click();
   await expect(
     row.getByRole('button', {
-      name: 'Remove ' + label + ' from favourites',
+      name: 'Remove ' + label + ' from your models',
     }),
   ).toBeVisible();
   await row
     .getByRole('button', { name: 'Set ' + label + ' as chat default' })
     .click();
   await expect(defaultPicker).toContainText(label);
-  // Provider connections sit in the page's ⋯ (B229).
-  await chooseFromMenu(
-    page.locator('.settings-pane-header'),
-    'More model actions',
-    'Provider connections',
-  );
-  await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
+  await page.goto('/app-v2/settings/tracker');
   await page.goBack();
   await expect(defaultPicker).toContainText(label);
   await assertNoOverflow(page);
@@ -1620,9 +1519,12 @@ test('Models catalog recovers an expired page cursor only when requested', async
   page,
 }, info) => {
   await seed(page, 'populated');
+  // A link to one provider opens its sheet, which lists its models.
   await page.goto('/app-v2/settings/models?provider=openai');
-  const models = page.locator('[aria-label="Models settings"]');
-  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(80);
+  const models = page.getByRole('dialog');
+  await expect(
+    models.locator('.settings-model-catalog .settings-model-row-list > li'),
+  ).toHaveCount(80);
   await seed(page, 'changed');
   if (info.project.use.browserName !== 'firefox')
     info.annotations.push({
@@ -1643,24 +1545,27 @@ test('Models catalog recovers an expired page cursor only when requested', async
     models.getByRole('button', { name: 'Show more models' }),
   ).toBeDisabled();
   await models.getByRole('button', { name: 'Reload catalog results' }).click();
-  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(80);
+  await expect(
+    models.locator('.settings-model-catalog .settings-model-row-list > li'),
+  ).toHaveCount(80);
   await models.getByRole('button', { name: 'Show more models' }).click();
-  await expect(models.locator('.settings-model-row-list > li')).toHaveCount(
-    105,
-  );
+  await expect(
+    models.locator('.settings-model-catalog .settings-model-row-list > li'),
+  ).toHaveCount(105);
   await seed(page, 'empty');
-  await models.getByRole('combobox', { name: 'Provider' }).selectOption('');
-  await models
-    .getByRole('combobox', { name: 'Provider' })
-    .selectOption('openai');
-  // Emptied, the catalog keeps only models a job uses or you pinned (B226).
+  // Another job and back reads the provider's list again.
+  await models.getByRole('button', { name: 'Vision', exact: true }).click();
+  await models.getByRole('button', { name: 'Chat', exact: true }).click();
+  // Emptied, the catalog keeps only models a job uses or you starred (B226).
   await expect(models.getByText(/^Showing \d of \d models$/)).toBeVisible();
-  const kept = await models.locator('.settings-model-row-list > li').all();
+  const kept = await models
+    .locator('.settings-model-catalog .settings-model-row-list > li')
+    .all();
   for (const row of kept)
     await expect(
       row
         .getByText('Default', { exact: true })
-        .or(row.getByText(/^Listed( first)? · /))
+        .or(row.getByText(/^In your models · /))
         .first(),
     ).toBeVisible();
   if (!kept.length)
@@ -1859,7 +1764,9 @@ test('MCP tested tools retain their review and accept the saved catalog without 
   // Allow accepts the tools that were tested, then connects with them.
   await access.getByRole('button', { name: 'Allow', exact: true }).click();
   await expect(access).toBeHidden();
-  await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId('conversation-pane').getByText('Ready', { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByText('3 of 3 actions on · Ask before changes', { exact: true }),
   ).toBeVisible();
@@ -1889,7 +1796,9 @@ test('MCP connection setup survives navigation and turns the owned fake session 
   // and connects, Turn off disconnects and Turn on connects again.
   const access = await continueSetup(page);
   await access.getByRole('button', { name: 'Allow', exact: true }).click();
-  const ready = page.getByText('Ready', { exact: true });
+  const ready = page
+    .getByTestId('conversation-pane')
+    .getByText('Ready', { exact: true });
   await expect(ready).toBeVisible();
   await expectSession(page, true);
   // The connection's state is read again, not repeated, after navigation.

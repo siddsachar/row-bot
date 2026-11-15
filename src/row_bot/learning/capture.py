@@ -14,6 +14,10 @@ first; this module is imported only after that.
   ``waiting`` at an approval. A turn waiting at an approval carries on in the same
   episode when :func:`begin_turn` is called with ``resumed=True`` on its
   conversation; a new message there instead ends it as cancelled.
+- A message the person sends while a turn works is read at its next step (5.3.1). The
+  request that first carries it starts the turn's next episode, following the step before
+  it (``follows_decision_id``), as the turn of its own it used to start did; the episode
+  before it is completed there.
 - Retry in place (:func:`retry`) and a Slack or Discord message's sender
   (:func:`note_channel_sender`) come from their own seams.
 
@@ -123,6 +127,28 @@ def _is_untrusted(message: Any) -> bool:
     return False
 
 
+def _persons_id(message: Any) -> str | None:
+    """The id of a message the person sent, as the agent sends it: not Row-Bot's turn context (marked, or sent
+    on its own without the mark, ``turn_context.provider_message``: known by its id), a note to the model, the
+    page's picture or a compaction summary (they have no id), an event Row-Bot added or a delegated agent's
+    task."""
+
+    from row_bot.learning.corrections import is_row_bot_note
+    from row_bot.turn_context import MESSAGE_ID_PREFIX, is_person_message
+
+    message_id = str(getattr(message, "id", "") or "")
+    if (not message_id or message_id.startswith(MESSAGE_ID_PREFIX) or not is_person_message(message)
+            or is_row_bot_note(message)):
+        return None
+    extra = getattr(message, "additional_kwargs", None)
+    extra = extra if isinstance(extra, Mapping) else {}
+    ui = extra.get("row_bot_ui")
+    if extra.get("row_bot_internal_event") or extra.get("platform_note") or (
+            isinstance(ui, Mapping) and ui.get("thread_event")):
+        return None
+    return message_id
+
+
 def _valid_id(value: Any) -> str | None:
     text = str(value or "")
     return text if text and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", text) else None
@@ -137,8 +163,9 @@ def _text(value: Any, limit: int = 256) -> str | None:
 
 
 class Turn:
-    """One episode in the making. Created on the turn's thread; the writer fills in
-    what needs a lookup (scope, conversation, parent, next-message marker)."""
+    """One episode in the making (the next one from a message read mid-turn). Created on the
+    turn's thread; the writer fills in what needs a lookup (scope, conversation, parent,
+    next-message marker)."""
 
     def __init__(
         self,
@@ -182,6 +209,8 @@ class Turn:
         self.fidelity = "exact"
         self.written = False
         self.last_model_decision_id: str | None = None
+        # The ids of the person's messages its requests carried (None before its first).
+        self.heard: set[str] | None = None
 
     def next_sequence(self) -> int:
         return next(self._sequence)
@@ -840,6 +869,12 @@ class Capture:
 
     def _model_call_records(self, item: _ModelCall, sink: _Sink) -> None:
         turn = item.turn
+        if self._read_mid_turn(turn, item.messages):
+            # 5.3.1: the person's message read at this step starts the turn's next episode, after the step
+            # before it, as the turn of its own it used to start did (the episode before it is complete).
+            sink.records.append(self._episode(turn, ended_at=item.created_at))
+            turn.episode_id, turn.started_at = new_id("ep"), item.created_at
+            turn.follows_decision_id, turn.fidelity = turn.last_model_decision_id, "exact"
         redacted = False
         hashes = []
         named: set[str] = set()
@@ -913,6 +948,20 @@ class Capture:
                 self._decision_by_message[message_id] = (turn.episode_id, decision.id)
                 while len(self._decision_by_message) > _MAX_DECISION_BY_MESSAGE:
                     self._decision_by_message.popitem(last=False)
+
+    @staticmethod
+    def _read_mid_turn(turn: Turn, messages: Sequence[Any]) -> bool:
+        """Whether this request carries a message the person sent while the turn worked (5.3.1, marked
+        ``mid_turn``): one of theirs that no earlier request of the turn carried, after a step of its own.
+        Found by where it is, not by its marker, so a copy that lost the marker is found too."""
+
+        heard = {key for key in map(_persons_id, messages) if key}
+        if turn.heard is None:
+            turn.heard = heard  # the turn's first request: what it started with
+            return False
+        new = bool(heard - turn.heard)
+        turn.heard |= heard
+        return new and turn.last_model_decision_id is not None
 
     @staticmethod
     def _model_ref(model_ref: str, provider_id: str) -> str | None:
@@ -1050,7 +1099,14 @@ class Capture:
             decision_id=decision_id,
         ))
 
-    def _episode(self, turn: Turn) -> Episode:
+    def _episode(self, turn: Turn, *, ended_at: float | None = None) -> Episode:
+        """The turn's episode as it stands, or (``ended_at``) completed there, before a message read mid-turn."""
+
+        if ended_at is not None:
+            status, ended = "completed", ended_at
+        else:
+            status = "running" if turn.status in {"running", "waiting"} else turn.status
+            ended = turn.ended_at if turn.closed else None
         return Episode(
             id=turn.episode_id,
             thread_id=turn.thread_id,
@@ -1062,8 +1118,8 @@ class Capture:
             root_episode_id=turn.root_episode_id,
             agent_run_id=_valid_id(turn.agent_run_id),
             model_ref=turn.model_ref,
-            status="running" if turn.status in {"running", "waiting"} else turn.status,  # type: ignore[arg-type]
-            ended_at=turn.ended_at if turn.closed else None,
+            status=status,  # type: ignore[arg-type]
+            ended_at=ended,
             fidelity=turn.fidelity,  # type: ignore[arg-type]
             incomplete=turn.incomplete,
             follows_decision_id=turn.follows_decision_id,

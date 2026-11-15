@@ -137,15 +137,7 @@ def refresh_model_catalog_cache(
     provider_status: dict[str, dict[str, Any]] = {}
     cloud_cache = dict(previous.cloud_cache)
     ollama_rows = list(previous.ollama_rows)
-    stale_custom_pins = 0
 
-    try:
-        from row_bot.providers.selection import prune_stale_custom_quick_choices
-
-        stale_custom_pins = prune_stale_custom_quick_choices()
-    except Exception as exc:
-        warnings.append(f"Stale custom model cleanup failed: {exc}")
-        logger.warning("Stale custom model cleanup failed during catalog refresh", exc_info=True)
     try:
         from row_bot.models import get_current_model
 
@@ -164,7 +156,9 @@ def refresh_model_catalog_cache(
         warnings.append(f"Cloud providers refresh failed: {exc}")
         logger.warning("Cloud model catalog refresh failed; preserving previous cloud cache", exc_info=True)
 
-    should_refresh_ollama = provider_id in {None, "", "ollama", "ollama_cloud"}
+    # A refresh for another provider (Claude once its plan is ready, say) still lists Ollama when the cache
+    # has no Ollama rows yet: it writes a fresh cache, so the startup refresh after it would skip them.
+    should_refresh_ollama = provider_id in {None, "", "ollama", "ollama_cloud"} or not previous.ollama_rows
     if should_refresh_ollama:
         try:
             ollama_rows = _refresh_ollama_rows()
@@ -175,10 +169,12 @@ def refresh_model_catalog_cache(
 
     snapshot = CatalogCacheSnapshot(
         version=CACHE_VERSION,
-        generated_at=time.time(),
+        # One provider's refresh (connecting it) leaves the others as old as they were: it must not make the
+        # whole catalog look fresh, or the startup and 6-hourly refreshes skip every other provider (I17).
+        generated_at=previous.generated_at if provider_id else time.time(),
         cloud_cache=cloud_cache,
         ollama_rows=ollama_rows,
-        provider_status=provider_status,
+        provider_status={**previous.provider_status, **provider_status} if provider_id else provider_status,
         warnings=tuple(warnings),
         reason=reason,
     )
@@ -187,11 +183,10 @@ def refresh_model_catalog_cache(
         return previous
     write_model_catalog_cache(snapshot)
     logger.info(
-        "perf: model catalog cache refreshed in %.3fs rows=%d warnings=%d stale_custom_pins=%d reason=%s provider=%s",
+        "perf: model catalog cache refreshed in %.3fs rows=%d warnings=%d reason=%s provider=%s",
         time.perf_counter() - started,
         snapshot.total_rows,
         len(snapshot.warnings),
-        stale_custom_pins,
         reason,
         provider_id or "all",
     )
@@ -296,6 +291,18 @@ def is_model_catalog_refresh_running() -> bool:
     return bool(model_catalog_refresh_state().get("running"))
 
 
+def refresh_stale_catalog_if_connected(reason: str) -> bool:
+    """The start-up and 6-hourly refresh: a catalog older than six hours is read again, but only
+    while a cloud provider is connected, so a local-only install contacts nobody on its own (I23).
+    Returns whether a refresh started."""
+    from row_bot.providers.runtime import list_configured_provider_ids
+
+    if not list_configured_provider_ids():
+        logger.info("model catalog %s refresh skipped; no cloud provider connected", reason)
+        return False
+    return start_model_catalog_refresh_background(reason=reason, force=False)
+
+
 def schedule_model_catalog_refresh_jobs() -> None:
     """Schedule delayed startup and periodic model catalog refresh jobs."""
     try:
@@ -303,7 +310,7 @@ def schedule_model_catalog_refresh_jobs() -> None:
 
         scheduler = _get_scheduler()
         scheduler.add_job(
-            lambda: start_model_catalog_refresh_background(reason="startup", force=False),
+            lambda: refresh_stale_catalog_if_connected("startup"),
             trigger="date",
             run_date=datetime.now() + timedelta(seconds=45),
             id="model_catalog_startup_refresh",
@@ -312,7 +319,7 @@ def schedule_model_catalog_refresh_jobs() -> None:
             max_instances=1,
         )
         scheduler.add_job(
-            lambda: start_model_catalog_refresh_background(reason="scheduled", force=False),
+            lambda: refresh_stale_catalog_if_connected("scheduled"),
             trigger="interval",
             hours=6,
             id="model_catalog_periodic_refresh",

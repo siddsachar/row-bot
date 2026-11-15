@@ -221,8 +221,31 @@ def playwright_chromium_launch_options(*, headless: bool = True) -> dict[str, An
         )
     return {
         "headless": bool(headless),
-        "executable_path": readiness.executable_path,
+        "executable_path": (headless and headless_executable(readiness)) or readiness.executable_path,
     }
+
+
+def headless_executable(readiness: BrowserRuntimeReadiness) -> str:
+    """The headless shell installed beside a ready runtime's Chromium (``playwright install chromium`` brings
+    both), for whatever runs without a window. On a Mac, Chromium is the "Google Chrome for Testing" app and
+    starting it asks the person to allow its notifications; the shell is a plain program and never asks (U30).
+    Empty when there is none (a runtime installed without it): Chromium itself serves."""
+    if not readiness.ready or not readiness.browsers_dir or not readiness.chromium_revision:
+        return ""
+    browsers_dir = Path(readiness.browsers_dir)
+    shell = _find_headless_shell(browsers_dir, readiness.chromium_revision)
+    return str(shell) if shell is not None and _contained(shell, browsers_dir) else ""
+
+
+def _find_headless_shell(browsers_dir: Path, revision: str) -> Path | None:
+    base = browsers_dir / f"chromium_headless_shell-{revision}"
+    patterns = {
+        "windows": ("chrome-headless-shell-win64/chrome-headless-shell.exe",),
+        "darwin": ("chrome-headless-shell-mac-arm64/chrome-headless-shell",
+                   "chrome-headless-shell-mac-x64/chrome-headless-shell"),
+        "linux": ("chrome-headless-shell-linux64/chrome-headless-shell",),
+    }.get(_platform_id(), ())
+    return next((base / relative for relative in patterns if (base / relative).is_file()), None)
 
 
 def _find_chromium_executable(browsers_dir: Path, revision: str) -> Path | None:
@@ -254,8 +277,12 @@ def _default_runner(command: list[str], *, env: dict[str, str], cwd: Path) -> su
 def _default_smoke(executable: Path, browsers_dir: Path) -> None:
     from playwright.sync_api import sync_playwright
 
+    revision = executable.relative_to(browsers_dir).parts[0].removeprefix("chromium-")
+    # The headless shell when it came with it, as Row-Bot's browser starts it: never the Mac app, which asks
+    # about notifications (U30).
+    shell = _find_headless_shell(browsers_dir, revision)
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=str(executable), headless=True)
+        browser = playwright.chromium.launch(executable_path=str(shell or executable), headless=True)
         try:
             page = browser.new_page()
             page.goto("data:text/html,<title>Row-Bot runtime check</title>", wait_until="domcontentloaded")

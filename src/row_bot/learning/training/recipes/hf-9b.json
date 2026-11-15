@@ -1,0 +1,50 @@
+{
+  "format": "row-bot-recipe",
+  "version": 1,
+  "id": "hf-9b",
+  "tier": "hf",
+  "certified": true,
+  "title": "Qwen3.5 9B on Hugging Face",
+  "starting_model": "qwen3.5-9b",
+  "method": "lora_sft",
+  "evidence": "Measured on Hugging Face 28 Oct 2026 (C1), seeded data: 90 rows, 69 steps on a100-large (NVIDIA A100-SXM4-80GB): 1,954 s billed (33 min, $1.38); peak 19.8 GB of 80 GB; validation loss per pass 0.653, 0.639, 0.661 (finite); 3 passes exported to Q8_0 GGUF in the job (474 s); downloaded, checked and served here in Row-Bot's own server (probe and a real tool turn). The L40S alternative is an estimate (1.5x the A100's time a step), not measured.",
+  "settings": {
+    "max_seq_length": 16384,
+    "bits": 4,
+    "rank": 16,
+    "alpha": 16,
+    "learning_rate": 0.0002,
+    "batch_size": 1,
+    "gradient_accumulation": 4,
+    "warmup_steps": 2,
+    "weight_decay": 0.0,
+    "vram_cap": 0.95,
+    "seed": 3407
+  },
+  "epochs": 3,
+  "checkpoint_every": 10,
+  "min_examples": 90,
+  "min_new_examples": 50,
+  "validation_share": 0.1,
+  "serve_context": 32768,
+  "quantization": "Q8_0",
+  "reasoning": "off",
+  "memory_mib": 46000,
+  "system_memory_mib": {},
+  "remote": {
+    "flavor": "a100-large",
+    "price_per_hour": 2.5,
+    "image": "python:3.12-bookworm",
+    "setup_seconds": 63,
+    "seconds_per_step": 17.8,
+    "export_seconds_per_pass": 158,
+    "upload_seconds": 60,
+    "alternatives": [
+      {
+        "flavor": "l40sx1",
+        "price_per_hour": 1.8,
+        "seconds_per_step": 26.7
+      }
+    ]
+  }
+}

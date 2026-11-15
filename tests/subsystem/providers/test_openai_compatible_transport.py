@@ -1602,3 +1602,60 @@ def test_custom_provider_default_keeps_static_reasoning_baseline():
     assert body["top_k"] == 10
     assert body["chat_template_kwargs"] == {"enable_thinking": False}
     assert "reasoning_effort" not in body
+
+
+class _LinesStreamingClient(_Client):
+    def __init__(self, *lines: bytes):
+        super().__init__()
+        self.lines = lines
+
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        lines = self.lines
+
+        class _Lines(_StreamResponse):
+            def iter_lines(self):
+                yield from lines
+
+        return _Lines()
+
+
+def test_a_mistral_reasoning_stream_puts_thinking_in_reasoning_and_only_the_answer_in_the_reply():
+    # Mistral's reasoning models stream ``content`` as a list of chunks, never a string.
+    thinking = {"choices": [{"delta": {"content": [
+        {"type": "thinking", "thinking": [{"type": "text", "text": "The user asked"}]},
+    ]}}]}
+    both = {"choices": [{"delta": {"content": [
+        {"type": "thinking", "thinking": [{"type": "text", "text": " for a heading."}], "closed": True},
+        {"type": "text", "text": "Found"},
+    ]}}]}
+    answer = {"choices": [{"delta": {"content": " it: Example Domain."}}]}
+    client = _LinesStreamingClient(*(f"data: {json.dumps(chunk)}".encode() for chunk in (thinking, both, answer)),
+                                   b"data: [DONE]")
+    model = ChatOpenAICompatible(model_name="mistral-large-4", base_url="https://api.mistral.ai/v1",
+                                 endpoint={"provider_id": "mistral"}, http_client=client)
+
+    chunks = list(model.stream([HumanMessage(content="heading?")]))
+
+    assert "".join(str(chunk.content) for chunk in chunks) == "Found it: Example Domain."
+    assert "".join(chunk.additional_kwargs.get("reasoning_content", "") for chunk in chunks) == (
+        "The user asked for a heading."
+    )
+
+
+def test_a_mistral_reasoning_reply_without_streaming_keeps_its_answer_and_thinking():
+    class _MistralClient(_Client):
+        def post(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return _Response({"choices": [{"message": {"content": [
+                {"type": "thinking", "thinking": [{"type": "text", "text": "Check the page."}]},
+                {"type": "text", "text": "Example Domain."},
+            ]}}]})
+
+    model = ChatOpenAICompatible(model_name="magistral-medium", base_url="https://api.mistral.ai/v1",
+                                 endpoint={"provider_id": "mistral"}, http_client=_MistralClient())
+
+    reply = model.invoke([HumanMessage(content="heading?")])
+
+    assert reply.content == "Example Domain."
+    assert reply.additional_kwargs["reasoning_content"] == "Check the page."

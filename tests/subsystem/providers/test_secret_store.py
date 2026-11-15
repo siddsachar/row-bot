@@ -36,7 +36,11 @@ class _CapacityLimitedKeyring:
         self.values[service, account] = value
 
     def delete_password(self, service, account):
-        self.values.pop((service, account), None)
+        from keyring.errors import PasswordDeleteError
+
+        if (service, account) not in self.values:
+            raise PasswordDeleteError(service)  # As Windows' Credential Manager says a missing entry.
+        del self.values[service, account]
 
 
 def test_persistent_server_secret_initializer_creates_once_and_reuses_key(
@@ -390,6 +394,26 @@ def test_windows_user_encrypted_fallback_survives_keyring_capacity_failure(
             "oauth.access_token.g." + ("a" * 32) + ".00",
             namespace="providers:codex",
         ) == "recovered-keyring-value"
+    finally:
+        secret_store._set_backend_for_tests(None)
+
+
+def test_a_full_credential_manager_still_lets_a_sign_in_be_saved(tmp_path, monkeypatch) -> None:
+    """30 Oct: with Windows' Credential Manager full, every sign-in said the keychain was locked: the round trip
+    saved to the encrypted file, then deleting the (missing) Credential Manager entry raised."""
+    from row_bot import secret_store
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("ROW_BOT_SECRETS_DIR", raising=False)
+    monkeypatch.setattr(secret_store, "_windows_user_secret_supported", lambda: True)
+    monkeypatch.setattr(secret_store, "_protect_windows_user_data", lambda value, entropy: value[::-1])
+    monkeypatch.setattr(secret_store, "_unprotect_windows_user_data", lambda value, entropy: value[::-1])
+    secret_store._set_backend_for_tests(_CapacityLimitedKeyring())
+    try:
+        assert secret_store.is_available()
+        assert secret_store.set_secret("token", "value", namespace="providers:codex") == "encrypted_file"
+        secret_store.delete_secret("token", namespace="providers:codex")
+        assert secret_store.get_secret("token", namespace="providers:codex") is None
     finally:
         secret_store._set_backend_for_tests(None)
 

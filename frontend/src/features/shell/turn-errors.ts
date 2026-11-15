@@ -29,6 +29,8 @@ const KINDS: Array<[RegExp, RecoveryAction[]]> = [
   [/^The AI provider/i, ['retry', 'model']],
   [/^I got stuck in a tool loop/i, ['retry']],
   [/^API error:/i, ['retry', 'model']],
+  // The main model and the backup model both failed (#140).
+  [/^Neither .+ answered/i, ['retry', 'model']],
 ];
 
 export function turnError(text: string): TurnError | null {

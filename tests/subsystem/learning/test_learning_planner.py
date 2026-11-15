@@ -25,7 +25,7 @@ def work(writer, chats, clock):
 
 @pytest.fixture
 def setup(learning_on, chats, clock):
-    recipe = replace(recipes.load("8gb"), min_examples=3, min_new_examples=2)
+    recipe = replace(recipes.load("16gb"), min_examples=3, min_new_examples=2)
     measured: list[int] = []
     trained: set[str] = set()
 
@@ -58,7 +58,7 @@ def test_enough_examples_plan_a_run_with_its_rows_already_leased(work, setup, mo
     assert job is not None and job.state == "planned" and job.version == 1
     assert job.steps_total == recipe.steps_for(4) == 3  # one step a pass, three passes (O114)
     plan = jobs.plan_of(job)
-    assert plan["recipe"]["name"] == "8gb-v1" and plan["recipe"]["settings"]["max_seq_length"] == 16_384
+    assert plan["recipe"]["name"] == "16gb-v1" and plan["recipe"]["settings"]["max_seq_length"] == 16_384
     assert plan["dataset"]["examples"] == 4 and plan["dataset"]["id"].startswith("ds_")
     run = jobs_module.run_dir(job.id, planner.root)
     rows = (run / "data" / "examples.jsonl").read_text(encoding="utf-8").splitlines()

@@ -52,6 +52,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
+  // Close the app first: restoring turns Learning's start-up flag off, and a
+  // poll still due (download, training) would get a 404 a real app never sees.
+  await page.close();
   await l2x(page, 'restore');
   await l2c(page, 'restore');
   await l1a(page, 'restore');
@@ -135,8 +138,10 @@ async function runsIn(page: Page) {
   return page.getByRole('dialog', { name: 'Where your personal model runs' });
 }
 
-async function setupSheet(page: Page, card: string) {
+async function setupSheet(page: Page, card: string, twoModels = false) {
   await l1a(page, 'preview');
+  // O112, O124: the 9B is the only certified model since T1; a stand-in smaller one shows the offers.
+  if (twoModels) await l2x(page, 'two-models');
   await l2x(page, 'card', card);
   await page.goto('/app-v2/settings/learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();
@@ -146,7 +151,7 @@ async function setupSheet(page: Page, card: string) {
 test('setup says what training needs of the computer’s memory, and what to do when it can’t hold a tier (O105)', async ({
   page,
 }, info) => {
-  const sheet = await setupSheet(page, '5090-short');
+  const sheet = await setupSheet(page, '5090-short', true);
   await expect(sheet.getByText(GPU)).toBeVisible();
   await expect(
     sheet.getByText(
@@ -167,8 +172,10 @@ test('setup says what training needs of the computer’s memory, and what to do 
 test('a computer whose memory can’t hold training says so up front (O105)', async ({
   page,
 }, info) => {
-  const sheet = await setupSheet(page, '4060-low');
-  await expect(sheet.getByText('NVIDIA GeForce RTX 4060 (8 GB)')).toBeVisible();
+  const sheet = await setupSheet(page, '4080-low');
+  await expect(
+    sheet.getByText('NVIDIA GeForce RTX 4080 (16 GB)'),
+  ).toBeVisible();
   await expect(
     sheet.getByText(
       /^This computer’s memory can’t hold training yet: it needs about \d+ GB of RAM and virtual memory, and this computer has \d+ GB\.$/,
@@ -186,24 +193,47 @@ test('a computer whose memory can’t hold training says so up front (O105)', as
 test('setup recommends a smaller model when the graphics card has little free (O112)', async ({
   page,
 }, info) => {
-  const sheet = await setupSheet(page, '4080-busy');
-  await expect(
-    sheet.getByText('NVIDIA GeForce RTX 4080 (16 GB)'),
-  ).toBeVisible();
+  const sheet = await setupSheet(page, '5090-busy', true);
+  await expect(sheet.getByText(GPU)).toBeVisible();
   await expect(
     sheet.getByText(
-      /^Your graphics card has about \d+ GB free now \(your display and other apps use the rest\), so Row-Bot recommends Qwen3\.5 2B\./,
+      /^Your graphics card has about \d+ GB free now \(your display and other apps use the rest\), so Row-Bot recommends A small model\./,
     ),
   ).toBeVisible();
   await expect(
     sheet.getByRole('combobox', { name: 'Starting model' }),
-  ).toHaveValue('qwen3.5-2b');
+  ).toHaveValue('test-small');
   await shoot(page, info, 'setup-recommends-smaller');
+});
+
+test('after two nights without room on the graphics card for the 9B, the Personal model view says what to do (O112, O124)', async ({
+  page,
+}, info) => {
+  // The 9B is the smallest model Row-Bot trains here: no smaller one to offer.
+  await turnOn(page, info);
+  await l2c(page, 'setup');
+  await l2c(page, 'gpu-busy');
+  await l2x(page, 'room');
+  await openModel(page);
+  const notice = page.getByRole('status', {
+    name: 'No room on the graphics card',
+  });
+  await expect(notice).toContainText(
+    'No room on the graphics card for 2 nights.',
+  );
+  await expect(notice).toContainText(
+    'Close apps that use the graphics card before quiet hours, or train on Hugging Face instead.',
+  );
+  await shoot(page, info, 'model-no-room-9b');
+  await notice.getByRole('button', { name: 'Train on Hugging Face…' }).click();
+  await expect(page).toHaveURL(/\/settings\/learning#personal-model$/);
 });
 
 test('after two nights without room on the graphics card, the Personal model view offers a smaller model (O112)', async ({
   page,
 }, info) => {
+  await l1a(page, 'preview');
+  await l2x(page, 'two-models');
   await turnOn(page, info);
   // v1 is planned and waits for the card (a local model holds it), two nights running.
   await l2c(page, 'setup');
@@ -218,11 +248,13 @@ test('after two nights without room on the graphics card, the Personal model vie
   );
   await expect(notice).toContainText('Training Qwen3.5 9B needs about');
   await shoot(page, info, 'model-no-room');
-  await notice.getByRole('button', { name: 'Use Qwen3.5 2B instead…' }).click();
+  await notice
+    .getByRole('button', { name: 'Use A small model instead…' })
+    .click();
   const ask = page.getByRole('alertdialog', {
-    name: 'Use Qwen3.5 2B instead?',
+    name: 'Use A small model instead?',
   });
-  await expect(ask).toContainText('Row-Bot downloads Qwen3.5 2B');
+  await expect(ask).toContainText('Row-Bot downloads A small model');
   await shoot(page, info, 'model-no-room-ask');
   await ask.getByRole('button', { name: 'Cancel' }).click();
 });
@@ -230,7 +262,7 @@ test('after two nights without room on the graphics card, the Personal model vie
 test('the Personal model view says when this computer’s memory can’t hold training (O105)', async ({
   page,
 }, info) => {
-  const sheet = await setupSheet(page, '4060-low');
+  const sheet = await setupSheet(page, '4080-low');
   await sheet.getByRole('button', { name: 'Turn on Learning' }).click();
   await expect(notice(page, 'Learning is on.')).toBeVisible();
   await openModel(page);

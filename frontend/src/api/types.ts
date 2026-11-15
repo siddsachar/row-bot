@@ -199,6 +199,9 @@ export interface ClientTransport {
       scope?: 'installed' | 'catalog';
       cursor?: string;
       all?: 'true';
+      labels?: string;
+      runs?: 'anywhere' | 'hosted' | 'local';
+      no_sign_in?: 'true';
     },
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationEntryPage>;
@@ -333,19 +336,11 @@ export interface ClientTransport {
     body: Wire.ArtifactBrandSuggestionRequest,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactBrandSuggestion>;
-  saveArtifactExport?(
-    conversation: string,
-    binding: string,
-    exportId: string,
+  /** One file to save (5.3.3): a reference the Save dialog, a download or Exports reads once. */
+  createSaveOffer?(
+    body: Wire.SaveOfferRequest,
     signal?: AbortSignal,
-  ): Promise<Wire.ArtifactSavedExport>;
-  revealArtifactExport?(
-    conversation: string,
-    binding: string,
-    exportId: string,
-    body: Wire.ArtifactExportReveal,
-    signal?: AbortSignal,
-  ): Promise<Wire.ArtifactExportRevealResult>;
+  ): Promise<Wire.SaveOffer>;
   /** Write a conversation export into Exports when the desktop app can't show its Save dialog (B238). */
   saveAttachmentExport?(
     reference: string,
@@ -355,12 +350,6 @@ export interface ClientTransport {
     body: Wire.ExportRevealRequest,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactExportRevealResult>;
-  artifactDownload?(
-    conversation: string,
-    binding: string,
-    descriptor: Wire.ArtifactExport,
-    signal?: AbortSignal,
-  ): Promise<Blob>;
   taskSettings?(
     task: string,
     signal?: AbortSignal,
@@ -421,6 +410,97 @@ export interface ClientTransport {
     upload: string,
     signal?: AbortSignal,
   ): Promise<Wire.UploadCancelled>;
+  /** Knowledge › Import memories: one batch of files or pasted answers. */
+  memoryImportSources?(signal?: AbortSignal): Promise<Wire.MemoryImportSources>;
+  beginMemoryImport?(signal?: AbortSignal): Promise<Wire.MemoryImportBatch>;
+  memoryImport?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  discardMemoryImport?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  /** Send one export file in chunks; resolves to its file id. */
+  uploadMemoryImportFile?(
+    batch: string,
+    file: File,
+    progress?: (sent: number) => void,
+    signal?: AbortSignal,
+  ): Promise<string>;
+  removeMemoryImportFile?(
+    batch: string,
+    file: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  addMemoryImportText?(
+    batch: string,
+    text: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportStep?(
+    batch: string,
+    step: 'scan' | 'conversations' | 'cancel',
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportCandidates?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportCandidatePage>;
+  previewMemoryImport?(
+    batch: string,
+    items: Wire.MemoryImportPreviewRequest['items'],
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportBatch>;
+  memoryImportPreview?(
+    batch: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportPreview>;
+  applyMemoryImport?(
+    batch: string,
+    command: Omit<Wire.MemoryImportApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportReceipt>;
+  undoMemoryImport?(
+    batch: string,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryImportReceipt>;
+  /** Knowledge › Review memory: one run over every memory, or one import's. */
+  memoryReviewOverview?(
+    importBatch?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewOverview>;
+  beginMemoryReview?(
+    importBatch?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  memoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  discardMemoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.UploadCancelled>;
+  cancelMemoryReview?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewRun>;
+  memoryReviewProposals?(
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewProposals>;
+  applyMemoryReview?(
+    run: string,
+    command: Omit<Wire.MemoryReviewApply, 'client_session_id'>,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewReceipt>;
+  undoMemoryReview?(
+    run: string,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.MemoryReviewReceipt>;
   insights?(signal?: AbortSignal): Promise<Wire.InsightsSnapshot>;
   insightReceipt?(
     command: string,
@@ -714,6 +794,12 @@ export interface ClientTransport {
     body: Wire.SlashCommandRead,
     signal?: AbortSignal,
   ): Promise<Wire.SlashCommandResult>;
+  undoSettingChange?(
+    conversation: string,
+    body: Wire.SettingChangeUndoRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SettingChangeUndoResult>;
+  guidePage?(route: string, signal?: AbortSignal): Promise<Wire.GuidePageView>;
   library?(
     kind: 'artifact' | 'workspace',
     cursor?: string,
@@ -733,6 +819,44 @@ export interface ClientTransport {
     provider: string,
     signal?: AbortSignal,
   ): Promise<Wire.ProviderRuntimeProbe>;
+  /** The Claude plan (H14): installing Claude Code from Anthropic, on request. */
+  claudeCodeInstall?(
+    signal?: AbortSignal,
+  ): Promise<Wire.ClaudeCodeInstallState>;
+  installClaudeCode?(
+    update: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClaudeCodeInstallState>;
+  /**
+   * Claude's own sign-in (H15): `claude auth login` in a small terminal.
+   * `switchAccount` signs Claude Code out first (`claude auth logout`).
+   */
+  openClaudeSignIn?(
+    cols: number,
+    rows: number,
+    switchAccount: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClaudeSignInView>;
+  readClaudeSignIn?(
+    signIn: string,
+    cursor: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClaudeSignInOutput>;
+  writeClaudeSignIn?(
+    signIn: string,
+    data: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalChanged>;
+  resizeClaudeSignIn?(
+    signIn: string,
+    cols: number,
+    rows: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalChanged>;
+  closeClaudeSignIn?(
+    signIn: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.NativeTerminalClosed>;
   reviewDocumentProcessing?(
     conversation: string,
     body: Wire.DocumentProcessingReviewRequest,
@@ -897,18 +1021,6 @@ export interface ClientTransport {
     deliveryId: string,
     signal?: AbortSignal,
   ): Promise<Wire.DeliveryView>;
-  /** One file sent to the devices, with this session; refused once it expired. */
-  downloadDelivery?(
-    deliveryId: string,
-    index: number,
-    signal?: AbortSignal,
-  ): Promise<Blob>;
-  /** Desktop window: the file saved into Exports on this computer. */
-  saveDelivery?(
-    deliveryId: string,
-    index: number,
-    signal?: AbortSignal,
-  ): Promise<Wire.ExportSaved>;
   /** The person's "Send to your devices instead". No approval. */
   sendDeliveryToDevices?(
     deliveryId: string,
@@ -940,19 +1052,8 @@ export interface ClientTransport {
     decision: Wire.PageDecisionWrite,
     signal?: AbortSignal,
   ): Promise<Wire.PageView>;
-  /** Download as HTML. */
-  downloadPage?(
-    pageId: string,
-    theme: Wire.PageTheme,
-    signal?: AbortSignal,
-  ): Promise<Wire.PageDownload>;
-  /** Desktop window: the page saved into Exports on this computer. */
-  savePageToExports?(
-    pageId: string,
-    theme: Wire.PageTheme,
-    signal?: AbortSignal,
-  ): Promise<Wire.ExportSaved>;
   attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
+  dismissMemoryNotice?(): Promise<Wire.MemoryNoticeDismissed>;
   pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   media?(
     filter: { query?: string; kind?: string },
@@ -975,6 +1076,55 @@ export interface ClientTransport {
   ): Promise<Wire.VideoProjectView>;
   makeVideoProject?(projectId: string): Promise<Wire.VideoProjectView>;
   videoBrand?(signal?: AbortSignal): Promise<Wire.VideoBrand>;
+  /** What conversations wait for (5.3.1); a stopped one starts nothing. */
+  waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;
+  stopWait?(waitId: string): Promise<Wire.WaitPage>;
+  /** Proactive Row-Bot: moments, "Why this?", feedback, Activity, settings, rules, drafts. */
+  proactiveMoments?(signal?: AbortSignal): Promise<Wire.ProactiveMomentPage>;
+  proactiveMoment?(
+    momentId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveMomentDetail>;
+  proactiveFeedback?(
+    momentId: string,
+    feedback: Wire.ProactiveFeedback,
+  ): Promise<Wire.ProactiveMomentDetail>;
+  proactiveActivity?(
+    before?: number,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveActivityPage>;
+  proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
+  changeProactiveSettings?(
+    change: Wire.ProactiveSettingsChange,
+  ): Promise<Wire.ProactiveSettingsView>;
+  addProactiveRule?(
+    rule: Wire.ProactiveRuleWrite,
+  ): Promise<Wire.ProactiveSettingsView>;
+  changeProactiveRule?(
+    ruleId: string,
+    rule: Wire.ProactiveRuleWrite,
+  ): Promise<Wire.ProactiveSettingsView>;
+  deleteProactiveRule?(ruleId: string): Promise<Wire.ProactiveSettingsView>;
+  proactiveDrafts?(signal?: AbortSignal): Promise<Wire.ProactiveDraftPage>;
+  proactiveDraft?(
+    draftId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProactiveDraftView>;
+  saveProactiveDraft?(
+    draftId: string,
+    edit: Wire.ProactiveDraftEdit,
+  ): Promise<Wire.ProactiveDraftView>;
+  /** Shows the draft's approval card (always); nothing is sent. */
+  askToSendProactiveDraft?(draftId: string): Promise<Wire.ProactiveDraftView>;
+  answerProactiveDraftSend?(
+    draftId: string,
+    answer: Wire.ProactiveDraftSendAnswer,
+  ): Promise<Wire.ProactiveDraftSendOutcome>;
+  proactivePreview?(signal?: AbortSignal): Promise<Wire.ProactivePreview>;
+  noteProactiveBoundary?(
+    boundary: Wire.ProactiveBoundary,
+  ): Promise<Wire.ProactiveBoundaryNoted>;
   /** Sandboxes (5.3.1 B4): second Row-Bots on made-up data. */
   rowBotSandboxes?(signal?: AbortSignal): Promise<Wire.RowBotSandboxPage>;
   createRowBotSandbox?(
@@ -993,6 +1143,14 @@ export interface ClientTransport {
   ): Promise<Wire.VideoProjectView>;
   scheduledPosts?(signal?: AbortSignal): Promise<Wire.ScheduledPostPage>;
   cancelScheduledPost?(id: string): Promise<Wire.ScheduledPostCancelled>;
+  editScheduledPost?(
+    id: string,
+    edit: Wire.XPostEdit,
+  ): Promise<Wire.ScheduledPostEdited>;
+  retryScheduledPost?(
+    id: string,
+    withoutMedia: boolean,
+  ): Promise<Wire.ScheduledPostRetried>;
   monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;
   systemDiagnosis?(signal?: AbortSignal): Promise<Wire.SystemDiagnosis>;
   systemHealth?(signal?: AbortSignal): Promise<Wire.SystemDiagnosis>;
@@ -1437,6 +1595,16 @@ export interface ClientTransport {
     command: string,
     signal?: AbortSignal,
   ): Promise<Wire.SubscriptionFlowSnapshot>;
+  /** Try Row-Bot free: an OpenRouter sign-in. */
+  startOpenRouterSignIn?(signal?: AbortSignal): Promise<Wire.OpenRouterSignIn>;
+  openRouterSignIn?(
+    flow: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.OpenRouterSignIn>;
+  cancelOpenRouterSignIn?(
+    flow: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.OpenRouterSignIn>;
   reviewSubscriptionAction?(
     body: Wire.SubscriptionActionRequest,
     signal?: AbortSignal,

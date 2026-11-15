@@ -763,7 +763,7 @@ def test_docker_sandbox_recreates_container_when_network_policy_changes(tmp_path
             return SimpleNamespace(returncode=0, stdout="true\n", stderr="")
         if args[:3] == ["docker", "inspect", "-f"] and "{{.HostConfig.NetworkMode}}" in args:
             return SimpleNamespace(returncode=0, stdout="bridge\n", stderr="")
-        if args[:3] == ["docker", "rm", "-f"]:
+        if args[:3] == ["docker", "rm", "-f"] and args[3] == sandbox_runtime.sandbox_container_name(workspace.id):
             calls["rm"] += 1
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         if args[:2] == ["docker", "run"]:

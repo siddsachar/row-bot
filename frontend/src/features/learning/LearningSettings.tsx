@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { GraduationCap } from 'lucide-react';
 import { clientError } from '../../api/errors';
-import type { LearningHardware, SettingsSnapshot } from '../../api/types';
+import type {
+  LearningHardware,
+  LearningHuggingFace,
+  SettingsSnapshot,
+} from '../../api/types';
 import { Button, Disclosure, Select, Toggle } from '../../ui/primitives';
 import { ModalTask, useNotify, useOverlay } from '../../ui/overlays';
 import {
@@ -23,14 +27,18 @@ import { useDeleteLearningData } from './DeleteLearningData';
 import {
   useDownloadWatch,
   type LearningAction,
+  type LearningFields,
   type LearningIO,
 } from './learning-state';
 import { DownloadAsk, LearningSetupSheet } from './LearningSetup';
 import { CancelDownload, downloadView } from './PersonalModelDownload';
+import { HuggingFaceSignIn } from './HuggingFace';
 import { StartingModelSheet } from './StartingModelSheet';
 import {
+  HF_ACCESS,
   limitMeaning,
   limitOptions,
+  moneyWords,
   percentWords,
   pictureWords,
   quietHoursWords,
@@ -97,6 +105,111 @@ function HowItWorks() {
  * Settings › Learning (designs/learning-ux.md §1, §8). Off: the card with Turn on
  * Learning. On: its settings. "Create skills while chatting" lives here either way.
  */
+/** Settings › Learning › Personal model while it trains on Hugging Face (C1): account, model, monthly cap. */
+function HuggingFaceSettings({
+  io,
+  hugging,
+}: {
+  io: LearningIO;
+  hugging: LearningHuggingFace;
+}) {
+  const notify = useNotify();
+  const [busy, setBusy] = useState(false);
+  const signedIn = hugging.sign_in.state === 'signed_in';
+  const choices = hugging.cap_choices ?? [10, 20, 50, 100];
+  const caps =
+    hugging.cap_usd && !choices.includes(hugging.cap_usd)
+      ? [...choices, hugging.cap_usd].sort((a, b) => a - b)
+      : choices;
+
+  async function save(
+    action: 'hf_choose_model' | 'hf_set_cap',
+    fields: Partial<LearningFields>,
+  ) {
+    setBusy(true);
+    try {
+      notify((await io.run(action, fields)).summary);
+    } catch (cause) {
+      notify(clientError(cause).message, 'danger');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <SettingsItem
+        label="Hugging Face account"
+        anchor="learning-hugging-face"
+        help={
+          signedIn
+            ? HF_ACCESS
+            : 'Training there runs in your own account, priced before each run.'
+        }
+        control={<HuggingFaceSignIn io={io} hugging={hugging} compact />}
+        bind={false}
+      />
+      {signedIn && (hugging.models ?? []).length > 0 && (
+        <SettingsItem
+          label="Model on Hugging Face"
+          anchor="learning-hugging-face-model"
+          help="Only models this computer can run afterwards are offered."
+          control={
+            <Select
+              aria-label="Model on Hugging Face"
+              value={hugging.model}
+              disabled={busy}
+              onChange={(event) =>
+                void save('hf_choose_model', { model: event.target.value })
+              }
+            >
+              {(hugging.models ?? []).map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                  {item.recommended ? ' (recommended)' : ''}
+                </option>
+              ))}
+            </Select>
+          }
+          bind={false}
+        />
+      )}
+      {signedIn && (
+        <SettingsItem
+          label="Monthly spending cap"
+          anchor="learning-hugging-face-cap"
+          help={`${moneyWords(hugging.month_spent_usd)} spent this month. Runs in quiet hours start only while they fit the cap.`}
+          control={
+            hugging.cap_usd ? (
+              <Select
+                aria-label="Monthly spending cap"
+                value={String(hugging.cap_usd)}
+                disabled={busy}
+                onChange={(event) =>
+                  void save('hf_set_cap', {
+                    cap_usd: Number(event.target.value),
+                  })
+                }
+              >
+                {caps.map((value) => (
+                  <option key={value} value={value}>
+                    {moneyWords(value)} a month
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <span className="learning-inline-value">
+                Chosen with your first run
+              </span>
+            )
+          }
+          bind={false}
+        />
+      )}
+    </>
+  );
+}
+
 export default function LearningSettings({
   io,
   preferences,
@@ -505,6 +618,9 @@ export default function LearningSettings({
             { value: 'hugging_face', label: 'Hugging Face' },
           ]}
         />
+        {learning.train_where === 'hugging_face' && model.hugging_face && (
+          <HuggingFaceSettings io={io} hugging={model.hugging_face} />
+        )}
         <SettingsItem
           label="Training engine"
           anchor="learning-engine"

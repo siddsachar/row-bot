@@ -15,6 +15,11 @@ When a run finishes (its job ``evaluating``), the version is made in its own fol
    Agent turn with a tool pass. The job then moves to ``ready``. A ready version still waits for
    L2c2's comparison before anyone is asked to use it: nothing here offers it.
 
+**A version trained on Hugging Face** (C1) takes the same steps: its adapters were downloaded and checked with
+the run, and its export is the GGUF the job built for the pass being made ready, downloaded and checked against
+the run's manifest (``remote/training.py`` ``download_gguf``; the last pass first, an earlier one only when the
+last couldn't finish the ready check, O119). The recipe is the run's own Hugging Face recipe.
+
 Each step's state is kept in ``state.json`` beside the files, so a restart picks up where it was: an
 export or a check cut short runs again; a failure waits for **Try again**; a runtime the person
 starts themselves (LM Studio, llama.cpp, vLLM) is checked again every few minutes until the model
@@ -408,21 +413,31 @@ class ReleaseMaker:
 
         return engine.status(self._root)
 
-    def starting_model(self) -> tuple[Any, Path | None, int]:
+    def starting_model(self, job: Job | None = None) -> tuple[Any, Path | None, int]:
         if self._weights is not None:
             return self._weights()
         from row_bot.learning.training import weights
 
-        model = weights.MODELS.get(gate.read_settings(self._root).starting_model, weights.QWEN35_2B)
+        model = weights.MODELS.get(gate.read_settings(self._root).starting_model, weights.QWEN35_9B)
+        remote = _remote_record(job, self._root)
+        if remote is not None:  # the model the Hugging Face run trained (C1); its files may not be here
+            model = weights.MODELS.get(remote.model_id, model)
         found = weights.status(model, self._root)
         return (model, found.folder if found.state == "downloaded" else None,
                 model.weights_bytes or model.download_bytes)
 
-    def recipe(self) -> Any:
+    def recipe(self, job: Job | None = None) -> Any:
         if self._recipe_for is not None:
             return self._recipe_for()
         from row_bot.learning.training import recipes
 
+        remote = _remote_record(job, self._root)
+        if remote is not None:
+            from row_bot.learning.remote import training as remote_training
+
+            found = remote_training.get().recipe_for(remote)
+            # The GGUF the job built: the quantization this computer's card runs (catalog.serve_for).
+            return replace(found, quantization=remote.quantization)
         return recipes.current(self._root)
 
     def chosen_runtime(self) -> str:
@@ -518,7 +533,7 @@ class ReleaseMaker:
 
         version = int(job.version or 1)
         folder = version_dir(version, self.root)
-        recipe = self.recipe()
+        recipe = self.recipe(job)
         runtime = runtime or self.chosen_runtime()
         previous = read_state(folder)
         run = jobs_module.run_dir(job.id, self.root)
@@ -560,9 +575,10 @@ class ReleaseMaker:
         version = state.version
         folder = version_dir(version, self.root)
         engine_status = self.engine()
-        model, weights_folder, weights_bytes = self.starting_model()
+        model, weights_folder, weights_bytes = self.starting_model(job)
         kept = state.kept_pass or {}
         number = int(kept.get("pass") or 0)
+        remote = _remote_record(job, self._root)
         exported = state.gguf is not None and (folder / state.gguf).is_file() and state.phase not in (EXPORTING,)
         if not exported:
             state = self._save(folder, state, phase=EXPORTING, step="merge", failure=None, runtime=runtime,
@@ -581,9 +597,11 @@ class ReleaseMaker:
                                    examples=int(_read_json(folder / DATASET_FILE).get("examples") or 0))
                 if kept.get("failed"):
                     self._update_release(state, adapter=_adapter_pin(recipe, state, adapter_sha))
-                if weights_folder is None:
+                if weights_folder is None and remote is None:
                     raise export.ExportError("engine_missing")
-                result = (self.exporter or export.export_gguf)(
+                exporter = self.exporter or (_remote_exporter(job.id, number) if remote is not None
+                                             else export.export_gguf)
+                result = exporter(
                     engine=engine_status, weights=weights_folder, weights_bytes=weights_bytes, adapter=adapter,
                     folder=folder, name=serving.model_name(version), quantization=recipe.quantization,
                     check=self._check, on_step=lambda step: self._step(folder, step),
@@ -659,6 +677,11 @@ class ReleaseMaker:
         if manifest:
             content_free = {key: value for key, value in manifest.items()}
             (folder / DATASET_FILE).write_text(json.dumps(content_free, indent=1, sort_keys=True), encoding="utf-8")
+            if (run / "data").is_dir():
+                from row_bot.learning.training import kept_rows
+
+                # The exact rows it trained on, with it (A10 uploads these, never a rebuild by a later build).
+                kept_rows.keep(run / "data", folder, manifest)
         existing = store.get("release", state.release_id) if state.release_id else None
         if isinstance(existing, Release):
             return existing
@@ -673,6 +696,16 @@ class ReleaseMaker:
             base = _pin_file(model.repo, weights_folder, base_file, model.revision)
             tokenizer = _pin_file(f"{model.repo} tokenizer", weights_folder, "tokenizer.json", model.revision)
             template = _pin_file(f"{model.repo} chat template", weights_folder, "chat_template.jinja", model.revision)
+        elif _remote_record(job, self._root) is not None and model is not None:
+            # Trained on Hugging Face (C1): the pins the job checked every file against, not a local hash.
+            by_name = {item.name: item.sha256 for item in model.files}
+            shards = [item.name for item in model.files if item.name.endswith(".safetensors")]
+            base_file = shards[0] if len(shards) == 1 else "model.safetensors.index.json"
+            base = Pin(name=model.repo, version=model.revision, sha256=by_name.get(base_file) or None)
+            tokenizer = Pin(name=f"{model.repo} tokenizer", version=model.revision,
+                            sha256=by_name.get("tokenizer.json") or None)
+            template = Pin(name=f"{model.repo} chat template", version=model.revision,
+                           sha256=by_name.get("chat_template.jinja") or None)
         data = None
         if manifest.get("id"):
             rendering = manifest.get("rendering") if isinstance(manifest.get("rendering"), dict) else {}
@@ -736,6 +769,43 @@ class ReleaseMaker:
                 versions[name] = str(value)
         text = model_card(release, _read_json(folder / DATASET_FILE), state, recipe, versions)
         (folder / MODEL_CARD_FILE).write_text(text, encoding="utf-8", newline="\n")
+
+
+def _remote_record(job: Job | None, root: Path | None) -> Any:
+    """A Hugging Face run's record (C1), or None for a run on this computer."""
+
+    if job is None or getattr(job, "backend", "local") != "hugging_face":
+        return None
+    from row_bot.learning.remote import training as remote_training
+
+    return remote_training.read_record(job.id, root)
+
+
+def _remote_exporter(job_id: str, number: int) -> Callable[..., Any]:
+    """The export step of a Hugging Face version: the job's GGUF for this pass, downloaded and checked."""
+
+    def exporter(*, adapter: Path, folder: Path, quantization: str, check: Callable[[], None] = lambda: None,
+                 on_step: Callable[[str], None] = lambda _step: None, **_ignored: Any) -> Any:
+        from row_bot.learning.remote import training as remote_training
+        from row_bot.learning.training import export
+        from row_bot.learning.training.fetch import FetchError
+
+        on_step("download")
+        started = time.monotonic()
+        try:
+            gguf, size, sha = remote_training.download_gguf(job_id, number, folder, check=check)
+        except FetchError as error:
+            raise export.ExportError("stopped" if error.code == "stopped" else "download_failed",
+                                     step="download") from error
+        except Exception as error:  # noqa: BLE001 - signed out, gone, no answer: the person can try again
+            raise export.ExportError("download_failed", step="download") from error
+        adapter_bytes = sum(item.stat().st_size for item in Path(adapter).iterdir() if item.is_file())
+        return export.ExportResult(gguf=gguf, quantization=quantization, gguf_bytes=size, gguf_sha256=sha,
+                                   adapter=Path(adapter), adapter_bytes=adapter_bytes,
+                                   adapter_sha256=export.sha256_file(Path(adapter) / export.ADAPTER_FILES[0]),
+                                   seconds=round(time.monotonic() - started, 1))
+
+    return exporter
 
 
 __all__ = [

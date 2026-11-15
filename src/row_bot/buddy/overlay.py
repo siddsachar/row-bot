@@ -292,8 +292,13 @@ def screen_areas_from_native(screens: Iterable[Any]) -> list[ScreenArea]:
         try:
             frame = getattr(screen, "frame", None)
             # WinForms exposes Screen.WorkingArea through pywebview's frame
-            # field. Cocoa currently exposes a full NSRect instead, so it
-            # safely falls through to pywebview's coordinate fields below.
+            # field. Cocoa exposes the whole NSRect instead, so its visible
+            # frame (without the menu bar and Dock) is read from AppKit.
+            if frame is not None and hasattr(frame, "origin") and hasattr(frame, "size"):
+                visible = _cocoa_visible_area(frame)
+                if visible is not None:
+                    result.append(visible)
+                    continue
             if frame is not None and all(
                 hasattr(frame, name) for name in ("X", "Y", "Width", "Height")
             ):
@@ -317,6 +322,27 @@ def screen_areas_from_native(screens: Iterable[Any]) -> list[ScreenArea]:
         except (TypeError, ValueError, AttributeError):
             continue
     return result
+
+
+def _cocoa_visible_area(frame: Any) -> ScreenArea | None:
+    """The NSScreen with this frame, as its visible frame, top-left based like window moves (None if unknown)."""
+
+    try:
+        from AppKit import NSScreen
+
+        screens = list(NSScreen.screens())
+        primary = screens[0].frame().size.height
+        wanted = (frame.origin.x, frame.origin.y, frame.size.width, frame.size.height)
+        for screen in screens:
+            whole = screen.frame()
+            if (whole.origin.x, whole.origin.y, whole.size.width, whole.size.height) != wanted:
+                continue
+            visible = screen.visibleFrame()
+            return ScreenArea(int(visible.origin.x), int(primary - visible.origin.y - visible.size.height),
+                              int(visible.size.width), int(visible.size.height))
+    except Exception:
+        return None
+    return None
 
 
 def finite_coordinate(value: Any, fallback: float = 0.0) -> float:

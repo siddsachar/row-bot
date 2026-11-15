@@ -375,6 +375,7 @@ class PersonRun:
         """The training engine and the starting model from ``--runtimes-from``: hard links (nothing
         in the source is ever written; a file this run changes is copied first)."""
 
+        from row_bot import learning
         from row_bot.learning.training import engine, weights
 
         target = self.data / "runtimes" / "learning"
@@ -399,7 +400,7 @@ class PersonRun:
                     except OSError:
                         shutil.copy2(item, destination)
         status = engine.status(self.data, refresh=True)
-        model = weights.MODELS.get("qwen3.5-2b") or weights.QWEN35_2B
+        model = weights.MODELS.get(learning.read_settings(self.data).starting_model) or weights.QWEN35_9B
         return {"installed": status.installed, "state": status.state,
                 "weights": weights.status(model, self.data).state}
 
@@ -903,7 +904,7 @@ class PersonRun:
         """The booking's honest size (the tier's graphics-memory cap plus the engine's own): a training holds
         the card through its version; a comparison books it again (O116)."""
 
-        cap = {"8gb": 9, "16gb": 17, "24gb": 25, "32gb": 33}.get(self.args.tier, 9)
+        cap = {"16gb": 17, "24gb": 25, "32gb": 33}.get(self.args.tier, 17)
         if phase == "comparison":
             return f"{10 if self.args.pilot_compare else 70} min, {cap} GB"
         if phase == "export and serve":
@@ -989,7 +990,7 @@ class PersonRun:
         recipe = recipes.load(self.args.tier)
         found = hardware.detect()
         total = int(found.gpu.memory_mib) if found.gpu is not None else 0
-        cap_gb = {"8gb": 8.0, "16gb": 16.0, "24gb": 24.0, "32gb": 32.0}.get(self.args.tier, 8.0)
+        cap_gb = {"16gb": 16.0, "24gb": 24.0, "32gb": 32.0}.get(self.args.tier, 16.0)
         if total:
             share = round(min(0.95, cap_gb * 1024 * 0.95 / total), 4)
             recipe = replace(recipe, settings={**recipe.settings, "vram_cap": share})
@@ -1614,7 +1615,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--seed", type=int, default=20261022)
-    parser.add_argument("--tier", default="8gb")
+    parser.add_argument("--tier", default="16gb")
     parser.add_argument("--stages", default=",".join(STAGES))
     parser.add_argument("--eval-profile", required=True)
     parser.add_argument("--runtimes-from", default="")

@@ -68,12 +68,15 @@ from row_bot.data_paths import (
     get_row_bot_data_dir,
 )
 from row_bot import install_layout
+from row_bot.console_logging import route_console_by_level
 from row_bot.runtime_paths import app_icon_path, app_root, static_dir
 
 if TYPE_CHECKING:
     from PIL import Image as _PILImage
 
 # ── Setup logging ────────────────────────────────────────────────────────────
+# On stderr, so a command's own output (``row-bot access doctor --json``) has stdout to itself. Only
+# ``row-bot serve`` in Row-Bot's image splits it by level (F2, ``route_console_by_level``).
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 _LAUNCH_STARTED = time.perf_counter()
@@ -277,10 +280,12 @@ def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
     quit and this one holds the lock. Never starts a second server.
     """
     wants_server = bool(args.server or args.no_open)
-    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None)
+    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None
+                        or getattr(args, "compact_chats", False))
     if changes_data:
-        logger.error("%s is running on this data folder; quit it before resetting or restoring data.",
-                     APP_DISPLAY_NAME)
+        doing = ("compacting chats" if getattr(args, "compact_chats", False)
+                 else "restoring data" if args.restore_data is not None else "resetting data")
+        logger.error("%s is running on this data folder; quit it before %s.", APP_DISPLAY_NAME, doing)
         return 1
     _launch_event("instance_already_running", mode="server" if wants_server else "desktop")
     deadline = time.monotonic() + _INSTANCE_WAIT_SECONDS
@@ -1460,6 +1465,11 @@ class _RowBotProcess:
         )
         env[ROW_BOT_HOST_ENV] = self.host
         env.update(self._launch_environment)
+        # The secret-store key `row-bot serve` took out of its own environment: for its server
+        # alone, which takes it out of its environment at start (H2).
+        from row_bot.secret_store import server_child_environment
+
+        env.update(server_child_environment())
 
         try:
             self._proc = subprocess.Popen(
@@ -1996,8 +2006,10 @@ from row_bot.buddy.native_host import (
     OVERLAY_ROUTE,
     BuddyWindowHost,
     buddy_overlay_url,
+    pet_callback,
     placement_callback,
 )
+from row_bot.buddy.pet_native import pet_native
 from row_bot.buddy.overlay import (
     apply_placement_state,
     enable_windows_per_monitor_dpi,
@@ -2008,7 +2020,7 @@ from row_bot.buddy.overlay import (
 
 _NAMED_WINDOWS = {}
 # Operations the desktop Buddy's document may use: nothing else.
-_BUDDY_CAPABILITIES = frozenset({"buddy_placement", "buddy_follow", "main_window"})
+_BUDDY_CAPABILITIES = frozenset({"buddy_placement", "buddy_follow", "buddy_pet", "main_window"})
 
 def _save_buddy_state(state, *, x=None, y=None):
     config = apply_placement_state(get_buddy_config(), state)
@@ -2126,6 +2138,40 @@ def _on_loaded(window):
     except Exception:
         pass
 
+def _add_mac_edit_and_window_menus():
+    # pywebview's menu bar has only the app and View menus. Its own key handling makes Cmd-C/V/X/A/Z
+    # work, but a Mac person looks for them under Edit, and for Minimize under Window (U35). Added on the
+    # main thread once pywebview has built its menu; each item goes to whatever has focus.
+    from AppKit import NSApp, NSEventModifierFlagCommand, NSEventModifierFlagShift, NSMenu, NSMenuItem
+    from PyObjCTools import AppHelper
+
+    def menu(bar, title, entries, index):
+        submenu = NSMenu.alloc().initWithTitle_(title)
+        for entry in entries:
+            if entry is None:
+                submenu.addItem_(NSMenuItem.separatorItem())
+                continue
+            name, action, key, shifted = entry
+            item = submenu.addItemWithTitle_action_keyEquivalent_(name, action, key)
+            if shifted:
+                item.setKeyEquivalentModifierMask_(NSEventModifierFlagCommand | NSEventModifierFlagShift)
+        holder = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
+        holder.setSubmenu_(submenu)
+        bar.insertItem_atIndex_(holder, min(index, bar.numberOfItems()))
+        return submenu
+
+    def build():
+        bar = NSApp.mainMenu()
+        if bar is None or bar.itemWithTitle_("Edit") is not None:
+            return
+        menu(bar, "Edit", [("Undo", "undo:", "z", False), ("Redo", "redo:", "z", True), None,
+                           ("Cut", "cut:", "x", False), ("Copy", "copy:", "c", False),
+                           ("Paste", "paste:", "v", False), ("Select All", "selectAll:", "a", False)], 1)
+        NSApp.setWindowsMenu_(menu(bar, "Window", [("Minimize", "performMiniaturize:", "m", False),
+                                                   ("Zoom", "performZoom:", "", False)], bar.numberOfItems()))
+
+    AppHelper.callAfter(build)
+
 def _on_main_window_closing():
     return _BUDDY.main_closing()
 
@@ -2202,6 +2248,7 @@ _BUDDY = BuddyWindowHost(
     port=_APP_PORT,
     log=_buddy_window_log,
     scale=_screen_scale,
+    pet_native=pet_native(sys.platform),
 )
 enable_windows_per_monitor_dpi(sys.platform)
 _install_windows_app_icon()
@@ -2363,6 +2410,8 @@ def _attach_client_v2(window, instance_id, role="main"):
             _NATIVE_AUTHORITIES.pop(str(context.window_id) + ":context", None)
 
     def save_reference(reference, target):
+        from row_bot.application.attachments import MAX_ATTACHMENT_BYTES
+
         authority = _NATIVE_AUTHORITIES.get(str(window.uid))
         if authority is None:
             return False
@@ -2389,9 +2438,9 @@ def _attach_client_v2(window, instance_id, role="main"):
         )
         temporary = None
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                data = response.read(26214401)
-            if not data or len(data) > 26214400:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                data = response.read(MAX_ATTACHMENT_BYTES + 1)
+            if not data or len(data) > MAX_ATTACHMENT_BYTES:
                 return False
             target = os.path.abspath(str(target))
             directory = os.path.dirname(target)
@@ -2469,6 +2518,7 @@ def _attach_client_v2(window, instance_id, role="main"):
             buddy_placement=placement_callback(_BUDDY, "buddy"),
             read_buddy_target=_BUDDY.target,
             show_main_window=_BUDDY.show_main,
+            buddy_pet=pet_callback(_BUDDY),
             allowed=_BUDDY_CAPABILITIES,
         )
         return attach_native_client(
@@ -2524,8 +2574,16 @@ try:
     os.makedirs(_WEBVIEW_STORAGE_PATH, exist_ok=True)
 except Exception:
     pass
+def _on_started():
+    if sys.platform == "darwin":
+        try:
+            _add_mac_edit_and_window_menus()
+        except Exception as exc:
+            _buddy_window_log(f"Edit and Window menus unavailable: {exc}")
+    _on_loaded(main_window)
+
 webview.start(
-    func=lambda: _on_loaded(main_window),
+    func=_on_started,
     private_mode=False,
     storage_path=_WEBVIEW_STORAGE_PATH,
     icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None,
@@ -2542,7 +2600,7 @@ def _load_window_mode() -> str:
     try:
         import json
 
-        cfg = json.loads(config_path.read_text())
+        cfg = json.loads(config_path.read_text(encoding="utf-8-sig"))  # Notepad may add a BOM.
         mode = cfg.get("window_mode", "ask")
         if mode in ("ask", "native", "browser"):
             return mode
@@ -3859,6 +3917,25 @@ def _reset_all_local_dbs() -> int:
     return 0
 
 
+def _compact_chats() -> int:
+    """``--compact-chats``: threads.db made small again, the old file kept beside it (R13)."""
+    import sqlite3
+
+    from row_bot import chat_compact
+
+    try:
+        result = chat_compact.compact(get_threads_db_path())
+    except (RuntimeError, OSError, sqlite3.Error) as exc:
+        print(f"The chat database wasn't compacted: {exc}")
+        return 1
+    gb = 1024 ** 3
+    print(f"Chat database: {result['before'] / gb:.1f} GB -> {result['after'] / gb:.1f} GB "
+          f"({result['checkpoints']:,} old saved states removed).")
+    print(f"The old file is kept as threads.db{chat_compact.KEPT_SUFFIX} beside it: delete it once Row-Bot "
+          "opens your chats as before.")
+    return 0
+
+
 def _restore_data(selector: str | None = None) -> int:
     data_dir = _row_bot_data_dir()
     recovery_root = data_dir / "recovery"
@@ -3996,6 +4073,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Back up known local SQLite DBs before launch",
     )
     parser.add_argument(
+        "--compact-chats",
+        action="store_true",
+        help="Make the chat database small again (with the app closed); the old file is kept beside it",
+    )
+    parser.add_argument(
         "--restore-data",
         nargs="?",
         const="latest",
@@ -4102,6 +4184,14 @@ def _request_update_apply(port: int, server: "_RowBotProcess") -> str:
 
 def main(argv: list[str] | None = None) -> None:
     global _ACTIVE_TRAY, _EARLY_SPLASH_PROC
+    # A host that starts the container as root (Railway): the data folder becomes the image user's, and
+    # Row-Bot becomes that user for good, before it writes anything, reads a secret or starts a program.
+    from row_bot.container_user import ContainerUserError, run_as_container_user
+
+    try:
+        run_as_container_user()
+    except ContainerUserError as exc:
+        raise SystemExit(f"Row-Bot didn't start: {exc}") from None
     _ensure_launcher_file_logging()
     _launch_event(
         "process_start",
@@ -4122,6 +4212,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(plugin_devtools.run_cli(args))
     _warn_deprecated_client_flags(args)
     if getattr(args, "command", "") == "serve":
+        # The container's main process: its console is the host's log, so INFO goes to stdout there (F2).
+        route_console_by_level()
         from row_bot.access.access_routes import AccessRouteConfigStore
         from row_bot.access.cli import resolve_serve_options, serve_startup_lines
 
@@ -4150,10 +4242,26 @@ def main(argv: list[str] | None = None) -> None:
         args.reset_tasks_db = False
         args.reset_db = False
         args.restore_data = None
+        args.compact_chats = False
     if not _claim_instance():
         handed_off = _hand_off_to_running_instance(args)
         if handed_off is not None:
             raise SystemExit(handed_off)
+    if getattr(args, "server", False):
+        # `row-bot serve` or the older `--server`, before any program starts: the host's
+        # secret-store key and setup code leave the environment, the key must open the saved
+        # secrets (H2), and an unclaimed server prints its code (H1).
+        from row_bot.access.setup_code import prepare_setup_code_at_start
+        from row_bot.environment_secrets import keep_environment_private
+        from row_bot.secret_store import SecretStoreError, prepare_server_store_at_start
+
+        # The environment this process started with keeps both secrets: only root may read it.
+        keep_environment_private()
+        try:
+            prepare_server_store_at_start()
+        except SecretStoreError as exc:
+            raise SystemExit(f"Row-Bot didn't start: {exc}") from None
+        prepare_setup_code_at_start()
     args._dynamic_host_input = args.host
     args.host = _resolve_launch_host(args.host)
     preferred_mode = "browser" if args.browser else "native" if args.native else None
@@ -4165,6 +4273,7 @@ def main(argv: list[str] | None = None) -> None:
         and not args.no_open
         and not args.reset_tasks_db
         and not args.reset_db
+        and not args.compact_chats
         and args.restore_data is None
         and _has_display_server()
     )
@@ -4183,6 +4292,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_reset_all_local_dbs())
     if args.restore_data is not None:
         raise SystemExit(_restore_data(args.restore_data))
+    if args.compact_chats:
+        raise SystemExit(_compact_chats())
 
     # Until the app is up, a second start leaves opening the window to this one.
     _write_launcher_state(

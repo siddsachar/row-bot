@@ -94,15 +94,20 @@ async function agentsList(page: Page) {
     await expect(agents).toBeVisible({ timeout: 20_000 });
   }
   // The phone sheet can still be opening (or its Agents section loading) just
-  // after a reload, when a check sees nothing and the toggle would close it.
+  // after a reload or a resize. Opening it toggles: once asked for, wait for
+  // it to show before looking again, or the next look would close it (seen on
+  // CI). Each round opens the Agents section on what is on screen then.
   await expect(async () => {
-    if (!(await details.isVisible()) && !(await sheet.isVisible()))
+    if (!(await details.isVisible()) && !(await sheet.isVisible())) {
       await headerAction(page, 'Conversation details');
-    await expect(agents).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 20_000 });
-  const section = agents.locator('xpath=..');
-  if ((await section.getAttribute('open', { timeout: 5_000 })) === null)
-    await agents.click();
+      await expect(panel).toBeVisible({ timeout: 10_000 });
+    }
+    await expect(agents).toBeVisible({ timeout: 5_000 });
+    const section = agents.locator('xpath=..');
+    if ((await section.getAttribute('open', { timeout: 2_000 })) === null)
+      await agents.click({ timeout: 2_000 });
+    await expect(section).toHaveAttribute('open', '', { timeout: 2_000 });
+  }).toPass({ timeout: 45_000 });
   return panel.getByRole('region', { name: 'Delegated tasks' });
 }
 

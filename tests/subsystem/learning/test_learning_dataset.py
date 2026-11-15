@@ -27,7 +27,7 @@ def work(writer, chats, clock):
 
 @pytest.fixture
 def recipe():
-    return recipes.load("8gb")
+    return recipes.load("16gb")
 
 
 def _compile(root, chats, recipe, **kwargs):

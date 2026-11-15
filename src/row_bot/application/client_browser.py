@@ -42,7 +42,7 @@ def _enabled() -> None:
 
 
 _IDLE = {
-    "status": "stopped", "control": "agent", "acting": "", "waiting": "", "url": "", "title": "", "site": "",
+    "status": "stopped", "acting": "", "waiting": "", "url": "", "title": "", "site": "",
     "loading": False, "sign_in": "", "recording": False, "tabs": [], "revision": 0,
 }
 
@@ -64,10 +64,11 @@ def _navigable(conversation_id: str, url: str, engine: Any) -> str:
     """The address the person typed, made openable; refuses what never opens."""
 
     from row_bot.browser import local_access
+    from row_bot.browser.addresses import has_scheme
     from row_bot.browser.policy import navigation_policy
 
     selected = url.strip()
-    if not selected.casefold().startswith(("http://", "https://")):
+    if not selected.casefold().startswith(("http://", "https://")) and not has_scheme(selected):
         bare = "http://" + selected
         selected = bare if local_access.local_development_origin(bare) else "https://" + selected
     parsed = urlparse(selected)
@@ -94,11 +95,7 @@ def pane_action(conversation_id: str, action: str, *, url: str = "", tab: str = 
     _enabled()
     engine = _engine(start=True)
     try:
-        if action == "take_control":
-            engine.take_control(conversation_id)
-        elif action == "give_back":
-            engine.give_back(conversation_id)
-        elif action == "navigate":
+        if action == "navigate":
             target = _navigable(conversation_id, url, engine)
             from row_bot.browser.history import append_browser_history
             from datetime import datetime, timezone
@@ -124,13 +121,12 @@ def pane_input(conversation_id: str, events: list[dict[str, Any]]) -> dict[str, 
     _enabled()
     engine = _engine(start=False)
     if engine is None:
-        return {"status": "no_page", "control": "agent"}
+        return {"status": "no_page", "copied": ""}
     try:
-        status = engine.person_input(conversation_id, events)
+        return engine.person_input(conversation_id, events)
     except Exception:
         logger.info("Browser pane input failed", exc_info=True)
         raise ClientBrowserError("browser_unavailable") from None
-    return {"status": status, "control": "person" if engine.person_has_control(conversation_id) else "agent"}
 
 
 def sites() -> dict[str, Any]:

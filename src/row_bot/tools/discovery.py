@@ -23,7 +23,7 @@ from row_bot.agent_budget import (
     ExecutionBudgetExhausted,
     InvalidExecutionBudget,
 )
-from row_bot.capability_search import CapabilityDocument, search_capabilities
+from row_bot.capability_search import CapabilityDocument, normalize_tokens, search_capabilities
 from row_bot.tool_outputs import READER_TOOL_NAME
 
 
@@ -94,6 +94,8 @@ class ExternalToolRecord:
     description: str
     input_schema: dict[str, Any]
     target: Any
+    # The name the person sees for the tool's group ("🧮 Calculator"); search finds the tool by it too.
+    label: str = ""
 
     @classmethod
     def from_tool(
@@ -103,6 +105,7 @@ class ExternalToolRecord:
         source: str,
         parent: str,
         description: str | None = None,
+        label: str = "",
     ) -> "ExternalToolRecord":
         return cls(
             name=normalize_catalog_text(str(getattr(tool, "name", "") or "")),
@@ -114,16 +117,22 @@ class ExternalToolRecord:
             )[:180],
             input_schema=effective_tool_schema(tool),
             target=tool,
+            label=normalize_catalog_text(label)[:80],
         )
 
     def search_document(self) -> CapabilityDocument:
         properties = self.input_schema.get("properties")
         parameter_names = tuple(sorted(str(name) for name in properties)) if isinstance(properties, dict) else ()
+        # The group ("calculator") and its label are searchable too, but only for words the tool doesn't already
+        # have, so the tool's own words keep their weight and today's best match stays first.
+        own = set(normalize_tokens(" ".join((self.name, self.source, self.description, *parameter_names))))
+        group = [word for word in dict.fromkeys(normalize_tokens(f"{self.parent} {self.label}")) if word not in own]
         return CapabilityDocument(
             canonical_id=self.name,
             name=self.name,
             source=self.source,
             description=self.description,
+            tags=(" ".join(group),) if group else (),
             parameter_names=parameter_names,
         )
 

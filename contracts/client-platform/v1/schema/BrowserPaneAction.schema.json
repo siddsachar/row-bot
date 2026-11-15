@@ -1,6 +1,6 @@
 {
   "additionalProperties": false,
-  "description": "The pane's own controls: the address bar, Back, Forward, Reload, tabs, control and Restart.",
+  "description": "The pane's own controls: the address bar, Back, Forward, Reload, tabs and Restart.",
   "properties": {
     "action": {
       "enum": [
@@ -9,8 +9,6 @@
         "forward",
         "reload",
         "stop_loading",
-        "take_control",
-        "give_back",
         "new_tab",
         "switch_tab",
         "close_tab",

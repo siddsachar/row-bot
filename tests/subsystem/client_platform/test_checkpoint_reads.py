@@ -139,6 +139,40 @@ def test_reloaded_trace_reads_only_reviewed_tool_arguments(platform):
     assert "do-not-project" not in json.dumps(trace)
 
 
+def test_reloaded_steps_run_through_tool_invoke_keep_their_tool_and_video_cards(platform):
+    """A discovered tool runs through tool_invoke: after a reload its step still names that tool and its
+    video edit and video project cards still show, as they did live (not only the recording's)."""
+    from row_bot import threads
+
+    def invoked(call: str, tool: str) -> dict:
+        return {"id": call, "name": "tool_invoke", "args": {"name": tool, "arguments": {"inputs": ["rec-1a2b3c4d"]}}}
+
+    assert threads.append_checkpoint_messages("conversation-a", [
+        AIMessage(content="", id="video-owner", tool_calls=[
+            {"id": "call-record", "name": "computer_record", "args": {"action": "stop"}},
+            invoked("call-trim", "edit_video"),
+            invoked("call-zoom", "edit_video"),
+            invoked("call-project", "video"),
+        ]),
+        ToolMessage(content="Recording rec-1a2b3c4d: saved 0:42 of the screen.", id="r-record",
+                    tool_call_id="call-record"),
+        ToolMessage(content="Video edit edit-0a1b2c3d: saved 0:30 of video to this chat's files as trimmed.mp4.",
+                    id="r-trim", tool_call_id="call-trim", name="tool_invoke"),
+        ToolMessage(content="Approval: asked; approved by you\nVideo edit edit-0a1b2c3e: saved 0:30 of video.",
+                    id="r-zoom", tool_call_id="call-zoom", name="tool_invoke"),
+        ToolMessage(content='Video project vid-0a1b2c3f: "Demo", version 1 of 1, 2 scenes, made.',
+                    id="r-project", tool_call_id="call-project", name="tool_invoke"),
+    ])
+
+    items = [item for group in platform.transcript("conversation-a")["rows"][0]["traces"] for item in group["items"]]
+    cards = [(item["specialization"] or {}).get("kind") for item in items]
+    assert cards == ["recording", "video_edit", "video_edit", "video_project"]
+    assert [item["specialization"].get(key) for item, key in zip(items[1:], ("edit_id", "edit_id", "project_id"))] == [
+        "edit-0a1b2c3d", "edit-0a1b2c3e", "vid-0a1b2c3f"]
+    assert "tool_invoke" not in json.dumps(items)
+    assert "rec-1a2b3c4d" not in json.dumps([item["safe_input"] for item in items])
+
+
 def test_reloaded_trace_restores_only_opaque_generated_media_metadata(platform):
     from row_bot import threads
     from row_bot.api.v1.schemas import TranscriptPage
@@ -200,6 +234,39 @@ def test_reloaded_trace_restores_only_opaque_generated_media_metadata(platform):
     assert "must-not-project" not in json.dumps(trace)
 
 
+def test_reloaded_media_names_its_picture_by_its_prompt_and_nothing_else(platform):
+    from row_bot import threads
+    from row_bot.api.v1.schemas import TranscriptPage
+    from row_bot.application.attachments import register_attachment
+
+    def made(call: str, name: str, args: dict) -> list:
+        media = register_attachment("conversation-a", "generated-image.png", b"\x89PNG\r\n\x1a\nsynthetic")
+        return [
+            AIMessage(content="", id=f"{call}-owner", tool_calls=[{"id": call, "name": name, "args": args}]),
+            ToolMessage(content="Generated the image", id=f"{call}-result", tool_call_id=call, additional_kwargs={
+                "platform_media": [{"type": "media.available", "payload": {
+                    "media_ref": media["attachment_ref"], "mime_type": media["mime_type"]}}]}),
+        ]
+
+    assert threads.append_checkpoint_messages("conversation-a", [
+        *made("fox", "generate_image", {"prompt": "A fox in a misty\n  forest at dawn",
+                                         "reference_image": "private-path-must-not-project"}),
+        *made("long", "generate_image", {"prompt": "word " * 600}),
+        *made("other", "image_gen", {"prompt": "a prompt only a media tool may show"}),
+    ])
+
+    transcript = platform.transcript("conversation-a")
+    TranscriptPage.model_validate(transcript)
+    media = [item["specialization"]["media"][0] for row in transcript["rows"]
+             for group in row.get("traces") or [] for item in group["items"]]
+    assert media[0]["prompt"] == "A fox in a misty forest at dawn"
+    assert len(media[1]["prompt"]) <= 1000 and media[1]["prompt"].startswith("word word")
+    assert "prompt" not in media[2]
+    shown = json.dumps(transcript)
+    assert "private-path-must-not-project" not in shown
+    assert "a prompt only a media tool may show" not in shown
+
+
 def test_reloaded_trace_keeps_generated_media_failure_under_closed_code(platform):
     from row_bot import threads
     from row_bot.api.v1.schemas import TranscriptPage
@@ -241,11 +308,40 @@ def test_reloaded_trace_keeps_generated_media_failure_under_closed_code(platform
     assert "must-not-project" not in json.dumps(trace)
 
 
-def test_checkpoint_container_work_and_depth_are_explicitly_bounded():
+def test_a_chat_whose_latest_rows_start_with_media_results_still_opens(platform):
+    """A long video chat wouldn't open: the newest hundred messages began with two generated-media
+    results whose tool call was just older, and their media failed the closed row (503 on every open)."""
+    from row_bot import threads
+    from row_bot.api.v1.schemas import Snapshot
+    from row_bot.application.attachments import register_attachment
+
+    media = register_attachment("conversation-a", "scene.png", b"\x89PNG\r\n\x1a\nsynthetic")
+    results = [
+        ToolMessage(content="Synthetic scene rendered", id=f"scene-result-{index}", tool_call_id=f"scene-call-{index}",
+                    additional_kwargs={"platform_media": [{"type": "media.available", "payload": {
+                        "media_ref": media["attachment_ref"], "mime_type": media["mime_type"]}}]})
+        for index in range(2)
+    ]
+    later = [message for index in range(49) for message in (
+        HumanMessage(content=f"Next scene {index}", id=f"ask-{index}"),
+        AIMessage(content=f"Scene {index} is ready", id=f"answer-{index}"))]
+    assert threads.append_checkpoint_messages("conversation-a", [
+        AIMessage(content="", id="scenes-owner", tool_calls=[
+            {"id": f"scene-call-{index}", "name": "image_gen", "args": {}} for index in range(2)]),
+        *results, *later])
+
+    snapshot = Snapshot.model_validate(platform.snapshot("conversation-a"))
+    assert [row.id for row in snapshot.rows[:2]] == ["tool:checkpoint:scene-result-0", "tool:checkpoint:scene-result-1"]
+
+
+def test_checkpoint_container_work_and_depth_are_explicitly_bounded(monkeypatch):
+    """A read may walk a checkpoint a few times over, never without end."""
     import msgpack
     from row_bot.runtime.checkpoint_reader import BlobReader
+    monkeypatch.setattr(BlobReader, "MAX_NODES", 32)
     reader = BlobReader(io.BytesIO(msgpack.packb([None] * 1000)), "synthetic")
-    reader.MAX_NODES = 32
+    for _ in range(BlobReader.NODES_PER_BYTE):
+        reader.end(0)
     with pytest.raises(ValueError, match="checkpoint_read_limit"):
         reader.end(0)
     nested = None
@@ -254,6 +350,32 @@ def test_checkpoint_container_work_and_depth_are_explicitly_bounded():
     reader = BlobReader(io.BytesIO(msgpack.packb(nested)), "synthetic")
     with pytest.raises(ValueError, match="checkpoint_format_invalid"):
         reader.end(0)
+
+
+def test_a_turn_in_a_very_long_chat_finishes_instead_of_reading_as_interrupted(platform, monkeypatch):
+    """Saving a reply finds it in the whole chat; a chat past the flat read budget (hours of tool calls) still
+    settles its turn rather than showing "The response was interrupted"."""
+    from row_bot import threads
+    from row_bot.runtime.checkpoint_reader import BlobReader
+    from tests.contracts.client_platform.test_headless_lifecycle import submit
+    from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream
+
+    history = []
+    for index in range(150):
+        call = f"call-{index}"
+        history += [AIMessage(content="", id=f"step-{index}",
+                              tool_calls=[{"id": call, "name": "browser_click", "args": {"control": "Next"}}]),
+                    ToolMessage(content="Clicked", tool_call_id=call, id=f"result-{index}")]
+    assert threads.append_checkpoint_messages("conversation-a", history)
+    monkeypatch.setattr(BlobReader, "MAX_NODES", 2000)  # The flat budget, scaled to this chat's size.
+    fake = ScriptedAgentStream((("token", "All done"),
+        CheckpointCommit((AIMessage(content="All done", id="long-chat-reply"),), "long-chat-reply"),
+        ("done", "All done")))
+    handle = platform.registry.get(submit(platform, fake, "long-chat")["execution_id"])
+
+    assert handle.producer_done.wait(10)
+    assert handle.status == "completed"
+    assert platform.snapshot("conversation-a")["rows"][-1]["id"] == "assistant:checkpoint:long-chat-reply"
 
 
 def test_multimodal_native_content_never_adopts_by_matching_only_text(platform):

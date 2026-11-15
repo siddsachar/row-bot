@@ -32,6 +32,23 @@ def test_shards_split_the_test_files_without_dropping_any() -> None:
         shard_files(files, "4/3")
 
 
+def test_browser_smoke_shards_run_every_spec_once(monkeypatch) -> None:
+    def shard_specs(shard: str) -> list[str]:
+        monkeypatch.setenv("ROW_BOT_TEST_SHARD", shard)
+        (spec,) = matrix.commands_for_tier("browser-smoke")
+        return [arg for arg in spec.argv if arg.endswith(r"\.spec\.ts")]
+
+    first, second = shard_specs("1/2"), shard_specs("2/2")
+    monkeypatch.delenv("ROW_BOT_TEST_SHARD")
+    (whole,) = matrix.commands_for_tier("browser-smoke")
+
+    assert sorted(first + second) == sorted(arg for arg in whole.argv if arg.endswith(r"\.spec\.ts"))
+    assert not set(first) & set(second)
+    assert abs(len(first) - len(second)) <= 1
+    with pytest.raises(ValueError):
+        shard_specs("3/2")
+
+
 def test_changed_tier_selects_tests_by_convention(tmp_path) -> None:
     for folder in ("tests/subsystem/providers", "tests/integration/providers"):
         (tmp_path / folder).mkdir(parents=True)

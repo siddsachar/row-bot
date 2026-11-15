@@ -3,7 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
-import type { IntegrationEntry, IntegrationEntryPage } from '../../api/types';
+import type {
+  IntegrationEntry,
+  IntegrationEntryPage,
+  IntegrationSearchRequest,
+} from '../../api/types';
 import {
   Button,
   EmptyState,
@@ -12,6 +16,14 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import AddFromLink from './AddFromLink';
+import {
+  FilterBar,
+  filterQuery,
+  rememberBacked,
+  rememberedBacked,
+  SearchResults,
+  type Filters,
+} from './SearchResults';
 import {
   attentionOrder,
   categories,
@@ -88,7 +100,14 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   const [retry, setRetry] = useState(0);
   const [look, setLook] = useState(0); // Only the catalog waits on "Preparing…".
   const [everything, setEverything] = useState(false);
+  const [filters, setFilters] = useState<Filters>(() => ({
+    kind,
+    backed: rememberedBacked(),
+    runs: 'anywhere',
+    noSignIn: false,
+  }));
   const headingId = useId();
+  const searching = Boolean(query);
   const [one, many, yours] = NOUN[kind];
   useEffect(() => {
     const at = window.location.href;
@@ -121,6 +140,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
     return () => abort.abort();
   }, [controller, kind, retry]);
   const preparing = page?.sources.some((source) => source.status === 'pending');
+  useEffect(() => setFilters((current) => ({ ...current, kind })), [kind]);
   useEffect(() => {
     const abort = new AbortController();
     setOnline(false);
@@ -128,7 +148,8 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
       .integrationItems(
         {
           scope: 'catalog',
-          kind,
+          // Filters narrow a search; browsing shows everything of the page's own kind.
+          ...(query ? filterQuery(filters) : { kind }),
           query,
           ...(everything ? { all: 'true' as const } : {}),
         },
@@ -143,7 +164,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           !abort.signal.aborted && setError(clientError(cause).message),
       );
     return () => abort.abort();
-  }, [controller, kind, query, retry, look, everything]);
+  }, [controller, kind, query, retry, look, everything, filters]);
   useEffect(() => setEverything(false), [query]);
   useEffect(() => {
     if (!preparing) return;
@@ -157,10 +178,19 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
       setPage(
         await controller.searchIntegrationItems({
           query,
-          kind,
+          kind: filters.kind,
           refresh: true,
           limit: 50,
           include_incompatible: everything,
+          ...(filters.backed
+            ? {
+                labels: ['official', 'reviewed', 'built_in'] as NonNullable<
+                  IntegrationSearchRequest['labels']
+                >,
+              }
+            : {}),
+          runs: filters.runs,
+          no_sign_in: filters.noSignIn,
         }),
       );
       setOnline(true);
@@ -176,7 +206,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
     try {
       const next = await controller.integrationItems({
         scope: 'catalog',
-        kind,
+        ...(query ? filterQuery(filters) : { kind }),
         query,
         cursor: page.next_cursor,
         ...(everything ? { all: 'true' as const } : {}),
@@ -226,6 +256,11 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   const onlyYours =
     Boolean(page) && !rest.length && !featured.length && mine.length > 0;
   const about = ABOUT[kind];
+  const catalog = useAppCatalog();
+  const changeFilters = (next: Filters) => {
+    if (next.backed !== filters.backed) rememberBacked(next.backed);
+    setFilters(next);
+  };
   const actions = (
     <div className="button-row">
       {query && (
@@ -285,6 +320,14 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           <Cards groups={mine} />
         </section>
       )}
+      {searching && (
+        <FilterBar
+          filters={filters}
+          pageKind={kind}
+          total={page ? page.total : null}
+          onChange={changeFilters}
+        />
+      )}
       {kind === 'app' && !query && (
         <div className="apps-categories" role="group" aria-label="Categories">
           {categories.map(([id, label]) => (
@@ -310,30 +353,49 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           <Cards groups={single(featured)} revision={page?.revision} />
         </section>
       )}
-      {!onlyCommunity && !onlyYours && (
-        <section aria-labelledby={`${headingId}-all`} aria-busy={!page}>
-          <h3 id={`${headingId}-all`}>
-            {query
-              ? `Results for “${query}”${online ? ' · includes online catalogs' : ''}`
-              : `All ${many}`}
-          </h3>
-          {!page && !error && <Skeleton label={`Loading ${many}`} />}
-          {page && !rest.length && !featured.length && (
-            <EmptyState
-              title={
-                query ? `No ${many} match “${query}”` : `No ${many} here yet`
-              }
-              action={actions}
-            >
-              {query
-                ? `Try another word, search online catalogs, or add ${one} from a link.`
-                : `Add ${one} from a link or a file.`}
-            </EmptyState>
-          )}
-          <Cards groups={single(leading)} revision={page?.revision} />
-        </section>
+      {searching && page && shown.length > 0 && (
+        <SearchResults
+          page={page}
+          items={shown}
+          query={query}
+          summaries={(entry) =>
+            entry.kind !== 'skill' && entry.app
+              ? catalog.get(entry.app.id)?.summary
+              : undefined
+          }
+          busy={busy}
+          everything={everything}
+          online={online}
+          onMore={() => void more()}
+          onEverything={() => setEverything(true)}
+        />
       )}
-      {community.length > 0 && (
+      {(!searching || !page || !shown.length) &&
+        !onlyCommunity &&
+        !onlyYours && (
+          <section aria-labelledby={`${headingId}-all`} aria-busy={!page}>
+            <h3 id={`${headingId}-all`}>
+              {query
+                ? `Results for “${query}”${online ? ' · includes online catalogs' : ''}`
+                : `All ${many}`}
+            </h3>
+            {!page && !error && <Skeleton label={`Loading ${many}`} />}
+            {page && !rest.length && !featured.length && (
+              <EmptyState
+                title={
+                  query ? `No ${many} match “${query}”` : `No ${many} here yet`
+                }
+                action={actions}
+              >
+                {query
+                  ? `Try another word, search online catalogs, or add ${one} from a link.`
+                  : `Add ${one} from a link or a file.`}
+              </EmptyState>
+            )}
+            <Cards groups={single(leading)} revision={page?.revision} />
+          </section>
+        )}
+      {!searching && community.length > 0 && (
         <section aria-labelledby={`${headingId}-community`}>
           <h3 id={`${headingId}-community`}>
             {onlyCommunity ? 'From the community' : 'More from the community'}
@@ -341,23 +403,24 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           <Cards groups={single(community)} revision={page?.revision} />
         </section>
       )}
-      {(page?.next_cursor || (Boolean(page?.hidden) && !everything)) && (
-        <div className="button-row">
-          {page?.next_cursor && (
-            <Button disabled={busy} onClick={() => void more()}>
-              Show more
-            </Button>
-          )}
-          {Boolean(page?.hidden) && !everything && (
-            <Button
-              className="settings-link"
-              onClick={() => setEverything(true)}
-            >
-              Show all results
-            </Button>
-          )}
-        </div>
-      )}
+      {!searching &&
+        (page?.next_cursor || (Boolean(page?.hidden) && !everything)) && (
+          <div className="button-row">
+            {page?.next_cursor && (
+              <Button disabled={busy} onClick={() => void more()}>
+                Show more
+              </Button>
+            )}
+            {Boolean(page?.hidden) && !everything && (
+              <Button
+                className="settings-link"
+                onClick={() => setEverything(true)}
+              >
+                Show all results
+              </Button>
+            )}
+          </div>
+        )}
       <AddFromLink open={adding} kind={kind} onClose={() => setAdding(false)} />
     </div>
   );

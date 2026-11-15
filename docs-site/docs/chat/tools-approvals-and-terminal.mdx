@@ -27,12 +27,14 @@ When Row-Bot uses tools, the turn shows a tool step: what Row-Bot tried, what ca
 
 Approval cards appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP or plugin tools, or do something else that deserves review. The composer's **Approvals** control sets the level for the conversation.
 
+A new conversation, workflow or Developer workspace starts at the level you last chose for a conversation (in the app, with **Use Auto in this chat** on a card, or with `/approval` in a channel), and at **Auto** until you choose one. Hands-off is turned on in each conversation, so after it new ones start at **Auto**. A conversation another conversation starts takes that conversation's level, Auto at most. Conversations you already have keep their level.
+
 ### Approval Levels
 
 | Level | What happens to an action that needs approval |
 | --- | --- |
-| **Ask** (the default) | You approve each one on its card. |
-| **Auto** | A reviewer approves what clearly matches what you asked for in this conversation; anything else, and anything it isn't sure of, asks you. |
+| **Ask** | You approve each one on its card. |
+| **Auto** (the default) | A reviewer approves what clearly matches what you asked for in this conversation; anything else, and anything it isn't sure of, asks you. |
 | **Hands-off** | Every action runs without asking, and each one is recorded. |
 | **Block** | Anything that would change something is refused. |
 
@@ -41,6 +43,8 @@ Approval cards appear when an action can change local files, run commands, conta
 **Hands-off** skips every approval, including screen and camera captures, high-impact app actions and reading Row-Bot's own data when that setting is on, and workflows don't pause for approval. The first time you choose it, a dialog lists what it skips; after **Turn on** it doesn't ask again on this computer. While it's on, the Approvals control reads **Hands-off** in a warning colour, and Buddy says so while work runs. Each action that would have asked shows **Hands-off** in the tool steps. A conversation other people share (a Slack or Discord channel thread, or a group chat) runs on **Auto** at most, and Hands-off can only be turned on in the app, not with a channel command.
 
 No level changes these limits: blocked commands, **Block**, capabilities switched off in Settings (such as the data-folder setting, or an app turned off in the chat), plugin isolation, the Developer sandbox's checks and network setting, a read-only helper's refusals, and secrets never being shown. Conversations, profiles and workflows saved with the old **Auto** use the reviewed Auto; nothing moves to Hands-off unless you choose it.
+
+For the whole safety design in one place, and what is not a boundary, see [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds).
 
 An app's tools also follow the access you chose for it in [Settings › Apps](/docs/settings/apps): **Read only**, **Ask before changes** or **Full access**. Deleting, sending, paying, publishing, running code and unknown actions ask first whichever access you choose. An approval card for an app's action shows the app's logo and name above the question, with **Details**, **Deny** and **Approve**. Under **Auto**, these go to the reviewer, which is told the app's access says to ask. Turning an app on or off for a chat, or mentioning it, never skips an approval; see [Apps in a chat](/docs/chat/#apps-in-a-chat).
 
@@ -52,7 +56,8 @@ An app's tools also follow the access you chose for it in [Settings › Apps](/d
 - in the sidebar's attention indicator ("1 approval is waiting"), which opens the list;
 - in Overview's **Needs you** card;
 - in Buddy, including the desktop overlay;
-- in the channel a workflow or channel-started task came from, when that channel supports approvals.
+- in the channel a workflow or channel-started task came from, when that channel supports approvals;
+- on a phone that turned on **Notifications on this device** in Settings › Devices, as a notice such as "Approval needed: Send email to Sam?" that opens the conversation (see [Notifications On A Phone](/docs/privacy-safety#notifications-on-a-phone)).
 
 A floating notice also says when a new one arrives. An answer in one place resolves it everywhere. When a delegated agent needs approval, its parent conversation shows it too. The card may include a short reason written by the model, but Row-Bot's approval policy still decides whether the action is blocked, allowed, or waiting for you.
 
@@ -70,6 +75,10 @@ An approval card offers **Details**, **Deny** and **Approve** (⌘/Ctrl+Enter), 
 
 - **Allow in this chat**: approves this, and later actions of the same kind in this conversation, without asking again (commands count by what they do, so allowing `npm test` doesn't allow `git push`). It ends when the conversation is deleted or Row-Bot restarts. Sending, posting, sharing, deleting, paying, pushing or opening a pull request, reading Row-Bot's private data, high-risk app actions and anything only you can approve always ask.
 - **Use Auto in this chat** (under **Ask**): approves this and switches the chat to reviewed **Auto**.
+
+### Settings Row-Bot Changes
+
+A setting Row-Bot would change, such as the Dream Cycle hours or turning on a tool, asks on a card that shows what it is now and what it becomes, with **Show in Settings**. Under **Auto**, turning on Shell, file tools, Browser, Computer use or MCP apps always asks you. After the change, its card offers **Undo**. See [Ask Row-Bot About Row-Bot](/docs/chat/about-row-bot).
 
 ### Files Outside The Workspace
 
@@ -111,6 +120,7 @@ While a turn uses the browser, the chat shows **Using the browser · site** with
 - **The page fits the pane**: sites lay out for the pane's size, docked, full screen or popped out, so they read as they would in a window that size. With the pane closed, the page is an ordinary desktop window.
 - **One line says who's driving**: what Row-Bot is doing now ("Row-Bot: Clicking "Next"") with **Take control** and **Stop**, or **You have control** with **Give back**.
 - **Click, type and scroll in the page yourself.** Doing so takes control; Row-Bot waits until you give it back.
+- **Paste** with Ctrl+V (⌘V on a Mac) after clicking a field, or with **⋯ › Paste into the page**. The page gets it as its own paste, so a sign-in code split into boxes fills them all.
 - **Signing in is yours.** Row-Bot never types a password, one-time code or card number. When a page asks for one, the pane says **Sign in here** and Row-Bot asks you in the chat. Sign-ins last across restarts, so it's usually once per site.
 - **It works from any signed-in device**, and stops streaming whenever the pane is hidden.
 - **If the browser stops**, the pane says "Row-Bot's browser stopped. Restart it?" with **Restart**. Your sign-ins stay.
@@ -147,7 +157,7 @@ Ask Row-Bot to record what it does in its browser and it asks first, then record
 - **While it records**, the conversation shows **Recording · 0:42** with **Stop**, and Buddy shows **Recording the browser** (or **the screen**).
 - **It stops** when Row-Bot or you stop it, at its time limit (5 minutes unless asked otherwise; at most an hour), before the video gets too large for the chat (200 MB), when its conversation is deleted, and when Row-Bot quits. Stopping needs no approval.
 - **The video** (MP4) then shows in the conversation with a player, and in the conversation's files.
-- **Made to be watched**: browser recordings run at 30 frames a second. While one records, Row-Bot's clicks, typing and scrolling go at a viewer's pace, and a drawn pointer glides to each control and rings where it clicks.
+- **Made to be watched**: browser recordings are 1920×1080 at 30 frames a second, sharp enough to zoom in on. While one records, the page keeps that 16:9 desktop size whatever size the Browser pane is (a phone or tablet size Row-Bot chose stays that shape), so the video fills its frame. While one records, Row-Bot's clicks, typing and scrolling go at a viewer's pace, and a drawn pointer glides to each control and rings where it clicks.
 - **Beats**: as it works, Row-Bot marks moments as **live** (worth watching as it happens), **work** (a wait or busy stretch) or **cut** (leave it out). Ask for a video of the recording and Row-Bot makes one from its beats: live stretches as they happened, work sped up 4× with its badge, cuts left out. Edit it in the Video panel like any other.
 - **Hidden in browser recordings**: pages with a password, one-time code or card field, and anything shown while you've taken over the browser, record as a blank frame.
 - Recording needs Row-Bot's video support, which comes with the full install; Row-Bot says so if it's missing.
@@ -203,7 +213,7 @@ If the conversation's model can't see images, Row-Bot says so and gathers nothin
 
 Ask Row-Bot to send you a file, for example "send the report to my phone" or "send it to me on Telegram". It sends files you already have: files in the conversation, its recordings and video edits, and files in the workspace (the conversation's code folder when it has one, otherwise the workspace folder). It never sends anything from elsewhere on the computer or from Row-Bot's own data folder. Up to 10 files go in one reply.
 
-- **To your devices.** The files show in the conversation as a card, **Sent to your devices**, with **Download** for each file, on every phone or computer signed in to Row-Bot (see [Phone And Native Desktop](/docs/mobile-native)). Each open Row-Bot window also shows **Row-Bot sent you report.pdf** with **Open**. Downloads need that device's sign-in and end after 7 days, when Row-Bot removes its copy; each file can be up to 500 MB. Sending to your own devices never asks, at any approval level. Row-Bot has no push notifications: a device with Row-Bot closed finds the file in the conversation the next time it opens it. The desktop app saves a download into the workspace's **Exports** folder, with **Show in folder**.
+- **To your devices.** The files show in the conversation as a card, **Sent to your devices**, with **Download** for each file, on every phone or computer signed in to Row-Bot (see [Phone And Native Desktop](/docs/mobile-native)). Each open Row-Bot window also shows **Row-Bot sent you report.pdf** with **Open**. Downloads need that device's sign-in and end after 7 days, when Row-Bot removes its copy; each file can be up to 500 MB. Sending to your own devices never asks, at any approval level. Sending a file doesn't send a phone notification: a device with Row-Bot closed finds the file in the conversation the next time it opens it. The desktop app saves a download into the workspace's **Exports** folder, with **Show in folder**.
 - **To a chat app.** Telegram, Discord, Slack or WhatsApp, once it's set up in [Channels](/docs/integrations/channels). The files go to your own chat there, or, when the conversation came from that app, to that same chat; Row-Bot can't send them to any other chat. A file leaving Row-Bot asks like sending a message: **Ask** asks, **Auto**'s reviewer approves it only when you clearly asked for it, **Hands-off** allows it, and **Block** refuses. A conversation other people share (a Slack or Discord channel thread, a group chat) never sends on Hands-off. Each app has a size limit: Telegram 50 MB, Discord 10 MB, WhatsApp 16 MB and Slack 100 MB through Row-Bot.
 - **When a file can't go**, the card says why in plain words (too big for the app, the app isn't connected, or it can't take files) and offers **Send to your devices instead**. SMS can't send files.
 

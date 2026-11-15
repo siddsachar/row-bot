@@ -193,7 +193,7 @@ def vision_model_compatibility(model: str | None) -> dict[str, Any]:
         return result
     try:
         from row_bot.providers.capabilities import snapshot_supports_surface
-        from row_bot.providers.selection import parse_model_ref, model_ref
+        from row_bot.providers.selection import parse_model_ref
 
         parsed = parse_model_ref(raw)
         if parsed:
@@ -246,31 +246,6 @@ def vision_model_compatibility(model: str | None) -> dict[str, Any]:
             except Exception:
                 logger.debug("Could not inspect provider Vision model metadata", exc_info=True)
 
-            try:
-                from row_bot.providers.config import load_provider_config
-
-                ref = model_ref(provider_id, model_id)
-                for choice in load_provider_config().get("quick_choices", []):
-                    if not isinstance(choice, dict) or choice.get("id") != ref:
-                        continue
-                    inactive = choice.get("inactive_surfaces")
-                    if isinstance(inactive, dict) and inactive.get("vision"):
-                        result.update({
-                            "usable": False,
-                            "explicit": True,
-                            "reason": str(inactive.get("vision") or "model is not compatible with vision"),
-                        })
-                        return result
-                    snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
-                    if snapshot and not snapshot_supports_surface(snapshot, "vision"):
-                        result.update({
-                            "usable": False,
-                            "explicit": True,
-                            "reason": "capability metadata says this model is not compatible with vision",
-                        })
-                    return result
-            except Exception:
-                logger.debug("Could not inspect Vision quick choice metadata", exc_info=True)
     except Exception:
         logger.debug("Vision compatibility check failed", exc_info=True)
     return result
@@ -461,6 +436,31 @@ def capture_screenshot() -> Optional[bytes]:
 # VisionService
 # ═════════════════════════════════════════════════════════════════════════════
 
+
+def _backup_look(content: list[dict[str, Any]], model: str, exc: BaseException) -> str | None:
+    """The backup model's look when the vision model can't answer (its limit, an outage), as a chat's reply
+    would switch (R10: a video's checks were skipped when the Claude plan's limit was reached); None when
+    there's no backup, it's the same model, or it can't answer either."""
+    from langchain_core.messages import HumanMessage
+
+    from row_bot.models import get_llm_for
+    from row_bot.providers import backup
+
+    why, ref = backup.reason(exc), backup.backup_model()
+    if not why or not ref or ref == model:
+        return None
+    try:
+        answer = getattr(get_llm_for(ref).invoke([HumanMessage(content=content)]), "content", "")
+    except Exception as error:
+        logger.info("The backup model couldn't look either: %s", error)
+        return None
+    if isinstance(answer, list):
+        answer = "\n".join(item if isinstance(item, str) else str(item.get("text") or "")
+                           for item in answer if isinstance(item, (str, dict)))
+    if not str(answer or "").strip():
+        return None
+    return f"{backup.note(backup.model_name(model), backup.model_name(ref), why)}\n{answer}"
+
 class VisionService:
     """Manages vision model settings and provides image analysis."""
 
@@ -535,7 +535,7 @@ class VisionService:
         tool can say so before it gathers any pictures.
         """
         if not self._enabled:
-            return "Vision is disabled. Enable it in Settings → Models."
+            return "Vision is disabled. Enable it in Settings › Models."
         model = self.effective_model(chat_model)
         if not model:
             return "No model is chosen yet, so Row-Bot can't look at images. Choose a model, then try again."
@@ -549,7 +549,7 @@ class VisionService:
             reason = str(compatibility.get("reason") or "not marked as image-capable")
             return (
                 "The selected Vision model is no longer marked as image-capable. "
-                f"Choose a Vision-capable model in Settings -> Models. ({reason})"
+                f"Choose a Vision-capable model in Settings › Models. ({reason})"
             )
         return ""
 
@@ -662,7 +662,8 @@ class VisionService:
             return str(answer or "")
         except Exception as exc:
             logger.error("Vision provider model error for %s: %s", label, exc)
-            return f"Vision analysis failed for {label}: {exc}"
+            answered = _backup_look(content, model, exc)
+            return answered if answered is not None else f"Vision analysis failed for {label}: {exc}"
 
     def _analyze_ollama_local(self, b64: str | list[str], question: str, model: str | None = None) -> str:
         """Send an image (or several, in order) to a local Ollama vision model."""

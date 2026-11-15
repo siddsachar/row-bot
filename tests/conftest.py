@@ -5,6 +5,7 @@ import errno
 import importlib
 import io
 import ipaddress
+import itertools
 import json
 import os
 import pathlib
@@ -251,6 +252,19 @@ def _no_outbound_network(request: pytest.FixtureRequest):
         pytest.fail("A deterministic test tried to reach the network: " + "; ".join(attempts), pytrace=False)
 
 
+def _refuse_catalogue_download() -> bytes:
+    raise RuntimeError("deterministic tests don't fetch models.dev")
+
+
+@pytest.fixture(autouse=True)
+def _no_live_model_catalogue(monkeypatch: pytest.MonkeyPatch):
+    """A model refresh in a test reads the bundled catalogue; the catalogue's own tests fake its download."""
+    from row_bot.providers import capability_catalog
+
+    monkeypatch.setattr(capability_catalog, "_download", _refuse_catalogue_download)
+    monkeypatch.setattr(capability_catalog, "_loaded", None)
+
+
 def shard_files(files: set[str], shard: str) -> set[str]:
     """The files one shard runs for ROW_BOT_TEST_SHARD=k/N.
 
@@ -363,6 +377,19 @@ def _reset_test_data_env_between_tests():
     _set_default_test_data_env()
     yield
     _set_default_test_data_env()
+
+
+_TEST_WORKSPACES = itertools.count(1)
+
+
+@pytest.fixture(autouse=True)
+def _test_workspace(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory):
+    # The default workspace is a folder of the test's own (not created until something uses it), never the
+    # person's ~/Documents/Row-Bot: the shell and the file tools start there and create it. A test that needs
+    # another one sets ROW_BOT_WORKSPACE itself, or removes it to get the home folder's default.
+    folder = tmp_path_factory.getbasetemp() / "workspaces" / f"workspace-{next(_TEST_WORKSPACES)}"
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(folder))
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -487,6 +514,8 @@ def _small_registry_snapshot(_registry_fixture_snapshot: Path, monkeypatch: pyte
     # The shipped Registry mirror holds tens of thousands of records. Deterministic tests
     # index a one-record fixture instead; a test of the shipped snapshot sets SHIPPED itself.
     monkeypatch.setattr("row_bot.mcp_client.registry_snapshot.SHIPPED", _registry_fixture_snapshot)
+    # And no shipped quality signals: a test that ranks with signals ships its own (tests/helpers/registry.py).
+    monkeypatch.setattr("row_bot.mcp_client.registry_signals.SHIPPED", _registry_fixture_snapshot.with_name("no-signals.json.xz"))
 
 
 @pytest.fixture

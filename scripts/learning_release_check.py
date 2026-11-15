@@ -1,6 +1,6 @@
 """Row-Bot Learning's release check on seeded people (S1, PLAN.md O92).
 
-    uv run python scripts/learning_release_check.py --people all --days 30 --tiers 8gb \\
+    uv run python scripts/learning_release_check.py --people all --days 30 --tiers 16gb \\
         --out <folder> --scratch <folder> --eval-profile <folder> --runtimes-from <folder>
     uv run python scripts/learning_release_check.py --plan --out <folder> --scratch <folder>
 

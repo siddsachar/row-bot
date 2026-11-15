@@ -1,7 +1,7 @@
 """Files sent to the person's devices (F7): every one of the owner's signed-in devices sees the
-delivery and downloads it with its session; without one, or once the copy expired, nothing is
-served. The desktop window saves into Exports instead; a send that didn't go to a chat app can be
-sent to the devices instead by the person's click.
+delivery and saves it with its session, the one way every download saves (5.3.3); without one, or
+once the copy expired, nothing is served. A send that didn't go to a chat app can be sent to the
+devices instead by the person's click.
 """
 
 # ruff: noqa: F401, F811 -- imported pytest fixtures are requested by name.
@@ -54,35 +54,46 @@ def test_a_signed_in_device_lists_and_downloads_what_was_sent(service, sent):
         assert (view["target"], view["status"], view["files"][0]["name"], view["files"][0]["downloadable"]) == (
             "devices", "sent", "report.pdf", True)
 
-        download = client.get(f"/api/v1/deliveries/{devices}/files/0", headers=headers)
+        download = _saved(client, headers, devices, 0)
         assert download.status_code == 200 and download.content == PDF
-        assert download.headers["content-type"] == "application/octet-stream"
         assert download.headers["content-disposition"] == "attachment; filename*=UTF-8''report.pdf"
         assert download.headers["x-content-type-options"] == "nosniff"
 
-        for missing in (f"/api/v1/deliveries/{devices}/files/1", f"/api/v1/deliveries/{devices}/files/x",
-                        "/api/v1/deliveries/send-00000000/files/0", "/api/v1/deliveries/not-a-delivery",
-                        f"/api/v1/deliveries/{sent['failed'].delivery_id}/files/0"):
-            refused = client.get(missing, headers=headers)
-            assert refused.status_code == 404 and refused.json()["code"] == "sent_file_unavailable", missing
+        for delivery, index in ((devices, 1), ("send-00000000", 0), (sent["failed"].delivery_id, 0)):
+            refused = _offer(client, headers, delivery, index)
+            assert refused.status_code == 404 and refused.json()["code"] == "sent_file_unavailable", delivery
+        assert client.get("/api/v1/deliveries/not-a-delivery", headers=headers).status_code == 404
+
+
+def _offer(client, headers, delivery: str, index: int):
+    return client.post("/api/v1/saves", headers=headers,
+                       json={"source": {"kind": "delivery", "delivery_id": delivery, "index": index}})
+
+
+def _saved(client, headers, delivery: str, index: int):
+    offer = _offer(client, headers, delivery, index)
+    assert offer.status_code == 200, offer.text
+    return client.get(f"/api/v1/attachments/{offer.json()['reference']}", headers=headers)
 
 
 def test_nothing_is_served_without_the_person_s_session(service, sent):
-    url = f"/api/v1/deliveries/{sent['devices'].delivery_id}/files/0"
+    delivery = sent["devices"].delivery_id
     with _client(service) as client:
         _, headers = bootstrap(client)
+        reference = _offer(client, headers, delivery, 0).json()["reference"]
         for partial in ({}, {"Origin": headers["Origin"]}, {**headers, "X-CSRF-Token": "wrong"},
                         {**headers, "X-Client-Session": "00000000-0000-4000-8000-000000000000"}):
-            refused = client.get(url, headers=partial)
+            refused = client.get(f"/api/v1/attachments/{reference}", headers=partial)
             assert refused.status_code in {401, 403}, (partial, refused.status_code)
             assert refused.content != PDF
 
     remote, active = _remote_client(service)
     with remote as client:
         _, headers = bootstrap(client)
-        assert client.get(url, headers=headers).content == PDF  # Another of the owner's devices.
+        assert _saved(client, headers, delivery, 0).content == PDF  # Another of the owner's devices.
+        reference = _offer(client, headers, delivery, 0).json()["reference"]
         active["value"] = False  # That device is signed out.
-        signed_out = client.get(url, headers=headers)
+        signed_out = client.get(f"/api/v1/attachments/{reference}", headers=headers)
         assert signed_out.status_code == 401 and signed_out.content != PDF
 
 
@@ -93,25 +104,21 @@ def test_the_link_expires_with_its_copy(service, sent, monkeypatch):
     monkeypatch.setattr(sent["deliveries"], "_now", lambda: delivery.created_at + DEVICE_KEEP_SECONDS + 1)
     with _client(service) as client:
         _, headers = bootstrap(client)
-        expired = client.get(f"/api/v1/deliveries/{delivery.delivery_id}/files/0", headers=headers)
+        expired = _offer(client, headers, delivery.delivery_id, 0)
         assert expired.status_code == 410 and expired.json()["code"] == "sent_file_expired"
         view = client.get(f"/api/v1/deliveries/{delivery.delivery_id}", headers=headers).json()
         assert view["status"] == "expired" and not view["files"][0]["downloadable"]
 
 
-def test_the_desktop_window_saves_into_exports_and_other_devices_download_instead(service, sent):
-    url = f"/api/v1/deliveries/{sent['devices'].delivery_id}/files/0/save"
+def test_the_desktop_window_saves_into_exports_while_it_reconnects(service, sent):
+    delivery = sent["devices"].delivery_id
     with _client(service) as client:
         _, headers = bootstrap(client)
-        saved = client.post(url, headers=headers, json={})
+        reference = _offer(client, headers, delivery, 0).json()["reference"]
+        saved = client.post(f"/api/v1/attachments/{reference}/save", headers=headers, json={})
         assert saved.status_code == 200, saved.text
         assert saved.json() == {"file_name": "report.pdf", "folder": "Row-Bot › Exports"}
         assert (sent["exports"] / "Exports" / "report.pdf").read_bytes() == PDF
-    remote, _active = _remote_client(service)
-    with remote as client:
-        _, headers = bootstrap(client)
-        elsewhere = client.post(url, headers=headers, json={})
-        assert elsewhere.status_code == 409 and elsewhere.json()["code"] == "desktop_only"
 
 
 def test_a_send_that_didn_t_go_is_sent_to_the_devices_by_the_person(service, sent):

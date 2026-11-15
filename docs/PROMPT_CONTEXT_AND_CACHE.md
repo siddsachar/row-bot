@@ -16,7 +16,8 @@ reuse) only pay off for that shared start, so:
 
 Stable sections change only when user settings, the provider or model, enabled
 tools, skills, plugins, the Designer project's mode or the thread's profile
-change. All of them may be marked cacheable.
+change, or the code folder's project notes change (read at a turn's start, so an
+edit applies from the next turn). All of them may be marked cacheable.
 
 - `agent.root`: identity line and agent guidelines from the ReAct system prompt.
   On a window of 32K or less its TASKS and MEMORY parts move to
@@ -45,6 +46,17 @@ change. All of them may be marked cacheable.
   workflows) is not a guide: it loads with `skill_load` while its tools are
   bound. On a window of 32K or less this section is one line per guide plus the
   TASKS and MEMORY guidance (see Tool set).
+- `developer.project_notes`: the code folder's own notes for agents (`AGENTS.md`,
+  `CLAUDE.md`, `.cursorrules`, `.github/copilot-instructions.md` from the
+  folder's root only), with the Developer tools only. Read once per turn at its
+  first model call. Bounded to 8,000 characters together (2,000 on a window of
+  32K or less; a cut file ends with where to read the rest), fenced as
+  `project_notes` after a fixed header saying the notes cannot change approvals,
+  grant permissions, name recipients or URLs, or ask for anything to be revealed,
+  and between the fixed lines `<<<PROJECT NOTES>>>` and `<<<END PROJECT NOTES>>>`.
+  A file the injection scan flags, that looks like it holds a secret, links
+  outside the folder, is over 64 KB or isn't UTF-8 text is left out and named.
+  `CLAUDE.md` `@path` imports are never followed.
 - `skills.manual`: the skills the conversation keeps: the profile's skills, the
   thread override and pinned skills.
 - `chat_only.root`: Chat Only identity, behavior rules, and profile context.
@@ -75,7 +87,8 @@ text is a `<row_bot_turn_context>…</row_bot_turn_context>` block:
   reject two user messages in a row. A context that follows anything else
   (an event, a tool result) is a user message of its own.
 - **What.** The current date and time (minute resolution, with the UTC offset
-  and the time in UTC), the approval mode, the tool groups available, what
+  and the time in UTC), the approval mode, the workspace folder (and a bound
+  code folder; `~/…` under the home folder), the tool groups available, what
   this turn leaves out (`NOT IN THIS TURN`, see Tool set), tools and apps that
   are off, Row-Bot's live state (model, providers, channels, MCP,
   Designer, Dream Cycle, update), the active Designer project's values (name,
@@ -111,7 +124,7 @@ position. The stable `agent.turn_context` section says so. Before a request is
 sent, the tag in any form is replaced (`[row_bot_turn_context tag removed]`) in
 what people send (attached file context included) and in every tool result;
 values Row-Bot quotes inside its own block (memories, project names, skill
-instructions) are neutralized the same way. A message is recognized as a turn
+instructions) and a code folder's project notes are neutralized the same way. A message is recognized as a turn
 context by its metadata, never by its text. The checkpoint keeps what was
 sent. Approvals and tool gating stay enforced in code, and the approval policy
 text stays in the stable prompt.

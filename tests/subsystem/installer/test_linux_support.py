@@ -125,7 +125,7 @@ def test_app_payload_manifest_declares_required_runtime_payload():
     assert "src/row_bot" in payload_dirs
     for package in REQUIRED_RUNTIME_PACKAGES:
         assert Path("src/row_bot", package).is_dir(), f"runtime package missing: {package}"
-    assert {"static", "sounds", "tool_guides", "bundled_skills"} <= asset_dirs
+    assert {"static", "sounds", "tool_guides", "bundled_skills", "docs-site/docs"} <= asset_dirs
     assert "pyproject.toml" in manifest["root_files"]
     assert "uv.lock" in manifest["root_files"]
     assert "requirements.txt" in manifest["root_files"]
@@ -149,7 +149,8 @@ def test_the_windows_payload_stage_holds_the_manifest_without_tests_or_caches(tm
         "src/row_bot/static/client-v2/index.html": "", "src/row_bot/static/logo.svg": "",
         "src/row_bot/ui.test.js": "", "src/row_bot/old.py.bak2": "", "static/app.js": "",
         "static/__pycache__/x.pyc": "", "sounds/ding.wav": "", "bundled_skills/a/SKILL.md": "",
-        "tool_guides/b.md": "",
+        "tool_guides/b.md": "", "docs-site/docs/settings/system.mdx": "# System",
+        "docs-site/node_modules/x.js": "", "docs-site/docusaurus.config.ts": "",
     }
     for relative, content in files.items():
         (project / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -162,6 +163,8 @@ def test_the_windows_payload_stage_holds_the_manifest_without_tests_or_caches(tm
         "app.py", "launcher.py", "pyproject.toml", "uv.lock", "requirements.txt", "row-bot.ico",
         "scripts/verify_runtime_dependencies.py", "src/row_bot/__init__.py", "src/row_bot/tools/x.py",
         "src/row_bot/static/logo.svg", "static/app.js", "sounds/ding.wav", "bundled_skills/a/SKILL.md", "tool_guides/b.md",
+        # Row-Bot's own guides travel with it; the rest of the docs site doesn't.
+        "docs-site/docs/settings/system.mdx",
     }
     with pytest.raises(FileExistsError):
         app_payload_manifest.stage_app_payload(project, stage)
@@ -378,3 +381,31 @@ def test_release_manifest_script_uses_brand_contract():
 
 def test_v4_is_newer_than_latest_v3_for_update_checks():
     assert updater.compare_versions("3.23.1", "4.0.0") > 0
+
+
+@pytest.mark.parametrize(("message", "passes"), [
+    ("Error initializing PortAudio: Unanticipated host error [PaErrorCode -9999]: "
+     "'PulseAudio_Initialize: Can't connect to server'", True),
+    ("PortAudio library not found", False),
+])
+def test_the_dependency_check_passes_sounddevice_with_no_sound_server_but_not_without_portaudio(
+        monkeypatch, message, passes):
+    """A Linux machine with no PulseAudio (a server, a CI runner) has sounddevice installed; one
+    without the PortAudio library doesn't."""
+    from scripts import verify_runtime_dependencies as check
+
+    class PortAudioError(Exception):
+        pass
+
+    def load(module):
+        raise PortAudioError(message) if message.startswith("Error") else OSError(message)
+
+    monkeypatch.setattr(check.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(check.importlib, "import_module", load)
+    if passes:
+        check._verify_module("sounddevice")
+        with pytest.raises(PortAudioError):
+            check._verify_module("other_module")  # Only sounddevice is excused.
+    else:
+        with pytest.raises(OSError):
+            check._verify_module("sounddevice")

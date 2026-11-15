@@ -50,6 +50,19 @@ async function everywhere(
   await page.setViewportSize(DESKTOP);
 }
 
+/**
+ * Row-Bot using the browser opens its pane beside the chat (5.3.1); these
+ * views are of the chat itself, so a pane that opened is closed first.
+ */
+async function closeBrowserPane(page: Page) {
+  const close = page.getByRole('button', {
+    name: 'Close all panels',
+    exact: true,
+  });
+  if (await close.isVisible()) await close.click();
+  await expect(page.getByRole('region', { name: 'Browser' })).toHaveCount(0);
+}
+
 /** Buddy's status line, or "no-buddy" while Buddy hasn't loaded in the fixture. */
 async function buddyStatus(page: Page) {
   const status = page
@@ -81,6 +94,9 @@ test('a local address asks once for this chat, then opens and shows a screenshot
   });
   await expect(card).toContainText(question);
   await expect(card).toContainText('only this address, only in this chat');
+  // The turn is using the browser: its pane opened beside the chat by itself.
+  await expect(page.getByRole('region', { name: 'Browser' })).toBeVisible();
+  await closeBrowserPane(page);
   await everywhere(page, info, 'local-address-approval', () =>
     card.scrollIntoViewIfNeeded(),
   );
@@ -151,6 +167,7 @@ test('a page at phone size, as a screenshot in the chat', async ({
     .getByRole('img', { name: 'Page screenshot' })
     .last();
   await expect(picture).toBeVisible();
+  await closeBrowserPane(page);
   await everywhere(page, info, 'viewport-phone-screenshot', () =>
     picture.scrollIntoViewIfNeeded(),
   );
@@ -174,6 +191,7 @@ test('a recording shows live with Stop, then as a video in the chat', async ({
   await expect
     .poll(() => buddyStatus(page), { timeout: 20_000 })
     .toMatch(/^(no-buddy|Recording)/);
+  await closeBrowserPane(page);
   await everywhere(page, info, 'recording-in-progress', () =>
     live.scrollIntoViewIfNeeded(),
   );

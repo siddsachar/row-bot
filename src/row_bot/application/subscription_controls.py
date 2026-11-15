@@ -62,6 +62,22 @@ def _connection_changed(provider_id: str, *, connected: bool = True) -> None:
     from row_bot.providers.model_catalog_cache import provider_connection_changed
     invalidate_provider_runtime()
     provider_connection_changed(provider_id, connected=connected)
+    if provider_id == "codex" and connected:
+        _default_image_model_to_chatgpt()
+
+
+def _default_image_model_to_chatgpt() -> None:
+    """A ChatGPT plan makes images too: with no image model chosen yet, it becomes ChatGPT's, switched on."""
+    from row_bot.providers.codex_media import CODEX_IMAGE_MODEL, codex_images_plan_note
+    from row_bot.tools import registry as tool_registry
+    try:
+        if tool_registry.get_tool_config("image_gen", "model", None) or codex_images_plan_note():
+            return
+        tool_registry.set_tool_config("image_gen", "model", f"codex/{CODEX_IMAGE_MODEL}")
+        # "Make me a picture" then just works, with no "Turn on Image Generation?" first.
+        tool_registry.set_enabled("image_gen", True)
+    except Exception:
+        logger.warning("Could not default the image model to ChatGPT", exc_info=True)
 
 
 def _expiry(value: Any) -> str | None:
@@ -286,6 +302,25 @@ class SubscriptionFlows:
         if client is not None:
             client.close()
 
+    def _replace_waiting(self, provider_id: str, command_id: object) -> None:
+        """A new Start replaces an earlier sign-in that only waits for the person (the newest wins).
+
+        A page closed or reloaded mid-sign-in (a phone switching tabs to the provider's page, a
+        first run opened again) leaves its sign-in waiting for up to ten minutes, bound to a window
+        that is gone; starting again replaces it instead of reading "busy", as Claude's sign-in
+        does. Every signed-in window is the owner's. A sign-in whose check, exchange or save is
+        running is never touched: that Start still reads "busy".
+        """
+        with self._lock:
+            stale = [item for item in self._flows.values()
+                     if item.provider_id == provider_id
+                     and item.start_command != command_id and not item.active and not item.published
+                     and not item.cancel.is_set() and item.pending_tokens is None and item.state == "waiting"]
+        for item in stale:
+            self._cancel(item)
+            if item.thread is not None and item.thread is not threading.current_thread():
+                item.thread.join(2)
+
     def revoke_owner(self, owner_id: str) -> bool:
         with self._lock:
             retained = list(self._flows.values())
@@ -477,9 +512,13 @@ class SubscriptionFlows:
                     flow.client = self._client_factory(lambda: self._guard(flow, validate))
                     self._finish(flow, "check", None, proof, validate)
                 except SubscriptionError:
-                    if flow.state == "checking":
+                    # A code nobody approved in time ends this sign-in and frees the provider for a new
+                    # one (U6); cancelled or changed meanwhile, the page says so.
+                    if self._clock() >= flow.deadline:
+                        flow.state = "expired"
+                    elif flow.state == "checking":
                         flow.state = "waiting"
-                    return  # Expired, cancelled or changed meanwhile: the page says so.
+                    return
                 except Exception:
                     if flow.state != "checking":  # The exchange or save may have happened: never repeat it.
                         flow.state = "uncertain"
@@ -542,7 +581,16 @@ class SubscriptionFlows:
                         if flow.listening:
                             raise SubscriptionError("subscription_listener_active")
                     guard()
-                    authorization = module.authorization_from_xai_oauth_callback(flow.flow, value)
+                    from row_bot.providers.xai_oauth import XAIOAuthError
+                    try:
+                        authorization = module.authorization_from_xai_oauth_callback(flow.flow, value)
+                    except XAIOAuthError as exc:
+                        # Another device finishes by pasting (H5): an address that isn't this
+                        # sign-in's, or xAI's refusal, says so and nothing was exchanged.
+                        raise SubscriptionError(
+                            "subscription_denied" if exc.kind == "authorization_failed"
+                            else "subscription_callback_invalid"
+                        ) from None
                 else:
                     if flow.listening or flow.authorization is None:
                         flow.state = "waiting"
@@ -586,6 +634,7 @@ class SubscriptionFlows:
             from row_bot import secret_store
             if not secret_store.is_available():  # A locked keychain: say so before any sign-in begins (B370).
                 raise SubscriptionError("subscription_storage_unavailable")
+            self._replace_waiting(provider_id, command.get("command_id"))
             with self._lock:
                 if self._closed:
                     raise SubscriptionError("subscription_flow_unavailable")
@@ -739,7 +788,8 @@ class SubscriptionFlows:
             if isinstance(exc, SubscriptionError) and exc.code in {"subscription_cancelled", "subscription_storage_unavailable"} \
                     and flow is not None and not flow.published:
                 admissions.reject_command(owner_id, key, exc.code)
-            if isinstance(exc, SubscriptionError) and exc.code in {"invalid_command", "subscription_listener_active"} and flow is not None and flow.state == "waiting":
+            if isinstance(exc, SubscriptionError) and exc.code in {"invalid_command", "subscription_listener_active",
+                    "subscription_callback_invalid", "subscription_denied"} and flow is not None and flow.state == "waiting":
                 admissions.reject_command(owner_id, key, exc.code)
             if flow is not None and flow.state not in {"connected", "waiting"}:
                 flow.state = "uncertain"

@@ -32,10 +32,12 @@ export function draftOf(view: VideoProjectView): {
   scenes: VideoSceneWrite[];
   captions: boolean;
   brand: boolean;
+  voice: string;
 } {
   return {
     captions: view.captions,
     brand: view.brand,
+    voice: view.voice ?? '',
     scenes: view.scenes.map((scene) => ({
       scene_id: scene.scene_id,
       source: scene.source,
@@ -51,7 +53,12 @@ export function draftOf(view: VideoProjectView): {
 
 export function isDirty(
   view: VideoProjectView,
-  draft: { scenes: VideoSceneWrite[]; captions: boolean; brand: boolean },
+  draft: {
+    scenes: VideoSceneWrite[];
+    captions: boolean;
+    brand: boolean;
+    voice: string;
+  },
 ): boolean {
   return JSON.stringify(draftOf(view)) !== JSON.stringify(draft);
 }

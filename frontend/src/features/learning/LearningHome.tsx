@@ -55,6 +55,7 @@ import {
 import { MethodSheet, MethodSummary, MethodSwitched } from './HowRowBotLearns';
 import { QuickQuestion } from './QuickQuestion';
 import { StrongerModelNotice } from './StrongerModelNotice';
+import { HuggingFaceCard } from './HuggingFace';
 import { TrainingProgress } from './TrainingProgress';
 import {
   dayWords,
@@ -490,7 +491,9 @@ function PersonalModel({
   const training = snapshot.training;
   const downloaded =
     model.engine === 'installed' && model.starting_model_state === 'downloaded';
-  const download = downloadView(model);
+  // Training on Hugging Face needs no engine or starting model here (C1): no download is offered.
+  const download =
+    model.train_where === 'hugging_face' ? null : downloadView(model);
   // A run (or an engine with nothing to train yet) takes the place of the setup states.
   const showTraining =
     training.state !== 'none' ||
@@ -508,12 +511,7 @@ function PersonalModel({
       </EmptyState>
     );
   else if (model.train_where === 'hugging_face')
-    state = (
-      <EmptyState title="Training on Hugging Face" action={settings}>
-        Your personal model will train in your own Hugging Face account, priced
-        before each run. Nothing is uploaded until you agree to a run.
-      </EmptyState>
-    );
+    state = null; // the Hugging Face card below: guided start, sign-in, model, spending (C1)
   else if (hardware?.state === 'old_driver')
     state = (
       <EmptyState
@@ -549,12 +547,17 @@ function PersonalModel({
     );
   else if (hardware && hardware.state !== 'gpu')
     state = (
-      <EmptyState title="This computer can’t train a model" action={settings}>
+      <EmptyState
+        title="This computer can’t train a model"
+        action={hardware.hugging_face ? settings : undefined}
+      >
         {hardware.gpu
-          ? `${hardware.gpu.label} is too small: training needs about 8 GB. `
+          ? `${hardware.gpu.label} is too small: a personal model needs a graphics card with 16 GB to train here. `
+          : 'A personal model needs an NVIDIA graphics card. '}
+        {hardware.hugging_face
+          ? 'You can train one on Hugging Face instead (your own account, priced before each run) and run it here. '
           : ''}
-        You can train on Hugging Face instead (your account, priced before each
-        run).
+        Learning still improves Row-Bot with lessons and ways of working.
       </EmptyState>
     );
   else if (!download && !downloaded)
@@ -581,7 +584,12 @@ function PersonalModel({
   return (
     <div className="learning-section-list">
       {model.room && (
-        <CardRoomNotice io={io} room={model.room} model={starting.name} />
+        <CardRoomNotice
+          io={io}
+          room={model.room}
+          model={starting.name}
+          onOpenSettings={() => onOpenSettings('personal-model')}
+        />
       )}
       {model.stronger_model && !model.room && (
         <StrongerModelNotice io={io} model={model.stronger_model} />
@@ -597,6 +605,13 @@ function PersonalModel({
       <UsesSection io={io} model={model} mainName={mainName} />
       <VersionsSection io={io} model={model} onReview={onReview} />
       {state}
+      {model.train_where === 'hugging_face' && model.hugging_face && (
+        <HuggingFaceCard
+          io={io}
+          hugging={model.hugging_face}
+          running={training.state !== 'none'}
+        />
+      )}
       <dl className="learning-facts" aria-label="Personal model">
         {(downloaded || model.version) && (
           <div>
@@ -620,16 +635,21 @@ function PersonalModel({
             <dd>{versionFileWords(model.version)}</dd>
           </div>
         )}
-        <div>
-          <dt>Starting model</dt>
-          <dd>
-            {starting.name} · {starting.licence} · {startingModelFact(model)}
-          </dd>
-        </div>
-        <div>
-          <dt>Training engine</dt>
-          <dd>{engineFact(model)}</dd>
-        </div>
+        {model.train_where !== 'hugging_face' && (
+          <>
+            <div>
+              <dt>Starting model</dt>
+              <dd>
+                {starting.name} · {starting.licence} ·{' '}
+                {startingModelFact(model)}
+              </dd>
+            </div>
+            <div>
+              <dt>Training engine</dt>
+              <dd>{engineFact(model)}</dd>
+            </div>
+          </>
+        )}
         <div>
           <dt>Train during quiet hours</dt>
           <dd>{model.train_in_quiet_hours ? 'On' : 'Off'}</dd>

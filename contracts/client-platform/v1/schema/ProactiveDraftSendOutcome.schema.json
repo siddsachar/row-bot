@@ -1,0 +1,205 @@
+{
+  "$defs": {
+    "ProactiveDraftSendCard": {
+      "additionalProperties": false,
+      "description": "The approval card for sending a reply Row-Bot drafted: always shown, under every approval level.",
+      "properties": {
+        "account": {
+          "maxLength": 300,
+          "title": "Account",
+          "type": "string"
+        },
+        "action": {
+          "maxLength": 300,
+          "title": "Action",
+          "type": "string"
+        },
+        "asked_at": {
+          "maxLength": 40,
+          "title": "Asked At",
+          "type": "string"
+        },
+        "binding": {
+          "maxLength": 300,
+          "title": "Binding",
+          "type": "string"
+        },
+        "destination": {
+          "maxLength": 300,
+          "title": "Destination",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 300,
+          "title": "Reason",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 300,
+          "title": "Subject",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 20000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding",
+        "action",
+        "destination",
+        "account",
+        "subject",
+        "text",
+        "reason",
+        "asked_at"
+      ],
+      "title": "ProactiveDraftSendCard",
+      "type": "object"
+    },
+    "ProactiveDraftView": {
+      "additionalProperties": false,
+      "description": "Something Row-Bot prepared for a moment (a meeting brief, a drafted reply): saved, never sent.",
+      "properties": {
+        "app": {
+          "default": "",
+          "maxLength": 40,
+          "title": "App",
+          "type": "string"
+        },
+        "body": {
+          "maxLength": 20000,
+          "title": "Body",
+          "type": "string"
+        },
+        "created_at": {
+          "maxLength": 40,
+          "title": "Created At",
+          "type": "string"
+        },
+        "draft_id": {
+          "pattern": "^[0-9a-f]{16}$",
+          "title": "Draft Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "brief",
+            "reply"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "moment_id": {
+          "pattern": "^[0-9a-f]{16}$",
+          "title": "Moment Id",
+          "type": "string"
+        },
+        "reply_to": {
+          "default": "",
+          "maxLength": 320,
+          "title": "Reply To",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "send": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProactiveDraftSendCard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "send_blocked": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Send Blocked",
+          "type": "string"
+        },
+        "sent_at": {
+          "default": "",
+          "maxLength": 40,
+          "title": "Sent At",
+          "type": "string"
+        },
+        "subject": {
+          "default": "",
+          "maxLength": 300,
+          "title": "Subject",
+          "type": "string"
+        },
+        "thread": {
+          "default": "",
+          "maxLength": 300,
+          "title": "Thread",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "default": "",
+          "maxLength": 40,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "draft_id",
+        "moment_id",
+        "kind",
+        "title",
+        "body",
+        "created_at"
+      ],
+      "title": "ProactiveDraftView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "sent (after approval), denied (nothing sent), changed (the reply changed since the card: look again)\nor failed (the mail app couldn't send it).",
+  "properties": {
+    "draft": {
+      "$ref": "#/$defs/ProactiveDraftView"
+    },
+    "outcome": {
+      "enum": [
+        "sent",
+        "denied",
+        "changed",
+        "failed"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "words": {
+      "maxLength": 300,
+      "title": "Words",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "outcome",
+    "words",
+    "draft"
+  ],
+  "title": "ProactiveDraftSendOutcome",
+  "type": "object"
+}

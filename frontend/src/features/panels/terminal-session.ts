@@ -1,4 +1,4 @@
-import { Terminal, type ITheme } from '@xterm/xterm';
+import { Terminal, type ILinkProvider, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { clientError } from '../../api/errors';
@@ -10,6 +10,135 @@ type TerminalApi = Pick<
   ClientController,
   'terminalRead' | 'terminalInput' | 'terminalResize' | 'terminalDisconnect'
 >;
+
+/** What one read of a terminal's output brings. */
+export type TerminalOutput = {
+  cursor: number;
+  latest: number;
+  truncated: boolean;
+  frames: { data: string }[];
+  /** The program in the terminal has ended: nothing more comes. */
+  ended: boolean;
+};
+
+/**
+ * What a terminal session talks to: the desktop terminal (`nativeLink`), or
+ * Claude's own sign-in (`ClaudeSignInPanel`). The session never looks at
+ * what passes; it shows it.
+ */
+export type TerminalLink = {
+  open(
+    conversationId: string | null,
+    cols: number,
+    rows: number,
+  ): Promise<
+    | { status: 'ok'; lease: string }
+    | { status: 'failed'; error: string; recoverable: boolean }
+  >;
+  read(
+    lease: string,
+    cursor: number,
+    signal: AbortSignal,
+  ): Promise<TerminalOutput>;
+  input(lease: string, data: string): Promise<unknown>;
+  resize(lease: string, cols: number, rows: number): Promise<unknown>;
+  close(lease: string): Promise<unknown>;
+  /** A link the person clicked in the terminal (always a new tab). */
+  openLink(uri: string): void;
+  /** Plain-text https links are clickable too, across wrapped rows. */
+  textLinks?: boolean;
+};
+
+/** The desktop terminal: the person's own shell, through the desktop app. */
+function nativeLink(api: TerminalApi, platform: ClientPlatform): TerminalLink {
+  return {
+    open: async (conversationId) => {
+      const result = await platform.openTerminal(conversationId);
+      if (result.status === 'ok')
+        return { status: 'ok', lease: result.value.terminalId };
+      // The real reason, not "needs the desktop app" inside it (B238).
+      const reason = result.status === 'unavailable' ? result.reason : '';
+      return {
+        status: 'failed',
+        recoverable: reason !== 'terminal_requires_native',
+        error:
+          reason === 'terminal_requires_native'
+            ? 'The terminal needs the Row-Bot desktop app.'
+            : reason === 'native_reconnecting'
+              ? 'Desktop features are reconnecting. Try again in a moment.'
+              : 'Row-Bot couldn’t start the terminal. Try again.',
+      };
+    },
+    read: async (lease, cursor, signal) => {
+      const value = await api.terminalRead(lease, cursor, signal);
+      return { ...value, ended: value.status === 'stopped' };
+    },
+    input: (lease, data) => api.terminalInput(lease, data),
+    resize: (lease, cols, rows) => api.terminalResize(lease, cols, rows),
+    close: (lease) => api.terminalDisconnect(lease),
+    openLink: (uri) => void platform.openExternal(uri),
+  };
+}
+
+const URL_PATTERN = /https?:\/\/[^\s"'<>`]+/g;
+// Rows a link may run across (a long sign-in link on a phone-width terminal).
+const LINK_ROWS = 24;
+
+/**
+ * Plain-text https links, clickable even where the program wrapped them
+ * across rows itself: a row filled to the last column runs on into the next.
+ */
+function textLinkProvider(
+  terminal: Terminal,
+  open: (uri: string) => void,
+): ILinkProvider {
+  return {
+    provideLinks(lineNumber, callback) {
+      const buffer = terminal.buffer.active;
+      const text = (row: number) =>
+        buffer.getLine(row)?.translateToString(true) ?? '';
+      const runsOn = (row: number) => {
+        const next = buffer.getLine(row + 1);
+        return !!next && (next.isWrapped || text(row).length >= terminal.cols);
+      };
+      let first = lineNumber - 1;
+      while (
+        first > 0 &&
+        lineNumber - 1 - first < LINK_ROWS &&
+        runsOn(first - 1)
+      )
+        first -= 1;
+      let last = lineNumber - 1;
+      while (last - first < LINK_ROWS && runsOn(last)) last += 1;
+      const rows: string[] = [];
+      for (let row = first; row <= last; row += 1) rows.push(text(row));
+      const joined = rows.join('');
+      // Where a character of the joined text sits on screen (1-based).
+      const at = (offset: number) => {
+        let row = first;
+        for (const value of rows) {
+          if (offset < value.length) return { x: offset + 1, y: row + 1 };
+          offset -= value.length;
+          row += 1;
+        }
+        return { x: rows[rows.length - 1].length, y: last + 1 };
+      };
+      const links = [];
+      for (const match of joined.matchAll(URL_PATTERN)) {
+        const uri = match[0].replace(/[.,;:!?)\]}]+$/, '');
+        const start = at(match.index);
+        const end = at(match.index + uri.length - 1);
+        if (start.y > lineNumber || end.y < lineNumber) continue;
+        links.push({
+          range: { start, end },
+          text: uri,
+          activate: () => open(uri),
+        });
+      }
+      callback(links.length ? links : undefined);
+    },
+  };
+}
 
 export type TerminalState = {
   status: 'idle' | 'connecting' | 'open' | 'failed' | 'ended';
@@ -96,10 +225,7 @@ export class TerminalSession {
   private resizeTimer = 0;
   private focusPending = false;
 
-  constructor(
-    private readonly api: TerminalApi,
-    private readonly platform: ClientPlatform,
-  ) {
+  constructor(private readonly link: TerminalLink) {
     const reduceMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches;
@@ -117,10 +243,14 @@ export class TerminalSession {
       // Hyperlinks printed by a program open through the reviewed
       // external-link path, never a new window of this page.
       linkHandler: {
-        activate: (_event, uri) => void this.platform.openExternal(uri),
+        activate: (_event, uri) => link.openLink(uri),
       },
     });
     this.terminal.loadAddon(this.fit);
+    if (link.textLinks)
+      this.terminal.registerLinkProvider(
+        textLinkProvider(this.terminal, (uri) => link.openLink(uri)),
+      );
     const mac = detectShortcutPlatform() === 'mac';
     this.terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true;
@@ -180,27 +310,33 @@ export class TerminalSession {
     };
   }
 
-  /** Open the desktop terminal once; later calls keep the same one. */
+  /** Open the terminal once; later calls keep the same one. */
   async connect(conversationId: string | null): Promise<void> {
     if (this.lease || this.state.status === 'connecting') return;
     this.update({ status: 'connecting', error: '', recoverable: false });
-    const result = await this.platform.openTerminal(conversationId);
+    let result;
+    try {
+      result = await this.link.open(
+        conversationId,
+        this.terminal.cols,
+        this.terminal.rows,
+      );
+    } catch (cause) {
+      result = {
+        status: 'failed' as const,
+        error: clientError(cause).message,
+        recoverable: true,
+      };
+    }
     if (result.status !== 'ok') {
-      // The real reason, not "needs the desktop app" inside it (B238).
-      const reason = result.status === 'unavailable' ? result.reason : '';
       this.update({
         status: 'failed',
-        recoverable: reason !== 'terminal_requires_native',
-        error:
-          reason === 'terminal_requires_native'
-            ? 'The terminal needs the Row-Bot desktop app.'
-            : reason === 'native_reconnecting'
-              ? 'Desktop features are reconnecting. Try again in a moment.'
-              : 'Row-Bot couldn’t start the terminal. Try again.',
+        recoverable: result.recoverable,
+        error: result.error,
       });
       return;
     }
-    this.lease = result.value.terminalId;
+    this.lease = result.lease;
     this.sentSize = '';
     this.update({ status: 'open' });
     this.sendSize();
@@ -214,9 +350,20 @@ export class TerminalSession {
     this.queue = [];
     this.reading?.abort();
     this.reading = null;
-    if (previous) void this.api.terminalDisconnect(previous).catch(() => {});
+    if (previous) void this.link.close(previous).catch(() => {});
     this.update({ status: 'idle' });
     await this.connect(conversationId);
+  }
+
+  /** Close the terminal for good: stop reading and end what runs in it. */
+  close(): Promise<unknown> {
+    const previous = this.lease;
+    this.lease = '';
+    this.queue = [];
+    this.reading?.abort();
+    this.reading = null;
+    window.clearTimeout(this.resizeTimer);
+    return previous ? this.link.close(previous) : Promise.resolve();
   }
 
   interrupt() {
@@ -262,7 +409,7 @@ export class TerminalSession {
       const size = `${cols}x${rows}`;
       if (!this.lease || size === this.sentSize) return;
       this.sentSize = size;
-      this.api.terminalResize(this.lease, cols, rows).catch((cause) => {
+      this.link.resize(this.lease, cols, rows).catch((cause) => {
         this.sentSize = '';
         this.fail(cause);
       });
@@ -288,7 +435,7 @@ export class TerminalSession {
         const lease = this.lease;
         const data = this.queue.shift()!;
         for (const piece of data === INTERRUPT ? [data] : pieces(data))
-          await this.api.terminalInput(lease, piece);
+          await this.link.input(lease, piece);
         this.inputAt = Date.now();
         this.wake?.();
       }
@@ -329,11 +476,7 @@ export class TerminalSession {
       while (!reading.signal.aborted && this.lease === lease) {
         let value;
         try {
-          value = await this.api.terminalRead(
-            lease,
-            this.cursor,
-            reading.signal,
-          );
+          value = await this.link.read(lease, this.cursor, reading.signal);
         } catch (cause) {
           if (!reading.signal.aborted) this.fail(cause);
           break;
@@ -347,7 +490,7 @@ export class TerminalSession {
           if (!this.state.started) this.update({ started: true });
         }
         if (value.truncated) this.update({ truncated: true });
-        if (value.status === 'stopped') {
+        if (value.ended) {
           this.update({ status: 'ended' });
           break;
         }
@@ -387,7 +530,7 @@ export function terminalSession(
   }
   let session = byPlatform.get(platform);
   if (!session) {
-    session = new TerminalSession(api, platform);
+    session = new TerminalSession(nativeLink(api, platform));
     byPlatform.set(platform, session);
   }
   return session;

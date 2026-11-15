@@ -1,0 +1,464 @@
+{
+  "$defs": {
+    "MemoryImportConversations": {
+      "additionalProperties": false,
+      "description": "Finding memories in past conversations: how many there are, the bound, and what a run read.",
+      "properties": {
+        "available": {
+          "minimum": 0,
+          "title": "Available",
+          "type": "integer"
+        },
+        "character_limit": {
+          "minimum": 1,
+          "title": "Character Limit",
+          "type": "integer"
+        },
+        "characters": {
+          "minimum": 0,
+          "title": "Characters",
+          "type": "integer"
+        },
+        "found": {
+          "minimum": 0,
+          "title": "Found",
+          "type": "integer"
+        },
+        "limit": {
+          "minimum": 0,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "ran": {
+          "title": "Ran",
+          "type": "boolean"
+        },
+        "read": {
+          "minimum": 0,
+          "title": "Read",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "available",
+        "limit",
+        "character_limit",
+        "ran",
+        "read",
+        "characters",
+        "found"
+      ],
+      "title": "MemoryImportConversations",
+      "type": "object"
+    },
+    "MemoryImportFileView": {
+      "additionalProperties": false,
+      "properties": {
+        "chunk_bytes": {
+          "const": 1048576,
+          "default": 1048576,
+          "title": "Chunk Bytes",
+          "type": "integer"
+        },
+        "file_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "File Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "title": "Name",
+          "type": "string"
+        },
+        "received_bytes": {
+          "minimum": 0,
+          "title": "Received Bytes",
+          "type": "integer"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_id",
+        "name",
+        "size_bytes",
+        "received_bytes"
+      ],
+      "title": "MemoryImportFileView",
+      "type": "object"
+    },
+    "MemoryImportJob": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "scan",
+            "conversations",
+            "preview"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total"
+        }
+      },
+      "required": [
+        "kind",
+        "status",
+        "done"
+      ],
+      "title": "MemoryImportJob",
+      "type": "object"
+    },
+    "MemoryImportModel": {
+      "additionalProperties": false,
+      "description": "The default chat model that finding memories in conversations and the preview use.",
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "title": "Name",
+          "type": "string"
+        },
+        "on_this_computer": {
+          "title": "On This Computer",
+          "type": "boolean"
+        },
+        "provider": {
+          "maxLength": 120,
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "provider",
+        "on_this_computer"
+      ],
+      "title": "MemoryImportModel",
+      "type": "object"
+    },
+    "MemoryImportReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "applied_at": {
+          "maxLength": 40,
+          "title": "Applied At",
+          "type": "string"
+        },
+        "batch_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "failed": {
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "skipped": {
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "sources": {
+          "items": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Sources",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "undone"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "superseded": {
+          "minimum": 0,
+          "title": "Superseded",
+          "type": "integer"
+        },
+        "undo_until": {
+          "maxLength": 40,
+          "title": "Undo Until",
+          "type": "string"
+        },
+        "undone_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Undone At"
+        },
+        "updated": {
+          "minimum": 0,
+          "title": "Updated",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "batch_id",
+        "command_id",
+        "status",
+        "applied_at",
+        "undo_until",
+        "sources",
+        "added",
+        "updated",
+        "superseded",
+        "skipped",
+        "failed"
+      ],
+      "title": "MemoryImportReceipt",
+      "type": "object"
+    },
+    "MemoryImportSkipped": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 300,
+          "title": "Name",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 300,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "reason"
+      ],
+      "title": "MemoryImportSkipped",
+      "type": "object"
+    },
+    "MemoryImportSourceCount": {
+      "additionalProperties": false,
+      "properties": {
+        "conversations": {
+          "minimum": 0,
+          "title": "Conversations",
+          "type": "integer"
+        },
+        "facts": {
+          "minimum": 0,
+          "title": "Facts",
+          "type": "integer"
+        },
+        "label": {
+          "maxLength": 80,
+          "title": "Label",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 40,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "label",
+        "facts",
+        "conversations"
+      ],
+      "title": "MemoryImportSourceCount",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "conversations": {
+      "$ref": "#/$defs/MemoryImportConversations"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/MemoryImportFileView"
+      },
+      "maxItems": 20,
+      "title": "Files",
+      "type": "array"
+    },
+    "found": {
+      "minimum": 0,
+      "title": "Found",
+      "type": "integer"
+    },
+    "job": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryImportJob"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryImportModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "preview_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Preview Revision"
+    },
+    "receipt": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryImportReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "scanned": {
+      "title": "Scanned",
+      "type": "boolean"
+    },
+    "skipped": {
+      "items": {
+        "$ref": "#/$defs/MemoryImportSkipped"
+      },
+      "maxItems": 100,
+      "title": "Skipped",
+      "type": "array"
+    },
+    "skipped_count": {
+      "minimum": 0,
+      "title": "Skipped Count",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/MemoryImportSourceCount"
+      },
+      "maxItems": 20,
+      "title": "Sources",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "open",
+        "applied"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "texts": {
+      "minimum": 0,
+      "title": "Texts",
+      "type": "integer"
+    },
+    "warnings": {
+      "items": {
+        "maxLength": 300,
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "batch_id",
+    "status",
+    "files",
+    "texts",
+    "scanned",
+    "found",
+    "sources",
+    "warnings",
+    "skipped",
+    "skipped_count",
+    "conversations"
+  ],
+  "title": "MemoryImportBatch",
+  "type": "object"
+}

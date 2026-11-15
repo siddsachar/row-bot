@@ -22,7 +22,7 @@ from tests.fixtures.learning import FakeClock
 pytestmark = [pytest.mark.subsystem]
 
 DATASET = {
-    "format": "row-bot-dataset", "version": 1, "id": "ds_" + "1" * 32, "sha256": "2" * 64, "recipe": "8gb-v1",
+    "format": "row-bot-dataset", "version": 1, "id": "ds_" + "1" * 32, "sha256": "2" * 64, "recipe": "16gb-v1",
     "examples": 120, "validation": 12, "historical": 0, "left_out": {"held_out": 3, "tool_failed": 2},
     "providers": ["ollama", "openai"], "terms_note": True, "conversations": ["chat-1", "chat-2"],
     "example_ids": ["ep_1", "ep_2"], "first_at": 1_800_000_000.0, "last_at": 1_800_086_400.0,
@@ -108,7 +108,7 @@ def maker_for(learning_on, tmp_path, starting_model):
             learning_on, jobs=jobs, clock=clock, exporter=exporter or Exporter(), server=server or Server(_ready()),
             engine_status=lambda: SimpleNamespace(folder=engine_folder, python=None, site=None, llama=None),
             weights_folder=lambda: (starting_model[0], starting_model[1], 4_550_000_000),
-            recipe_for=lambda: recipes.load("8gb"), runtime=lambda: runtime, start_threads=False,
+            recipe_for=lambda: recipes.load("16gb"), runtime=lambda: runtime, start_threads=False,
             withdraw=lambda runtime, version, **_: withdrawn.append((runtime, version)))
 
     make.jobs, make.clock, make.root, make.withdrawn = jobs, clock, learning_on, withdrawn
@@ -138,8 +138,8 @@ def test_a_finished_run_becomes_a_ready_version_with_its_identity_beside_its_fil
     assert (identity.base.name, identity.base.version) == (model.repo, model.revision) and identity.base.sha256
     assert identity.tokenizer.sha256 and identity.template.sha256
     assert identity.adapter.sha256 == hashlib.sha256(b"lora-1").hexdigest()
-    assert identity.quantization == "Q8_0" and identity.recipe.name == "8gb-v1"
-    assert identity.recipe.sha256 == recipes.load("8gb").sha256
+    assert identity.quantization == "Q8_0" and identity.recipe.name == "16gb-v1"
+    assert identity.recipe.sha256 == recipes.load("16gb").sha256
     assert identity.runtime == contracts.Pin("ollama", "0.40.4")
     assert identity.data.dataset_id == DATASET["id"] and identity.data.providers == ("ollama", "openai")  # D7
     assert release.source_thread_ids == ("chat-1", "chat-2") and release.parent_ids == ()
@@ -416,3 +416,30 @@ def test_try_again_still_makes_a_version_that_couldnt_start_ready_while_the_next
     state = releases.read_state(folder)
     assert state.phase == releases.READY and maker_for.jobs.get(job.id).state == "ready"
     assert not releases.couldnt_start(state) and releases.trained_example_ids(maker_for.root) == {"ep_1", "ep_2"}
+
+
+def test_a_version_keeps_the_exact_rows_it_trained_on_only_when_they_match_its_record(maker_for, starting_model):
+    """C1 (A10): the rows the run trained on stay with the version, so a later build never has to rebuild them;
+    rows that don't match the version's SHA-256 are never kept."""
+
+    from row_bot.learning.training import kept_rows
+
+    maker = maker_for(exporter=Exporter(), server=Server(_ready()))
+    job = _finished_run(maker_for.jobs, maker_for.root)
+    data = jobs_module.run_dir(job.id, maker_for.root) / "data"
+    train = [{"messages": [{"role": "user", "content": "Rename the files"}, {"role": "assistant", "content": "Done."}]}]
+    validation = [{"messages": [{"role": "user", "content": "Which ones?"}, {"role": "assistant", "content": "All."}]}]
+    for name, rows in ((kept_rows.EXAMPLES, train), (kept_rows.VALIDATION, validation)):
+        (data / name).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    manifest = {**DATASET, "sha256": kept_rows.digest(DATASET, train, validation)}
+    (data / "dataset.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert maker.tick() is True
+
+    folder = releases.version_dir(1, maker_for.root)
+    assert kept_rows.read(folder, manifest) == ("kept", train, validation)
+    assert (folder / kept_rows.FOLDER / kept_rows.EXAMPLES).read_bytes() == (data / kept_rows.EXAMPLES).read_bytes()
+    other = releases.version_dir(2, maker_for.root)
+    other.mkdir(parents=True)
+    assert not kept_rows.keep(data, other, {**manifest, "sha256": "3" * 64})  # not the rows it records
+    assert not (other / kept_rows.FOLDER).exists()

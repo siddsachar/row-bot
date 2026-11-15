@@ -7,7 +7,7 @@ import Screenshot from '@site/src/components/Screenshot';
 
 # Voice And Buddy
 
-Voice and Buddy make Row-Bot feel less like a text box and more like a desktop companion. Voice handles speech input and optional spoken output. Buddy reflects app state and, in the native Windows and macOS apps, can be dragged from the sidebar into a compact always-on-top desktop overlay.
+Voice and Buddy make Row-Bot feel less like a text box and more like a desktop companion. Voice handles speech input and optional spoken output. Buddy is a living character that reacts to what Row-Bot is doing and, in the native Windows and macOS apps, can be dragged from the sidebar onto the desktop as a pet that sits on your windows.
 
 <Screenshot id="settings-voice" alt="Row-Bot Voice settings." caption="Voice settings control Dictate, Talk, read-aloud, voice models, devices, and diagnostics." />
 
@@ -36,12 +36,12 @@ Select the microphone and output device in Settings -> Voice. Run diagnostics wh
 ## Buddy Controls
 
 - **Show Buddy** controls companion visibility.
-- **Drag to tear off** moves Buddy itself from its sidebar dock into the native desktop overlay. Releasing over the dock cancels the drag.
-- The overlay follows the selected conversation, whether it is a chat, a design or a code folder, and shares its saved draft, current response, tools, and approval mode.
+- **Drag to tear off** moves Buddy itself from its sidebar dock onto the desktop, where it lands on a window's top edge or above the taskbar or Dock. Releasing over the dock cancels the drag.
+- Click the desktop Buddy to open its speech bubble. The bubble follows the selected conversation, whether it is a chat, a design or a code folder, and shares its saved draft, current response, tools, and approval mode.
 - Enter sends and Shift+Enter adds a line. **Stop** stops the selected thread's active response.
 - **Simple approvals** can be approved or denied in Buddy. **Complex approvals** open the full thread for review.
-- **Open full thread**, **Collapse/Expand**, **Dock Buddy**, and **Hide Buddy** are in the overlay menu.
-- Tear-off is session-scoped; restarting Row-Bot returns placement to the normal sidebar dock. Browser/server mode does not create a native overlay.
+- **Open full thread**, **Dock Buddy**, and **Hide Buddy** are in the bubble and in Buddy's right-click menu.
+- Tear-off is session-scoped; restarting Row-Bot returns placement to the normal sidebar dock. Browser/server mode does not create a desktop pet.
 - **Personality** changes the tone of Buddy cues, and **Bubbles** changes how status appears.
 - **Look** chooses a bundled or custom appearance; **New look…** makes one with your image model.
 - **Motion** chooses how lively Buddy is: **Calm**, **Normal** or **Lively**.
@@ -50,13 +50,13 @@ See [Settings: Buddy](/docs/settings/buddy) for the complete drag, messaging, ap
 
 ## Talk To Buddy
 
-The desktop overlay accepts typed messages for the thread named in its header. It does not contain a separate microphone control: Talk and Dictate remain in the full Row-Bot thread, where device state, transcription, and provider disclosure are visible. Use **Open full thread**, start Talk or Dictate there, and Buddy will continue reflecting that selected conversation.
+Buddy's bubble accepts typed messages for the thread named at its top. It does not contain a separate microphone control: Talk and Dictate remain in the full Row-Bot thread, where device state, transcription, and provider disclosure are visible. Use **Open full thread**, start Talk or Dictate there, and Buddy will continue reflecting that selected conversation.
 
 Use Dictate when you want to review speech as text before sending. Use Talk when you want the configured voice path to submit conversation turns. Undocking Buddy does not change which voice provider is used, create a new voice session, or bypass tool approvals.
 
 ## Privacy And Safety
 
-Voice input can become chat text. Realtime voice and provider-backed speech may send audio or transcript data to the selected provider. Installing SenseVoice contacts ModelScope for the requested model and standard SDK metadata, but Row-Bot does not send audio, prompts, or usage data; inference stays local after installation. Buddy preferences and assets are local, but custom generation may call a configured media provider.
+Voice input can become chat text. Realtime voice and provider-backed speech may send audio or transcript data to the selected provider. Installing SenseVoice contacts ModelScope for the requested model and standard SDK metadata, but Row-Bot does not send audio, prompts, or usage data; inference stays local after installation. Buddy preferences and looks are local and Buddy animates on your computer; making a new look calls your configured image model. The desktop Buddy reads only the position and size of the window you are using (never its title or contents) to sit on it.
 
 ## Troubleshooting
 

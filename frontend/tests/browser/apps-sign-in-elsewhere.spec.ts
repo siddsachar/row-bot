@@ -118,7 +118,9 @@ async function allowAndFinish(page: Page, app: string) {
   const access = page.getByRole('dialog');
   await expect(access).toHaveAccessibleName(`Here's what ${app} can do`);
   await access.getByRole('button', { name: 'Allow', exact: true }).click();
-  await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId('conversation-pane').getByText('Ready', { exact: true }),
+  ).toBeVisible();
 }
 
 async function remove(page: Page, app: string) {

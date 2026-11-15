@@ -72,3 +72,14 @@ def test_a_tool_result_keeps_its_urls_plain_while_a_reply_links_them():
     reply = canonical_transcript_blocks(_row(text))
     assert tool["blocks"][0]["text"] == text
     assert "[https://x.com/rowbot_ai/status/1](https://x.com/rowbot_ai/status/1)" in reply["blocks"][0]["text"]
+
+
+def test_a_bold_bare_link_stays_bold_and_links_only_the_address():
+    """Z.AI and Together wrote "**https://example.com**" (9 Nov): the link took the closing "**" in and the
+    chat showed "[ example.com ]( example.com%2A%2A )"."""
+    reply = canonical_transcript_blocks(_row("1. **https://example.com** — Example Domain\n"
+                                             "See __https://iana.org/help__, or https://x.y/a."))
+    text = reply["blocks"][0]["text"]
+    assert "**[https://example.com](https://example.com)**" in text
+    assert "__[https://iana.org/help](https://iana.org/help)__" in text
+    assert "[https://x.y/a](https://x.y/a)." in text

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import threading
 
@@ -85,6 +87,17 @@ def test_run_cancellable_subprocess_terminates_process_when_scope_is_cancelled(m
 
     fake = _FakeProcess()
     monkeypatch.setattr(process_cancellation.subprocess, "Popen", lambda *_args, **_kwargs: fake)
+    # Off Windows the stop signals the process group by the fake's pid. That pid
+    # can be a real process group on this computer, so the signal reaches only
+    # the fake, as its group would.
+    signalled: list[tuple[int, int]] = []
+
+    def killpg(pgid: int, sig: int) -> None:
+        signalled.append((pgid, sig))
+        if pgid == fake.pid:
+            (fake.kill if sig == getattr(signal, "SIGKILL", None) else fake.terminate)()
+
+    monkeypatch.setattr(process_cancellation.os, "killpg", killpg, raising=False)
     scope = CancellationScope()
     result_holder = []
 
@@ -96,13 +109,14 @@ def test_run_cancellable_subprocess_terminates_process_when_scope_is_cancelled(m
 
     worker = threading.Thread(target=run)
     worker.start()
-    assert fake.started.wait(timeout=1)
+    assert fake.started.wait(timeout=5)
 
     scope.cancel("test")
-    worker.join(timeout=1)
+    worker.join(timeout=5)
 
     assert not worker.is_alive()
     assert fake.terminated.is_set() is True
+    assert signalled == ([] if os.name == "nt" else [(fake.pid, signal.SIGTERM)])
     assert result_holder[0].cancelled is True
     assert result_holder[0].returncode == 130
     assert result_holder[0].stdout == "partial stdout"

@@ -139,3 +139,22 @@ def test_channel_auth_store_uses_channel_namespace(monkeypatch) -> None:
 
     auth_store.delete_channel_secret("fake", "FAKE_TOKEN")
     assert auth_store.get_channel_secret("fake", "FAKE_TOKEN") == ""
+
+
+def test_a_channel_that_changes_by_itself_refreshes_monitor_at_its_next_look() -> None:
+    """B410: a channel's own change (a link dropping) reached Monitor only on its 60 s read."""
+    from row_bot.application.live_updates import live_updates
+    from row_bot.channels import registry
+
+    channel = FakeChannel(display_name="Registry Fake")
+    registry.register(channel)
+    asyncio.run(channel.start())
+    monitor = lambda: live_updates.frame()["topics"]["monitor"]  # noqa: E731
+
+    assert registry.publish_state_changes() is False, "the first look only remembers"
+    before = monitor()
+    assert registry.publish_state_changes() is False and monitor() == before, "nothing changed: nothing sent"
+
+    asyncio.run(channel.stop())  # As an adapter stops when its connection drops.
+    assert registry.publish_state_changes() is True and monitor() == before + 1
+    assert registry.publish_state_changes() is False, "told once"

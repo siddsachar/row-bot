@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "description": "The person's answer on the card, carrying the binding of exactly the card they saw.",
+  "properties": {
+    "approved": {
+      "title": "Approved",
+      "type": "boolean"
+    },
+    "binding": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Binding",
+      "type": "string"
+    }
+  },
+  "required": [
+    "binding",
+    "approved"
+  ],
+  "title": "ProactiveDraftSendAnswer",
+  "type": "object"
+}

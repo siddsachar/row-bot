@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { claimLauncherSignIn } from './sign-in';
+import { claimLauncherSignIn, forgetSetupCode } from './sign-in';
 
 function fakeWindow(hash: string, extra: Record<string, unknown> = {}) {
   const replaceState = vi.fn();
@@ -88,5 +88,27 @@ describe('claimLauncherSignIn', () => {
     await expect(
       claimLauncherSignIn(target, request as unknown as typeof fetch),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('forgetSetupCode', () => {
+  it('takes a setup link’s used code out of the address, and keeps the rest (A1)', () => {
+    for (const [hash, kept] of [
+      ['#code=ABCD-EFGH-JKMN', '/app-v2/?m=1'],
+      ['#panel=files&code=ABCD-EFGH-JKMN', '/app-v2/?m=1#panel=files'],
+      ['#code=ABCD-EFGH-JKMN&panel=files', '/app-v2/?m=1#panel=files'],
+    ]) {
+      const { target, replaceState } = fakeWindow(hash);
+      forgetSetupCode(target);
+      expect(replaceState).toHaveBeenCalledWith({ key: 'k' }, '', kept);
+    }
+  });
+
+  it('leaves an address without a setup code alone', () => {
+    for (const hash of ['', '#panel=files', '#barcode=1', '#sign-in=tok']) {
+      const { target, replaceState } = fakeWindow(hash);
+      forgetSetupCode(target);
+      expect(replaceState).not.toHaveBeenCalled();
+    }
   });
 });

@@ -179,10 +179,10 @@ def x_api(isolated, monkeypatch, tmp_path):
 def test_strict_x_upload_incomplete_never_posts_tweet(project, renderer, x_api, monkeypatch, uploaded):
     import httpx
     from row_bot import x_accounts
-    from tests.helpers.fake_x_api import UPLOAD
+    from tests.helpers.fake_x_api import API
     starts = []
     def x_api_failing_upload(request):
-        if str(request.url) == UPLOAD and b'INIT' in request.content:
+        if str(request.url) == f'{API}/2/media/upload/initialize':
             starts.append(1)
             if len(starts) > uploaded:
                 return httpx.Response(500, json={'errors': [{'message': 'synthetic upload failure'}]})

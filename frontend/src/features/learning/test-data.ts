@@ -76,10 +76,10 @@ export function personalModel(
     train_in_quiet_hours: true,
     train_where: 'this_computer',
     starting_model: {
-      id: 'qwen3.5-2b',
-      name: 'Qwen3.5 2B',
+      id: 'qwen3.5-9b',
+      name: 'Qwen3.5 9B',
       licence: 'Apache 2.0',
-      download_bytes: 4_571_272_453,
+      download_bytes: 19_329_392_091,
     },
     download: 'not_asked',
     engine: 'not_downloaded',
@@ -171,35 +171,35 @@ export function runningRun(
   });
 }
 
-export const GPU_8GB: LearningHardware = {
+export const GPU_16GB: LearningHardware = {
   state: 'gpu',
   gpu: {
-    name: 'NVIDIA GeForce RTX 5070 Laptop GPU',
-    memory_gb: 8,
-    label: 'NVIDIA GeForce RTX 5070 Laptop (8 GB)',
+    name: 'NVIDIA GeForce RTX 5060 Ti GPU',
+    memory_gb: 16,
+    label: 'NVIDIA GeForce RTX 5060 Ti (16 GB)',
   },
   tier: {
-    id: '8gb',
-    label: '8 GB',
+    id: '16gb',
+    label: '16 GB',
     certified: true,
-    summary: 'Can train small models (up to about 2B) on your tasks.',
+    summary: 'Can train models up to about 9B on your tasks.',
   },
   larger_tiers: [],
   starting_models: [
     {
-      id: 'qwen3.5-2b',
-      name: 'Qwen3.5 2B',
+      id: 'qwen3.5-9b',
+      name: 'Qwen3.5 9B',
       licence: 'Apache 2.0',
-      download_bytes: 4_570_000_000,
+      download_bytes: 19_300_000_000,
     },
   ],
   engine_download_bytes: 2_170_000_000,
   free_bytes: 512_000_000_000,
 };
 
-/** A 32 GB card certified for the 9B (O124): setup recommends it; the 2B fits too. */
+/** A 32 GB card certified for the 9B (O124): setup recommends it; a smaller stand-in model fits too. */
 export const GPU_32GB: LearningHardware = {
-  ...GPU_8GB,
+  ...GPU_16GB,
   gpu: {
     name: 'NVIDIA GeForce RTX 5090',
     memory_gb: 32,
@@ -218,9 +218,30 @@ export const GPU_32GB: LearningHardware = {
       licence: 'Apache 2.0',
       download_bytes: 19_300_000_000,
     },
-    ...GPU_8GB.starting_models,
+    {
+      id: 'test-small',
+      name: 'A small model',
+      licence: 'Apache 2.0',
+      download_bytes: 4_570_000_000,
+    },
   ],
   free_bytes: 700_000_000_000,
+};
+
+/** An 8 GB card: too small to train the 9B, big enough to run one trained on Hugging Face (O124, O131). */
+export const SMALL_GPU: LearningHardware = {
+  state: 'small_gpu',
+  gpu: {
+    name: 'NVIDIA GeForce RTX 4060 GPU',
+    memory_gb: 8,
+    label: 'NVIDIA GeForce RTX 4060 (8 GB)',
+  },
+  tier: null,
+  larger_tiers: [],
+  starting_models: [],
+  engine_download_bytes: 2_170_000_000,
+  free_bytes: 512_000_000_000,
+  hugging_face: true,
 };
 
 export const NO_GPU: LearningHardware = {
@@ -266,7 +287,7 @@ export function fakeIO(
       };
       return receipt;
     }),
-    hardware: vi.fn(async () => options.hardware ?? GPU_8GB),
+    hardware: vi.fn(async () => options.hardware ?? GPU_16GB),
     lessons: vi.fn(async () => ({ items: [], total: 0 })),
     conversation: vi.fn(async (id: string) => ({
       conversation_id: id,
@@ -419,7 +440,7 @@ export function trialUse(overrides: Partial<LearningUse> = {}): LearningUse {
   };
 }
 
-/** Advanced ›: the 8 GB recipe's values, nothing changed. */
+/** Advanced ›: the 16 GB recipe's values, nothing changed. */
 export function advancedState(
   overrides: Partial<LearningAdvanced> = {},
 ): LearningAdvanced {
@@ -477,7 +498,7 @@ export function versionDetails(
       quantization: 'Q8_0',
     },
     versions: [
-      { name: 'Starting model', value: 'Qwen3.5 2B' },
+      { name: 'Starting model', value: 'Qwen3.5 9B' },
       { name: 'Training engine', value: 'Unsloth 2026.10.2' },
     ],
     runs: [

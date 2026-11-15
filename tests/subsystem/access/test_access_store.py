@@ -162,3 +162,33 @@ def test_access_data_path_keeps_physical_mobile_database(monkeypatch, tmp_path) 
     assert get_access_db_path() == tmp_path / "mobile.db"
     assert get_mobile_db_path() == get_access_db_path()
     assert describe_data_paths()["access_db"] == str(tmp_path / "mobile.db")
+
+
+def test_a_read_never_waits_on_a_write_once_the_schema_is_current_and_a_replaced_file_is_set_up_again(
+        tmp_path) -> None:
+    """Every read used to take the write lock to check the schema; an open page's event stream did that
+    several times a second (5.3.1)."""
+    store = AccessStore(tmp_path / "mobile.db")
+    assert store.get_session("missing") is None  # Sets the schema up.
+
+    writer = sqlite3.connect(tmp_path / "mobile.db", isolation_level=None)
+    writer.execute("BEGIN IMMEDIATE")
+    try:
+        store._connect = _quick(store._connect)  # A read that waited for the lock would time out at once.
+        assert store.get_session("missing") is None
+    finally:
+        writer.execute("ROLLBACK")
+        writer.close()
+
+    (tmp_path / "mobile.db").unlink()
+    assert store.get_session("missing") is None, "a new file gets its schema"
+    with sqlite3.connect(tmp_path / "mobile.db") as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+
+
+def _quick(connect):
+    def quick():
+        connection = connect()
+        connection.execute("PRAGMA busy_timeout = 0")
+        return connection
+    return quick

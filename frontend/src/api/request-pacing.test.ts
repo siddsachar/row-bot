@@ -2,6 +2,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   listConversations,
   getConversation,
+  getApproval,
+  getDelivery,
+  getVideoEdits,
   saveDraft,
   sendConversationCommand,
   cancelUpload,
@@ -9,6 +12,7 @@ import {
   reviewMcpRuntime,
   readNativeTerminal,
   writeNativeTerminal,
+  sendBrowserInput,
   type ConversationRenameCommand,
   type SessionProof,
 } from '../../../contracts/client-platform/v1/typescript/client';
@@ -194,6 +198,83 @@ it('sends typed terminal keys and the reads that echo them on their own budget (
   expect(vi.getTimerCount()).toBe(0);
 });
 
+it('loads a sent-files card at once while background reads wait', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async () => ({
+    ok: false,
+    json: async () => ({
+      type: 'urn:row-bot:error:not_found',
+      title: 'not found',
+      status: 404,
+      code: 'not_found',
+      request_id: crypto.randomUUID(),
+      retryable: false,
+      recovery: 'none',
+    }),
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  const queries = Promise.allSettled(
+    Array.from({ length: 25 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  await getDelivery('', proof, 'delivery-a').catch(() => undefined);
+  expect(fetcher).toHaveBeenCalledTimes(21);
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await queries;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('sends the person’s keys in the Browser pane at typing speed, keeping the write budget', async () => {
+  vi.useFakeTimers();
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const fetcher = vi.fn(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.endsWith('/browser/input')
+        ? { status: 'ok', copied: '' }
+        : {
+            conversation_id: 'conversation-a',
+            revision: '1',
+            text: '',
+            attachments: [],
+          },
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  // Forty keystrokes (a pasted-by-hand sign-in code) go out at once.
+  const typed = Promise.all(
+    Array.from({ length: 40 }, (_, index) =>
+      sendBrowserInput('', proof, 'conversation-a', {
+        events: [{ type: 'key', action: 'down', key: String(index % 10) }],
+      }),
+    ),
+  );
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  expect(fetcher).toHaveBeenCalledTimes(40);
+  await typed;
+  // Drafts and commands keep their whole budget.
+  await Promise.all(
+    Array.from({ length: 8 }, () =>
+      saveDraft('', proof, 'conversation-a', {
+        expected_revision: '1',
+        text: '',
+        attachment_refs: [],
+      }),
+    ),
+  );
+  expect(fetcher).toHaveBeenCalledTimes(48);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 it('keeps reviewed MCP disconnect immediate while ordinary writes are queued', async () => {
   vi.useFakeTimers();
   const { proof, fetcher } = mutationFixture();
@@ -356,6 +437,82 @@ it('keeps a conversation view responsive while library continuation waits', asyn
   );
   const view = await getConversation('', proof, 'conversation-a');
   expect(view.id).toBe('conversation-a');
+  expect(fetcher).toHaveBeenCalledTimes(21);
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await queries;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('follows a running video edit every second while background reads wait', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/video-edits')
+        ? { items: [], running: 0 }
+        : { items: [], has_more: false, next_cursor: null },
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  // Far more background reads than the query budget lets through meanwhile.
+  const queries = Promise.allSettled(
+    Array.from({ length: 60 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  expect(fetcher).toHaveBeenCalledTimes(20);
+  // The card reads its edit once a second for ten seconds; none waits.
+  for (let second = 0; second < 10; second++) {
+    const read = getVideoEdits('', proof, 'conversation-a');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(
+      fetcher.mock.calls.filter(([url]) =>
+        String(url).startsWith('/api/v1/video-edits'),
+      ),
+    ).toHaveLength(second + 1);
+    await read.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(1000);
+  }
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await queries;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('loads a new approval card at once while the reads a reply sets off wait', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/approvals/')
+        ? {
+            id: 'approval-b',
+            status: 'pending',
+            revision: '0',
+            policy_revision: '1',
+            nonce: 'synthetic'.repeat(4),
+          }
+        : { items: [], has_more: false, next_cursor: null },
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  const queries = Promise.allSettled(
+    Array.from({ length: 25 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  const approval = await getApproval('', proof, 'approval-b');
+  expect(approval.id).toBe('approval-b');
   expect(fetcher).toHaveBeenCalledTimes(21);
   abort.abort();
   await vi.runAllTimersAsync();

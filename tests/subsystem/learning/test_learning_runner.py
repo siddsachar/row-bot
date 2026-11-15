@@ -344,7 +344,7 @@ def test_after_two_quiet_hours_nights_without_room_on_the_card_the_runner_says_s
     setup.runner.check()
     room = runner_module.card_room(setup.root)
     assert room["nights"] == ["2026-10-16", "2026-10-17"]
-    assert (room["free_mib"], room["need_mib"], room["model"]) == (7_607, 15_616, "qwen3.5-2b")
+    assert (room["free_mib"], room["need_mib"], room["model"]) == (7_607, 15_616, "qwen3.5-9b")
 
     card["free"] = True
     assert setup.runner.check().state == "training"

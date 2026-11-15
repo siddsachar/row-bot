@@ -70,7 +70,7 @@ def test_one_card_per_app_with_vendors_first_and_its_other_ways_on_its_page(loca
     detail, _ = api.read_item(owner_id="owner", item_id=page["items"][0]["id"], revision=page["revision"])
     ways = detail["about"]["ways"]
     assert {way["id"] for way in ways} == {"mcp:official:io.github.zoom/zoom-meetings@1.0.0", "mcp:official:io.github.zoom/zoom-tasks@1.0.0"}
-    assert ways[0]["recommended"] and all(way["verified"] for way in ways)
+    assert ways[0]["recommended"] and all(way["verified"] and way["label"] == "official" for way in ways)
 
 
 def test_github_is_one_card_whose_page_offers_a_token_its_own_oauth_app_or_this_computer(local, monkeypatch):

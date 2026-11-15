@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "description": "The person's edits to a drafted reply; ``to`` and ``subject`` stay as they are when left out.",
+  "properties": {
+    "body": {
+      "maxLength": 20000,
+      "title": "Body",
+      "type": "string"
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Subject"
+    },
+    "to": {
+      "anyOf": [
+        {
+          "maxLength": 320,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "To"
+    }
+  },
+  "required": [
+    "body"
+  ],
+  "title": "ProactiveDraftEdit",
+  "type": "object"
+}

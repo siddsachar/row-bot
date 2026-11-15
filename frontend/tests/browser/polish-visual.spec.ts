@@ -106,19 +106,19 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
   await heading.scrollIntoViewIfNeeded();
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-200-percent-reflow');
-  await page.goto('/app-v2/settings/providers');
+  await page.goto('/app-v2/settings/models');
   await expect(
-    page.getByRole('heading', { name: 'Providers' }).last(),
+    page.getByRole('heading', { name: 'Models' }).last(),
   ).toBeVisible();
   await assertNoOverflow(page);
-  await screenshot(page, info, 'settings-providers-200-percent-reflow');
+  await screenshot(page, info, 'settings-models-200-percent-reflow');
   await page.setViewportSize({ width: 1152, height: 900 });
   await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
   await assertNoOverflow(page);
   await screenshot(
     page,
     info,
-    'settings-providers-high-contrast-125-percent-reflow',
+    'settings-models-high-contrast-125-percent-reflow',
   );
 });
 
@@ -130,7 +130,6 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
     'preferences',
     'appearance',
     'buddy',
-    'providers',
     'models',
     'voice',
     'knowledge',

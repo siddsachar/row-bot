@@ -5,52 +5,40 @@ import type {
 } from './types';
 
 /**
- * Favourite models first, hidden ones under "More models" (F10). The server
- * marks each listed model; these helpers apply a change to a list at once,
- * before the save settles.
+ * Your models: the starred models every picker lists. The server marks each
+ * listed model with its star's place; these helpers apply a change to a list
+ * at once, before the save settles.
  */
 
-/** The favourites (in order) and hidden models a list shows. */
+/** The stars (in order) a list shows. */
 export function visibilityOf(
-  models: readonly Pick<
-    ModelChoice,
-    'model_ref' | 'favourite_rank' | 'hidden'
-  >[],
+  models: readonly Pick<ModelChoice, 'model_ref' | 'favourite_rank'>[],
 ): ModelVisibilityState {
   return {
-    schema_version: 1,
+    schema_version: 2,
     favourites: models
       .filter((model) => model.favourite_rank != null)
       .sort((a, b) => (a.favourite_rank ?? 0) - (b.favourite_rank ?? 0))
       .map((model) => model.model_ref),
-    hidden: models
-      .filter((model) => model.hidden && model.favourite_rank == null)
-      .map((model) => model.model_ref),
   };
 }
 
-/** One change, as the server makes it: adding moves a model to the end. */
+/** One change, as the server makes it: starring moves a model to the end. */
 export function applyVisibility(
-  models: readonly Pick<
-    ModelChoice,
-    'model_ref' | 'favourite_rank' | 'hidden'
-  >[],
+  models: readonly Pick<ModelChoice, 'model_ref' | 'favourite_rank'>[],
   change: ModelVisibilityMutation,
 ): ModelVisibilityState {
-  const current = visibilityOf(models);
-  if (change.action === 'show_all') return { ...current, hidden: [] };
-  const ref = change.model_ref ?? '';
-  const favourites = current.favourites.filter((item) => item !== ref);
-  const hidden = current.hidden.filter((item) => item !== ref);
-  if (change.action === 'favourite') favourites.push(ref);
-  if (change.action === 'hide') hidden.push(ref);
-  return { schema_version: 1, favourites, hidden };
+  const favourites = visibilityOf(models).favourites.filter(
+    (item) => item !== change.model_ref,
+  );
+  if (change.action === 'favourite') favourites.push(change.model_ref);
+  return { schema_version: 2, favourites };
 }
 
-/** A listed model as far as these marks go: its reference and marks. */
-type Marked = Pick<ModelChoice, 'model_ref' | 'favourite_rank' | 'hidden'>;
+/** A listed model as far as stars go: its reference and its star's place. */
+type Marked = Pick<ModelChoice, 'model_ref' | 'favourite_rank'>;
 
-/** The list with each model marked from a saved preference. */
+/** The list with each model marked from saved stars. */
 export function markModels<T extends Marked>(
   models: readonly T[],
   state: ModelVisibilityState,
@@ -59,14 +47,12 @@ export function markModels<T extends Marked>(
     const rank = state.favourites.indexOf(model.model_ref) + 1;
     const next: T = { ...model };
     delete next.favourite_rank;
-    delete next.hidden;
     if (rank) next.favourite_rank = rank;
-    else if (state.hidden.includes(model.model_ref)) next.hidden = true;
     return next;
   });
 }
 
-/** Put the marks back as they were before a change that didn't save. */
+/** Put the stars back as they were before a change that didn't save. */
 export function restoreVisibility<T extends Marked>(
   models: readonly T[],
   before: readonly Marked[],
@@ -77,9 +63,7 @@ export function restoreVisibility<T extends Marked>(
     if (!old) return model;
     const next: T = { ...model };
     delete next.favourite_rank;
-    delete next.hidden;
     if (old.favourite_rank != null) next.favourite_rank = old.favourite_rank;
-    if (old.hidden) next.hidden = true;
     return next;
   });
 }

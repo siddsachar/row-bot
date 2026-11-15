@@ -7,6 +7,7 @@ stop at the monthly limit; plain verdicts, including no clear difference and wor
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
@@ -408,3 +409,112 @@ def test_a_version_is_compared_with_its_own_starting_model_after_the_person_chan
 
     assert served == ["qwen3.5-2b"]
     assert next(arm for arm in result["arms"] if arm["key"] == "base")["model_ref"] == BASE
+
+
+@pytest.mark.parametrize(("built", "served_from"), [(True, None), (False, "missing")])
+def test_a_version_trained_on_hugging_face_is_compared_with_the_starting_model_its_job_built(
+        learning_on, monkeypatch, built, served_from):
+    """C1, 28 Oct: a 9B trained on Hugging Face on a computer that never downloaded the 9B's own files said "The
+    starting model couldn't run here", although the job had built and Row-Bot had downloaded its untouched GGUF."""
+
+    from row_bot.learning.training import base_model, weights
+
+    LearningStore(learning_on).create()
+    save_learning_settings(learning_on, enabled=True, starting_model="qwen3.5-9b")
+    folder = releases.version_dir(1, learning_on)
+    releases.write_state(folder, releases.VersionState(version=1, phase=releases.READY, job_id="job_1",
+                                                       model_ref=PERSONAL, runtime="row_bot"))
+    monkeypatch.setattr(weights, "status", lambda model, root=None: weights.WeightsStatus("not_downloaded"))
+    if built:
+        target = base_model.folder("qwen3.5-9b", learning_on)
+        target.mkdir(parents=True)
+        (target / "qwen3.5-9b-Q8_0.gguf").write_bytes(b"GGUF untouched")
+        base_model.write(base_model.BaseState("qwen3.5-9b", "exported", gguf="qwen3.5-9b-Q8_0.gguf",
+                                              runtime="row_bot"), learning_on)
+    served: list[tuple] = []
+    monkeypatch.setattr(base_model, "ensure", lambda **kwargs: served.append(
+        (kwargs["model"].id, kwargs["weights_folder"])) or (BASE, None))
+    comparer = _comparer(learning_on)
+    comparer._baseline_model = None  # noqa: SLF001 - the product's own starting model this time
+
+    ref, reason = comparer._starting_model("row_bot", 1)  # noqa: SLF001
+
+    if built:
+        assert (ref, reason, served) == (BASE, None, [("qwen3.5-9b", None)])
+    else:
+        assert (ref, reason, served) == (None, "engine_missing", [])
+
+
+def test_without_its_starting_model_the_verdict_never_claims_no_difference_from_it():
+    arms = [{"key": "new", "label": "v2 (new)"}, {"key": "main", "label": "GPT-6.1 Sol"}]
+    tables = {"new": {"document_lookups": (15, 16)}, "main": {"document_lookups": (16, 16)}}
+
+    _rows, overall = model_compare.summarize(arms, tables, new="new", baseline="base",
+                                             baseline_label="the starting model")
+
+    assert overall == {"verdict": "unclear", "recommend": None,
+                       "line": "Row-Bot couldn't run the starting model, so it can't tell yet whether training "
+                               "helped. Not used."}
+
+
+
+@pytest.mark.parametrize(("sizes", "card_mib", "order"), [
+    ((16_810_714_592, 16_810_714_592), 32_607, "model"),  # a 27B and its 27B starting model on a 32 GB card
+    ((9_786_060_672, 9_786_060_672), 32_607, "interleaved"),  # the 9B and its starting model fit together
+    ((16_810_714_592, 16_810_714_592), 81_920, "interleaved"),
+])
+def test_models_that_cant_stay_loaded_together_run_one_after_the_other_with_the_same_results(
+        ready, monkeypatch, sizes, card_mib, order):
+    """C1, 28 Oct: a 27B and its starting model swapped on the card task by task (about 16 s a task). Each model's
+    runs now come together when both can't stay loaded, and the results are exactly the interleaved ones."""
+
+    def compared(card: int):
+        FakeWorker.instances.clear()
+        comparer = _comparer(ready)
+        comparer._card_mib = lambda: card  # noqa: SLF001
+        monkeypatch.setattr(comparer, "_local_sizes", lambda version, state, base_key: list(sizes))
+        result = comparer.run(1)
+        return result, [arm for _task, arm, _budget in FakeWorker.instances[0].asked]
+
+    result, arms = compared(card_mib)
+    reference, interleaved = compared(1_000_000)  # a card that holds both: the order as it always was
+
+    local = [arm for arm in arms if arm != "main"]  # the main model's answers are kept, so asked once
+    switches = sum(1 for before, after in zip(local, local[1:]) if before != after)
+    if order == "model":
+        assert switches == 3  # visible: all of base, then all of v1; hidden: base again, then v1
+    else:
+        assert local == [arm for arm in interleaved if arm != "main"] and switches > 3
+    assert result["rows"] == reference["rows"] and result["overall"] == reference["overall"]
+
+
+def test_stop_ends_the_worker_mid_task_and_reads_as_stopped_never_failed(ready, monkeypatch):
+    """C1, 28 Oct: Stop ended the worker mid-task, its run had no result, and the version said "Row-Bot couldn't
+    compare v25. It tries again later." """
+
+    stop = threading.Event()
+
+    def run(self, task, arm, *, budget, timeout=0):
+        stop.set()  # the person clicked Stop: the worker is ended while this task runs
+        raise RuntimeError("no_result")
+
+    monkeypatch.setattr(FakeWorker, "run", run)
+
+    with pytest.raises(model_compare.CompareError) as stopped:
+        _comparer(ready).run(1, stop=stop)
+
+    assert stopped.value.code == "stopped"
+    assert model_compare.read_progress(1, ready)["state"] == "stopped"
+
+
+@pytest.mark.parametrize(("slots", "order"), [(1, "model"), (2, "interleaved")])
+def test_row_bots_own_server_decides_whether_two_models_stay_loaded(ready, slots, order):
+    """28 Oct evening: the 9B pair (both fit the card) still swapped, because Row-Bot's own server keeps one model
+    at a time once a 27B is registered there; its own --models-max now decides the order."""
+
+    comparer = _comparer(ready)
+    comparer._server_slots = lambda: slots  # noqa: SLF001
+
+    assert comparer._order([9_786_060_672, 9_786_060_672], "row_bot") == order  # noqa: SLF001
+    assert comparer._order([9_786_060_672], "row_bot") == "interleaved"  # noqa: SLF001
+

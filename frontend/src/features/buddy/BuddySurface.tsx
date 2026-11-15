@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
-import { Button, EmptyState, Hint, IconButton } from '../../ui/primitives';
-import { PictureInPicture2 } from 'lucide-react';
+import { Button, EmptyState } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import BuddyPanel, { type BuddyPanelSession } from './BuddyPanel';
+import { BuddyCard } from './BuddyCard';
 import { BuddyAvatar, rememberBuddyMedia } from './BuddyAvatar';
 import {
   BuddyDockButton,
@@ -14,6 +14,7 @@ import {
 } from './BuddyGesture';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 import glyph from '../../assets/row_bot_glyph_256.png';
+import { useProactiveGlance } from '../proactive/SidebarMoment';
 
 export {
   BuddyAvatar,
@@ -34,7 +35,15 @@ function Avatar(props: Omit<Parameters<typeof BuddyAvatar>[0], 'loadMedia'>) {
       ),
     [controller],
   );
-  return <BuddyAvatar {...props} loadMedia={loadMedia} />;
+  // Proactive: a moment waiting gives Buddy its "something for you" face.
+  const glance = useProactiveGlance();
+  return (
+    <BuddyAvatar
+      {...props}
+      glance={!props.preview && glance}
+      loadMedia={loadMedia}
+    />
+  );
 }
 
 function GlobalBuddy() {
@@ -98,44 +107,28 @@ function GlobalBuddy() {
       </aside>
     );
   return (
-    <aside className="buddy-companion" aria-label="Buddy companion">
-      {/* The sidebar shows no name beside the avatar; it is the tooltip (B225). */}
-      <Hint label={snapshot.preferences.display_name || 'Buddy'}>
-        <Button
-          aria-label="Buddy settings"
-          variant="ghost"
-          onClick={() => navigate('/settings/buddy')}
+    <BuddyCard
+      snapshot={snapshot}
+      avatar={
+        <BuddyDragHandle
+          platform={platform}
+          onTornOff={() => buddyPlacement.setPlacement('desktop')}
         >
-          <BuddyDragHandle
-            platform={platform}
-            onTornOff={() => buddyPlacement.setPlacement('desktop')}
-          >
-            <Avatar conversation={null} pack={pack} snapshot={snapshot} />
-          </BuddyDragHandle>
-        </Button>
-      </Hint>
-      <span className="buddy-companion-text">
-        <span className="buddy-companion-name">
-          {snapshot.preferences.display_name || 'Buddy'}
-        </span>
-        {snapshot.preferences.bubble_verbosity !== 'quiet' &&
-          !snapshot.preferences.collapsed && (
-            <p role="status">
-              {snapshot.status.label || 'Ready when you are.'}
-            </p>
-          )}
-      </span>
-      {buddyPlacement.supported && (
-        <IconButton
-          size="sm"
-          className="buddy-undock"
-          label="Undock Buddy"
-          onClick={() => void buddyPlacement.tearOff()}
-        >
-          <PictureInPicture2 size={15} aria-hidden />
-        </IconButton>
-      )}
-    </aside>
+          <Avatar conversation={null} pack={pack} snapshot={snapshot} />
+        </BuddyDragHandle>
+      }
+      portrait={<Avatar conversation={null} pack={pack} snapshot={snapshot} />}
+      showStatus={
+        snapshot.preferences.bubble_verbosity !== 'quiet' &&
+        !snapshot.preferences.collapsed
+      }
+      onSettings={() => navigate('/settings/buddy')}
+      onUndock={
+        buddyPlacement.supported
+          ? () => void buddyPlacement.tearOff()
+          : undefined
+      }
+    />
   );
 }
 
@@ -272,6 +265,7 @@ function OwnedBuddy({
         settingsOpen={settings}
         initialPrompt={initialPrompt}
         companionVisible={!settings && buddyPlacement.placement === 'docked'}
+        desktopPet={buddyPlacement.supported}
         onSettings={() => {
           // Navigate before closing (B17): closing first queues a history
           // step back that would land after the push and undo the route.
@@ -296,6 +290,13 @@ function OwnedBuddy({
               snapshot={snapshot}
             />
           </BuddyDragHandle>
+        )}
+        renderPortrait={(snapshot) => (
+          <Avatar
+            conversation={conversation}
+            pack={view.selectedPack}
+            snapshot={snapshot}
+          />
         )}
         renderPackPreview={(pack) =>
           view.snapshot && (

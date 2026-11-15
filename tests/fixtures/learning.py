@@ -74,6 +74,39 @@ def save_learning_settings(root: Path, **values: Any) -> None:
     learning.invalidate()
 
 
+def stand_in_small_model(patch: Any, files: tuple[Any, ...], *, need_mib: int = 8_192,
+                         system_mib: int = 12_288) -> Any:
+    """A stand-in smaller model certified for 16 GB cards and up beside the 9B (the 32 GB tier's): the
+    smaller- and stronger-model offers need two certified models (O112, O124), and since T1 the 9B is the
+    only one (Part 4 brings other families). ``patch(owner, name, value)`` is ``monkeypatch.setattr`` in
+    tests, or the browser fixture's own (put back by its restore); ``files`` are the model's pinned files
+    (fakes on a download world's index, or a real pin's when the download is faked)."""
+
+    import dataclasses
+
+    from row_bot import learning
+    from row_bot.learning.training import hardware, recipes, weights
+
+    small = weights.PinnedModel("test-small", "A small model", "Test/Small", "c" * 40, "Apache 2.0", "apache-2.0",
+                                tuple(files))
+    patch(weights, "MODELS", {**weights.MODELS, small.id: small})
+    patch(hardware, "STARTING_MODELS", {**hardware.STARTING_MODELS,
+                                        small.id: hardware._starting(small)})  # noqa: SLF001
+    patch(learning, "STARTING_MODELS", (small.id, *learning.STARTING_MODELS))
+    load = recipes.load
+    nine = load("32gb")
+    loaded = {"16gb": dataclasses.replace(load("16gb"), starting_model=small.id, memory_mib=need_mib)}
+    patch(recipes, "load", lambda recipe_id: loaded.get(recipe_id) or load(recipe_id))
+    patch(hardware, "TIERS", (
+        hardware.Tier("16gb", "16 GB", 15_000, True, "Can train small models on your tasks.",
+                      (hardware._starting(small),), system_mib, need_mib),  # noqa: SLF001
+        hardware.Tier("24gb", "24 GB", 23_000, False, "measured soon"),
+        hardware.Tier("32gb", "32 GB", 30_000, True, "Can train models up to about 9B on your tasks.",
+                      (hardware.QWEN35_9B,), nine.system_memory_need(), nine.memory_mib),
+    ))
+    return small
+
+
 def learning_files(*roots: Path) -> list[str]:
     """Every Learning file or folder under the given data folders."""
 

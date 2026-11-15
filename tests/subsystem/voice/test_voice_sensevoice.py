@@ -307,3 +307,27 @@ def test_browser_voice_uses_the_whisper_size_saved_after_start() -> None:
     )
     assert browser.speech_input_status("talk").ready
     assert service.whisper_size == "base"
+
+
+def test_listening_with_no_sound_system_says_no_microphone_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Where no sound system answers (Linux without PulseAudio), importing sounddevice itself fails."""
+    import builtins
+    import sys
+
+    real_import = builtins.__import__
+
+    def no_sound(name, *args, **kwargs):
+        if name == "sounddevice":
+            raise OSError("Error initializing PortAudio: PulseAudio_Initialize: Can't connect to server")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delitem(sys.modules, "sounddevice", raising=False)
+    monkeypatch.setattr(builtins, "__import__", no_sound)
+    service = VoiceService()
+    monkeypatch.setattr(service, "_ensure_selected_stt_model", lambda: None)
+    service._set_state("listening")
+
+    service._run()
+
+    assert service.status_queue.get_nowait() == "No microphone detected on this system"
+    assert service.state == "stopped"

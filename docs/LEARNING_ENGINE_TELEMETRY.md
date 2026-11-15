@@ -69,6 +69,33 @@ llama.cpp's server with `--offline --no-webui --host 127.0.0.1`, vLLM), which Ro
 `127.0.0.1` only. Row-Bot's own checks (its readiness probe and one Agent turn with the calculator)
 run against that local server.
 
+## Training on Hugging Face
+
+A person who chooses **Where to train: Hugging Face** trains in their **own** Hugging Face account; the model
+then runs on their computer, as above. What leaves the computer, and when:
+
+- **Sign in with Hugging Face** (OAuth, device code): Row-Bot registers itself once as a public client of
+  Hugging Face (no secret), asks for a code with the scopes `openid profile jobs contribute-repos read-billing`,
+  and the person authorizes on Hugging Face's own page. The tokens stay in the system keychain only; Sign out
+  removes them.
+- **The price list** (`GET https://huggingface.co/api/jobs/hardware`, no sign-in, cached for hours) once the
+  person has chosen Hugging Face, for the quote.
+- **The model's tokenizer** (its small pinned files, about 25 MB, never its weights), downloaded once and
+  checked against its pins, to count each training row's tokens exactly before anything is uploaded.
+- **A run, only after the person agrees to its quote** (the first run; later runs start in quiet hours only
+  within the monthly cap they chose): a private dataset repository holding the training rows the run uses
+  (the serving shape, the same rows a run here would use; never chat databases, memories, files or anything
+  else) and Row-Bot's own engine files; a private model repository for the results; one job whose only
+  secret is the person's token. Both repositories are deleted once the trained model is downloaded and
+  checked, or when the run is cancelled or fails; Learning says so.
+- **Hugging Face's own library** (`huggingface_hub`, part of Row-Bot's full install) makes these calls with
+  `HF_HUB_DISABLE_TELEMETRY=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` (it never uses a token found on the
+  computer) and `DO_NOT_TRACK=1`. Inside the job the same switches as the engine's are set for every
+  process, the training process runs under the engine's network guard (no network at all while it trains),
+  and the job reports to Row-Bot only through its own log lines (stages, step counts, losses and times).
+
+Row-Bot sends Hugging Face nothing else, and adds no telemetry of its own.
+
 ## How it is tested
 
 - `tests/subsystem/learning/test_learning_engine_lock.py`: no build of the engine (CUDA 13.0 and
@@ -86,3 +113,8 @@ run against that local server.
   asked for their models only on this computer.
 - `tests/e2e/learning/test_learning_personal_model_e2e.py` (opt-in, L2c): real training, export and
   serving with the process tree's connections sampled: none that weren't this computer.
+- `tests/subsystem/learning/test_learning_hugging_face.py`, `test_learning_hugging_face_api.py` and
+  `test_learning_hugging_face_auth.py` (C1, a fake Hub): only the rows and the engine's files are uploaded,
+  to a private dataset; the token is a job secret only and never in a file, log or snapshot; every OAuth
+  request goes to `huggingface.co`; the uploads are deleted after; a submission without an answer is found
+  by its label and never sent twice.

@@ -47,8 +47,9 @@ it('applies appearance choices immediately and previews them', () => {
       </ThemeProvider>
     </MemoryRouter>,
   );
-  const appearance = screen.getByRole('combobox', { name: /^Appearance/ });
-  fireEvent.change(appearance, { target: { value: 'light' } });
+  // The look is chosen from its card alone: no second control for it (U37).
+  expect(screen.queryByRole('combobox', { name: /^Appearance/ })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Light' }));
   expect(document.documentElement.dataset.theme).toBe('light');
   fireEvent.change(screen.getByRole('combobox', { name: /^Colour theme/ }), {
     target: { value: 'violet' },
@@ -57,16 +58,15 @@ it('applies appearance choices immediately and previews them', () => {
   expect(
     screen.getByRole('figure', { name: /Light appearance, Violet accent/ }),
   ).toBeVisible();
-  fireEvent.change(appearance, { target: { value: 'system' } });
-  // System previews both looks side by side.
-  expect(document.querySelectorAll('.appearance-mini')).toHaveLength(2);
+  // System, Light and Dark each preview their look.
+  expect(document.querySelectorAll('.appearance-mini')).toHaveLength(3);
   fireEvent.click(screen.getByRole('switch', { name: 'Reduce transparency' }));
   expect(document.documentElement.dataset.opaque).toBe('true');
   fireEvent.click(screen.getByRole('button', { name: 'Reset layout' }));
   expect(reset).toHaveBeenCalledOnce();
 });
 
-it('chooses a look from its preview card, and says plainly what System does', async () => {
+it('chooses a look from its card, and says plainly what System does', () => {
   render(
     <MemoryRouter>
       <ThemeProvider>
@@ -76,23 +76,20 @@ it('chooses a look from its preview card, and says plainly what System does', as
       </ThemeProvider>
     </MemoryRouter>,
   );
-  const appearance = screen.getByRole('combobox', { name: /^Appearance/ });
-  fireEvent.change(appearance, { target: { value: 'system' } });
+  const system = screen.getByRole('button', {
+    name: /^System, follows your device/,
+  });
+  fireEvent.click(system);
+  expect(system).toHaveAttribute('aria-pressed', 'true');
   // System isn't "light by day": it follows whatever the device uses.
   expect(screen.queryByText(/by day/)).toBeNull();
-  // The look the device uses now is marked, but neither is chosen.
-  expect(
-    await screen.findByRole('button', { name: 'Light, in use now' }),
-  ).toHaveAttribute('aria-pressed', 'false');
   fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
   expect(document.documentElement.dataset.theme).toBe('dark');
-  expect(appearance).toHaveValue('dark');
   expect(screen.getByRole('button', { name: 'Dark' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Light' }));
-  expect(appearance).toHaveValue('light');
+  expect(system).toHaveAttribute('aria-pressed', 'false');
 });
 
 it('moves Learn new skills to Settings › Learning in a Learning preview build (D29)', () => {

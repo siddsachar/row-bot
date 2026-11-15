@@ -9,6 +9,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { setPlace } from '../../api/place';
 import { resolveSetting, settingsGroups, settingsLeaves } from './model';
 import SettingsShell from './SettingsShell';
 import {
@@ -180,6 +181,39 @@ it('finds pages and individual settings, then jumps to the matching row', async 
   expect(screen.getByText('No settings found.')).toBeVisible();
   await user.keyboard('{Escape}');
   expect(search).toHaveValue('');
+});
+
+it('on a hosted Row-Bot, search finds no Network or Public link rows: its host runs the network', async () => {
+  const user = userEvent.setup();
+  const find = async (words: string) => {
+    const search = screen.getByRole('searchbox', { name: 'Find a setting' });
+    await user.clear(search);
+    await user.type(search, words);
+    return screen.queryByRole('list', { name: 'Matching settings' });
+  };
+  try {
+    setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+    const hosted = show('/settings/providers');
+    expect(await find('ngrok')).toBeNull();
+    expect(await find('allowed addresses')).toBeNull();
+    // Connecting a phone is still found.
+    expect(
+      within((await find('qr'))!).getByRole('link', {
+        name: /Connect a phone or computer/,
+      }),
+    ).toBeVisible();
+    hosted.unmount();
+
+    setPlace({ kind: 'server' });
+    show('/settings/providers');
+    expect(
+      within((await find('ngrok'))!).getByRole('link', {
+        name: /Public link/,
+      }),
+    ).toBeVisible();
+  } finally {
+    setPlace(null);
+  }
 });
 
 it('moves through results with the arrow keys and opens the chosen one with Enter', async () => {
@@ -357,4 +391,62 @@ it('has no Agents group; search still finds the Agent profile library, whose lin
   expect(
     within(rows).getByRole('link', { name: /Agent profile library/ }),
   ).toHaveAttribute('href', '/settings/profiles');
+});
+
+function onPhone() {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+
+it('on a phone opens on the list of pages, and each page has its way back to it (D6)', async () => {
+  onPhone();
+  try {
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <Routes>
+          <Route path="settings" element={<SettingsShell />} />
+          <Route path="settings/:setting" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const list = screen.getByRole('navigation', { name: 'Settings sections' });
+    expect(within(list).getAllByRole('link')).toHaveLength(
+      settingsLeaves.length,
+    );
+    // The tab bar takes Close's place; no page shows beside the list.
+    expect(screen.queryByRole('link', { name: 'Close settings' })).toBeNull();
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
+
+    await userEvent.click(
+      within(list).getByRole('link', { name: 'Documents' }),
+    );
+    expect(screen.getByText('Documents owner')).toBeVisible();
+    expect(
+      screen.queryByRole('combobox', { name: 'Settings section' }),
+    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Back to Settings' }),
+    );
+    expect(screen.queryByText('Documents owner')).toBeNull();
+    expect(
+      screen.getByRole('navigation', { name: 'Settings sections' }),
+    ).toBeVisible();
+  } finally {
+    vi.mocked(window.matchMedia).mockImplementation(
+      (query: string) =>
+        ({
+          matches: false,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList,
+    );
+  }
 });

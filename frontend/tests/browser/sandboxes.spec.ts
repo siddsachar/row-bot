@@ -37,7 +37,7 @@ test('Settings › Data makes a sandbox from a made-up pack, and deletes it afte
   await form.getByLabel('Name').fill('Demo shop');
   await form
     .getByLabel('Starts with')
-    .selectOption({ label: 'A small shop, with its own web app' });
+    .selectOption({ label: 'A small shop, with its own web app and inbox' });
   await form.getByRole('button', { name: 'New sandbox' }).click();
   const row = section
     .getByRole('list', { name: 'Sandboxes' })

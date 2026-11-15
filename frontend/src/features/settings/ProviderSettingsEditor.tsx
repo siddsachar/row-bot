@@ -4,13 +4,14 @@ import {
   useProviderSettingsValue,
 } from './provider-settings-sessions';
 import { clientError } from '../../api/errors';
+import { usePlace } from '../../api/place';
 import type {
   ProviderKeyCheck,
   ProviderSettingsSnapshot,
 } from '../../api/types';
 import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
 import { apiKeyLabel, credentialSourceLabel } from '../../ui/format';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, KeyRound, RefreshCw, Trash2, X } from 'lucide-react';
 import {
   keyFormatHint,
   keyFormatWarning,
@@ -65,6 +66,8 @@ export default function ProviderSettingsEditor(
   const { providerId, load, review, apply, receipt, onSaved, onCancel } = props;
   const keyInfo = PROVIDER_KEYS[providerId];
   const hintId = useId();
+  const place = usePlace();
+  const server = place.kind === 'this_computer' ? undefined : place.name;
   const check = keyInfo ? props.check : undefined;
   const local = useRef<ProviderSettingsSession | null>(null);
   if (!local.current || local.current.providerId !== providerId)
@@ -279,7 +282,12 @@ export default function ProviderSettingsEditor(
       if (!alive(generation)) return;
       if (result.provider_id !== providerId)
         throw { code: 'operation_uncertain' };
-      setSnapshot(result);
+      // A result without the provider's name keeps the one shown (I1).
+      setSnapshot(
+        result.display_name && result.display_name !== providerId
+          ? result
+          : { ...result, display_name: snapshot.display_name },
+      );
       setPending(null);
       session.resolved();
       setNotice(
@@ -307,22 +315,36 @@ export default function ProviderSettingsEditor(
         aria-label="Provider credential settings"
         aria-busy={!!busy}
       >
-        <h2>{apiKeyLabel(snapshot?.display_name)}</h2>
+        <h2 className="settings-key-title">
+          {apiKeyLabel(snapshot?.display_name)}
+        </h2>
         {busy === 'load' && <Skeleton label="Loading API key status" />}
         {error && (
           <p role="alert" className="settings-key-error">
             {error}
           </p>
         )}
-        {notice && <p role="status">{notice}</p>}
+        {/* "API key saved." is what the status line now says: read out, not shown twice (I1). */}
+        {notice && (
+          <p
+            role="status"
+            className={
+              notice === 'API key saved.' && snapshot?.configured
+                ? 'sr-only'
+                : undefined
+            }
+          >
+            {notice}
+          </p>
+        )}
         {snapshot && (
           <>
-            <p>
+            <p className="settings-key-state">
               {snapshot.configured ? 'Connected' : 'Not connected'} ·{' '}
               {snapshot.configured
                 ? snapshot.source === 'keyring'
                   ? 'Saved in keyring'
-                  : `Key saved · ${credentialSourceLabel(snapshot.source) || 'on this computer'}`
+                  : `Key saved · ${credentialSourceLabel(snapshot.source, server) || `on ${place.name}`}`
                 : 'No saved key'}
             </p>
             {snapshot.externally_managed ? (
@@ -350,6 +372,11 @@ export default function ProviderSettingsEditor(
                     value={secret}
                     maxLength={16384}
                     disabled={locked}
+                    placeholder={
+                      snapshot.configured
+                        ? 'Paste a new key to replace the saved one'
+                        : undefined
+                    }
                     aria-describedby={keyInfo ? hintId : undefined}
                     onChange={(event) => {
                       setSecret(event.target.value);
@@ -372,14 +399,24 @@ export default function ProviderSettingsEditor(
                 {keyInfo && (
                   <p className="settings-help">
                     Saving sends the key to {snapshot.display_name} to check it,
-                    then keeps it in this computer's keychain.
+                    then keeps it{' '}
+                    {place.kind === 'this_computer'
+                      ? "in this computer's keychain"
+                      : `encrypted ${place.on}`}
+                    .
                   </p>
                 )}
                 <div className="actions">
                   <Button
+                    variant="primary"
                     disabled={locked || !secret.trim()}
                     onClick={() => void performDirect('save')}
                   >
+                    {snapshot.configured ? (
+                      <RefreshCw size={15} aria-hidden />
+                    ) : (
+                      <KeyRound size={15} aria-hidden />
+                    )}
                     {busy === 'check'
                       ? 'Checking…'
                       : snapshot.configured
@@ -391,6 +428,7 @@ export default function ProviderSettingsEditor(
                       disabled={locked}
                       onClick={() => void performDirect('clear')}
                     >
+                      <Trash2 size={15} aria-hidden />
                       Clear key
                     </Button>
                   )}
@@ -406,6 +444,7 @@ export default function ProviderSettingsEditor(
             </Button>
           )}
           <Button disabled={!!busy || !!pending} onClick={onCancel}>
+            <X size={15} aria-hidden />
             Close
           </Button>
         </div>

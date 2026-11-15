@@ -8,7 +8,6 @@ import textwrap
 import pytest
 
 from scripts.check_client_platform_boundaries import boundary_paths, inspect_source, presentation_violations
-from tests.helpers.access import person_window
 
 pytestmark = pytest.mark.subsystem
 
@@ -75,7 +74,7 @@ def test_real_headless_generation_and_shutdown_with_presentation_imports_unavail
             yield "output_binding", {"native_message_id": native_id, "checkpoint_revision": threads.get_latest_checkpoint_revision(tid)}
             yield "done", "Synthetic headless result"
         service = ClientPlatformService(stream_factory=producer)
-        create_client_platform_app(service, session_authenticator=person_window)
+        create_client_platform_app(service)
         lifecycle = ApplicationLifecycle(registry=service.registry)
         def execute(kind, target, payload, revision="0"):
             return service.execute(owner_id="fixture-owner", idempotency_key=str(uuid4()), target=target,

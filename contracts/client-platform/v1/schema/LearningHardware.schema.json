@@ -199,6 +199,11 @@
         }
       ]
     },
+    "hugging_face": {
+      "default": false,
+      "title": "Hugging Face",
+      "type": "boolean"
+    },
     "larger_tiers": {
       "items": {
         "$ref": "#/$defs/LearningTier"

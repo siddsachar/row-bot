@@ -417,7 +417,7 @@ def fake_engine_site(root: Path, *, cuda: bool = True, seen: Path | None = None,
 
 # ── A whole download: a fake lock and Hub, and the app's download wired to them ──
 
-GPU_CHECK = {"name": "NVIDIA GeForce RTX 5070 Laptop GPU", "memory_mib": 8151, "driver": "596.08"}
+GPU_CHECK = {"name": "NVIDIA GeForce RTX 5060 Ti GPU", "memory_mib": 16311, "driver": "596.08"}
 FAKE_WEIGHTS = bytes(range(256)) * 4096 * 2  # 2 MiB
 FAKE_LICENCE = b"Apache License\nVersion 2.0\n"
 
@@ -468,12 +468,12 @@ def download_world(root: Path, tmp_path: Path, monkeypatch: Any) -> Iterator[Dow
             digest = hashlib.sha256(data).hexdigest()
             index.add(f"/cdn/{digest}", data)
             files.append(weights.WeightFile(name, len(data), digest))
-        model = weights.PinnedModel("qwen3.5-2b", "Qwen3.5 2B", "Qwen/Qwen3.5-2B", "a" * 40, "Apache 2.0",
+        model = weights.PinnedModel("qwen3.5-9b", "Qwen3.5 9B", "Qwen/Qwen3.5-9B", "a" * 40, "Apache 2.0",
                                     "apache-2.0", tuple(files))
         for item in model.files:
             index.redirects[f"/{model.repo}/resolve/{model.revision}/{item.name}"] = f"/cdn/{item.sha256}"
         monkeypatch.setattr(weights, "MODELS", {model.id: model})
-        monkeypatch.setattr(weights, "QWEN35_2B", model)
+        monkeypatch.setattr(weights, "QWEN35_9B", model)
         engine.forget_status()
         try:
             yield DownloadWorld(Path(root), index, model)

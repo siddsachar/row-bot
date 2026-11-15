@@ -1,5 +1,29 @@
 {
   "$defs": {
+    "HostTrial": {
+      "additionalProperties": false,
+      "description": "A host's trial server, by its memory (A4): what works there, and the host's page to upgrade.",
+      "properties": {
+        "note": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "upgrade_url": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Upgrade Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "note",
+        "upgrade_url"
+      ],
+      "title": "HostTrial",
+      "type": "object"
+    },
     "OnboardingImportSource": {
       "additionalProperties": false,
       "properties": {
@@ -53,7 +77,7 @@
             "maxLength": 32,
             "type": "string"
           },
-          "maxItems": 11,
+          "maxItems": 13,
           "title": "Completed Steps",
           "type": "array"
         },
@@ -73,6 +97,40 @@
         "dismissed_home_card": {
           "title": "Dismissed Home Card",
           "type": "boolean"
+        },
+        "dismissed_phone_card": {
+          "default": false,
+          "title": "Dismissed Phone Card",
+          "type": "boolean"
+        },
+        "dismissed_spending_limit": {
+          "default": false,
+          "title": "Dismissed Spending Limit",
+          "type": "boolean"
+        },
+        "host_name": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host Name"
+        },
+        "host_trial": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostTrial"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "import_sources": {
           "items": {
@@ -95,7 +153,7 @@
             "maxLength": 32,
             "type": "string"
           },
-          "maxItems": 11,
+          "maxItems": 13,
           "title": "Live Done",
           "type": "array"
         },
@@ -103,6 +161,19 @@
           "default": false,
           "title": "Needs Model",
           "type": "boolean"
+        },
+        "phone_card_conversation": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phone Card Conversation"
         },
         "profile": {
           "items": {
@@ -132,7 +203,7 @@
             "maxLength": 32,
             "type": "string"
           },
-          "maxItems": 11,
+          "maxItems": 13,
           "title": "Skipped Steps",
           "type": "array"
         },
@@ -146,7 +217,7 @@
           "items": {
             "$ref": "#/$defs/OnboardingStep"
           },
-          "maxItems": 11,
+          "maxItems": 13,
           "title": "Steps",
           "type": "array"
         }

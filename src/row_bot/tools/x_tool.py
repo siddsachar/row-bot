@@ -46,7 +46,7 @@ _TOKEN_URL = x_accounts.TOKEN_URL
 # ── OAuth 2.0 scopes ────────────────────────────────────────────────────────
 _SCOPES = (
     "tweet.read tweet.write users.read like.read like.write "
-    "bookmark.read bookmark.write offline.access"
+    "bookmark.read bookmark.write media.write offline.access"
 )
 
 # Fixed port for OAuth callback — must match what user registers in X Developer Portal
@@ -347,7 +347,8 @@ class _XPostInput(BaseModel):
     media_paths: Optional[List[str]] = Field(
         default=None,
         description=(
-            "Optional list of file paths for media to attach. "
+            "Optional media to attach, each a file in this chat by its name, a Library › Media item by its "
+            "reference (from media_find), or a file path. "
             "Supports pictures (JPEG, PNG, WebP, GIF) and videos (MP4, MOV). "
             "Max 4 pictures, or 1 video or GIF, per post."
         ),
@@ -356,7 +357,8 @@ class _XPostInput(BaseModel):
     post_at: Optional[str] = Field(
         default=None,
         description=("When it goes out, if not now: a local time like '13:00' or '2026-10-29T09:30', up to 7 days "
-                     "ahead. The person approves it now; Row-Bot posts it then."),
+                     "ahead. Its card waits for the person in Home › Review (several posts made in one step wait "
+                     "there together); approved, Row-Bot posts it then."),
     )
 
 
@@ -815,7 +817,8 @@ class XTool(BaseTool):
         except XAccountChoice as exc:
             return str(exc)
 
-        max_results = max(1, min(max_results, 100))
+        # A model sends null for "the default": that was a TypeError on every read (R7).
+        max_results = max(1, min(int(max_results or 10), 100))
 
         if action == "search":
             if not self._is_op_enabled("x_search"):
@@ -980,12 +983,25 @@ class XTool(BaseTool):
             words, target = x_posting.check_text(action, text, tweet_id)
             chosen = x_accounts.resolve(account, required=True)
             x_posting.check_length(chosen, action, words)
-            media = x_posting.media_facts(media_paths) if action != "delete" else []
+            from row_bot.tool_outputs import current_thread_id
+
+            media = (x_posting.media_facts(media_paths, str(current_thread_id() or "")) if action != "delete"
+                     else [])
+            if media and not x_accounts.can_post_media(chosen):
+                # Before any card: the person reconnects once, then the post with its pictures can go.
+                return (f"{x_accounts.media_reconnect(chosen)} Ask the person (ask_person) to do that, with Done as "
+                        "the recommended option, then make the post again. Nothing was sent to X.")
             if post_at and action == "delete":
                 raise x_posting.XPostError("A delete happens at once; leave post_at out.")
-            when = x_posting.slot(post_at)
+            # A time that passed while the card waited goes at once, on a new card that says so (R8).
+            when = x_posting.slot(post_at, late_ok=True)
+            late = bool(post_at) and when is None
         except (x_posting.XPostError, XAccountChoice) as exc:
             return str(exc)
+        if action in ("reply", "quote") and x_posting.summoned(chosen, target) is False:
+            # X's reply rule would refuse it after approval: no card, the draft for the person instead.
+            return (x_posting.by_hand(chosen, action, words, target)
+                    + "\n\nGive the person the draft and the link. Don't post it another way.")
         target_text = x_posting.read_text(chosen, target) if action == "delete" else ""
         edited = False
         while True:
@@ -1017,6 +1033,8 @@ class XTool(BaseTool):
                 sent = str(exc)
         if edited:
             sent = f"The person edited the post on its card, then approved it as edited:\n{words}\n\n{sent}"
+        if late and refusal is None:
+            sent = f"Its time ({post_at}) had passed, so it went out at once.\n{sent}"
         return with_approval(line, sent) if line else sent
 
     # ── Engage operations ────────────────────────────────────────────────────

@@ -384,7 +384,7 @@ def test_xai_oauth_image_generation_missing_token_returns_reconnect_guidance(oau
 
     assert "Image generation failed" in result
     assert "reconnected" in result
-    assert "Settings -> Providers -> xAI Grok" in result
+    assert "Settings › Models › xAI Grok" in result
 
 
 def test_xai_oauth_image_edit_sends_data_url_body(oauth_store, monkeypatch):

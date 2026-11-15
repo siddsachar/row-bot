@@ -91,7 +91,9 @@ export function trainingLive(training: LearningTraining | null | undefined) {
   return (
     training?.state === 'preparing' ||
     training?.state === 'running' ||
-    training?.state === 'pausing'
+    training?.state === 'pausing' ||
+    // C1: a Hugging Face run whose contact is lost is still live ("Checking…").
+    training?.state === 'unknown_remote'
   );
 }
 

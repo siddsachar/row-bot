@@ -28,8 +28,17 @@ function card(io: LearningIO) {
   );
 }
 
+// A starting model of 4.6 GB beside a 2.2 GB engine: the download's 6.8 GB in all (the sizes these words use).
+const SMALL_START = {
+  id: 'qwen3.5-9b',
+  name: 'Qwen3.5 9B',
+  licence: 'Apache 2.0',
+  download_bytes: 4_571_272_453,
+};
+
 const downloading = (overrides = {}) =>
   personalModel({
+    starting_model: SMALL_START,
     download: 'waiting',
     download_state: downloadState({
       state: 'downloading',
@@ -49,7 +58,7 @@ it('downloading shows bytes and percent of the whole download, with a real bar a
   // O49: the title names both parts while the total holds both, with the bytes.
   expect(
     screen.getByText(
-      'Downloading the training engine and Qwen3.5 2B · 1.2 of 6.8 GB',
+      'Downloading the training engine and Qwen3.5 9B · 1.2 of 6.8 GB',
     ),
   ).toBeVisible();
   expect(screen.getByText('17% · now the training engine')).toBeVisible();
@@ -72,8 +81,8 @@ it('installing and checking the engine have no bar (no denominator) but can stop
     expect(view.actions.map((item) => item.label)).toEqual(['Stop']);
   }
   expect(downloadView(downloading({ phase: 'model' }))!).toMatchObject({
-    title: 'Downloading the training engine and Qwen3.5 2B · 1.2 of 6.8 GB',
-    detail: '17% · now Qwen3.5 2B',
+    title: 'Downloading the training engine and Qwen3.5 9B · 1.2 of 6.8 GB',
+    detail: '17% · now Qwen3.5 9B',
   });
   // Only the starting model left to download (the engine is installed): its own name.
   expect(
@@ -88,7 +97,7 @@ it('installing and checking the engine have no bar (no denominator) but can stop
         }),
       }),
     )!.title,
-  ).toBe('Downloading Qwen3.5 2B · 2.3 of 4.6 GB');
+  ).toBe('Downloading Qwen3.5 9B · 2.3 of 4.6 GB');
 });
 
 it('a paused download says where it stopped, with Resume and a Cancel that asks first', async () => {
@@ -190,7 +199,7 @@ it('the ask names where it comes from and says usage reporting is off, and check
     </OverlayProvider>,
   );
   const ask = await screen.findByRole('dialog', {
-    name: 'Download the training engine and Qwen3.5 2B?',
+    name: 'Download the training engine and Qwen3.5 9B?',
   });
   expect(
     within(ask).getByText(

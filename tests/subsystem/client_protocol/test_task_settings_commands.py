@@ -50,6 +50,13 @@ def test_review_save_private_download_rotation_and_no_execution(task_api, fields
         assert downloaded.headers['Content-Disposition'].startswith('attachment;')
         assert downloaded.json()['headers'] == {tasks.WEBHOOK_SECRET_HEADER: secret}
         assert secret not in downloaded.json()['relative_url']
+        # Saved the one way every download saves (5.3.3): an offer, read once, with the same file.
+        offer = {'source': {'kind': 'workflow_webhook', 'task_id': task_id, 'revision': settings['revision']}}
+        offered = client.post('/api/v1/saves', json=offer, headers=headers)
+        assert offered.status_code == 200, offered.text
+        assert offered.json()['file_name'] == 'workflow-webhook.json' and secret not in offered.text
+        saved_file = client.get(f"/api/v1/attachments/{offered.json()['reference']}", headers=headers)
+        assert saved_file.status_code == 200 and saved_file.json() == downloaded.json()
         rotate = {'command_id': str(uuid4()), 'client_session_id': headers['X-Client-Session'],
                   'type': 'task.webhook.rotate', 'expected_revision': '0',
                   'payload': {'task_id': task_id, 'task_revision': settings['revision']}}
@@ -61,6 +68,7 @@ def test_review_save_private_download_rotation_and_no_execution(task_api, fields
         assert tasks.get_task(task_id)['trigger']['secret'] == newer
         stale = client.get(path + '/webhook-configuration', params={'revision': settings['revision']}, headers=headers)
         assert stale.status_code == 409
+        assert client.post('/api/v1/saves', json=offer, headers=headers).status_code == 409
         with admissions.transaction() as conn:
             receipts = str([tuple(row) for row in conn.execute('SELECT * FROM client_commands')])
         assert secret not in receipts and newer not in receipts

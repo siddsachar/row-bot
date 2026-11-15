@@ -324,3 +324,56 @@ def apply_tool_schema_compatibility(
         rejected_tool_names=rejected_names,
         enforced=True,
     )
+
+
+def is_gemini_model(model_name: str) -> bool:
+    """A Gemini model, on Google's own API or behind a gateway (``google/gemini-…``)."""
+    name = str(model_name or "").strip().lower()
+    return "gemini" in name.rsplit("/", 1)[-1]
+
+
+def without_empty_choices(schema: Any) -> Any:
+    """A copy of a JSON schema with ``""`` taken out of every ``enum``.
+
+    Gemini refuses a tool whose choices include an empty string ("enum[0]: cannot be
+    empty"). Row-Bot's optional choices offer ``""`` for "leave it unset"; without it the
+    field stays optional, so the model leaves it out instead. An enum with nothing left
+    is dropped.
+    """
+    if isinstance(schema, list):
+        return [without_empty_choices(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    cleaned = {key: without_empty_choices(value) for key, value in schema.items()}
+    if isinstance(cleaned.get("enum"), list):
+        choices = [value for value in cleaned["enum"] if value != ""]
+        if choices:
+            cleaned["enum"] = choices
+        else:
+            cleaned.pop("enum")
+        if cleaned.get("default") == "":
+            cleaned.pop("default")
+    return cleaned
+
+
+def gemini_openai_tool(tool: Mapping[str, Any]) -> dict[str, Any]:
+    """An OpenAI-format tool with its parameters made acceptable to Gemini."""
+    function = tool.get("function") if isinstance(tool.get("function"), Mapping) else None
+    if function is None or not isinstance(function.get("parameters"), Mapping):
+        return dict(tool)
+    return {**tool, "function": {**function, "parameters": without_empty_choices(dict(function["parameters"]))}}
+
+
+def gemini_tools(tools: Iterable[Any]) -> list[Any]:
+    """Tools for a Gemini binding: each as an OpenAI-format tool Gemini accepts."""
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+
+    result: list[Any] = []
+    for tool in tools:
+        try:
+            converted = tool if isinstance(tool, Mapping) and tool.get("type") == "function" else convert_to_openai_tool(tool)
+        except Exception:
+            result.append(tool)
+            continue
+        result.append(gemini_openai_tool(converted))
+    return result

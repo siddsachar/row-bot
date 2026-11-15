@@ -115,7 +115,7 @@ def test_choice_discovery_reads_metadata_without_plugin_construction_or_refresh(
     from row_bot.plugins import registry as plugin_registry, state
     from row_bot.mcp_client import runtime
     monkeypatch.setattr(model_catalog_cache, "read_model_catalog_cache", lambda: SimpleNamespace(is_stale=True))
-    monkeypatch.setattr(client_status, "picker_choices", lambda surface: [{"provider_id": "fixture",
+    monkeypatch.setattr(client_status, "picker_choices", lambda surface, current="": [{"provider_id": "fixture",
         "selection_ref": "fixture::model", "label": "Fixture", "available": True, "unavailable_reason": None,
         "billing": None, "api_key": "PRIVATE_SENTINEL"}])
     tool = SimpleNamespace(name="fixture_tool", destructive_tool_names={"fixture_delete"},
@@ -820,6 +820,39 @@ def test_approval_response_uses_control_reserve_after_mutation_saturation():
                                headers={**headers, "Idempotency-Key": str(uuid4())})
         assert response.status_code == 200, response.text
         assert len(service.commands) == 1
+
+
+def test_the_card_reads_its_approval_after_background_reads_use_up_their_budget():
+    """A reply sets off many reads at once; the new card still loads what it asks."""
+    service = Service()
+    service.get_approval = lambda _: {"id": "fixture-approval", "status": "pending", "revision": "0",
+                                     "expires_at": None, "policy_revision": "1", "action_digest": "fixture-digest"}
+    security = ClientSecurity("fixture-instance", clock=lambda: 10)
+    app = create_client_platform_app(service, security=security, choices=lambda: {"models": [], "capabilities": []}, session_authenticator=person_window)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 1234)) as client:
+        handshake, headers = bootstrap(client)
+        current = security._sessions[handshake["client_session_id"]]
+        with pytest.raises(ProtocolError, match="rate_limited"):
+            for _ in range(31):
+                security.rate(current, "query")
+        response = client.get("/api/v1/approvals/fixture-approval", headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["nonce"]
+
+
+def test_a_sent_files_card_reads_after_background_reads_use_up_their_budget():
+    """The card the person is looking at is a view, not a background read (5.3.1)."""
+    service = Service()
+    security = ClientSecurity("fixture-instance", clock=lambda: 10)
+    app = create_client_platform_app(service, security=security, choices=lambda: {"models": [], "capabilities": []}, session_authenticator=person_window)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 1234)) as client:
+        handshake, headers = bootstrap(client)
+        current = security._sessions[handshake["client_session_id"]]
+        with pytest.raises(ProtocolError, match="rate_limited"):
+            for _ in range(31):
+                security.rate(current, "query")
+        response = client.get("/api/v1/deliveries/fixture-delivery", headers=headers)
+        assert response.status_code != 429, response.text
 
 
 def test_nonce_current_policy_fingerprint_revokes_same_action_without_leaking_policy():

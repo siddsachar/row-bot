@@ -178,6 +178,24 @@ def test_the_turn_context_says_what_the_turn_leaves_out(conversation):
     assert "NOT IN THIS TURN: nothing" in fields["turn_scope"].cleared  # said once the next turn has no scope
 
 
+def test_the_mcp_guide_the_index_names_loads_with_skill_load(conversation, monkeypatch):
+    """29 Oct: a workflow run read mcp_guide in the tool-guide index and skill_load refused it (unknown_skill).
+    MCP tools come as external tools, so their group named the guide in the index but never reached the skills
+    skill_load may read."""
+    guide = SkillRecord(canonical_id="mcp_guide", alias=None, display_name="MCP Guide", icon="*",
+                        description="Guidance for using external MCP tools safely.", tags=(), activation={},
+                        instructions="MCP EXTERNAL TOOLS", source="guide", root=None)
+    monkeypatch.setattr("row_bot.skill_discovery.tool_skill_records",
+                        lambda parents, guides=False: [guide] if guides and "mcp" in parents else [])
+
+    tools = _bound_tools(_graph(conversation))
+
+    assert "mcp" in conversation.agent._current_effective_tool_parent_names_var.get()  # The index names it.
+    loaded = json.loads(tools["skill_load"].invoke(
+        {"name": "mcp_guide"}, config={"configurable": {"thread_id": "stable-tools"}}))
+    assert loaded["ok"] is True and "MCP EXTERNAL TOOLS" in loaded["instructions"]
+
+
 def test_developer_tools_and_workflows_come_with_a_code_folder(tmp_path, monkeypatch, reload_for_data_dir):
     """F34: without a code folder every Developer tool fails, so none is bound and its guide is not
     sent; the setup tools stay, with one line saying a code folder brings them. With one, the tools

@@ -506,3 +506,43 @@ it('outside a dialog, content keeps its actions in place', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
   expect(screen.getByRole('button', { name: 'Use Projects' })).toBeVisible();
 });
+
+it('an alert whose action starts with "Cancel" names its way out instead', async () => {
+  const confirmed = vi.fn();
+  function Opener() {
+    const { open } = useOverlay();
+    return (
+      <Button
+        onClick={() =>
+          open({
+            kind: 'alert',
+            title: 'Cancel this run?',
+            description: 'Billing stops now.',
+            confirmLabel: 'Cancel the run',
+            cancelLabel: 'Keep running',
+            onConfirm: confirmed,
+          })
+        }
+      >
+        Cancel…
+      </Button>
+    );
+  }
+  render(
+    <OverlayProvider>
+      <Opener />
+    </OverlayProvider>,
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel…' }));
+  const ask = await screen.findByRole('alertdialog', {
+    name: 'Cancel this run?',
+  });
+  expect(within(ask).queryByRole('button', { name: 'Cancel' })).toBeNull();
+  fireEvent.click(within(ask).getByRole('button', { name: 'Keep running' }));
+
+  await waitFor(() =>
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+  );
+  expect(confirmed).not.toHaveBeenCalled();
+});

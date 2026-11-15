@@ -50,6 +50,11 @@ if __name__ == "__main__":
     from row_bot.profile_restore import apply_on_start
 
     apply_on_start()
+    # In server mode, the secret-store key `row-bot serve` handed this process leaves its
+    # environment before anything can start a program that would inherit it (H2).
+    from row_bot.secret_store import take_environment_key
+
+    take_environment_key()
     # After the restore, which starts nothing: what the server starts runs as python.exe (B355).
     from row_bot.runtime_paths import python_for_children
 
@@ -461,7 +466,7 @@ def _check_oauth_tokens(at_startup: bool = False) -> list[str]:
                 label = "token healthy" if status == "valid" else "token refreshed"
                 _safe_console_print(f"[oauth] ✅ {display} {label}")
             elif status == "expired":
-                msg = f"⚠️ {display} token expired — re-authenticate in Settings → Accounts"
+                msg = f"⚠️ {display} token expired — re-authenticate in Settings › Apps"
                 warnings.append(msg)
                 _safe_console_print(f"[oauth] {msg}")
             elif status == "error":
@@ -675,6 +680,23 @@ async def _run_startup_sequence():
     except Exception:
         logger.exception("Background process leftover check failed")
 
+    # A server with a memory limit (a container, H12): a restart for lack of memory is noticed (U8), use is
+    # watched, and Row-Bot's browser closes when unused (H4). The desktop has no limit: nothing runs there.
+    try:
+        from row_bot import server_memory
+
+        def _close_idle_browser() -> None:
+            from row_bot.tools.browser_tool import get_session_manager as _get_bs_mgr
+
+            _get_bs_mgr().close_when_idle()
+
+        with _startup_phase("server_memory"):
+            _memory_limit = await asyncio.to_thread(server_memory.started, tick=_close_idle_browser)
+        if _memory_limit:
+            _safe_console_print(f"[startup] Memory limit {server_memory.size_words(_memory_limit)}")
+    except Exception:
+        logger.exception("Server memory check failed")
+
     logger.info("%s startup initiated", APP_DISPLAY_NAME)
     try:
         from row_bot.data_paths import describe_data_paths
@@ -699,6 +721,22 @@ async def _run_startup_sequence():
             await asyncio.to_thread(migrate_legacy_presets)
     except Exception:
         logger.warning("Could not keep the models this profile was using", exc_info=True)
+
+    # Once (5.3.3): pinned, starred and hidden models fold into one list of stars.
+    try:
+        from row_bot.providers.model_visibility import migrate_to_stars
+        with _startup_phase("starred_models"):
+            await asyncio.to_thread(migrate_to_stars)
+    except Exception:
+        logger.warning("Could not fold the model lists into stars; the old files are kept", exc_info=True)
+
+    # Once (5.3.4): new installs start with Buddy Tile; a profile set up before keeps its Glyph.
+    try:
+        from row_bot.buddy.config import keep_earlier_default_pack
+        with _startup_phase("buddy_default_pack"):
+            await asyncio.to_thread(keep_earlier_default_pack)
+    except Exception:
+        logger.warning("Could not keep this profile's Buddy", exc_info=True)
 
     # Once: Claude now runs the person's own Claude Code; the old Claude sign-in's stored tokens go (N1).
     try:
@@ -802,6 +840,15 @@ async def _run_startup_sequence():
             logger.info("Agent Run startup recovery: %s", recovery)
     except Exception as exc:
         logger.warning("Agent Run startup recovery skipped (non-fatal): %s", exc)
+
+    # Model lists: read again 45 s after start-up and every 6 h when older than 6 h, only
+    # while a cloud provider is connected (I23); the jobs themselves make no call here.
+    try:
+        from row_bot.providers.model_catalog_cache import schedule_model_catalog_refresh_jobs
+        with _startup_phase("model_catalog_refresh_scheduler"):
+            await asyncio.to_thread(schedule_model_catalog_refresh_jobs)
+    except Exception as exc:
+        logger.warning("Model catalog refresh scheduler failed to start (non-fatal): %s", exc)
 
     # ── Load Plugins ────────────────────────────────────────────────────────
     _set("🔌 Loading plugins…")
@@ -1016,7 +1063,21 @@ async def _run_startup_sequence():
                 max_instances=1,
                 next_run_time=datetime.now() + timedelta(minutes=10),
             )
-        _safe_console_print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h)")
+            # Old checkpoints also go hourly while the app is busy: workflows that run all day
+            # would otherwise keep the idle pass waiting while threads.db grows (I32).
+            from row_bot.thread_cleanup import prune_checkpoints_while_busy
+
+            _sched.add_job(
+                prune_checkpoints_while_busy,
+                trigger="interval",
+                hours=1,
+                id="checkpoint_prune",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                next_run_time=datetime.now() + timedelta(minutes=20),
+            )
+        _safe_console_print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h; pruning hourly)")
     except Exception as exc:
         logger.warning("Could not schedule checkpoint cleanup: %s", exc)
 
@@ -1031,9 +1092,10 @@ async def _run_startup_sequence():
         from row_bot.tasks import _get_scheduler
         def _evict_idle_browser_tabs() -> None:
             try:
+                from row_bot.browser.service import IDLE_CLOSE_SECONDS
                 from row_bot.tools.browser_tool import get_session_manager as _get_bs_mgr
 
-                closed = _get_bs_mgr().evict_idle(ttl_seconds=600.0)
+                closed = _get_bs_mgr().evict_idle(ttl_seconds=IDLE_CLOSE_SECONDS)
                 if closed:
                     logger.info("browser: evicted %d idle tab(s)", closed)
             except Exception:
@@ -1061,8 +1123,36 @@ async def _run_startup_sequence():
         from row_bot.tasks import _get_scheduler
         with _startup_phase("system_health_scheduler"):
             schedule_health_checks(_get_scheduler())
+            _ch_registry.schedule_state_checks(_get_scheduler())
     except Exception as exc:
         logger.warning("Could not schedule Monitor's checks: %s", exc)
+    try:
+        from row_bot import sandboxes
+        with _startup_phase("sandbox_left_overs"):
+            sandboxes.end_left_overs()
+    except Exception as exc:
+        logger.warning("Could not check for sandboxes left running: %s", exc)
+    try:
+        from row_bot import waits
+        from row_bot.tasks import _get_scheduler
+        with _startup_phase("waits_scheduler"):
+            waits.schedule(_get_scheduler())
+    except Exception as exc:
+        logger.warning("Could not schedule waits: %s", exc)
+    try:
+        from row_bot.proactive import engine as proactive_engine
+        from row_bot.tasks import _get_scheduler
+        with _startup_phase("proactive_scheduler"):
+            proactive_engine.schedule(_get_scheduler())
+    except Exception as exc:
+        logger.warning("Could not schedule Proactive Row-Bot: %s", exc)
+    try:
+        from row_bot.providers import claude_update
+        from row_bot.tasks import _get_scheduler
+        with _startup_phase("claude_code_update_scheduler"):
+            claude_update.schedule(_get_scheduler())
+    except Exception as exc:
+        logger.warning("Could not schedule Claude Code's daily update: %s", exc)
 
     _set("✅ Ready")
     startup_state.ready = True
@@ -1193,6 +1283,9 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
     if _shutdown_cleanup_started:
         return False
     _shutdown_cleanup_started = True
+    # Stopping on purpose, so this run didn't run out of memory (H12).
+    from row_bot import server_memory
+    server_memory.stopped()
 
     cleanup_started = time.perf_counter()
     # Tunnels are public exposure: they close on every exit, including one
@@ -1483,12 +1576,6 @@ if __name__ in {"__main__", "__mp_main__"}:
     _static_dir = static_dir()
     if _static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=_static_dir), name="static")
-
-    from row_bot.buddy.assets import buddy_static_dir
-
-    _buddy_static_dir = buddy_static_dir()
-    _buddy_static_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/_buddy", StaticFiles(directory=_buddy_static_dir), name="buddy")
 
     from row_bot.designer.publish import ensure_published_dir
 

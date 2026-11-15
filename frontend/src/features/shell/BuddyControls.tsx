@@ -6,7 +6,6 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import {
   Button,
   ErrorState,
-  Hint,
   IconButton,
   Input,
   Segmented,
@@ -14,6 +13,7 @@ import {
   Toggle,
 } from '../../ui/primitives';
 import { useNotify } from '../../ui/overlays';
+import { BuddyCard } from '../buddy/BuddyCard';
 import {
   SettingsAdvanced,
   SettingsGroup,
@@ -21,7 +21,7 @@ import {
   SettingsStatus,
   StatusLine,
 } from '../settings/anatomy';
-import { Check, PictureInPicture2, RefreshCw, Sparkles } from 'lucide-react';
+import { Check, RefreshCw, Sparkles } from 'lucide-react';
 
 export type BuddyPreferences = {
   visible: boolean;
@@ -32,6 +32,7 @@ export type BuddyPreferences = {
   bubble_verbosity: 'quiet' | 'normal' | 'chatty';
   animation_intensity: 'quiet' | 'normal' | 'expressive';
   pack_id: string;
+  follow_windows?: boolean;
 };
 export type BuddySnapshot = {
   schema_version: 1;
@@ -86,6 +87,8 @@ export type BuddyControlsProps = {
   packs: BuddyPackPage | null;
   currentRunId: string | null;
   renderAvatar?(snapshot: BuddySnapshot): ReactNode;
+  /** Buddy larger, for the sidebar card's peek. */
+  renderPortrait?(snapshot: BuddySnapshot): ReactNode;
   renderPackPreview?(pack: BuddyPack): ReactNode;
   previewUrl?(pack: BuddyPack): string | null;
   onSettings(): void;
@@ -94,6 +97,8 @@ export type BuddyControlsProps = {
   onNewLook?(): void;
   /** The New look tile's second line (a generation in progress). */
   newLookStatus?: string;
+  /** Buddy can go on the desktop here (the native app): its desktop choices show. */
+  desktopPet?: boolean;
   save(
     changes: Partial<BuddyPreferences>,
     revision: string,
@@ -121,6 +126,7 @@ const preferenceNames: Record<keyof BuddyPreferences, string> = {
   bubble_verbosity: 'Bubbles',
   animation_intensity: 'Motion',
   pack_id: 'Look',
+  follow_windows: 'Sit on the window I’m using',
 };
 
 // Text saves when the field is left (or on Enter); everything else at once.
@@ -128,11 +134,6 @@ const TEXT_KEYS = new Set<keyof BuddyPreferences>([
   'display_name',
   'personality_description',
 ]);
-
-function videoCount(pack: BuddyPack) {
-  return pack.assets.filter((asset) => asset.content_type.startsWith('video/'))
-    .length;
-}
 
 function displayPackName(name: string) {
   return name.replace(/^Buddy\s+/i, '').trim() || name;
@@ -336,6 +337,19 @@ export default function BuddyControls(props: BuddyControlsProps) {
     }
   }
 
+  // Hidden from its card's peek, with an Undo; Settings › Buddy › Show Buddy brings it back too.
+  async function hide(current: BuddySnapshot) {
+    try {
+      const hidden = await props.save({ visible: false }, current.revision);
+      notify('Buddy is hidden.', undefined, {
+        label: 'Undo',
+        onAction: () => void props.save({ visible: true }, hidden.revision),
+      });
+    } catch {
+      notify("Buddy couldn't be hidden. Try again.", 'danger');
+    }
+  }
+
   if (!props.snapshot) return null;
   const snapshot = props.snapshot;
   const conflict = dirty && baseRevision !== snapshot.revision;
@@ -344,48 +358,30 @@ export default function BuddyControls(props: BuddyControlsProps) {
   return (
     <>
       {snapshot.preferences.visible && props.companionVisible !== false && (
-        <aside
-          className="buddy-companion"
-          aria-label="Buddy companion"
-          aria-busy={busy}
+        <BuddyCard
+          snapshot={snapshot}
+          busy={busy}
+          avatar={
+            props.renderAvatar?.(snapshot) ?? <span aria-hidden="true">✦</span>
+          }
+          portrait={
+            props.renderPortrait?.(snapshot) ??
+            props.renderAvatar?.(snapshot) ?? <span aria-hidden="true">✦</span>
+          }
+          showStatus={
+            snapshot.preferences.bubble_verbosity !== 'quiet' &&
+            !snapshot.preferences.collapsed
+          }
+          onSettings={props.onSettings}
+          onUndock={props.onUndock}
+          onHide={() => void hide(snapshot)}
         >
-          {/* The avatar's tooltip carries Buddy's name (B225). */}
-          <Hint label={snapshot.preferences.display_name || 'Buddy'}>
-            <Button
-              aria-label="Buddy settings"
-              variant="ghost"
-              onClick={props.onSettings}
-            >
-              {props.renderAvatar?.(snapshot) ?? (
-                <span aria-hidden="true">✦</span>
-              )}
-            </Button>
-          </Hint>
-          <span className="buddy-companion-text">
-            <span className="buddy-companion-name">
-              {snapshot.preferences.display_name || 'Buddy'}
-            </span>
-            {snapshot.preferences.bubble_verbosity !== 'quiet' &&
-              !snapshot.preferences.collapsed && (
-                <p role="status">{snapshot.status.label}</p>
-              )}
-          </span>
-          {props.onUndock && (
-            <IconButton
-              size="sm"
-              className="buddy-undock"
-              label="Undock Buddy"
-              onClick={props.onUndock}
-            >
-              <PictureInPicture2 size={15} aria-hidden />
-            </IconButton>
-          )}
           {props.currentRunId && (
             <Button disabled={busy} onClick={() => void run('stop')}>
               Stop current run
             </Button>
           )}
-        </aside>
+        </BuddyCard>
       )}
       {props.settingsOpen && draft && (
         <section
@@ -397,7 +393,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
             tone={draft.visible ? 'success' : 'neutral'}
             more={[
               selectedPack ? displayPackName(selectedPack.name) : draft.pack_id,
-              selectedPack?.available ? 'motion ready' : 'motion unavailable',
+              selectedPack?.available ? 'alive' : 'look unavailable',
             ]}
           >
             {draft.visible ? 'Shown' : 'Hidden'}
@@ -456,7 +452,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
                   <Button
                     key={pack.id}
                     className="buddy-look"
-                    aria-label={`${displayPackName(pack.name)} — ${videoCount(pack)} clips · ${pack.available ? 'Ready' : 'Unavailable'}`}
+                    aria-label={`${displayPackName(pack.name)} · ${pack.available ? 'Ready' : 'Unavailable'}`}
                     aria-pressed={chosen}
                     disabled={busy || !pack.available}
                     onClick={() => edit('pack_id', pack.id)}
@@ -547,6 +543,21 @@ export default function BuddyControls(props: BuddyControlsProps) {
                 />
               }
             />
+            {props.desktopPet && (
+              <SettingsItem
+                label="Sit on the window I’m using"
+                help="On the desktop, Buddy hops over to the window you switch to after a moment."
+                layout="inline"
+                control={
+                  <Toggle
+                    label="Sit on the window I’m using"
+                    checked={draft.follow_windows !== false}
+                    disabled={busy}
+                    onChange={(e) => edit('follow_windows', e.target.checked)}
+                  />
+                }
+              />
+            )}
             <SettingsItem
               label="Motion"
               help="Stays still when your system reduces motion."

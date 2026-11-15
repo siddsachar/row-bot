@@ -122,7 +122,8 @@ def test_system_diagnosis_runs_only_on_an_explicit_request_from_any_device(tmp_p
     assert result.json() == {"schema_version": 1, "hourly_network_checks": True, "checks": [
         {"id": "ollama", "name": "Ollama", "status": "warn", "detail": "Server offline",
          "checked_at": 1.0, "settings_tab": "Models", "network": True, "stale": True,
-         "fix": {"kind": "check_again", "href": "/settings/providers", "target": None, "name": "Ollama"}},
+         "fix": {"kind": "check_again", "href": "/settings/models#providers-local", "target": None,
+                 "name": "Ollama"}},
         {"id": "disk", "name": "Disk", "status": "ok", "detail": "40.0 GB free",
          "checked_at": 1.0, "settings_tab": "System", "network": False, "stale": True, "fix": None},
     ]}
@@ -203,6 +204,34 @@ def test_each_attention_problem_offers_its_one_fix(tmp_path, monkeypatch):
         ("tunnel", {"kind": "open", "href": "/settings/access#tunnel", "target": None, "name": "Public link"}),
         ("mcp", {"kind": "open", "href": "/settings/apps", "target": None, "name": "Apps"}),
     ]
+
+
+def test_a_running_sandbox_without_a_model_needs_the_person_until_it_has_one(tmp_path, monkeypatch):
+    """W12: a sandbox is up but its chats can't answer until the person signs it in once."""
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    models = {"tea": False, "old": False}
+    sandboxes = SimpleNamespace(
+        list_sandboxes=lambda: [SimpleNamespace(sandbox_id="tea", name="Tea shop sandbox", status="running"),
+                                SimpleNamespace(sandbox_id="old", name="Old demo", status="stopped")],
+        has_model=lambda sandbox_id: models[sandbox_id])
+    monkeypatch.setattr(client_monitor, "_MODULE", {"row_bot.sandboxes": sandboxes})
+
+    [problem] = client_monitor.read_attention(include_update=False)["problems"]
+    assert (problem["id"], problem["title"]) == ("sandbox:tea", "Tea shop sandbox needs a model")
+    assert problem["fix"] == {"kind": "open", "href": "/settings/data#sandboxes", "target": None,
+                              "name": "Sandboxes"}
+    # The client reads it through the one attention route, beside every other problem.
+    local, _, _ = client_app()
+    with local:
+        _, headers = bootstrap(local)
+        response = local.get("/api/v1/monitor/attention", headers=headers)
+    assert response.status_code == 200, response.text
+    assert [item["title"] for item in response.json()["problems"]] == ["Tea shop sandbox needs a model"]
+
+    models["tea"] = True
+    assert client_monitor.read_attention(include_update=False)["problems"] == []
 
 
 def test_apps_still_starting_or_connecting_are_not_a_problem(tmp_path, monkeypatch):

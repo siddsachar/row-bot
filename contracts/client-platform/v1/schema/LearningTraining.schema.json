@@ -1,5 +1,105 @@
 {
   "$defs": {
+    "LearningRemoteRun": {
+      "additionalProperties": false,
+      "description": "A Hugging Face run's own facts (C1): its stage, cost so far, lost contact, cleanup. Never a token.",
+      "properties": {
+        "cleaned": {
+          "title": "Cleaned",
+          "type": "boolean"
+        },
+        "cleanup_failed": {
+          "title": "Cleanup Failed",
+          "type": "boolean"
+        },
+        "cost_usd": {
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "flavor": {
+          "maxLength": 32,
+          "title": "Flavor",
+          "type": "string"
+        },
+        "gpu_label": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Gpu Label",
+          "type": "string"
+        },
+        "lost": {
+          "title": "Lost",
+          "type": "boolean"
+        },
+        "minutes": {
+          "minimum": 0,
+          "title": "Minutes",
+          "type": "integer"
+        },
+        "phase": {
+          "enum": [
+            "uploading",
+            "submitting",
+            "running",
+            "downloading",
+            "downloaded",
+            "cleaned"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "enum": [
+                "setting_up",
+                "downloading",
+                "training",
+                "exporting",
+                "uploading",
+                "done"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "waiting_for_gpu": {
+          "default": false,
+          "title": "Waiting For Gpu",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "phase",
+        "cost_usd",
+        "minutes",
+        "lost",
+        "flavor",
+        "cleaned",
+        "cleanup_failed"
+      ],
+      "title": "LearningRemoteRun",
+      "type": "object"
+    },
     "LearningRunnerStatus": {
       "additionalProperties": false,
       "properties": {
@@ -35,7 +135,16 @@
                 "up_to_date",
                 "gpu_busy",
                 "memory_busy",
-                "comparing"
+                "comparing",
+                "hf_signed_out",
+                "hf_no_model",
+                "hf_unknown",
+                "hf_first_run",
+                "hf_over_cap",
+                "hf_no_credit",
+                "hf_network",
+                "hf_busy",
+                "hf_not_confirmed"
               ],
               "type": "string"
             },
@@ -97,7 +206,14 @@
             "out_of_disk",
             "cannot_resume",
             "data_unreadable",
-            "engine_error"
+            "engine_error",
+            "upload_failed",
+            "not_started",
+            "remote_error",
+            "no_credit",
+            "signed_out",
+            "model_mismatch",
+            "export_failed"
           ],
           "type": "string"
         },
@@ -158,6 +274,17 @@
       "default": null,
       "title": "Recovered"
     },
+    "remote": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LearningRemoteRun"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "resumes": {
       "anyOf": [
         {
@@ -201,7 +328,8 @@
         "pausing",
         "paused",
         "evaluating",
-        "failed"
+        "failed",
+        "unknown_remote"
       ],
       "title": "State",
       "type": "string"
@@ -252,6 +380,15 @@
       ],
       "default": null,
       "title": "Version"
+    },
+    "where": {
+      "default": "this_computer",
+      "enum": [
+        "this_computer",
+        "hugging_face"
+      ],
+      "title": "Where",
+      "type": "string"
     }
   },
   "required": [

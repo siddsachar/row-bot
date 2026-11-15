@@ -1,7 +1,10 @@
 """Pending user inputs in the existing checkpoint owner; content-free admissions.
 
 The private checkpoint namespace stages unsent Humans only. Dispatch transfers
-the same identity into the canonical conversation; no graph sees future inputs.
+the same identity into the canonical conversation as a turn of its own. A
+message sent while a turn runs is read by that turn at its next step instead
+(``waiting_for`` and ``take``, 5.3.1), as the person's own words; only one the turn never reached
+is sent as the next turn.
 """
 from __future__ import annotations
 
@@ -31,7 +34,8 @@ class ClientQueueItem:
     generation_id: str
     text: str
     revision: str
-    state: Literal["queued", "dispatching", "consumed", "cancelled", "paused"]
+    # "steered": the running turn read it at a step (5.3.1); listed until that turn ends.
+    state: Literal["queued", "dispatching", "consumed", "cancelled", "paused", "steered"]
     editable: bool
     removable: bool
 
@@ -227,9 +231,16 @@ def read_queue(service: Any, conversation_id: str, *, generation_id: str = "", c
                 raise ValueError
         except (ValueError, TypeError) as exc:
             raise admissions.AdmissionError("invalid_queue_cursor") from exc
+    # What the running turn has read stays listed until that turn ends; the transcript shows it from then.
+    running = [handle.generation_id for handle in service.registry.active(conversation_id)
+               if handle.domain == "conversation"][:1] or [""]
     with admissions.transaction() as conn:
-        states = "queue_state IN ('preparing','queued','paused','dispatching')" if waiting else "queue_state!=''"
-        rows = [dict(row) for row in conn.execute(f"SELECT * FROM generation_passes WHERE conversation_id=? AND {states} AND admission_sequence>? ORDER BY admission_sequence LIMIT ?", (conversation_id, after, limit + 1))]
+        states = ("(queue_state IN ('preparing','queued','paused','dispatching') OR "
+                  "(queue_state='steered' AND queue_source_generation_id=?))") if waiting else "queue_state!=''"
+        rows = [dict(row) for row in conn.execute(
+            f"SELECT * FROM generation_passes WHERE conversation_id=? AND {states} AND admission_sequence>? "
+            "ORDER BY admission_sequence LIMIT ?",
+            (conversation_id, *(running if waiting else []), after, limit + 1))]
     _, values = _staged(conversation_id)
     messages = {str(message.id): str(message.content) for message in values.get("messages", [])}
     missing = {row["submission_id"] for row in rows[:limit] if row["submission_id"] not in messages and row["queue_state"] != "cancelled"}
@@ -307,6 +318,56 @@ def dispatch(service: Any, conversation_id: str, *, submission_id: str = "", exp
     return result
 
 
+def waiting_for(handle: Any) -> list[tuple[str, int, Any]]:
+    """What the person sent while this turn runs, oldest first, for it to read at its next step (5.3.1).
+
+    As Claude Code does: a message typed while Row-Bot works is the person's own words in this turn, not a
+    turn of its own after it. Only a conversation's own turns read them; a message for a delegated agent goes
+    to it as before. Nothing is taken here: ``take`` does that once the request is prepared.
+    """
+    from langchain_core.messages import HumanMessage
+    if getattr(handle, "domain", "") != "conversation":
+        return []
+    with admissions.transaction() as conn:
+        rows = [dict(row) for row in conn.execute(
+            "SELECT pass_id,submission_id,queue_revision FROM generation_passes WHERE conversation_id=? AND "
+            "state='queued' AND queue_state='queued' AND queue_source_generation_id=? AND queue_epoch=? "
+            "ORDER BY admission_sequence", (handle.conversation_id, handle.generation_id, handle.server_epoch))]
+    if not rows:
+        return []
+    _, values = _staged(handle.conversation_id)
+    staged = {str(message.id): message for message in values.get("messages", [])}
+    # Marked as arrived mid-turn: Learning reads it as the next message for the steps before it.
+    return [(row["pass_id"], int(row["queue_revision"]),
+             HumanMessage(content=staged[row["submission_id"]].content, id=row["submission_id"],
+                          additional_kwargs={"mid_turn": True}))
+            for row in rows if row["submission_id"] in staged]
+
+
+def take(handle: Any, waiting: list[tuple[str, int, Any]]) -> list:
+    """The messages of ``waiting`` this turn has now read, each taken once: its pass ends unsent, and one the
+    person edited or discarded meanwhile is left as it is (an edit is read at the next step)."""
+    from row_bot import threads
+    if not waiting:
+        return []
+    conversation_id = handle.conversation_id
+    with threads.checkpoint_mutation(conversation_id):
+        with admissions.transaction() as conn:
+            taken = [message for pass_id, revision, message in waiting if conn.execute(
+                "UPDATE generation_passes SET state='cancelled',queue_state='steered',queue_revision=queue_revision+1 "
+                "WHERE pass_id=? AND queue_revision=? AND state='queued' AND queue_state='queued'",
+                (pass_id, revision)).rowcount == 1]
+        if not taken:
+            return []
+        ids = {str(message.id) for message in taken}
+        saved, values = _staged(conversation_id)
+        # From here the conversation holds it; the waiting list reads its text there.
+        values["messages"] = [message for message in values.get("messages", []) if message.id not in ids]
+        _save(conversation_id, saved, values)
+    _publish(conversation_id, handle.generation_id, sorted(ids))
+    return taken
+
+
 def acknowledge_consumed(handle: Any, message_ids: Sequence[str] | None = None) -> None:
     """Called by the real prepared model boundary, never by parent completion."""
     from row_bot import threads
@@ -331,9 +392,16 @@ def acknowledge_consumed(handle: Any, message_ids: Sequence[str] | None = None) 
 
 
 def recover_queue(epoch: str) -> None:
-    """Expose retained inputs after process loss without dispatching any work."""
+    """Expose retained inputs after process loss without dispatching any work.
+
+    A message the turn already read (steered) is in the conversation: it never waits again. Earlier, recovery
+    marked one paused, and it stayed listed as "Continues when you resume" for good, with nothing to resume;
+    one left like that is put back as read.
+    """
     with admissions.transaction() as conn:
-        rows = [dict(row) for row in conn.execute("SELECT * FROM generation_passes WHERE queue_state!='' AND queue_epoch!=? AND queue_state NOT IN ('consumed','cancelled')", (epoch,))]
+        conn.execute("UPDATE generation_passes SET queue_state='steered',queue_revision=queue_revision+1 "
+                     "WHERE state='cancelled' AND queue_state='paused'")
+        rows = [dict(row) for row in conn.execute("SELECT * FROM generation_passes WHERE queue_state!='' AND queue_epoch!=? AND queue_state NOT IN ('consumed','cancelled','steered')", (epoch,))]
     for row in rows:
         if row["state"] == "started" and admissions._owner_alive(row):
             continue
@@ -349,7 +417,7 @@ def recover_queue(epoch: str) -> None:
                 state = "cancelled"
             revision = max(int(row["queue_revision"]), int(message.additional_kwargs["client_queue"]["revision"]) if message is not None else 0) + 1
             with admissions.transaction() as conn:
-                conn.execute("UPDATE generation_passes SET state=?,queue_state=?,queue_revision=?,queue_epoch=? WHERE pass_id=? AND queue_state NOT IN ('consumed','cancelled')", (state, queue_state, revision, epoch, row["pass_id"]))
+                conn.execute("UPDATE generation_passes SET state=?,queue_state=?,queue_revision=?,queue_epoch=? WHERE pass_id=? AND queue_state NOT IN ('consumed','cancelled','steered')", (state, queue_state, revision, epoch, row["pass_id"]))
                 if row["command_id"] and message is not None:
                     result = {"command_id": row["command_id"], "conversation_id": row["conversation_id"],
                               "submission_id": row["submission_id"], "generation_id": row["generation_id"],

@@ -14,9 +14,15 @@ import {
 
 const NINE_B = GPU_32GB.starting_models[0];
 
+/** A setup made on a smaller certified model (a stand-in now the 2B is gone, O124) on a 32 GB card. */
 function onTwoB(hardware = GPU_32GB) {
   return fakeIO(
-    learningSnapshot({ state: 'on', personal_model: installedModel() }),
+    learningSnapshot({
+      state: 'on',
+      personal_model: installedModel({
+        starting_model: GPU_32GB.starting_models[1],
+      }),
+    }),
     { hardware },
   );
 }
@@ -43,7 +49,7 @@ it('lists the certified models this card trains, the recommended one marked, and
     name: /Qwen3\.5 9B · recommended/,
   });
   const two = within(dialog).getByRole('radio', {
-    name: /Qwen3\.5 2B · in use/,
+    name: /A small model · in use/,
   });
   expect(two).toBeChecked();
   expect(dialog).toHaveTextContent('Apache 2.0 · 19.3 GB download');
@@ -64,7 +70,7 @@ it('lists the certified models this card trains, the recommended one marked, and
     'Row-Bot downloads Qwen3.5 9B (19.3 GB) from Hugging Face, then trains your next version from it in quiet hours. 700 GB free on this computer.',
   );
   expect(ask).toHaveTextContent(
-    'Qwen3.5 2B stays on this computer until you delete it',
+    'A small model stays on this computer until you delete it',
   );
   expect(io.run).not.toHaveBeenCalled();
   fireEvent.click(

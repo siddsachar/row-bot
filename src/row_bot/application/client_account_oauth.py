@@ -65,15 +65,21 @@ def _account(account: str) -> str:
     return account
 
 
-def public_callback(account: str, public_origins: Iterable[str]) -> str | None:
-    """The account's callback at Row-Bot's one approved public HTTPS origin; None without exactly one."""
+def public_callback_origin(public_origins: Iterable[str]) -> str | None:
+    """Row-Bot's one approved public HTTPS origin, for a sign-in's way back; None without exactly one."""
     from row_bot.access.config import canonical_origin
 
     try:
         origins = {canonical_origin(value) for value in public_origins if str(value).startswith("https://")}
     except ValueError:
         return None
-    return origins.pop() + CALLBACK_PATH.format(account=_account(account)) if len(origins) == 1 else None
+    return origins.pop() if len(origins) == 1 else None
+
+
+def public_callback(account: str, public_origins: Iterable[str]) -> str | None:
+    """The account's callback at Row-Bot's one approved public HTTPS origin; None without exactly one."""
+    origin = public_callback_origin(public_origins)
+    return origin + CALLBACK_PATH.format(account=_account(account)) if origin else None
 
 
 def _google_kind(client: dict | None) -> str:
@@ -117,7 +123,7 @@ def sign_in_route(account: str, device: Device) -> dict[str, str | None]:
 
 
 def sign_in_routes(device: Device) -> dict[str, dict[str, str | None]]:
-    """Each account's sign-in route for this device (Settings › Accounts)."""
+    """Each account's sign-in route for this device (Settings › Apps)."""
     return {account: sign_in_route(account, device) for account in _NAMES}
 
 
@@ -425,7 +431,8 @@ def _expire() -> None:
 # What an account's setup reviews (Google's: "Gmail and Calendar. Sending and changes always ask
 # first."): its first sign-in turns that access on, so the account reads Connected, not Off (F29).
 # A sign-in that replaces one keeps the switches as the person left them.
-_REVIEWED_ACCESS = {"google": ("gmail", "calendar"), "microsoft": ("outlook_mail", "outlook_calendar")}
+_REVIEWED_ACCESS = {"google": ("gmail", "calendar"), "microsoft": ("outlook_mail", "outlook_calendar"),
+                    "x": ("x",)}
 
 
 _MICROSOFT_FAILED = {
@@ -452,18 +459,26 @@ def _save_sign_in(account: str, token: dict) -> str:
         from row_bot import x_accounts
 
         # Its own account, named by X (``/2/users/me``): a new one is added, one already there is replaced.
-        return f"Connected {x_accounts.add(token).handle} on X."
+        first = not x_accounts.listed()
+        handle = x_accounts.add(token).handle
+        if first:  # X's first sign-in turns on the access its setup reviewed, as Google's does (F30).
+            _turn_on(account)
+        return f"Connected {handle} on X."
     first = account_tokens.read(account) is None
     account_tokens.write(account, token)  # Keychain only; a failure keeps the old sign-in.
     account_tokens.record_check(account, "valid")  # The provider has just issued it.
     if first:
-        from row_bot.tools import registry
-        for tool in _REVIEWED_ACCESS.get(account, ()):
-            try:
-                registry.set_enabled(tool, True)
-            except Exception:
-                logger.warning("Couldn't turn on %s after signing in to %s", tool, account, exc_info=True)
+        _turn_on(account)
     return "Account authorization saved."
+
+
+def _turn_on(account: str) -> None:
+    from row_bot.tools import registry
+    for tool in _REVIEWED_ACCESS.get(account, ()):
+        try:
+            registry.set_enabled(tool, True)
+        except Exception:
+            logger.warning("Couldn't turn on %s after signing in to %s", tool, account, exc_info=True)
 
 
 def _finish_auth(job_key: str) -> None:
@@ -644,8 +659,9 @@ def execute_account_auth(
             handle = next((f"@{row['username']}" for row in x_accounts.summaries()
                            if row["id"] == x_account and row["username"]), "The X account")
             x_accounts.remove(x_account)  # Only this one; the others stay signed in.
-            phase, message = "completed", (f"{handle} was removed from this computer. X may still list Row-Bot "
-                                           "as allowed; you can revoke it there.")
+            from row_bot.hosting import where_row_bot_runs
+            phase, message = "completed", (f"{handle} was removed from {where_row_bot_runs()}. X may still list "
+                                           "Row-Bot as allowed; you can revoke it there.")
         elif action == "disconnect":
             validate()
             if account == "microsoft":
@@ -655,7 +671,7 @@ def execute_account_auth(
             phase, message = "completed", "Local account tokens removed. Provider authorization may still exist."
         else:
             validate()
-            # Each check remembers its verdict for Settings › Accounts.
+            # Each check remembers its verdict for Settings › Apps.
             if account == "google":
                 statuses = [account_tokens.check_google()[0]]  # Gmail and Calendar share one sign-in.
             elif account == "microsoft":

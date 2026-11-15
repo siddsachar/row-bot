@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ArtifactPublication } from '../../api/types';
+import { usePlace } from '../../api/place';
 import { writeClipboardText } from '../../platform/clipboard';
 import type { ClientPlatform } from '../../platform/types';
 import { QrCode } from '../../ui/QrCode';
@@ -85,6 +86,7 @@ const UNPUBLISH: ArtifactShareOptions = {
 };
 
 export default function ArtifactSharing(props: ArtifactSharingProps) {
+  const place = usePlace();
   const [options, setOptions] = useState<ArtifactShareOptions>({
     action: 'publish',
     delivery: 'link',
@@ -284,7 +286,7 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
             <strong>Published</strong> ·{' '}
             {remoteLink
               ? 'opens with Row-Bot sign-in or a paired device'
-              : 'opens on this computer'}
+              : `opens ${place.on}`}
           </p>
           <code className="share-published-url">{publishedUrl}</code>
           <div className="action-cluster">
@@ -446,7 +448,7 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
           <p>
             {options.remote
               ? 'A remote access link can start the configured app tunnel. Row-Bot sign-in or device pairing is still required.'
-              : 'A local link opens on this computer.'}
+              : `A local link opens ${place.on}.`}
           </p>
         </>
       )}
@@ -510,7 +512,7 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
             <p>
               {review.remote
                 ? `Publish ${review.page_count === 1 ? 'this page' : `these ${review.page_count} pages`} at a remote access link? The configured tunnel can make it reachable from the internet; opening it still needs Row-Bot sign-in or a paired device.`
-                : `Publish ${review.page_count === 1 ? 'this page' : `these ${review.page_count} pages`} at a local link? It opens on this computer only.`}
+                : `Publish ${review.page_count === 1 ? 'this page' : `these ${review.page_count} pages`} at a local link? It opens ${place.on} only.`}
             </p>
           ) : (
             <>

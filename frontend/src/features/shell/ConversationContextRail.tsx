@@ -3,11 +3,15 @@ import type {
   ClientPanelSuggestion,
   ClientStatus,
   ResourceView,
+  WorkspaceProjectNote,
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
 import ContextGoal from './ContextGoal';
-import { clientError } from '../../api/errors';
+import { ContextLive } from './ContextLive';
+import ContextOutputs, { type ConversationOutput } from './ContextOutputs';
+import ProjectNotes from './ProjectNotes';
+import { requestWorkspaceFile } from '../panels/workspace-file-requests';
 import {
   Button,
   Disclosure,
@@ -17,7 +21,6 @@ import {
 } from '../../ui/primitives';
 import {
   Code2,
-  FileImage,
   FolderPlus,
   Globe,
   MoreHorizontal,
@@ -26,12 +29,13 @@ import {
   Trash2,
   Unlink,
 } from 'lucide-react';
-import { ATTACHMENT_LIMITS } from './attachment-limits';
 
 type ResourceSummary = {
   primary: string;
   secondary: string;
   state: 'ready' | 'unavailable';
+  /** A code folder's project notes (B2): names and states, never text. */
+  notes?: WorkspaceProjectNote[];
 };
 
 type Props = {
@@ -57,7 +61,7 @@ type Props = {
   agentsWorking?: number;
   /** A delegated agent's own conversation: the section is "This agent" (B242). */
   childConversation?: boolean;
-  outputs?: { id: string; reference: string; mime: string }[];
+  outputs?: ConversationOutput[];
   completedDesignId?: string;
   writerQueued?: boolean;
   onCancelWait?: () => void;
@@ -106,7 +110,7 @@ export default function ConversationContextRail({
   onOpenSuggestion,
   onDismissSuggestion,
 }: Props) {
-  const { controller, artifactDesignSessions } = useRuntime();
+  const { controller } = useRuntime();
   // Goals are read after the open settles so they never compete with it (B29).
   const settled = useShellSettled();
   const [composeGoal, setComposeGoal] = useState(false);
@@ -115,9 +119,6 @@ export default function ConversationContextRail({
     {},
   );
   const [loading, setLoading] = useState(false);
-  const [outputBusy, setOutputBusy] = useState('');
-  const [outputError, setOutputError] = useState('');
-  const [savedOutputs, setSavedOutputs] = useState<Record<string, string>>({});
   const [writerStatus, setWriterStatus] = useState('');
   // Live agents open the Agents section (B30), and a child conversation opens
   // it to show its own agent. Otherwise the reader's choice carries across
@@ -160,56 +161,6 @@ export default function ConversationContextRail({
       window.clearInterval(timer);
     };
   }, [controller, conversationId, hasWorkspace]);
-
-  async function saveOutput(output: { reference: string }) {
-    if (outputBusy) return;
-    setOutputBusy(output.reference);
-    setOutputError('');
-    try {
-      const receipt = await controller.intent(
-        conversationId,
-        'media.save',
-        { media_ref: output.reference },
-        conversationRevision,
-      );
-      if (receipt.status !== 'completed' || !receipt.saved_name)
-        throw new Error('media_save_uncertain');
-      setSavedOutputs((current) => ({
-        ...current,
-        [output.reference]: receipt.saved_name!,
-      }));
-    } catch (cause) {
-      setOutputError(clientError(cause).message);
-    } finally {
-      setOutputBusy('');
-    }
-  }
-
-  async function addOutputToDesign(
-    output: { reference: string; mime: string },
-    design: ResourceView,
-  ) {
-    if (!artifactDesignSessions || outputBusy || !design.available) return;
-    setOutputBusy(output.reference);
-    setOutputError('');
-    try {
-      const blob = await controller.download(output.reference);
-      if (blob.size > ATTACHMENT_LIMITS.fileBytes || blob.type !== output.mime)
-        throw new Error('media_identity_conflict');
-      const extension =
-        output.mime === 'image/jpeg' ? 'jpg' : output.mime.split('/')[1];
-      const filename = `generated-${output.reference.split(':').at(-1)}.${extension}`;
-      const file = new File([blob], filename, { type: output.mime });
-      const session = artifactDesignSessions.get(conversationId, design);
-      const result = await session.upload(file, design.resource_revision);
-      if (result.status === 'partial')
-        throw new Error('media_import_needs_review');
-    } catch (cause) {
-      setOutputError(clientError(cause).message);
-    } finally {
-      setOutputBusy('');
-    }
-  }
 
   useEffect(() => {
     const request = new AbortController();
@@ -269,6 +220,7 @@ export default function ConversationContextRail({
                 : `${value.status} workspace`,
               secondary: `${running} running · ${value.todos.length} ${value.todos.length === 1 ? 'todo' : 'todos'}`,
               state: value.status === 'unavailable' ? 'unavailable' : 'ready',
+              notes: value.project_notes ?? [],
             },
           ] as const;
         } catch {
@@ -451,6 +403,18 @@ export default function ConversationContextRail({
                       <small>{summary.secondary}</small>
                     </p>
                   )}
+                  {!!summary?.notes?.length && (
+                    <ProjectNotes
+                      notes={summary.notes}
+                      onOpenFile={(path) => {
+                        requestWorkspaceFile({
+                          resourceId: resource.binding.resource_id,
+                          path,
+                        });
+                        onOpenResource(resource);
+                      }}
+                    />
+                  )}
                 </li>
               );
             })}
@@ -463,97 +427,23 @@ export default function ConversationContextRail({
             aria-labelledby="context-outputs"
             data-first={firstMark('outputs')}
           >
-            <h3 id="context-outputs">Outputs</h3>
-            {outputs.slice(-20).map((output) => (
-              <details className="context-output" key={output.id}>
-                <summary>
-                  <FileImage size={16} aria-hidden />{' '}
-                  {output.mime.startsWith('video/') ? 'Video' : 'Image'} output
-                </summary>
-                {/* One rendering per result (B22): the media lives in the
-                    conversation; this row only points to it. */}
-                <div className="button-row">
-                  <Button
-                    variant="ghost"
-                    onClick={() =>
-                      document
-                        .querySelector<HTMLElement>(
-                          `[data-media-ref=${JSON.stringify(output.reference)}]`,
-                        )
-                        ?.scrollIntoView({ block: 'center' })
-                    }
-                  >
-                    Show in conversation
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={Boolean(outputBusy)}
-                    onClick={() => void saveOutput(output)}
-                  >
-                    Save to workspace
-                  </Button>
-                  {onUseOutputInCode &&
-                    resources.some(
-                      (resource) =>
-                        resource.binding.kind === 'workspace' &&
-                        resource.available,
-                    ) && (
-                      <Button
-                        variant="ghost"
-                        onClick={() => onUseOutputInCode(output)}
-                      >
-                        Use in code folder
-                      </Button>
-                    )}
-                </div>
-                {savedOutputs[output.reference] && (
-                  <small role="status">
-                    Saved outputs/{savedOutputs[output.reference]}
-                  </small>
-                )}
-                {resources.filter(
-                  (resource) =>
-                    resource.binding.kind === 'artifact' && resource.available,
-                ).length === 1 && (
-                  <Button
-                    variant="ghost"
-                    disabled={Boolean(outputBusy)}
-                    onClick={() =>
-                      void addOutputToDesign(
-                        output,
-                        resources.find(
-                          (resource) =>
-                            resource.binding.kind === 'artifact' &&
-                            resource.available,
-                        )!,
-                      )
-                    }
-                  >
-                    Add to design
-                  </Button>
-                )}
-                {resources.filter(
-                  (resource) =>
-                    resource.binding.kind === 'artifact' && resource.available,
-                ).length > 1 && (
-                  <Menu
-                    label="Add output to design"
-                    actions={resources
-                      .filter(
-                        (resource) =>
-                          resource.binding.kind === 'artifact' &&
-                          resource.available,
-                      )
-                      .map((resource) => ({
-                        label: resource.title,
-                        onSelect: () =>
-                          void addOutputToDesign(output, resource),
-                      }))}
-                  />
-                )}
-              </details>
-            ))}
-            {outputError && <p role="alert">{outputError}</p>}
+            <h3 id="context-outputs">
+              Outputs
+              {outputs.length > 1 && (
+                <span className="context-count" aria-hidden>
+                  {outputs.length}
+                </span>
+              )}
+            </h3>
+            {!!outputs.length && (
+              <ContextOutputs
+                conversationId={conversationId}
+                conversationRevision={conversationRevision}
+                outputs={outputs}
+                resources={resources}
+                onUseOutputInCode={onUseOutputInCode}
+              />
+            )}
             {suggestions.slice(0, 10).map((suggestion) => (
               <div
                 className="context-suggestion"
@@ -598,6 +488,11 @@ export default function ConversationContextRail({
             }}
           />
         </div>
+
+        {/* What it waits for, what runs for it, its workflow and linked
+            conversations; after the goal, which always shows, so none of these
+            takes the first section's heading row. */}
+        <ContextLive conversationId={conversationId} />
 
         {/* Kept mounted while empty so delegated work can reveal it; live
             work (or a child's own agent) moves it to the top by order,

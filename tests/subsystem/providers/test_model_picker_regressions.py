@@ -19,39 +19,11 @@ def test_agent_tool_error_uses_active_thread_override(tmp_path, monkeypatch):
     assert "model:codex:gpt-5.5" not in message
 
 
-def test_model_picker_labels_use_clean_text_without_mojibake(monkeypatch):
-    from row_bot.providers.selection import (
-        format_model_choice_label,
-        list_model_choice_options,
-        model_ref,
-    )
-    import row_bot.providers.selection as selection
+def test_model_picker_labels_use_clean_text_without_mojibake():
+    from row_bot.providers.selection import format_model_choice_label
 
-    cfg = {
-        "quick_choices": [{
-            "id": model_ref("openai", "gpt-4o"),
-            "kind": "model",
-            "provider_id": "openai",
-            "model_id": "gpt-4o",
-            "display_name": "GPT-4o",
-            "visibility": ["chat"],
-            "active": True,
-            "inactive_reason": "",
-            "capabilities_snapshot": {
-                "tasks": ["chat"],
-                "input_modalities": ["text"],
-                "output_modalities": ["text"],
-            },
-        }],
-    }
-
-    monkeypatch.setattr(selection, "load_provider_config", lambda: cfg)
-    labels = [
-        format_model_choice_label("openai", "gpt-4o"),
-        *[str(option["label"]) for option in list_model_choice_options("chat")],
-    ]
-
-    for label in labels:
+    for label in (format_model_choice_label("openai", "gpt-4o"),
+                  format_model_choice_label("openai", "gpt-4o", "GPT-4o", include_icon=False)):
         assert "GPT" in label or "gpt" in label
         assert not any(sentinel in label for sentinel in ("Ã", "Â", "â", "ð", "�"))
         assert " - " in label
@@ -99,16 +71,26 @@ def test_runtime_readiness_reuses_provider_status_snapshot(monkeypatch):
 
 
 def test_picker_option_loading_uses_non_refreshing_status_and_no_live_catalog(tmp_path, monkeypatch):
-    import row_bot.api_keys as api_keys
+    import json
+
     import row_bot.providers.claude_subscription as claude_subscription
     import row_bot.providers.codex as codex
     import row_bot.providers.model_catalog_cache as catalog_cache
+    from row_bot.providers import model_visibility
     import row_bot.providers.runtime as provider_runtime
     import row_bot.providers.selection as selection
     import row_bot.providers.xai_oauth as xai_oauth
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr(catalog_cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    snapshot = {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"], "tool_calling": True}
+    catalog_cache.write_model_catalog_cache(catalog_cache.CatalogCacheSnapshot(
+        catalog_cache.CACHE_VERSION, 1.0,
+        {"model:codex:gpt-5.5": {"provider": "codex", "label": "GPT-5.5", "capabilities_snapshot": snapshot}},
+        [], {}, (), "test"))
+    settings = tmp_path / "model_settings.json"
+    settings.write_text(json.dumps({"model_visibility": {"favourites": ["model:codex:gpt-5.5"]}}), encoding="utf-8")
+    monkeypatch.setattr(model_visibility, "_settings_path", lambda: settings)
 
     def _boom(*args, **kwargs):
         raise AssertionError("picker option loading must not refresh live catalogs")
@@ -117,7 +99,6 @@ def test_picker_option_loading_uses_non_refreshing_status_and_no_live_catalog(tm
     monkeypatch.setattr(codex, "list_codex_model_infos", _boom)
     monkeypatch.setattr(claude_subscription, "list_claude_subscription_model_infos", _boom)
     monkeypatch.setattr(xai_oauth, "list_xai_oauth_model_infos", _boom)
-    selection._provider_status_picker_cache.clear()
 
     refresh_flags: list[bool] = []
 
@@ -126,20 +107,11 @@ def test_picker_option_loading_uses_non_refreshing_status_and_no_live_catalog(tm
         return {"configured": True, "runtime_enabled": True}
 
     monkeypatch.setattr(provider_runtime, "provider_status", _provider_status)
-    snapshot = {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]}
-    selection.add_quick_choice_for_model(
-        "gpt-5.5",
-        provider_id="codex",
-        display_name="GPT-5.5",
-        capabilities_snapshot=snapshot,
-    )
 
-    options, diagnostics = selection.list_model_choice_options("chat", return_diagnostics=True)
+    options = selection.list_model_choice_options("chat")
 
     assert [option["value"] for option in options] == ["model:codex:gpt-5.5"]
-    assert refresh_flags == [False]
-    assert diagnostics["quick_choices_provider_status_calls"] == 1
-    assert diagnostics["quick_choices_provider_status_refresh_tokens"] is False
+    assert refresh_flags and not any(refresh_flags)
 
 
 def test_capability_resolution_uses_xai_oauth_cache_before_live_catalog(tmp_path, monkeypatch):

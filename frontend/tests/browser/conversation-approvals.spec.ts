@@ -138,8 +138,22 @@ test('an ordinary action may be allowed for the rest of the chat', async ({
   await expect(allow).toBeVisible();
   await views(page, info, 'allow-in-this-chat-card');
   await page.setViewportSize(PHONE);
-  await expect(allow).toBeVisible();
+  // A phone keeps Deny and Approve side by side, one thumb each, and the
+  // allowance among the choices under More choices (D4).
+  await expect(allow).toBeHidden();
+  const [deny, approve] = await Promise.all([
+    card.getByRole('button', { name: 'Deny', exact: true }).boundingBox(),
+    card.getByRole('button', { name: 'Approve', exact: true }).boundingBox(),
+  ]);
+  expect(Math.abs(deny!.width - approve!.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(deny!.y - approve!.y)).toBeLessThanOrEqual(1);
+  expect(deny!.height).toBeGreaterThanOrEqual(44);
   await views(page, info, 'allow-in-this-chat-card-phone');
+  await card.getByRole('button', { name: 'More choices', exact: true }).click();
+  await expect(
+    page.getByRole('menuitem', { name: 'Allow in this chat' }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 900 });
   // Answer it: an approval left waiting shows in every later spec's sidebar and Buddy.
   await card.getByRole('button', { name: 'Deny', exact: true }).click();
@@ -223,10 +237,14 @@ test('the reviewer’s decisions are visible but quiet', async ({
     }),
   ).toBeVisible();
   const steps = transcript.getByText('Used 2 tools', { exact: true }).last();
-  await steps.click();
   const reviewed = transcript.getByText('Reviewer approved', { exact: true });
   const full = transcript.getByText('Hands-off', { exact: true }).last();
-  await expect(reviewed).toBeVisible();
+  // The live steps settle into the saved ones as the turn ends (collapsed
+  // again, seen on CI): open them, and again if they were replaced.
+  await expect(async () => {
+    if (!(await reviewed.isVisible())) await steps.click();
+    await expect(reviewed).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
   await expect(full).toBeVisible();
   await reviewed.click();
   await expect(

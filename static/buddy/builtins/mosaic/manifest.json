@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "mosaic",
+  "name": "Buddy Mosaic",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact stained-glass desktop companion: a rounded body of jewel-toned glass panes in teal, amber and violet joined by dark leading, softly lit from within, two bright clear-glass eyes, luminous cathedral-window look.",
+  "patches": "patches.png"
+}

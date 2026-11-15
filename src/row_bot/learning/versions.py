@@ -260,7 +260,7 @@ def _remove_base(root: Path | None) -> None:
     from row_bot.learning.training import base_model, weights
 
     try:
-        model = weights.MODELS.get(gate.read_settings(root).starting_model, weights.QWEN35_2B)
+        model = weights.MODELS.get(gate.read_settings(root).starting_model, weights.QWEN35_9B)
         if base_model.read(model.id, root) is not None:
             base_model.withdraw(model.id, root=root, remove_files=True)
     except Exception:  # noqa: BLE001

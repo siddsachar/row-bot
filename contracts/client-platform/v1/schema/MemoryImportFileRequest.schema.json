@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "description": "Room for one file of an export, sent in chunks next.",
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "size_bytes": {
+      "minimum": 1,
+      "title": "Size Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "client_session_id",
+    "name",
+    "size_bytes"
+  ],
+  "title": "MemoryImportFileRequest",
+  "type": "object"
+}

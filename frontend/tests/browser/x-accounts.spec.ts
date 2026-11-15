@@ -204,6 +204,34 @@ test('the post is edited on its card: the text against the account’s limit, a 
   ).toBeVisible();
 });
 
+test('a scheduled post that didn’t go out stays in Review with why, and goes without its picture in one click', async ({
+  page,
+}, info) => {
+  const { sent } = await seed(page, '/__n7_fixture/failed-post');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].status).toBe('failed');
+  await page.goto('/app-v2/?tab=overview');
+  await dismissNotices(page);
+  const notSent = page.getByRole('list', { name: "Posts that didn't go out" });
+  const row = notSent.getByRole('listitem');
+  await expect(row).toContainText('· @rowbot_ai');
+  await expect(row).toContainText(
+    'was connected before Row-Bot could post pictures and videos. Sign in to it once more in Settings › Apps › X',
+  );
+  await expect(
+    row.getByRole('button', { name: 'Try again now' }),
+  ).toBeVisible();
+  await everywhere(page, info, 'review-not-sent', notSent);
+
+  await row
+    .getByRole('button', { name: 'Post it now without the picture' })
+    .click();
+  await expect(notSent).toHaveCount(0);
+  await expect(page.getByText(/Posted on X as @rowbot_ai/).first()).toBeVisible(
+    { timeout: 15_000 },
+  );
+});
+
 test('Home › Review shows the waiting post in full with its time; approving schedules it and Cancel stops it (G3)', async ({
   page,
 }, info) => {
@@ -230,6 +258,18 @@ test('Home › Review shows the waiting post in full with its time; approving sc
   ).toBeEnabled();
   await everywhere(page, info, 'review-queue', card);
 
+  info.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature:
+        'Failed to load resource: the server responded with a status of 409 (Conflict)',
+      count: 1,
+      upTo: true,
+      owner: 'x-accounts later-post fixture',
+      fixture:
+        'The chat that asked stays open behind Home with its own card: approving here moves its turn on, and a card it shows again reads the answered approval, which answers 409 and says it was answered',
+    }),
+  });
   await card
     .getByRole('button', { name: 'Approve for then', exact: true })
     .click();
@@ -239,6 +279,25 @@ test('Home › Review shows the waiting post in full with its time; approving sc
   ).toBeVisible();
   await expect(review).toHaveCount(0);
   await everywhere(page, info, 'review-scheduled', scheduled);
+
+  // Edit before it goes out: the text and which files go; it keeps its time.
+  await scheduled.getByRole('button', { name: 'Edit this post' }).click();
+  const box = scheduled.getByRole('textbox', {
+    name: 'Edit the post as @rowbot_ai',
+  });
+  await box.fill('Row-Bot 5.3 is out. Edited before it goes out.');
+  await everywhere(page, info, 'review-scheduled-edit', scheduled);
+  await scheduled.getByRole('button', { name: 'Save edits' }).click();
+  await expect(box).toHaveCount(0);
+  await expect(
+    scheduled.getByText('Row-Bot 5.3 is out. Edited before it goes out.'),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page
+      .getByRole('list', { name: 'Scheduled posts' })
+      .getByText('Row-Bot 5.3 is out. Edited before it goes out.'),
+  ).toBeVisible();
 
   await scheduled.getByRole('button', { name: 'Cancel this post' }).click();
   await expect(scheduled).toHaveCount(0);

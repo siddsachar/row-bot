@@ -374,3 +374,15 @@ def test_a_step_that_fails_says_what_failed_never_only_that_it_did(work_iq, monk
     step = next(s for s in failed["steps"] if s["type"] == "consent")
     assert failed["state"] == "failed" and step["message"] == failed["message"]
     assert failed["message"] == f"Couldn't add {failed['name']}: {says}"
+
+
+@pytest.mark.parametrize("code", ["registry_entry_removed", "registry_recipe_changed", "registry_recipe_unsupported",
+                                  "registry_identity_missing"])
+def test_a_registry_listing_that_changed_or_went_away_is_answered_in_words_never_a_503(code):
+    """B405: a check of an MCP Registry listing that fails says why (a 409 with its code), not "unavailable"."""
+    import json
+
+    from row_bot.api.v1.routes import problem
+
+    answer = problem(ValueError(code))
+    assert answer.status_code == 409 and json.loads(answer.body)["code"] == code

@@ -51,7 +51,7 @@ def change_video_project(project_id: str, body: dict[str, Any]) -> dict[str, Any
         version = video_projects.change(project, by="you", base=int(body["base"]), scenes=list(body["scenes"]),
                                         title=body.get("title") or None, music_volume=body.get("music_volume"),
                                         captions=body.get("captions"), brand=body.get("brand"),
-                                        note=body.get("note") or "Edited in the panel")
+                                        voice=body.get("voice"), note=body.get("note") or "Edited in the panel")
     except ProjectError as error:
         raise ProjectRefused("video_project_stale" if error.stale else "video_project_invalid") from None
     video_projects.make(project, version.number)

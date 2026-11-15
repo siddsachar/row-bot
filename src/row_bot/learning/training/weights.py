@@ -70,7 +70,8 @@ class PinnedModel:
         return [fetch.Pinned(self.url(item), item.name, item.sha256, item.size) for item in self.files]
 
 
-# Qwen/Qwen3.5-2B at the revision L0d measured (O23: the certified 8 GB tier's starting model).
+# Qwen/Qwen3.5-2B at the revision L0d measured (O23). Retired in T1 (O124): no tier trains it, but versions
+# trained from it keep their identity and comparisons, and its files on disk can still be deleted.
 QWEN35_2B = PinnedModel(
     id="qwen3.5-2b",
     name="Qwen3.5 2B",
@@ -124,7 +125,51 @@ QWEN35_9B = PinnedModel(
         WeightFile("vocab.json", 6_722_759, "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"),
     ),
 )
-MODELS: dict[str, PinnedModel] = {model.id: model for model in (QWEN35_2B, QWEN35_9B)}
+# Qwen/Qwen3.8-27B (C1, O130): trained on Hugging Face only (it needs a card with nothing else on it to train
+# here, O107), then run on this computer. Pinned file by file (L2x's check of the Hub's fingerprints, 22 Oct): the
+# Hugging Face job downloads exactly these files and checks them before training.
+QWEN38_27B = PinnedModel(
+    id="qwen3.8-27b",
+    name="Qwen3.8 27B",
+    repo="Qwen/Qwen3.8-27B",
+    revision="1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    licence="Apache 2.0",
+    licence_id="apache-2.0",
+    files=(
+        WeightFile("LICENSE", 11_544, "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a"),
+        WeightFile("README.md", 65_012, "57e4bdb258ee1a7d2635c5174ebd4e56abe392505cdb5f8bbb356b0dc4293641"),
+        WeightFile("chat_template.jinja", 8_952, "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"),
+        WeightFile("config.json", 4_312, "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab"),
+        WeightFile("crc32.txt", 238, "b42dd291f5f98b05807e458f5b47849969a9b3326acbf0c97d28b05826740b83"),
+        WeightFile("generation_config.json", 202, "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"),
+        WeightFile("merges.txt", 3_353_259, "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"),
+        WeightFile("model-00001-of-00018.safetensors", 3_966_730_552, "ba0ce20aae489ad196733da5064bcdf159a1fe84f53336648196e1ebb7751b1c"),
+        WeightFile("model-00002-of-00018.safetensors", 3_043_080_328, "06a148c01bfbe3faa14a5f184a7ff29a706f7ae1c8b2705d2058e26d17a001fb"),
+        WeightFile("model-00003-of-00018.safetensors", 2_542_796_952, "2e1bf62cbcd406eaa64b60d10353e1f0ef4039d0976e56f05cabe953454f9968"),
+        WeightFile("model-00004-of-00018.safetensors", 3_988_973_152, "511e34063187882659753c4d93f3859f93c019fd438d8813071921c81d9a3f1a"),
+        WeightFile("model-00005-of-00018.safetensors", 2_099_339_864, "635cb53446dc74f219740fc59e18b774f877b803b9722e289ca62575a6efa701"),
+        WeightFile("model-00006-of-00018.safetensors", 3_979_553_696, "0bc5214fac607f0e6cc92eec3789d4b8559410ef9fce66621ba8158e8410dae0"),
+        WeightFile("model-00007-of-00018.safetensors", 2_108_759_344, "80b0c49033e9a0d5762562aa12f4acdb7f54da586f3d0110f28c48d91cf07892"),
+        WeightFile("model-00008-of-00018.safetensors", 3_979_553_696, "7192c5b66185d3592927daabee1cc19e6f6e0ce75988ee20e824b624765fda79"),
+        WeightFile("model-00009-of-00018.safetensors", 2_108_759_344, "af3c48cc37af44f3db6ae0579baf019180d48d9c527caa0a1f03ff85813a56d8"),
+        WeightFile("model-00010-of-00018.safetensors", 3_979_553_696, "163490a76f3bea3a40855b7efc04ce6d27afaf1a34f0bbde495b9491f76457c9"),
+        WeightFile("model-00011-of-00018.safetensors", 2_108_759_344, "5f3ae1b948aeee39da77aec558e8236cd65fe4d7cb7686a76bb007acc563c6d8"),
+        WeightFile("model-00012-of-00018.safetensors", 3_979_553_696, "a3de1c7114677a8f5ac5c4892c90e8238ea5c1e2038c80e757dfc87c3902ca55"),
+        WeightFile("model-00013-of-00018.safetensors", 2_108_759_344, "06ab79a41f74c9c5cb734816feb0c7fc364104b227165ee7391231e1155aa02a"),
+        WeightFile("model-00014-of-00018.safetensors", 3_979_553_696, "4138ed94603065ba884bbcadedb04d7718bb40117e85e6f5c6fc5b9c05b7a85b"),
+        WeightFile("model-00015-of-00018.safetensors", 2_108_759_344, "69224e27b9de4e7dbf6fc936c6eaae08447bda3b80a6c31a871ab451173afd22"),
+        WeightFile("model-00016-of-00018.safetensors", 3_979_564_040, "73cb9a1089fb6155cb648609478d6633be8a5c7d9ca5a05bc8925ce8a553cefe"),
+        WeightFile("model-00017-of-00018.safetensors", 2_108_759_344, "beb51f01056142ac4984bd800507b0dd0fd18de57f8e9ef6ea41d1a3598983a8"),
+        WeightFile("model-00018-of-00018.safetensors", 3_392_197_344, "1d3479509e21494658f9b64d317f5ea8e55c4025d28c702d6c4d0b356ce8ea06"),
+        WeightFile("model.safetensors.index.json", 112_216, "77042094076611b69791a610065f28b7013b8c621795fa86ddccc8bac7d1b9df"),
+        WeightFile("preprocessor_config.json", 390, "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"),
+        WeightFile("tokenizer.json", 12_809_320, "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3"),
+        WeightFile("tokenizer_config.json", 17_928, "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27"),
+        WeightFile("video_preprocessor_config.json", 385, "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"),
+        WeightFile("vocab.json", 6_722_759, "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"),
+    ),
+)
+MODELS: dict[str, PinnedModel] = {model.id: model for model in (QWEN35_2B, QWEN35_9B, QWEN38_27B)}
 
 WeightsState = Literal["not_downloaded", "partial", "downloaded", "damaged"]
 
@@ -260,6 +305,7 @@ __all__ = [
     "MODELS",
     "PinnedModel",
     "QWEN35_2B",
+    "QWEN38_27B",
     "QWEN35_9B",
     "WeightFile",
     "WeightsStatus",

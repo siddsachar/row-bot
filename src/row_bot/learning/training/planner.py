@@ -57,7 +57,7 @@ def engine_measure(rows: Sequence[Mapping[str, Any]], max_seq: int, *, root: Pat
 
     found = engine_status or engine.status(root)
     if weights_folder is None:
-        model = weights.MODELS.get(learning.read_settings(root).starting_model, weights.QWEN35_2B)
+        model = weights.MODELS.get(learning.read_settings(root).starting_model, weights.QWEN35_9B)
         weights_folder = weights.status(model, root).folder
     if found.python is None or found.site is None or weights_folder is None:
         raise dataset_module.DatasetError("no_engine")
@@ -110,6 +110,7 @@ class Planner:
         lookup: Any = None,
         roots: Callable[[], Sequence[str]] = workspace_roots,
         trained_ids: Callable[[], set[str]] | None = None,
+        backend: str = "local",
     ) -> None:
         self._root = root
         self.jobs = jobs
@@ -120,6 +121,10 @@ class Planner:
         self._lookup = lookup
         self._roots = roots
         self._trained_ids = trained_ids
+        # C1: "hugging_face" plans runs for the Hugging Face backend (``engine`` is the remote trainer). This
+        # computer may have no engine to count tokens with, so rows are kept by their estimated lengths and the
+        # engine leaves out any that don't fit when it trains (its own rule, the same as here).
+        self.backend = backend
         self._lock = threading.Lock()
         self._summary: dataset_module.DatasetSummary | None = None
         self._planned_at = 0.0
@@ -150,7 +155,7 @@ class Planner:
             return job
         recipe = self.recipe()
         steps = recipe.steps_for(examples)
-        spec = recipe.spec(_card_mib())
+        spec = recipe.spec(None if self.backend == "hugging_face" else _card_mib())
         if spec == plan["recipe"] and steps == job.steps_total:
             return job
         logger.info("Learning starts personal model v%s with the recipe as it is now (%s, %d steps)", job.version,
@@ -169,6 +174,9 @@ class Planner:
         if self._measure is not None:
             return self._measure(rows, max_seq)
         return engine_measure(rows, max_seq, root=self._root)
+
+    def _measurer(self) -> Any:
+        return None if self.backend == "hugging_face" and self._measure is None else self._measure_rows
 
     # ── The count the Personal model view shows ─────────────────────────
 
@@ -231,7 +239,7 @@ class Planner:
             return PlanOutcome(reason="up_to_date", summary=summary)
         try:
             compiled = dataset_module.compile_dataset(
-                self.jobs.store, recipe, lookup=self._lookup, measure=self._measure_rows,
+                self.jobs.store, recipe, lookup=self._lookup, measure=self._measurer(),
                 workspace_roots=self._roots(), refresh_vault=True)
         except dataset_module.DatasetError as error:
             logger.warning("Learning couldn't compile its training data (%s)", error.code)
@@ -245,7 +253,8 @@ class Planner:
             return PlanOutcome(reason="up_to_date", summary=summary)
         steps = recipe.steps_for(compiled.examples)
         job = self.jobs.plan(steps_total=steps, checkpoint_every=recipe.checkpoint_interval(steps),
-                             recipe=recipe.spec(_card_mib()), dataset={"id": compiled.id, "examples": compiled.examples})
+                             recipe=recipe.spec(None if self.backend == "hugging_face" else _card_mib()),
+                             dataset={"id": compiled.id, "examples": compiled.examples}, backend=self.backend)
         lease(job, compiled, self.jobs.root)
         logger.info("Learning planned personal model v%s: %d examples, %d steps (%s)", job.version,
                     compiled.examples, steps, recipe.name)

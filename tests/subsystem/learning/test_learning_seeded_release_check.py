@@ -183,11 +183,15 @@ def test_the_persons_own_training_is_seen_from_its_engine_process(tmp_path):
     engine = str(profile / "runtimes" / "learning" / "engine" / "abc" / "py" / "python.exe")
     assert scratch.person_is_training(lambda: ["C:/other/python.exe", engine], profile)
     assert not scratch.person_is_training(lambda: ["C:/other/python.exe", ""], profile)
+    # The in-app browser and MCP's Python run from the same runtimes folder but never train.
+    browser = str(profile / "runtimes" / "playwright-chrome" / "chromium-1234" / "chrome.exe")
+    mcp = str(profile / "runtimes" / "uv-python" / "cpython-3.13" / "python.exe")
+    assert not scratch.person_is_training(lambda: [browser, mcp], profile)
 
 
 def _args(tmp_path, **extra):
     values = ["--out", str(tmp_path / "out"), "--scratch", str(tmp_path / "scratch"), "--eval-profile",
-              str(tmp_path / "eval-profile"), "--days", "2", "--people", "all", "--tiers", "8gb,32gb",
+              str(tmp_path / "eval-profile"), "--days", "2", "--people", "all", "--tiers", "16gb,32gb",
               "--gpu-booking", str(tmp_path / "gpu-booking.txt")]
     for key, value in extra.items():
         values += [f"--{key.replace('_', '-')}", str(value)]
@@ -215,7 +219,7 @@ class FakePerson:
         code = planned.pop(0) if planned else 0
         if code == 0:
             (run_dir / "result.json").write_text(json.dumps({
-                "person": person, "name": person, "tier": "8gb", "requests": [], "versions": {}, "survival": {},
+                "person": person, "name": person, "tier": "16gb", "requests": [], "versions": {}, "survival": {},
                 "gpu": {}, "tokens": {"ledger": {}, "sim_person": {"total": 0}, "cloud_total": self.tokens},
             }), encoding="utf-8")
         return code
@@ -236,7 +240,7 @@ def test_each_person_runs_in_their_own_scratch_profile_and_nothing_is_written_el
     assert [person for person, _env in fake.calls] == generator.people() * 2
     for person, env in fake.calls:
         data = Path(env["ROW_BOT_DATA_DIR"])
-        assert data == (tmp_path / "scratch" / "8gb" / person / "data").resolve()
+        assert data == (tmp_path / "scratch" / "16gb" / person / "data").resolve()
         assert env["ROW_BOT_LEARNING_PREVIEW"] == "1" and env["ROW_BOT_DESKTOP_NOTIFICATIONS"] == "off"
         assert "ROW_BOT_SOMETHING_ELSE" not in env  # nothing of this shell's Row-Bot settings reaches a person
     written = _files(tmp_path) - before
@@ -253,10 +257,10 @@ def test_a_planned_crash_starts_the_person_again_and_a_full_cap_stops_cleanly(tm
     check = release_check.ReleaseCheck(_args(tmp_path, cap_tokens=1_000), runner=fake, say=lambda _text: None)
     check.execute()
     runs = check.run["people_runs"]
-    assert [item["code"] for item in runs["8gb/idris"]["exits"]] == [86, 0] and runs["8gb/idris"]["state"] == "done"
-    assert runs["8gb/mara"]["state"] == "token_cap"
-    assert runs["8gb/wren"] == {"state": "token_cap"}  # 600 spent by idris + mara's cap: wren isn't started
-    state = json.loads((tmp_path / "out" / "8gb" / "idris" / "state.json").read_text(encoding="utf-8"))
+    assert [item["code"] for item in runs["16gb/idris"]["exits"]] == [86, 0] and runs["16gb/idris"]["state"] == "done"
+    assert runs["16gb/mara"]["state"] == "token_cap"
+    assert runs["16gb/wren"] == {"state": "token_cap"}  # 600 spent by idris + mara's cap: wren isn't started
+    state = json.loads((tmp_path / "out" / "16gb" / "idris" / "state.json").read_text(encoding="utf-8"))
     assert state["starts"] == 2  # the same state, continued
 
 
@@ -272,7 +276,7 @@ def test_the_same_command_again_continues_and_one_person_or_stage_can_run_alone(
     assert person == "wren"
     command_stages = check.stages
     assert command_stages == ["days"]
-    state = json.loads((tmp_path / "out" / "8gb" / "wren" / "state.json").read_text(encoding="utf-8"))
+    state = json.loads((tmp_path / "out" / "16gb" / "wren" / "state.json").read_text(encoding="utf-8"))
     assert state["starts"] == 3  # its work and its benchmark, then the days again
     assert json.loads((tmp_path / "out" / "run.json").read_text(encoding="utf-8"))["started_at"]
 
@@ -283,11 +287,11 @@ def test_a_person_kept_under_another_name_runs_again_fresh_and_is_reported_apart
     check = release_check.ReleaseCheck(_args(tmp_path), runner=FakePerson(tokens=300), say=lambda _text: None)
     kept = check.archive("mara@before-O106")
     assert {path.parent.parent.name for path in kept} == {"out", "scratch"}
-    assert not (tmp_path / "out" / "8gb" / "mara").exists()
+    assert not (tmp_path / "out" / "16gb" / "mara").exists()
     with pytest.raises(scratch.ScratchError):
         check.archive("mara/../idris@x")
     built = check.execute()  # Mara again, fresh: her new state starts at nothing
-    state = json.loads((tmp_path / "out" / "8gb" / "mara" / "state.json").read_text(encoding="utf-8"))
+    state = json.loads((tmp_path / "out" / "16gb" / "mara" / "state.json").read_text(encoding="utf-8"))
     assert state["starts"] == 2  # her work and her benchmark, in the fresh run
     assert [person["kept_as"] for person in built["earlier"]] == ["mara@before-O106"]
     assert [person["person"] for person in built["people"]] == generator.people()

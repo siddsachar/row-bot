@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "id": "cog",
+  "name": "Buddy Cog",
+  "version": "2.0.0",
+  "runtime": "living",
+  "art": "art.png",
+  "rig": "rig.json",
+  "preview": "art.png",
+  "prompt": "A compact clockwork tinkerer desktop companion: polished brass and copper body with tiny visible gears, a round glass gauge chest, soft amber glow, bright curious eyes, little wrench-like hands, handcrafted workshop accents.",
+  "patches": "patches.png"
+}

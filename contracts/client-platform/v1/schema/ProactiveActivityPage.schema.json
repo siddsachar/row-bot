@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "ProactiveActivityEntry": {
+      "additionalProperties": false,
+      "description": "One line of the Activity log: a pass (silent ones too), a moment's step, a rule or a kind going quiet.",
+      "properties": {
+        "at": {
+          "maxLength": 40,
+          "title": "At",
+          "type": "string"
+        },
+        "entry_id": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Entry Id",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "pass",
+            "moment",
+            "rule",
+            "quiet"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "moment_id": {
+          "maxLength": 16,
+          "pattern": "^([0-9a-f]{16})?$",
+          "title": "Moment Id",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 500,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_id",
+        "at",
+        "kind",
+        "summary",
+        "moment_id"
+      ],
+      "title": "ProactiveActivityEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ProactiveActivityEntry"
+      },
+      "maxItems": 200,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_before": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Before"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "items",
+    "next_before"
+  ],
+  "title": "ProactiveActivityPage",
+  "type": "object"
+}

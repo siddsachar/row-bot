@@ -81,6 +81,45 @@ def test_a_started_conversation_runs_its_first_turn_as_a_message_from_this_one(l
     assert [link["state"] for link in linked.links("conversation-a")] == ["done"]
 
 
+def test_a_started_conversation_can_answer_by_id_after_its_sender_is_renamed(linked, platform):  # noqa: F811
+    """The 30 Oct demo run: a child answered its parent by the parent's first-message name, which had changed."""
+    import sqlite3
+
+    from row_bot import threads
+
+    fake = Recording(reply("Starting."), reply("Thanks."))
+    platform.stream_factory = fake.stream
+    target = linked.start("Video 1", "Make the first demo video.")["conversation_id"]
+    settle(platform, target)
+    assert 'id="conversation-a"' in fake.prompts[0], "the message says which conversation sent it, by id"
+
+    with sqlite3.connect(threads.DB_PATH) as connection:
+        connection.execute("UPDATE thread_meta SET name='Release demo videos' WHERE thread_id='conversation-a'")
+    linked.current["origin"] = linked.Origin(target, "turn-b", target)
+    sent = linked.send("conversation-a", "Video 1 is recorded.", reply=False)
+    settle(platform, target, "conversation-a")
+
+    assert sent.startswith("Sent to “Release demo videos”")
+
+
+def test_the_agent_graph_keeps_where_a_message_came_from(linked, platform):  # noqa: F811
+    # The real agent re-adds the admitted message by id with the metadata threads hands it; a linked message
+    # must keep where it came from there, or the chat shows it as the person's own.
+    from row_bot import threads
+
+    platform.stream_factory = Recording(reply("On it.")).stream
+    target = linked.start("Welcome email", "Draft a short welcome email.")["conversation_id"]
+    settle(platform, target)
+    admitted = next(message for message in threads.get_latest_checkpoint_messages(target)
+                    if type(message).__name__ == "HumanMessage")
+
+    kept = threads.admitted_human_metadata(target, admitted.id)
+
+    assert kept["platform_note"] == "linked"
+    assert kept["row_bot_ui"] == {"linked_from": {"id": "conversation-a", "title": "conversation-a",
+                                                  "kind": "message"}}
+
+
 def test_a_message_from_another_conversation_never_counts_as_the_persons_request(linked, platform):  # noqa: F811
     from row_bot import threads
     from row_bot.approval_review import person_messages
@@ -185,3 +224,59 @@ def test_a_started_conversation_is_never_above_this_ones_level_or_hands_off(link
     stricter = linked.start("Check the post", "Check it.", propose=True, approval_mode="approve")
     assert linked._get(proposal["link_id"])["approval_mode"] == "auto", "Hands-off is the person's, per chat"
     assert linked._get(stricter["link_id"])["approval_mode"] == "approve"
+
+
+def test_a_message_reaches_a_workflow_by_its_name_even_before_its_first_run(linked, platform):  # noqa: F811
+    from row_bot import tasks
+    fake = Recording(reply("Noted for the next post."), reply("Thanks."))
+    platform.stream_factory = fake.stream
+    task_id = tasks.create_task("Growth | X content", prompts=["Draft today's posts."], channels=[],
+                                apply_default_skills=False)
+    with pytest.raises(linked.LinkError, match="Did you mean “Growth | X content”"):
+        linked.resolve("Growth | X contnet")
+
+    conversation = linked.resolve(task_id)  # It hasn't run: reaching it makes its conversation.
+    assert conversation == tasks.get_task(task_id)["persistent_thread_id"]
+    import sqlite3
+
+    from row_bot import threads
+    with sqlite3.connect(threads.DB_PATH) as connection:  # The model its turns run on here.
+        connection.execute("UPDATE thread_meta SET model_override='fixture/model' WHERE thread_id=?", (conversation,))
+    sent = linked.send("📣 Growth | X content", "Here's a trend worth a post.")
+    settle(platform, conversation, "conversation-a")
+
+    assert sent.startswith("Sent to “⚡ Growth | X content”")
+    assert "a trend worth a post" in fake.prompts[0]
+    assert rows(platform, conversation)[0]["linked_from"]["title"] == "conversation-a"
+    assert linked.resolve("Growth | X content") == conversation, "its name reaches the same conversation"
+
+
+def test_an_update_that_needs_no_answer_brings_nothing_back(linked, platform):  # noqa: F811
+    fake = Recording(reply("Noted."))
+    platform.stream_factory = fake.stream
+
+    sent = linked.send("conversation-b", "FYI: the release is out.", reply=False)
+    settle(platform, "conversation-b", "conversation-a")
+
+    assert sent.endswith("No reply comes back.")
+    assert len(fake.prompts) == 1, "only conversation-b took a turn: no thanks went back and forth"
+    assert not [row for row in rows(platform, "conversation-a") if row.get("note") == "linked"]
+
+
+def test_a_note_for_a_workflows_next_run_waits_for_it_and_is_read_once(linked, platform):  # noqa: F811
+    from row_bot import tasks, workflow_turns
+    fake = Recording()
+    platform.stream_factory = fake.stream
+    task_id = tasks.create_task("Daily results", prompts=["Report today's numbers."], channels=[],
+                                apply_default_skills=False)
+    with pytest.raises(linked.LinkError, match="Only a workflow has a next run"):
+        linked.send("conversation-b", "For later.", when="next_run")
+
+    held = linked.send("Daily results", "X content drafted 4 posts; 0 went out.", when="next_run")
+    assert held.startswith("Held for “⚡ Daily results”'s next run") and fake.prompts == [], "no turn starts now"
+
+    first = workflow_turns.with_notes(tasks.get_task(task_id), "Report today's numbers.")
+    assert "- From “conversation-a”: X content drafted 4 posts; 0 went out." in first
+    assert "not the person's request" in first
+    again = workflow_turns.with_notes(tasks.get_task(task_id), "Report today's numbers.")
+    assert "X content drafted" not in again, "read once"

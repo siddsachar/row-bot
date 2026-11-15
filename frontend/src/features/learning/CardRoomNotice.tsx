@@ -10,16 +10,19 @@ type Room = NonNullable<LearningSnapshot['personal_model']['room']>;
 /**
  * O112: training has waited two or more quiet-hours nights for room on the graphics card. Say so, with
  * what it needs and what the card had, and offer the next smaller model (one tap, then it asks first:
- * it downloads). Never a silent forever-wait.
+ * it downloads). With no smaller model (the 9B is the smallest, O124), say what to do and open the
+ * Personal model settings, where training moves to Hugging Face. Never a silent forever-wait.
  */
 export function CardRoomNotice({
   io,
   room,
   model,
+  onOpenSettings,
 }: {
   io: LearningIO;
   room: Room;
   model: string;
+  onOpenSettings: () => void;
 }) {
   const overlay = useOverlay();
   const smaller = room.smaller;
@@ -58,13 +61,17 @@ export function CardRoomNotice({
           ? ''
           : ' Close apps that use the graphics card before quiet hours, or train on Hugging Face instead.'}
       </p>
-      {smaller && (
+      {smaller ? (
         <Button
           className="small"
           variant="primary"
           onClick={(event) => switchTo(event.currentTarget)}
         >
           {`Use ${smaller.name} instead…`}
+        </Button>
+      ) : (
+        <Button className="small" onClick={onOpenSettings}>
+          Train on Hugging Face…
         </Button>
       )}
     </div>

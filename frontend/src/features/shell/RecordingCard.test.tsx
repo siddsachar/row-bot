@@ -124,6 +124,27 @@ it('shows a recording in progress with its clock, its limit and Stop', async () 
   );
 });
 
+it('keeps following the recording when the settled card replaces the live one', async () => {
+  const recordings = io([view()]);
+  const shown = (place: string) => (
+    <RecordingIoContext.Provider value={recordings}>
+      <RecordingCard
+        key={place}
+        recordingId="rec-1a2b3c4d"
+        conversationId="conversation-a"
+      />
+    </RecordingIoContext.Provider>
+  );
+  const { rerender } = render(shown('live'));
+  await screen.findByRole('group', {
+    name: 'Browser recording: Recording · 0:42',
+  });
+  rerender(shown('settled'));
+  await screen.findByRole('group', {
+    name: 'Browser recording: Recording · 0:42',
+  });
+});
+
 it('stops it and shows the saved video with a player', async () => {
   const recordings = io([view({ kind: 'screen' })]);
   const { container } = renderCard(recordings);

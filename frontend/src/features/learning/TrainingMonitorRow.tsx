@@ -1,7 +1,7 @@
 import { GraduationCap, Square } from 'lucide-react';
 import type { LearningTraining } from '../../api/types';
 import { Button, EntityRow, type Tone } from '../../ui/primitives';
-import { stepWords, timeLeftWords } from './words';
+import { moneyWords, stepWords, timeLeftWords } from './words';
 
 /**
  * Monitor's row for the personal model's training run (designs/learning-ux.md, "Where it
@@ -19,6 +19,30 @@ export function trainingRowWords(training: LearningTraining): {
     ? `Personal model v${training.version}`
     : 'Personal model';
   const steps = stepWords(training.step, training.steps_total);
+  if (training.where === 'hugging_face') {
+    // C1: it runs on Hugging Face, so using Row-Bot doesn't pause it; what it has cost so far.
+    const remote = training.remote;
+    const label =
+      training.state === 'unknown_remote'
+        ? 'Checking whether Hugging Face is still training…'
+        : training.state === 'preparing'
+          ? 'Uploading to Hugging Face…'
+          : remote?.stage === 'training'
+            ? `Training on Hugging Face · ${steps}`
+            : 'On Hugging Face';
+    return {
+      title,
+      what: `the Hugging Face run of ${title.charAt(0).toLowerCase()}${title.slice(1)}`,
+      status: {
+        tone: training.state === 'unknown_remote' ? 'neutral' : 'accent',
+        label,
+      },
+      meta:
+        remote && remote.cost_usd > 0
+          ? `${moneyWords(remote.cost_usd)} so far`
+          : '',
+    };
+  }
   const status =
     training.state === 'pausing'
       ? { tone: 'neutral' as Tone, label: 'Pausing after this step…' }
@@ -54,6 +78,7 @@ export function TrainingMonitorRow({
   onOpen?: () => void;
 }) {
   const words = trainingRowWords(training);
+  const remote = training.where === 'hugging_face';
   return (
     <EntityRow
       className="process-row"
@@ -64,12 +89,12 @@ export function TrainingMonitorRow({
       action={
         <Button
           className="small"
-          aria-label={`Stop ${words.what}`}
+          aria-label={`${remote ? 'Cancel' : 'Stop'} ${words.what}`}
           disabled={busy}
           onClick={onStop}
         >
           <Square size={12} aria-hidden />
-          Stop
+          {remote ? 'Cancel' : 'Stop'}
         </Button>
       }
       menuLabel={`More for ${words.title}`}

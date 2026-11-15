@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import threading
 import uuid
 from dataclasses import dataclass
@@ -54,7 +55,126 @@ def _about(seconds: float) -> str:
         count, unit = math.ceil(seconds / 3600), "hour"
     return f"{count} {unit}{'' if count == 1 else 's'}"
 
-FollowupKind = Literal["goal", "resource", "workflow", "linked"]
+# "proactive": the person acted on a Proactive Row-Bot moment that carries on in this chat.
+FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on", "proactive"]
+
+# A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
+# "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.
+CARRY_ON_NOTE = "Carrying on with the next step"
+CARRY_ON_PROMPT = (
+    "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
+    "nothing ran. Carry on with it now. If you need the person for something, ask them; if the work is "
+    "done, say so in a line.")
+_NEXT_STEP = re.compile(
+    r"\b(?:next|now|then),?\s+I(?:'|’)ll\b|\bI(?:'|’)ll\s+(?:now|next|then)\b"
+    r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
+    r"|\b(?:carrying on|moving on) (?:now|with)\b",
+    re.IGNORECASE)
+# The reply hands over to the person: their answer, OK or choice is what comes next.
+_HANDS_OVER = re.compile(
+    r"\?|\b(?:let me know|once you|when you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
+    r"|your call|say the word|up to you)\b",
+    re.IGNORECASE)
+_TAIL_CHARS = 400  # Of the reply's end: where a "next I'll" that ends the turn is.
+
+
+def stopped_on_next_step(reply: str) -> bool:
+    """The reply ends saying what it will do next, not handing over to the person."""
+    tail = str(reply or "").strip()[-_TAIL_CHARS:]
+    return bool(_NEXT_STEP.search(tail)) and not _HANDS_OVER.search(tail)
+
+
+# A reply that says it saved a file that isn't there gets one turn to make it or correct itself (A2 WP4).
+FILE_CHECK_NOTE = "Checking the files it named"
+
+
+def file_check_prompt(names: list[str]) -> str:
+    """The follow-up's prompt for files the last reply says it saved and that aren't there."""
+    shown = [f"`{name}`" for name in names]
+    listed = shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " and " + shown[-1]
+    if len(shown) == 1:
+        return (f"This is Row-Bot, not the person: your last reply says you saved {listed}, but there's no "
+                "file there. Make it now, or correct your reply in a line.")
+    return (f"This is Row-Bot, not the person: your last reply says you saved {listed}, but those files "
+            "aren't there. Make them now, or correct your reply in a line.")
+
+
+def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followup_kind: str) -> None:
+    """Schedule one carry-on turn after a reply that stopped on its next step, or that names files it says it
+    saved and that aren't there; never after another carry-on."""
+    from row_bot.file_claims import could_claim
+
+    if status != "completed" or followup_kind == "carry_on":
+        return
+    next_step = stopped_on_next_step(assistant_text)
+    if not next_step and not could_claim(assistant_text):
+        return
+    from row_bot import tasks, waits
+    # A workflow's run moves on by itself, and a wait already brings the conversation back.
+    if tasks.active_run_for_conversation(conversation_id) is not None or waits.waiting(conversation_id):
+        return
+    if next_step:
+        followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE)
+    else:
+        missing = _missing_files(conversation_id, assistant_text)
+        if not missing:
+            return
+        followup = Followup(kind="carry_on", prompt=file_check_prompt(missing), note=FILE_CHECK_NOTE)
+    with _LOCK:
+        if conversation_id in _PENDING:
+            return
+        _PENDING[conversation_id] = followup
+
+
+def _missing_files(conversation_id: str, reply: str) -> list[str]:
+    """Files the reply says it saved that are in none of the chat's folders or its own files; [] on doubt."""
+    from row_bot.file_claims import claimed_missing
+
+    try:
+        return claimed_missing(reply, _file_roots(conversation_id), known_names=_chat_file_names(conversation_id))
+    except Exception:
+        _LOG.warning("The file check after a reply was skipped for %s", conversation_id, exc_info=True)
+        return []
+
+
+def _file_roots(conversation_id: str) -> list:
+    """Where a reply's files are: the workspace (as set, and the default one Designer exports to) and the
+    conversation's code folder."""
+    from pathlib import Path
+
+    from row_bot.application.conversation_creation import configured_workspace_root
+    from row_bot.data_paths import default_workspace_root
+
+    roots: list[Path] = []
+    for find in (configured_workspace_root, default_workspace_root):
+        try:
+            root = Path(find()).resolve()
+        except (OSError, ValueError):
+            continue
+        if root not in roots:
+            roots.append(root)
+    try:
+        from row_bot.developer import tool_context
+        from row_bot.developer.storage import get_workspace
+
+        workspace_id = tool_context.infer_workspace_id_from_thread(conversation_id)
+        folder = get_workspace(workspace_id) if workspace_id else None
+        if folder is not None and folder.path and Path(folder.path).is_dir():
+            roots.append(Path(folder.path).resolve())
+    except Exception:
+        _LOG.debug("No code folder for the file check of %s", conversation_id, exc_info=True)
+    return roots
+
+
+def _chat_file_names(conversation_id: str) -> set[str]:
+    """The names of the conversation's own files (attachments, made pictures and videos)."""
+    from row_bot.application.attachments import list_conversation_files
+
+    try:
+        return {str(item.get("name") or "") for item in list_conversation_files(conversation_id)}
+    except Exception:
+        _LOG.debug("The chat's files were not listed for the file check of %s", conversation_id, exc_info=True)
+        return set()
 
 
 @dataclass(frozen=True)
@@ -66,9 +186,22 @@ class Followup:
     # A message from another conversation (5.3.1 C): where it came from, and the text the chat shows.
     linked_from: dict | None = None
     shown: str = ""
+    # A workflow run's first turn: the messages other conversations left for it ({id, title, text}).
+    held: tuple[dict, ...] = ()
 
 
 _PENDING: dict[str, Followup] = {}
+
+
+def after_tool_turned_on(conversation_id: str, label: str) -> None:
+    """A tool turned on mid-turn reaches the model only in its next turn: Row-Bot starts that turn itself."""
+    if not conversation_id:
+        return
+    schedule(conversation_id, Followup(
+        kind="carry_on",
+        prompt=(f"This is Row-Bot, not the person: {label} is now on and ready. Carry on with what the "
+                "person asked, using it."),
+        note=f"Carrying on with {label}"))
 
 
 def schedule(conversation_id: str, followup: Followup) -> None:
@@ -202,7 +335,7 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
                         assistant_text: str, model_ref: str, goal_id: str = "",
-                        error_text: str = "") -> None:
+                        error_text: str = "", followup_kind: str = "") -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
@@ -228,6 +361,8 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
                                  assistant_text=assistant_text, model_override=model_ref)
             except Exception:
                 _LOG.exception("Counting the goal's last turn failed for %s", conversation_id)
+        else:
+            _carry_on(conversation_id, status=status, assistant_text=assistant_text, followup_kind=followup_kind)
         return
     try:
         if status == "completed":

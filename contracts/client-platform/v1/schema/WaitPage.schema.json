@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "WaitView": {
+      "additionalProperties": false,
+      "description": "Something a conversation waits for (5.3.1): it carries on there when it happens.",
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "conversation_title": {
+          "maxLength": 160,
+          "title": "Conversation Title",
+          "type": "string"
+        },
+        "how": {
+          "maxLength": 40,
+          "title": "How",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "process",
+            "check",
+            "time",
+            "conversation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "waiting",
+            "due"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "until": {
+          "maxLength": 32,
+          "title": "Until",
+          "type": "string"
+        },
+        "wait_id": {
+          "pattern": "^[0-9a-f]{12}$",
+          "title": "Wait Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "wait_id",
+        "conversation_id",
+        "conversation_title",
+        "kind",
+        "label",
+        "how",
+        "until",
+        "status"
+      ],
+      "title": "WaitView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/WaitView"
+      },
+      "maxItems": 500,
+      "title": "Items",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "WaitPage",
+  "type": "object"
+}

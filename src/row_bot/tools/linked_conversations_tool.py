@@ -38,6 +38,8 @@ class _StartInput(BaseModel):
 class _SendInput(BaseModel):
     conversation: str = Field(description="The conversation to message: its name or id (a workflow's too).")
     message: str = Field(description="The message. It arrives there as a message from this conversation.")
+    reply: bool = Field(default=True, description="false: an update that needs no answer.")
+    when: Literal["now", "next_run"] = Field(default="now", description="next_run: a workflow reads it on its next run.")
 
 
 def _start(title: str, message: str, mode: str = "fresh", propose: bool = False, approval_mode: str = "") -> str:
@@ -61,13 +63,13 @@ def _start(title: str, message: str, mode: str = "fresh", propose: bool = False,
                   "next": next_step})
 
 
-def _send(conversation: str, message: str) -> str:
+def _send(conversation: str, message: str, reply: bool = True, when: str = "now") -> str:
     from row_bot import linked_conversations as linked
 
     if refused := _refused_here():
         return refused
     try:
-        return linked.send(conversation, message)
+        return linked.send(conversation, message, reply=reply, when=when)  # type: ignore[arg-type]
     except linked.LinkError as error:
         return f"Not sent: {error}"
 
@@ -115,12 +117,13 @@ class LinkedConversationsTool(BaseTool):
         return [
             StructuredTool.from_function(
                 func=_start, name="conversation_start", args_schema=_StartInput,
-                description=("Start a conversation of its own for longer work: it runs now and the person can "
-                             "open and stop it. At most 3 per turn. For a quick sub-task, use a helper.")),
+                description=("Only when the person asks for a separate conversation: start one that runs now, "
+                             "which they can open and stop. Otherwise do the work here (a helper for a sub-task).")),
             StructuredTool.from_function(
                 func=_send, name="conversation_send", args_schema=_SendInput,
                 description=("Message another conversation (a workflow's too) by name or id. It starts a turn "
-                             "there, and its reply comes back here.")),
+                             "there, and its reply comes back here; reply=false for updates that need no answer. "
+                             "Don't answer a reply just to acknowledge it.")),
             StructuredTool.from_function(
                 func=_links, name="conversation_links",
                 description="List the conversations this one started or proposed, with their state."),

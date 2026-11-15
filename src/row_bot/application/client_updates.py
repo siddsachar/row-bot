@@ -101,9 +101,12 @@ def _legacy_install(mode: str) -> bool:
         return False
 
 
-def _host_view(mode: str) -> dict[str, Any] | None:
+def _host_view(mode: str, current_version: str) -> dict[str, Any] | None:
     if mode != "external":
         return None
+    from row_bot import install_layout
+    from row_bot.brand import APP_REPOSITORY_URL
+    from row_bot.hosting import hosted_by
     from row_bot.updates import external
 
     status = external.read_status()
@@ -111,12 +114,16 @@ def _host_view(mode: str) -> dict[str, Any] | None:
     waiting = None
     if request and request.get("action") and request.get("id") != status.get("handled_request"):
         waiting = {"action": request["action"], "requested_at": request.get("requested_at")}
+    notes_url = status["notes_url"]
+    if notes_url is None and hosted_by() is not None and install_layout.is_valid_version_name(current_version):
+        # A known host (H3) reports nothing here: What's new is this version's release notes.
+        notes_url = f"{APP_REPOSITORY_URL}/releases/tag/v{current_version}"
     return {
         "state": status["state"],
         "current_version": status["current_version"],
         "available_version": status["available_version"],
         "message": status["message"],
-        "notes_url": status["notes_url"],
+        "notes_url": notes_url,
         "updated_at": status["updated_at"],
         "request": waiting,
     }
@@ -171,7 +178,7 @@ def read_updates() -> dict[str, Any]:
             "engine": engine,
             "previous_version": _previous_version(mode),
             "legacy_install": _legacy_install(mode),
-            "host": _host_view(mode),
+            "host": _host_view(mode, state.current_version[:64]),
             "held_back": _held_back(mode),
             # A loopback test feed instead of GitHub (ROW_BOT_UPDATE_FEED): shown.
             "feed_url": ((updater.feed_url() or "")[:256] or None) if mode == "self" else None,

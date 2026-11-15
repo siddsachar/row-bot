@@ -1,6 +1,7 @@
 """Independent Phase 3 acceptance checks against real application/API owners."""
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -235,6 +236,42 @@ def test_tool_media_outcome_is_typed_and_does_not_discard_durable_final(service,
                     if row["message_id"] == "media-final"]) == 1
         assert handle.view()["status"] == "completed"
         assert fake.external_call_count == 0
+
+
+def test_a_picture_made_live_is_named_by_its_prompt_and_nothing_else(service):
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from row_bot.agent import _tool_call_payload
+
+    call = {"id": "tool-call", "name": "generate_image",
+            "args": {"prompt": "A lighthouse\non a cliff  at sunset", "reference_image": "private-path"}}
+    fake = ScriptedAgentStream((
+        CheckpointCommit((AIMessage(id="tool-owner", content="", tool_calls=[call]),)),
+        ("tool_call", _tool_call_payload(call)),
+        CheckpointCommit((ToolMessage(id="tool-output", tool_call_id="tool-call", content="Generated the image"),)),
+        ToolMediaResult("tool-output", "tool-call", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1ZsAAAAASUVORK5CYII="),
+        CheckpointCommit((AIMessage(id="media-final", content="Here it is."),), "media-final"),
+        ("done", None),
+    ))
+    service.stream_factory = fake.stream
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation = _command(client, headers, "conversation.create", {}).json()["conversation_id"]
+        subscription = client.post(f"/api/v1/conversations/{conversation}/subscriptions", headers=headers).json()
+        admitted = _command(client, headers, "conversation.submit", {
+            "submission_id": str(uuid4()), "text": "Draw a lighthouse",
+            "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"},
+        }, target=conversation)
+        assert admitted.status_code == 202, admitted.text
+        assert service.registry.get(admitted.json()["execution_id"]).producer_done.wait(5)
+        observed = client.get("/api/v1/events/poll", headers=headers, params={
+            "subscription_id": subscription["subscription_id"], "cursor": subscription["cursor"],
+        })
+        assert observed.status_code == 200, observed.text
+        events = [item["event"] for item in observed.json()["events"]]
+        [media] = [event for event in events if event["type"] == "media.available"]
+        assert media["payload"]["prompt"] == "A lighthouse on a cliff at sunset"
+        assert "private-path" not in json.dumps(events)
 
 
 def test_blank_deck_creates_once_without_provider_and_global_open_reuses_in_chat_origin(resource_service):

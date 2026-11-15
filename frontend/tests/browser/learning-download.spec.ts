@@ -41,6 +41,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
+  // Close the app first: restoring turns Learning's start-up flag off, and a
+  // poll still due (download, training) would get a 404 a real app never sees.
+  await page.close();
   await l1a(page, 'restore');
 });
 
@@ -82,7 +85,7 @@ async function turnOn(page: Page, label: string, ask = true) {
   if (ask)
     await page
       .getByRole('dialog', {
-        name: 'Download the training engine and Qwen3.5 2B?',
+        name: 'Download the training engine and Qwen3.5 9B?',
       })
       .getByRole('button', { name: 'Not now', exact: true })
       .click();
@@ -102,7 +105,7 @@ function card(page: Page) {
   return page.getByRole('region', { name: 'Download' });
 }
 
-const GPU = 'NVIDIA GeForce RTX 5070 Laptop (8 GB)';
+const GPU = 'NVIDIA GeForce RTX 5080 Laptop (16 GB)';
 
 test('the download: the ask, downloading, Monitor, paused, not enough disk, failed, ready, and the engine and model in Settings', async ({
   page,
@@ -119,7 +122,7 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   ).toBeVisible();
   await page.getByRole('button', { name: 'Download…' }).click();
   const ask = page.getByRole('dialog', {
-    name: 'Download the training engine and Qwen3.5 2B?',
+    name: 'Download the training engine and Qwen3.5 9B?',
   });
   await expect(
     ask.getByText(
@@ -129,27 +132,27 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   await shoot(page, info, 'download-ask');
   await ask.getByRole('button', { name: 'Download', exact: true }).click();
   await expect(
-    notice(page, 'Downloading the training engine and Qwen3.5 2B.'),
+    notice(page, 'Downloading the training engine and Qwen3.5 9B.'),
   ).toBeVisible();
 
   // Downloading: bytes and percent of the whole download, a real bar, Stop.
   await expect(
     card(page).getByText(
-      'Downloading the training engine and Qwen3.5 2B · 1.2 of 6.8 GB',
+      'Downloading the training engine and Qwen3.5 9B · 1.2 of 21.5 GB',
     ),
   ).toBeVisible();
   await expect(
-    card(page).getByText('17% · now the training engine'),
+    card(page).getByText('5% · now the training engine'),
   ).toBeVisible();
   await expect(
     card(page).getByRole('progressbar', { name: 'Download progress' }),
-  ).toHaveAttribute('max', '6789270885');
+  ).toHaveAttribute('max', '21549991432');
   await shoot(page, info, 'model-downloading');
 
   // Monitor: one row for the download, with Stop.
   await page.goto('/app-v2/?tab=monitor');
   const row = page.getByRole('listitem').filter({ hasText: 'Training engine' });
-  await expect(row.getByText('Downloading · 17%')).toBeVisible();
+  await expect(row.getByText('Downloading · 5%')).toBeVisible();
   await expect(
     row.getByRole('button', { name: 'Stop downloading Training engine' }),
   ).toBeVisible();
@@ -165,7 +168,7 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   await l2b(page, 'state', 'paused');
   await openModel(page, GPU);
   await expect(
-    card(page).getByText('Download paused at 3.1 of 6.8 GB.'),
+    card(page).getByText('Download paused at 3.1 of 21.5 GB.'),
   ).toBeVisible();
   await expect(
     card(page).getByRole('button', { name: 'Resume' }),
@@ -183,7 +186,7 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   await l2b(page, 'state', 'disk');
   await openModel(page, GPU);
   await expect(
-    card(page).getByText('Needs 9.4 GB free; 6 GB free.'),
+    card(page).getByText('Needs 24.2 GB free; 6 GB free.'),
   ).toBeVisible();
   await shoot(page, info, 'model-not-enough-disk');
 
@@ -204,7 +207,7 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   await expect(card(page).getByText('Ready to download')).toBeVisible();
   await expect(
     card(page).getByText(
-      'The training engine (2.2 GB) and Qwen3.5 2B (4.6 GB). 512 GB free on this computer.',
+      'The training engine (2.2 GB) and Qwen3.5 9B (19.3 GB). 512 GB free on this computer.',
     ),
   ).toBeVisible();
   await shoot(page, info, 'model-ready');
@@ -219,7 +222,7 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   const starting = page
     .locator('.settings-row')
     .filter({ hasText: 'Starting model' });
-  await expect(starting.getByText('On this computer, 4.6 GB')).toBeVisible();
+  await expect(starting.getByText('On this computer, 19.3 GB')).toBeVisible();
   await engine.evaluate((element) =>
     element.scrollIntoView({ block: 'center' }),
   );
@@ -232,15 +235,15 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   await shoot(page, info, 'settings-remove-confirm');
   await remove.getByRole('button', { name: 'Cancel' }).click();
   await starting.getByRole('button', { name: 'Delete' }).click();
-  const remove2 = page.getByRole('alertdialog', { name: 'Delete Qwen3.5 2B?' });
-  await expect(remove2).toContainText('It frees 4.6 GB.');
+  const remove2 = page.getByRole('alertdialog', { name: 'Delete Qwen3.5 9B?' });
+  await expect(remove2).toContainText('It frees 19.3 GB.');
   await shoot(page, info, 'settings-delete-confirm');
   await remove2.getByRole('button', { name: 'Cancel' }).click();
 
   // The Personal model view reflects them.
   await openModel(page, GPU);
   const facts = page.locator('dl[aria-label="Personal model"]');
-  await expect(facts).toContainText('On this computer (4.6 GB)');
+  await expect(facts).toContainText('On this computer (19.3 GB)');
   await expect(facts).toContainText('Installed (4 GB)');
   await shoot(page, info, 'model-installed');
 });
@@ -251,7 +254,7 @@ test('an NVIDIA driver older than 570 says to update it, in the setup sheet and 
   await l1a(page, 'preview');
   await l1a(page, 'gpu');
   await l2b(page, 'old-driver');
-  const label = 'NVIDIA GeForce RTX 3080 Laptop (8 GB)';
+  const label = 'NVIDIA GeForce RTX 4090 Laptop (16 GB)';
   await page.goto('/app-v2/settings/learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();
   const sheet = page.getByRole('dialog', { name: 'Turn on Learning' });

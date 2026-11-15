@@ -8,6 +8,8 @@
  *   the secret matches the ID (the ID is the first 128 bits of SHA-256 over the secret).
  * - GET  /v1/stats  (Authorization: Bearer <STATS_TOKEN>): installations reporting in the last
  *   7 and 15 days, by version and by OS, and today's and yesterday's by country.
+ * - GET  /v1/totals (public): installations reporting in the last 7 and 15 days, overall and by OS,
+ *   and nothing else (no versions, countries or days), for the owner's own reports.
  * - Daily (cron): the day before's totals are kept; rows older than 35 days are deleted.
  *
  * Hardening: a 1 KB body cap, a strict schema, Cloudflare's rate limiter per address, nothing
@@ -194,6 +196,14 @@ async function stats(request, env) {
   return answer(200, { ...(await totals(env.DB, today)), by_country: await countries(env.DB, today) });
 }
 
+/** Public: the 7- and 15-day totals, overall and by OS, and nothing else (the owner, 29 Oct 2026). */
+async function publicTotals(request, env) {
+  if (request.method !== 'GET') return answer(405);
+  if (await limited(request, env)) return answer(429);
+  const { active_7d, active_15d, by_os, as_of } = await totals(env.DB, dayOf(Date.now()));
+  return answer(200, { active_7d, active_15d, by_os, as_of });
+}
+
 /** The daily run on `today`: keep the day before's totals, then delete rows older than 35 days. */
 export async function daily(db, today) {
   const yesterday = daysBefore(today, 1);
@@ -219,6 +229,7 @@ export default {
       if (pathname === '/v1/ping') return await ping(request, env);
       if (pathname === '/v1/delete') return await remove(request, env);
       if (pathname === '/v1/stats') return await stats(request, env);
+      if (pathname === '/v1/totals') return await publicTotals(request, env);
       return answer(404);
     } catch {
       // Nothing about the request is logged.

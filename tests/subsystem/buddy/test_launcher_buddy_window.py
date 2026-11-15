@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import threading
@@ -165,23 +166,24 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
     assert report["main_publish"] == {"status": "ok", "value": {"conversationId": "conversation-1", "revision": 1}}
     assert report["main_hide"]["status"] == "unavailable"
 
-    # Tear-off: React route, frameless always-on-top 380x230, hidden until ready.
+    # Tear-off: React route, the frameless always-on-top pet window, hidden until ready.
     assert report["tear_off"] == {"status": "ok", "value": {"placement": "desktop", "visible": True}}
-    assert report["config_after_tear_off"] == {"placement": "desktop", "visible": True, "overlay": {"x": 710, "y": 524}}
+    assert report["config_after_tear_off"] == {"placement": "desktop", "visible": True, "overlay": {"x": 816, "y": 503}}
     assert report["buddy_url"] == f"http://127.0.0.1:{port}/app-v2/buddy-overlay"
     options = report["buddy_options"]
     assert "js_api" not in options
     assert {key: options[key] for key in ("width", "height", "frameless", "on_top", "hidden",
                                           "resizable", "easy_drag", "x", "y")} == {
-        "width": 380, "height": 230, "frameless": True, "on_top": True, "hidden": True,
-        "resizable": False, "easy_drag": False, "x": 710, "y": 524}
-    assert options["transparent"] is (sys.platform != "win32")
+        "width": 168, "height": 176, "frameless": True, "on_top": True, "hidden": True,
+        "resizable": False, "easy_drag": False, "x": 816, "y": 503}
+    # The OS helpers keep a transparent pet clickable on Windows too (D11).
+    assert options["transparent"] is True
     assert report["buddy_exposed"] == ["native_client_dispatch", "native_client_rebind"]
     assert report["visible_before_ready"] is False
 
-    # The overlay document gets exactly its three operations.
+    # The overlay document gets exactly its four operations.
     assert sorted(report["buddy_discover"]["value"]["capabilities"]) == [
-        "buddy_follow", "buddy_placement", "main_window"]
+        "buddy_follow", "buddy_pet", "buddy_placement", "main_window"]
     assert report["buddy_read"] == {"status": "ok", "value": {"conversationId": "conversation-1", "revision": 1}}
     assert report["buddy_publish"]["status"] == "unavailable"
     assert report["buddy_tear_off"]["status"] == "unavailable"
@@ -205,7 +207,12 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
     assert report["closing_torn_off"] == [False]
     # pywebview reports moves in physical pixels; the host keeps DIPs (B100).
     scale = report["scale"]
-    assert report["config_after_move"]["overlay"] == {"x": round(1234 / scale), "y": round(567 / scale)}
+    assert report["pet_drag"] == {"status": "ok", "value": {"accepted": True}}
+    assert report["pet_after_move"] == [pytest.approx(1234 / scale), pytest.approx(567 / scale)]
+    state = report["pet_state"]["value"]
+    assert report["pet_state"]["status"] == "ok" and state["width"] == 168 and state["expanded"] is False
+    assert report["pet_bad"] == {"status": "unavailable", "reason": "invalid_request"}
+    assert report["pet_bad_mask"] == {"status": "unavailable", "reason": "invalid_request"}
 
     assert report["bridge_after_navigation"]["status"] == "unavailable"
     assert _ok(report["hide"]) and report["visible_after_hide"] is False
@@ -230,7 +237,12 @@ def test_desktop_saves_land_where_the_save_dialog_says_and_tear_off_repeats(tmp_
     """The export went to a file named "C" in the app's working folder while
     the app said it was saved (B238); tear-off worked once, then never (B224)."""
     report = _run(tmp_path, api.server_address[1], "desktop_save_and_tear_off_rounds")
-    assert report["save"] == {"status": "ok", "value": None}
+    # A save answers a token for Show in folder, never the path chosen.
+    saved = {"status": "ok", "value": {"saved": "token"}}
+    def tokenless(answer: dict) -> dict:
+        assert re.fullmatch(r"[0-9a-f]{32}", answer["value"]["saved"]), answer
+        return {**answer, "value": {"saved": "token"}}
+    assert tokenless(report["save"]) == saved
     assert report["saved_bytes"] == "export conversation-1:export-1"
     assert report["save_dialog"][1]["save_filename"] == "conversation-export.pdf"
     assert report["save_relative"] == {"status": "unavailable", "reason": "save_failed"}
@@ -245,7 +257,7 @@ def test_desktop_saves_land_where_the_save_dialog_says_and_tear_off_repeats(tmp_
         assert round_["dock"] == ("unavailable" if number % 2 == 0 else docked)
         assert round_["destroyed"] is True
         assert round_["main_status"] == docked
-        assert round_["main_save"] == {"status": "ok", "value": None}
+        assert tokenless(round_["main_save"]) == saved
     assert report["windows"] == 4
 
 

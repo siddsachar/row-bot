@@ -3,8 +3,8 @@ import { accessibility, assertNoOverflow, expect, test } from './evidence';
 import { fixtureHeaders } from './surface-helpers';
 
 // Learning (preview), O124: moving an existing setup to a larger certified starting model. The fixture
-// fakes an RTX 5090 (the 32 GB tier: Qwen3.5 9B) on a setup made on Qwen3.5 2B, and stands in for the
-// download; nothing reaches the network, a GPU or a provider. The Personal model view offers the
+// fakes an RTX 5090 (the 32 GB tier: Qwen3.5 9B) on a setup made on a stand-in smaller certified model
+// (the 9B is the only one since T1; Part 4 brings other families), and stands in for the download; nothing reaches the network, a GPU or a provider. The Personal model view offers the
 // stronger model once (Switch… or Dismiss); Settings › Learning › Starting model › Change… lists the
 // card's certified models, asks with the download and the free space, then switches and downloads.
 
@@ -40,6 +40,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
+  // Close the app first: restoring turns Learning's start-up flag off, and a
+  // poll still due (download, training) would get a 404 a real app never sees.
+  await page.close();
   await l2x(page, 'restore');
   await l1a(page, 'restore');
 });
@@ -72,9 +75,10 @@ function notice(page: Page, text: string | RegExp) {
   return page.locator('.toast-message').filter({ hasText: text });
 }
 
-/** Learning on, on an RTX 5090, with the starting model set back to Qwen3.5 2B (a setup made before). */
-async function onTheTwoB(page: Page) {
+/** Learning on, on an RTX 5090, with the starting model set to the stand-in smaller model (a setup made before). */
+async function onTheSmallModel(page: Page) {
   await l1a(page, 'preview');
+  await l2x(page, 'two-models');
   await l2x(page, 'card', '5090');
   await page.goto('/app-v2/settings/learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();
@@ -89,7 +93,7 @@ async function onTheTwoB(page: Page) {
     .getByRole('button', { name: 'Not now', exact: true })
     .click();
   await expect(notice(page, 'Learning is on.')).toBeVisible();
-  await l2x(page, 'starting-model', 'qwen3.5-2b');
+  await l2x(page, 'starting-model', 'test-small');
 }
 
 function offer(page: Page) {
@@ -103,17 +107,17 @@ async function openModel(page: Page) {
   ).toBeVisible();
 }
 
-test('Settings › Starting model › Change… moves a 2B setup to the 9B the card is certified for (O124)', async ({
+test('Settings › Starting model › Change… moves a smaller model’s setup to the 9B the card is certified for (O124)', async ({
   page,
 }, info) => {
-  await onTheTwoB(page);
+  await onTheSmallModel(page);
   await page.goto('/app-v2/settings/learning');
   await page.getByRole('button', { name: 'Change the starting model' }).click();
   const sheet = page.getByRole('dialog', { name: 'Starting model' });
   const nine = sheet.getByRole('radio', { name: /^Qwen3\.5 9B · recommended/ });
   await expect(nine).toBeVisible();
   await expect(
-    sheet.getByRole('radio', { name: /^Qwen3\.5 2B · in use/ }),
+    sheet.getByRole('radio', { name: /^A small model · in use/ }),
   ).toBeChecked();
   await shoot(page, info, 'settings-starting-model-change');
 
@@ -142,7 +146,7 @@ test('Settings › Starting model › Change… moves a 2B setup to the 9B the c
 test('the Personal model view offers the stronger model once: Switch… asks, Dismiss hides it for good (O124)', async ({
   page,
 }, info) => {
-  await onTheTwoB(page);
+  await onTheSmallModel(page);
   await openModel(page);
   await expect(offer(page)).toContainText(
     'Your graphics card can now train Qwen3.5 9B, a stronger starting model.',

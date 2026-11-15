@@ -187,6 +187,8 @@ def recipe_refs(install: dict | None) -> list[str]:
         return []
     name = args[0].lower()
     name = name.rsplit(":", 1)[0] if kind == "oci" else re.sub(r"(?<=.)@[^/]*$", "", name)
+    if kind == "pypi":  # "uvx --from markitdown-mcp==0.1.2" or "pkg[extra]" is still the package.
+        name = re.split(r"[=<>!~\[;]", name)[0]
     return [kind + ":" + name]
 
 
@@ -215,3 +217,8 @@ def repository_refs(source_identity: str) -> list[str]:
 def text(app: App | None) -> str:
     """Words that find an app by name, publisher, synonym or job."""
     return " ".join([app.name, app.publisher, app.summary, *app.synonyms, *app.jobs]) if app else ""
+
+
+def names(app: App | None) -> list[str]:
+    """What an app is called: its name, synonyms and jobs. A search word found here is a name match."""
+    return [app.name, *app.synonyms, *app.jobs] if app else []

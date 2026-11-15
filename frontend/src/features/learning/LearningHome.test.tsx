@@ -12,6 +12,7 @@ import {
   installedModel,
   learningSnapshot,
   NO_GPU,
+  SMALL_GPU,
   overnight,
   personalModel,
   runningRun,
@@ -374,12 +375,12 @@ it('Personal model: not set up offers the download ask', async () => {
     screen.getByRole('heading', { name: 'No personal model yet' }),
   ).toBeVisible();
   expect(
-    await screen.findByText('NVIDIA GeForce RTX 5070 Laptop (8 GB)'),
+    await screen.findByText('NVIDIA GeForce RTX 5060 Ti (16 GB)'),
   ).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Download…' }));
   expect(
     await screen.findByRole('dialog', {
-      name: 'Download the training engine and Qwen3.5 2B?',
+      name: 'Download the training engine and Qwen3.5 9B?',
     }),
   ).toBeVisible();
 });
@@ -399,7 +400,7 @@ it('Personal model: an earlier Download answer reads as Ready to download, and o
   // The sizes and the free space again, where it comes from, and usage reporting off.
   expect(
     screen.getByText(
-      'The training engine (2.2 GB) and Qwen3.5 2B (4.6 GB). 512 GB free on this computer.',
+      'The training engine (2.2 GB) and Qwen3.5 9B (19.3 GB). 512 GB free on this computer.',
     ),
   ).toBeVisible();
   expect(
@@ -413,15 +414,34 @@ it('Personal model: an earlier Download answer reads as Ready to download, and o
   expect(io.run).toHaveBeenCalledWith('start_download');
 });
 
-it('Personal model: without a suitable GPU it says so and points to the settings', async () => {
-  const { onOpenSettings } = show(fakeIO(on(), { hardware: NO_GPU }), 'model');
+it('Personal model: a card too small to train points to Hugging Face in the settings (O124)', async () => {
+  const { onOpenSettings } = show(
+    fakeIO(on(), { hardware: SMALL_GPU }),
+    'model',
+  );
   expect(
     await screen.findByRole('heading', {
       name: 'This computer can’t train a model',
     }),
   ).toBeVisible();
+  expect(
+    screen.getByText(/You can train one on Hugging Face instead/),
+  ).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Learning settings' }));
   expect(onOpenSettings).toHaveBeenCalledWith('personal-model');
+});
+
+it('Personal model: with no NVIDIA card it says plainly that lessons still work, and offers no Hugging Face (O131)', async () => {
+  show(fakeIO(on(), { hardware: NO_GPU }), 'model');
+  expect(
+    await screen.findByText(
+      /A personal model needs an NVIDIA graphics card\. Learning still improves Row-Bot with lessons and ways of working\./,
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/Hugging Face/)).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Learning settings' }),
+  ).toBeNull();
 });
 
 it('Personal model: a training run replaces the setup states, and keeps itself fresh while shown', async () => {
@@ -442,7 +462,7 @@ it('Personal model: a training run replaces the setup states, and keeps itself f
   ).toBeNull();
   const facts = screen.getByLabelText('Personal model', { selector: 'dl' });
   expect(facts).toHaveTextContent(
-    'Qwen3.5 2B · Apache 2.0 · On this computer (4.6 GB)',
+    'Qwen3.5 9B · Apache 2.0 · On this computer (4.6 GB)',
   );
   expect(facts).toHaveTextContent('Training engineInstalled (4 GB)');
   expect(io.watchTraining).toHaveBeenCalledTimes(1);
@@ -467,8 +487,8 @@ it('Personal model: after two nights without room on the graphics card it says s
         need_gb: 15.3,
         free_gb: 9.2,
         smaller: {
-          id: 'qwen3.5-2b',
-          name: 'Qwen3.5 2B',
+          id: 'test-small',
+          name: 'A small model',
           licence: 'Apache 2.0',
           download_bytes: 4_570_000_000,
         },
@@ -484,17 +504,19 @@ it('Personal model: after two nights without room on the graphics card it says s
     'No room on the graphics card for 2 nights. Training Qwen3.5 9B needs about 16 GB free on it; it had about 9 GB (your display and other apps use the rest).',
   );
   fireEvent.click(
-    within(notice).getByRole('button', { name: 'Use Qwen3.5 2B instead…' }),
+    within(notice).getByRole('button', { name: 'Use A small model instead…' }),
   );
   const ask = await screen.findByRole('alertdialog', {
-    name: 'Use Qwen3.5 2B instead?',
+    name: 'Use A small model instead?',
   });
   expect(ask).toHaveTextContent(
-    'Row-Bot downloads Qwen3.5 2B (4.6 GB) and trains it in quiet hours instead of Qwen3.5 9B.',
+    'Row-Bot downloads A small model (4.6 GB) and trains it in quiet hours instead of Qwen3.5 9B.',
   );
-  fireEvent.click(within(ask).getByRole('button', { name: 'Use Qwen3.5 2B' }));
+  fireEvent.click(
+    within(ask).getByRole('button', { name: 'Use A small model' }),
+  );
   await act(async () => undefined);
   expect(io.run).toHaveBeenCalledWith('use_smaller_model', {
-    model: 'qwen3.5-2b',
+    model: 'test-small',
   });
 });

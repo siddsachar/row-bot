@@ -874,7 +874,8 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   const download = await captureBrowserDownload(page, () =>
     dialog.getByRole('button', { name: 'Markdown', exact: true }).click(),
   );
-  expect(download.name).toBe('conversation-export.md');
+  // The Save dialog's suggestion is the chat's title.
+  expect(download.name).toBe(`${renamed}.md`);
   expect(download.mimeType).toBe('application/octet-stream');
   const bytes = download.bytes;
   const markdown = bytes.toString('utf-8');
@@ -885,7 +886,7 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   // A browser can only start a download; it never claims the file was saved.
   await expect(dialog).toHaveCount(0);
   await expect(
-    page.locator('.toast').filter({ hasText: 'Download started.' }),
+    page.locator('.toast').filter({ hasText: `Downloading ${renamed}.md` }),
   ).toBeVisible();
   await writeEvidence(info, 'conversation-actions-result.json', {
     conversation,

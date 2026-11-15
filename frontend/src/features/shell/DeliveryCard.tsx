@@ -2,15 +2,14 @@ import { useContext, useEffect, useState } from 'react';
 import {
   Download,
   File as FileIcon,
-  FolderOpen,
   MonitorSmartphone,
   Send,
 } from 'lucide-react';
 import type { DeliveryView } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { saveBrowserDownload } from '../../platform/download';
 import { Button, Skeleton, StatusDot } from '../../ui/primitives';
 import { fileKind, formatBytes } from './MediaPreview';
+import { saveProblem, useSaveFile } from './save-file';
 import {
   DeliveryIoContext,
   deliveryAdvice,
@@ -20,8 +19,6 @@ import {
   deliveryTitle,
   sendInsteadLabel,
 } from './deliveries';
-
-type Saved = { index: number; fileName: string; folder: string };
 
 /**
  * Files a step sent (F7), in the conversation. Sent to the person's devices:
@@ -43,7 +40,7 @@ export function DeliveryCard({
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<number | 'devices' | null>(null);
   const [error, setError] = useState('');
-  const [saved, setSaved] = useState<Saved | null>(null);
+  const saveFile = useSaveFile();
 
   useEffect(() => {
     if (!io) return;
@@ -60,43 +57,22 @@ export function DeliveryCard({
     return () => abort.abort();
   }, [io, deliveryId, attempt]);
 
-  async function download(index: number, name: string) {
-    if (!io || !view || busy !== null) return;
+  async function download(index: number) {
+    if (!io || !view || !saveFile || busy !== null) return;
     setBusy(index);
     setError('');
-    setSaved(null);
-    let problem: unknown = null;
-    try {
-      const result = await saveBrowserDownload(async () => {
-        try {
-          return await io.download(view.delivery_id, index);
-        } catch (cause) {
-          problem = cause;
-          throw cause;
-        }
-      }, name);
-      if (problem) {
-        setError(clientError(problem).message);
-        if (clientError(problem).code === 'sent_file_expired')
-          setAttempt((value) => value + 1);
-      } else if (
-        result.status === 'unavailable' &&
-        result.reason === 'desktop_download_unavailable'
-      ) {
-        // The desktop window can't download: the file goes into Exports.
-        const copy = await io.saveToExports(view.delivery_id, index);
-        setSaved({ index, fileName: copy.file_name, folder: copy.folder });
-      } else if (result.status === 'unavailable')
-        setError(
-          result.reason === 'user_gesture_required'
-            ? 'Press Download again to save the file.'
-            : `Couldn't download ${name}. Try again.`,
-        );
-    } catch (cause) {
-      setError(clientError(cause).message);
-    } finally {
-      setBusy(null);
-    }
+    const result = await saveFile({
+      kind: 'delivery',
+      delivery_id: view.delivery_id,
+      index,
+    });
+    setBusy(null);
+    setError(saveProblem(result, 'the file'));
+    if (
+      result.status === 'unavailable' &&
+      result.reason === 'sent_file_expired'
+    )
+      setAttempt((value) => value + 1);
   }
 
   async function sendToDevices() {
@@ -115,12 +91,6 @@ export function DeliveryCard({
     } finally {
       setBusy(null);
     }
-  }
-
-  async function reveal(fileName: string) {
-    if (!io) return;
-    if (!(await io.reveal(fileName).catch(() => false)))
-      setError("Couldn't open the Exports folder.");
   }
 
   if (!io) return null;
@@ -211,26 +181,13 @@ export function DeliveryCard({
                 className="small delivery-download"
                 aria-label={`Download ${file.name}`}
                 disabled={busy !== null}
-                onClick={() => void download(file.index, file.name)}
+                onClick={() => void download(file.index)}
               >
                 <Download size={14} aria-hidden />
                 <span className="delivery-download-text">
                   {busy === file.index ? 'Downloading…' : 'Download'}
                 </span>
               </Button>
-            )}
-            {saved?.index === file.index && (
-              <p role="status" className="delivery-saved">
-                Saved to {saved.folder} as {saved.fileName}.{' '}
-                <Button
-                  variant="ghost"
-                  className="small"
-                  onClick={() => void reveal(saved.fileName)}
-                >
-                  <FolderOpen size={14} aria-hidden />
-                  Show in folder
-                </Button>
-              </p>
             )}
           </li>
         ))}

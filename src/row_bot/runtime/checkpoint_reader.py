@@ -21,6 +21,9 @@ _PUBLIC_REFERENCE = re.compile(r"^[A-Za-z0-9:_-]{1,256}$")
 # bubble: a follow-up step, a delegated agent's task and its parent's messages.
 # "linked": a message from another conversation (5.3.1 C).
 PUBLIC_NOTES = frozenset({"continuation", "agent_task", "agent_guidance", "page", "linked"})
+# A workflow run's line shows at most this many messages left for it, each cut to this many characters.
+MAX_HELD_SHOWN = 10
+HELD_TEXT_CHARS = 4_000
 
 
 @dataclass(frozen=True)
@@ -33,11 +36,18 @@ class Node:
 
 class BlobReader:
     MAX_NODES = 2_000_000
+    # Every value takes at least a byte, so one pass over a checkpoint visits at most its size in values: a
+    # long chat can be scanned a few times over (finding a message walks each one about twice), while a
+    # read still can't run on without end.
+    NODES_PER_BYTE = 8
 
     def __init__(self, blob: Any, revision: str) -> None:
         self.blob = blob
         self.revision = revision
         self._nodes = 0
+        blob.seek(0, 2)
+        self._budget = max(self.MAX_NODES, self.NODES_PER_BYTE * blob.tell())
+        blob.seek(0)
         # Learning (preview, L3b): the memories that are lessons in use, and whether the turn being read
         # recalled one ("Used a lesson" under its reply). One path check while there is none.
         self._lessons: frozenset[str] | None = None
@@ -51,7 +61,7 @@ class BlobReader:
 
     def node(self, position: int) -> Node:
         self._nodes += 1
-        if self._nodes > self.MAX_NODES:
+        if self._nodes > self._budget:
             raise ValueError("checkpoint_read_limit")
         self.blob.seek(position)
         tag = self._read(1)[0]
@@ -175,6 +185,24 @@ class BlobReader:
             current = self.end(value_position)
         return safe
 
+    def media_prompt(self, position: int) -> str:
+        """Read only the ``prompt`` of one media tool's encoded arguments, bounded (5.3.3)."""
+
+        node = self.node(position)
+        if node.kind != "map" or node.size > 64:
+            return ""
+        current = node.body
+        for _ in range(node.size):
+            key = self.text(current, 128)
+            current = self.end(current)
+            value = self.node(current)
+            if key == "prompt" and value.kind == "str":
+                self.blob.seek(value.body)
+                # Reads stay within one 1 KiB step, as every bounded read here does.
+                return self._read(min(value.size, 1024)).decode("utf-8", errors="ignore")
+            current = self.end(current)
+        return ""
+
     def safe_attachments(self, position: int) -> list[dict[str, Any]]:
         """Decode only the closed public metadata written at input admission."""
 
@@ -217,6 +245,23 @@ class BlobReader:
                 )
             current = self.end(current)
         return attachments
+
+    def held_messages(self, position: int) -> list[dict[str, str]]:
+        """A workflow run's line: the messages other conversations left for it, as written at admission."""
+        node = self.node(position)
+        if node.kind != "array" or node.size > MAX_HELD_SHOWN:
+            return []
+        held: list[dict[str, str]] = []
+        current = node.body
+        for _ in range(node.size):
+            fields = self.fields(current, {"id", "title", "text"})
+            found = {key: self.text(fields[key], 4 * HELD_TEXT_CHARS if key == "text" else 160)
+                     for key in ("id", "title", "text") if key in fields}
+            if (re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", found.get("id", "")) and found.get("title")
+                    and found.get("text")):
+                held.append({"id": found["id"], "title": found["title"], "text": found["text"]})
+            current = self.end(current)
+        return held
 
     def safe_platform_media(self, position: int) -> tuple[list[dict[str, Any]], str]:
         """Decode only opaque generated-media references and public error codes."""
@@ -328,6 +373,8 @@ class BlobReader:
         tool_ids_lazy = False
         tool_id_bytes = 0
         if "tool_calls" in fields:
+            from row_bot.application.conversation_traces import MEDIA_PROMPT_TOOLS
+
             calls = self.node(fields["tool_calls"])
             current = calls.body
             if calls.kind == "array":
@@ -336,10 +383,13 @@ class BlobReader:
                     if "id" in call:
                         identity_text = self.text(call["id"])
                         tool_ids.append(identity_text)
+                        tool_name = self.text(call["name"])[:180] if "name" in call else "tool"
                         tool_calls.append({
                             "id": identity_text,
-                            "name": self.text(call["name"])[:180] if "name" in call else "tool",
+                            "name": tool_name,
                             "args": self.safe_tool_args(call["args"]) if "args" in call else {},
+                            **({"media_prompt": self.media_prompt(call["args"])}
+                               if "args" in call and tool_name in MEDIA_PROMPT_TOOLS else {}),
                         })
                         tool_id_bytes += len(identity_text.encode())
                         if len(tool_ids) > 128 or tool_id_bytes > 8192:
@@ -352,6 +402,7 @@ class BlobReader:
         media_error = ""
         note = ""
         linked_from: dict[str, str] | None = None
+        held: list[dict[str, str]] = []
         approval_id = ""
         chart_position, chart_label = None, ""
         if name == "ToolMessage" and "artifact" in fields:
@@ -385,7 +436,10 @@ class BlobReader:
                 if "platform_attachments" in metadata:
                     attachments = self.safe_attachments(metadata["platform_attachments"])
                 if "row_bot_ui" in metadata:
-                    ui = self.fields(metadata["row_bot_ui"], {"learning_fallback", "linked_from"})
+                    ui = self.fields(metadata["row_bot_ui"], {"learning_fallback", "backup_model", "linked_from",
+                                                               "held"})
+                    if "held" in ui and note == "continuation":
+                        held = self.held_messages(ui["held"])
                     if "linked_from" in ui and note == "linked":
                         origin = self.fields(ui["linked_from"], {"id", "title", "kind"})
                         found = {key: self.text(origin[key], 160) for key in ("id", "title", "kind") if key in origin}
@@ -399,6 +453,12 @@ class BlobReader:
                         sentence = self.fields(ui["learning_fallback"], {"text"})
                         if "text" in sentence and self.node(sentence["text"]).kind == "str":
                             note, content_position = "personal_model_fallback", sentence["text"]
+                    if "backup_model" in ui:
+                        # The backup model took over this turn (#140): the row is the note's sentence,
+                        # never the hand-over written for the model.
+                        sentence = self.fields(ui["backup_model"], {"text"})
+                        if "text" in sentence and self.node(sentence["text"]).kind == "str":
+                            note, content_position = "backup_model", sentence["text"]
             elif name == "AIMessage" and "row_bot_ui" in metadata:
                 # A delegated agent's approval notice in its parent (B162):
                 # the row names the approval, so React answers it in place.
@@ -423,7 +483,7 @@ class BlobReader:
                 "tool_calls_position": None if note else fields.get("tool_calls"), "tool_ids_lazy": tool_ids_lazy,
                 "tool_call_id": self.text(fields["tool_call_id"]) if "tool_call_id" in fields else "",
                 "attachments": attachments, "media": media, "media_error": media_error, "note": note,
-                "linked_from": linked_from,
+                "linked_from": linked_from, "held": held,
                 "approval_id": approval_id, "chart_position": chart_position, "chart_label": chart_label,
                 "cut_short": cut_short, "answered_by": answered_by}
 
@@ -622,6 +682,8 @@ class BlobReader:
             row["note"] = record["note"]
         if record.get("linked_from"):
             row["linked_from"] = record["linked_from"]
+        if record.get("held"):
+            row["held"] = record["held"]
         if record.get("approval_id"):
             row["approval_id"] = record["approval_id"]
         if record.get("cut_short"):

@@ -147,7 +147,9 @@ def test_stop_ends_the_server_and_every_model_process_it_started(world):
     child = int(wait_for_file(children / "row-bot-personal-v1.pid"))
     pid = server.pid
     assert process_alive(child) and process_alive(pid)
-    assert llama_server.ledger_path(root).is_file()  # recorded while it runs
+    recorded = json.loads(llama_server.ledger_path(root).read_text(encoding="utf-8"))["agents"]
+    # Recorded while it runs, under the name it runs as (a later Row-Bot acts only on a record that matches).
+    assert [entry["name"] for entry in recorded] == [psutil.Process(pid).name()]
 
     assert server.stop("test")
 
@@ -223,10 +225,13 @@ def test_a_server_a_crashed_row_bot_left_running_is_stopped_before_the_next_star
     gone = subprocess.Popen([_python(), "-c", "pass"])
     gone_created = owned_processes.started(gone.pid)
     gone.wait()
+    running = tmp_path / "running.json"
     left = subprocess.Popen([_python(), "-I", str(FAKE), "--host", "127.0.0.1", "--port", "0"],
-                            env={**os.environ, "LLAMA_API_KEY": "x"})
+                            env={**os.environ, "LLAMA_API_KEY": "x", "FAKE_LLAMA_RECORD": str(running)})
     try:
-        assert _until(lambda: owned_processes.started(left.pid) is not None)
+        # Its own code runs, so it has replaced itself (a macOS framework Python starts as python3.x and
+        # becomes Python): the name recorded is the one it keeps, as Row-Bot records it once it answers.
+        wait_for_file(running)
         ledger = llama_server.ledger_path(root)
         ledger.write_text(json.dumps({"agents": [{
             "pid": left.pid, "created": owned_processes.started(left.pid), "name": psutil.Process(left.pid).name(),

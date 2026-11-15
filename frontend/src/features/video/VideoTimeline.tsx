@@ -39,7 +39,7 @@ type Drag =
 
 /**
  * The timeline (desktop, 5.3.1 B3): the video's scenes as blocks on tracks
- * (video, voice lines, title cards and music), sized by their length. Drag a
+ * (video, voice lines, title cards, narration and music), sized by their length. Drag a
  * block's edges to trim it, drag a block to move it, click to play from it,
  * and zoom the timeline. Keys: Space plays, J and L step back and on, K
  * pauses, I and O set the selected scene's start and end at the playhead, S
@@ -48,6 +48,7 @@ type Drag =
 export function VideoTimeline({
   scenes,
   made,
+  narration = '',
   music,
   url,
   playhead,
@@ -60,6 +61,8 @@ export function VideoTimeline({
 }: {
   scenes: VideoSceneWrite[];
   made: VideoScene[];
+  /** One voice file said over the whole video, instead of each scene's line. */
+  narration?: string;
   music: string;
   url: string;
   /** Seconds into the made video, or null when the edits moved things since. */
@@ -329,21 +332,26 @@ export function VideoTimeline({
               );
             })}
           </div>
-          <div className="video-track" aria-label="Voice">
-            <span className="video-track-name">Voice</span>
-            {shownScenes.map((scene, index) =>
-              scene.line ? (
-                <span
-                  key={`line-${scene.scene_id || index}`}
-                  className="video-line-block"
-                  title={scene.line}
-                  style={{ left: at(starts[index]), width: at(lengths[index]) }}
-                >
-                  {scene.line}
-                </span>
-              ) : null,
-            )}
-          </div>
+          {!narration && (
+            <div className="video-track" aria-label="Voice">
+              <span className="video-track-name">Voice</span>
+              {shownScenes.map((scene, index) =>
+                scene.line ? (
+                  <span
+                    key={`line-${scene.scene_id || index}`}
+                    className="video-line-block"
+                    title={scene.line}
+                    style={{
+                      left: at(starts[index]),
+                      width: at(lengths[index]),
+                    }}
+                  >
+                    {scene.line}
+                  </span>
+                ) : null,
+              )}
+            </div>
+          )}
           <div className="video-track" aria-label="Cards">
             <span className="video-track-name">Cards</span>
             {shownScenes.map((scene, index) =>
@@ -362,6 +370,18 @@ export function VideoTimeline({
               ) : null,
             )}
           </div>
+          {narration && (
+            <div className="video-track" aria-label="Narration">
+              <span className="video-track-name">Narration</span>
+              <span
+                className="video-music-block"
+                title={narration}
+                style={{ left: 0, width: at(total) }}
+              >
+                {narration}
+              </span>
+            </div>
+          )}
           {music && (
             <div className="video-track" aria-label="Music">
               <span className="video-track-name">Music</span>

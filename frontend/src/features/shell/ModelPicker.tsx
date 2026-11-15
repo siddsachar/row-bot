@@ -7,6 +7,7 @@ import type {
   ReasoningSelectionValue,
   ReasoningView,
 } from '../../api/types';
+import { usePlace } from '../../api/place';
 import {
   Button,
   Disclosure,
@@ -16,7 +17,10 @@ import {
   Select,
   StatusDot,
 } from '../../ui/primitives';
-import ModelList, { type VisibilityAction } from './ModelList';
+import ModelList, {
+  type ListedModel,
+  type VisibilityAction,
+} from './ModelList';
 import {
   isLocalProvider,
   modelRefName,
@@ -50,6 +54,7 @@ export default function ModelPicker({
   onManage,
   onSetup,
   onVisibility,
+  search,
   anchor,
   returnFocusTo,
 }: {
@@ -65,8 +70,8 @@ export default function ModelPicker({
   reasoning: ReasoningView | null;
   thinkingLabel: string;
   onThinking: (selection: ReasoningSelectionValue) => void;
-  /** Open provider setup (for unconnected providers). */
-  onConnect: () => void;
+  /** Open a provider's sheet to connect it (its ID), or Settings › Models. */
+  onConnect: (providerId?: string) => void;
   /** Reconnect the conversation's provider (defaults to onConnect). */
   onReconnect?: () => void;
   /** Open the model catalog settings. */
@@ -75,6 +80,11 @@ export default function ModelPicker({
   onSetup?: () => void;
   /** Favourite or hide a model from its row (F10). */
   onVisibility?: (model: ModelChoice, action: VisibilityAction) => void;
+  /** Every connected provider's models matching what is typed. */
+  search?: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<readonly ListedModel[]>;
   /**
    * Open over this element instead of from the pill: a one-line composer
    * keeps the model in its + menu, so the picker opens above the field.
@@ -83,7 +93,23 @@ export default function ModelPicker({
   /** Where focus goes when a triggerless picker closes. */
   returnFocusTo?: () => HTMLElement | null;
 }) {
+  const place = usePlace();
   const [budget, setBudget] = useState('');
+  // The level just chosen here: only then does the picker say new chats start
+  // on it, so the line is never out of date. Closing or another model forgets it.
+  const [chosen, setChosen] = useState<{ model: string; key: string } | null>(
+    null,
+  );
+  if (chosen && (!open || chosen.model !== reasoning?.model_ref))
+    setChosen(null);
+  const think = (selection: ReasoningSelectionValue) => {
+    setChosen(
+      reasoning && selection.kind !== 'provider_default'
+        ? { model: reasoning.model_ref, key: selectionKey(selection) }
+        : null,
+    );
+    onThinking(selection);
+  };
   const input = useRef<HTMLInputElement>(null);
   const selected = models.find((model) => model.model_ref === current);
   const missing = status?.state === 'missing' || !current;
@@ -145,7 +171,13 @@ export default function ModelPicker({
                   className="composer-model-glyph"
                   size={13}
                   role="img"
-                  aria-label={local ? 'Runs on this device' : 'Cloud model'}
+                  aria-label={
+                    !local
+                      ? 'Cloud model'
+                      : place.kind === 'this_computer'
+                        ? 'Runs on this computer'
+                        : `Runs on ${place.name}`
+                  }
                 />
               )}
               <span className="composer-model-name">{name}</span>
@@ -217,11 +249,12 @@ export default function ModelPicker({
               onChoose(model);
               onOpenChange(false);
             }}
-            onConnect={() => {
+            onConnect={(model) => {
               onOpenChange(false);
-              onConnect();
+              onConnect(model.provider_id);
             }}
             onVisibility={onVisibility}
+            search={search}
           />
           <div className="model-picker-footer">
             {reasoning?.available && (
@@ -233,7 +266,7 @@ export default function ModelPicker({
                     label="Thinking"
                     value={currentThinking}
                     onChange={(value) =>
-                      onThinking(
+                      think(
                         choices.find(
                           (choice) => selectionKey(choice.selection) === value,
                         )!.selection,
@@ -249,7 +282,7 @@ export default function ModelPicker({
                     aria-label="Thinking"
                     value={currentThinking}
                     onChange={(event) =>
-                      onThinking(
+                      think(
                         choices.find(
                           (choice) =>
                             selectionKey(choice.selection) ===
@@ -276,6 +309,13 @@ export default function ModelPicker({
                 )}
               </div>
             )}
+            {reasoning?.available &&
+              !reasoning.stale &&
+              chosen?.key === currentThinking && (
+                <p className="model-picker-note">
+                  New chats with this model start here too.
+                </p>
+              )}
             {reasoning?.available && reasoning.supports_budget && (
               <Disclosure
                 summary="Thinking budget"
@@ -300,7 +340,7 @@ export default function ModelPicker({
                         (reasoning.budget_max ?? Number.MAX_SAFE_INTEGER)
                     }
                     onClick={() =>
-                      onThinking({ kind: 'budget', budget: Number(budget) })
+                      think({ kind: 'budget', budget: Number(budget) })
                     }
                   >
                     Use budget

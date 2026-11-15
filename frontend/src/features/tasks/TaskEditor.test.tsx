@@ -383,6 +383,105 @@ it('preserves prompt order and exact full-row revision on update', async () => {
   );
 });
 
+it('says Row-Bot switched it off and turns it back on with one click', async () => {
+  const switchedOff = snapshot({
+    fields: { ...fields, schedule: 'daily:09:00' },
+    disabled_reason: 'failures',
+  });
+  const callbacks = props({
+    taskId: 'task-a',
+    load: vi.fn().mockResolvedValue(switchedOff),
+    onLastRun: vi.fn(),
+  });
+  render(<TaskEditor {...callbacks} />);
+  const note = await screen.findByRole('group', {
+    name: 'Row-Bot switched this workflow off',
+  });
+  expect(note).toHaveTextContent(
+    'It failed 5 times in a row. See the last run to find out why, then turn it back on.',
+  );
+
+  fireEvent.click(
+    within(note).getByRole('button', { name: 'See the last run' }),
+  );
+  expect(callbacks.onLastRun).toHaveBeenCalledOnce();
+
+  fireEvent.change(screen.getByLabelText('Name'), {
+    target: { value: 'Price watch' },
+  });
+  await act(async () =>
+    fireEvent.click(
+      within(note).getByRole('button', { name: 'Turn it back on' }),
+    ),
+  );
+  // It saves the draft switched on, never runs it.
+  expect(callbacks.save).toHaveBeenCalledWith(
+    'task-a',
+    'a'.repeat(64),
+    expect.objectContaining({
+      name: 'Price watch',
+      enabled: true,
+      schedule: 'daily:09:00',
+    }),
+  );
+  expect(callbacks.onSaved).toHaveBeenCalledOnce();
+});
+
+it('asks to save first before leaving for the last run, and can hide the note', async () => {
+  const callbacks = props({
+    taskId: 'task-a',
+    load: vi.fn().mockResolvedValue(snapshot({ disabled_reason: 'failures' })),
+    onLastRun: vi.fn(),
+  });
+  render(<TaskEditor {...callbacks} />);
+  const note = await screen.findByRole('group', {
+    name: 'Row-Bot switched this workflow off',
+  });
+  fireEvent.change(screen.getByLabelText('Name'), {
+    target: { value: 'Renamed' },
+  });
+  fireEvent.click(
+    within(note).getByRole('button', { name: 'See the last run' }),
+  );
+  expect(
+    screen.getByRole('group', { name: 'Save your changes first?' }),
+  ).toBeInTheDocument();
+  expect(callbacks.onLastRun).not.toHaveBeenCalled();
+
+  fireEvent.click(within(note).getByRole('button', { name: 'Hide this note' }));
+  expect(
+    screen.queryByRole('group', { name: 'Row-Bot switched this workflow off' }),
+  ).not.toBeInTheDocument();
+  expect(callbacks.save).not.toHaveBeenCalled();
+});
+
+it('shows no note for a workflow the person switched off, or once it is on in the draft', async () => {
+  render(<TaskEditor {...props({ taskId: 'task-a' })} />);
+  await screen.findByDisplayValue('Saved workflow');
+  expect(
+    screen.queryByRole('group', { name: 'Row-Bot switched this workflow off' }),
+  ).not.toBeInTheDocument();
+  cleanup();
+
+  render(
+    <TaskEditor
+      {...props({
+        taskId: 'task-a',
+        load: vi
+          .fn()
+          .mockResolvedValue(snapshot({ disabled_reason: 'failures' })),
+      })}
+    />,
+  );
+  await screen.findByRole('group', {
+    name: 'Row-Bot switched this workflow off',
+  });
+  fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }));
+  expect(
+    screen.queryByRole('group', { name: 'Row-Bot switched this workflow off' }),
+  ).not.toBeInTheDocument();
+});
+
 it('creates a reminder from a blank initial prompt without fabricating a workflow step', async () => {
   const callbacks = props();
   render(<TaskEditor {...callbacks} />);
@@ -683,7 +782,7 @@ it('keeps a saved schedule exactly as written until the schedule is edited', asy
   );
 });
 
-it('shows a numbered-weekday cron as written, counting Monday as 0', async () => {
+it('shows a numbered-weekday cron as written, counting Monday as 1 (standard cron)', async () => {
   render(
     <TaskEditor
       {...props({
@@ -701,17 +800,18 @@ it('shows a numbered-weekday cron as written, counting Monday as 0', async () =>
   expect(
     screen.getByLabelText('Cron expression', { exact: false }),
   ).toHaveValue('0 9 * * 1');
-  expect(screen.getByText(/^Every Tuesday at/)).toBeInTheDocument();
+  expect(screen.getByText(/^Every Monday at/)).toBeInTheDocument();
 });
 
-it('previews the next run only once the workflow is enabled', () => {
+it('previews the next run only while the workflow is enabled', () => {
   render(<TaskEditor {...props()} />);
   fireEvent.click(screen.getByRole('radio', { name: 'Repeats' }));
-  const preview = screen.getByText(/^Every day at/).closest('p');
-  expect(preview).toHaveTextContent('once enabled');
-  fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }));
+  // Choosing a schedule switched it on (U20).
   expect(screen.getByRole('switch', { name: 'Enabled' })).toBeChecked();
+  const preview = screen.getByText(/^Every day at/).closest('p');
   expect(preview).not.toHaveTextContent('once enabled');
+  fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }));
+  expect(preview).toHaveTextContent('once enabled');
 });
 
 it('adds, fills and removes messages', async () => {
@@ -941,4 +1041,39 @@ it('asks to save before leaving for the model settings with unsaved changes (B12
     expect.objectContaining({ name: 'Renamed workflow' }),
   );
   expect(onTaskSettings).toHaveBeenCalledTimes(2);
+});
+
+it('turns a workflow on when it is given a time to run (U20)', async () => {
+  const callbacks = props();
+  render(<TaskEditor {...callbacks} />);
+  fillNew();
+  expect(screen.getByLabelText('Enabled')).not.toBeChecked();
+  fireEvent.click(screen.getByRole('radio', { name: 'Once' }));
+  fireEvent.change(screen.getByLabelText('Date and time'), {
+    target: { value: '2027-01-01T10:00' },
+  });
+  expect(screen.getByLabelText('Enabled')).toBeChecked();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow' })),
+  );
+  expect(callbacks.create).toHaveBeenCalledWith(
+    expect.objectContaining({ at: '2027-01-01T10:00', enabled: true }),
+  );
+});
+
+it('leaves a scheduled workflow someone switched off off when its time changes', async () => {
+  const callbacks = props({
+    taskId: 'task-a',
+    load: vi
+      .fn()
+      .mockResolvedValue(
+        snapshot({ fields: { ...fields, schedule: 'daily:09:00' } }),
+      ),
+  });
+  render(<TaskEditor {...callbacks} />);
+  await screen.findByDisplayValue('Saved workflow');
+  fireEvent.change(screen.getByLabelText('Time'), {
+    target: { value: '10:00' },
+  });
+  expect(screen.getByLabelText('Enabled')).not.toBeChecked();
 });

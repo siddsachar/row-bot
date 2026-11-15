@@ -36,6 +36,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
+  // Close the app first: restoring turns Learning's start-up flag off, and a
+  // poll still due (download, training) would get a 404 a real app never sees.
+  await page.close();
   await l3a(page, 'restore');
   await l1a(page, 'restore');
 });
@@ -76,11 +79,11 @@ async function turnOn(page: Page) {
   await page.getByRole('button', { name: 'Turn on Learning' }).click();
   const sheet = page.getByRole('dialog', { name: 'Turn on Learning' });
   await expect(
-    sheet.getByText('NVIDIA GeForce RTX 5070 Laptop (8 GB)'),
+    sheet.getByText('NVIDIA GeForce RTX 5080 Laptop (16 GB)'),
   ).toBeVisible();
   await sheet.getByRole('button', { name: 'Turn on Learning' }).click();
   const ask = page.getByRole('dialog', {
-    name: 'Download the training engine and Qwen3.5 2B?',
+    name: 'Download the training engine and Qwen3.5 9B?',
   });
   await ask.getByRole('button', { name: 'Not now', exact: true }).click();
   await expect(notice(page, 'Learning is on.')).toBeVisible();

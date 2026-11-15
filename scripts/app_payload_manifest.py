@@ -27,6 +27,8 @@ ASSET_DIRS = (
     "sounds",
     "bundled_skills",
     "tool_guides",
+    # Row-Bot's own guides, read offline to answer "how do I…" (row_bot.guides).
+    "docs-site/docs",
 )
 
 ROOT_FILES = (

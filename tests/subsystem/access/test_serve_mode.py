@@ -176,7 +176,10 @@ def test_startup_guidance_contains_recovery_but_no_invitation_secret(tmp_path) -
 
     output = "\n".join(serve_startup_lines(options))
 
-    assert "row-bot access invite --layout desktop" in output
+    # The setup code is the way in; an invitation is the other way (H2).
+    assert output.index("setup code") < output.index(
+        "row-bot access invite --layout desktop --origin https://row-bot.example"
+    )
     assert "Health: /healthz" in output
     assert "rbi_" not in output
     assert "token" not in output.lower()

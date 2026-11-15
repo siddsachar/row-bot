@@ -8,8 +8,13 @@ import type {
 import { useNotify, useOverlay } from '../../ui/overlays';
 import { Button } from '../../ui/primitives';
 import type { LearningAction, LearningIO } from './learning-state';
+import { HuggingFaceQuoteSheet } from './HuggingFace';
 import {
+  durationWords,
   examplesWords,
+  HF_FAILURES,
+  HF_STAGES,
+  moneyWords,
   plural,
   quietHoursWords,
   stepWords,
@@ -23,6 +28,161 @@ type Action = {
   primary?: boolean;
   confirm?: boolean;
 };
+
+/** "Hugging Face · $1.20 so far" for a run that has billed time. */
+function spentWords(training: LearningTraining) {
+  const remote = training.remote;
+  return remote && remote.cost_usd > 0
+    ? `${moneyWords(remote.cost_usd)} so far`
+    : '';
+}
+
+/**
+ * A run on Hugging Face (C1, designs/learning-ux.md §5, §9): its stage, its steps, what it has cost so far,
+ * Cancel; "Checking whether Hugging Face is still training…" when there is no answer (never "Failed" while
+ * unknown); the first run waits for its quote's Start (O132).
+ */
+function remoteView(
+  training: LearningTraining,
+  snapshot: Pick<LearningSnapshot, 'quiet_hours'> & {
+    personal_model?: Pick<LearningPersonalModel, 'hugging_face'>;
+  },
+): TrainingView | null {
+  const run = name(training);
+  const Run = capital(run);
+  const remote = training.remote;
+  const cancel: Action = {
+    label: 'Cancel',
+    action: 'hf_cancel',
+    confirm: true,
+  };
+  const spent = spentWords(training);
+  const progress =
+    training.steps_total && training.steps_total > 0
+      ? { value: training.step, max: training.steps_total }
+      : null;
+  const hugging = snapshot.personal_model?.hugging_face;
+  switch (training.state) {
+    case 'planned':
+    case 'waiting': {
+      const reason = training.runner.reason;
+      const quote = hugging?.quote;
+      const price = quote ? `, about ${moneyWords(quote.cost_usd)}` : '';
+      if (reason === 'hf_first_run' || !hugging?.runs_confirmed)
+        return {
+          title: `${Run} on Hugging Face is ready to price.`,
+          detail:
+            'Your first run asks before it starts: you’ll see the GPU, the time and the price.',
+          actions: [
+            { label: 'Review and start…', action: 'hf_start', primary: true },
+          ],
+          announce: `${Run} is ready to price.`,
+        };
+      if (reason === 'hf_over_cap')
+        return {
+          title: `${Run} waits: this month’s Hugging Face spending (${moneyWords(hugging?.month_spent_usd)} of ${moneyWords(hugging?.cap_usd)}) leaves too little for it${price}.`,
+          detail: 'Raise the monthly cap, or it runs next month.',
+          actions: [{ label: 'Start now…', action: 'hf_start' }, cancel],
+          announce: `${Run} waits for the monthly cap.`,
+        };
+      if (reason === 'hf_signed_out')
+        return {
+          title: `${Run} waits until you sign in to Hugging Face again.`,
+          actions: [],
+          announce: `${Run} waits for sign-in.`,
+        };
+      const hours = quietHoursWords(
+        snapshot.quiet_hours.window_start,
+        snapshot.quiet_hours.window_end,
+      );
+      return {
+        title: `${Run} runs on Hugging Face tonight in quiet hours (${hours})${price}.`,
+        detail: 'Within your monthly cap. Or start it now.',
+        actions: [{ label: 'Start now…', action: 'hf_start' }],
+        announce: `${Run} is planned on Hugging Face.`,
+      };
+    }
+    case 'preparing':
+      return {
+        title: `Uploading your examples to Hugging Face for ${run}…`,
+        detail:
+          'To a private dataset in your account. It’s deleted once your model is back here.',
+        progress: null,
+        actions: [cancel],
+        announce: `Starting ${run} on Hugging Face.`,
+      };
+    case 'unknown_remote':
+      return {
+        title: 'Checking whether Hugging Face is still training…',
+        detail: `Row-Bot hasn’t heard from Hugging Face since its last check. It keeps checking and never starts the run twice.${spent ? ` ${spent}.` : ''}`,
+        actions: [
+          { label: 'Check now', action: 'hf_check_now', primary: true },
+          { label: 'Cancel the job', action: 'hf_cancel', confirm: true },
+        ],
+        announce: 'Checking whether Hugging Face is still training.',
+      };
+    case 'running': {
+      if (remote?.phase === 'downloading' || remote?.phase === 'downloaded')
+        return {
+          title: `Downloading ${run}’s results from Hugging Face…`,
+          detail: 'Row-Bot checks every file when it arrives.',
+          progress: null,
+          actions: [],
+          announce: `Downloading ${run}.`,
+        };
+      if (remote?.waiting_for_gpu)
+        return {
+          title: `Hugging Face is waiting for a free ${remote.gpu_label || 'graphics card'}. No charge while it waits.`,
+          detail: `${Run} starts as soon as one is free; cancelling now costs nothing.`,
+          progress: null,
+          actions: [cancel],
+          announce: `Hugging Face is waiting for a free ${remote.gpu_label || 'graphics card'}.`,
+        };
+      const stage = remote?.stage ?? 'setting_up';
+      if (stage === 'training') {
+        const share = progress
+          ? Math.floor((progress.value / progress.max) * 10) * 10
+          : 0;
+        return {
+          title: `${Run} on Hugging Face · ${stepWords(training.step, training.steps_total)}`,
+          detail: [spent, 'Using Row-Bot doesn’t pause it.']
+            .filter(Boolean)
+            .join(' · '),
+          progress,
+          actions: [cancel],
+          announce: `${Run}: ${share}% done.`,
+        };
+      }
+      return {
+        title: HF_STAGES[stage] ?? HF_STAGES.setting_up,
+        detail:
+          [spent, run === 'training' ? '' : Run].filter(Boolean).join(' · ') ||
+          undefined,
+        progress: null,
+        actions: [cancel],
+        announce: HF_STAGES[stage] ?? HF_STAGES.setting_up,
+      };
+    }
+    case 'failed': {
+      const failure =
+        HF_FAILURES[training.failure ?? 'remote_error'] ??
+        HF_FAILURES.remote_error;
+      const billed =
+        remote && remote.cost_usd > 0
+          ? ` It ran for ${durationWords(remote.minutes * 60).replace('about ', '')}: ${moneyWords(remote.cost_usd)}.`
+          : '';
+      return {
+        title: `${failure.text}${billed}`,
+        actions: [
+          { label: failure.action, action: 'use_recommended', primary: true },
+        ],
+        announce: `${failure.text.split('. ')[0]}.`,
+      };
+    }
+    default:
+      return null;
+  }
+}
 
 /** What the person sees about the training run: words, progress and the way on. */
 export type TrainingView = {
@@ -63,9 +223,14 @@ function capital(text: string) {
 export function trainingView(
   training: LearningTraining,
   snapshot: Pick<LearningSnapshot, 'quiet_hours'> & {
-    personal_model?: Pick<LearningPersonalModel, 'examples' | 'version'>;
+    personal_model?: Pick<LearningPersonalModel, 'examples' | 'version'> &
+      Partial<Pick<LearningPersonalModel, 'hugging_face'>>;
   },
 ): TrainingView | null {
+  if (training.where === 'hugging_face') {
+    const remote = remoteView(training, snapshot);
+    if (remote || training.state !== 'evaluating') return remote;
+  }
   const examples = snapshot.personal_model?.examples ?? null;
   const uses = examples?.examples
     ? ` · uses ${plural(examples.examples, 'example')}`
@@ -295,6 +460,7 @@ export function TrainingProgress({
   const notify = useNotify();
   const overlay = useOverlay();
   const [busy, setBusy] = useState(false);
+  const [quoteOpen, setQuoteOpen] = useState(false);
   const training = snapshot.training;
   const view = trainingView(training, snapshot);
   // The status region speaks only when the run changes after the view opened (a new state, or
@@ -327,8 +493,25 @@ export function TrainingProgress({
   }
 
   function choose(item: Action, opener: HTMLElement | null) {
+    if (item.action === 'hf_start') {
+      setQuoteOpen(true); // every paid run shows its price first, on this device (D28)
+      return;
+    }
     if (!item.confirm) {
       void run(item.action);
+      return;
+    }
+    if (item.action === 'hf_cancel') {
+      const spent = training.remote?.cost_usd ?? 0;
+      overlay.open({
+        kind: 'alert',
+        title: 'Cancel this run on Hugging Face?',
+        description: `Billing stops now${spent > 0 ? ` (${moneyWords(spent)} so far)` : ''}. What it trained so far is lost, and the uploaded examples are deleted from Hugging Face. Earlier versions are kept.`,
+        confirmLabel: 'Cancel the run',
+        cancelLabel: 'Keep running',
+        returnFocusTo: opener,
+        onConfirm: () => void run(item.action),
+      });
       return;
     }
     overlay.open({
@@ -379,6 +562,15 @@ export function TrainingProgress({
       <p className="visually-hidden" role="status" aria-live="polite">
         {said}
       </p>
+      {training.where === 'hugging_face' && (
+        <HuggingFaceQuoteSheet
+          open={quoteOpen}
+          onOpenChange={setQuoteOpen}
+          io={io}
+          jobId={training.job_id ?? ''}
+          version={training.version ?? null}
+        />
+      )}
     </section>
   );
 }

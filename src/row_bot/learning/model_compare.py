@@ -196,6 +196,11 @@ def summarize(arms: Sequence[Mapping[str, Any]], tables: Mapping[str, Mapping[st
                     default=None) if baseline else None
     if not rows:
         overall = {"verdict": "unclear", "recommend": None, "line": "Nothing could be compared."}
+    elif not baseline or not any(baseline in row["passed"] for row in rows):
+        # Only the main model ran beside it: nothing says whether training helped (C1, 28 Oct).
+        overall = {"verdict": "unclear", "recommend": None,
+                   "line": f"Row-Bot couldn't run {baseline_label}, so it can't tell yet whether training helped. "
+                           "Not used."}
     elif recommend is not None and not worse:
         overall = {"verdict": "better", "recommend": recommend["kind"],
                    "line": f"Better at {kinds.phrase(recommend['kind'])} than {baseline_label}: "
@@ -251,6 +256,8 @@ class Comparer:
         busy: Callable[[], bool] | None = None,
         serving_context: Callable[[str], int | None] | None = None,
         server_hold: Callable[[str], Any] | None = None,
+        card_mib: Callable[[], int | None] | None = None,
+        server_slots: Callable[[], int] | None = None,
     ) -> None:
         self._root = root
         self._store = store
@@ -269,6 +276,8 @@ class Comparer:
         self._busy = busy
         self._serving_context = serving_context
         self._server_hold = server_hold
+        self._card_mib = card_mib
+        self._server_slots = server_slots
 
     @property
     def root(self) -> Path:
@@ -316,13 +325,18 @@ class Comparer:
         from row_bot.learning.training import base_model, engine, hardware, recipes, weights
 
         model = _trained_from(version, self._root) or weights.MODELS.get(
-            gate.read_settings(self._root).starting_model, weights.QWEN35_2B)
+            gate.read_settings(self._root).starting_model, weights.QWEN35_9B)
         found = weights.status(model, self._root)
-        if found.state != "downloaded":
+        built = base_model.read(model.id, self._root)
+        # A version trained on Hugging Face brings its untouched starting model as a GGUF the job built (C1): it
+        # runs here without the starting model's own files on this computer.
+        built_here = built is not None and bool(built.gguf) and             (base_model.folder(model.id, self._root) / str(built.gguf)).is_file()
+        if found.state != "downloaded" and not built_here:
             return None, "engine_missing"
         recipe = recipes.for_model(model.id, hardware.peek()) or recipes.current(self._root)
         return base_model.ensure(root=self._root, engine_status=engine.status(self._root), model=model,
-                                 weights_folder=found.folder, weights_bytes=model.weights_bytes or model.download_bytes,
+                                 weights_folder=found.folder if found.state == "downloaded" else None,
+                                 weights_bytes=model.weights_bytes or model.download_bytes,
                                  recipe=recipe, runtime=runtime)
 
     def _baseline(self, version: int, runtime: str = "ollama") -> tuple[str, str, str | None, str | None, str | None]:
@@ -367,6 +381,64 @@ class Comparer:
             raise CompareError("not_ready")
         with self._server_held(state.runtime):
             return self._run(version, stop, state)
+
+    def _card(self) -> int | None:
+        if self._card_mib is not None:
+            return self._card_mib()
+        from row_bot.learning.training import hardware
+
+        found = hardware.peek()
+        return int(found.gpu.memory_mib) if found is not None and found.gpu is not None else None
+
+    def _local_sizes(self, version: int, state: Any, base_key: str) -> list[int]:
+        """The model files of the comparison's two local models (the new version and its baseline)."""
+
+        from row_bot.learning.training import base_model, releases, weights
+
+        sizes = [int(getattr(state, "gguf_bytes", 0) or 0)]
+        if base_key == "base":
+            model = _trained_from(version, self._root) or weights.MODELS.get(
+                gate.read_settings(self._root).starting_model, weights.QWEN35_9B)
+            built = base_model.read(model.id, self._root)
+            sizes.append(int(built.gguf_bytes) if built is not None else 0)
+        elif base_key.startswith("v") and base_key[1:].isdigit():
+            other = releases.read_state(releases.version_dir(int(base_key[1:]), self._root))
+            sizes.append(int(getattr(other, "gguf_bytes", 0) or 0) if other is not None else 0)
+        return sizes
+
+    def _slots(self, runtime: str) -> int | None:
+        """How many models Row-Bot's own server keeps loaded side by side (its ``--models-max``, set by the
+        largest model registered there and the card); None for another runtime."""
+
+        if self._server_slots is not None:
+            return self._server_slots()
+        from row_bot.learning.training import llama_server, serving
+
+        if runtime != serving.ROW_BOT:
+            return None
+        try:
+            server = llama_server.get(self._root)
+            return llama_server.models_max([llama_server._file_bytes(entry.gguf) for entry in server.models()],  # noqa: SLF001
+                                           server._card_bytes())  # noqa: SLF001
+        except Exception:  # noqa: BLE001 - unknown: the sizes decide
+            return None
+
+    def _order(self, sizes: list[int], runtime: str = "") -> str:
+        """``model`` when the two local models can't stay loaded together, so each is loaded once rather than for
+        every task (28 Oct: a 27B and its 27B starting model on a 32 GB card swapped each task, about 16 s a task;
+        and the 9B pair swapped too, about 9 s a task, because Row-Bot's own server keeps one model at a time once
+        a 27B is registered there). Row-Bot's own server says how many it keeps (its ``--models-max``); otherwise
+        each model needs about 1.25 times its file and 1 GB (the 9B's and 27B's measured needs)."""
+
+        known = [size for size in sizes if size > 0]
+        if len(known) < 2:
+            return "interleaved"
+        slots = self._slots(runtime) if runtime else None
+        if slots is not None:
+            return "model" if slots < 2 else "interleaved"
+        card = self._card()
+        need = sum(int(size / 2**20 * 1.25) + 1024 for size in known)
+        return "model" if card and need > card else "interleaved"
 
     def _server_held(self, runtime: str) -> Any:
         """Row-Bot's own model server (O75) stays running for the whole comparison when the version
@@ -435,6 +507,7 @@ class Comparer:
         packs = [pack for pack in PACKS if container or pack != "small_coding"]
         hidden_total = evaluation.audit_size(asked_by=ASKED_BY, store=self.store, packs=packs, verifiers=verifiers,
                                              include_replay=self.plan.replay) if self.plan.hidden else 0
+        order = self._order(self._local_sizes(version, state, base_key), state.runtime) if base_ref else "interleaved"
         total = (len(chosen) * max(1, self.plan.visible_repeats)
                  + hidden_total * max(1, self.plan.hidden_repeats)) * len(arms)
         self._progress(version, phase="visible", done=0, total=total)
@@ -461,7 +534,7 @@ class Comparer:
                                                unsupported=set(unsupported) & {"main"})
             shown = evaluation.compare(arms, tasks=chosen, runner=runner, cache=cache, meter=meter, store=self.store,
                                        client=self._client, clock=self.clock, on_case=counted, budget=budget,
-                                       repeats=self.plan.visible_repeats, kind_key=family_key)
+                                       repeats=self.plan.visible_repeats, kind_key=family_key, order=order)
             hidden = None
             if self.plan.hidden and not shown.stopped:
                 self._progress(version, phase="hidden")
@@ -473,7 +546,7 @@ class Comparer:
                     arms, asked_by=ASKED_BY, store=self.store, runner=runner, cache=cache, meter=meter,
                     client=self._client, clock=self.clock, packs=packs, verifiers=verifiers,
                     include_replay=self.plan.replay, budget=budget, on_progress=hidden_progress,
-                    repeats=self.plan.hidden_repeats, combine_with=shown, kind_key=family_key)
+                    repeats=self.plan.hidden_repeats, combine_with=shown, kind_key=family_key, order=order)
             write_backs = list(getattr(worker, "write_backs", []) or [])
         except _Interrupted as interrupted:
             self._progress(version, state="paused" if interrupted.reason == "in_use" else "stopped",
@@ -482,6 +555,10 @@ class Comparer:
         except Exception as error:
             if isinstance(error, CompareError):
                 raise
+            if stop.is_set():
+                # Stop ends the worker mid-task, so its run has no result: that is a stop, never a failure (C1).
+                self._progress(version, state="stopped", reason="stopped")
+                raise CompareError("stopped") from None
             self._progress(version, state="failed", reason=getattr(error, "code", type(error).__name__)[:64])
             raise
         finally:

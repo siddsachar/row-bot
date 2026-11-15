@@ -161,7 +161,7 @@ class Downloads:
         gate.changed()
 
     def _model(self) -> weights.PinnedModel:
-        return weights.MODELS.get(gate.read_settings(self._root).starting_model, weights.QWEN35_2B)
+        return weights.MODELS.get(gate.read_settings(self._root).starting_model, weights.QWEN35_9B)
 
     def variant(self) -> str | None:
         """The engine build this computer's driver takes, or None when it can't train here

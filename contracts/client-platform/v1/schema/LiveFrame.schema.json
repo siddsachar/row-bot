@@ -31,7 +31,9 @@
           "processes",
           "monitor",
           "models",
-          "learning"
+          "notices",
+          "learning",
+          "proactive"
         ]
       },
       "title": "Topics",
