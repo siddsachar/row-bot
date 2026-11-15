@@ -2018,6 +2018,21 @@
           "minLength": 1,
           "title": "Title",
           "type": "string"
+        },
+        "workflow_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
         }
       },
       "required": [

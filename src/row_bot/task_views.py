@@ -54,6 +54,8 @@ class TaskSummary:
     recent_runs: tuple[TaskRunDigest, ...] = ()
     active_run: TaskActiveRun | None = None
     next_run: str | None = None
+    # "failures": Row-Bot switched it off after failed runs in a row (D5).
+    disabled_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -183,6 +185,7 @@ def list_saved_tasks(
                 else default_approval,
                 _recent_runs(row.get("recent_runs_json")),
                 _active_run(row.get("active_run_json")),
+                disabled_reason="failures" if row.get("disabled_reason") == "failures" else "",
             )
             # The page revision covers saved metadata and run history; the
             # clock-derived next run is left out so paging stays stable.

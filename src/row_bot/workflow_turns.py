@@ -184,6 +184,7 @@ def _send(task: Mapping[str, Any], thread_id: str, run_id: str, index: int, *, t
     if receipt is None:
         tasks._finish_run(run_id, "failed", notice="The run couldn't start. Check this workflow's model, then run it again.")
         tasks.forget_active_run(thread_id)
+        tasks.off_after_failures(task, "failed", thread_id)
         return False
     if index == 0:
         tasks.note_run_first_message(run_id, str(receipt.get("submission_id") or ""))
@@ -309,6 +310,8 @@ def _finish(run: Mapping[str, Any], task: Mapping[str, Any] | None, status: str,
     delivery_status, delivery_detail = "", ""
     if task is not None and _delivers(task, status):
         text = outcome(status, notice, done)
+        if status == "failed" and tasks.switches_off_if_this_run_fails(task):
+            text += "\n" + tasks.OFF_AFTER_FAILURES_LINE  # One added line, never a message of its own.
         if reply and status in {"completed", "unsure"}:
             text += "\n\n" + reply
         try:

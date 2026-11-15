@@ -55,11 +55,13 @@ import {
   Button,
   EmptyState,
   ErrorState,
+  Hint,
   IconButton,
   Input,
   Menu,
   Segmented,
   Skeleton,
+  StatusDot,
   Toggle,
   type MenuAction,
 } from '../../ui/primitives';
@@ -111,6 +113,8 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'failed', label: 'Failed' },
 ];
+/** A workflow Row-Bot switched off after failed runs in a row (D5). */
+const OFF_AFTER_FAILURES = 'Off: failed 5 times in a row';
 /** Scheduled and Failed filter every saved workflow, read page by page. */
 const CLIENT_FILTER_PAGES = 20;
 
@@ -842,6 +846,9 @@ export function SavedTasks({
                 const failed = FAILED_RUN_STATUSES.has(
                   String(task.last_status ?? '').toLowerCase(),
                 );
+                // Row-Bot switched it off after failed runs in a row (D5).
+                const switchedOff =
+                  !task.enabled && task.disabled_reason === 'failures';
                 return (
                   <li
                     className="workflow-row"
@@ -884,6 +891,17 @@ export function SavedTasks({
                           </span>
                         )}
                       </span>
+                      {switchedOff && (
+                        <Hint label="Row-Bot switched it off. Turn it back on when it’s fixed.">
+                          <span className="workflow-off" tabIndex={0}>
+                            <StatusDot
+                              tone="warning"
+                              label={OFF_AFTER_FAILURES}
+                              showLabel
+                            />
+                          </span>
+                        </Hint>
+                      )}
                       <p className="workflow-metadata">
                         <span>
                           {task.notify_only
@@ -930,11 +948,13 @@ export function SavedTasks({
                         <span className="workflow-next-none">
                           {ranOnce(task)
                             ? 'Done'
-                            : task.schedule || task.at
-                              ? task.enabled
-                                ? 'Not scheduled'
-                                : 'Paused'
-                              : ''}
+                            : switchedOff
+                              ? 'Off'
+                              : task.schedule || task.at
+                                ? task.enabled
+                                  ? 'Not scheduled'
+                                  : 'Paused'
+                                : ''}
                         </span>
                       )}
                     </span>
@@ -1413,6 +1433,11 @@ export default function TaskLibrary() {
               selected.label,
             )
           }
+          onLastRun={() => {
+            const { taskId } = selected.session;
+            close();
+            setRunsFor({ id: taskId, name: selected.label });
+          }}
         />
       </EditorFrame>
     );
