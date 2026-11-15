@@ -225,6 +225,26 @@ def test_a_settled_breakdown_is_projected_saved_and_live_and_validates_on_the_wi
     assert ContextUpdated.model_validate(per_call).breakdown is None
 
 
+def test_a_prepared_summary_shows_on_a_current_meter_and_not_on_a_stale_one(platform):
+    from row_bot import threads
+    from row_bot.api.v1.schemas import ContextUsageView
+
+    threads.append_checkpoint_messages("conversation-a", [HumanMessage(content="one", id="native-one")])
+    store(saved_usage(summary_ready=True))
+
+    current = read_usage(platform, "conversation-a", CONTROLS)
+    live = project_live_usage("conversation-a", saved_usage(summary_ready=True), "context_usage")
+    # Only True says so; anything else in the field is no summary.
+    odd = project_live_usage("conversation-a", saved_usage(summary_ready="yes"), "context_usage")
+    stale = read_usage(platform, "conversation-a", {**CONTROLS, "runtime_mode": "chat_only"})
+
+    assert current["summary_ready"] is True and live["summary_ready"] is True
+    assert "summary_ready" not in odd
+    assert stale["state"] == "stale" and "summary_ready" not in stale
+    assert ContextUsageView.model_validate(current).summary_ready is True
+    assert ContextUsageView.model_validate(stale).summary_ready is False
+
+
 @pytest.mark.parametrize("breakdown", [
     "PRIVATE", ["instructions"], {**BREAKDOWN, "tools": -1}, {**BREAKDOWN, "memory": True},
     {**BREAKDOWN, "skills": 1.5}, {**BREAKDOWN, "conversation": 2_147_483_648},
