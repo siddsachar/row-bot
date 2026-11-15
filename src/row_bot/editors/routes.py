@@ -148,8 +148,12 @@ def register_editor_routes(app: Any, service: Any = None) -> None:
         from row_bot.editors.service import run_tool
 
         editor = catalog.EDITORS[editor_id]
-        result = await asyncio.to_thread(run_tool, editor_id, str(body["tool"]), body.get("arguments") or {},
-                                         service=platform(), wait_seconds=editor.answer_wait_seconds)
+        try:
+            result = await asyncio.to_thread(run_tool, editor_id, str(body["tool"]), body.get("arguments") or {},
+                                             service=platform(), wait_seconds=editor.answer_wait_seconds)
+        except Exception:
+            logger.warning("%s's %s call failed", editor.name, body["tool"], exc_info=True)
+            return _json({"ok": True, "text": catalog.failed(""), "is_error": True})
         return _json({"ok": True, "text": result.text, "is_error": result.is_error})
 
     app.add_route("/api/editors", list_editors, methods=["GET"])

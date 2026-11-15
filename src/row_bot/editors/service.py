@@ -16,7 +16,6 @@ import os
 import sqlite3
 import time
 import uuid
-from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,11 +37,8 @@ class ToolResult:
     is_error: bool = False
 
 
-Progress = Callable[[str], None]
-
-
 def run_tool(editor_id: str, name: str, arguments: object, *, service: Any = None,
-             progress: Progress | None = None, wait_seconds: float = catalog.ANSWER_WAIT_SECONDS) -> ToolResult:
+             wait_seconds: float = catalog.ANSWER_WAIT_SECONDS) -> ToolResult:
     """Run one tool for a connected editor."""
     editor = catalog.editor(editor_id)
     if editor is None:
@@ -50,7 +46,7 @@ def run_tool(editor_id: str, name: str, arguments: object, *, service: Any = Non
     if not isinstance(arguments, dict):
         return ToolResult("The tool's arguments must be an object.", True)
     if name == "ask_row_bot":
-        return ask_row_bot(editor, arguments, service=service, progress=progress, wait_seconds=wait_seconds)
+        return ask_row_bot(editor, arguments, service=service, wait_seconds=wait_seconds)
     if name == "search_memory":
         return search_memory(arguments)
     if name == "list_conversations":
@@ -246,7 +242,7 @@ def _model_selection(service: Any, conversation_id: str) -> dict | None:
     return {"provider_id": parsed[0], "model_ref": model} if parsed else None
 
 
-def ask_row_bot(editor: catalog.Editor, arguments: dict, *, service: Any = None, progress: Progress | None = None,
+def ask_row_bot(editor: catalog.Editor, arguments: dict, *, service: Any = None,
                 wait_seconds: float = catalog.ANSWER_WAIT_SECONDS) -> ToolResult:
     from row_bot.application.client_platform import ClientPlatformError
 
@@ -300,13 +296,9 @@ def ask_row_bot(editor: catalog.Editor, arguments: dict, *, service: Any = None,
     handle = service.registry.get(str(started.get("execution_id") or ""))
     deadline = time.monotonic() + max(0.0, wait_seconds)
     if handle is not None:
-        next_progress = time.monotonic() + 10
-        while not handle.producer_done.wait(min(1.0, max(0.0, deadline - time.monotonic()))):
-            if time.monotonic() >= deadline:
-                return ToolResult(_with_notes(catalog.still_working(title, conversation_id), notes))
-            if progress is not None and time.monotonic() >= next_progress:
-                progress("Row-Bot is working on it…")
-                next_progress = time.monotonic() + 10
+        # The bridge keeps the editor posted meanwhile (MCP progress notifications).
+        if not handle.producer_done.wait(max(0.0, deadline - time.monotonic())):
+            return ToolResult(_with_notes(catalog.still_working(title, conversation_id), notes))
         settle = time.monotonic() + 5
         while handle.status in {"running", "stopping"} and time.monotonic() < settle:
             time.sleep(0.05)

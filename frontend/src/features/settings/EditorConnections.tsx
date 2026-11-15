@@ -290,10 +290,7 @@ export default function EditorConnections({
                     Last used <When value={editor.last_used_at} />
                   </>
                 ) : (
-                  <>
-                    Not used yet · connected{' '}
-                    <When value={editor.connected_at} />
-                  </>
+                  'Not used yet'
                 )
               }
               action={

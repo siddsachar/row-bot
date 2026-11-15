@@ -24,7 +24,8 @@ from row_bot.editors import bridge, catalog, store
 from row_bot.editors.routes import register_editor_routes
 from tests.contracts.client_platform.test_headless_lifecycle import platform  # noqa: F401
 from tests.helpers.access import person_window
-from tests.helpers.client_platform_fakes import CheckpointCommit, FakeMonotonicClock, ScriptedAgentStream, fixture_id
+from tests.helpers.client_platform_fakes import (CheckpointCommit, FakeMonotonicClock, ScriptedAgentStream, StreamBarrier,
+                                                 fixture_id)
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
@@ -352,6 +353,19 @@ def test_a_chat_set_to_hands_off_runs_as_auto_from_an_editor(platform, settings,
     # A chat no editor reached keeps the person's Hands-off.
     threads._set_thread_approval_mode("conversation-b", "full")
     assert conversation_workspace(platform, "conversation-b")["controls"]["approval_mode"] == "full"
+
+
+def test_a_long_turn_tells_the_editor_where_its_answer_will_be(platform, settings):  # noqa: F811
+    from row_bot.editors.service import run_tool
+
+    connect(settings, "zed")
+    barrier = StreamBarrier()
+    use_model(platform, Recording((barrier, *answer("Finally.", "long"))))
+    result = run_tool("zed", "ask_row_bot", {"message": "Refactor everything"}, service=platform, wait_seconds=0.2)
+    chat = store.chat_for("zed", "")
+    assert result.text == catalog.still_working("From Zed", chat) and not result.is_error
+    barrier.release.set()
+    assert barrier.exited.wait(10)
 
 
 def test_a_waiting_approval_returns_the_waiting_text_and_the_card_shows_in_row_bot(platform, settings, local):  # noqa: F811
