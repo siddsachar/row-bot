@@ -33,6 +33,25 @@ def test_public_child_detail_parent_return_and_foreign_run_denial(service):
     assert client.get(f"/api/v1/conversations/{foreign}/delegated/{run['id']}", headers=headers).status_code == 404
 
 
+def test_a_helper_card_in_a_forks_copied_history_opens_the_run_from_the_original(service):
+    """B5: the fork's history names a helper that ran in the original; it opens there, read only."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from row_bot import threads, agent_runs
+    from row_bot.application.delegated_activity import read_run, stop_run
+    from row_bot.application.client_platform import ClientPlatformError
+    parent, child, other = [threads.create_thread(name, seed_default_skills=False) for name in ("Parent", "Child", "Other")]
+    run = agent_runs.create_agent_run(parent_thread_id=parent, thread_id=child, display_name="Research", status="running")
+    threads.append_checkpoint_messages(parent, [HumanMessage(id="h1", content="Research it"),
+                                                AIMessage(id="a1", content="A helper is on it.")])
+    fork = threads.fork_conversation(parent, at_message_id="a1", include_message=True).conversation_id
+    assert read_run(service, fork, run["id"])["child_conversation_id"] == child
+    with pytest.raises(ClientPlatformError, match="not_found"):
+        read_run(service, other, run["id"])
+    with pytest.raises(ClientPlatformError, match="not_found"):
+        stop_run(service, fork, run["id"])
+    assert agent_runs.get_agent_run(run["id"])["status"] == "running"
+
+
 def test_deleting_parent_denied_and_deleted_child_history_unavailable(service, monkeypatch):
     from row_bot import threads, agent_runs
     from row_bot.application.delegated_activity import read_activity, read_run
