@@ -1365,6 +1365,20 @@
   flex: none;
   align-self: center;
 }
+/* A paid picture or video (D4): its price, then where it comes from, quieter. */
+.approval-card-price {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 5px;
+}
+.approval-card-price svg {
+  flex: none;
+}
+.approval-card-price-words {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
 .approval-card-actions,
 .turn-notice-actions {
   display: flex;

@@ -11534,6 +11534,7 @@ def create_router(
                 "folder",
                 "x_post",
                 "setting_change",
+                "price",
                 "policy_revision",
             )
             if k in view

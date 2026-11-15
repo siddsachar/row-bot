@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  CircleDollarSign,
   Folder,
   HatGlasses,
   Pencil,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import type {
   ApprovalAnswer,
+  ApprovalPrice,
   ApprovalQuestion,
   ApprovalSetup,
   ApprovalView,
@@ -76,6 +78,44 @@ function ReviewerNote({ reason }: { reason?: string }) {
     <small className="approval-card-meta approval-card-reviewer">
       <ShieldQuestion aria-hidden size={13} />
       The reviewer asked you: {reason}
+    </small>
+  );
+}
+
+/** Dollars as the card says them: "$0.40", or "under $0.01" for a fraction of a cent. */
+function dollars(value: number, floor = false): string {
+  if (value < 0.01) return floor ? '$0.01' : 'under $0.01';
+  return `$${value.toFixed(2)}`;
+}
+
+/** A paid picture or video's price in words (D4): "About $0.40", "About $0.01–$0.21", "Price unknown". */
+export function priceWords(price: ApprovalPrice): string {
+  const { low_usd: low, high_usd: high } = price;
+  if (price.status !== 'known' || low == null || high == null)
+    return 'Price unknown';
+  if (dollars(low) === dollars(high))
+    return low < 0.01 ? 'Under $0.01' : `About ${dollars(low)}`;
+  return `About ${dollars(low, true)}–${dollars(high)}`;
+}
+
+/** Where the price comes from, or why there is none. */
+function priceBasis(price: ApprovalPrice): string {
+  return price.status === 'known' && price.basis
+    ? price.basis
+    : 'Row-Bot has no list price for this model';
+}
+
+/** A paid picture or video: what it costs, roughly, and where that comes from (quiet, one line). */
+function PriceNote({ price }: { price?: ApprovalPrice | null }) {
+  if (!price) return null;
+  return (
+    <small
+      className="approval-card-meta approval-card-price"
+      data-status={price.status}
+    >
+      <CircleDollarSign aria-hidden size={13} />
+      <span className="approval-card-price-words">{priceWords(price)}</span>
+      <span className="approval-card-price-basis">({priceBasis(price)})</span>
     </small>
   );
 }
@@ -185,6 +225,14 @@ function ApprovalDetails({
           <>
             <dt>Risk</dt>
             <dd>{risk}</dd>
+          </>
+        )}
+        {view.price && (
+          <>
+            <dt>Price</dt>
+            <dd>
+              {priceWords(view.price)} ({priceBasis(view.price)})
+            </dd>
           </>
         )}
         <dt>This approval covers</dt>
@@ -750,6 +798,7 @@ export default function ApprovalCard({
             {argument && (
               <code className="approval-card-argument">{argument}</code>
             )}
+            <PriceNote price={view.price} />
             <ReviewerNote
               reason={view.reviewer_reason || hint?.reviewer_reason}
             />
