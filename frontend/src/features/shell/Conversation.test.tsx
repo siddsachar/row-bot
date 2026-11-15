@@ -153,6 +153,11 @@ vi.mock('../../runtime', () => {
       approval: mock.approval,
       pendingApprovals: mock.pendingApprovals,
       waits: async () => ({ schema_version: 1, items: [] }),
+      skillOffers: async (conversation: string) => ({
+        conversation_id: conversation,
+        revision: 'none',
+        items: [],
+      }),
       receipt: mock.receipt,
       showHistory: mock.showHistory,
       showLatest: mock.showLatest,

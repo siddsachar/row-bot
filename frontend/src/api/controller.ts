@@ -2848,6 +2848,34 @@ export class ClientController {
         signal,
       );
     });
+  /** "Save as a skill" (C1): this chat's offers and drafts. */
+  skillOffers = (conversationId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.skillOffers?.(conversationId, signal));
+  /** Draft a skill from the turn that ends with this reply (an offer, or "Save as skill"). */
+  draftSkill = (
+    conversationId: string,
+    messageId: string,
+    offerId?: string,
+    cancel?: AbortSignal,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.draftSkill)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.draftSkill(
+        conversationId,
+        offerId
+          ? { message_id: messageId, offer_id: offerId }
+          : { message_id: messageId },
+        signal,
+      );
+    }, cancel);
+  /** "Not now": the offer closes and its task isn't offered again for a while. */
+  dismissSkillOffer = (conversationId: string, offerId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.dismissSkillOffer)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.dismissSkillOffer(conversationId, offerId, signal);
+    });
   /** One frame address for a page, served once to its sandboxed frame. */
   pageFrame = (pageId: string, theme: PageTheme, signal?: AbortSignal) =>
     this.authenticatedResult((current) => {
