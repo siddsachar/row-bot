@@ -159,11 +159,11 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _snapshot_tree(root: Path) -> dict[str, str]:
-    snapshot: dict[str, str] = {}
+def _snapshot_tree(root: Path) -> dict[str, bytes]:
+    snapshot: dict[str, bytes] = {}
     for path in sorted(root.rglob("*")):
         if path.is_file():
-            snapshot[str(path.relative_to(root)).replace("\\", "/")] = path.read_text(encoding="utf-8")
+            snapshot[str(path.relative_to(root)).replace("\\", "/")] = path.read_bytes()
     return snapshot
 
 

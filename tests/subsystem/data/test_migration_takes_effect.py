@@ -238,6 +238,7 @@ def test_hermes_in_its_windows_folder_is_found(tmp_path, monkeypatch):
     local = tmp_path / "AppData" / "Local"
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
     assert client_migration.detect_sources()["sources"][0]["found"] is False
 
     create_realistic_hermes_home(local / "hermes")
@@ -252,3 +253,105 @@ def test_hermes_in_its_windows_folder_is_found(tmp_path, monkeypatch):
     # The home folder's own copy comes first when both exist.
     create_realistic_hermes_home(home / ".hermes")
     assert client_migration.detect_sources()["sources"][0]["place"] == "~/.hermes"
+
+
+@pytest.mark.xfail(strict=True, reason="A4: HERMES_HOME is not read yet")
+def test_the_folder_hermes_home_names_is_the_one_found(tmp_path, monkeypatch):
+    from row_bot.application import client_first_run, client_migration
+    from row_bot.migration import detect_hermes_source
+
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    create_realistic_hermes_home(home / ".hermes")
+
+    # Hermes uses the folder HERMES_HOME names in place of its usual one; the place is shown, never the path.
+    chosen = create_realistic_hermes_home(home / "agents" / "hermes-work")
+    monkeypatch.setenv("HERMES_HOME", str(chosen))
+    assert client_migration.detect_sources()["sources"][0] == {
+        "provider": "hermes", "label": "Hermes Agent", "found": True, "place": "~/agents/hermes-work"}
+    assert detect_hermes_source().source.root == chosen
+    assert {"id": "hermes", "label": "Hermes Agent"} in client_first_run.import_sources()
+
+    elsewhere = create_realistic_hermes_home(tmp_path / "srv" / "hermes")
+    monkeypatch.setenv("HERMES_HOME", str(elsewhere))
+    assert client_migration.detect_sources()["sources"][0]["place"] == (
+        "%HERMES_HOME%" if os.name == "nt" else "$HERMES_HOME")
+
+    # A link, or an OpenClaw folder, is refused as in the usual places; the usual folder is found instead.
+    from row_bot.migration.fixtures import create_realistic_openclaw_home
+
+    monkeypatch.setenv("HERMES_HOME", str(create_realistic_openclaw_home(tmp_path / "claw")))
+    assert client_migration.detect_sources()["sources"][0]["place"] == "~/.hermes"
+    (tmp_path / "links").mkdir()
+    linked = create_realistic_hermes_home(_linked_folder(tmp_path / "links"))
+    monkeypatch.setenv("HERMES_HOME", str(linked))
+    assert client_migration.detect_sources()["sources"][0]["place"] == "~/.hermes"
+
+
+def _chat_count(batch: dict) -> int:
+    return batch["conversations"]["available"]
+
+
+@pytest.mark.xfail(strict=True, reason="A4: past chats from state.db are not offered yet")
+def test_past_chats_are_offered_unticked_and_wait_with_the_memories_to_review(tmp_path, profile):
+    from row_bot.application import memory_import
+
+    source = create_realistic_hermes_home(tmp_path / ".hermes")
+    before = sorted(path.name for path in source.iterdir())
+    from row_bot.application import client_migration
+
+    preview = client_migration.scan_migration(owner_id="owner", provider="hermes", source=str(source))
+    chats = _item(preview, "memories:past-chats")
+    assert chats["label"].startswith("Past chats from state.db: 3 conversations")
+    assert chats["selected"] is False and chats["status"] == "planned"
+    assert "archive:state-db" not in {item["id"] for item in preview["items"]}
+
+    preview, receipt = _import(source, choose=lambda item: item["category"] == "memories")
+    assert receipt["status"] == "completed", receipt
+    review = receipt["memory_review"]
+    assert (review["found"], review["conversations"]) == (6, 3)
+    try:
+        batch = memory_import.status("owner", review["batch_id"])
+        assert batch["receipt"] is None and _chat_count(batch) == 3
+        assert batch["conversations"]["ran"] is False  # looking in them is the person's choice, there
+    finally:
+        memory_import.discard("owner", review["batch_id"])
+    assert not (profile / "memory").exists()
+    assert sorted(path.name for path in source.iterdir()) == before  # Hermes's folder is only read
+
+
+@pytest.mark.xfail(strict=True, reason="A4: past chats from state.db are not offered yet")
+def test_chats_still_in_hermes_write_ahead_log_come_over(tmp_path, profile):
+    import sqlite3
+    from contextlib import closing
+
+    from row_bot.application import memory_import
+    from row_bot.migration.fixtures import write_hermes_chat
+
+    source = create_realistic_hermes_home(tmp_path / ".hermes")
+    # Hermes is still running: its newest chat is only in state.db-wal so far.
+    with closing(sqlite3.connect(source / "state.db")) as hermes:
+        hermes.execute("PRAGMA wal_autocheckpoint=0")
+        write_hermes_chat(hermes, "s-new", "Just now", 1763200000, (("user", "My sister is called Ada."),))
+        hermes.commit()
+        assert (source / "state.db-wal").stat().st_size > 0
+
+        _, receipt = _import(source, choose=lambda item: item["id"] == "memories:past-chats")
+        assert receipt["status"] == "completed", receipt
+        review = receipt["memory_review"]
+        try:
+            assert (review["found"], review["conversations"]) == (0, 4)
+            assert _chat_count(memory_import.status("owner", review["batch_id"])) == 4
+        finally:
+            memory_import.discard("owner", review["batch_id"])
+
+
+@pytest.mark.xfail(strict=True, reason="A4: the import doesn't say cron jobs aren't converted")
+def test_cron_jobs_are_named_as_not_converted(tmp_path, profile):
+    source = create_realistic_hermes_home(tmp_path / ".hermes")
+    preview, receipt = _import(source, choose=lambda item: item["id"] == "identity:personality")
+    note = "Cron jobs aren't converted: make a workflow for each one in Workflows."
+    assert note in preview["warnings"]
+    assert note in receipt["warnings"]
+    assert "make a workflow" in _item(preview, "archive:cron")["reason"]
