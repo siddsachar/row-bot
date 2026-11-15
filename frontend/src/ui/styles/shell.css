@@ -2862,6 +2862,157 @@ button.agent-row-main:focus-visible {
   line-height: var(--type-line-metadata);
   overflow-wrap: anywhere;
 }
+/* "Done means and check" (B3): the person's words for done, and the check
+   line with its state, an output popover and inline-code commands. */
+.context-goal-done-means {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.context-goal-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.context-goal-check > svg {
+  flex: none;
+}
+.context-goal-check > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.context-goal-check[data-tone='accent'] > svg {
+  color: var(--accent-solid);
+}
+.context-goal-check[data-tone='success'] {
+  color: var(--status-success-text);
+}
+.context-goal-check[data-tone='warning'] {
+  color: var(--status-warning-text);
+}
+.context-goal-check[data-tone='danger'] {
+  color: var(--status-danger-text);
+}
+.context-goal-slot code,
+.context-goal-review code,
+.context-goal-output code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--code-background);
+  color: var(--code-text);
+  font: 0.92em / 1 var(--font-mono);
+}
+.context-goal-spin {
+  animation: chat-spin 0.9s linear infinite;
+}
+.context-goal-done {
+  border-radius: var(--radius-control);
+}
+.context-goal-done > .disclosure-summary {
+  width: fit-content;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.context-goal-done > .disclosure-summary {
+  min-height: 28px;
+}
+.context-goal-done > .disclosure-summary > .disclosure-meta {
+  display: inline-flex;
+  margin-inline-start: 0;
+}
+.context-goal-done > .disclosure-body {
+  display: grid;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+.context-goal-check-input {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+.context-goal-check-input[aria-invalid='true'] {
+  border-color: var(--status-danger-text);
+}
+.context-goal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.button.context-goal-chip {
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+}
+.button.context-goal-chip[aria-pressed='true'] {
+  border-color: var(--accent-solid);
+}
+.button.context-goal-chip code {
+  padding: 0;
+  background: none;
+}
+@media (pointer: coarse) {
+  .button.context-goal-chip {
+    min-height: var(--control-size);
+  }
+}
+.context-goal-check-error {
+  color: var(--status-danger-text);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.context-goal-review {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+}
+.context-goal-review p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+  overflow-wrap: anywhere;
+}
+.context-goal-output {
+  display: grid;
+  gap: 6px;
+  width: min(440px, calc(100vw - 24px));
+  padding: 10px;
+}
+.context-goal-output-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.context-goal-output-text {
+  max-height: min(320px, 50vh);
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  border-radius: var(--radius-control);
+  background: var(--code-background);
+  color: var(--code-text);
+  font: var(--text-12) / 1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .context-goal-field {
   display: grid;
   gap: 4px;
@@ -2887,30 +3038,42 @@ button.agent-row-main:focus-visible {
   resize: vertical;
   font-size: var(--type-size-label);
 }
+/* The two limits side by side (wrapping on a narrow rail), then Cancel and
+   Start goal on their own row, right-aligned. */
 .context-goal-form-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+  gap: 6px 12px;
 }
 .context-goal-form-row > label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-inline-end: auto;
   color: var(--text-muted);
   font-size: var(--type-size-metadata);
 }
 .context-goal-form-row .input {
-  width: 64px;
+  /* Wide enough for its "No limit" placeholder. */
+  width: 10ch;
   min-height: 28px;
   padding: 2px 6px;
 }
-.context-goal-form-row .button {
+.context-goal-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.context-goal-form-actions .button {
   min-height: 28px;
   padding: 3px 10px;
   font-size: var(--type-size-metadata);
+}
+@media (pointer: coarse) {
+  .context-goal-form-actions .button {
+    min-height: var(--control-size);
+  }
 }
 .context-goal-history {
   margin-top: 4px;
@@ -2948,6 +3111,9 @@ button.agent-row-main:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .context-goal-progress > span {
     transition: none;
+  }
+  .context-goal-spin {
+    animation: none;
   }
 }
 

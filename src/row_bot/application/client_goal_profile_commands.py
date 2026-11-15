@@ -18,7 +18,7 @@ import sqlite3
 from typing import Any
 from uuid import UUID, uuid5
 
-from row_bot import agent_profiles, goals
+from row_bot import agent_profiles, goal_checks, goals
 from row_bot.runtime import admissions
 
 
@@ -186,6 +186,46 @@ def _goal_public(goal: Mapping[str, Any], conversation_id: str) -> dict[str, Any
             for item in (blockers if isinstance(blockers, list) else [])[-10:]
         ],
         "active_profile_id": _public_text(goal.get("profile_id"), 256),
+        # What done means and the person's check with its last result (B3).
+        "done_means": _public_text(goal.get("done_means"), 4096),
+        "check": _check_public(goal),
+    }
+
+
+_CHECK_STATES = frozenset({"", "pending", "running", "passed", "failed", "error"})
+
+
+def _check_public(goal: Mapping[str, Any]) -> dict[str, Any] | None:
+    command = str(goal.get("check_command") or "")
+    if not command:
+        return None
+    state = str(goal.get("check_state") or "")
+    result = goals.check_result(goal)
+    exit_code = result.get("exit_code")
+    return {
+        "command": _public_text(command, 2048),
+        "runs_in": _public_text(goals.check_approval(goal).get("runs_in"), 256),
+        "state": state if state in _CHECK_STATES else "",
+        "result": {
+            "exit_code": exit_code if type(exit_code) is int else None,
+            "started_at": str(result.get("started_at") or "")[:64],
+            "finished_at": str(result.get("finished_at") or "")[:64],
+            "duration_seconds": max(0, int(result.get("duration_seconds") or 0)),
+            # The command's own output can name local paths and secrets: redacted like every goal field.
+            "output_tail": _public_text(str(result.get("output_tail") or ""), 8192),
+        } if result else None,
+    }
+
+
+def check_place(conversation_id: str) -> dict[str, Any]:
+    """Where a check set now would run, and the project's own commands to suggest (B3)."""
+    if goals.is_channel_thread(conversation_id):
+        return {"available": False, "runs_in": "", "suggestions": []}
+    place = goal_checks.place_for(conversation_id)
+    return {
+        "available": True,
+        "runs_in": _public_text(place.runs_in, 256),
+        "suggestions": [_public_text(command, 512) for command in goal_checks.suggestions(place)],
     }
 
 
@@ -291,6 +331,7 @@ def read_goals(
         ),
         # The turn limit a new goal starts with (Agent runtime); 0 = no limit.
         "default_max_turns": min(1000, goal_owner.default_goal_max_turns()),
+        "check_place": check_place(conversation_id),
     }
 
 
@@ -411,8 +452,8 @@ def _goal_review(
     goal_owner: Any,
 ) -> dict[str, Any]:
     validate()
-    # ``max_minutes`` (an optional time limit, B244) may be left out.
-    if not isinstance(payload, dict) or set(payload) - {"max_minutes"} != {
+    # ``max_minutes`` (an optional time limit, B244), ``done_means`` and ``check_command`` (B3) may be left out.
+    if not isinstance(payload, dict) or set(payload) - {"max_minutes", "done_means", "check_command"} != {
         "conversation_id",
         "goal_id",
         "revision",
@@ -434,8 +475,17 @@ def _goal_review(
     objective: str | None = None
     max_turns: int | None = None
     max_minutes = payload.get("max_minutes")
+    done_means: str | None = None
+    check_command: str | None = None
+    check: dict[str, Any] | None = None
     reason: str | None = None
     if operation == "start":
+        done_means = _bounded(payload.get("done_means"), goal_checks.DONE_MEANS_CHARS) or None
+        check_command = _bounded(payload.get("check_command"), goal_checks.COMMAND_CHARS) or None
+        if check_command and ("\n" in check_command or "\r" in check_command):
+            raise GoalProfileCommandError("invalid_fields")
+        if check_command:
+            check = _check_review(conversation_id, check_command)
         objective = _text(payload["objective"], 4096, required=True)
         # No count means no turn limit (B243), no minutes no time limit (B244).
         if payload["max_turns"] is not None and (
@@ -456,6 +506,8 @@ def _goal_review(
             or payload["objective"] is not None
             or payload["max_turns"] is not None
             or max_minutes is not None
+            or payload.get("done_means") is not None
+            or payload.get("check_command") is not None
         ):
             raise GoalProfileCommandError("invalid_command")
         reason = _text(payload["reason"] or "", 1024)
@@ -476,18 +528,46 @@ def _goal_review(
         "max_turns": max_turns,
         "max_minutes": max_minutes,
         "reason": reason,
+        "done_means": done_means,
+        "check_command": check_command,
+        # Where the check runs, the level and what the command counts as: the person's Confirm approves
+        # exactly this, and a change before it lands makes the review stale.
+        "check": check,
     }
+    disclosures = (
+        ["The current goal will be replaced."]
+        if operation == "start" and current
+        else []
+    )
+    if check:
+        disclosures.append(goal_checks.disclosure(check))
     validate()
     return {
         "schema_version": 1,
         **intent,
         "action_digest": admissions.keyed_digest(intent),
-        "disclosures": (
-            ["The current goal will be replaced."]
-            if operation == "start" and current
-            else []
-        ),
+        "disclosures": disclosures,
     }
+
+
+def _bounded(value: object, characters: int) -> str:
+    """Optional text of at most ``characters`` characters ('' when left out)."""
+    if value is None:
+        return ""
+    text = _text(value, characters * 4)
+    if len(text) > characters:
+        raise GoalProfileCommandError("invalid_fields")
+    return text
+
+
+def _check_review(conversation_id: str, command: str) -> dict[str, Any]:
+    """Where the person's check runs and what it counts as, or the refusal they read (B3)."""
+    if goals.is_channel_thread(conversation_id):
+        raise GoalProfileCommandError(goal_checks.UNAVAILABLE)
+    try:
+        return goal_checks.review_check(conversation_id, command)
+    except goal_checks.CheckRefused as refused:
+        raise GoalProfileCommandError(refused.code) from None
 
 
 def review_goal_command(
@@ -715,6 +795,8 @@ def _execute_goal(
             max_turns=review["max_turns"] or 0,
             max_minutes=review["max_minutes"] or 0,
             replace=True,
+            done_means=review["done_means"] or "",
+            check=review["check"],
         )
     goal_id = review["goal_id"]
     revision = int(review["revision"])

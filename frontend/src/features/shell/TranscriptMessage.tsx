@@ -10,12 +10,16 @@ import {
   Repeat2,
   RotateCcw,
   CircleStop,
+  GitBranch,
+  LoaderCircle,
   Scissors,
+  SendHorizontal,
   TriangleAlert,
   Volume2,
   VolumeX,
   LayoutTemplate,
   MoreHorizontal,
+  X,
 } from 'lucide-react';
 import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
 import { clientError } from '../../api/errors';
@@ -131,6 +135,125 @@ function LinkedNote({
   );
 }
 
+/** What a refused fork says under its control (B5). */
+function forkFailure(cause: unknown) {
+  const error = clientError(cause);
+  return error.code === 'generation_active'
+    ? "Couldn't fork: the conversation is busy. Try when the reply ends."
+    : `Couldn't fork: ${error.message}`;
+}
+
+/**
+ * Edit and resend (B5): the person's message as an editable field, in place.
+ * Send continues in a new conversation with everything before the message;
+ * this conversation stays as it is. Enter sends, Escape cancels.
+ */
+function MessageEditor({
+  initial,
+  files,
+  onSend,
+  onCancel,
+}: {
+  initial: string;
+  files: string[];
+  onSend: (text: string) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const node = field.current;
+    if (!node) return;
+    node.focus();
+    node.setSelectionRange(node.value.length, node.value.length);
+  }, []);
+  async function send() {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    setError('');
+    try {
+      await onSend(text);
+    } catch (cause) {
+      setError(forkFailure(cause));
+      setSending(false);
+    }
+  }
+  return (
+    <form
+      className="message-edit"
+      aria-busy={sending}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void send();
+      }}
+    >
+      <textarea
+        ref={field}
+        className="input"
+        aria-label="Edit your message"
+        maxLength={200000}
+        rows={Math.min(8, Math.max(2, text.split('\n').length))}
+        value={text}
+        disabled={sending}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          } else if (
+            event.key === 'Enter' &&
+            !event.shiftKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            void send();
+          }
+        }}
+      />
+      <div className="message-edit-footer">
+        <small className="message-edit-hint">
+          {files.length
+            ? `Sends in a new conversation, with ${files.join(', ')}. This one stays as it is.`
+            : 'Sends in a new conversation. This one stays as it is.'}
+        </small>
+        <div className="message-edit-actions">
+          <IconButton
+            size="sm"
+            label="Cancel"
+            disabled={sending}
+            onClick={onCancel}
+          >
+            <X size={15} aria-hidden />
+          </IconButton>
+          <IconButton
+            size="sm"
+            type="submit"
+            variant="primary"
+            label="Send in a new conversation"
+            disabled={sending || !text.trim()}
+          >
+            {sending ? (
+              <LoaderCircle size={15} className="spin" aria-hidden />
+            ) : (
+              <SendHorizontal size={15} aria-hidden />
+            )}
+          </IconButton>
+        </div>
+      </div>
+      {error && (
+        <p role="alert" className="message-error">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 /**
  * One transcript row. User turns are right-aligned bubbles; assistant turns
  * are unlabeled prose with their tool activity, embeds and generated media.
@@ -151,7 +274,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   offerBrowser = false,
   streaming = false,
   onRetry,
-  onEdit,
+  onEditResend,
+  onFork,
   onRecover,
   toolbar = true,
   copyText,
@@ -182,7 +306,10 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   /** Text is still arriving for this row. */
   streaming?: boolean;
   onRetry?: () => void;
-  onEdit?: (text: string) => void;
+  /** Edit and resend (B5): a new conversation from before this message of the person's, sent the new text. */
+  onEditResend?: (messageId: string, text: string) => Promise<void>;
+  /** Fork from here (B5): a new conversation from the end of this reply's turn. */
+  onFork?: (messageId: string) => Promise<void>;
   /** Next steps for a runtime error row (switch model, providers, new chat). */
   onRecover?: (action: RecoveryAction) => void;
   /** Actions show once per turn: on user rows and at an assistant turn's end. */
@@ -200,6 +327,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [forking, setForking] = useState(false);
   const [previous, setPrevious] = useState<Array<string | undefined>>([]);
   const pageStart = useRef<string | undefined>(undefined);
   const speechOwner = `${conversationId}:${row.id}`;
@@ -291,7 +420,26 @@ export const TranscriptMessage = memo(function TranscriptMessage({
         Boolean(publicBlockText(block).trim()),
     );
   const hasActivity = Boolean(traces?.length) && Boolean(conversationId);
-  const actionable = toolbar && (hasText || Boolean(copyText)) && !streaming;
+  const actionable =
+    toolbar && (hasText || Boolean(copyText)) && !streaming && !editing;
+  const messageId = row.message_id ?? '';
+  const canEdit = row.role === 'user' && Boolean(onEditResend && messageId);
+  const canFork = row.role === 'assistant' && Boolean(onFork && messageId);
+  const files = shown.flatMap((block) =>
+    block.type === 'attachment' ? [block.name] : [],
+  );
+  async function fork() {
+    if (!onFork || forking) return;
+    setForking(true);
+    setError('');
+    try {
+      await onFork(messageId);
+    } catch (cause) {
+      setError(forkFailure(cause));
+    } finally {
+      setForking(false);
+    }
+  }
   // A finger resting on a message opens its actions as a sheet (D10); its
   // text is selectable again once Select text is chosen.
   const article = useRef<HTMLElement>(null);
@@ -333,6 +481,9 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     ...(row.role === 'assistant' && onRetry
       ? [{ label: 'Retry', onSelect: onRetry }]
       : []),
+    ...(canFork
+      ? [{ label: 'Fork from here', onSelect: () => void fork() }]
+      : []),
     ...(row.role === 'assistant' && teach && row.message_id
       ? [
           {
@@ -341,8 +492,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           },
         ]
       : []),
-    ...(row.role === 'user' && onEdit
-      ? [{ label: 'Edit as a new message', onSelect: () => onEdit(text) }]
+    ...(canEdit
+      ? [{ label: 'Edit and resend', onSelect: () => setEditing(true) }]
       : []),
   ];
   if (row.note === 'continuation')
@@ -493,7 +644,22 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             )}
           </div>
         )}
-        {hasText && !failure && (
+        {editing && onEditResend ? (
+          <MessageEditor
+            initial={shown
+              .filter((block) => block.type !== 'attachment')
+              .map(publicBlockText)
+              .filter(Boolean)
+              .join('\n')}
+            files={files}
+            onCancel={() => setEditing(false)}
+            onSend={async (value) => {
+              await onEditResend(messageId, value);
+              setEditing(false);
+            }}
+          />
+        ) : null}
+        {hasText && !failure && !editing && (
           <div
             className="message-text"
             data-paged={expanded ? 'true' : undefined}
@@ -501,7 +667,12 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             {/* A page is an arbitrary text/plain slice of a large message: it
                 can cut through Markdown, so it is shown exactly as sent. */}
             {expanded || (
-              <TranscriptBlocks blocks={shown} copyText={copyCode} />
+              <TranscriptBlocks
+                blocks={shown}
+                copyText={copyCode}
+                conversationId={conversationId ?? undefined}
+                messageId={row.message_id ?? undefined}
+              />
             )}
           </div>
         )}
@@ -651,6 +822,21 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 <RotateCcw size={15} aria-hidden />
               </IconButton>
             )}
+            {canFork && (
+              <IconButton
+                size="sm"
+                label="Fork from here"
+                title="Continue from this reply in a new conversation"
+                disabled={forking}
+                onClick={() => void fork()}
+              >
+                {forking ? (
+                  <LoaderCircle size={15} className="spin" aria-hidden />
+                ) : (
+                  <GitBranch size={15} aria-hidden />
+                )}
+              </IconButton>
+            )}
             {row.role === 'assistant' && teach && row.message_id && (
               <IconButton
                 size="sm"
@@ -660,11 +846,12 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 <GraduationCap size={15} aria-hidden />
               </IconButton>
             )}
-            {row.role === 'user' && onEdit && (
+            {canEdit && (
               <IconButton
                 size="sm"
-                label="Edit as a new message"
-                onClick={() => onEdit(text)}
+                label="Edit and resend"
+                title="Edit this message and continue in a new conversation; this one stays as it is"
+                onClick={() => setEditing(true)}
               >
                 <Pencil size={15} aria-hidden />
               </IconButton>

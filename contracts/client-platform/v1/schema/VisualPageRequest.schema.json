@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "description": "The person's \"Open as page\" on a visual: its title and HTML, made a page in that chat.",
+  "properties": {
+    "html": {
+      "maxLength": 204800,
+      "minLength": 1,
+      "title": "Html",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 120,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "html"
+  ],
+  "title": "VisualPageRequest",
+  "type": "object"
+}

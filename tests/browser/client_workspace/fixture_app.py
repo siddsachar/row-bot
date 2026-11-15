@@ -2657,6 +2657,91 @@ def _n5_stream(text: str, config: dict):
         call["quiesced"] = True
 
 
+# ── F3: answer components ──────────────────────────────────────────────────
+# The reply is plain text with fenced rowbot-* blocks, as a model writes it; the
+# real projection makes the blocks. A reply button's words come back as the
+# person's message, and get their own scripted answer.
+def _f3_fence(tag: str, body: dict) -> str:
+    return f"```rowbot-{tag}\n{json.dumps(body, ensure_ascii=False)}\n```"
+
+
+_F3_COMPONENTS = "\n\n".join([
+    "Here's your October summary.",
+    _f3_fence("figures", {"title": "October spend", "items": [
+        {"label": "Total", "value": 2140, "unit": "£", "delta": "-8% vs Sep", "tone": "good"},
+        {"label": "Groceries", "value": 512, "unit": "£", "delta": "+4%", "tone": "bad"},
+        {"label": "Eating out", "value": 186, "unit": "£"},
+        {"label": "Saved", "value": 18, "unit": "%", "delta": "+2 pts", "tone": "good"}]}),
+    _f3_fence("table", {"title": "Biggest costs", "columns": [
+        {"key": "item", "label": "Item"}, {"key": "cost", "label": "Cost", "type": "currency"},
+        {"key": "paid", "label": "Paid", "type": "date"}], "rows": [
+        {"item": "Rent", "cost": "£1,200", "paid": "1 Oct 2026"},
+        {"item": "Groceries", "cost": "£512", "paid": "30 Oct 2026"},
+        {"item": "Train pass", "cost": "£238", "paid": "3 Oct 2026"},
+        {"item": "Eating out", "cost": "£186", "paid": "24 Oct 2026"}],
+        "note": "From your bank export.",
+        "actions": [{"label": "Find savings", "reply": "Where could I save next month?"}]}),
+    _f3_fence("chart", {"title": "Spend by month", "kind": "bar", "x": ["Aug", "Sep", "Oct"],
+                        "series": [{"name": "Total", "values": [2210, 2330, 2140]}], "unit": "£"}),
+    _f3_fence("progress", {"title": "Goals", "items": [
+        {"label": "Holiday fund", "value": 900, "target": 1500, "unit": "£"},
+        {"label": "Emergency fund", "value": 3200, "target": 3000, "unit": "£"}]}),
+    _f3_fence("checklist", {"title": "This week", "items": [
+        {"id": "gym", "text": "Cancel the unused gym plan", "done": True},
+        {"id": "move", "text": "Move £200 to the holiday fund"},
+        {"id": "bill", "text": "Check the energy bill"}]}),
+    _f3_fence("choices", {"prompt": "What should I look at next?", "options": [
+        {"label": "Groceries", "reply": "Break down my grocery spending"},
+        {"label": "Subscriptions", "reply": "List my subscriptions"},
+        {"label": "Next month's budget", "reply": "Draft next month's budget"}]}),
+])
+# Two visuals: an SVG diagram, and a small interactive explanation whose probe tries the network.
+_F3_DIAGRAM = """<svg viewBox="0 0 420 128" role="img" aria-label="The water cycle">
+<title>The water cycle</title>
+<style>text{font:13px system-ui;fill:var(--rb-text-primary)} .box{fill:var(--rb-surface-raised);stroke:var(--rb-border-control)}
+.arrow{stroke:var(--rb-accent-solid);stroke-width:2;fill:none;marker-end:url(#tip)}</style>
+<defs><marker id="tip" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+<path d="M0 0L8 4L0 8z" fill="var(--rb-accent-solid)"/></marker></defs>
+<rect class="box" x="10" y="50" width="110" height="44" rx="8"/><text x="65" y="77" text-anchor="middle">Sea</text>
+<rect class="box" x="155" y="10" width="110" height="44" rx="8"/><text x="210" y="37" text-anchor="middle">Clouds</text>
+<rect class="box" x="300" y="50" width="110" height="44" rx="8"/><text x="355" y="77" text-anchor="middle">Rivers</text>
+<path class="arrow" d="M90 50 Q120 20 152 30"/><path class="arrow" d="M265 32 Q300 24 330 48"/>
+<path class="arrow" d="M300 92 Q210 140 122 92"/></svg>"""
+_F3_SLIDER = """<title>Compound interest</title>
+<style>label{display:grid;gap:6px;font-size:14px} output{font:600 22px system-ui;color:var(--rb-accent-solid)}
+input{accent-color:var(--rb-accent-solid);width:100%} p{color:var(--rb-text-secondary);margin:6px 0 0}</style>
+<label>Years saved: <input id="years" type="range" min="1" max="40" value="10" aria-label="Years"></label>
+<p>£1,000 at 5% a year grows to <output id="total">£1,629</output></p>
+<p id="probe" data-network="unknown">Network: checking…</p>
+<script>
+const years = document.getElementById('years'), total = document.getElementById('total');
+function show() { total.textContent = '£' + Math.round(1000 * Math.pow(1.05, years.value)).toLocaleString('en-GB'); }
+years.addEventListener('input', show); show();
+const probe = document.getElementById('probe');
+fetch('https://example.com/f3-visual-probe').then(() => { probe.dataset.network = 'reached'; },
+  () => { probe.dataset.network = 'blocked'; }).finally(() => { probe.textContent = 'Network: ' + probe.dataset.network; });
+</script>"""
+_F3_VISUALS = "\n\n".join([
+    "Here's how it works.",
+    f"```rowbot-visual\n{_F3_DIAGRAM}\n```",
+    "And how saving grows over time:",
+    f"```rowbot-visual\n{_F3_SLIDER}\n```",
+])
+_F3_REPLIES = {
+    "f3 components fixture": _F3_COMPONENTS,
+    "f3 visuals fixture": _F3_VISUALS,
+    "List my subscriptions": "You pay for three: music, cloud storage and a news site.",
+}
+
+
+def _f3_stream(text: str, config: dict):
+    call = predecessor._record("submit", config, "f3-components")
+    try:
+        yield from _natural_final(call, call["conversation_id"], _F3_REPLIES[text.strip()], "f3")
+    finally:
+        call["quiesced"] = True
+
+
 # ── N11: incognito chats ───────────────────────────────────────────────────
 # The model's save_memory call is scripted; its card is the real tool's own in
 # an incognito chat (run in a small graph, so it asks as it does in a turn).
@@ -2795,6 +2880,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
     if text.strip() in _N5_PROMPTS:
         # Pages (N5): the real page tools on the skill's templates.
         yield from _n5_stream(text, config)
+        return
+    if text.strip() in _F3_REPLIES:
+        # Answer components (F3): a reply with rowbot-* fences, and the answer to a reply button.
+        yield from _f3_stream(text, config)
         return
     if text.startswith("[") and "from the page" in text.split("\n", 1)[0]:
         # The person's Send under a page (N5), as the real message Row-Bot wrote from it.
@@ -3067,6 +3156,19 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                 yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
                                     "content": result}
             yield from _natural_final(call, thread, "Saved the summary and committed the tidy-up.", "decided")
+        finally:
+            call["quiesced"] = True
+        return
+    if text.rstrip().endswith("fork fixture"):
+        # Edit and resend, Fork from here (B5): a plain reply naming the message, so each copy is told apart.
+        from langchain_core.messages import HumanMessage
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "fork")
+        thread = call["conversation_id"]
+        try:
+            append_checkpoint_messages(thread, [HumanMessage(
+                content=text, id=call["submission_id"] or fixture_id(f"fork:{call['generation_id']}:user"))])
+            yield from _natural_final(call, thread, f"Noted: {text.strip().removesuffix(' fork fixture')}.", "fork")
         finally:
             call["quiesced"] = True
         return
@@ -5213,6 +5315,10 @@ def main() -> None:
     from row_bot import goals as goal_owner
     # Goals verify with a scripted verdict, never a model call.
     goal_owner._invoke_goal_verifier = _goal_verifier
+    from row_bot import goal_checks
+    # A goal's check (B3) passes with a scripted output: no command runs.
+    goal_checks.execute_check = lambda command, _place, **_kwargs: goal_checks.CheckRun(
+        0, f"Fixture check: {command} passed.")
     from row_bot.application import conversation_naming
     # A new conversation keeps its first-words name: its title is never a model call.
     conversation_naming._ask = lambda model_ref, message, reply: ""
@@ -7806,6 +7912,74 @@ def mr_seed(x_fixture_token: str = Header(default="")) -> dict:
     background.invoke_background = invoke_background
     memory_review._model = lambda: {"name": "qwen3:8b", "provider": "Local", "on_this_computer": True}
     return {"ok": True}
+
+
+# D1 the activity log: a spec seeds a day of actions of every kind in one chat (/__d1_fixture/activity/seed)
+# and clears them, with that chat, afterwards (/__d1_fixture/activity/clear). Rows go through the log's own
+# writer, as the tool-call middleware writes them.
+_ACTIVITY_CHAT = "d1-activity-chat"
+
+
+@app.post("/__d1_fixture/activity/{state}")
+def d1_activity(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    from row_bot import activity_log, threads
+    from row_bot.thread_cleanup import delete_thread
+
+    if state not in {"seed", "clear"}:
+        raise HTTPException(status_code=404, detail="Unknown activity state")
+    if threads._thread_exists(_ACTIVITY_CHAT):
+        delete_thread(_ACTIVITY_CHAT)
+    activity_log.clear()
+    if state == "clear":
+        return {"ready": True}
+    chat = threads.create_thread("Tidy my downloads", thread_id=_ACTIVITY_CHAT, seed_default_skills=False)
+    now = time.time()
+
+    def asked(**card: str) -> dict:
+        return {"stage": "asking", "level": card.pop("level", "approve"), **card}
+
+    def decided(outcome: str, by: str, **card: str) -> dict:
+        return {"stage": "decided", "level": card.pop("level", "approve"), "outcome": outcome, "by": by, **card}
+
+    rows = [
+        ("a1", "x_post", 5, "chat", (asked(label="Post on X", description="Post on X: Launch day! Row-Bot 5.4 is out."),),
+         True),
+        ("a2", "workspace_delete_file", 12, "chat", (
+            asked(label="Delete files", description="Delete 14 old screenshots in Downloads"),
+            decided("allow", "person", label="Delete files", description="Delete 14 old screenshots in Downloads")),
+         False),
+        ("a3", "run_command", 26, "chat", (decided(
+            "allow", "reviewer", level="auto", label="Run a command", description="Run npm test in row-bot",
+            reason="You asked me to run the tests before pushing."),), False),
+        ("a4", "send_gmail_message", 41, "chat", (
+            asked(label="Send an email", description="Send the weekly report to sam@example.test"),
+            decided("deny", "person", label="Send an email",
+                    description="Send the weekly report to sam@example.test")), False),
+        ("a5", "workspace_move_file", 63, "agent", (decided(
+            "allow", "hands_off", level="full", label="Move a file",
+            description="Move invoice-2026-11.pdf to Documents/Taxes"),), False),
+        ("a6", "run_command", 95, "chat", (decided(
+            "block", "block", level="block", label="Run a command", description="Install ffmpeg with winget"),),
+         False),
+        ("a7", "workspace_read_file", 120, "proactive", (), False),
+        ("a8", "web_search", 150, "channel", (), False),
+        ("a9", "workspace_write_file", 26 * 60, "chat", (decided(
+            "allow", "hands_off", level="full", label="Upload a file", description="Upload report.pdf to Drive"),),
+         False),
+    ]
+    midnight = time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1))
+    # Oldest first, as the log writes them; "today" stays today even just after midnight.
+    for call_id, tool, minutes_ago, surface, decisions, paused in reversed(rows):
+        at = now - minutes_ago * 60
+        if minutes_ago < 24 * 60:
+            at = max(at, midnight + (now - midnight) * (1 - minutes_ago / 1440))
+        activity_log.record(activity_log.ToolCall(
+            call_id=f"d1-{call_id}", tool=tool, thread_id=chat, surface=surface, at=at,
+            level=(decisions[-1]["level"] if decisions else "approve"), decisions=decisions, paused=paused,
+            failed=call_id == "a9"))
+    activity_log.flush()
+    return {"ready": True}
 
 
 if __name__ == "__main__":

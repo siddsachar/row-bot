@@ -2138,6 +2138,43 @@
       "title": "ConversationDeleteCommand",
       "type": "object"
     },
+    "ConversationForkCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ForkPayload"
+        },
+        "type": {
+          "const": "conversation.fork",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationForkCommand",
+      "type": "object"
+    },
     "ConversationIncognitoCommand": {
       "additionalProperties": false,
       "properties": {
@@ -4071,14 +4108,66 @@
       "title": "EmptyWorkspaceSetupPayload",
       "type": "object"
     },
+    "ForkPayload": {
+      "additionalProperties": false,
+      "description": "A new conversation from an earlier message (B5); the original is never changed.\n\n\"edit\" (Edit and resend): *at_message_id* is the person's message, and the new conversation holds what came\nbefore it; the client then sends the edited text there. \"fork\" (Fork from here): it is a reply, and the new\nconversation holds everything up to the end of its turn.",
+      "properties": {
+        "at_message_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "At Message Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "edit",
+            "fork"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at_message_id",
+        "mode"
+      ],
+      "title": "ForkPayload",
+      "type": "object"
+    },
     "GoalCommandWirePayload": {
       "additionalProperties": false,
       "properties": {
+        "check_command": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Command"
+        },
         "conversation_id": {
           "maxLength": 256,
           "minLength": 1,
           "title": "Conversation Id",
           "type": "string"
+        },
+        "done_means": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Done Means"
         },
         "goal_id": {
           "anyOf": [
@@ -8766,6 +8855,17 @@
           "title": "Submission Id",
           "type": "string"
         },
+        "tapped_choice": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappedChoice"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "text": {
           "maxLength": 200000,
           "minLength": 1,
@@ -8964,6 +9064,38 @@
         "nonce"
       ],
       "title": "SubscriptionProbePayload",
+      "type": "object"
+    },
+    "TappedChoice": {
+      "additionalProperties": false,
+      "description": "The reply whose button the person tapped, and the button's label (F3).",
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "message_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_.-]+$",
+          "title": "Message Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id"
+      ],
+      "title": "TappedChoice",
       "type": "object"
     },
     "TaskCreateCommand": {
@@ -10781,6 +10913,7 @@
       "conversation.controls": "#/$defs/ConversationControlsCommand",
       "conversation.create": "#/$defs/ConversationCreateCommand",
       "conversation.delete": "#/$defs/ConversationDeleteCommand",
+      "conversation.fork": "#/$defs/ConversationForkCommand",
       "conversation.incognito": "#/$defs/ConversationIncognitoCommand",
       "conversation.link.dismiss": "#/$defs/ConversationLinkDismissCommand",
       "conversation.link.start": "#/$defs/ConversationLinkStartCommand",
@@ -10928,6 +11061,9 @@
     },
     {
       "$ref": "#/$defs/ConversationRestoreCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationForkCommand"
     },
     {
       "$ref": "#/$defs/ConversationSubmitCommand"

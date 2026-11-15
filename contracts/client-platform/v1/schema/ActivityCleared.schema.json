@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "removed": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Removed",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "removed"
+  ],
+  "title": "ActivityCleared",
+  "type": "object"
+}

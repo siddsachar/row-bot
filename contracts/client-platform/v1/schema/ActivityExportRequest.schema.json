@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "description": "The filters the page shows, for the CSV the person saves.",
+  "properties": {
+    "outcome": {
+      "default": "",
+      "enum": [
+        "",
+        "needed",
+        "denied",
+        "blocked"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "q": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Q",
+      "type": "string"
+    },
+    "surface": {
+      "default": "",
+      "enum": [
+        "",
+        "chat",
+        "workflow",
+        "agent",
+        "goal",
+        "channel",
+        "proactive",
+        "developer"
+      ],
+      "title": "Surface",
+      "type": "string"
+    }
+  },
+  "title": "ActivityExportRequest",
+  "type": "object"
+}

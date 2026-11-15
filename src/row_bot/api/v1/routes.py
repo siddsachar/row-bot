@@ -230,6 +230,9 @@ _STATUS.update(
             "directory_revision_conflict",
             "snapshot_revision_conflict",
             "draft_revision_conflict",
+            "answer_state_revision_conflict",
+            "answer_choice_taken",
+            "answer_state_full",
         ),
         409,
     )
@@ -318,6 +321,11 @@ _STATUS.update(
 _STATUS.update(
     {
         "goal_library_too_large": 413,
+        # A goal's check that can't be set (B3): it can't run here, the chat only allows checks that read,
+        # or the conversation is a channel's.
+        "goal_check_refused": 422,
+        "goal_check_read_only": 422,
+        "goal_check_unavailable": 422,
         "profile_library_too_large": 413,
         "receipt_unavailable": 404,
         "goal_operation_unconfirmed": 409,
@@ -3260,6 +3268,33 @@ def create_router(
         await readable_conversation(conversation_id)
         return await respond(request, dto.DraftView, result)
 
+    @router.get("/conversations/{conversation_id}/answer-state")
+    async def answer_state_view(conversation_id: str, request: Request) -> JSONResponse:
+        """The person's ticks and sent choices on this chat's answer components (F3)."""
+        await session(request)
+        from row_bot.application.answer_state import read_answer_state
+
+        result = await call(read_answer_state, service, conversation_id)
+        return await respond(request, dto.AnswerStateView, result)
+
+    @router.put("/conversations/{conversation_id}/answer-state")
+    async def answer_state_save(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.AnswerStateChange, 4096)
+        from row_bot.application.answer_state import save_answer_state
+
+        return await respond(
+            request,
+            dto.AnswerStateView,
+            await call(
+                save_answer_state,
+                service,
+                conversation_id,
+                body.model_dump(mode="json"),
+                dispatch_validation(request, current),
+            ),
+        )
+
     @router.get("/conversations/{conversation_id}/queue")
     async def queue_view(
         conversation_id: str,
@@ -5783,6 +5818,56 @@ def create_router(
             raise ProtocolError("wait_unavailable", 404)
         return await respond(request, dto.WaitPage, await call(_wait_page))
 
+    # --- The activity log (D1): every tool action, its outcome and who decided ------------------------
+    # Read by the person's own app only; no tool reads, writes or clears it.
+
+    _ACTIVITY_SURFACES = {"", "chat", "workflow", "agent", "goal", "channel", "proactive", "developer"}
+    _ACTIVITY_OUTCOMES = {"", "needed", "denied", "blocked"}
+
+    @router.get("/activity")
+    async def activity_page(request: Request, before: int = 0, limit: int = 50, surface: str = "",
+                            outcome: str = "", conversation: str = "", q: str = "") -> JSONResponse:
+        """Every tool action Row-Bot took, newest first, with its outcome and who decided (Settings › Activity)."""
+        await session(request)
+        if (before < 0 or not 1 <= limit <= 200 or surface not in _ACTIVITY_SURFACES
+                or outcome not in _ACTIVITY_OUTCOMES or len(conversation) > 256 or len(q) > 200):
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_activity import read_activity
+
+        result = await call(read_activity, before=before, limit=limit, surface=surface, outcome=outcome,
+                            conversation=conversation, q=q)
+        return await respond(request, dto.ActivityPage, result)
+
+    @router.get("/activity/summary")
+    async def activity_summary(request: Request, since: float = 0) -> JSONResponse:
+        """Monitor's line: actions since the person's midnight, how many asked them, how many they refused."""
+        await session(request)
+        if not 0 <= since <= 2**33:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_activity import read_summary
+
+        return await respond(request, dto.ActivitySummary, await call(read_summary, since=since))
+
+    @router.post("/activity/export")
+    async def activity_export(request: Request) -> JSONResponse:
+        """The filtered log as a CSV to save (the one save path): the Save dialog, a download or Exports."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ActivityExportRequest, 4 * 1024)
+        from row_bot.application import client_activity, save_offers
+
+        data = await call(client_activity.export_csv, surface=body.surface, outcome=body.outcome, q=body.q)
+        await call(dispatch_validation(request, current))
+        result = await call(save_offers.offer, current.id, client_activity.export_name(), data)
+        return await respond(request, dto.SaveOffer, result)
+
+    @router.delete("/activity")
+    async def activity_clear(request: Request) -> JSONResponse:
+        """The person's "Clear activity": every row goes (their rules, when there are any, stay)."""
+        await session(request, lane="mutation")
+        from row_bot.application.client_activity import clear_activity
+
+        return await respond(request, dto.ActivityCleared, await call(clear_activity))
+
     # --- Proactive Row-Bot (5.3.4): For you, "Why this?", feedback, the Activity log and settings ---------
 
     def _moment_id(moment_id: str) -> str:
@@ -6150,6 +6235,26 @@ def create_router(
 
         found = await _page_call(decide, _page_id(page_id), body.id, body.choice, body.note, body.label)
         return await respond(request, dto.PageView, await call(view, found))
+
+    @router.post("/conversations/{conversation_id}/visual-frame")
+    async def visual_frame(conversation_id: str, request: Request) -> JSONResponse:
+        """One frame address for a visual in a reply (F3): served once, sandboxed, with no network."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.VisualFrameRequest, 256 * 1024)
+        from row_bot.application.answer_components import visual_frame as make
+
+        frame_url = await _page_call(make, service, conversation_id, body.html, body.theme.model_dump())
+        return await respond(request, dto.VisualFrame, {"frame_url": frame_url})
+
+    @router.post("/conversations/{conversation_id}/visual-page")
+    async def visual_page(conversation_id: str, request: Request) -> JSONResponse:
+        """The person's "Open as page" on a visual in a reply (F3): the same HTML as a page in that chat."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.VisualPageRequest, 256 * 1024)
+        from row_bot.application.answer_components import visual_page as make
+
+        made = await _page_call(make, service, conversation_id, body.title, body.html)
+        return await respond(request, dto.PageView, made)
 
     def _standalone(page_id: str, theme: dict) -> tuple[str, str]:
         from row_bot.pages import document, download_name, require

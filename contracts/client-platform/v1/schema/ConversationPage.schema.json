@@ -37,6 +37,17 @@
           "title": "Category",
           "type": "string"
         },
+        "forked_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForkOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "generation_state": {
           "items": {
             "$ref": "#/$defs/GenerationState"
@@ -123,6 +134,29 @@
         "pinned"
       ],
       "title": "ConversationView",
+      "type": "object"
+    },
+    "ForkOrigin": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "ForkOrigin",
       "type": "object"
     },
     "GenerationState": {

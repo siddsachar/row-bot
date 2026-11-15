@@ -1034,6 +1034,28 @@ export interface ClientTransport {
     conversationId: string,
     signal?: AbortSignal,
   ): Promise<Wire.ConversationLinkPage>;
+  /** The person's ticks and sent choices on a chat's answer components (F3). */
+  answerState?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AnswerStateView>;
+  saveAnswerState?(
+    conversationId: string,
+    change: Wire.AnswerStateChange,
+    signal?: AbortSignal,
+  ): Promise<Wire.AnswerStateView>;
+  /** One frame address for a visual in a reply (F3), served once, no network. */
+  createVisualFrame?(
+    conversationId: string,
+    request: Wire.VisualFrameRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.VisualFrame>;
+  /** The person's "Open as page" on a visual in a reply (F3). */
+  createVisualPage?(
+    conversationId: string,
+    request: Wire.VisualPageRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.PageView>;
   /** One frame address for a page in this theme, loaded once in a sandbox. */
   pageFrame?(
     pageId: string,
@@ -1094,6 +1116,17 @@ export interface ClientTransport {
     limit?: number,
     signal?: AbortSignal,
   ): Promise<Wire.ProactiveActivityPage>;
+  /** The activity log (D1): Settings › System › Activity and Monitor's line. */
+  activity?(
+    filters: Wire.ActivityFilters,
+    signal?: AbortSignal,
+  ): Promise<Wire.ActivityPage>;
+  activitySummary?(
+    since: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ActivitySummary>;
+  exportActivity?(body: Wire.ActivityExportRequest): Promise<Wire.SaveOffer>;
+  clearActivity?(): Promise<Wire.ActivityCleared>;
   proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
   changeProactiveSettings?(
     change: Wire.ProactiveSettingsChange,
