@@ -108,6 +108,7 @@ BROWSER_SMOKE_SPECS = (
     "x-accounts",
     "outlook",
     "incognito",
+    "conversation-fork",
     "live-updates",
     "learning",
     "learning-training",

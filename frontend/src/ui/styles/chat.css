@@ -701,6 +701,56 @@
     opacity: 1;
   }
 }
+.message-toolbar .spin,
+.message-edit .spin {
+  animation: chat-spin 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-toolbar .spin,
+  .message-edit .spin {
+    animation-duration: 3s;
+  }
+}
+/* Edit and resend (B5): the person's bubble becomes its field, in place. */
+.message-user > .transcript-content:has(> .message-edit) {
+  width: 78%;
+}
+.message-edit {
+  display: grid;
+  gap: 6px;
+  align-self: stretch;
+}
+.message-edit textarea.input {
+  min-height: 64px;
+  max-height: 40vh;
+  padding: 9px 14px;
+  border-radius: 18px 18px 6px 18px;
+  resize: vertical;
+  font: inherit;
+  line-height: var(--leading-15);
+}
+.message-edit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.message-edit-hint {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 18px;
+  text-align: end;
+}
+.message-edit-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+/* A fork's first line (B5): where it came from, linked. */
+.transcript-note[data-note='forked'] a {
+  color: var(--text-link);
+}
 .message-actions {
   display: flex;
   flex-wrap: wrap;
