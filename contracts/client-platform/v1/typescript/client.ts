@@ -1306,15 +1306,19 @@ function proofHeaders(proof?: SessionProof): Record<string, string> {
 }
 // Client pacing leaves headroom under the server's independently enforced
 // budgets. Pending work is bounded and abortable; no mutation is replayed.
-const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number; waiting:number}>>();
+const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number; waiting:number; queue:object[]}>>();
 async function pace(proof: SessionProof | undefined, path: string, method: string, signal?: AbortSignal, body?: unknown): Promise<void> {
   if (!proof) return;
   // An approval card reads what it asks about, a sent-files card what was
-  // sent and a video edit card its edit (every second while it runs): the
-  // person is looking at them, so they never wait behind background reads.
-  const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated))?(?:\?|$)/.test(path)
+  // sent and a video edit card its edit (every second while it runs), and a
+  // reply's ticks and sent choices are read as it is shown (and again before
+  // the person's tick is saved), a page card its page's title, the details
+  // card its chat's goal and Home's Review the posts scheduled to go out:
+  // the person is looking at them, so they never wait behind background
+  // reads. (The server counts each of these as a view read too.)
+  const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated|answer-state|goals))?(?:\?|$)/.test(path)
     || /^\/approvals\/[^/?]+(?:\?|$)/.test(path)
-    || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?)(?:\?|$)/.test(path);
+    || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?|pages\/page-[0-9a-f]{8}|monitor\/scheduled-posts)(?:\?|$)/.test(path);
   // Following a computer-use session (about once a second) is observation.
   const observation = path.startsWith('/events') || path.startsWith('/live') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
     || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);
@@ -1338,8 +1342,12 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   if (!lanes) { lanes = new Map(); budgets.set(proof, lanes); }
   const [capacity, rate] = lane === 'terminal' ? [200, 100] : lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
   let bucket = lanes.get(lane);
-  if (!bucket) { bucket = {tokens:capacity,at:performance.now(),waiting:0}; lanes.set(lane,bucket); }
+  if (!bucket) { bucket = {tokens:capacity,at:performance.now(),waiting:0,queue:[]}; lanes.set(lane,bucket); }
   if (bucket.waiting >= 128) throw {code:'rate_limited'};
+  // First come, first served: a request that is waiting is never overtaken by
+  // a newer one, so a card read can't starve behind a stream of fresh reads.
+  const turn = {};
+  bucket.queue.push(turn);
   bucket.waiting++;
   try {
     while (true) {
@@ -1347,14 +1355,15 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
       const now = performance.now();
       bucket.tokens = Math.min(capacity, bucket.tokens + Math.max(0, now - bucket.at) * rate / 1000);
       bucket.at = now;
-      if (bucket.tokens >= 1) { bucket.tokens--; return; }
+      const ahead = bucket.queue.indexOf(turn);
+      if (ahead === 0 && bucket.tokens >= 1) { bucket.tokens--; return; }
       await new Promise<void>((resolve,reject) => {
         const abort = () => { clearTimeout(timer); reject(new DOMException('Cancelled','AbortError')); };
-        const timer = setTimeout(() => { signal?.removeEventListener('abort',abort); resolve(); }, Math.ceil((1-bucket.tokens)*1000/rate));
+        const timer = setTimeout(() => { signal?.removeEventListener('abort',abort); resolve(); }, Math.max(1, Math.ceil((ahead+1-bucket.tokens)*1000/rate)));
         signal?.addEventListener('abort',abort,{once:true});
       });
     }
-  } finally { bucket.waiting--; }
+  } finally { bucket.waiting--; bucket.queue.splice(bucket.queue.indexOf(turn), 1); }
 }
 async function jsonRequest<T>(baseUrl: string, path: string, schema: string,
   proof?: SessionProof, method = 'GET', body?: unknown, key?: string, signal?: AbortSignal, keepalive = false): Promise<T> {
