@@ -14,7 +14,13 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { humanizeToken } from '../../ui/format';
+import {
+  ChatSkillReview,
+  chatSource,
+  type ChatSource,
+} from '../skills/skill-offers';
 import {
   SettingsAdvanced,
   SettingsSummary,
@@ -44,7 +50,8 @@ export type SkillAction =
   | 'skill.duplicate'
   | 'skill.delete'
   | 'skill.proposal.apply'
-  | 'skill.proposal.reject';
+  | 'skill.proposal.reject'
+  | 'skill.proposal.edit';
 export type SkillSummary = {
   id: string;
   display_name: string;
@@ -625,6 +632,9 @@ export default function SkillsSettings({
     'skill-library': 'installed',
   });
   const [importOpen, setImportOpen] = useState(false);
+  // A draft from a chat opens the chat's review sheet (C1), not a bare Apply.
+  const [reviewing, setReviewing] = useState<ChatSource | null>(null);
+  const closeReview = useCallback(() => setReviewing(null), []);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -1198,53 +1208,89 @@ export default function SkillsSettings({
                       {proposal.title} ·{' '}
                       {humanizeToken(proposal.status).toLowerCase()}
                     </summary>
+                    {chatSource(proposal.preview) && (
+                      <p className="skill-proposal-source">
+                        From{' '}
+                        <Link
+                          to={`/conversations/${encodeURIComponent(chatSource(proposal.preview)!.conversation_id)}`}
+                        >
+                          {chatSource(proposal.preview)!.title || 'a chat'}
+                        </Link>
+                      </p>
+                    )}
                     <p>{proposal.rationale}</p>
                     <p>Risk: {humanizeToken(proposal.risk).toLowerCase()}</p>
-                    <div className="button-row">
-                      <Button
-                        disabled={
-                          locked ||
-                          !revision ||
-                          ['applied', 'verified', 'rejected'].includes(
-                            proposal.status,
-                          )
-                        }
-                        onClick={() =>
-                          void requestReview('skill.proposal.apply', {
-                            revision,
-                            proposal_id: proposal.id,
-                            reason: '',
-                          })
-                        }
-                      >
-                        Apply proposal
-                      </Button>
-                      <Button
-                        variant="danger"
-                        disabled={
-                          locked ||
-                          !revision ||
-                          ['applied', 'verified', 'rejected'].includes(
-                            proposal.status,
-                          )
-                        }
-                        onClick={() =>
-                          void requestReview('skill.proposal.reject', {
-                            revision,
-                            proposal_id: proposal.id,
-                            reason: 'Rejected from Skills settings.',
-                          })
-                        }
-                      >
-                        Reject proposal
-                      </Button>
-                    </div>
+                    {chatSource(proposal.preview) ? (
+                      <div className="button-row">
+                        <Button
+                          variant="primary"
+                          disabled={
+                            locked ||
+                            ['applied', 'verified', 'rejected'].includes(
+                              proposal.status,
+                            )
+                          }
+                          onClick={() =>
+                            setReviewing(chatSource(proposal.preview))
+                          }
+                        >
+                          Review
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="button-row">
+                        <Button
+                          disabled={
+                            locked ||
+                            !revision ||
+                            ['applied', 'verified', 'rejected'].includes(
+                              proposal.status,
+                            )
+                          }
+                          onClick={() =>
+                            void requestReview('skill.proposal.apply', {
+                              revision,
+                              proposal_id: proposal.id,
+                              reason: '',
+                            })
+                          }
+                        >
+                          Apply proposal
+                        </Button>
+                        <Button
+                          variant="danger"
+                          disabled={
+                            locked ||
+                            !revision ||
+                            ['applied', 'verified', 'rejected'].includes(
+                              proposal.status,
+                            )
+                          }
+                          onClick={() =>
+                            void requestReview('skill.proposal.reject', {
+                              revision,
+                              proposal_id: proposal.id,
+                              reason: 'Rejected from Skills settings.',
+                            })
+                          }
+                        >
+                          Reject proposal
+                        </Button>
+                      </div>
+                    )}
                   </details>
                 </li>
               ))}
             </ul>
           </Surface>
         </details>
+      )}
+      {reviewing && (
+        <ChatSkillReview
+          source={reviewing}
+          onClose={closeReview}
+          onChanged={() => void loadProposals()}
+        />
       )}
       {state.reviewed &&
         (state.reviewed.command.type === 'skill.delete' ||

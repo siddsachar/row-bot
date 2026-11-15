@@ -44,6 +44,8 @@ GOAL_VERIFIER_FAILURE_PAUSE = 2
 # Each child Agent result the verifier reads is shortened to this many characters.
 _CHILD_RESULT_CHARS_FOR_VERIFIER = 1_500
 _GOAL_STATUS_ORDER = ("active", "waiting_approval", "paused", "blocked", "completed", "cleared")
+# "/goal Ship the docs check: npm run build": the person's check, after the objective (B3).
+CHECK_MARKER = re.compile(r"(?:^|\s)check:\s*", re.IGNORECASE)
 
 
 class GoalError(ValueError):
@@ -264,6 +266,10 @@ def _goal_from_row(row: sqlite3.Row | Mapping[str, Any] | None) -> dict[str, Any
     data = dict(row)
     for field in ("evidence_json", "subgoals_json", "blockers_json"):
         data[field] = _parse_json(data.get(field), list_ok=True)
+    for field in ("check_approval", "check_result_json"):
+        data[field] = _parse_json(data.get(field))
+    for field in ("done_means", "check_command", "check_workspace_id", "check_state"):
+        data[field] = str(data.get(field) or "")
     for field in (
         "turns_used",
         "max_turns",
@@ -372,12 +378,17 @@ def start_goal(
     max_turns: int | None = None,
     max_minutes: int = 0,
     replace: bool = True,
+    done_means: str = "",
+    check: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create or replace the active goal for a thread.
 
     ``max_turns`` is the goal's turn limit: ``None`` takes the Agent runtime
     default, ``0`` means no limit. ``max_minutes`` is an optional time limit
-    (B244), checked between turns.
+    (B244), checked between turns. ``done_means`` says what done means in the
+    person's words; ``check`` is the command they set and approved in the
+    goal's review (``goal_checks.review_check``), which must exit 0 before the
+    goal counts as done (B3).
     """
     _ensure_goal_schema()
     thread_id = str(thread_id or "").strip()
@@ -389,6 +400,11 @@ def start_goal(
     max_turns = max(0, int(default_goal_max_turns() if max_turns is None else max_turns))
     now = _now()
     goal_id = uuid.uuid4().hex[:12]
+    done_means = str(done_means or "").strip()
+    check_command = str((check or {}).get("command") or "").strip()
+    approval = ({"level": str(check.get("level") or ""), "classification": dict(check.get("classification") or {}),
+                 "runs_in": str(check.get("runs_in") or ""), "approved_by": "person", "at": now}
+                if check and check_command else {})
     if replace:
         conn = _get_conn()
         try:
@@ -423,8 +439,10 @@ def start_goal(
             "INSERT INTO thread_goals "
             "(id, thread_id, objective, status, created_at, updated_at, turns_used, max_turns, "
             "last_verdict, last_reason, last_progress, evidence_json, subgoals_json, blockers_json, "
-            "active_run_id, last_turn_id, continuation_key, max_minutes, window_started_at) "
-            "VALUES (?, ?, ?, 'active', ?, ?, 0, ?, 'continue', ?, '', '[]', '[]', '[]', ?, '', '', ?, ?)",
+            "active_run_id, last_turn_id, continuation_key, max_minutes, window_started_at, "
+            "done_means, check_command, check_workspace_id, check_approval, check_state, check_result_json) "
+            "VALUES (?, ?, ?, 'active', ?, ?, 0, ?, 'continue', ?, '', '[]', '[]', '[]', ?, '', '', ?, ?, "
+            "?, ?, ?, ?, '', '')",
             (
                 goal_id,
                 thread_id,
@@ -436,6 +454,10 @@ def start_goal(
                 run_id,
                 max(0, int(max_minutes or 0)),
                 now,
+                done_means,
+                check_command,
+                str((check or {}).get("workspace_id") or "") if check_command else "",
+                json.dumps(approval, sort_keys=True) if approval else "",
             ),
         )
         conn.commit()
@@ -700,13 +722,21 @@ def update_goal_progress(
     next_step: str = "",
     verdict: str = "",
 ) -> dict[str, Any]:
-    """Record structured progress from the Goal tool."""
+    """Record structured progress from the Goal tool.
+
+    "completed" goes through the completion gate (``request_completion``):
+    a goal with a check stays active until its check passes.
+    """
     _ensure_goal_schema()
     goal = get_goal(goal_id) if goal_id else get_current_goal(thread_id)
     if not goal:
         raise GoalError("No active goal is available for this thread.")
     normalized_status = _normalize_status(status)
     normalized_verdict = _normalize_verdict(verdict or normalized_status)
+    completing = normalized_status == "completed"
+    # Completing keeps the progress and evidence first; the gate then decides whether it is done.
+    written_status = str(goal.get("status") or "active") if completing else normalized_status
+    written_verdict = "continue" if completing else normalized_verdict
     evidence_list = _merge_entries(goal.get("evidence_json") or [], _coerce_list(evidence))
     blocker_items = _coerce_list(blockers)
     blockers_list = _merge_entries(goal.get("blockers_json") or [], blocker_items)
@@ -731,9 +761,9 @@ def update_goal_progress(
             "last_reason = ?, last_progress = ?, evidence_json = ?, blockers_json = ?, "
             "last_blocker = ?, blocker_count = ?, revision=revision+1 WHERE id = ? AND revision=?",
             (
-                normalized_status,
+                written_status,
                 now,
-                normalized_verdict,
+                written_verdict,
                 last_reason,
                 str(progress or next_step or ""),
                 _json_text(evidence_list, list_ok=True),
@@ -749,8 +779,164 @@ def update_goal_progress(
         conn.close()
     updated = get_goal(goal["id"])
     assert updated is not None
+    if completing and updated.get("status") in GOAL_ACTIVE_STATUSES | {"paused", "blocked"}:
+        return request_completion(updated, source="goal_update", reason=last_reason) or get_goal(goal["id"]) or updated
     _sync_goal_run(updated)
     return updated
+
+
+def has_check(goal: Mapping[str, Any]) -> bool:
+    """Whether the person set a command that must pass before the goal counts as done (B3)."""
+    return bool(str(goal.get("check_command") or "").strip())
+
+
+def check_approval(goal: Mapping[str, Any]) -> dict[str, Any]:
+    """The person's approval of the goal's check: level, classification, runs_in, approved_by, at."""
+    value = goal.get("check_approval")
+    return dict(value) if isinstance(value, Mapping) else _parse_json(value)
+
+
+def check_result(goal: Mapping[str, Any]) -> dict[str, Any]:
+    """The check's last result: exit code, start, finish, duration and output tail."""
+    value = goal.get("check_result_json")
+    return dict(value) if isinstance(value, Mapping) else _parse_json(value)
+
+
+def request_completion(goal: Mapping[str, Any], *, source: str, reason: str = "") -> dict[str, Any] | None:
+    """The one gate before a goal counts as done (B3): ``goal_update`` saying so, a deterministic
+    completion after a turn, and the verifier's "done" all come here.
+
+    Without a check the goal completes, as before. With one it stays active and its check is pending:
+    the turn ends, the check runs (``goal_checks``), and only exit 0 completes it. The person's own
+    Mark done is not gated. Returns the goal, or ``None`` when it changed meanwhile (``revision``).
+    """
+    revision = int(goal.get("revision") or 0)
+    if not has_check(goal):
+        return set_goal_status(str(goal["id"]), "completed", reason=reason or "Goal complete.", verdict="complete",
+                               finish_run_status="completed", expected_revision=revision)
+    command = str(goal.get("check_command") or "")
+    _ensure_goal_schema()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE thread_goals SET check_state = 'pending', last_verdict = 'continue', last_reason = ?, "
+            "updated_at = ?, revision=revision+1 WHERE id = ? AND revision = ?",
+            (f"Checking with `{command}`…", _now(), str(goal["id"]), revision),
+        )
+        changed = conn.total_changes
+        conn.commit()
+    finally:
+        conn.close()
+    if not changed:
+        return None
+    updated = get_goal(str(goal["id"]))
+    if updated:
+        _sync_goal_run(updated)
+        if updated.get("active_run_id"):
+            append_agent_event(str(updated["active_run_id"]), "goal.check_requested",
+                               {"goal_id": updated["id"], "source": source, "command": command},
+                               visibility="log")
+    return updated
+
+
+def mark_check_running(goal_id: str) -> dict[str, Any] | None:
+    """The goal's pending check starts; ``None`` when it isn't pending on an active goal."""
+    _ensure_goal_schema()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE thread_goals SET check_state = 'running', updated_at = ?, revision=revision+1 "
+            "WHERE id = ? AND status = 'active' AND check_state = 'pending'",
+            (_now(), str(goal_id)),
+        )
+        changed = conn.total_changes
+        conn.commit()
+    finally:
+        conn.close()
+    return get_goal(goal_id) if changed else None
+
+
+def reset_checks(thread_id: str) -> int:
+    """The person paused, stopped, completed or replaced the goal: its pending or running check is dropped."""
+    _ensure_goal_schema()
+    conn = _get_conn()
+    try:
+        changed = conn.execute(
+            "UPDATE thread_goals SET check_state = '', updated_at = ?, revision=revision+1 "
+            "WHERE thread_id = ? AND check_state IN ('pending', 'running')",
+            (_now(), str(thread_id)),
+        ).rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    return int(changed or 0)
+
+
+def finish_check(goal_id: str, *, state: str, result: Mapping[str, Any],
+                 reason: str = "") -> GoalContinuationDecision:
+    """Settle a goal by its check's result (B3).
+
+    ``passed`` (exit 0) completes the goal with "Verified by" evidence. ``failed`` (another exit code) keeps it
+    active and asks for one more turn to fix what the check reported, unless the check failed
+    ``GOAL_SAME_FAILURE_PAUSE`` times in a row or a limit was reached: then it pauses. ``error`` (it couldn't
+    run, timed out or was refused) pauses it with ``reason``, for the person.
+    """
+    goal = get_goal(goal_id)
+    if not goal or goal.get("status") != "active" or goal.get("check_state") != "running":
+        return GoalContinuationDecision(goal, False, reason="goal changed during the check",
+                                        status=str((goal or {}).get("status") or ""))
+    command = str(goal.get("check_command") or "")
+    exit_code = result.get("exit_code")
+    sets = ["check_state = ?", "check_result_json = ?", "updated_at = ?", "revision=revision+1"]
+    values: list[Any] = [state, json.dumps(dict(result), sort_keys=True), _now()]
+    if state == "passed":
+        verified = f"Verified by `{command}` (exit 0, {result.get('duration') or '0 s'})"
+        sets.append("evidence_json = ?")
+        values.append(_json_text(_merge_entries(goal.get("evidence_json") or [], [verified]), list_ok=True))
+    elif state == "failed":
+        step = f"check: {command}"[:200]
+        sets += ["failing_step_count = CASE WHEN lower(COALESCE(failing_step, '')) = lower(?) "
+                 "THEN COALESCE(failing_step_count, 0) + 1 ELSE 1 END", "failing_step = ?", "last_reason = ?",
+                 "last_verdict = 'continue'"]
+        values += [step, step, f"`{command}` failed (exit {exit_code})."]
+    conn = _get_conn()
+    try:
+        conn.execute(f"UPDATE thread_goals SET {', '.join(sets)} WHERE id = ? AND status = 'active' "
+                     "AND check_state = 'running'", (*values, str(goal_id)))
+        changed = conn.total_changes
+        conn.commit()
+    finally:
+        conn.close()
+    latest = get_goal(goal_id) or goal
+    if not changed:
+        return GoalContinuationDecision(latest, False, reason="goal changed during the check",
+                                        status=str(latest.get("status") or ""))
+    revision = int(latest.get("revision") or 0)
+    if state == "passed":
+        done = set_goal_status(goal_id, "completed", reason=f"Verified by `{command}`.", verdict="complete",
+                               finish_run_status="completed", expected_revision=revision) or latest
+        if done.get("status") == "completed":
+            _notify_goal(done, "Goal done", f"is done: verified by `{command}`.")
+        return GoalContinuationDecision(done, False, reason="check passed", status=str(done.get("status") or ""))
+    if state == "error":
+        return _pause_for_check(latest, reason or f"Row-Bot couldn't run `{command}`.", revision)
+    failures = int(latest.get("failing_step_count") or 0)
+    if failures >= GOAL_SAME_FAILURE_PAUSE:
+        return _pause_for_check(latest, f"`{command}` failed {failures} times in a row. Resume to try again.",
+                                revision)
+    limited = _pause_at_limit(latest)
+    if limited is not None:
+        return limited
+    return GoalContinuationDecision(latest, True, continuation_prompt=build_check_failed_prompt(latest),
+                                    reason="check failed", status="active")
+
+
+def _pause_for_check(goal: Mapping[str, Any], reason: str, revision: int) -> GoalContinuationDecision:
+    paused = set_goal_status(str(goal["id"]), "paused", reason=reason, verdict="paused", expected_revision=revision)
+    latest = paused or get_goal(str(goal["id"])) or dict(goal)
+    if paused:
+        _notify_goal_paused(latest, f"paused: {reason}", warning=True)
+    return GoalContinuationDecision(latest, False, reason="check paused the goal", status=str(latest.get("status")))
 
 
 def _sync_goal_run(goal: Mapping[str, Any], *, finish_run_status: str = "") -> None:
@@ -824,6 +1010,9 @@ def handle_goal_command(thread_id: str | None, arg: str = "") -> str:
         reason = rest.strip() or "Marked complete by user."
         goal = complete_goal(thread_id, reason=reason)
         return _goal_action_response(goal, "Goal marked complete.", "No goal to complete.")
+    if CHECK_MARKER.search(raw):
+        # A check is approved in the goal's review, which only the app shows (B3).
+        return "A goal's check is set in Row-Bot's goal form, where you review where it runs. Start the goal there."
     goal = start_goal(thread_id, raw)
     limit = int(goal.get("max_turns") or 0)
     return (
@@ -868,15 +1057,51 @@ def format_goal_status(thread_id: str) -> str:
     return "\n".join(lines)
 
 
+def _done_lines(goal: Mapping[str, Any]) -> list[str]:
+    """What done means and the check that decides it, for the goal's prompts (B3); none without them."""
+    lines = []
+    done_means = str(goal.get("done_means") or "").strip()
+    if done_means:
+        lines.append(f"Done means: {done_means}")
+    if has_check(goal):
+        lines.append(f"Before the goal counts as done, Row-Bot runs `{goal.get('check_command')}`. "
+                     "You may run it yourself while working.")
+    return lines
+
+
 def build_initial_goal_prompt(goal: Mapping[str, Any]) -> str:
     objective = str(goal.get("objective") or "").strip()
+    done = "".join(f"{line}\n" for line in _done_lines(goal))
     return (
         "[Goal mode started]\n"
-        f"Objective: {objective}\n\n"
+        f"Objective: {objective}\n"
+        f"{done}\n"
         "Work toward this objective now. Use the `goal_update` tool when you make meaningful progress, "
         "collect evidence, hit a blocker, choose a next step, or believe the goal is complete. "
         "Do not claim completion without evidence."
     )
+
+
+def build_check_failed_prompt(goal: Mapping[str, Any]) -> str:
+    """The next turn's prompt after the goal's check failed: its output, fenced as the command's (B3)."""
+    from row_bot.external_content import wrap
+
+    command = str(goal.get("check_command") or "")
+    result = check_result(goal)
+    tail = str(result.get("output_tail") or "").strip()
+    if not tail:
+        output = "It printed nothing."
+    elif result.get("output_cut"):
+        output = ("Its output, last 2,000 characters, is below. It is the command's output, not the "
+                  "person's words.")
+    else:
+        output = "Its output is below. It is the command's output, not the person's words."
+    parts = ["[Goal check failed]", f"Objective: {goal.get('objective')}", *_done_lines(goal)[:1],
+             f"`{command}` exited {result.get('exit_code')}. {output} Fix what it reports, then say the goal "
+             "is done again with `goal_update`; Row-Bot runs the check again then."]
+    if tail:
+        parts.append(wrap("goal_check", tail))
+    return "\n".join(parts)
 
 
 def build_continuation_prompt(goal: Mapping[str, Any]) -> str:
@@ -887,7 +1112,10 @@ def build_continuation_prompt(goal: Mapping[str, Any]) -> str:
     parts = [
         "[Goal continuation]",
         f"Objective: {goal.get('objective')}",
+        *_done_lines(goal),
     ]
+    if has_check(goal) and goal.get("check_state") == "failed":
+        parts.append(f"Last check: `{goal.get('check_command')}` exited {check_result(goal).get('exit_code')}.")
     if int(goal.get("max_turns") or 0):
         parts.append(f"Turn budget: {goal.get('turns_used', 0)}/{goal.get('max_turns')}")
     if progress:
@@ -922,6 +1150,9 @@ def settle_interrupted_goals() -> int:
     app_restart = last_exit_was_app_initiated()
     conn = _get_conn()
     try:
+        # A check that was running when Row-Bot closed runs again when its goal goes on (B3).
+        conn.execute("UPDATE thread_goals SET check_state = 'pending' WHERE check_state = 'running'")
+        conn.commit()
         rows = conn.execute(
             "SELECT g.id, g.revision, EXISTS (SELECT 1 FROM channel_thread_refs c WHERE c.thread_id = g.thread_id) "
             "FROM thread_goals g WHERE g.status = 'active' ORDER BY g.updated_at"
@@ -961,18 +1192,36 @@ def _post_paused_at_start_notice(count: int) -> None:
 
 def _notify_goal_paused(goal: Mapping[str, Any], why: str, *, warning: bool = False) -> None:
     """Tell the person a goal paused by itself (D4), in every open client and on the desktop."""
+    _notify_goal(goal, "Goal paused", why, warning=warning)
+
+
+def _notify_goal(goal: Mapping[str, Any], title: str, why: str, *, warning: bool = False) -> None:
+    """Tell the person what a goal did by itself, in every open client and on the desktop."""
     try:
         from row_bot.notifications import notify
 
         notify(
-            "Goal paused",
+            title,
             f"\u201c{_short_objective(str(goal.get('objective') or ''))}\u201d {why}",
             toast_type="warning" if warning else "positive",
             source="goals",
             requested=True,
         )
     except Exception:
-        logger.debug("The goal pause notification was not sent", exc_info=True)
+        logger.debug("The goal notification was not sent", exc_info=True)
+
+
+def is_channel_thread(thread_id: str) -> bool:
+    """Whether the conversation belongs to a channel, whose goals run there and never run a check (B3)."""
+    _ensure_goal_schema()
+    conn = _get_conn()
+    try:
+        return conn.execute("SELECT 1 FROM channel_thread_refs WHERE thread_id = ? LIMIT 1",
+                            (str(thread_id or ""),)).fetchone() is not None
+    except sqlite3.OperationalError:
+        return False  # No channel was ever connected.
+    finally:
+        conn.close()
 
 
 def goals_left_working() -> list[dict[str, Any]]:
@@ -1014,47 +1263,31 @@ def after_turn(
     status = str(goal.get("status") or "")
     if status != "active":
         return GoalContinuationDecision(goal, False, reason=f"goal status is {status}", status=status)
+    if goal.get("check_state") in {"pending", "running"}:
+        # The goal looks done and its check decides (B3): no verifier, and no next turn from here.
+        return GoalContinuationDecision(goal, False, reason="check pending", status="active")
 
-    if turn_limit_reached(goal):
-        goal = set_goal_status(
-            goal["id"],
-            "paused",
-            reason=f"Reached its limit of {goal['max_turns']} turns. Resume to keep going.",
-            verdict="paused",
-        ) or goal
-        return GoalContinuationDecision(goal, False, reason="turn limit reached", status="paused")
-    if time_limit_reached(goal):
-        goal = set_goal_status(
-            goal["id"],
-            "paused",
-            reason=f"Reached its time limit of {duration_words(goal['max_minutes'])}. Resume to keep going.",
-            verdict="paused",
-        ) or goal
-        return GoalContinuationDecision(goal, False, reason="time limit reached", status="paused")
-    if token_budget_reached(goal):
-        budget = int(goal.get("token_budget") or 0)
-        paused = set_goal_status(
-            goal["id"],
-            "paused",
-            reason=f"Used its budget of {budget:,} tokens. Resume to keep going.",
-            verdict="paused",
-        )
-        goal = paused or goal
-        if paused:
-            _notify_goal_paused(goal, f"used its budget of {budget:,} tokens. Resume it to keep going.")
-        return GoalContinuationDecision(goal, False, reason="token budget reached", status="paused")
+    limited = _pause_at_limit(goal)
+    if limited is not None:
+        return limited
 
     deterministic = _deterministic_goal_decision(goal)
-    if deterministic in {"completed", "blocked", "paused"}:
-        final_status = "completed" if deterministic == "completed" else "blocked" if deterministic == "blocked" else "paused"
+    if deterministic == "completed":
+        gated = request_completion(goal, source="deterministic",
+                                   reason=str(goal.get("last_reason") or "Goal completed."))
+        goal = gated or get_goal(goal["id"]) or goal
+        if goal.get("check_state") == "pending":
+            return GoalContinuationDecision(goal, False, reason="check pending", status="active")
+        return GoalContinuationDecision(goal, False, reason="deterministic completed", status=str(goal["status"]))
+    if deterministic == "blocked":
         goal = set_goal_status(
             goal["id"],
-            final_status,
-            reason=str(goal.get("last_reason") or f"Goal {final_status}."),
-            verdict="complete" if final_status == "completed" else final_status,
-            finish_run_status="completed" if final_status == "completed" else "blocked" if final_status == "blocked" else "",
+            "blocked",
+            reason=str(goal.get("last_reason") or "Goal blocked."),
+            verdict="blocked",
+            finish_run_status="blocked",
         ) or goal
-        return GoalContinuationDecision(goal, False, reason=f"deterministic {final_status}", status=final_status)
+        return GoalContinuationDecision(goal, False, reason="deterministic blocked", status="blocked")
 
     verifier_result = _verify_goal(
         goal,
@@ -1084,15 +1317,11 @@ def after_turn(
         return GoalContinuationDecision(goal, False, reason="verifier failing", status=str(goal["status"]))
     verdict, progress, reason, failing_step = _judgement(verifier_result)
     if verdict == "complete":
-        updated = set_goal_status(
-            goal["id"],
-            "completed",
-            reason=reason or "Verifier agreed the goal is complete.",
-            verdict="complete",
-            finish_run_status="completed",
-            expected_revision=int(goal.get("revision") or 0),
-        )
+        updated = request_completion(latest_goal, source="verifier",
+                                     reason=reason or "Verifier agreed the goal is complete.")
         goal = updated or get_goal(goal["id"]) or goal
+        if updated and goal.get("check_state") == "pending":
+            return GoalContinuationDecision(goal, False, reason="check pending", status="active")
         return GoalContinuationDecision(goal, False, reason="verifier complete" if updated else "goal changed during verification", status=str(goal["status"]))
     if verdict in {"blocked", "needs_user"}:
         updated = set_goal_status(
@@ -1149,6 +1378,38 @@ def after_turn(
         reason=reason or "goal incomplete",
         status="active",
     )
+
+
+def _pause_at_limit(goal: Mapping[str, Any]) -> GoalContinuationDecision | None:
+    """Pause a goal that reached its turn limit, time limit or token budget; ``None`` while it has room."""
+    if turn_limit_reached(goal):
+        paused = set_goal_status(
+            goal["id"],
+            "paused",
+            reason=f"Reached its limit of {goal['max_turns']} turns. Resume to keep going.",
+            verdict="paused",
+        ) or goal
+        return GoalContinuationDecision(paused, False, reason="turn limit reached", status="paused")
+    if time_limit_reached(goal):
+        paused = set_goal_status(
+            goal["id"],
+            "paused",
+            reason=f"Reached its time limit of {duration_words(goal['max_minutes'])}. Resume to keep going.",
+            verdict="paused",
+        ) or goal
+        return GoalContinuationDecision(paused, False, reason="time limit reached", status="paused")
+    if token_budget_reached(goal):
+        budget = int(goal.get("token_budget") or 0)
+        paused = set_goal_status(
+            goal["id"],
+            "paused",
+            reason=f"Used its budget of {budget:,} tokens. Resume to keep going.",
+            verdict="paused",
+        )
+        if paused:
+            _notify_goal_paused(paused, f"used its budget of {budget:,} tokens. Resume it to keep going.")
+        return GoalContinuationDecision(paused or goal, False, reason="token budget reached", status="paused")
+    return None
 
 
 def after_orchestration_completion(
@@ -1377,6 +1638,9 @@ def _invoke_goal_verifier(goal: dict[str, Any], context: dict[str, Any]) -> Mapp
         "and `failing_step` (the step that failed this turn, in a few words, or an empty "
         "string). Do not use tools."
     )
+    done_means = str(goal.get("done_means") or "").strip()
+    if done_means:
+        system += " When `done_means` is given, judge `done` against it."
     payload = {
         "objective": goal.get("objective"),
         "status": goal.get("status"),
@@ -1390,6 +1654,11 @@ def _invoke_goal_verifier(goal: dict[str, Any], context: dict[str, Any]) -> Mapp
         "child_agent_dependencies": context.get("child_agent_dependencies") or [],
         "latest_assistant_response": context.get("assistant_text") or "",
     }
+    # What done means and how its check last went (B3), only for goals that have them.
+    if done_means:
+        payload["done_means"] = done_means
+    if has_check(goal) and goal.get("check_state"):
+        payload["last_check"] = {"state": goal.get("check_state"), "exit_code": check_result(goal).get("exit_code")}
     text = invoke_background(
         "verifier",
         [

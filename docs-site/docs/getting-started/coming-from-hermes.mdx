@@ -10,7 +10,7 @@ If you use [Hermes Agent](https://github.com/NousResearch/hermes-agent), Nous Re
 ## In One Minute
 
 1. [Install Row-Bot](/docs/getting-started/installation) and answer **How should Row-Bot think?** on [first launch](/docs/getting-started/first-launch).
-2. When Row-Bot finds Hermes on this computer (in `~/.hermes`, or `%LOCALAPPDATA%\hermes` on Windows), it offers to bring it along. **Import from Hermes Agent** opens **Settings › Data › Import from another assistant**; **Not now** leaves it for later.
+2. When Row-Bot finds Hermes on this computer (in the folder `HERMES_HOME` names, in `~/.hermes`, or in `%LOCALAPPDATA%\hermes` on Windows), it offers to bring it along. **Import from Hermes Agent** opens **Settings › Data › Import from another assistant**; **Not now** leaves it for later.
 3. Choose **Scan folders**. Row-Bot lists what it found and where each item goes, and changes nothing yet.
 4. Tick what you want, choose **Apply selected items**, then **Confirm import**.
 5. When it's done, choose **Review memories** to check the memories before they're saved.
@@ -20,6 +20,7 @@ If your Hermes home is somewhere else, enter that folder as **Source folder** in
 ## What Comes Over
 
 - **Memories** (`memories/MEMORY.md` and `memories/USER.md`) wait in **Import memories** for you to check. Nothing is saved to Row-Bot's memory until you import them there.
+- **Past chats** (`state.db`) are offered but not ticked. Tick them to have them wait in **Import memories** with your memories, where Row-Bot can look in them for things worth remembering (see below).
 - **Persona** (`SOUL.md`) becomes your personality in **Settings › Preferences**: its prose, shortened to fit.
 - **Agent instructions** (`AGENTS.md`) become a skill, *Instructions from Hermes*, in **Settings › Skills**. It isn't pinned, so it isn't part of every chat.
 - **Skills**: each skill's `SKILL.md` is copied to **Settings › Skills**.
@@ -32,18 +33,20 @@ What you already have stays as it is: an item that would replace your personalit
 
 ### Memories From Your Past Chats
 
-Hermes's chats aren't turned into Row-Bot conversations, but Row-Bot can look in them for things worth remembering. Open **Import memories** in **Home › Knowledge**, add Hermes's `state.db` (or a file from `hermes sessions export`), and turn on **Also look for memories in … past conversations**. It reads only what you wrote, newest first, up to the limit the dialog shows, using your chat model (on this computer, or through its provider). You check what it finds like any other memory, and **Undo import** takes an import back for 7 days.
+Hermes's chats aren't turned into Row-Bot conversations, but Row-Bot can look in them for things worth remembering. Tick **Past chats from state.db** in the import, then choose **Review memories** when it's done. (Or open **Import memories** in **Home › Knowledge** and add Hermes's `state.db`, or a file from `hermes sessions export`, yourself.) Turn on **Also look for memories in … past conversations**: it reads only what you wrote, newest first, up to the limit the dialog shows, using your chat model (on this computer, or through its provider). Nothing is read until you turn it on. You check what it finds like any other memory, and **Undo import** takes an import back for 7 days.
+
+The import copies `state.db` into Row-Bot's own data first, newest chats included, so it works while Hermes is running and never changes Hermes's folder.
 
 ## What Doesn't Come Over
 
-- **Scheduled (cron) jobs**: make a [workflow](/docs/guides/workflows) for each one. A workflow is a scheduled chat, and can also start from a webhook or when another workflow finishes.
+- **Scheduled (cron) jobs** aren't converted, and the import says so: make a [workflow](/docs/guides/workflows) for each one. A workflow is a scheduled chat, and can also start from a webhook or when another workflow finishes.
 - **The messaging gateway**: set up [Channels](/docs/integrations/channels) for Telegram, Discord, Slack, WhatsApp or SMS.
 - **Sign-ins** (`auth.json`, MCP tokens): sign in again in Row-Bot.
 - **Hermes plugins**: they aren't run. Row-Bot can browse the Hermes catalog in [Settings › Apps](/docs/settings/apps); a package made only for the Hermes app can't be added there.
 - **Nous Portal models**: Row-Bot doesn't connect to the Nous Portal, so the import lists such a model as not brought over. Choose a model in **Settings › Models**.
 - **Kanban and `/loop`**: Row-Bot has neither. A [goal](/docs/profiles-goals-agents/#goals) keeps working until something is done, and a workflow repeats on a schedule.
 
-Hermes's sessions, logs, cron jobs, plugins and state are copied into the import's report for you to look at, with secrets removed from text files. Binary files, such as `state.db`, are only noted there, not copied.
+Hermes's sessions, logs, cron jobs and plugins can be copied into the import's report for you to look at (tick them in the list), with secrets removed from text files. Binary files are only noted there, not copied.
 
 ## How Things Map
 

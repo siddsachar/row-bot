@@ -253,3 +253,95 @@ def test_an_approved_video_under_ask_is_made(media):
     assert len(media.asked) == 1
     assert result.splitlines()[0] == "Approval: asked; approved by you"
     assert media.videos == [b"mp4-bytes"]
+
+
+# ── The price on the card (D4) ───────────────────────────────────────────────
+
+
+def test_a_paid_picture_card_shows_its_list_price_for_the_quality_and_size_asked(media):
+    media.image = "openai/gpt-image-2"
+    media.answer = False
+
+    result = media.call("generate_image", prompt="a lighthouse", size="1024x1024", quality="medium")
+
+    [card] = media.asked
+    assert card["price"] == {"status": "known", "low_usd": 0.053, "high_usd": 0.053,
+                             "basis": "OpenAI's list price, checked 15 Nov 2026"}
+    assert result.startswith("Approval: asked; denied by you") and media.calls == []
+
+
+def test_a_quality_left_to_the_provider_shows_the_range_it_can_cost(media):
+    media.image = "openai/gpt-image-2"
+    media.answer = False
+
+    media.call("generate_image", prompt="a lighthouse", size="1024x1024")
+
+    [card] = media.asked
+    assert (card["price"]["low_usd"], card["price"]["high_usd"]) == (0.006, 0.211)
+
+
+def test_a_model_with_no_list_price_still_asks_and_says_the_price_is_unknown(media):
+    media.image = "openrouter/bytedance-seed/seedream-4.5"
+    media.answer = False
+
+    result = media.call("generate_image", prompt="a lighthouse")
+
+    [card] = media.asked
+    assert card["price"] == {"status": "unknown"}
+    assert result.startswith("Approval: asked; denied by you") and media.calls == []
+
+
+def test_a_paid_video_is_priced_by_its_seconds_and_resolution(media):
+    media.video = "google/gemini-omni-1.2-flash"
+    media.answer = False
+
+    media.call("generate_video", prompt="waves at dusk", duration_seconds=8, resolution="720p")
+
+    [card] = media.asked
+    assert card["price"]["status"] == "known"
+    assert card["price"]["low_usd"] == card["price"]["high_usd"] == pytest.approx(0.56)
+
+
+@pytest.mark.parametrize(("quality", "usd"), [("auto", 0.06), ("high", 0.08)])
+def test_xais_own_model_list_prices_the_tier_it_will_make_over_the_table(media, monkeypatch, quality, usd):
+    """xAI lists each picture tier's price (in 1/100,000,000ths of a cent); the tier sent is the one priced."""
+    from row_bot.providers import capability_resolution
+    from row_bot.providers.xai_catalog import xai_generation_parameters_from_item
+
+    parameters = xai_generation_parameters_from_item({"pricing": [
+        {"quality": "low", "resolution": "1k", "price_per_image": 400_000_000},
+        {"quality": "medium", "resolution": "1k", "price_per_image": 600_000_000},
+        {"quality": "medium", "resolution": "2k", "price_per_image": 800_000_000},
+    ]})
+    monkeypatch.setattr(capability_resolution, "resolve_capability_snapshot",
+                        lambda *args, **kwargs: {"generation_parameters": parameters})
+    media.image = "xai/grok-imagine-image-2.0"
+    media.answer = False
+
+    media.call("generate_image", prompt="a lighthouse", quality=quality)
+
+    [card] = media.asked
+    assert card["price"] == {"status": "known", "low_usd": usd, "high_usd": usd, "basis": "from xAI's model list"}
+
+
+def test_the_reviewer_is_shown_the_same_action_with_or_without_a_price(media, monkeypatch):
+    """The price is for the person's card: what the reviewer reads about the call is unchanged."""
+    from row_bot import approval_review
+
+    seen = []
+    monkeypatch.setattr(approval_review, "current_request",
+                        lambda _runtime=None: approval_review.ReviewRequest(messages=("Draw me a lighthouse",)))
+    monkeypatch.setattr(approval_review, "_model_ref", lambda _runtime: "model:openai:gpt-test")
+    monkeypatch.setattr(approval_review, "_call_reviewer",
+                        lambda messages, _runtime: seen.append(json.loads(messages[1]["content"])["action"])
+                        or '{"decision": "ask", "reason": "Check it."}')
+    media.mode, media.answer = "auto", False
+
+    for selection in ("openai/gpt-image-2", "openrouter/bytedance-seed/seedream-4.5"):
+        media.image = selection
+        media.call("generate_image", prompt="a lighthouse", size="1024x1024", quality="medium")
+
+    priced, unpriced = seen
+    assert priced.keys() == unpriced.keys()
+    assert not any("$" in str(value) for value in priced.values())
+    assert [card["price"]["status"] for card in media.asked] == ["known", "unknown"]

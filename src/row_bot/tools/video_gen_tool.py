@@ -1026,7 +1026,8 @@ def _generate_video_tool(prompt: str, duration_seconds: int = 8, aspect_ratio: s
     from row_bot.tools.image_gen_tool import _led, paid_generation_check
 
     refusal, line = paid_generation_check("generate_video", "video", _selection(),
-                                          f"make a video ({duration_seconds} seconds, {resolution})", prompt)
+                                          f"make a video ({duration_seconds} seconds, {resolution})", prompt,
+                                          seconds=duration_seconds, resolution=resolution)
     return refusal or _led(line, _generate_video(prompt, duration_seconds, aspect_ratio, resolution))
 
 
@@ -1043,7 +1044,8 @@ def _animate_image_tool(prompt: str, image_source: str = "last", duration_second
             return str(e)
         refusal, line = paid_generation_check(
             "animate_image", "video", selection,
-            f"animate a picture into a video ({duration_seconds} seconds, {resolution})", prompt)
+            f"animate a picture into a video ({duration_seconds} seconds, {resolution})", prompt,
+            seconds=duration_seconds, resolution=resolution)
         if refusal:
             return refusal
     return _led(line, _animate_image(prompt, image_source, duration_seconds, aspect_ratio, resolution))

@@ -3523,6 +3523,9 @@ details[open] > summary .settings-disclosure-chevron {
 .migration-item-list {
   max-height: 24rem;
   overflow: auto;
+  /* Each row as tall as its words: under the height cap, a touch screen's
+     44px minimum would otherwise become every row's height. */
+  grid-auto-rows: max-content;
 }
 .migration-item {
   display: flex;

@@ -86,6 +86,10 @@ ANSWER_TOKENS: dict[str, int] = {
     "dream": 1536,
     # Proactive triage: keep or silent, a title and a short body for each change in a batch.
     "proactive": 1536,
+    # Skill offers (C1): whether a finished task is worth a skill, its name and what varies;
+    # and, on the person's click, the drafted skill's fields.
+    "skill_offer_judge": 160,
+    "skill_draft": 1536,
 }
 # Room for reasoning that still runs at the lowest effort (it counts against the
 # output cap on every provider), or that Row-Bot cannot see is off.

@@ -1034,6 +1034,45 @@ export interface ClientTransport {
     conversationId: string,
     signal?: AbortSignal,
   ): Promise<Wire.ConversationLinkPage>;
+  /** The person's ticks and sent choices on a chat's answer components (F3). */
+  answerState?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AnswerStateView>;
+  saveAnswerState?(
+    conversationId: string,
+    change: Wire.AnswerStateChange,
+    signal?: AbortSignal,
+  ): Promise<Wire.AnswerStateView>;
+  /** "Save as a skill" (C1): a chat's offers and drafts. */
+  skillOffers?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** Draft a skill from one reply's turn, on the chat's own model. */
+  draftSkill?(
+    conversationId: string,
+    body: Wire.SkillDraftRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** "Not now" on an offer. */
+  dismissSkillOffer?(
+    conversationId: string,
+    offerId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** One frame address for a visual in a reply (F3), served once, no network. */
+  createVisualFrame?(
+    conversationId: string,
+    request: Wire.VisualFrameRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.VisualFrame>;
+  /** The person's "Open as page" on a visual in a reply (F3). */
+  createVisualPage?(
+    conversationId: string,
+    request: Wire.VisualPageRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.PageView>;
   /** One frame address for a page in this theme, loaded once in a sandbox. */
   pageFrame?(
     pageId: string,
@@ -1079,6 +1118,14 @@ export interface ClientTransport {
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;
   stopWait?(waitId: string): Promise<Wire.WaitPage>;
+  controlWatch?(
+    waitId: string,
+    body: Wire.WatchControl,
+  ): Promise<Wire.WaitPage>;
+  setWatch?(
+    conversationId: string,
+    body: Wire.WatchCreate,
+  ): Promise<Wire.WaitPage>;
   /** Proactive Row-Bot: moments, "Why this?", feedback, Activity, settings, rules, drafts. */
   proactiveMoments?(signal?: AbortSignal): Promise<Wire.ProactiveMomentPage>;
   proactiveMoment?(
@@ -1094,6 +1141,17 @@ export interface ClientTransport {
     limit?: number,
     signal?: AbortSignal,
   ): Promise<Wire.ProactiveActivityPage>;
+  /** The activity log (D1): Settings › System › Activity and Monitor's line. */
+  activity?(
+    filters: Wire.ActivityFilters,
+    signal?: AbortSignal,
+  ): Promise<Wire.ActivityPage>;
+  activitySummary?(
+    since: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ActivitySummary>;
+  exportActivity?(body: Wire.ActivityExportRequest): Promise<Wire.SaveOffer>;
+  clearActivity?(): Promise<Wire.ActivityCleared>;
   proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
   changeProactiveSettings?(
     change: Wire.ProactiveSettingsChange,
