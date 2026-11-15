@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "description": "Monitor's line: actions since the person's midnight, how many asked them, how many they refused.",
+  "properties": {
+    "asked": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Asked",
+      "type": "integer"
+    },
+    "denied": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Denied",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "total",
+    "asked",
+    "denied"
+  ],
+  "title": "ActivitySummary",
+  "type": "object"
+}

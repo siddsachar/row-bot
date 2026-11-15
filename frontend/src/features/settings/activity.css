@@ -1,0 +1,297 @@
+/* Settings › System › Activity (D1): a scannable list by day, compact filters, plain outcome pills. */
+
+.alog-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.alog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.alog-where.input {
+  width: auto;
+  min-width: 132px;
+  min-height: 32px;
+  padding-block: 4px;
+  border-radius: 8px;
+  font-size: var(--text-13);
+}
+.alog-search {
+  position: relative;
+  display: flex;
+  flex: 1 1 180px;
+  align-items: center;
+  min-width: 0;
+}
+.alog-search > svg {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.alog-search > .input {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 10px 4px 30px;
+  border-radius: 8px;
+  font-size: var(--text-13);
+}
+
+.alog-day h4 {
+  margin: 0;
+  padding: 12px 16px 4px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-weight: var(--weight-semibold);
+}
+.alog-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.alog-row + .alog-row {
+  border-top: 1px solid var(--border-hairline);
+}
+.alog-row-main {
+  display: grid;
+  grid-template-columns: 64px 24px minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.alog-row-main:hover {
+  background: var(--surface-raised);
+}
+.alog-row-main:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: -2px;
+}
+.alog-time {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.alog-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+.alog-what {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+.alog-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alog-summary,
+.alog-where-line {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alog-summary {
+  color: var(--text-secondary);
+}
+.alog-outcome {
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.alog-outcome[data-tone='accent'] {
+  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  box-shadow: none;
+  color: var(--accent-solid);
+}
+.alog-outcome[data-tone='success'] {
+  background: var(--status-success-background);
+  box-shadow: none;
+  color: var(--status-success-text);
+}
+.alog-outcome[data-tone='warning'] {
+  background: var(--status-warning-background);
+  box-shadow: none;
+  color: var(--status-warning-text);
+}
+.alog-outcome[data-tone='danger'] {
+  background: var(--status-danger-background);
+  box-shadow: none;
+  color: var(--status-danger-text);
+}
+.alog-chevron {
+  color: var(--text-muted);
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+.alog-row[data-open] .alog-chevron {
+  transform: rotate(180deg);
+}
+
+.alog-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 24px;
+  padding: 4px 16px 12px 114px;
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.alog-detail dl {
+  display: grid;
+  flex: 1 1 360px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+.alog-detail dt {
+  color: var(--text-muted);
+}
+.alog-detail dd {
+  margin: 2px 0 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.alog-detail code {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+.alog-open {
+  margin: 0;
+}
+.alog-open a {
+  color: var(--accent-solid);
+  font-weight: var(--weight-medium);
+}
+
+.alog-quiet,
+.alog-end {
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.alog-end {
+  border-top: 1px solid var(--border-hairline);
+  text-align: center;
+  font-size: var(--text-12);
+}
+.alog-more {
+  display: block;
+  margin: 6px auto 10px;
+}
+.alog-log .empty-state {
+  padding: 32px 16px;
+}
+
+/* A phone: one column; the pill goes under the words. */
+@media (max-width: 767px) {
+  /* The outcome chips scroll sideways if they must; Where and Search share the next line. */
+  .alog-show {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .alog-show::-webkit-scrollbar {
+    display: none;
+  }
+  .alog-where.input {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+  .alog-search {
+    flex: 1 1 140px;
+  }
+  .alog-row-main {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'icon what time'
+      'icon pill chevron';
+    row-gap: 6px;
+    padding: 10px 16px;
+  }
+  .alog-time {
+    grid-area: time;
+    align-self: start;
+  }
+  .alog-chevron {
+    justify-self: end;
+  }
+  .alog-icon {
+    grid-area: icon;
+    align-self: start;
+  }
+  .alog-what {
+    grid-area: what;
+  }
+  .alog-outcome {
+    grid-area: pill;
+    justify-self: start;
+    max-width: 100%;
+  }
+  .alog-chevron {
+    grid-area: chevron;
+  }
+  .alog-title,
+  .alog-summary {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .alog-detail {
+    padding: 0 16px 12px 50px;
+  }
+  .alog-detail dl {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (forced-colors: active) {
+  .alog-outcome {
+    border: 1px solid CanvasText;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alog-chevron {
+    transition: none;
+  }
+}

@@ -109,6 +109,16 @@ Approvals wait until you answer; they no longer expire on their own, unless a wo
 
 Approval level is policy: blocked actions stay blocked, **Ask** waits for you, **Auto**'s reviewer approves only what clearly matches your own request (it never sees tool results, files or web pages, and asks you when unsure), and **Hands-off** runs every action and records it. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled. [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds) tells the whole story, including what is not a boundary.
 
+### Activity Log
+
+**Settings › System › Activity** lists every action Row-Bot took with a tool, in chats, workflows, helper agents, goals, channels, Proactive Row-Bot and Developer Studio: when, which tool or app, a short summary, and its outcome with who decided: it ran without needing approval, you approved, the reviewer approved (with its reason), Hands-off allowed it, it was allowed in this chat, you said no, it changed after you approved and didn't run, it was blocked, or it didn't work. Filter by **Needed approval**, **You said no** or **Blocked**, by where it ran, or search; **Export as CSV** saves the list you see as a file. Monitor shows today's count, with a link to the page.
+
+- **What a row holds**: the tool, the words on its approval card or a few reviewed safe details, with keys and tokens removed. Never what a tool read or returned, page text or file contents. An incognito chat's actions are listed, with the summary "In an incognito chat" instead of their words.
+- **What it leaves out**: actions you start yourself with a button in the app.
+- **Where it's kept**: in `activity.db` in the Row-Bot data folder, on this computer only. Nothing is sent anywhere.
+- **For how long**: 90 days, at most 200,000 actions (the oldest go first). Deleting a conversation deletes its actions, its helpers' too, and **Clear activity** deletes them all.
+- **Who can change it**: only you, in the app. No tool, agent or workflow can read, change or clear it.
+
 ### Programs On This Computer Can't Act As You
 
 On this computer, only Row-Bot's own window, or a browser it opens for you from its tray icon (**Open in Browser**), can change anything. Programs Row-Bot runs for you can look, never approve its actions or change its settings, and a tab you open by typing Row-Bot's address shows **View only on this computer**. See [Programs On This Computer Can't Act As You](/docs/privacy-safety/agent-in-bounds#programs-on-this-computer-cant-act-as-you).
