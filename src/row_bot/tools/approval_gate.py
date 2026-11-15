@@ -18,6 +18,11 @@ Every decision is recorded on the action's result as its approval line (B235),
 so the conversation's activity shows "Approved by the reviewer: …" or "Allowed
 by Hands-off". Tools that cannot lead their own result with it get it from
 the agent's tool wrapper (``collect_decisions`` / ``with_decisions``).
+
+Each decision is also noted, as data, for the activity log (D1): who decided
+(the person, the reviewer, Hands-off, Block) and why. The tool-call middleware
+collects the notes (``collect_activity``) and writes one row per call; noting
+never changes a decision, a result or what Learning sees.
 """
 
 from __future__ import annotations
@@ -117,6 +122,64 @@ def with_approval(line: str, result: Any) -> Any:
     if not isinstance(result, str) or result.lstrip().startswith(("{", "[", "__")):
         return result
     return f"{line}\n{result}"
+
+
+# ── Noting decisions for the activity log (D1) ───────────────────────────────
+
+_activity_var: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
+    "approval_activity", default=None
+)
+# Who made the decision ``_decide`` just returned, and why: ("person" | "reviewer" | "hands_off", reason).
+_decider_var: contextvars.ContextVar[tuple[str, str]] = contextvars.ContextVar("approval_decider", default=("", ""))
+
+
+@contextlib.contextmanager
+def collect_activity() -> Iterator[list[dict[str, Any]]]:
+    """Collect, for the activity log, the decisions made while one tool call runs (the tool-call middleware)."""
+
+    notes: list[dict[str, Any]] = []
+    token = _activity_var.set(notes)
+    try:
+        yield notes
+    finally:
+        _activity_var.reset(token)
+
+
+def _activity_note(stage: str, payload: dict[str, Any], mode: object, **fields: Any) -> None:
+    notes = _activity_var.get()
+    if notes is None:
+        return
+    try:
+        notes.append({
+            "stage": stage,
+            "level": normalize_approval_mode(mode),
+            "tool": str(payload.get("tool") or ""),
+            "label": str(payload.get("label") or "")[:300],
+            "description": str(payload.get("description") or "")[:600],
+            "risk": str(payload.get("risk_class") or payload.get("risk") or "unknown"),
+            "person_only": bool(payload.get("person_only")),
+            **fields,
+        })
+    except Exception as exc:  # Noting never fails the action.
+        logger.debug("The activity log did not see an approval decision (%s)", type(exc).__name__)
+
+
+def _decided_by(who: str, reason: str = "") -> None:
+    _decider_var.set((who, str(reason or "")))
+
+
+def _asking(payload: dict[str, Any], mode: object, reason: str) -> None:
+    """The person is about to be asked: if the call pauses here, its row says "Waiting for you"."""
+
+    _activity_note("asking", payload, mode, reason=str(reason or ""))
+    _decided_by("person", reason)
+
+
+def _note_for_activity(payload: dict[str, Any], mode: object, outcome: str, *, by: str = "") -> None:
+    """The decision just made, for the activity log; never part of it (like ``_note_for_learning``)."""
+
+    who, reason = _decider_var.get()
+    _activity_note("decided", payload, mode, outcome=str(outcome), by=by or who or "person", reason=reason)
 
 
 def current_approval_mode() -> str:
@@ -229,6 +292,7 @@ def person_approval(
     outcome = _bound_outcome(response, binding)
     line = {"allow": APPROVAL_GIVEN, "changed": APPROVAL_CHANGED}.get(outcome, APPROVAL_DENIED)
     _record(line)
+    _note_for_activity(payload, current_approval_mode(), outcome)
     return outcome == "allow", line
 
 
@@ -348,9 +412,12 @@ def _decide(
     """
 
     mode = normalize_approval_mode(approval_mode)
+    _decided_by("")
     if not person_only and _approved_call_var.get():
+        _decided_by("person")
         return True, APPROVAL_GIVEN  # Inside a call the person approved with its exact details.
     if mode == "full" and not person_only:
+        _decided_by("hands_off")
         return True, APPROVAL_FULL_AUTONOMY
     ask = approval_callback or _interrupt
     ledger = _ledger()
@@ -358,6 +425,7 @@ def _decide(
         # LangGraph changed how it keeps answers: the person decides every question, in order, so
         # none can take another's answer.
         logger.warning("Approval answers can't be bound to their questions here; asking the person")
+        _asking(payload, mode, person_only)
         response = ask(_with_review(payload, person_only))
         return response, _person_line(mode, response, person_only)
     if isinstance(ledger, _Ledger):
@@ -379,10 +447,12 @@ def _decide_in_graph(payload: dict[str, Any], *, mode: str, risks: Iterable[str]
             reason = str(entry.get("reason") or "")
             if entry.get("review") == "approve":
                 if mode == "auto" and not person_only:
+                    _decided_by("reviewer", reason)
                     return True, approved_by_reviewer(reason)  # The reviewer's verdict, never asked again.
                 # The level is stricter now than when the reviewer approved it: ask afresh.
             elif index + 1 >= len(kept) or not _is_record(kept[index + 1]):
                 # The person was asked: their answer is the next entry (or waiting), and is this question's.
+                _asking(payload, mode, reason)
                 response = ask(_with_review(payload, reason))
                 if _is_record(response):  # Never another question's record taken as an answer.
                     response = False
@@ -445,9 +515,11 @@ def _decide_afresh(payload: dict[str, Any], *, mode: str, risks: Iterable[str], 
             ledger.append({_RECORD_KEY: question_id(payload), "review": "approve" if verdict.approved else "ask",
                            "reason": reason})
         if verdict.approved:
+            _decided_by("reviewer", reason)
             return True, approved_by_reviewer(reason)
     elif ledger is not None:
         ledger.append({_RECORD_KEY: question_id(payload), "review": None, "reason": ""})
+    _asking(payload, mode, reason)
     response = ask(_with_review(payload, reason))
     return response, _person_line(mode, response, reason)
 
@@ -472,6 +544,7 @@ def request_approval(
     response, line = _decide(payload, approval_mode=mode, risks=risks, approval_callback=approval_callback)
     _record(line)
     _note_for_learning(payload, mode, response, line)
+    _note_for_activity(payload, mode, _outcome(response))
     return response
 
 
@@ -517,6 +590,8 @@ def resolve_approval_line(
         return "allow", APPROVAL_NOT_NEEDED_READ_ONLY
     if decision == "block":
         _note_for_learning(payload, approval_mode, False, "", blocked=True)
+        _decided_by("block")
+        _note_for_activity(payload, approval_mode, "block", by="block")
         return "block", ""
     response, line = _decide(payload, approval_mode=approval_mode, risks=risks,
                              approval_callback=approval_callback)
@@ -525,6 +600,7 @@ def resolve_approval_line(
         line = APPROVAL_GIVEN if outcome == "allow" else APPROVAL_DENIED
     _record(line)
     _note_for_learning(payload, approval_mode, response, line)
+    _note_for_activity(payload, approval_mode, outcome)
     return outcome, line
 
 

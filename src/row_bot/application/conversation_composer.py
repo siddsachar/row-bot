@@ -196,7 +196,8 @@ def _active_skill_rows(
 
 # What the composer's palette shows after a command that takes an argument
 # ("/goal objective"), kept apart from the command's label (U19).
-_USAGE = {"goal": "objective", "reasoning": "level", "profile": "name", "agent": "task",
+_USAGE = {"goal": "objective [check: command]", "watch": "[interval] page, `command` or what to watch",
+          "reasoning": "level", "profile": "name", "agent": "task",
           "profiles": "search", "agents": "all"}
 # Channels keep /noskill; the palette leaves it out (Skills removes a skill).
 _PALETTE_HIDDEN = {"noskill"}

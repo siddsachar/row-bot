@@ -157,6 +157,7 @@ def _purge_thread_files(thread_id: str) -> int:
         f"{thread_id}.media.json",
         f"{thread_id}.images.json",
         f"{thread_id}.draft.json",
+        f"{thread_id}.answers.json",
     )
     for name in ui_names:
         path = resolve_managed_path(threads._THREAD_UI_DIR, name)  # noqa: SLF001
@@ -415,11 +416,24 @@ def _purge_owned_state(thread_id: str) -> tuple[int, tuple[str, ...]]:
     except Exception:
         logger.debug("Skill activation cleanup failed for %s", thread_id, exc_info=True)
     try:
+        from row_bot.skill_offers import forget_conversation
+
+        changed += forget_conversation(thread_id)
+    except Exception:
+        warnings.append("Some skill offers from this chat could not be removed.")
+        logger.warning("Skill offer cleanup failed for thread %s", thread_id, exc_info=True)
+    try:
         from row_bot.providers.usage_ledger import delete_thread_usage
 
         delete_thread_usage(thread_id)
     except Exception:
         logger.debug("Usage ledger cleanup failed for %s", thread_id, exc_info=True)
+    try:
+        from row_bot.activity_log import delete_conversation
+
+        delete_conversation(thread_id)
+    except Exception:
+        logger.debug("Activity log cleanup failed for %s", thread_id, exc_info=True)
     try:
         changed += _purge_learning_state(thread_id)
     except Exception:
@@ -1197,7 +1211,7 @@ def sweep_orphaned_thread_artifacts(
             except (OSError, ValueError):
                 logger.warning("Could not remove orphan media path %s", child, exc_info=True)
 
-    suffixes = (".media.json", ".images.json", ".draft.json")
+    suffixes = (".media.json", ".images.json", ".draft.json", ".answers.json")
     if threads._THREAD_UI_DIR.exists():  # noqa: SLF001
         for candidate in list(threads._THREAD_UI_DIR.iterdir()):  # noqa: SLF001
             matched = next((suffix for suffix in suffixes if candidate.name.endswith(suffix)), "")
@@ -1320,18 +1334,28 @@ def run_idle_maintenance() -> dict[str, Any]:
             usage_pruned = prune_usage()
         except Exception:
             logger.debug("Usage ledger pruning skipped", exc_info=True)
+        activity_pruned = 0
+        try:
+            from row_bot.activity_log import prune
+
+            activity_pruned = prune()
+        except Exception:
+            logger.debug("Activity log pruning skipped", exc_info=True)
         logger.info(
-            "Idle conversation maintenance checkpoints=%s orphans=%s compaction=%s usage_pruned=%s",
+            "Idle conversation maintenance checkpoints=%s orphans=%s compaction=%s usage_pruned=%s "
+            "activity_pruned=%s",
             checkpoint_stats,
             orphan_stats,
             [item.get("reason") for item in compaction],
             usage_pruned,
+            activity_pruned,
         )
         return {
             "checkpoints": checkpoint_stats,
             "orphans": orphan_stats,
             "compaction": compaction,
             "usage_pruned": usage_pruned,
+            "activity_pruned": activity_pruned,
         }
     finally:
         _maintenance_lock.release()

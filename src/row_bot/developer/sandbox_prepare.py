@@ -658,7 +658,12 @@ def _run(job: SandboxJob, workspace: Any, probe: Any) -> None:
             raise _Stopped()
         # The install reaches the public internet through the sandbox's gate, never this computer.
         gate = True
-        sandbox_egress.ensure_gate(docker, workspace.id, workspace_image=job.image, binary=probe.binary)
+        try:
+            sandbox_egress.ensure_gate(docker, workspace.id, binary=probe.binary)
+        except sandbox_egress.GateUnavailable as exc:
+            # Never an install on Docker's own network: without its gate, it doesn't run.
+            _set(job, problem="install_failed", detail=f"The install didn't start: {exc}"[:400])
+            return
         _set(job, status="installing", network_on_at=time.time(), network_off_confirmed=False)
         code, output = _follow(job, _install_argv(probe.binary, job, workspace, shadow), shadow, "Prepare sandbox")
         if job.stop_event.is_set():

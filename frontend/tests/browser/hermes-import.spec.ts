@@ -3,8 +3,9 @@ import { assertNoOverflow, expect, screenshot, test } from './evidence';
 
 // Settings › Data › Import from another assistant with a synthetic Hermes
 // home on the fixture app: the preview says where each item goes, and the
-// memories brought over wait in Import memories for the person to check.
-// Only the memories are chosen, so the fixture's own settings stay as they are.
+// memories brought over (and past chats, when ticked) wait in Import memories
+// for the person to check. Only those are chosen, so the fixture's own settings
+// stay as they are.
 
 async function seed(page: Page): Promise<string> {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -58,12 +59,35 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(
       preview.getByLabel(/Default model: nous › Hermes-4-405B/),
     ).toBeDisabled();
+    // Past chats are offered, unticked; cron jobs are named as not converted.
+    const chats = preview.getByLabel(
+      /Past chats from state\.db: 3 conversations/,
+    );
+    await expect(chats).toBeEnabled();
+    await expect(chats).not.toBeChecked();
+    await expect(
+      preview.getByText(
+        "Cron jobs aren't converted: make a workflow for each one in Workflows.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    // Every row shows all its words, none drawn over the next (touch screens too).
+    expect(
+      await preview
+        .locator('.migration-item')
+        .evaluateAll(
+          (rows) =>
+            rows.filter((row) => row.scrollHeight > row.clientHeight + 1)
+              .length,
+        ),
+    ).toBe(0);
     await shoot(page, info, 'a-preview', appearance);
 
     await preview.getByRole('button', { name: 'Clear all' }).click();
     await preview.getByLabel(/Memories from MEMORY\.md: 4 entries/).check();
     await preview.getByLabel(/About you, from USER\.md: 2 entries/).check();
-    await expect(preview.getByText(/2 selected/)).toBeVisible();
+    await chats.check();
+    await expect(preview.getByText(/3 selected/)).toBeVisible();
     await preview.getByRole('button', { name: 'Apply selected items' }).click();
     await page
       .getByRole('alertdialog', { name: 'Confirm migration' })
@@ -72,7 +96,7 @@ for (const appearance of ['light', 'dark'] as const) {
 
     await expect(
       page.getByText(
-        '6 memories are ready to review. Nothing is saved to memory until you check them.',
+        '6 memories and 3 past chats are ready to review. Nothing is saved to memory until you check them.',
       ),
     ).toBeVisible();
     const review = page.getByRole('button', { name: 'Review memories' });
@@ -89,6 +113,13 @@ for (const appearance of ['light', 'dark'] as const) {
       ),
     ).toBeVisible();
     await expect(dialog.getByText(/6 memories found/)).toBeVisible();
+    // Looking in the past chats stays the person's choice, made here.
+    await expect(
+      dialog.getByText('Also look for memories in 3 past conversations'),
+    ).toBeVisible();
+    await expect(
+      dialog.getByLabel('Also look in past conversations'),
+    ).not.toBeChecked();
     await shoot(page, info, 'c-review', appearance);
   });
 }

@@ -15,6 +15,7 @@ import {
 import { isPanelDescriptor } from './types';
 import { sha256Hex } from '../platform/crypto';
 import type {
+  AnswerStateChange,
   ClientState,
   PageDecisionWrite,
   PageTheme,
@@ -2810,6 +2811,71 @@ export class ClientController {
     this.query(() =>
       this.transport.conversationLinks?.(conversationId, signal),
     );
+  /** The person's ticks and sent choices on this chat's answer components (F3). */
+  answerState = (conversationId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.answerState?.(conversationId, signal));
+  /** One tick or sent choice, checked against the revision last read. */
+  saveAnswerState = (conversationId: string, change: AnswerStateChange) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.saveAnswerState)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.saveAnswerState(conversationId, change, signal);
+    });
+  /** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
+  visualFrame = (
+    conversationId: string,
+    html: string,
+    theme: PageTheme,
+    signal?: AbortSignal,
+  ) =>
+    this.authenticatedResult((current) => {
+      if (!this.transport.createVisualFrame)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.createVisualFrame(
+        conversationId,
+        { html, theme },
+        current,
+      );
+    }, signal);
+  /** A visual in a reply as a page beside its chat: the person's "Open as page" (F3). */
+  createVisualPage = (conversationId: string, title: string, html: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.createVisualPage)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.createVisualPage(
+        conversationId,
+        { title, html },
+        signal,
+      );
+    });
+  /** "Save as a skill" (C1): this chat's offers and drafts. */
+  skillOffers = (conversationId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.skillOffers?.(conversationId, signal));
+  /** Draft a skill from the turn that ends with this reply (an offer, or "Save as skill"). */
+  draftSkill = (
+    conversationId: string,
+    messageId: string,
+    offerId?: string,
+    cancel?: AbortSignal,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.draftSkill)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.draftSkill(
+        conversationId,
+        offerId
+          ? { message_id: messageId, offer_id: offerId }
+          : { message_id: messageId },
+        signal,
+      );
+    }, cancel);
+  /** "Not now": the offer closes and its task isn't offered again for a while. */
+  dismissSkillOffer = (conversationId: string, offerId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.dismissSkillOffer)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.dismissSkillOffer(conversationId, offerId, signal);
+    });
   /** One frame address for a page, served once to its sandboxed frame. */
   pageFrame = (pageId: string, theme: PageTheme, signal?: AbortSignal) =>
     this.authenticatedResult((current) => {
@@ -2872,6 +2938,21 @@ export class ClientController {
     this.query(() => this.transport.waits?.(signal));
   stopWait = (waitId: string) =>
     this.query(() => this.transport.stopWait?.(waitId));
+  /** A watch's Pause, Resume, Check now and Extend; /watch with no model call (B4). */
+  controlWatch = (waitId: string, body: import('./types').WatchControl) =>
+    this.query(() => this.transport.controlWatch?.(waitId, body));
+  setWatch = (conversationId: string, body: import('./types').WatchCreate) =>
+    this.query(() => this.transport.setWatch?.(conversationId, body));
+  /** The activity log (D1): every tool action, its outcome and who decided. */
+  activity = (
+    filters: import('./types').ActivityFilters,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.activity?.(filters, signal));
+  activitySummary = (since: number, signal?: AbortSignal) =>
+    this.query(() => this.transport.activitySummary?.(since, signal));
+  exportActivity = (body: import('./types').ActivityExportRequest) =>
+    this.query(() => this.transport.exportActivity?.(body));
+  clearActivity = () => this.query(() => this.transport.clearActivity?.());
   /** Proactive Row-Bot (see `features/proactive/proactive-state.ts`). */
   proactiveMoments = (signal?: AbortSignal) =>
     this.query(() => this.transport.proactiveMoments?.(signal));

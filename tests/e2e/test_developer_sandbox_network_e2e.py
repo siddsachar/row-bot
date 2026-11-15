@@ -189,3 +189,44 @@ def test_a_networked_sandbox_reaches_the_internet_but_not_this_computer(tmp_path
     assert left == ""
     assert subprocess.run([binary, "network", "inspect", sandbox_egress.network_name(workspace.id)],
                           capture_output=True, check=False).returncode != 0
+
+
+def test_a_networked_sandbox_whose_gate_cant_start_runs_with_no_network(tmp_path, reload_for_data_dir, monkeypatch):
+    """The gate's image is missing: the sandbox runs with Docker's network ``none``, never its default one."""
+    binary = _docker()
+    _executables, _storage, runtime = reload_for_data_dir(
+        tmp_path / "data", "row_bot.developer.executables", "row_bot.developer.storage",
+        "row_bot.developer.sandbox_runtime",
+    )
+    from row_bot.developer import sandbox_egress
+    from row_bot.developer.state import DEFAULT_SANDBOX_IMAGE
+
+    image = os.environ.get("ROW_BOT_SANDBOX_E2E_IMAGE") or DEFAULT_SANDBOX_IMAGE
+    if subprocess.run([binary, "image", "inspect", image], capture_output=True, check=False).returncode != 0:
+        pytest.skip(f"The sandbox image {image} isn't on this computer (docker pull {image})")
+    # A gate image that isn't here (Row-Bot never pulls one), so the gate can't start.
+    monkeypatch.setattr(sandbox_egress, "DEFAULT_SANDBOX_IMAGE", f"row-bot-e2e-missing-{uuid.uuid4().hex[:8]}:none")
+    folder = tmp_path / "project"
+    folder.mkdir()
+    workspace = runtime.DeveloperWorkspace(
+        id=f"e2e-offline-{uuid.uuid4().hex[:8]}", name="Gate offline e2e", path=str(folder), execution_mode="docker",
+        sandbox_network="on", sandbox_image=image,
+    )
+    probe = ("python3 -c \"import os, socket; print(sorted(k for k in os.environ if 'proxy' in k.lower())); "
+             "socket.create_connection(('1.1.1.1', 443), timeout=5)\"")
+    try:
+        outcome = runtime.run_docker_sandbox_command(workspace, probe, thread_id="e2e", timeout=120)
+        box = runtime.sandbox_container_name(workspace.id)
+        mode = subprocess.run([binary, "inspect", "-f", "{{.HostConfig.NetworkMode}}", box],
+                              capture_output=True, text=True, check=False).stdout.strip()
+        gate = subprocess.run([binary, "inspect", sandbox_egress.gate_name(workspace.id)],
+                              capture_output=True, check=False).returncode
+    finally:
+        runtime.cleanup_workspace_sandbox(workspace.id)
+    print(outcome.stdout, outcome.stderr)
+    assert mode == "none"
+    assert gate != 0  # No gate container was left running from another image.
+    assert outcome.returncode not in (0, None), outcome.stdout  # It ran, and couldn't connect.
+    assert outcome.stdout.strip().splitlines()[0] == "[]"  # No proxy settings either.
+    assert outcome.stderr.startswith("The sandbox's network is off for now.")
+    assert "docker pull" in outcome.stderr

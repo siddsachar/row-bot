@@ -1,5 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
-import { CircleStop, Pause, Play, Target } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import * as Popover from '@radix-ui/react-popover';
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleSlash,
+  CircleStop,
+  Info,
+  LoaderCircle,
+  Pause,
+  Play,
+  ShieldCheck,
+  Target,
+  type LucideIcon,
+} from 'lucide-react';
 import type {
   GoalCommandPayload,
   GoalPage,
@@ -8,11 +22,18 @@ import type {
   GoalSummary,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
+import { useLiveUpdate } from '../../live';
+import { writeClipboardText } from '../../platform/clipboard';
+import { useDialogFooter } from '../../ui/dialog-footer';
+import { parseTimestamp } from '../../ui/format';
 import {
   Button,
+  CopyGlyph,
   Disclosure,
+  IconButton,
   Input,
   StatusDot,
+  useCopyFeedback,
   type Tone,
 } from '../../ui/primitives';
 
@@ -132,6 +153,193 @@ function turnsDone(goal: Pick<GoalSummary, 'turns_used' | 'max_turns'>) {
     : `${goal.turns_used} ${goal.turns_used === 1 ? 'turn' : 'turns'}`;
 }
 
+/** Text with `code` spans, as the server writes commands ("runs `npm test`"). */
+export function WithCode({ text }: { text: string }) {
+  return (
+    <>
+      {text
+        .split('`')
+        .map((part, index) =>
+          index % 2 ? <code key={index}>{part}</code> : part,
+        )}
+    </>
+  );
+}
+
+/** "14:05" (the device's own clock style) for a server time. */
+function clock(value: string) {
+  const date = parseTimestamp(value);
+  return date
+    ? new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(date)
+    : '';
+}
+
+/**
+ * The goal's check in one line (B3): what it checks with, that it is
+ * checking, "Verified by `npm test` · 14:05", that it failed and Row-Bot is
+ * fixing it, or that it couldn't run.
+ */
+export function goalCheckLine(
+  goal: Pick<GoalSummary, 'status' | 'check'>,
+): { icon: LucideIcon; tone: Tone; text: string; busy?: boolean } | null {
+  const check = goal.check;
+  if (!check) return null;
+  const command = `\`${check.command}\``;
+  switch (check.state) {
+    case 'pending':
+    case 'running':
+      return {
+        icon: LoaderCircle,
+        tone: 'accent',
+        text: `Checking with ${command}…`,
+        busy: true,
+      };
+    case 'passed': {
+      const at = check.result ? clock(check.result.finished_at) : '';
+      return {
+        icon: CircleCheck,
+        tone: 'success',
+        text: `Verified by ${command}${at ? ` · ${at}` : ''}`,
+      };
+    }
+    case 'failed':
+      return {
+        icon: CircleAlert,
+        tone: 'warning',
+        text:
+          goal.status === 'active'
+            ? `${command} failed · Row-Bot is fixing it`
+            : `${command} failed`,
+      };
+    case 'error':
+      return {
+        icon: CircleSlash,
+        tone: 'danger',
+        text: `Couldn't run ${command}`,
+      };
+    default:
+      return {
+        icon: ShieldCheck,
+        tone: 'neutral',
+        text: `Checks with ${command}`,
+      };
+  }
+}
+
+/**
+ * The card's reason line, unless the check line already says it: while the
+ * check decides or Row-Bot fixes what it reported, and once it verified the
+ * goal. A pause or an error keeps its reason.
+ */
+function shownReason(goal: GoalSummary) {
+  const reason = goal.last_reason || goal.last_progress || '';
+  const state = goal.check?.state;
+  if (
+    (goal.status === 'active' &&
+      (state === 'pending' || state === 'running' || state === 'failed')) ||
+    (goal.status === 'completed' && state === 'passed')
+  )
+    return '';
+  return reason;
+}
+
+/** The check's last output in a popover (a sheet on a phone), with Copy. */
+function CheckOutput({ goal }: { goal: GoalSummary }) {
+  const [copied, setCopied] = useCopyFeedback();
+  const result = goal.check?.result;
+  if (!goal.check || !result) return null;
+  const output = result.output_tail.trim();
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <IconButton label="Show the check's output" size="sm">
+          <Info size={14} aria-hidden />
+        </IconButton>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          className="popover surface-effect context-goal-output"
+          aria-label="The check's output"
+          side="bottom"
+          align="end"
+          sideOffset={6}
+          collisionPadding={12}
+        >
+          <header className="context-goal-output-head">
+            <span>
+              <WithCode text={`\`${goal.check.command}\``} />
+              {result.exit_code !== null && ` · exit ${result.exit_code}`}
+            </span>
+            {output && (
+              <IconButton
+                label={copied ? 'Copied' : 'Copy the output'}
+                size="sm"
+                onClick={() =>
+                  void writeClipboardText(output).then((ok) => setCopied(ok))
+                }
+              >
+                <CopyGlyph copied={copied} size={14} />
+              </IconButton>
+            )}
+          </header>
+          {output ? (
+            <pre className="context-goal-output-text" tabIndex={0}>
+              {output}
+            </pre>
+          ) : (
+            <p className="context-goal-meta">It printed nothing.</p>
+          )}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/**
+ * The review of a goal with a check, before it starts (B3): where the check
+ * runs and that only exit 0 counts. Start goal is the person's approval of
+ * that command; its actions sit in the dialog's footer.
+ */
+export function GoalCheckConfirm({
+  review,
+  onStart,
+  onCancel,
+}: {
+  review: Pick<GoalReview, 'disclosures'>;
+  onStart: () => void;
+  onCancel: () => void;
+}) {
+  const footer = useDialogFooter(true);
+  const actions = (
+    <>
+      <Button onClick={onCancel}>Cancel</Button>
+      <Button variant="primary" onClick={onStart}>
+        <Target size={14} aria-hidden /> Start goal
+      </Button>
+    </>
+  );
+  return (
+    <div className="context-goal-review">
+      {review.disclosures.map((line) => (
+        <p key={line}>
+          <WithCode text={line} />
+        </p>
+      ))}
+      {footer ? (
+        createPortal(actions, footer)
+      ) : (
+        <div className="button-row">{actions}</div>
+      )}
+    </div>
+  );
+}
+
+const CHECK_ERRORS = new Set([
+  'goal_check_refused',
+  'goal_check_read_only',
+  'goal_check_unavailable',
+]);
+
 /** Goal pages read per conversation, reused across remounts in a session. */
 const pages = new Map<string, GoalPage>();
 
@@ -180,8 +388,16 @@ export default function ContextGoal({
   // Untouched, the limit field shows the Agent runtime default ("" = none).
   const [typedTurns, setTypedTurns] = useState<string | null>(null);
   const [hours, setHours] = useState('');
-  const [clock, setClock] = useState(() => new Date());
-  const now = suppliedNow ?? clock;
+  // What done means and the check (B3), behind their own disclosure.
+  const [doneMeans, setDoneMeans] = useState('');
+  const [check, setCheck] = useState('');
+  const [showDone, setShowDone] = useState(false);
+  const [checkError, setCheckError] = useState('');
+  // A start with a check is reviewed first; Start goal then confirms it.
+  const [reviewed, setReviewed] = useState<GoalReview | null>(null);
+  const placeId = useId();
+  const [ticking, setTicking] = useState(() => new Date());
+  const now = suppliedNow ?? ticking;
   const ioRef = useRef(io);
   ioRef.current = io;
   const runningRef = useRef(running);
@@ -235,18 +451,23 @@ export default function ContextGoal({
   // Keep "time running" honest while a goal is live.
   useEffect(() => {
     if (suppliedNow || !live) return;
-    const timer = window.setInterval(() => setClock(new Date()), 60_000);
+    const timer = window.setInterval(() => setTicking(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, [suppliedNow, live]);
 
-  async function run(
+  // A check runs between turns: its card follows it as the server moves on.
+  const checking =
+    current?.check?.state === 'pending' || current?.check?.state === 'running';
+  useLiveUpdate(checking ? ['conversations'] : [], () => {
+    read().catch(() => undefined);
+  });
+
+  function payloadFor(
     operation: GoalCommandPayload['operation'],
-    extra: Partial<GoalCommandPayload> = {},
-  ) {
-    if (!page || busy) return;
-    setBusy(true);
-    setMessage('');
-    const payload: GoalCommandPayload = {
+    extra: Partial<GoalCommandPayload>,
+  ): GoalCommandPayload | null {
+    if (!page) return null;
+    return {
       conversation_id: conversationId,
       goal_id: page.current_goal_id,
       revision: page.current_revision,
@@ -256,13 +477,37 @@ export default function ContextGoal({
       reason: operation === 'start' ? null : '',
       ...extra,
     };
+  }
+
+  /**
+   * Review and apply one goal command. A start with a check stops after its
+   * review (`confirmFirst`): the person reads where it runs, and their Start
+   * goal applies that same review.
+   */
+  async function run(
+    operation: GoalCommandPayload['operation'],
+    extra: Partial<GoalCommandPayload> = {},
+    { confirmFirst = false }: { confirmFirst?: boolean } = {},
+  ) {
+    const payload = payloadFor(operation, extra);
+    if (!payload || busy) return;
+    setBusy(true);
+    setMessage('');
+    setCheckError('');
     try {
-      const review = await io.review(conversationId, payload);
+      const review =
+        confirmFirst && reviewed
+          ? reviewed
+          : await io.review(conversationId, payload);
       if (
         review.conversation_id !== conversationId ||
         review.operation !== operation
       )
         throw { code: 'protocol_incompatible' };
+      if (confirmFirst && !reviewed) {
+        setReviewed(review);
+        return;
+      }
       const receipt = await io.execute(conversationId, {
         command_id: crypto.randomUUID(),
         type: 'goal.control',
@@ -275,16 +520,39 @@ export default function ContextGoal({
       pages.delete(conversationId);
       await read();
       if (operation === 'start') {
-        setObjective('');
-        setTypedTurns(null);
-        setHours('');
+        clearForm();
         onComposeDone();
       }
     } catch (cause) {
-      setMessage(clientError(cause).message);
+      const error = clientError(cause);
+      setReviewed(null);
+      if (operation === 'start' && CHECK_ERRORS.has(error.code)) {
+        setShowDone(true);
+        setCheckError(error.message);
+      } else setMessage(error.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  function clearForm() {
+    setObjective('');
+    setTypedTurns(null);
+    setHours('');
+    setDoneMeans('');
+    setCheck('');
+    setShowDone(false);
+    setCheckError('');
+    setReviewed(null);
+  }
+
+  /** Any change to the form needs a fresh review before it starts. */
+  function edited<T>(set: (value: T) => void) {
+    return (value: T) => {
+      set(value);
+      setReviewed(null);
+      setCheckError('');
+    };
   }
 
   function stop() {
@@ -310,7 +578,10 @@ export default function ContextGoal({
   const validHours =
     limitHours === null ||
     (Number.isInteger(limitHours) && limitHours >= 1 && limitHours <= 168);
-  const reason = current?.last_reason || current?.last_progress || '';
+  const reason = current ? shownReason(current) : '';
+  const checkLine = current ? goalCheckLine(current) : null;
+  const place = page?.check_place;
+  const typedCheck = check.trim();
   // Opening the form moves focus into it; Cancel brings it back to Set a goal.
   const objectiveField = useRef<HTMLTextAreaElement>(null);
   const setGoalButton = useRef<HTMLButtonElement>(null);
@@ -362,6 +633,28 @@ export default function ContextGoal({
         {started && current && (
           <div className="context-goal-body" aria-label="Goal" role="group">
             <p className="context-goal-objective">{current.objective}</p>
+            {current.done_means && (
+              <p className="context-goal-done-means" title={current.done_means}>
+                Done means: {current.done_means}
+              </p>
+            )}
+            {checkLine && (
+              <div
+                className="context-goal-check"
+                data-tone={checkLine.tone}
+                role="status"
+              >
+                <checkLine.icon
+                  size={14}
+                  aria-hidden
+                  className={checkLine.busy ? 'context-goal-spin' : undefined}
+                />
+                <span>
+                  <WithCode text={checkLine.text} />
+                </span>
+                {!checkLine.busy && <CheckOutput goal={current} />}
+              </div>
+            )}
             {current.max_turns > 0 && (
               <div
                 className="context-goal-progress"
@@ -421,12 +714,18 @@ export default function ContextGoal({
             onSubmit={(event) => {
               event.preventDefault();
               if (!objective.trim() || !validTurns || !validHours) return;
-              void run('start', {
-                objective: objective.trim(),
-                max_turns: turns,
-                max_minutes: limitHours === null ? null : limitHours * 60,
-                reason: null,
-              });
+              void run(
+                'start',
+                {
+                  objective: objective.trim(),
+                  max_turns: turns,
+                  max_minutes: limitHours === null ? null : limitHours * 60,
+                  reason: null,
+                  done_means: doneMeans.trim() || null,
+                  check_command: typedCheck || null,
+                },
+                { confirmFirst: Boolean(typedCheck) },
+              );
             }}
           >
             <label className="context-goal-field">
@@ -439,9 +738,103 @@ export default function ContextGoal({
                 placeholder="For example: draft three short posts about tides"
                 value={objective}
                 disabled={busy || !page}
-                onChange={(event) => setObjective(event.target.value)}
+                onChange={(event) => edited(setObjective)(event.target.value)}
               />
             </label>
+            {place?.available !== false && (
+              <Disclosure
+                className="context-goal-done"
+                summary="Done means and check"
+                meta={
+                  typedCheck ? (
+                    <ShieldCheck size={12} aria-label="Has a check" />
+                  ) : undefined
+                }
+                open={showDone}
+                onOpenChange={setShowDone}
+              >
+                <label className="context-goal-field">
+                  <span>Done means…</span>
+                  <textarea
+                    className="input"
+                    rows={2}
+                    maxLength={1000}
+                    placeholder="For example: the docs build and every link works"
+                    value={doneMeans}
+                    disabled={busy || !page}
+                    onChange={(event) =>
+                      edited(setDoneMeans)(event.target.value)
+                    }
+                  />
+                </label>
+                <label className="context-goal-field">
+                  <span>Check with</span>
+                  <Input
+                    className="context-goal-check-input"
+                    maxLength={500}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    placeholder="A command that must pass, like npm test"
+                    value={check}
+                    disabled={busy || !page}
+                    aria-invalid={checkError ? true : undefined}
+                    aria-describedby={placeId}
+                    onChange={(event) => edited(setCheck)(event.target.value)}
+                  />
+                </label>
+                {Boolean(place?.suggestions.length) && (
+                  <div
+                    className="context-goal-chips"
+                    role="group"
+                    aria-label="The project's checks"
+                  >
+                    {place!.suggestions.map((command) => (
+                      <Button
+                        key={command}
+                        variant="ghost"
+                        className="context-goal-chip"
+                        aria-pressed={typedCheck === command}
+                        disabled={busy}
+                        onClick={() => edited(setCheck)(command)}
+                      >
+                        <code>{command}</code>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+                <small
+                  id={placeId}
+                  className={
+                    checkError
+                      ? 'context-goal-check-error'
+                      : 'context-goal-meta'
+                  }
+                  role={checkError ? 'alert' : undefined}
+                >
+                  {checkError ||
+                    (place?.runs_in
+                      ? `Runs in ${place.runs_in}.`
+                      : 'Runs where this conversation works.')}{' '}
+                  {!checkError &&
+                    !reviewed &&
+                    'The goal counts as done only when it exits 0.'}
+                </small>
+              </Disclosure>
+            )}
+            {reviewed && (
+              <div
+                className="context-goal-review"
+                role="group"
+                aria-label="Before it starts"
+              >
+                {reviewed.disclosures.map((line) => (
+                  <p key={line}>
+                    <WithCode text={line} />
+                  </p>
+                ))}
+              </div>
+            )}
             <div className="context-goal-form-row">
               <label>
                 <span>Turn limit</span>
@@ -452,7 +845,9 @@ export default function ContextGoal({
                   placeholder="No limit"
                   value={maxTurns}
                   disabled={busy || !page}
-                  onChange={(event) => setTypedTurns(event.target.value)}
+                  onChange={(event) =>
+                    edited(setTypedTurns)(event.target.value)
+                  }
                 />
               </label>
               <label>
@@ -464,16 +859,16 @@ export default function ContextGoal({
                   placeholder="No limit"
                   value={hours}
                   disabled={busy || !page}
-                  onChange={(event) => setHours(event.target.value)}
+                  onChange={(event) => edited(setHours)(event.target.value)}
                 />
               </label>
+            </div>
+            <div className="context-goal-form-actions">
               <Button
                 variant="ghost"
                 disabled={busy}
                 onClick={() => {
-                  setObjective('');
-                  setTypedTurns(null);
-                  setHours('');
+                  clearForm();
                   backToSetGoal.current = true;
                   onComposeDone();
                 }}
@@ -491,7 +886,8 @@ export default function ContextGoal({
                   !validHours
                 }
               >
-                <Target size={14} aria-hidden /> Start goal
+                <Target size={14} aria-hidden />{' '}
+                {reviewed ? 'Confirm and start' : 'Start goal'}
               </Button>
             </div>
             <small className="context-goal-meta">
@@ -515,6 +911,14 @@ export default function ContextGoal({
                   <span>{goal.objective}</span>
                   <small>
                     {goalState(goal, false).label} · {turnsDone(goal)}
+                    {goal.check?.state === 'passed' && (
+                      <>
+                        {' · '}
+                        <WithCode
+                          text={`Verified by \`${goal.check.command}\``}
+                        />
+                      </>
+                    )}
                   </small>
                 </li>
               ))}

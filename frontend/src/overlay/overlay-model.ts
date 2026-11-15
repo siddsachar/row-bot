@@ -38,6 +38,12 @@ function blockText(block: Block): string {
   switch (block.type) {
     case 'text':
     case 'markdown':
+    case 'table':
+    case 'checklist':
+    case 'figures':
+    case 'progress':
+    case 'choices':
+    case 'visual':
       return block.text;
     case 'chart':
       return block.text || 'Chart';

@@ -1,12 +1,18 @@
 import { Fragment, useState, type JSX, type ReactNode } from 'react';
-import { Settings, Table } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { AppLink } from '../../ui/app-link';
-import { CopyGlyph, Hint, IconButton } from '../../ui/primitives';
+import { Hint } from '../../ui/primitives';
 import { settingsLink, type SettingsLink } from '../settings/model';
 import { CodeBlock } from './CodeBlock';
 import { GuideLink } from './GuideSheet';
 import MathTex from './MathTex';
-import { copyUnavailableMessage } from '../../platform/clipboard';
+import { SortableTable } from './SortableTable';
+import { useOptionalRuntime } from '../../runtime';
+import { useNotify } from '../../ui/overlays';
+import {
+  changeAnswerState,
+  useAnswerState,
+} from './answer-components/answer-state';
 
 // Underscore emphasis never starts or ends inside a word, so snake_case
 // names such as workspace_file_delete stay literal (as in CommonMark).
@@ -221,88 +227,64 @@ function tableColumns(lines: string[], index: number) {
     : 0;
 }
 
-/** Plain cell text for CSV: inline Markdown markers removed. */
-function plainCell(value: string) {
-  return value
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, '$1')
-    .replace(/(\*\*|__|~~)/g, '')
-    .trim();
-}
+// What an answer component's placeholder says while its reply streams in.
+const PENDING: Record<string, string> = {
+  'rowbot-table': 'Preparing a table…',
+  'rowbot-chart': 'Preparing a chart…',
+  'rowbot-checklist': 'Preparing a checklist…',
+  'rowbot-figures': 'Preparing figures…',
+  'rowbot-progress': 'Preparing progress…',
+  'rowbot-choices': 'Preparing choices…',
+  'rowbot-visual': 'Drawing a visual…',
+};
 
-function csvField(value: string) {
-  return /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
-}
+type TaskOwner = { conversationId?: string; blockId: string };
 
-export function tableCsv(headers: string[], rows: string[][]) {
-  return [headers, ...rows]
-    .map((row) =>
-      headers
-        .map((_, index) => csvField(plainCell(row[index] ?? '')))
-        .join(','),
-    )
-    .join('\r\n');
-}
+// A task list item: "- [ ] open" or "- [x] done".
+const TASK = /^\[([ xX])\]\s+(.+)$/;
 
-/** A scrolling table with a sticky header and "Copy as CSV". */
-function MarkdownTable({
-  headers,
-  rows,
-  copyText,
+/**
+ * A task from a Markdown task list, as a real checkbox the person can tick.
+ * The tick is theirs: it changes what they see, never the answer's text.
+ */
+function TaskItem({
+  done,
+  text,
+  id,
+  tasks,
 }: {
-  headers: string[];
-  rows: string[][];
-  copyText?: (value: string) => Promise<boolean>;
+  done: boolean;
+  text: string;
+  /** The item's place in its block: "task-<line>". */
+  id: string;
+  tasks?: TaskOwner;
 }) {
-  const [status, setStatus] = useState('');
-  async function copy() {
-    try {
-      const ok = await (copyText ?? (async () => false))(
-        tableCsv(headers, rows),
-      );
-      setStatus(ok ? 'Table copied as CSV.' : copyUnavailableMessage());
-    } catch {
-      setStatus('The table could not be copied.');
-    }
+  const controller = useOptionalRuntime()?.controller;
+  const notify = useNotify();
+  const state = useAnswerState(controller, tasks?.conversationId);
+  const [local, setLocal] = useState<boolean | null>(null);
+  const kept = tasks ? state.ticks[tasks.blockId]?.[id] : undefined;
+  const checked = local ?? kept ?? done;
+  async function tick(value: boolean) {
+    if (!tasks) return setLocal(value);
+    const saved = await changeAnswerState(controller, tasks.conversationId, {
+      block_id: tasks.blockId,
+      item_id: id,
+      done: value,
+    });
+    if (!saved) notify('Couldn’t save that tick. Try again.', 'warning');
   }
   return (
-    <div className="markdown-table">
-      <div className="markdown-table-scroll" tabIndex={0}>
-        <table>
-          <thead>
-            <tr>
-              {headers.map((header, cellIndex) => (
-                <th key={cellIndex}>{inline(header)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {headers.map((_, cellIndex) => (
-                  <td key={cellIndex}>{inline(row[cellIndex] ?? '')}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {copyText && (
-        <span className="markdown-table-tools">
-          <IconButton size="sm" label="Copy as CSV" onClick={() => void copy()}>
-            <CopyGlyph
-              copied={status === 'Table copied as CSV.'}
-              idle={Table}
-            />
-          </IconButton>
-        </span>
-      )}
-      {status && (
-        <small role="status" className="visually-hidden">
-          {status}
-        </small>
-      )}
-    </div>
+    <li className="task-item" data-done={checked ? 'true' : undefined}>
+      <label>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => void tick(event.currentTarget.checked)}
+        />
+        <span>{inline(text)}</span>
+      </label>
+    </li>
   );
 }
 
@@ -387,9 +369,15 @@ function quoteLines(lines: string[]) {
 export default function SafeMarkdown({
   text,
   copyText,
+  streaming = false,
+  tasks,
 }: {
+  /** Where this block's task-list ticks are kept; without it they stay on screen only. */
+  tasks?: { conversationId?: string; blockId: string };
   text: string;
   copyText?: (value: string) => Promise<boolean>;
+  /** The reply is still arriving: an answer component's fence shows as a placeholder. */
+  streaming?: boolean;
 }) {
   const lines = withoutBlankRuns(text.replaceAll('\r\n', '\n').split('\n'));
   const blocks: ReactNode[] = [];
@@ -412,6 +400,15 @@ export default function SafeMarkdown({
       )
         content.push(lines[index++]);
       if (index < lines.length) index++;
+      if (streaming && language.startsWith('rowbot-')) {
+        // A component still being written: its block shows once the reply is saved.
+        blocks.push(
+          <p className="answer-pending" role="status" key={`code-${start}`}>
+            {PENDING[language] ?? 'Preparing…'}
+          </p>,
+        );
+        continue;
+      }
       blocks.push(
         <CodeBlock
           copyText={copyText}
@@ -471,19 +468,41 @@ export default function SafeMarkdown({
       const ordered = Boolean(list[2]);
       const items: ReactNode[] = [];
       const pattern = ordered ? /^\s*\d+[.)]\s+(.+)$/ : /^\s*[-*+]\s+(.+)$/;
+      let hasTasks = false;
       while (index < lines.length) {
         const item = pattern.exec(lines[index]);
         if (!item) break;
-        items.push(<li key={index++}>{inline(item[1])}</li>);
+        const task = TASK.exec(item[1]);
+        hasTasks ||= Boolean(task);
+        items.push(
+          task ? (
+            <TaskItem
+              key={index}
+              id={`task-${index++}`}
+              done={task[1] !== ' '}
+              text={task[2]}
+              tasks={tasks?.blockId ? tasks : undefined}
+            />
+          ) : (
+            <li key={index++}>{inline(item[1])}</li>
+          ),
+        );
       }
+      const className = hasTasks ? 'task-list' : undefined;
       blocks.push(
         ordered ? (
           // A list split by a paragraph goes on from its own first number.
-          <ol key={`list-${start}`} start={Number(list[2])}>
+          <ol
+            key={`list-${start}`}
+            start={Number(list[2])}
+            className={className}
+          >
             {items}
           </ol>
         ) : (
-          <ul key={`list-${start}`}>{items}</ul>
+          <ul key={`list-${start}`} className={className}>
+            {items}
+          </ul>
         ),
       );
       continue;
@@ -500,9 +519,10 @@ export default function SafeMarkdown({
       )
         rows.push(cells(lines[index++]));
       blocks.push(
-        <MarkdownTable
+        <SortableTable
           headers={headers}
           rows={rows}
+          renderCell={inline}
           copyText={copyText}
           key={`table-${start}`}
         />,
