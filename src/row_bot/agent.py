@@ -112,6 +112,8 @@ class ContextUsage:
     status: str = "ready"
     # What fills the context, in the estimate's tokens (see _context_breakdown); settled snapshots only.
     breakdown: dict[str, int] | None = None
+    # A summary of older messages is prepared ahead and still valid (B6); settled snapshots only.
+    summary_ready: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -3775,6 +3777,22 @@ def _turn_usage_tagged(runnable: Any, purpose: str) -> Any:
     )
 
 
+# Run-config metadata of a summarizer call made ahead of the compaction point (B6); its ledger
+# purpose stays ``compaction``.
+_PREPARED_COMPACTION_KEY = "row_bot_compaction_prepared"
+
+
+def _with_call_metadata(runnable: Any, metadata: dict[str, Any]) -> Any:
+    """Add run-config metadata to a LangChain runnable; anything else is returned unchanged."""
+    from langchain_core.runnables import Runnable
+
+    if not isinstance(runnable, Runnable):
+        return runnable
+    # A bound runnable's config is replaced key by key: keep the metadata it already has (its purpose).
+    existing = dict((getattr(runnable, "config", None) or {}).get("metadata") or {})
+    return runnable.with_config(metadata={**existing, **metadata})
+
+
 def _compaction_model(inputs: PreparationInputs, output_tokens: int):
     # The thread's own model at the lowest reasoning effort (WP C1): on Ollama
     # the same model and context allocation, with thinking off, so nothing reloads.
@@ -3818,7 +3836,10 @@ def _invoke_compaction_model(
         provider_id=None,
         ttl=CACHE_TTL_LOOP,
     )
-    result = _turn_usage_tagged(_compaction_model(inputs, output_tokens), "compaction").invoke(summary_messages)
+    model = _turn_usage_tagged(_compaction_model(inputs, output_tokens), "compaction")
+    if _current_compaction_prepared_var.get():
+        model = _with_call_metadata(model, {_PREPARED_COMPACTION_KEY: True})
+    result = model.invoke(summary_messages)
     if stop_event and stop_event.is_set():
         raise TaskStoppedError("Stopped during context compaction.")
     return _validate_summary_text(_content_to_str(getattr(result, "content", result)), output_tokens)
@@ -4202,6 +4223,250 @@ def _with_status(prepared: PreparedModelInput, status: str) -> PreparedModelInpu
     )
 
 
+def _summary_state_for(inputs: PreparationInputs, boundary: int, summary: str) -> dict:
+    """The summary state a compaction stores for *summary* of everything before *boundary*."""
+    from row_bot.threads import context_boundary_digest
+
+    return {
+        "schema_version": _SUMMARY_STATE_SCHEMA_VERSION,
+        "mode": inputs.mode,
+        "model_ref": inputs.model_ref,
+        "provider_id": inputs.provider_id,
+        "source_revision": inputs.checkpoint_revision or "",
+        "boundary_message_count": boundary,
+        "boundary_digest": context_boundary_digest(list(inputs.raw_messages), boundary, inputs.mode),
+        "summary": summary,
+        "prompt_fingerprint": inputs.prompt_fingerprint,
+        "tool_fingerprint": inputs.tool_fingerprint,
+        "policy_fingerprint": inputs.policy_fingerprint,
+        # The kept turns already complete lose their (now unbound) thinking blocks.
+        "thinking_strip": _thinking_strip_anchor(inputs, boundary),
+        "created_at": _context_datetime.now().isoformat(),
+    }
+
+
+def _save_summary_state(thread_id: str, inputs: PreparationInputs, state: dict) -> bool:
+    from row_bot.threads import save_summary_state_cas
+
+    return save_summary_state_cas(
+        thread_id,
+        state,
+        expected_revision=inputs.checkpoint_revision or "",
+        # This turn's own checkpoint, written in the background, may land meanwhile.
+        messages=list(inputs.raw_messages),
+    )
+
+
+def _compaction_succeeded(
+    inputs: PreparationInputs,
+    state: dict,
+    rebuilt: PreparedModelInput,
+    *,
+    prepared: bool = False,
+) -> PreparedModelInput:
+    """Record and announce a summary now in force; *prepared*: it was written ahead (B6)."""
+    event = _record_compaction_event(
+        inputs,
+        event_type="context_compacted",
+        boundary=int(state.get("boundary_message_count") or 0),
+        boundary_digest=str(state.get("boundary_digest") or ""),
+    )
+    _emit_context_event("compaction_succeeded", {
+        **_usage_event_payload(rebuilt.usage),
+        "event_id": event.get("id"),
+        "event_type": "context_compacted",
+        "display_copy": str((event.get("payload") or {}).get("display_copy") or ""),
+        **({"prepared": True} if prepared else {}),
+    })
+    # The Agent pre-model hook then shows this turn a full turn-context snapshot.
+    _current_compaction_succeeded_var.set(True)
+    _clear_compaction_failure(_current_thread_id_var.get() or "", inputs.mode)
+    return rebuilt
+
+
+# ── Prepared compaction (B6) ─────────────────────────────────────────────────────────────────
+# When a turn settles at 85% or more of the compaction point, a cloud chat's next summary is written
+# in the background by the same functions a compaction in the turn uses, and kept beside the summary
+# in force. When the point is reached, the turn uses it instead of pausing to summarize. It is used
+# only while it still fits: the same mode, model, provider and policy, the same summary in force
+# under it, and the same messages before its boundary. A failed preparation leaves nothing behind.
+_PREPARE_AT_SHARE = 0.85
+# At most two preparations run at once in the process; a third is skipped (it may prepare after its
+# next turn, or compacts at the point as before).
+_PREPARATION_SLOTS = threading.BoundedSemaphore(2)
+
+
+def _prepared_summary_fits(slot: dict, inputs: PreparationInputs, summary_state: dict | None) -> bool:
+    from row_bot.threads import context_boundary_digest, summary_text_digest
+
+    previous = int((summary_state or {}).get("boundary_message_count") or 0)
+    count = int(slot.get("boundary_message_count") or 0)
+    return (
+        int(slot.get("schema_version") or 0) == _SUMMARY_STATE_SCHEMA_VERSION
+        and bool(str(slot.get("summary") or "").strip())
+        and slot.get("mode") == inputs.mode
+        and slot.get("model_ref") == inputs.model_ref
+        and slot.get("provider_id") == inputs.provider_id
+        and slot.get("policy_fingerprint") == inputs.policy_fingerprint
+        and slot.get("base_summary_digest") == summary_text_digest(summary_state)
+        and previous < count <= len(inputs.raw_messages)
+        and context_boundary_digest(list(inputs.raw_messages), count, inputs.mode) == slot.get("boundary_digest")
+    )
+
+
+def _usable_prepared_summary(inputs: PreparationInputs, summary_state: dict | None) -> dict | None:
+    """The summary prepared ahead for this conversation, while it still fits *inputs*, or None."""
+    thread_id = _current_thread_id_var.get() or ""
+    if not thread_id:
+        return None
+    try:
+        from row_bot.threads import load_prepared_summary
+
+        slot = load_prepared_summary(thread_id, inputs.mode)
+    except Exception:
+        logger.debug("Prepared summary unavailable", exc_info=True)
+        return None
+    return slot if slot is not None and _prepared_summary_fits(slot, inputs, summary_state) else None
+
+
+def _take_prepared_summary(inputs: PreparationInputs, summary_state: dict | None) -> dict | None:
+    """At the point: the prepared summary as the state this turn would store, or None. The slot goes."""
+    slot = _usable_prepared_summary(inputs, summary_state)
+    try:
+        from row_bot.threads import clear_prepared_summary
+
+        # Used, the base of a new summary, or no longer valid: either way it is not kept.
+        clear_prepared_summary(_current_thread_id_var.get() or "", inputs.mode)
+    except Exception:
+        logger.debug("Prepared summary was not cleared", exc_info=True)
+    if slot is None:
+        return None
+    return _summary_state_for(inputs, int(slot["boundary_message_count"]), str(slot["summary"]))
+
+
+def _is_cloud_model_ref(model_ref: str) -> bool:
+    from row_bot.providers.custom import CUSTOM_OPENAI_PREFIX
+    from row_bot.providers.selection import parse_model_ref
+
+    parsed = parse_model_ref(model_ref)
+    if parsed is None:
+        return bool(model_ref) and is_cloud_model(model_ref)
+    # A custom endpoint is often a model on this computer (LM Studio, llama.cpp): treated as local.
+    return parsed[0] not in {"ollama", "local"} and not parsed[0].startswith(CUSTOM_OPENAI_PREFIX)
+
+
+def _prepares_ahead(inputs: PreparationInputs) -> bool:
+    """Cloud models only: on a local model the summary would hold the GPU the next turn needs."""
+    from row_bot.providers.background import background_model_ref
+
+    return _is_cloud_model_ref(inputs.model_ref) and _is_cloud_model_ref(
+        background_model_ref("compaction", thread_model=inputs.model_ref)
+    )
+
+
+def _should_prepare(inputs: PreparationInputs, summary_state: dict | None, usage: ContextUsage) -> bool:
+    thread_id = _current_thread_id_var.get() or ""
+    compact_at = usage.compact_at_tokens
+    if not thread_id or not compact_at or usage.status == "unavailable":
+        return False
+    if usage.estimated_input_tokens < compact_at * _PREPARE_AT_SHARE or not _prepares_ahead(inputs):
+        return False
+    # The last compaction of this very input failed: it is not tried again ahead of the point.
+    marker = _compaction_failure_marker(thread_id, inputs.mode)
+    attempt = _compaction_attempt(inputs, summary_state)
+    return not marker or any(marker.get(key) != value for key, value in attempt.items())
+
+
+def _submit_preparation(job: Any) -> None:
+    threading.Thread(target=job, name="row-bot-prepared-compaction", daemon=True).start()
+
+
+def _start_preparation(inputs: PreparationInputs, usage: ContextUsage) -> None:
+    """Prepare the next summary in the background; the turn that settled never waits for it."""
+    from row_bot.runtime.executions import current_execution
+
+    own = current_execution()
+    context = _contextvars.copy_context()
+
+    def run() -> None:
+        if not _PREPARATION_SLOTS.acquire(blocking=False):
+            return
+        try:
+            context.run(_prepare_summary_ahead, inputs, usage, own)
+        finally:
+            _PREPARATION_SLOTS.release()
+
+    _submit_preparation(run)
+
+
+def _another_turn_runs(thread_id: str, own: Any) -> bool:
+    from row_bot.runtime.executions import generation_registry
+
+    return any(handle is not own for handle in generation_registry.active(thread_id))
+
+
+def _prepare_summary_ahead(inputs: PreparationInputs, usage: ContextUsage, own: Any) -> None:
+    """Write the summary a compaction at the point would write, and keep it for then.
+
+    Runs in a copy of the settled turn's context. It skips when another turn of the chat runs or a
+    compaction holds the chat's lock (it never waits for one), and any failure stores nothing: no
+    summary, no failure marker. The reactive path at the point is then exactly as before.
+    """
+    from row_bot.cancellation import use_cancellation_scope
+
+    thread_id = _current_thread_id_var.get() or ""
+    # Nothing of the finished turn carries over: its stop button, cancellation, turn id, Learning turn.
+    _current_stop_event_var.set(None)
+    _current_generation_id_var.set("")
+    _current_learning_turn_var.set(None)
+    _current_compaction_prepared_var.set(True)
+    if not thread_id or _another_turn_runs(thread_id, own):
+        return
+    lock = _compaction_lock(thread_id)
+    if not lock.acquire(blocking=False):
+        return
+    try:
+        with use_cancellation_scope(None):
+            from row_bot.threads import save_context_usage_cas, save_prepared_summary_cas, summary_text_digest
+
+            summary_state = _validated_summary_for_inputs(inputs)
+            if _usable_prepared_summary(inputs, summary_state) is not None:
+                return
+            boundary = _choose_compaction_boundary(inputs, summary_state)
+            summary = _summarize_aged_range(
+                inputs,
+                previous_state=summary_state,
+                boundary=boundary,
+                compactable_tokens=_count_prepared_tokens(list(inputs.raw_messages[:boundary]), ()),
+            )
+            state = {
+                **_summary_state_for(inputs, boundary, summary),
+                "base_summary_digest": summary_text_digest(summary_state),
+            }
+            if not save_prepared_summary_cas(thread_id, state, messages=list(inputs.raw_messages)):
+                return
+            ready = {**usage.to_dict(), "summary_ready": True}
+            # Only while the conversation is still where it settled: a newer turn reports for itself.
+            if save_context_usage_cas(thread_id, ready):
+                _publish_context_update(thread_id, ready)
+    except Exception:
+        logger.debug("Prepared compaction skipped", exc_info=True)
+    finally:
+        lock.release()
+
+
+def _publish_context_update(thread_id: str, usage: dict) -> None:
+    try:
+        from row_bot.application.context_status import project_live_usage
+        from row_bot.projection.conversation import conversation_projection
+
+        conversation_projection.publish(
+            thread_id, "context.updated", project_live_usage(thread_id, usage, "context_usage")
+        )
+    except Exception:
+        logger.debug("Context update was not published", exc_info=True)
+
+
 def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) -> PreparedModelInput:
     """The next request, compacted first when it reaches the compaction point (D2).
 
@@ -4264,6 +4529,16 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
         if not force and prepared.usage.estimated_input_tokens < compact_at:
             _emit_context_event("context_usage", _usage_event_payload(prepared.usage))
             return prepared
+        ahead = _take_prepared_summary(inputs, summary_state)
+        if ahead is not None:
+            rebuilt = _prepare_model_input(inputs.raw_messages, inputs, ahead, mode=inputs.mode)
+            if rebuilt.usage.estimated_input_tokens >= min(compact_at, usable):
+                # Not enough room on its own (the chat grew a lot since): today's path starts from
+                # it, so only the newer range is summarized.
+                summary_state = ahead
+            elif thread_id and _save_summary_state(thread_id, inputs, ahead):
+                # Ready before the point: no summarizer call in this turn, and no pause.
+                return _compaction_succeeded(inputs, ahead, rebuilt, prepared=True)
         _emit_context_event("compaction_started", _usage_event_payload(prepared.usage))
         try:
             stop_event = _current_stop_event_var.get()
@@ -4279,29 +4554,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
             )
             if stop_event and stop_event.is_set():
                 raise TaskStoppedError("Stopped during context compaction.")
-            from row_bot.threads import context_boundary_digest, save_summary_state_cas
-
-            boundary_digest = context_boundary_digest(
-                list(inputs.raw_messages),
-                boundary,
-                inputs.mode,
-            )
-            next_state = {
-                "schema_version": _SUMMARY_STATE_SCHEMA_VERSION,
-                "mode": inputs.mode,
-                "model_ref": inputs.model_ref,
-                "provider_id": inputs.provider_id,
-                "source_revision": inputs.checkpoint_revision or "",
-                "boundary_message_count": boundary,
-                "boundary_digest": boundary_digest,
-                "summary": summary,
-                "prompt_fingerprint": inputs.prompt_fingerprint,
-                "tool_fingerprint": inputs.tool_fingerprint,
-                "policy_fingerprint": inputs.policy_fingerprint,
-                # The kept turns already complete lose their (now unbound) thinking blocks.
-                "thinking_strip": _thinking_strip_anchor(inputs, boundary),
-                "created_at": _context_datetime.now().isoformat(),
-            }
+            next_state = _summary_state_for(inputs, boundary, summary)
             rebuilt = _prepare_model_input(
                 inputs.raw_messages,
                 inputs,
@@ -4328,20 +4581,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
                     if stop_event and stop_event.is_set():
                         raise TaskStoppedError("Stopped during context compaction.")
                     boundary = fallback_boundary
-                    summary = fallback_summary
-                    boundary_digest = context_boundary_digest(
-                        list(inputs.raw_messages),
-                        boundary,
-                        inputs.mode,
-                    )
-                    next_state = {
-                        **next_state,
-                        "boundary_message_count": boundary,
-                        "boundary_digest": boundary_digest,
-                        "summary": summary,
-                        "thinking_strip": _thinking_strip_anchor(inputs, boundary),
-                        "created_at": _context_datetime.now().isoformat(),
-                    }
+                    next_state = _summary_state_for(inputs, boundary, fallback_summary)
                     rebuilt = _prepare_model_input(
                         inputs.raw_messages,
                         inputs,
@@ -4353,20 +4593,12 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
                 or rebuilt.usage.estimated_input_tokens >= usable
             ):
                 raise ContextCompactionError("Compaction did not create enough safe input slack.")
-            if not thread_id or not save_summary_state_cas(
-                thread_id,
-                next_state,
-                expected_revision=inputs.checkpoint_revision or "",
-                # This turn's own checkpoint, written in the background, may land meanwhile.
-                messages=list(inputs.raw_messages),
-            ):
+            if not thread_id or not _save_summary_state(thread_id, inputs, next_state):
                 # A concurrent winner may already have produced a valid state.
                 concurrent = _validated_summary_for_inputs(inputs)
                 if not concurrent:
                     raise ContextCompactionError("Conversation changed while compaction was finishing.")
                 next_state = concurrent
-                boundary = int(next_state.get("boundary_message_count") or 0)
-                boundary_digest = str(next_state.get("boundary_digest") or "")
                 rebuilt = _prepare_model_input(
                     inputs.raw_messages,
                     inputs,
@@ -4378,22 +4610,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
                     or rebuilt.usage.estimated_input_tokens >= usable
                 ):
                     raise ContextCompactionError("Concurrent compaction did not create safe input slack.")
-            event = _record_compaction_event(
-                inputs,
-                event_type="context_compacted",
-                boundary=boundary,
-                boundary_digest=boundary_digest,
-            )
-            _emit_context_event("compaction_succeeded", {
-                **_usage_event_payload(rebuilt.usage),
-                "event_id": event.get("id"),
-                "event_type": "context_compacted",
-                "display_copy": str((event.get("payload") or {}).get("display_copy") or ""),
-            })
-            # The Agent pre-model hook then shows this turn a full turn-context snapshot.
-            _current_compaction_succeeded_var.set(True)
-            _clear_compaction_failure(thread_id, inputs.mode)
-            return rebuilt
+            return _compaction_succeeded(inputs, next_state, rebuilt)
         except TaskStoppedError:
             raise
         except Exception as exc:
@@ -4487,16 +4704,23 @@ def _persist_settled_context_usage(
         summary_state,
         mode=settled_inputs.mode,
     )
+    summary_ready = _usable_prepared_summary(settled_inputs, summary_state) is not None
     usage = ContextUsage(**{
         **prepared.usage.to_dict(),
         "snapshot_kind": "settled",
         "checkpoint_message_digest": checkpoint_message_digest,
         "last_confirmed_input_tokens": last_confirmed_input_tokens,
         "breakdown": _context_breakdown(settled_inputs, prepared),
+        "summary_ready": summary_ready,
     })
     _current_last_preparation_var.set(settled_inputs)
     _persist_context_usage(thread_id, usage)
     _emit_context_event("context_usage", _usage_event_payload(usage))
+    try:
+        if not summary_ready and _should_prepare(settled_inputs, summary_state, usage):
+            _start_preparation(settled_inputs, usage)
+    except Exception:
+        logger.debug("Prepared compaction was not considered", exc_info=True)
     return usage
 
 
@@ -4901,6 +5125,10 @@ _current_last_preparation_var: _contextvars.ContextVar[PreparationInputs | None]
 # Set when a compaction summary was saved during the current Agent preparation.
 _current_compaction_succeeded_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
     "current_compaction_succeeded", default=False
+)
+# The summarizer runs ahead of the point, while the chat is idle (B6): its calls say so in their metadata.
+_current_compaction_prepared_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
+    "current_compaction_prepared", default=False
 )
 # (section id, text) of the system sections the last Agent request was built from; filled only
 # while the DEBUG prefix diff runs (see prompt_prefix_diff).
@@ -5501,12 +5729,11 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
     ``always_ask``: an app tool its app's access says to ask about (a routine change without Full access, or a
     high-impact one); the reviewer is told so, and decides as for any other action."""
     from functools import wraps
+    from row_bot.approval_rules import APP_ASKS_RISK, CHANGE_RISK
     from row_bot.tools.approval_gate import resolve_approval_line, with_approval
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
-    risks = ("changes or deletes something",) + (
-        ("its app's access says to ask first (a high-impact change, or one without Full access)",)
-        if always_ask else ())
+    risks = (CHANGE_RISK,) + ((APP_ASKS_RISK,) if always_ask else ())
     # BaseTool's default async implementation delegates to its own _run. Keep
     # that delegate on an unwrapped copy so async calls ask exactly once.
     original = tool.model_copy()

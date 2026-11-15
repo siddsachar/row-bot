@@ -206,13 +206,11 @@ def _buddy_follows(conversation_id: str, event: tuple, handle: Any = None) -> No
     elif kind == "tool_done":
         _buddy(conversation_id, "tool.finished", "Tool finished")
     elif kind == "interrupt":
-        if not getattr(handle, "approval_granted", False):
-            # An action the person already approved for this turn asks
-            # nobody, so Buddy never says "Needs approval" for it (B333).
-            from row_bot.questions import question_item
-            asking = question_item(payload) is not None
-            _buddy(conversation_id, "approval.needed", "Row-Bot has a question" if asking else "Approval pending",
-                   approval_id=str(getattr(handle, "approval_id", "") or ""), **({"question": True} if asking else {}))
+        # An action the person already allowed for this chat never gets here: the gate allowed it (B333).
+        from row_bot.questions import question_item
+        asking = question_item(payload) is not None
+        _buddy(conversation_id, "approval.needed", "Row-Bot has a question" if asking else "Approval pending",
+               approval_id=str(getattr(handle, "approval_id", "") or ""), **({"question": True} if asking else {}))
     elif kind == "done":
         _buddy(conversation_id, "generation.done", "Done")
     elif kind == "error":
@@ -631,26 +629,6 @@ class ClientPlatformService:
             self.projection.publish(conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
             from row_bot.application import approval_grants
-            if status == "waiting_approval" and handle.approval_granted:
-                from row_bot import activity_log
-                # Answered by what the person allowed for this chat: the log says so, not "You approved".
-                activity_log.mark_chat_grant(handle.conversation_id)
-                try:
-                    self._resolve_approval_locked(handle.approval_id, {"decision": "approve"},
-                                                  runtime_surface=handle.runtime_surface)
-                except ClientPlatformError:
-                    # Not answered after all: the person sees the card as usual.
-                    _LOG.warning("A turn-approved action in %s still needs its approval", handle.conversation_id,
-                                 exc_info=True)
-                    view = self.get_approval(handle.approval_id)
-                    if view["status"] == "pending":
-                        self.projection.publish(handle.conversation_id, "approval.required", {
-                            "status": "waiting_approval", "approval_id": handle.approval_id,
-                            **{key: view[key] for key in ("action_label", "reason", "risk_class", "scope",
-                                                          "safe_argument_summary", "requesting_trace_id", "setup",
-                                                          "question")
-                               if key in view}})
-                return
             if status != "waiting_approval":
                 approval_grants.end_turn(handle.conversation_id)
                 from row_bot import activity_log
@@ -2168,14 +2146,13 @@ class ClientPlatformService:
                 source_thread_id=conversation_id, parent_thread_id=conversation_id,
                 approval_payload_json=context)
             handle.status = "waiting_approval"
-            from row_bot.application import approval_grants
-            handle.approval_granted = approval_grants.granted(conversation_id, payload)
-            if not handle.approval_granted:
-                # An X post's card (its full text and pictures) is read with the approval, not streamed.
-                public_approval.pop("x_post", None)
-                self.projection.publish(conversation_id, "approval.required", {
-                    "status": "waiting_approval", "approval_id": handle.approval_id,
-                    **public_approval})
+            # What the person allowed for this chat is decided in the approval gate, before any card: every
+            # card here is the person's to answer.
+            # An X post's card (its full text and pictures) is read with the approval, not streamed.
+            public_approval.pop("x_post", None)
+            self.projection.publish(conversation_id, "approval.required", {
+                "status": "waiting_approval", "approval_id": handle.approval_id,
+                **public_approval})
         elif kind == "provider_refusal":
             handle.refusal = dict(payload)
         elif kind == "error":
@@ -2206,8 +2183,12 @@ class ClientPlatformService:
         )
         from row_bot.application.approval_grants import approval_kinds
         repeatable = row["resume_kind"] == "conversation" and approval_kinds(context.get("interrupt")) is not None
+        # "Always allow…" (D1): one action whose card the gate gave a rule scope, still one a rule may cover.
+        from row_bot import approval_rules
+        rule_eligible = row["status"] == "pending" and approval_rules.from_interrupt(
+            context.get("interrupts") if agent_request else context.get("interrupt")) is not None
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
-                "requested_at": row["requested_at"], "repeatable": repeatable,
+                "requested_at": row["requested_at"], "repeatable": repeatable, "rule_eligible": rule_eligible,
                 "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
                 "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row)),
                 **public_context}

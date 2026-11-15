@@ -155,7 +155,7 @@ def _shown(text: str) -> str:
     return text if len(text) <= MEMORY_TEXT_CHARS else text[:MEMORY_TEXT_CHARS].rstrip() + " … (shortened)"
 
 
-def _prompt(batch: list[tuple[NewMemory, list[dict]]]) -> str:
+def _prompt(batch: list[tuple[NewMemory, list[dict]]], today: date | None = None) -> str:
     from row_bot.prompts import MEMORY_RECONCILE_PROMPT
 
     items = []
@@ -174,19 +174,19 @@ def _prompt(batch: list[tuple[NewMemory, list[dict]]]) -> str:
             } for entity in candidates],
         })
     return MEMORY_RECONCILE_PROMPT.format(
-        today=date.today().isoformat(),
+        today=(today or date.today()).isoformat(),
         limit=MEMORY_TEXT_CHARS,
         items=json.dumps(items, ensure_ascii=False, indent=1),
     )
 
 
 def _decide(batch: list[tuple[NewMemory, list[dict]]], *, invoke: Callable[[str], str] | None,
-            purpose: str) -> dict[int, dict]:
+            purpose: str, today: date | None = None) -> dict[int, dict]:
     """The model's decision for each fact of *batch*, by its number (1-based). Raises when it can't answer."""
     from langchain_core.messages import HumanMessage
     from row_bot.providers.background import active_turn_ids, invoke_background, list_field
 
-    prompt = _prompt(batch)
+    prompt = _prompt(batch, today)
     try:
         if invoke is not None:
             raw = invoke(prompt) or ""
@@ -233,13 +233,14 @@ def _fuller(memory: NewMemory, candidates: list[dict]) -> dict | None:
 
 
 def plan(memories: list[NewMemory], *, invoke: Callable[[str], str] | None = None,
-         purpose: str = "memory_reconcile") -> list[tuple[str, NewMemory, dict | None, str]]:
+         purpose: str = "memory_reconcile", today: date | None = None) -> list[tuple[str, NewMemory, dict | None, str]]:
     """What to do with each new fact, without writing: (action, fact, saved memory, text or subject).
 
     For ``add`` the last item is the subject to save under; for ``update`` the rewritten text. A reply that
     names a memory that was not offered, or an action it can't do, adds the fact as its own memory: nothing
     the person said is dropped. Raises ``ReconcileUnavailable`` when the model gives no usable reply, before
-    anything is written, so the caller can try again later.
+    anything is written, so the caller can try again later. *today* is the date the facts were said
+    (a conversation's own date, for extraction); today's when not given.
     """
     planned: list[tuple[str, NewMemory, dict | None, str]] = []
     pending: list[tuple[NewMemory, list[dict]]] = []
@@ -257,7 +258,7 @@ def plan(memories: list[NewMemory], *, invoke: Callable[[str], str] | None = Non
             pending.append((memory, candidates))
     for start in range(0, len(pending), RECONCILE_BATCH):
         batch = pending[start:start + RECONCILE_BATCH]
-        decisions = _decide(batch, invoke=invoke, purpose=purpose)
+        decisions = _decide(batch, invoke=invoke, purpose=purpose, today=today)
         for number, (memory, candidates) in enumerate(batch, 1):
             decision = decisions.get(number) or {}
             action = str(decision.get("action") or "").strip().lower()
@@ -340,6 +341,7 @@ def _merged_aliases(old: str, new: str) -> str:
 
 
 def reconcile(memories: list[NewMemory], *, actor: str = "extraction", invoke: Callable[[str], str] | None = None,
-              purpose: str = "memory_reconcile", validate: Callable[[], None] | None = None) -> list[Outcome]:
+              purpose: str = "memory_reconcile", validate: Callable[[], None] | None = None,
+              today: date | None = None) -> list[Outcome]:
     """Decide and write: ``plan`` then ``apply``."""
-    return apply(plan(memories, invoke=invoke, purpose=purpose), actor=actor, validate=validate)
+    return apply(plan(memories, invoke=invoke, purpose=purpose, today=today), actor=actor, validate=validate)

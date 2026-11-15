@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { ClientController } from '../../../api/controller';
 import type { AnswerStateChange, AnswerStateView } from '../../../api/types';
 
@@ -27,8 +27,16 @@ function kept(view: AnswerStateView): Entry['view'] {
 type Entry = {
   view: AnswerState & { revision?: string };
   loading?: Promise<void>;
+  /** Read from Row-Bot (or this client can't read it: a preview). */
+  loaded: boolean;
+  /** Changes made here; a read that started before one never replaces it. */
+  changes: number;
   listeners: Set<() => void>;
 };
+// A read that fails (the chat shown before the connection is ready, a
+// moment offline) is tried again, more slowly each time.
+const RETRIES = 8;
+const retryDelay = (attempt: number) => Math.min(500 * 2 ** attempt, 5000);
 
 const EMPTY: AnswerState = { ticks: {}, choices: {} };
 const entries = new Map<string, Entry>();
@@ -36,7 +44,7 @@ const entries = new Map<string, Entry>();
 function entry(conversationId: string): Entry {
   let found = entries.get(conversationId);
   if (!found) {
-    found = { view: EMPTY, listeners: new Set() };
+    found = { view: EMPTY, loaded: false, changes: 0, listeners: new Set() };
     entries.set(conversationId, found);
   }
   return found;
@@ -67,8 +75,18 @@ function applied(view: Entry['view'], change: Change): Entry['view'] {
 }
 
 async function load(controller: ClientController, conversationId: string) {
-  const view = await controller.answerState(conversationId);
-  if (view) publish(conversationId, kept(view));
+  const found = entry(conversationId);
+  const seen = found.changes;
+  try {
+    const view = await controller.answerState(conversationId);
+    found.loaded = true;
+    // A tick made while this read was on its way is newer: its own save
+    // read the state again and keeps it, so this older answer is dropped.
+    if (view && found.changes === seen) publish(conversationId, kept(view));
+  } catch (error) {
+    if ((error as { code?: string }).code === 'capability_unavailable')
+      found.loaded = true;
+  }
 }
 
 /** This chat's state, read from Row-Bot the first time it is shown. */
@@ -86,13 +104,28 @@ export function useAnswerState(
     },
     () => (key ? entry(key).view : EMPTY),
   );
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!key || !controller?.answerState) return;
     const found = entry(key);
-    found.loading ??= load(controller, key).catch(() => {
+    if (found.loaded) return;
+    let live = true;
+    let timer: number | undefined;
+    found.loading ??= load(controller, key).finally(() => {
       found.loading = undefined;
     });
-  }, [controller, key]);
+    void found.loading.then(() => {
+      if (live && !found.loaded && attempt < RETRIES)
+        timer = window.setTimeout(
+          () => setAttempt((value) => value + 1),
+          retryDelay(attempt),
+        );
+    });
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [controller, key, attempt]);
   return view;
 }
 
@@ -107,6 +140,7 @@ export async function changeAnswerState(
   change: Change,
 ): Promise<boolean> {
   if (!conversationId) return true;
+  entry(conversationId).changes += 1;
   const before = entry(conversationId).view;
   publish(conversationId, applied(before, change));
   if (!controller?.saveAnswerState || !controller.answerState) return true;
@@ -116,6 +150,7 @@ export async function changeAnswerState(
     try {
       if (!revision) {
         const fresh = kept(await controller.answerState(conversationId));
+        entry(conversationId).loaded = true;
         publish(conversationId, applied(fresh, change));
         revision = fresh.revision;
       }

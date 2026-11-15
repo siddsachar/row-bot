@@ -349,7 +349,7 @@ def test_extraction_reads_checkpoint_messages_without_agent_graph(tmp_path, monk
 
     assert messages == [
         {"role": "user", "content": "My project is Atlas."},
-        {"role": "assistant", "content": "Got it."},
+        {"role": "assistant", "content": "Got it.", "trusted": True},
     ]
 
 

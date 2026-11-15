@@ -100,6 +100,11 @@ class WolframAlphaTool(BaseTool):
     def required_api_keys(self) -> dict[str, str]:
         return {"Wolfram Alpha App ID": "WOLFRAM_ALPHA_APPID"}
 
+    @property
+    def untrusted_tool_names(self) -> set[str]:
+        # Its answers are text from an outside service: fenced, and kept out of memory extraction.
+        return {"wolfram_alpha"}
+
     def as_langchain_tools(self) -> list:
         from row_bot.api_keys import get_key
 

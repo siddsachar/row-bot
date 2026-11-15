@@ -37,6 +37,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from row_bot.approval_policy import normalize_approval_mode
+from row_bot.approval_rules import COMMAND_RISK
 from row_bot.brand import APP_DATA_DIR_ENV, DEFAULT_DATA_DIR_NAME
 from row_bot.data_paths import (
     default_workspace_root,
@@ -1119,7 +1120,7 @@ class ShellTool(BaseTool):
         if classification != "private_data" and names_private_data(command, session.cwd):
             classification = "private_data"
 
-        risks: tuple[str, ...] = ("runs a command that can change things on this computer",)
+        risks: tuple[str, ...] = (COMMAND_RISK,)
         if background:
             risks += (_BACKGROUND_RISK,)
         if _sets_git_identity(command):
@@ -1138,6 +1139,8 @@ class ShellTool(BaseTool):
                 "args": {"command": command},
                 # Where it runs, by the folder's name only, as Settings names it (U7).
                 "folder": Path(session.cwd).name or session.cwd,
+                # And the folder itself, for a standing rule's scope (never shown, never to the reviewer).
+                "folder_path": str(session.cwd),
             },
             risks=risks,
             private_description=(
@@ -1244,7 +1247,7 @@ class ShellTool(BaseTool):
             classification=classification,
             payload=start_process_approval(command, str(where), variables, label, approval_reason),
             risks=(
-                "runs a command that can change things on this computer",
+                COMMAND_RISK,
                 _BACKGROUND_RISK,
                 *((approval_gate.GIT_IDENTITY_RISK,) if _sets_git_identity(command) else ()),
             ),

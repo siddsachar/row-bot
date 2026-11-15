@@ -225,6 +225,23 @@ describe('Settings › System › Activity', () => {
     });
   });
 
+  it('says an action ran because of your rule, and points to it (D1)', async () => {
+    setup([
+      page([
+        entry({
+          outcome: 'allowed_by_rule',
+          decided_by: 'rule',
+          reason: '',
+          rule_id: '0123456789abcdef',
+        }),
+      ]),
+    ]);
+    const pill = await screen.findByText('Allowed by your rule');
+    fireEvent.click(pill.closest('button')!);
+    expect(screen.getByText(/^Your rule ·/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'See the rule' })).toBeVisible();
+  });
+
   it('clears everything only after you confirm', async () => {
     const io = setup();
     await screen.findByText('Reviewer approved');

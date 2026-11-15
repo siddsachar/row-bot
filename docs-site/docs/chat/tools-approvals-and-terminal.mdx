@@ -73,8 +73,21 @@ Approving lets Row-Bot continue that action. Denying stops that action and retur
 
 An approval card offers **Details**, **Deny** and **Approve** (⌘/Ctrl+Enter), and in a chat also:
 
-- **Allow in this chat**: approves this, and later actions of the same kind in this conversation, without asking again (commands count by what they do, so allowing `npm test` doesn't allow `git push`). It ends when the conversation is deleted or Row-Bot restarts. Sending, posting, sharing, deleting, paying, pushing or opening a pull request, reading Row-Bot's private data, high-risk app actions and anything only you can approve always ask.
+- **Allow in this chat**: approves this, and later actions of the same kind in this conversation, without asking again (commands count by what they do, so allowing `npm test` doesn't allow `git push`). It also covers the conversation's helper agents and, in a workflow's own chat, the workflow's later runs, and under **Auto** those actions skip the reviewer. It ends when the conversation is deleted or Row-Bot restarts. Sending, posting, sharing, deleting, paying, pushing or opening a pull request, reading Row-Bot's private data, high-risk app actions and anything only you can approve always ask.
+- **Always allow…** (the ∞ icon, or **More choices** on a phone): approves this now and from now on, in any of your chats, until you turn it off. Before you save it, the sheet shows what the rule would have covered in the last 30 days, with any action you said no to first.
 - **Use Auto in this chat** (under **Ask**): approves this and switches the chat to reviewed **Auto**.
+
+### Always Allow
+
+An Always allow rule is offered only for three kinds of action, decided by Row-Bot from the action itself:
+
+- **An app's routine change**, such as **Notion › Create a page**: one tool of one app, and only a tool Row-Bot sees as an ordinary change (never one that deletes, sends or that it can't place).
+- **One exact command in one folder**, such as `npm test` in **row-bot**: that text exactly, with no other command joined to it, and never an install, network use, a delete, a commit, a push, a pull request or a server.
+- **Moving and renaming files** inside your workspace folder.
+
+A rule applies under **Ask** and **Auto** (it skips the reviewer), never under **Block**, never in a chat other people share (a Slack or Discord channel thread, a group chat) and never to an action only you can approve. The step shows **Your rule**, and Settings › System › Activity shows **Allowed by your rule**.
+
+**Settings › System › Activity › Always allow** lists your rules (at most 100) with how often each was used. Switch one off, delete it, or edit a command rule's exact command: the new command is checked like a new rule, and the sheet shows what it would have covered. A rule only ever starts from an approval card. If Row-Bot can't read your rules, nothing is allowed by them: every action asks as usual.
 
 ### Settings Row-Bot Changes
 

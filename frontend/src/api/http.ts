@@ -540,6 +540,24 @@ export class HttpTransport implements ClientTransport {
   clearActivity() {
     return wire.clearActivity(this.base, this.session());
   }
+  approvalRules(signal?: AbortSignal) {
+    return wire.getApprovalRules(this.base, this.session(), signal);
+  }
+  createApprovalRule(body: wire.ApprovalRuleCreate) {
+    return wire.createApprovalRule(this.base, this.session(), body);
+  }
+  updateApprovalRule(ruleId: string, body: wire.ApprovalRuleUpdate) {
+    return wire.updateApprovalRule(this.base, this.session(), ruleId, body);
+  }
+  deleteApprovalRule(ruleId: string) {
+    return wire.deleteApprovalRule(this.base, this.session(), ruleId);
+  }
+  dryRunApprovalRule(
+    body: wire.ApprovalRuleDryRunRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.dryRunApprovalRule(this.base, this.session(), body, signal);
+  }
   proactiveActivity(before?: number, limit?: number, signal?: AbortSignal) {
     return wire.getProactiveActivity(
       this.base,

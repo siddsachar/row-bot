@@ -904,6 +904,16 @@ it.each([
     'Hands-off',
     'Allowed by Hands-off',
   ],
+  [
+    'Approval: allowed by your rule: Always allow `New-Item notes.txt` in row-bot\n$ New-Item notes.txt',
+    'Your rule',
+    'Allowed by your rule: Always allow `New-Item notes.txt` in row-bot',
+  ],
+  [
+    'Approval: allowed by you for this chat\n$ New-Item notes.txt',
+    'Allowed in this chat',
+    'Allowed by you for this chat',
+  ],
 ])(
   'records who let a step run without asking you (A0): %#',
   (summary, tag, line) => {

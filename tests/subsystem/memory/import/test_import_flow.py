@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -195,6 +196,18 @@ def test_finding_memories_in_conversations_reads_only_the_persons_newest_message
     assert {item["source_label"] for item in found} == {"ChatGPT · Chat c4", "ChatGPT · Chat c3",
                                                         "ChatGPT · Chat c2"}
     assert _memory(stack) == before  # found, not saved
+
+
+def test_a_found_conversation_is_read_with_its_own_date_not_todays(stack):
+    service = stack.service
+    said = datetime(2023, 7, 15, 12, tzinfo=timezone.utc).timestamp()
+    chats = [chatgpt_simple("c1", said, "I went to the council meeting last Friday.")]
+    batch_id = _scanned(service, text=None, files={"export.zip": zip_bytes({"conversations.json": chats})})
+
+    service.find_in_conversations(SESSION, batch_id)
+    settle()
+
+    assert "This conversation is dated Saturday, 15 July 2023." in "\n".join(stack.model.extraction_prompts)
 
 
 def test_finding_memories_stops_at_the_character_bound(stack, monkeypatch):
