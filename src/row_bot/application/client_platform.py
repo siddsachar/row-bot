@@ -772,6 +772,7 @@ class ClientPlatformService:
                 "updated_at": str(row.get("updated_at") or ""),
                 "parent_conversation_id": parent_conversation_id or None,
                 "started_from": started_from or None,
+                "forked_from": self._fork_origin(str(row.get("forked_from_id") or "")),
                 "activity_state": orchestration_activity.get("state"),
                 "activity_phase": str(orchestration_activity.get("phase") or "")[:64],
                 "category": threads.classify_thread(
@@ -782,6 +783,17 @@ class ClientPlatformService:
                 ),
                 "generation_state": [h.view() for h in self.registry.active(conversation_id)],
                 "resource_bindings": [asdict(binding) for binding in resources.bindings]}
+
+    @staticmethod
+    def _fork_origin(source_id: str) -> dict | None:
+        """The conversation a fork was copied from, while it still exists: its id and name."""
+        if not source_id:
+            return None
+        from row_bot import threads
+        with closing(sqlite3.connect(threads.DB_PATH)) as conn:
+            row = conn.execute("SELECT name FROM thread_meta WHERE thread_id=? AND COALESCE(deleted_at,'')=''",
+                               (source_id,)).fetchone()
+        return {"id": source_id, "title": str(row[0] or "Untitled")[:256]} if row else None
 
     def register_attachment(self, *, owner_id: str, idempotency_key: str, command_id: str,
                             client_session_id: str, conversation_id: str, name: str,
@@ -1283,6 +1295,19 @@ class ClientPlatformService:
                 raise ClientPlatformError(str(exc)) from exc
             return {"conversation_id": target, "revision": str(row["client_revision"]),
                     "saved_name": name, "status": "completed"}
+        if kind == "conversation.fork":
+            # Edit and resend, Fork from here (B5): a new conversation; this one is only read.
+            if self.registry.active(target):
+                raise ClientPlatformError("generation_active")
+            try:
+                fork = threads.fork_conversation(
+                    target, at_message_id=str(payload["at_message_id"]), include_message=payload["mode"] == "fork",
+                    thread_id=str(uuid.uuid5(uuid.UUID(str(command["command_id"])), "fork")))
+            except threads.ForkError as exc:
+                raise ClientPlatformError(exc.code) from exc
+            return {"conversation_id": target, "revision": str(row["client_revision"]), "status": "completed",
+                    "forked_conversation_id": fork.conversation_id,
+                    "draft_attachments": list(fork.draft_attachments)}
         if kind == "conversation.incognito":
             incognito = bool(payload.get("incognito"))
             if bool(row.get("incognito")) == incognito:
