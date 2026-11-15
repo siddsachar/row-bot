@@ -44,7 +44,8 @@ export type SkillAction =
   | 'skill.duplicate'
   | 'skill.delete'
   | 'skill.proposal.apply'
-  | 'skill.proposal.reject';
+  | 'skill.proposal.reject'
+  | 'skill.proposal.edit';
 export type SkillSummary = {
   id: string;
   display_name: string;

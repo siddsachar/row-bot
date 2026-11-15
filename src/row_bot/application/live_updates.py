@@ -37,6 +37,8 @@ Topics (add one here, then publish it where its state changes):
   vault taking new work, a personal model's use (``learning.changed``).
 - ``proactive``: Proactive Row-Bot: a moment made, shown, acted on, dismissed or
   run out, a rule changed, or a new line in its Activity log.
+- ``skill_offers``: "Save as a skill" (C1): an offer made under a reply or dismissed, a
+  draft written or edited, or a draft saved or rejected.
 """
 from __future__ import annotations
 
@@ -50,7 +52,7 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 Topic = Literal["conversations", "runs", "approvals", "helpers", "processes", "monitor", "models", "notices",
-                "learning", "proactive"]
+                "learning", "proactive", "skill_offers"]
 TOPICS: tuple[str, ...] = get_args(Topic)
 
 
