@@ -32,6 +32,7 @@ import {
 } from './model';
 import Preferences from './Preferences';
 import LearningSettings from '../learning/LearningSettings';
+import ProactiveSettings from './ProactiveSettings';
 import { useLearning, useLearningPreview } from '../learning/learning-state';
 import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
@@ -534,6 +535,8 @@ export default function SettingRoute() {
           ) : (
             snapshotState
           )
+        ) : leaf.id === 'proactive' ? (
+          <ProactiveSettings />
         ) : leaf.id === 'appearance' ? (
           <AppearanceSettings />
         ) : leaf.id === 'preferences' ||

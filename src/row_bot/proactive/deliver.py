@@ -9,8 +9,9 @@ At the computer:
 Away (idle for a while or locked; known only with desktop context on):
 
 - a **chat app** (the channel chosen in Settings › Proactive), only for kinds the person marked urgent;
-- else **phone push**: Row-Bot's content-free wake-up to the person's subscribed phones (the phone shows
-  Row-Bot's own fixed words; no moment text leaves the computer that way);
+- else **phone push** (``access.push.notify_soon``): the moment's title and its one line, end-to-end
+  encrypted to the person's subscribed phones; with "Show details in notifications" off they show only
+  Row-Bot's own words. Tapping it opens the moment's chat, or Home;
 - else it waits until they're back.
 
 Every moment is also listed in For you; that isn't a surface. The Buddy payload (``buddy_payload``) is what
@@ -71,6 +72,17 @@ def buddy_payload(moment: dict[str, Any]) -> dict[str, Any]:
             "urgency": moment["urgency"], "actions": list(moment["actions"][:2]), "label": moment["title"]}
 
 
+def _push(moment: dict[str, Any]) -> None:
+    """The phone notice: the moment's title and its one line; tapping it opens the chat it came from, if any."""
+    from row_bot.access.push import notify_soon
+
+    line = next((text.strip().removeprefix("- ") for text in str(moment.get("body") or "").splitlines()
+                 if text.strip()), "")
+    conversation = next((str(item.get("id") or "") for item in moment.get("evidence") or []
+                         if item.get("type") in ("conversation", "ask")), "")
+    notify_soon(moment["title"], line, conversation_id=conversation)
+
+
 def send(surface: str, moment: dict[str, Any], settings: dict[str, Any]) -> bool:
     """Put a moment on its surface; False when that surface couldn't take it (it waits for the next tick)."""
     try:
@@ -88,9 +100,7 @@ def send(surface: str, moment: dict[str, Any], settings: dict[str, Any]) -> bool
 
             desktop_alert(moment["title"], moment["body"])
         elif surface == "push":
-            from row_bot.access.push import wake_soon
-
-            wake_soon()
+            _push(moment)
         elif surface == "channel":
             channel = _channel(settings)
             if channel is None:

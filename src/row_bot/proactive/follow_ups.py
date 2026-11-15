@@ -117,42 +117,52 @@ class MailWatcher(Watcher):
     def available(self) -> bool:
         return bool(self._ready())
 
-    def scan(self, cursor: dict[str, Any], now: float) -> tuple[list[Candidate], dict[str, Any]]:
-        from row_bot.proactive import settings as proactive_settings
-
-        days = proactive_settings.load()["follow_up_days"]
-        before = now - days * 86400
-        since = before - FOLLOW_UP_WINDOW_DAYS * 86400
-        emitted: list[str] = list(cursor.get("emitted") or [])
+    def _candidates(self, since: float, before: float, now: float) -> list[Candidate]:
+        """A follow-up for each thread whose last message (the person's, or someone else's waiting on them)
+        is from between *since* and *before*; *now* is when it is due."""
         found: list[Candidate] = []
         for source in self._ready():
             for thread in source.unanswered_sent(since, before):
-                key = f"follow_up:{source.name}:{thread.thread_id}"
-                if key in emitted:
-                    continue
-                emitted.append(key)
                 waited = int((now - thread.at) // 86400)
                 found.append(Candidate(
-                    kind="follow_up", key=key, title=f"No reply from {thread.other} about “{thread.subject}”",
+                    kind="follow_up", key=f"follow_up:{source.name}:{thread.thread_id}",
+                    title=f"No reply from {thread.other} about “{thread.subject}”",
                     summary=f"The person wrote to {thread.other} {waited} days ago and has had no reply.",
                     evidence=(Evidence("thread", thread.thread_id, thread.subject, source.name,
                                        seen=thread.last_message_id),),
                     topic=thread.other, untrusted=f"Subject: {thread.subject}\nTheir own last message: {thread.snippet}",
                     expires_at=now + 3 * 86400, actions=({"id": "open_draft", "label": "Open draft"},)))
             for thread in source.waiting_on_me(since, before):
-                key = f"waiting:{source.name}:{thread.thread_id}"
-                if key in emitted:
-                    continue
-                emitted.append(key)
                 waited = int((now - thread.at) // 86400)
                 found.append(Candidate(
-                    kind="follow_up", key=key, title=f"{thread.other} is waiting on your reply about “{thread.subject}”",
+                    kind="follow_up", key=f"waiting:{source.name}:{thread.thread_id}",
+                    title=f"{thread.other} is waiting on your reply about “{thread.subject}”",
                     summary=f"{thread.other} wrote {waited} days ago; the person hasn't replied.",
                     evidence=(Evidence("thread", thread.thread_id, thread.subject, source.name,
                                        seen=thread.last_message_id),),
                     topic=thread.other, untrusted=f"Subject: {thread.subject}\nTheir last message: {thread.snippet}",
                     expires_at=now + 3 * 86400, actions=({"id": "open_draft", "label": "Open draft"},)))
+        return found
+
+    @staticmethod
+    def _days() -> int:
+        from row_bot.proactive import settings as proactive_settings
+
+        return proactive_settings.load()["follow_up_days"]
+
+    def scan(self, cursor: dict[str, Any], now: float) -> tuple[list[Candidate], dict[str, Any]]:
+        before = now - self._days() * 86400
+        emitted: list[str] = list(cursor.get("emitted") or [])
+        found = [candidate for candidate in self._candidates(before - FOLLOW_UP_WINDOW_DAYS * 86400, before, now)
+                 if candidate.key not in emitted]
+        emitted.extend(candidate.key for candidate in found)
         return found, {"emitted": emitted[-EMITTED_KEPT:]}
+
+    def upcoming(self, now: float, until: float) -> list[Candidate]:
+        """The follow-ups that come due between now and *until* (Dream Cycle prepares their drafts ahead).
+        Nothing is remembered: the watcher still makes each one when it comes due."""
+        days = self._days() * 86400
+        return self._candidates(now - days, until - days, until)
 
     def recheck(self, moment: dict[str, Any], now: float) -> bool | None:
         evidence = next((item for item in moment["evidence"] if item["type"] == "thread"), None)
@@ -207,19 +217,24 @@ class ChatsWatcher(Watcher):
         words = ask_words(line.text)
         if len(words) < ASK_MIN_WORDS:
             return []
+        from row_bot.proactive.offers import declined
+
         alike = [ask for ask in asks if _similar(ask["words"], words)]
         asks.append({"words": sorted(words), "conversation": line.conversation_id, "at": now})
         chats = {ask["conversation"] for ask in alike} | {line.conversation_id}
-        if len(chats) < ASKS_FOR_OFFER or any(_similar(previous, words) for previous in offered):
-            return []
+        if len(chats) < ASKS_FOR_OFFER or any(_similar(previous, words) for previous in [*offered, *declined()]):
+            return []  # Not yet, offered once already, or the person said no to an ask like it (for good).
         offered.append(sorted(words))
+        # The latest ask, in the person's words, is what a workflow made from the offer would send.
+        latest = Evidence("ask", line.conversation_id, line.text[:300], "chats", seen=" ".join(sorted(words)))
         return [Candidate(
             kind="workflow_offer", key=f"offer:{'-'.join(sorted(words))[:200]}", title="Make this a workflow?",
             summary=f"The person has asked for much the same thing in {len(chats)} different chats: "
                     f"“{line.text[:160]}”. A workflow could do it on a schedule.",
-            evidence=tuple(Evidence("ask", conversation, "", "chats") for conversation in sorted(chats)),
+            evidence=(*(Evidence("ask", conversation, "", "chats") for conversation in sorted(chats - {line.conversation_id})),
+                      latest),
             topic=" ".join(sorted(words))[:120], expires_at=now + 7 * 86400,
-            actions=({"id": "continue_in_chat", "label": "Set it up"},))]
+            actions=({"id": "make_workflow", "label": "Make it a workflow"},))]
 
     def recheck(self, moment: dict[str, Any], now: float) -> bool | None:
         if moment["kind"] != "follow_up":

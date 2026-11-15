@@ -195,12 +195,12 @@ def test_migration_conflict_requires_explicit_overwrite_and_preserves_restore_co
     source = create_realistic_hermes_home(tmp_path / "source")
     target = tmp_path / "target"
     target.mkdir()
-    original = "# Existing persona\n"
-    (target / "identity").mkdir()
-    (target / "identity" / "SOUL.md").write_text(original, encoding="utf-8")
+    original = json.dumps({"identity": {"personality": "Existing persona."}})
+    (target / "user_config.json").write_text(original, encoding="utf-8")
     preview = client_migration.scan_migration(owner_id="local", provider="hermes", source=str(source), target=str(target))
-    conflict = next(item for item in preview["items"] if item["target"] == str(Path("identity") / "SOUL.md"))
+    conflict = next(item for item in preview["items"] if item["id"] == "identity:personality")
     assert conflict["status"] == "conflict"
+    assert conflict["target"] == "Settings › Preferences › Personality"
     params = dict(owner_id="local", plan_id=preview["plan_id"], revision=preview["revision"], selected_ids=[conflict["id"]])
     with pytest.raises(Exception, match="invalid_migration_selection"):
         client_migration.review_migration_apply(**params, overwrite=False)
@@ -211,12 +211,13 @@ def test_migration_conflict_requires_explicit_overwrite_and_preserves_restore_co
         review_digest=review["review_digest"], confirmed=True,
     )
     assert receipt["status"] == "completed"
-    assert (target / "identity" / "SOUL.md").read_text(encoding="utf-8") == (source / "SOUL.md").read_text(encoding="utf-8")
-    backups = list((target / "migration-backups").glob("*/identity/SOUL.md"))
+    saved = json.loads((target / "user_config.json").read_text(encoding="utf-8"))
+    assert saved["identity"]["personality"] == "Calm, direct, remembers commitments, prefers concise plans."
+    backups = list((target / "migration-backups").glob("*/user_config.json"))
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == original
-    shutil.copy2(backups[0], target / "identity" / "SOUL.md")
-    assert (target / "identity" / "SOUL.md").read_text(encoding="utf-8") == original
+    shutil.copy2(backups[0], target / "user_config.json")
+    assert (target / "user_config.json").read_text(encoding="utf-8") == original
 
 
 def test_migration_finds_the_old_app_in_its_usual_folder(tmp_path, monkeypatch):

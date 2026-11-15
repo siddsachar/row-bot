@@ -46,6 +46,7 @@ def notify(
     source: str = "app",
     requested: bool = False,
     in_app: bool = True,
+    workflow_id: str = "",
 ) -> None:
     """Fire a notification through all channels.
 
@@ -65,6 +66,8 @@ def notify(
         warnings and errors, and information only when it was requested.
     in_app : bool
         False when the open conversation already shows the same problem.
+    workflow_id : str
+        The workflow it is about, for the in-app notice to open.
     """
     from datetime import datetime
     timestamp = datetime.now().strftime("%I:%M %p")
@@ -91,7 +94,7 @@ def notify(
 
         if in_app:
                 app_notices.post(title=title, message=message, level=_LEVELS.get(toast_type, "info"),
-                             source=source, requested=requested)
+                             source=source, requested=requested, workflow_id=workflow_id)
     except Exception:
         logger.debug("In-app notice failed (non-fatal)", exc_info=True)
 

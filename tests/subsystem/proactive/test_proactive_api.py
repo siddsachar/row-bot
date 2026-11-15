@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
-from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, candidate, start_day
+from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, balanced, candidate, start_day
 
 pytestmark = pytest.mark.subsystem
 
@@ -47,6 +47,7 @@ def test_for_you_lists_open_moments_urgent_first_and_why_this_shows_the_evidence
 
 
 def test_feedback_settles_a_moment_once_and_less_like_this_writes_a_visible_rule(proactive, api):
+    balanced(proactive)
     client, headers = api
     [moment] = [item for item in _moments(proactive, candidate("mail:a")) if item["state"] == "shown"]
     url = f"/api/v1/proactive/moments/{moment['id']}/feedback"
@@ -79,7 +80,7 @@ def test_the_activity_log_pages_newest_first_and_includes_silent_passes(proactiv
     rest = client.get(f"/api/v1/proactive/activity?limit=3&before={first['next_before']}", headers=headers).json()
 
     summaries = [item["summary"] for item in first["items"] + rest["items"]]
-    assert summaries == ["Checked fake_mail: nothing new."] * 5
+    assert summaries == ["Checked fake mail: nothing new."] * 5
     assert rest["next_before"] is None
 
 
@@ -101,10 +102,32 @@ def test_settings_read_and_change_with_their_privacy_lines(proactive, api):
     assert (body["level"], body["quiet_start"], body["desktop_context"]) == ("balanced", "21:30", False)
     kinds = {kind["id"]: kind for kind in body["kinds"]}
     assert not kinds["date"]["on"] and kinds["follow_up"]["on"] and kinds["meeting_prep"]["urgent"]
+    assert read["wrap"] is False and body["wrap"] is True, "the end-of-day wrap follows the level"
+    chosen = client.put("/api/v1/proactive/settings", headers=headers, json={"wrap": False}).json()
+    assert chosen["wrap"] is False and chosen["level"] == "balanced", "until the person chooses"
 
     same = client.put("/api/v1/proactive/settings", headers=headers, json={"quiet_start": "07:30"})
     assert same.status_code == 422, "quiet hours that start and end together say nothing"
     assert client.put("/api/v1/proactive/settings", headers=headers, json={"level": "loud"}).status_code == 422
+
+
+def test_making_a_workflow_from_an_offer_names_the_draft_to_open(proactive, api):
+    from row_bot.proactive.model import Evidence
+
+    client, headers = api
+    [offer] = _moments(proactive, candidate(
+        "offer:news", kind="workflow_offer", title="Make this a workflow?", topic="headlines news summarise",
+        evidence=(Evidence("ask", "chat-a", "", "chats"),
+                  Evidence("ask", "chat-b", "Summarise the news headlines", "chats", seen="headlines news summarise"))))
+
+    acted = client.post(f"/api/v1/proactive/moments/{offer['id']}/feedback",
+                        json={"action": "act", "action_id": "make_workflow"}, headers=headers)
+
+    assert acted.status_code == 200, acted.text
+    workflow = proactive.tasks.get_task(acted.json()["workflow_id"])
+    assert workflow["prompts"] == ["Summarise the news headlines"] and not workflow["enabled"]
+    other = client.get(f"/api/v1/proactive/moments/{offer['id']}", headers=headers).json()
+    assert other["workflow_id"] == "" and other["conversation_id"] == ""
 
 
 def test_opening_the_app_is_a_break(proactive, api):

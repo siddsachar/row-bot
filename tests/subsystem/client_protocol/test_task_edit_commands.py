@@ -346,3 +346,19 @@ def test_a_finished_past_once_workflow_can_be_switched_off(task_api):
         switched = send(client, headers, command)
         assert switched.status_code == 200, switched.text
         assert tasks.get_task("b150-once")["enabled"] is False
+
+
+@pytest.mark.parametrize("schedule", ["interval:0.01", "interval_minutes:0.5"])
+def test_the_api_refuses_a_schedule_shorter_than_a_minute(task_api, fields, schedule):
+    from dataclasses import replace
+
+    service, tasks = task_api
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        refused = send(client, headers, body(headers, replace(fields, schedule=schedule)))
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["code"] == "task_schedule_too_often"
+        assert tasks.list_tasks() == []
+        saved = send(client, headers, body(headers, replace(fields, schedule="interval_minutes:1")))
+        assert saved.status_code == 200, saved.text
+        assert tasks.get_task(saved.json()["task_id"])["schedule"] == "interval_minutes:1"

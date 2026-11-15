@@ -36,7 +36,11 @@ import {
   rememberRecentModel,
   splitModelLabel,
 } from './model-choices';
-import { describeContextUsage, Ring } from './ContextUsage';
+import {
+  ContextDetailsPopover,
+  describeContextUsage,
+  Ring,
+} from './ContextUsage';
 import { AppIcon } from '../apps/parts';
 import { currentProfileChoice, profileChoices } from './agent-profiles';
 import {
@@ -120,6 +124,8 @@ export default function ComposerControls({
   const operation = useRef(false);
   const openSkillsAfterMenu = useRef(false);
   const openPickerAfterMenu = useRef(false);
+  const openContextAfterMenu = useRef(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const confirmFullAfterMenu = useRef(false);
   const plusRef = useRef<HTMLButtonElement>(null);
   const shieldRef = useRef<HTMLButtonElement>(null);
@@ -181,6 +187,7 @@ export default function ComposerControls({
     ? splitModelLabel(currentModel.label).name
     : modelRefName(controls.model_selection?.model_ref) || 'Choose model';
   const context = describeContextUsage(contextUsage);
+  const measured = !!contextUsage && contextUsage.state !== 'unknown';
   const apps = composer?.apps ?? [];
   const switchable = apps.filter((app) => app.switchable !== false);
   const appsOn = switchable.filter((app) => app.on && app.available).length;
@@ -359,6 +366,12 @@ export default function ComposerControls({
                 setPickerOpen(true);
                 return;
               }
+              if (openContextAfterMenu.current) {
+                openContextAfterMenu.current = false;
+                event.preventDefault();
+                setContextOpen(true);
+                return;
+              }
               if (!openSkillsAfterMenu.current) return;
               openSkillsAfterMenu.current = false;
               event.preventDefault();
@@ -367,13 +380,30 @@ export default function ComposerControls({
           >
             {singleLine && (
               <>
-                <Dropdown.Label className="composer-plus-context">
-                  <Ring
-                    percent={context.percent}
-                    threshold={context.threshold}
-                  />
-                  <span>{context.text}</span>
-                </Dropdown.Label>
+                {measured ? (
+                  // Opens what fills the context once the menu has closed.
+                  <Dropdown.Item
+                    className="menu-item composer-plus-context"
+                    onSelect={() => {
+                      openContextAfterMenu.current = true;
+                    }}
+                  >
+                    <Ring
+                      percent={context.percent}
+                      threshold={context.threshold}
+                    />
+                    <span className="menu-item-label">{context.text}</span>
+                    <ChevronRight size={14} aria-hidden />
+                  </Dropdown.Item>
+                ) : (
+                  <Dropdown.Label className="composer-plus-context">
+                    <Ring
+                      percent={context.percent}
+                      threshold={context.threshold}
+                    />
+                    <span>{context.text}</span>
+                  </Dropdown.Label>
+                )}
                 <Dropdown.Item
                   className="menu-item"
                   disabled={blocked}
@@ -641,6 +671,14 @@ export default function ComposerControls({
           </Dropdown.Content>
         </Dropdown.Portal>
       </Dropdown.Root>
+      {singleLine && (
+        <ContextDetailsPopover
+          usage={contextUsage}
+          open={contextOpen}
+          onOpenChange={setContextOpen}
+          anchor={plusRef}
+        />
+      )}
       <ModelPicker
         key={id}
         models={state.handshake?.models ?? []}

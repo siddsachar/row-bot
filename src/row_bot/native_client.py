@@ -22,6 +22,8 @@ from urllib.parse import urlsplit
 
 _REFERENCE = re.compile(r"[A-Za-z0-9:_-]{1,256}")
 _SCOPE_VALUE = re.compile(r"[A-Za-z0-9:_.-]{1,256}")
+# A Proactive place the desktop Buddy may open in the main window (see buddy.native_host.MAIN_TARGET).
+_MAIN_TARGET = re.compile(r"for-you|drafts|draft:[0-9a-f]{16}|why:[0-9a-f]{16}")
 # The app's own pages. Home and its tabs are "/app-v2" with no trailing slash
 # (React Router writes "/" under its basename that way), and a conversation's
 # address carries its id percent-encoded (B406).
@@ -159,7 +161,7 @@ class NativeDriver(Protocol):
     def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None: ...
     def buddy_follow(self, conversation_id: str | None) -> dict[str, Any] | None: ...
     def buddy_pet(self, payload: dict[str, Any]) -> dict[str, Any] | None: ...
-    def main_window(self, conversation_id: str | None) -> bool: ...
+    def main_window(self, conversation_id: str | None, target: str | None = None) -> bool: ...
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None: ...
     def reveal(self, path: Path) -> bool: ...
     def capabilities(self) -> list[str]: ...
@@ -293,8 +295,12 @@ class PyWebViewDriver:
             return self._read_buddy_target() if self._read_buddy_target else None
         return self._publish_buddy_target(conversation_id) if self._publish_buddy_target else None
 
-    def main_window(self, conversation_id: str | None) -> bool:
-        return bool(self._show_main_window and self._show_main_window(conversation_id))
+    def main_window(self, conversation_id: str | None, target: str | None = None) -> bool:
+        if not self._show_main_window:
+            return False
+        if target is None:
+            return bool(self._show_main_window(conversation_id))
+        return bool(self._show_main_window(conversation_id, target))  # type: ignore[call-arg]
 
     def buddy_pet(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         return self._buddy_pet(payload) if self._buddy_pet else None
@@ -678,10 +684,14 @@ class NativeClientBridge:
                         and type(value["revision"]) is int and value["revision"] >= 0 else _unavailable())
             if operation == "main_window":
                 target = payload.get("conversationId")
-                if set(payload) != {"conversationId"} or not (
-                        target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target)):
+                place = payload.get("target")
+                if set(payload) - {"target"} != {"conversationId"} or not (
+                        target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target)) or (
+                        "target" in payload and not (target is None and isinstance(place, str)
+                                                     and _MAIN_TARGET.fullmatch(place))):
                     return _unavailable("invalid_request")
-                result = self._driver.main_window(target)
+                result = (self._driver.main_window(target) if "target" not in payload
+                          else self._driver.main_window(None, place))
                 with self._lock:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")

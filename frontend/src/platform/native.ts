@@ -10,6 +10,7 @@ import type {
   SelectionIntent,
 } from './types';
 import {
+  mainWindowTarget,
   nativeConversationId,
   protect,
   safeDownloadName,
@@ -283,10 +284,14 @@ export function createPyWebViewPlatform(
         : Promise.resolve(unavailable('invalid_conversation')),
     readBuddyTarget: () => call('buddy_follow', {}, targetValue),
     buddyPet: (request) => call('buddy_pet', request, petValue),
-    showMainWindow: (conversationId) =>
-      conversationId === null || nativeConversationId(conversationId)
-        ? call('main_window', { conversationId }, nullValue)
-        : Promise.resolve(unavailable('invalid_conversation')),
+    showMainWindow: (conversationId, target) =>
+      target !== undefined
+        ? conversationId === null && mainWindowTarget(target)
+          ? call('main_window', { conversationId, target }, nullValue)
+          : Promise.resolve(unavailable('invalid_request'))
+        : conversationId === null || nativeConversationId(conversationId)
+          ? call('main_window', { conversationId }, nullValue)
+          : Promise.resolve(unavailable('invalid_conversation')),
     // pywebview binds `.pywebview-drag-region` once, when the page loads,
     // before this client renders; the same move channel serves our header.
     moveWindow: (x, y) => {

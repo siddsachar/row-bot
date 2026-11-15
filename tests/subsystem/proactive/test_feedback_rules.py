@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, candidate, start_day
+from tests.subsystem.proactive.conftest import AT_DESK, ScriptedWatcher, at, balanced, candidate, start_day
 
 pytestmark = pytest.mark.subsystem
 
@@ -23,6 +23,7 @@ def _shown(proactive, *candidates, when: str = "2026-11-16 09:00") -> list[dict]
     ("time", "No follow-ups around 09:00"),
 ])
 def test_less_like_this_dismisses_and_writes_the_rule_the_person_chose(proactive, scope, words):
+    balanced(proactive)
     start_day(proactive)
     [moment] = _shown(proactive, candidate("mail:a"))
 
@@ -35,6 +36,7 @@ def test_less_like_this_dismisses_and_writes_the_rule_the_person_chose(proactive
 
 
 def test_a_kind_left_alone_three_times_goes_quiet_says_so_and_comes_back_when_turned_on(proactive):
+    balanced(proactive)
     start_day(proactive)
     for day, key in ((16, "a"), (17, "b"), (18, "c")):
         start_day(proactive, f"2026-11-{day}")
@@ -56,6 +58,7 @@ def test_a_kind_left_alone_three_times_goes_quiet_says_so_and_comes_back_when_tu
 
 
 def test_acting_on_one_ends_a_streak_of_ignores(proactive):
+    balanced(proactive)
     start_day(proactive)
     [first] = _shown(proactive, candidate("change:a", kind="change"))
     proactive.feedback.sweep(at("2026-11-16 22:00"))
@@ -69,6 +72,7 @@ def test_acting_on_one_ends_a_streak_of_ignores(proactive):
 
 
 def test_not_now_brings_it_back_at_a_later_break_not_the_current_one(proactive):
+    balanced(proactive)
     start_day(proactive)
     [moment] = _shown(proactive, candidate("mail:a"))
 
@@ -82,6 +86,7 @@ def test_not_now_brings_it_back_at_a_later_break_not_the_current_one(proactive):
 
 
 def test_a_settled_moment_takes_no_second_outcome(proactive):
+    balanced(proactive)
     start_day(proactive)
     [moment] = _shown(proactive, candidate("mail:a"))
     proactive.feedback.dismiss(moment["id"], now=at("2026-11-16 09:01"))

@@ -17,6 +17,7 @@ from functools import wraps
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from row_bot.developer import sandbox_egress
 from row_bot.developer.executables import resolve_docker, resolve_podman
 from row_bot.developer.state import DeveloperWorkspace
 from row_bot.developer.storage import DEVELOPER_DIR
@@ -773,8 +774,11 @@ def ensure_docker_sandbox(
 
     container_name = sandbox_container_name(workspace.id)
     shadow = sandbox_shadow_path(workspace.id)
+    docker = docker_caller(probe.binary)
+    networked = workspace.sandbox_network != "off"
     if rebuild:
         _remove_container(probe.binary, container_name)
+        sandbox_egress.remove_gate(docker, workspace.id)
         _remove_shadow_workspace(workspace.id)
     if not shadow.exists():
         _prepare_shadow_workspace(workspace.id, host_root)
@@ -787,8 +791,13 @@ def ensure_docker_sandbox(
             workspace.id,
         )
         _remove_container(probe.binary, container_name)
+        if not networked:
+            sandbox_egress.remove_gate(docker, workspace.id)
         exists = False
         running = False
+    if networked:
+        # Before the sandbox starts: its only way out is the gate (sandbox_egress).
+        sandbox_egress.ensure_gate(docker, workspace.id, workspace_image=workspace.sandbox_image, binary=probe.binary)
     if exists and running:
         return container_name, shadow
     if exists:
@@ -831,6 +840,7 @@ def cleanup_workspace_sandbox(workspace_id: str) -> bool:
     container_name = sandbox_container_name(workspace_id)
     if probe.binary:
         _remove_container(probe.binary, container_name)
+        sandbox_egress.remove_gate(docker_caller(probe.binary), workspace_id)
     _clear_sandbox_processes(workspace_id)
     target = SANDBOX_ROOT / workspace_id
     resolved = target.resolve()
@@ -934,15 +944,32 @@ def _docker_create_args(binary: str, workspace: DeveloperWorkspace, shadow: path
         "-w",
         "/workspace",
         *sandbox_env_args(),
+        # No raw sockets: nothing to craft packets with on the gate's network.
+        "--cap-drop",
+        "NET_RAW",
     ]
-    if workspace.sandbox_network == "off":
+    networked = workspace.sandbox_network != "off"
+    if networked:
+        args.extend(sandbox_egress.sandbox_network_args(workspace.id))
+    else:
         args.extend(["--network", "none"])
     for name in workspace.sandbox_env_allowlist:
+        if networked and sandbox_egress.is_proxy_variable(name):
+            continue
         value = os.environ.get(name)
         if value is not None:
             args.extend(["-e", f"{name}={value}"])
     args.extend([workspace.sandbox_image, "/bin/sh", "-lc", "sleep infinity"])
     return args
+
+
+def docker_caller(binary: str) -> sandbox_egress.Docker:
+    """One call of the container runtime's CLI, for ``sandbox_egress``."""
+
+    def call(*args: str, timeout: float = 30) -> subprocess.CompletedProcess:
+        return subprocess.run([binary, *args], capture_output=True, text=True, timeout=timeout, check=False)
+
+    return call
 
 
 def _docker_exec_args(binary: str, container_name: str, command: str) -> list[str]:
@@ -974,12 +1001,26 @@ def _container_state(binary: str, container_name: str) -> tuple[bool, bool]:
 
 
 def _container_network_mismatch(binary: str, container_name: str, workspace: DeveloperWorkspace) -> bool:
-    mode = _container_network_mode(binary, container_name)
-    if not mode:
-        return False
     if workspace.sandbox_network == "off":
-        return mode != "none"
-    return mode == "none"
+        mode = _container_network_mode(binary, container_name)
+        return bool(mode) and mode != "none"
+    # A networked sandbox is on its private network alone. One made before the gate sat on
+    # Docker's default network, with this computer in reach: it is recreated.
+    networks = _container_networks(binary, container_name)
+    return networks is not None and networks != {sandbox_egress.network_name(workspace.id)}
+
+
+def _container_networks(binary: str, container_name: str) -> set[str] | None:
+    proc = subprocess.run(
+        [binary, "inspect", "-f", "{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}", container_name],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    return set((proc.stdout or "").split())
 
 
 def _container_network_mode(binary: str, container_name: str) -> str:

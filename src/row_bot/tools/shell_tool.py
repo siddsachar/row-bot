@@ -38,7 +38,13 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from row_bot.approval_policy import normalize_approval_mode
 from row_bot.brand import APP_DATA_DIR_ENV, DEFAULT_DATA_DIR_NAME
-from row_bot.data_paths import get_row_bot_data_dir, own_workspaces, private_data_dirs, shared_data_folder
+from row_bot.data_paths import (
+    default_workspace_root,
+    get_row_bot_data_dir,
+    own_workspaces,
+    private_data_dirs,
+    shared_data_folder,
+)
 from row_bot.process_cancellation import run_cancellable_subprocess
 from row_bot.secret_store import SERVER_SECRETS_DIR_ENV
 from row_bot.tools.base import BaseTool
@@ -940,20 +946,24 @@ class ShellTool(BaseTool):
         self,
         thread_id: str = "",
         developer_workspace_id: str = "",
-    ) -> str | None:
-        """Resolve shell cwd, preferring Developer workspaces for Developer threads."""
+    ) -> str:
+        """Resolve shell cwd: a Developer thread's code folder, else the workspace folder the file tools use.
+
+        With no workspace chosen in Settings (or the chosen folder missing), it's Row-Bot's default workspace,
+        created if need be, never the home folder: the prompt says the shell starts in the workspace.
+        """
         developer_root = self._get_developer_workspace_root(
             thread_id,
             developer_workspace_id,
         )
         if developer_root:
             return developer_root
-        fs_tool = registry.get_tool("filesystem")
-        if fs_tool:
-            root = fs_tool.get_config("workspace_root", "")
-            if root and os.path.isdir(root):
-                return root
-        return None
+        root = str(registry.get_tool_config("filesystem", "workspace_root", "") or "")
+        if root and os.path.isdir(root):
+            return root
+        default = default_workspace_root()
+        default.mkdir(parents=True, exist_ok=True)
+        return str(default)
 
     def _get_runtime_configurable(
         self,

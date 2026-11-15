@@ -490,4 +490,36 @@ describe('Import memories', () => {
     ).toBeVisible();
     expect(screen.queryByRole('list', { name: 'Recent imports' })).toBeNull();
   });
+
+  it('opens an import found elsewhere on its memories, and closing keeps it', async () => {
+    const io = fakeIO({
+      batch: vi.fn(async () =>
+        batch({
+          scanned: true,
+          found: 3,
+          job: { kind: 'scan', status: 'completed', done: 1, total: 1 },
+        }),
+      ),
+    });
+    const { unmount } = render(
+      <OverlayProvider>
+        <MemoryImportDialog
+          open
+          onOpenChange={vi.fn()}
+          io={io}
+          batchId={BATCH}
+        />
+      </OverlayProvider>,
+    );
+    const list = await screen.findByRole('list', { name: 'Memories found' });
+    expect(
+      within(list).getByText('Lives in a canal boat near Leeds'),
+    ).toBeVisible();
+    expect(io.batch).toHaveBeenCalledWith(BATCH);
+    expect(io.begin).not.toHaveBeenCalled();
+    expect(io.apply).not.toHaveBeenCalled();
+    unmount();
+    await Promise.resolve();
+    expect(io.discard).not.toHaveBeenCalled();
+  });
 });

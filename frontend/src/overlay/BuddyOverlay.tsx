@@ -38,6 +38,7 @@ import {
   progressLabel,
 } from './overlay-model';
 import { BuddyPet } from './BuddyPet';
+import { usePetMoment } from '../features/proactive/PetMoment';
 import { useBuddyTarget } from './use-buddy-target';
 
 /** The host reveals the window only after this, or after its own 2s timeout. */
@@ -227,6 +228,8 @@ export default function BuddyOverlay({
 
   // The pet's bubble opens for what needs you and for a finished reply (D6).
   const [bubbleOpen, setBubbleOpen] = useState(false);
+  // Proactive: the pet's glance and moment bubble (never over the chat bubble).
+  const proactive = usePetMoment(controller, platform, petMode && !bubbleOpen);
   const attention =
     phase === 'approval' || phase === 'failed' || phase === 'interrupted';
   useEffect(() => {
@@ -855,6 +858,8 @@ export default function BuddyOverlay({
         pack={pack}
         snapshot={avatarSnapshot}
         loadMedia={loadMedia}
+        glance={proactive.glance}
+        moment={proactive.moment}
         open={bubbleOpen}
         onOpenChange={setBubbleOpen}
         onOpenMain={() => void openFullThread()}

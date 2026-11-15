@@ -21,6 +21,7 @@ import {
   FileText,
   GraduationCap,
   KeyRound,
+  Lightbulb,
   Mic,
   Palette,
   Search,
@@ -58,6 +59,7 @@ const icons: Record<string, Icon> = {
   preferences: SlidersHorizontal,
   appearance: Palette,
   buddy: Bot,
+  proactive: Lightbulb,
   learning: GraduationCap,
   providers: Cloud,
   models: Cpu,
@@ -79,6 +81,8 @@ const descriptions: Record<string, string> = {
   preferences: 'How Row-Bot introduces itself, opens and tidies up overnight.',
   appearance: 'Theme, accent colour and density on this device.',
   buddy: 'Your companion’s look, personality and motion.',
+  proactive:
+    'When something is worth your attention, Row-Bot gets it ready and tells you at a good moment.',
   learning:
     'How Row-Bot learns from your work, and the personal model it can train.',
   providers: 'Where Row-Bot’s models come from. Defaults live in Models.',

@@ -8,7 +8,10 @@ from row_bot.providers.capabilities import snapshot_supports_surface
 
 # Who makes images and videos, and how: each provider's route is the shape of its
 # API ("openai" is POST /images/generations and /images/edits at base_url), so a
-# provider that speaks a known shape is one row here.
+# provider that speaks a known shape is one row here. A provider on an API key
+# ("key") charges for each one; a sign-in whose plan includes them ("risk_label":
+# "subscription") doesn't, nor does a model whose ID ends in the provider's
+# "free_suffix" (``bills_per_call``).
 IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
     "openai": {"key": "OPENAI_API_KEY", "label": "OpenAI", "emoji": "⬡", "route": "openai",
                "base_url": "https://api.openai.com/v1"},
@@ -18,7 +21,7 @@ IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
     # The ChatGPT sign-in: the Codex backend's own image endpoints (codex_media).
     "codex": {"auth": "oauth", "label": "ChatGPT", "emoji": "C", "risk_label": "subscription", "route": "codex"},
     "openrouter": {"key": "OPENROUTER_API_KEY", "label": "OpenRouter", "emoji": "🌐", "route": "openrouter",
-                   "base_url": "https://openrouter.ai/api/v1"},
+                   "base_url": "https://openrouter.ai/api/v1", "free_suffix": ":free"},
     "vercel": {"key": "AI_GATEWAY_API_KEY", "label": "Vercel AI Gateway", "emoji": "VG", "route": "openai",
                "base_url": "https://ai-gateway.vercel.sh/v1"},
     "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
@@ -40,7 +43,7 @@ VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
     "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏", "route": "xai"},
     "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription", "route": "xai"},
     "openrouter": {"key": "OPENROUTER_API_KEY", "label": "OpenRouter", "emoji": "🌐", "route": "openrouter",
-                   "base_url": "https://openrouter.ai/api/v1"},
+                   "base_url": "https://openrouter.ai/api/v1", "free_suffix": ":free"},
     "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
                  "base_url": "https://api.together.xyz/v2"},
     "minimax": {"key": "MINIMAX_API_KEY", "label": "MiniMax", "emoji": "M", "route": "minimax",
@@ -104,6 +107,23 @@ def media_api_key(provider_id: str) -> str:
         return str(get_provider_secret(provider_id) or "").strip()
     except Exception:
         return ""
+
+
+def bills_per_call(surface: str, selection: str) -> bool:
+    """Whether one image or video on *selection* ("provider/model") is charged for that call.
+
+    A provider on the person's API key charges for each one, unless the model is one it offers
+    free. A sign-in whose plan includes them (ChatGPT, Grok), a model on this computer and a
+    provider with no key saved (whose request fails before it starts) charge nothing per call.
+    """
+    provider_id, _, model_id = str(selection or "").partition("/")
+    meta = (IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META).get(provider_id)
+    if not meta or meta.get("risk_label") == "subscription" or not meta.get("key"):
+        return False
+    free = meta.get("free_suffix")
+    if free and model_id.endswith(free):
+        return False
+    return bool(media_api_key(provider_id))
 
 
 def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) -> dict[str, str]:

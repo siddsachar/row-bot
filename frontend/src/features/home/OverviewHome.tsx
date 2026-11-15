@@ -79,6 +79,8 @@ import FixAction, { RunAgain } from './FixAction';
 import MemoryNoticeActions from './MemoryNotice';
 import { useWaits } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
+import { useProactive, useProactiveOn } from '../proactive/proactive-state';
+import { forYouLead } from '../proactive/words';
 
 export type OverviewHomeProps = {
   conversations: readonly ConversationView[];
@@ -106,6 +108,12 @@ export type OverviewHomeProps = {
   onEditScheduledPost?: (id: string, edit: XPostEdit) => Promise<unknown>;
   /** Buddy's live avatar beside the greeting. */
   buddy?: ReactNode;
+  /**
+   * Proactive's For you, in place of Today while Proactive is on: it gets
+   * Today's fact rows (for Later today) and its memories line (its footer),
+   * and renders its own section. Off, Today shows as it always has.
+   */
+  forYou?: (today: { rows: ReactNode[]; footer?: string }) => ReactNode;
   /**
    * Start a new chat with this text as its first message, or only waiting in
    * its composer (`send: false`) to add files and more there.
@@ -452,6 +460,7 @@ export default function OverviewHome({
   loadApprovals,
   loadAttention,
   buddy,
+  forYou,
   onAsk,
   asking = false,
   onNewResource,
@@ -891,6 +900,14 @@ export default function OverviewHome({
       label: 'Open Knowledge',
       onOpen: () => onOpenTab('knowledge'),
     });
+  // Proactive on: For you takes Today's place (and its rows).
+  const proactiveOn = useProactiveOn();
+  const { view: proactive } = useProactive();
+  // What waits For you leads Home's sentence when nothing needs the person.
+  const forYouLine =
+    proactiveOn && proactive.moments
+      ? forYouLead(proactive.moments, now, relativeTime)
+      : '';
   const unread = [
     tasksFailed && 'workflows',
     healthFailed && 'health checks',
@@ -938,13 +955,15 @@ export default function OverviewHome({
   // One sentence: the most important thing.
   const lead = attention
     ? `${plural(attention, 'thing')} ${attention === 1 ? 'needs' : 'need'} you.`
-    : readingNeeds || (loadTasks && tasks === null && !tasksFailed)
-      ? ''
-      : next
-        ? `Next: ${next.name} ${relativeTime(next.next_run, now)}.`
-        : waits.length
-          ? `Waiting for ${plural(waits.length, 'thing')}.`
-          : 'All quiet.';
+    : forYouLine
+      ? forYouLine
+      : readingNeeds || (loadTasks && tasks === null && !tasksFailed)
+        ? ''
+        : next
+          ? `Next: ${next.name} ${relativeTime(next.next_run, now)}.`
+          : waits.length
+            ? `Waiting for ${plural(waits.length, 'thing')}.`
+            : 'All quiet.';
 
   const quickStarts = [
     onNewResource && (
@@ -1277,6 +1296,15 @@ export default function OverviewHome({
         </Section>
       )}
 
+      {!needsModel &&
+        proactiveOn &&
+        forYou?.({
+          rows: today
+            .filter((item) => item.key !== 'memory')
+            .map((item) => <Row key={item.key} item={item} />),
+          footer: today.find((item) => item.key === 'memory')?.title,
+        })}
+
       {!needsModel && waitRows.length > 0 && (
         <Section id="overview-waiting" title="Waiting" order={2}>
           <ul className="overview-rows" aria-label="Waiting">
@@ -1347,23 +1375,25 @@ export default function OverviewHome({
         </Section>
       )}
 
-      {!needsModel && (today.length > 0 || unread.length > 0) && (
-        <Section id="overview-today" title="Today" order={3}>
-          {today.length > 0 && (
-            <ul className="overview-rows" aria-label="Today">
-              {today.map((item) => (
-                <Row key={item.key} item={item} />
-              ))}
-            </ul>
-          )}
-          {unread.length > 0 && (
-            <p className="overview-error" role="status">
-              Couldn’t read {listWords(unread)} just now. Their tabs may say
-              more.
-            </p>
-          )}
-        </Section>
-      )}
+      {!needsModel &&
+        (today.length > 0 || unread.length > 0) &&
+        !(proactiveOn && forYou) && (
+          <Section id="overview-today" title="Today" order={3}>
+            {today.length > 0 && (
+              <ul className="overview-rows" aria-label="Today">
+                {today.map((item) => (
+                  <Row key={item.key} item={item} />
+                ))}
+              </ul>
+            )}
+            {unread.length > 0 && (
+              <p className="overview-error" role="status">
+                Couldn’t read {listWords(unread)} just now. Their tabs may say
+                more.
+              </p>
+            )}
+          </Section>
+        )}
     </section>
   );
 }

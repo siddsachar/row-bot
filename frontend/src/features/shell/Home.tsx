@@ -31,6 +31,7 @@ import type { BackgroundProcessesIo } from '../home/BackgroundProcesses';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
 import { BuddyPortrait } from '../buddy/BuddySurface';
+import ForYou from '../proactive/ForYou';
 import ResourceSetup from './ResourceSetup';
 import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
@@ -591,6 +592,9 @@ export default function Home({
                 onRetryScheduledPost={controller.retryScheduledPost}
                 onEditScheduledPost={controller.editScheduledPost}
                 buddy={<BuddyPortrait />}
+                forYou={({ rows, footer }) => (
+                  <ForYou today={rows} footer={footer} />
+                )}
                 onAsk={onAsk}
                 asking={asking}
                 onNewResource={onPanel && newResource}

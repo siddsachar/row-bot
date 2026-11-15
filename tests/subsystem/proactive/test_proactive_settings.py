@@ -32,6 +32,7 @@ def test_the_level_changes_and_undoes_through_the_settings_registry(proactive):
     ("proactive_kind", "date:off", lambda saved: saved["kinds"]["date"] is False),
     ("proactive_source", "mail:off", lambda saved: saved["sources"]["mail"] is False),
     ("proactive_urgent", "meeting_prep:on", lambda saved: saved["urgent_kinds"] == ["meeting_prep"]),
+    ("proactive_wrap", "on", lambda saved: saved["wrap"] is True),
 ])
 def test_each_registered_setting_saves_what_it_says(proactive, setting_id, value, check):
     from row_bot import self_settings

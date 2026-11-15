@@ -55,8 +55,15 @@ CREATE TABLE IF NOT EXISTS kind_stats (
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS drafts (
     id TEXT PRIMARY KEY, moment_id TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
-    thread_id TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL);
+    thread_id TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL, ref TEXT NOT NULL DEFAULT '');
 """
+# Columns added after a table first shipped in a preview build: added in place to an older proactive.db.
+_ADDED_COLUMNS = (("drafts", "ref", "TEXT NOT NULL DEFAULT ''"),)
+
+
+def exists() -> bool:
+    """Whether Proactive Row-Bot ever wrote anything here (nothing else creates the file)."""
+    return _DB_PATH.exists()
 
 
 def _conn() -> sqlite3.Connection:
@@ -66,6 +73,9 @@ def _conn() -> sqlite3.Connection:
     with _SCHEMA_LOCK:
         if _SCHEMA_READY != str(_DB_PATH):
             conn.executescript(_SCHEMA)
+            for table, column, kind in _ADDED_COLUMNS:
+                if column not in {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
             _SCHEMA_READY = str(_DB_PATH)
     return conn
 
@@ -282,15 +292,23 @@ def delete_rule(rule_id: str) -> bool:
 
 # --- Prepared work: briefs and drafted replies, saved here and never sent ---------------------------------
 
-_DRAFT_COLUMNS = ("id", "moment_id", "kind", "title", "body", "thread_id", "created_at")
+#
+# A draft made overnight (Dream Cycle) waits for its moment: no ``moment_id`` yet, and the dedupe key of the
+# moment it is for in ``ref``. When a watcher later makes that moment, the draft is attached to it.
+
+_DRAFT_COLUMNS = ("id", "moment_id", "kind", "title", "body", "thread_id", "created_at", "ref")
+# A settled moment's draft, and an overnight draft no moment came for, is kept this long; then it goes, and
+# its hidden preparation thread with it.
+DRAFTS_KEPT_DAYS = 7
 
 
-def add_draft(moment_id: str, kind: str, title: str, body: str, *, thread_id: str, now: float) -> dict[str, Any]:
+def add_draft(moment_id: str, kind: str, title: str, body: str, *, thread_id: str, now: float,
+              ref: str = "") -> dict[str, Any]:
     record = {"id": uuid.uuid4().hex[:16], "moment_id": moment_id, "kind": kind, "title": title, "body": body,
-              "thread_id": thread_id, "created_at": now}
+              "thread_id": thread_id, "created_at": now, "ref": ref}
     with closing(_conn()) as conn, conn:
-        conn.execute(f"INSERT INTO drafts ({', '.join(_DRAFT_COLUMNS)}) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                     tuple(record[key] for key in _DRAFT_COLUMNS))
+        conn.execute(f"INSERT INTO drafts ({', '.join(_DRAFT_COLUMNS)}) "
+                     f"VALUES ({', '.join('?' * len(_DRAFT_COLUMNS))})", tuple(record[key] for key in _DRAFT_COLUMNS))
     _publish()
     return record
 
@@ -301,11 +319,114 @@ def get_draft(draft_id: str) -> dict[str, Any] | None:
     return dict(zip(_DRAFT_COLUMNS, row)) if row else None
 
 
-def drafts(limit: int = 100) -> list[dict[str, Any]]:
+def drafts(limit: int = 100, *, since: float = 0.0, waiting: bool = False) -> list[dict[str, Any]]:
+    """Drafts newest first: those attached to a moment, and with ``waiting`` the overnight ones still
+    waiting for theirs too."""
+    where = "created_at >= ?" + ("" if waiting else " AND moment_id <> ''")
     with closing(_conn()) as conn:
-        rows = conn.execute(f"SELECT {', '.join(_DRAFT_COLUMNS)} FROM drafts ORDER BY created_at DESC, rowid DESC "
-                            "LIMIT ?", (limit,)).fetchall()
+        rows = conn.execute(f"SELECT {', '.join(_DRAFT_COLUMNS)} FROM drafts WHERE {where} "
+                            "ORDER BY created_at DESC, rowid DESC LIMIT ?", (since, limit)).fetchall()
     return [dict(zip(_DRAFT_COLUMNS, row)) for row in rows]
+
+
+def waiting_draft(ref: str) -> dict[str, Any] | None:
+    """The overnight draft waiting for the moment with this dedupe key, if one was made."""
+    with closing(_conn()) as conn:
+        row = conn.execute(f"SELECT {', '.join(_DRAFT_COLUMNS)} FROM drafts WHERE ref = ? AND moment_id = '' "
+                           "ORDER BY created_at DESC LIMIT 1", (ref,)).fetchone()
+    return dict(zip(_DRAFT_COLUMNS, row)) if row else None
+
+
+def prepared_ahead(ref: str) -> bool:
+    """Whether something was prepared ahead for this dedupe key (still waiting, or attached since)."""
+    with closing(_conn()) as conn:
+        return conn.execute("SELECT 1 FROM drafts WHERE ref = ? LIMIT 1", (ref,)).fetchone() is not None
+
+
+def attach_draft(draft_id: str, moment_id: str) -> bool:
+    with closing(_conn()) as conn, conn:
+        changed = conn.execute("UPDATE drafts SET moment_id = ? WHERE id = ? AND moment_id = ''",
+                               (moment_id, draft_id)).rowcount
+    if changed:
+        _publish()
+    return bool(changed)
+
+
+def prune_drafts(now: float) -> int:
+    """Remove drafts older than ``DRAFTS_KEPT_DAYS`` whose moment settled that long ago, or that no moment
+    ever came for. A draft whose moment is still open stays, however old."""
+    cutoff = now - DRAFTS_KEPT_DAYS * 86400
+    with closing(_conn()) as conn, conn:
+        removed = conn.execute(
+            "DELETE FROM drafts WHERE created_at < ? AND (moment_id = '' OR moment_id NOT IN "
+            "(SELECT id FROM moments WHERE state IN ('pending', 'shown') OR ended_at >= ?))",
+            (cutoff, cutoff)).rowcount
+    if removed:
+        _publish()
+    return int(removed)
+
+
+def draft_threads() -> set[str]:
+    """The hidden preparation threads a draft still links to."""
+    with closing(_conn()) as conn:
+        rows = conn.execute("SELECT DISTINCT thread_id FROM drafts WHERE thread_id <> ''").fetchall()
+    return {str(row[0]) for row in rows}
+
+
+# --- The person's edits to a drafted reply, and its sending ------------------------------------------------
+#
+# Kept beside the draft Row-Bot wrote (which stays as it was): who it goes to, its subject and text as the
+# person last saved them, and when it was sent (only ever after the person approved it on its card).
+
+_EDIT_COLUMNS = ("draft_id", "to_addr", "subject", "body", "updated_at", "sent_at")
+_EDITS_SCHEMA = ("CREATE TABLE IF NOT EXISTS draft_edits (draft_id TEXT PRIMARY KEY, to_addr TEXT NOT NULL "
+                 "DEFAULT '', subject TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', updated_at REAL NOT "
+                 "NULL DEFAULT 0, sent_at REAL NOT NULL DEFAULT 0)")
+
+
+def draft_edit(draft_id: str) -> dict[str, Any] | None:
+    """The person's saved edits to a draft (and when it was sent), or None when it is as Row-Bot wrote it."""
+    with closing(_conn()) as conn:
+        conn.execute(_EDITS_SCHEMA)
+        row = conn.execute(f"SELECT {', '.join(_EDIT_COLUMNS)} FROM draft_edits WHERE draft_id = ?",
+                           (draft_id,)).fetchone()
+    return dict(zip(_EDIT_COLUMNS, row)) if row else None
+
+
+def save_draft_edit(draft_id: str, *, to: str, subject: str, body: str, now: float) -> dict[str, Any]:
+    with closing(_conn()) as conn, conn:
+        conn.execute(_EDITS_SCHEMA)
+        conn.execute("INSERT INTO draft_edits (draft_id, to_addr, subject, body, updated_at) VALUES (?, ?, ?, ?, ?) "
+                     "ON CONFLICT(draft_id) DO UPDATE SET to_addr = excluded.to_addr, subject = excluded.subject, "
+                     "body = excluded.body, updated_at = excluded.updated_at", (draft_id, to, subject, body, now))
+    _publish()
+    return draft_edit(draft_id) or {}
+
+
+def mark_draft_sent(draft_id: str, *, now: float) -> None:
+    with closing(_conn()) as conn, conn:
+        conn.execute(_EDITS_SCHEMA)
+        conn.execute("INSERT INTO draft_edits (draft_id, sent_at) VALUES (?, ?) ON CONFLICT(draft_id) DO UPDATE SET "
+                     "sent_at = excluded.sent_at", (draft_id, now))
+    _publish()
+
+
+# --- The last 30 days, per kind ----------------------------------------------------------------------------
+
+def kind_counts(since: float) -> dict[str, dict[str, int]]:
+    """Per kind since *since*: how many reached a surface (shown), and how many the person acted on,
+    dismissed or left alone (ignored). The person's own numbers, kept here and never sent anywhere."""
+    counts: dict[str, dict[str, int]] = {}
+    with closing(_conn()) as conn:
+        for kind, shown in conn.execute("SELECT kind, COUNT(*) FROM moments WHERE shown_at >= ? AND surface "
+                                        "NOT IN ('', 'brief') GROUP BY kind", (since,)):
+            counts.setdefault(kind, {})["shown"] = int(shown)
+        for kind, state, number in conn.execute(
+                "SELECT kind, state, COUNT(*) FROM moments WHERE ended_at >= ? AND state IN ('acted', 'dismissed', "
+                "'ignored') GROUP BY kind, state", (since,)):
+            counts.setdefault(kind, {})[state] = int(number)
+    return {kind: {key: values.get(key, 0) for key in ("shown", "acted", "dismissed", "ignored")}
+            for kind, values in counts.items()}
 
 
 # --- Per-kind counts ---------------------------------------------------------------------------------------

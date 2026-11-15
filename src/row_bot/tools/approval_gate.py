@@ -49,6 +49,9 @@ PERSON_RULE_REASON = "You asked to approve this yourself."
 # An incognito chat's memory write (N11): only the person saves from it, under every level.
 INCOGNITO_MEMORY_QUESTION = "Save to memory? This chat is incognito."
 INCOGNITO_MEMORY_REASON = "This chat is incognito: only you can save from it to memory."
+# A reply Proactive Row-Bot drafted in the background: its words weren't the person's, so only they send it,
+# under every level (Hands-off included).
+BACKGROUND_DRAFT_REASON = "Row-Bot wrote this reply on its own, so only you can send it."
 
 
 

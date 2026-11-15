@@ -1759,6 +1759,92 @@
   margin: 4px 4px 0 44px;
 }
 
+/* Project notes: one quiet line under the code folder's summary (B2). */
+.context-project-notes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 0 0 44px;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.context-project-notes-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.context-project-notes-line > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.context-project-notes-line > span {
+  overflow-wrap: anywhere;
+}
+.context-project-notes[data-state='warning'] .context-project-notes-line > svg {
+  color: var(--status-warning-text);
+}
+.context-project-notes-info {
+  flex: none;
+  color: var(--text-muted);
+}
+.popover.project-notes-popover {
+  outline: none;
+  gap: 12px;
+  width: min(340px, calc(100vw - 24px));
+  padding: 16px;
+}
+.project-notes-head strong {
+  display: block;
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+.project-notes-head p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.project-notes-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.project-notes-list > li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px 6px 8px;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+.project-notes-list > li > svg {
+  color: var(--text-secondary);
+}
+.project-notes-list > li[data-state='warning'] > svg,
+.project-notes-list > li[data-state='warning'] small {
+  color: var(--status-warning-text);
+}
+.project-notes-file span,
+.project-notes-file small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.project-notes-file span {
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-family: var(--font-mono);
+}
+.project-notes-file small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+
 /* ------------------------------------------------------------ ⌘K palette */
 
 .dialog.palette {

@@ -493,10 +493,18 @@ def _workflow_problems() -> list[dict[str, Any]]:
     problems = []
     for row in tasks.iter_task_summary_snapshot():
         words = _FAILED_RUNS.get(str(row.get("last_status") or "").lower())
-        if words is None or row.get("active_run_json"):
+        switched_off = row.get("disabled_reason") == "failures"
+        if (words is None and not switched_off) or row.get("active_run_json"):
             continue
         task_id, name = str(row["id"]), str(row.get("name") or "A workflow")
         href = f"/?tab=workflows&workflow={task_id}" if _TASK_ID.fullmatch(task_id) else "/?tab=workflows"
+        if switched_off:
+            # Row-Bot switched it off after failed runs in a row (D5): it stays listed until it's back on.
+            problems.append(_problem(
+                f"workflow:{task_id}", f"{name} was switched off",
+                f"It failed {tasks.FAILURES_BEFORE_OFF} times in a row. Open it to see why, then turn it back on.",
+                "workflows", _open(href, name)))
+            continue
         blocked = str(row.get("last_status") or "").lower() == "blocked"
         if blocked and _TASK_ID.fullmatch(task_id) and tasks.newest_run_fix(task_id) == "choose_folder":
             # Its code folder was removed (N9): the fix is choosing another, in its settings.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { BuddyPack, BuddySnapshot } from '../shell/BuddyControls';
 import { revokeLater, usePageUnloading, type BuddyMediaLoader } from './media';
 import glyph from '../../assets/row_bot_glyph_256.png';
@@ -38,6 +38,7 @@ export function BuddyAvatar({
   framing = 'portrait',
   cursor,
   handle,
+  glance = false,
 }: {
   conversation: string | null;
   pack: BuddyPack | null;
@@ -48,6 +49,11 @@ export function BuddyAvatar({
   /** The desktop pet: the cursor relative to Buddy's box. */
   cursor?: { x: number; y: number; age: number } | null;
   handle?: React.RefObject<LivingBuddyHandle | null>;
+  /**
+   * Something is waiting for the person (Proactive): at rest, Buddy looks up
+   * with its "something for you" face. No words; the moment says the rest.
+   */
+  glance?: boolean;
 }) {
   const [still, setStill] = useState('');
   const unloading = usePageUnloading();
@@ -76,6 +82,22 @@ export function BuddyAvatar({
       if (url) revokeLater(url);
     };
   }, [loadMedia, conversation, packId, asset, revision]);
+  const resting = ['idle', 'completed'].includes(snapshot.activity ?? 'idle');
+  const glancing = glance && !preview && resting;
+  const shownSnapshot = useMemo(
+    () =>
+      glancing
+        ? {
+            ...snapshot,
+            status: {
+              ...snapshot.status,
+              mood: 'curious',
+              animation: 'glance',
+            },
+          }
+        : snapshot,
+    [glancing, snapshot],
+  );
   const living = !preview && isLivingPack(pack);
   const media = !pack
     ? 'fallback'
@@ -102,8 +124,9 @@ export function BuddyAvatar({
     <span
       className="buddy-avatar-frame"
       data-state={snapshot.activity ?? 'idle'}
-      data-buddy-mood={snapshot.status.mood}
-      data-buddy-animation={snapshot.status.animation}
+      data-buddy-mood={shownSnapshot.status.mood}
+      data-buddy-animation={shownSnapshot.status.animation}
+      data-proactive={glancing ? 'glance' : undefined}
       data-media={media}
       data-framing={framing}
       data-collapsed={snapshot.preferences.collapsed ? 'true' : 'false'}
@@ -115,7 +138,7 @@ export function BuddyAvatar({
         <LivingBuddy
           conversation={conversation}
           pack={pack}
-          snapshot={snapshot}
+          snapshot={shownSnapshot}
           loadMedia={loadMedia}
           framing={framing}
           shadow={framing === 'head' ? 0 : 0.22}

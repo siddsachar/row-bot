@@ -63,6 +63,16 @@
           "title": "Expires At",
           "type": "string"
         },
+        "group": {
+          "default": "ready",
+          "enum": [
+            "now",
+            "later_today",
+            "ready"
+          ],
+          "title": "Group",
+          "type": "string"
+        },
         "kind": {
           "enum": [
             "follow_up",
@@ -88,6 +98,12 @@
         "shown_at": {
           "maxLength": 40,
           "title": "Shown At",
+          "type": "string"
+        },
+        "starts_at": {
+          "default": "",
+          "maxLength": 40,
+          "title": "Starts At",
           "type": "string"
         },
         "state": {

@@ -27,6 +27,28 @@
       "title": "MigrationFailedItem",
       "type": "object"
     },
+    "MigrationMemoryReview": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "found": {
+          "maximum": 5000,
+          "minimum": 0,
+          "title": "Found",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "batch_id",
+        "found"
+      ],
+      "title": "MigrationMemoryReview",
+      "type": "object"
+    },
     "MigrationPreviewSummary": {
       "additionalProperties": false,
       "properties": {
@@ -121,6 +143,17 @@
       "maxItems": 4096,
       "title": "Failed Items",
       "type": "array"
+    },
+    "memory_review": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MigrationMemoryReview"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "report": {
       "maxLength": 256,

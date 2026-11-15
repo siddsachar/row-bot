@@ -78,6 +78,7 @@ export default function MemoryImportDialog({
   io,
   onImported,
   onReview,
+  batchId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -86,6 +87,12 @@ export default function MemoryImportDialog({
   onImported?: () => void;
   /** Tidy up after the import: Review memory over this import's memories. */
   onReview?: (batchId: string) => void;
+  /**
+   * An import already found elsewhere (Settings › Data brought another
+   * assistant's memory files over): open on its memories to review. Closing
+   * keeps it, so it can be opened again until it expires.
+   */
+  batchId?: string;
 }) {
   const phone = useMedia(PHONE_LAYOUT);
   return (
@@ -104,6 +111,7 @@ export default function MemoryImportDialog({
           onClose={() => onOpenChange(false)}
           onImported={onImported}
           onReview={onReview}
+          staged={batchId}
         />
       )}
     </ModalTask>
@@ -116,19 +124,21 @@ function ImportFlow({
   onClose,
   onImported,
   onReview,
+  staged,
 }: {
   io: MemoryImportIO;
   phone: boolean;
   onClose: () => void;
   onImported?: () => void;
   onReview?: (batchId: string) => void;
+  staged?: string;
 }) {
   const [sources, setSources] = useState<MemoryImportSources | null>(null);
   const [sourcesError, setSourcesError] = useState('');
   const [sourceId, setSourceId] = useState('');
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [pasted, setPasted] = useState('');
-  const [step, setStep] = useState<Step>('source');
+  const [step, setStep] = useState<Step>(staged ? 'working' : 'source');
   const [batch, setBatch] = useState<MemoryImportBatch | null>(null);
   const [sending, setSending] = useState<{
     sent: number;
@@ -175,11 +185,13 @@ function ImportFlow({
       alive.current = false;
       stop();
       uploads.current?.abort();
-      // Closed before importing: its files and everything found go.
+      // Closed before importing: its files and everything found go (an
+      // import found elsewhere stays to be opened again).
       const id = batchRef.current;
-      if (id && !applied.current) void io.discard(id).catch(() => undefined);
+      if (id && id !== staged && !applied.current)
+        void io.discard(id).catch(() => undefined);
     };
-  }, [io, loadSources]);
+  }, [io, loadSources, staged]);
 
   const source = sources?.sources.find((item) => item.id === sourceId);
 
@@ -216,6 +228,36 @@ function ImportFlow({
     },
     [io],
   );
+
+  // An import found elsewhere: straight to what it found.
+  useEffect(() => {
+    if (!staged) return;
+    batchRef.current = staged;
+    void (async () => {
+      try {
+        const view = await follow(staged);
+        if (!view) return;
+        if (view.receipt) {
+          applied.current = true;
+          setReceipt(view.receipt);
+          setStep('done');
+          return;
+        }
+        if (!view.scanned) {
+          setError(jobProblem(view.job?.code ?? 'import_scan_failed'));
+          setStep('source');
+          return;
+        }
+        await loadCandidates(staged);
+        if (alive.current) setStep('review');
+      } catch (reason) {
+        if (!alive.current) return;
+        batchRef.current = null;
+        setError(problem(reason));
+        setStep('source');
+      }
+    })();
+  }, [staged, follow, loadCandidates]);
 
   const findMemories = async () => {
     setError('');

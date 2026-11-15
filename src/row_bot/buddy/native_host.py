@@ -101,6 +101,15 @@ def valid_conversation_id(value: object) -> bool:
     return isinstance(value, str) and bool(CONVERSATION_ID.fullmatch(value))
 
 
+# Where the desktop pet may ask the main window to go (Proactive): For you, Drafts, one draft, or one moment's
+# "Why this?". Ids only; the main window opens them as its own routes.
+MAIN_TARGET = re.compile(r"for-you|drafts|draft:[0-9a-f]{16}|why:[0-9a-f]{16}")
+
+
+def valid_main_target(value: object) -> bool:
+    return isinstance(value, str) and bool(MAIN_TARGET.fullmatch(value))
+
+
 def _start_timer(delay: float, callback: Callable[[], None]) -> None:
     def run() -> None:
         time.sleep(delay)
@@ -470,10 +479,13 @@ class BuddyWindowHost:
             _run_script(window, CHANGED_EVENT_SCRIPT)
         return value
 
-    def show_main(self, conversation_id: object) -> bool:
-        """Bring the main window forward, asking it to open a conversation."""
+    def show_main(self, conversation_id: object, target: object = None) -> bool:
+        """Bring the main window forward, asking it to open a conversation, or a Proactive place (*target*:
+        For you, Drafts, a draft or a moment's "Why this?")."""
 
         if conversation_id is not None and not valid_conversation_id(conversation_id):
+            return False
+        if target is not None and (conversation_id is not None or not valid_main_target(target)):
             return False
         window = self._main_window()
         if window is None:
@@ -492,6 +504,12 @@ class BuddyWindowHost:
                 window,
                 "window.dispatchEvent(new CustomEvent('row-bot-open-conversation', "
                 "{ detail: " + detail + " }));",
+            )
+        elif target is not None:
+            _run_script(
+                window,
+                "window.dispatchEvent(new CustomEvent('row-bot-open-target', "
+                "{ detail: " + json.dumps(str(target)) + " }));",
             )
         return True
 

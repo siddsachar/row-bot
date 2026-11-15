@@ -104,6 +104,10 @@ def dismiss(moment_id: str, *, now: float) -> dict[str, Any]:
     store.move(moment_id, "dismissed", from_states=OPEN_STATES, now=now)
     store.count(moment["kind"], "dismissed", now=now)
     store.log("moment", f"You dismissed “{moment['title']}”.", now=now, moment_id=moment_id)
+    if moment["kind"] == "workflow_offer":  # No to "make it a workflow" is for good.
+        from row_bot.proactive import offers
+
+        offers.decline(moment, now=now)
     return store.get_moment(moment_id) or moment
 
 

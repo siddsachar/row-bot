@@ -5,6 +5,7 @@ import hashlib
 import inspect
 import json
 import math
+import os
 import threading
 import time
 import re
@@ -109,6 +110,8 @@ class ContextUsage:
     checkpoint_message_digest: str = ""
     last_confirmed_input_tokens: int | None = None
     status: str = "ready"
+    # What fills the context, in the estimate's tokens (see _context_breakdown); settled snapshots only.
+    breakdown: dict[str, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -136,6 +139,8 @@ class PreparationInputs:
     tool_fingerprint: str
     policy_fingerprint: str
     execution_budget: Any = None
+    # Characters of the system prompt's skill and tool-guide sections, for the context breakdown.
+    skill_prompt_chars: int = 0
 
 
 apply_keys()
@@ -1395,8 +1400,36 @@ def _setup_guidance(tool_names: list[str]) -> str:
     return (" " + " ".join(parts)) if parts else ""
 
 
+def _code_folder() -> str:
+    """The code folder bound to this conversation, where its shell starts, or ''."""
+    try:
+        from row_bot.developer import tool_context
+        from row_bot.developer.storage import get_workspace
+
+        thread_id = _current_thread_id_var.get("")
+        workspace_id = tool_context.get_workspace_id() or tool_context.infer_workspace_id_from_thread(thread_id)
+        workspace = get_workspace(workspace_id) if workspace_id else None
+    except Exception:
+        logger.debug("Code folder for the turn context skipped (non-fatal)", exc_info=True)
+        return ""
+    return workspace.path if workspace and workspace.path and os.path.isdir(workspace.path) else ""
+
+
+def _workspace_line() -> str:
+    """Where the file tools and the shell start, ``~/…`` under the home folder so the account name isn't sent."""
+    from row_bot.data_paths import default_workspace_root, display_path
+
+    configured = str(tool_registry.get_tool_config("filesystem", "workspace_root", "") or "")
+    workspace = display_path(configured if configured and os.path.isdir(configured) else default_workspace_root())
+    code_folder = _code_folder()
+    if code_folder:
+        return (f"Code folder: {display_path(code_folder)} (the shell and Developer tools start here). "
+                f"Workspace folder for other files: {workspace}.")
+    return f"Workspace folder: {workspace}. File tools and the shell start here; relative paths are inside it."
+
+
 def _runtime_turn_fields(tool_names: list[str]) -> list:
-    """The runtime-mode values of the turn context: approval mode, tool groups, what is off."""
+    """The runtime-mode values of the turn context: approval mode, workspace folder, tool groups, what is off."""
     from row_bot.turn_context import ContextField
 
     # What this turn leaves out: the conversation binds the same tools every turn (so its prompt
@@ -1433,6 +1466,7 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
     fields = [
         # In the person's words (Ask, Auto, Hands-off, Block), so Row-Bot never says "full mode" (G10).
         ContextField("approval", f"Approval level for this chat: {approval_label(get_approval_mode())}."),
+        ContextField("workspace", _workspace_line()),
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
     ]
@@ -2045,6 +2079,51 @@ def _ways_of_working_text(budget: Any) -> str:
         _WAYS_OF_WORKING[key] = text
         while len(_WAYS_OF_WORKING) > _TURN_CONTEXT_VALUES_MAX:
             _WAYS_OF_WORKING.pop(next(iter(_WAYS_OF_WORKING)))
+    return text
+
+
+# The code folder's project notes (B2), read once per turn: a file edited mid-turn applies from the next turn.
+_PROJECT_NOTES: dict[tuple[str, str], str] = {}
+
+
+def _read_project_notes_section(small_profile: bool) -> str:
+    try:
+        from pathlib import Path
+
+        from row_bot.developer import project_notes
+        from row_bot.developer.storage import get_workspace
+        from row_bot.developer.tool_context import get_thread_id, get_workspace_id, infer_workspace_id_from_thread
+
+        workspace_id = get_workspace_id() or infer_workspace_id_from_thread(get_thread_id())
+        workspace = get_workspace(workspace_id) if workspace_id else None
+        if workspace is None:
+            return ""
+        budget = project_notes.budget_for(small=small_profile)
+        notes = project_notes.read_project_notes(Path(workspace.path), budget=budget)
+        return project_notes.render_section(notes, workspace.name, budget=budget)
+    except Exception as exc:
+        logger.debug("Project notes skipped (non-fatal): %s", exc)
+        return ""
+
+
+def _project_notes_text(budget: Any, small_profile: bool) -> str:
+    """The code folder's project notes section, as read at this turn's first model call; "" without the
+    Developer tools (no code folder, or Chat Only)."""
+    if "developer" not in _offered_tool_parents() or not _has_code_folder():
+        return ""
+    turn_id = _turn_id_from_budget(budget)
+    if not turn_id:
+        return _read_project_notes_section(small_profile)
+    key = (_current_thread_id_var.get() or "", turn_id)
+    with _TURN_CONTEXT_VALUES_LOCK:
+        cached = _PROJECT_NOTES.get(key)
+    if cached is not None:
+        return cached
+    text = _read_project_notes_section(small_profile)
+    with _TURN_CONTEXT_VALUES_LOCK:
+        _PROJECT_NOTES[key] = text
+        while len(_PROJECT_NOTES) > _TURN_CONTEXT_VALUES_MAX:
+            _PROJECT_NOTES.pop(next(iter(_PROJECT_NOTES)))
     return text
 
 
@@ -3020,6 +3099,11 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
     if _section is not None:
         _stable_injection_sections.append(_section)
 
+    # The code folder's own notes for agents (B2): read at the turn's start, bounded, scanned and fenced.
+    _section = stable_section("developer.project_notes", _project_notes_text(budget, small_profile), source="developer")
+    if _section is not None:
+        _stable_injection_sections.append(_section)
+
     try:
         from row_bot.skill_discovery import render_active_skills_prompt
 
@@ -3051,6 +3135,9 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
     _stable_fingerprint = stable_prefix_fingerprint(_prompt_sections)
     for _ii, _section_message in enumerate(_section_messages):
         trimmed.insert(insert_idx + _ii, _section_message.message)
+    _skill_prompt_chars = sum(
+        len(_section.content) for _section in _injection_sections if _section.section_id.startswith("skills.")
+    )
 
     # Section texts for the DEBUG prefix diff (pre_model_trim); collected only when it runs.
     _prefix_sections: list[tuple[str, str]] = []
@@ -3128,6 +3215,7 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
                         anthropic_messages=True,
                     ),
                     "execution_budget": budget,
+                    "skill_prompt_chars": _skill_prompt_chars,
                 }
     except Exception as exc:
         # Non-fatal: the request goes out without the cache marker. Said once per thread, so a
@@ -3141,7 +3229,7 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
         # A model that isn't a cloud model runs on local Ollama (ChatOllama).
         ollama_chat=not _provider_id,
     )
-    return {"llm_input_messages": trimmed, "execution_budget": budget}
+    return {"llm_input_messages": trimmed, "execution_budget": budget, "skill_prompt_chars": _skill_prompt_chars}
 
 
 _CONTEXT_USAGE_SCHEMA_VERSION = 2
@@ -3506,6 +3594,7 @@ def _collect_agent_preparation_inputs(
         tool_fingerprint=_stable_json_hash(tuple(_current_canonical_tools_var.get() or ())),
         policy_fingerprint=_policy_fingerprint(policy),
         execution_budget=collected.get("execution_budget"),
+        skill_prompt_chars=int(collected.get("skill_prompt_chars") or 0),
     )
     _remember_preparation_inputs(config, inputs)
     return inputs
@@ -3960,6 +4049,68 @@ def _fixed_prompt_tool_envelope_tokens(inputs: PreparationInputs) -> int:
     )
 
 
+def _recall_block_chars(messages: list[BaseMessage]) -> int:
+    """Characters of the recall blocks in the turn contexts these messages carry.
+
+    A recall block is the last block of its turn context, so it runs from its header to the
+    closing tag. Foreign turn-context tags are neutralized before this, so every tag is Row-Bot's.
+    """
+    from row_bot.memory_policy import RECALL_BLOCK_HEADER
+
+    total = 0
+    for message in messages:
+        if isinstance(message, SystemMessage):
+            continue
+        text = _content_to_str(getattr(message, "content", ""))
+        start = text.find(turn_context.OPEN_TAG)
+        while start >= 0:
+            end = text.find(turn_context.CLOSE_TAG, start)
+            if end < 0:
+                break
+            recall = text.find(RECALL_BLOCK_HEADER, start, end)
+            if recall >= 0:
+                total += len(text[recall:end].rstrip())
+            start = text.find(turn_context.OPEN_TAG, end)
+    return total
+
+
+def _context_breakdown(inputs: PreparationInputs, prepared: PreparedModelInput) -> dict[str, int] | None:
+    """What fills the prepared request, in the estimate's tokens: counts only, never text or names.
+
+    Row-Bot's instructions (the system messages but their skill and tool-guide sections), the bound
+    tools, the skills and guides, the memories recalled into the turn contexts in view, and the
+    conversation (everything else, a compaction summary included). The approximate counter adds up
+    message by message, so the buckets partition the uncalibrated count; scaled by the calibration
+    with largest-remainder rounding, they add up to ``estimated_input_tokens`` exactly. Counted once
+    per settled turn, never on a model call; nothing here changes what is sent.
+    """
+    total = prepared.raw_estimated_input_tokens
+    target = prepared.usage.estimated_input_tokens
+    if total <= 0:
+        return None
+    system = _count_prepared_tokens(
+        [message for message in prepared.messages if isinstance(message, SystemMessage)], ()
+    )
+    tool_tokens = _count_prepared_tokens([], inputs.canonical_tools)
+    # Four characters a token, as the approximate counter reckons text.
+    skills = min(system, math.ceil(max(0, inputs.skill_prompt_chars) / 4))
+    rest = max(0, total - system - tool_tokens)
+    memory = min(rest, math.ceil(_recall_block_chars(prepared.messages) / 4))
+    raw = {
+        "instructions": system - skills,
+        "tools": tool_tokens,
+        "skills": skills,
+        "memory": memory,
+        "conversation": rest - memory,
+    }
+    basis = sum(raw.values())
+    scaled = {key: value * target // basis for key, value in raw.items()}
+    remainders = sorted(raw, key=lambda key: raw[key] * target % basis, reverse=True)
+    for key in remainders[: target - sum(scaled.values())]:
+        scaled[key] += 1
+    return {**scaled, "tool_count": len(inputs.canonical_tools)}
+
+
 # ── Failed compactions are not retried until the turn or the input changes (F26) ─────────────
 # A failure was remembered per checkpoint revision, which changes with every tool step, so a
 # compaction that could not work ran again (with its summarizer calls) on every model call. Now the
@@ -4327,6 +4478,7 @@ def _persist_settled_context_usage(
         tool_fingerprint=inputs.tool_fingerprint,
         policy_fingerprint=inputs.policy_fingerprint,
         execution_budget=inputs.execution_budget,
+        skill_prompt_chars=inputs.skill_prompt_chars,
     )
     summary_state = _validated_summary_for_inputs(settled_inputs)
     prepared = _prepare_model_input(
@@ -4340,6 +4492,7 @@ def _persist_settled_context_usage(
         "snapshot_kind": "settled",
         "checkpoint_message_digest": checkpoint_message_digest,
         "last_confirmed_input_tokens": last_confirmed_input_tokens,
+        "breakdown": _context_breakdown(settled_inputs, prepared),
     })
     _current_last_preparation_var.set(settled_inputs)
     _persist_context_usage(thread_id, usage)

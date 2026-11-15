@@ -14,7 +14,7 @@ import pytest
 from row_bot.proactive.follow_ups import ChatsWatcher, MailWatcher
 from row_bot.proactive.meetings import CalendarWatcher
 from row_bot.proactive.model import Desktop
-from tests.subsystem.proactive.conftest import AT_DESK, at, start_day
+from tests.subsystem.proactive.conftest import AT_DESK, at, balanced, start_day
 from tests.subsystem.proactive.fakes import FakeCalendar, FakeChats, FakeMail, meeting, thread
 
 pytestmark = pytest.mark.subsystem
@@ -80,7 +80,22 @@ def test_a_cancelled_meeting_drops_its_prep_moment_silently(proactive):
                for entry in proactive.store.activity())
 
 
+def test_one_meeting_gives_one_prep_moment_however_often_the_calendar_is_read(proactive):
+    calendar = FakeCalendar()
+    proactive.watchers.register(CalendarWatcher([calendar]))
+    start_day(proactive)
+    calendar.add(meeting("ev1", at("2026-11-16 10:00")))
+
+    for clock in ("09:46", "09:51", "09:56", "09:59"):  # "in 14 minutes", "in 9 minutes"…: one meeting.
+        proactive.engine.tick(at(f"2026-11-16 {clock}"), desktop=AT_DESK)
+
+    preps = [moment for moment in proactive.store.list_moments() if moment["kind"] == "meeting_prep"]
+    assert [moment["dedupe_key"] for moment in preps] == [f"meeting:ev1:{int(at('2026-11-16 10:00'))}"]
+    assert [surface for surface, _moment in proactive.sent] == ["buddy"], "and it speaks once"
+
+
 def test_a_moved_meeting_drops_its_old_prep_and_says_it_moved(proactive):
+    balanced(proactive)
     calendar = FakeCalendar()
     proactive.watchers.register(CalendarWatcher([calendar]))
     start_day(proactive)
@@ -127,6 +142,7 @@ def test_an_instruction_inside_mail_is_data_and_nothing_follows_it(proactive):
 
 
 def test_one_follow_up_per_thread_however_long_it_stays_unanswered(proactive):
+    balanced(proactive)
     mail = FakeMail(sent=[thread("t1", at("2026-11-12 09:00"))])
     start_day(proactive)
     proactive.watchers.register(MailWatcher([mail]))
@@ -141,6 +157,7 @@ def test_one_follow_up_per_thread_however_long_it_stays_unanswered(proactive):
 
 
 def test_a_reply_that_arrives_before_the_moment_is_shown_drops_it(proactive):
+    balanced(proactive)
     mail = FakeMail(sent=[thread("t1", at("2026-11-12 09:00"))])
     start_day(proactive)
     proactive.watchers.register(MailWatcher([mail]))
@@ -194,6 +211,7 @@ def test_each_moment_fires_on_exactly_one_surface_chosen_from_where_the_person_i
 
 
 def test_a_normal_moment_while_away_goes_to_the_phone_not_a_chat_app(proactive, monkeypatch):
+    balanced(proactive)
     mail = FakeMail(sent=[thread("t1", at("2026-11-12 09:00"))])
     start_day(proactive)
     proactive.watchers.register(MailWatcher([mail]))
@@ -205,6 +223,39 @@ def test_a_normal_moment_while_away_goes_to_the_phone_not_a_chat_app(proactive, 
     proactive.engine.tick(at("2026-11-16 09:00"), desktop=Desktop(idle_seconds=600, locked=True))
 
     assert [surface for surface, _moment in proactive.sent] == ["push"]
+
+
+@pytest.mark.parametrize("desktop,pushed", [
+    (Desktop(idle_seconds=600, locked=True), True),
+    (Desktop(idle_seconds=900, locked=False), True),
+    (AT_DESK, False),
+])
+def test_a_phone_push_says_the_moments_title_and_line_only_when_the_desktop_is_idle_or_locked(
+        proactive, monkeypatch, desktop, pushed):
+    import row_bot.access.push as push
+
+    notices: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(push, "notify_soon", lambda title, body="", *, conversation_id="": notices.append(
+        (title, body, conversation_id)))
+    monkeypatch.setattr(proactive.deliver, "send", proactive.real_send)
+    monkeypatch.setattr(proactive.deliver, "buddy_on", lambda: False)
+    monkeypatch.setattr(proactive.deliver, "push_ready", lambda: True)
+    monkeypatch.setattr(proactive.deliver, "desktop_alert", lambda *args: None, raising=False)
+    import row_bot.notifications as notifications
+    monkeypatch.setattr(notifications, "desktop_alert", lambda *args, **kwargs: None)
+    calendar = FakeCalendar()
+    proactive.watchers.register(CalendarWatcher([calendar]))
+    start_day(proactive)
+    calendar.add(meeting("ev1", at("2026-11-16 10:12")))
+
+    proactive.engine.tick(at("2026-11-16 10:00"), desktop=desktop)
+
+    [moment] = proactive.store.list_moments()
+    if pushed:
+        assert notices == [(moment["title"], moment["body"].splitlines()[0], "")]
+        assert moment["surface"] == "push"
+    else:
+        assert notices == [] and moment["surface"] == "desktop", "at the desk it never goes to the phone"
 
 
 def test_triage_that_stays_silent_makes_no_moment_but_the_pass_is_logged(proactive):

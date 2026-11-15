@@ -1436,6 +1436,8 @@ class TaskSummary(WireModel):
     recent_runs: list[TaskRunDigest] = Field(default_factory=list, max_length=10)
     active_run: TaskActiveRun | None = None
     next_run: str | None = Field(default=None, max_length=80)
+    # "failures": Row-Bot switched it off after failed runs in a row (D5).
+    disabled_reason: Literal["", "failures"] = ""
 
 
 class TaskSummaryPage(WireModel):
@@ -2460,6 +2462,11 @@ class MigrationFailedItem(WireModel):
     reason: str = Field(max_length=512)
 
 
+class MigrationMemoryReview(WireModel):
+    batch_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    found: int = Field(ge=0, le=5000)
+
+
 class MigrationApplyReceipt(WireModel):
     schema_version: Literal[1]
     command_id: UUID
@@ -2470,6 +2477,8 @@ class MigrationApplyReceipt(WireModel):
         max_length=64
     )
     failed_items: list[MigrationFailedItem] = Field(max_length=4096)
+    # The memories brought over, waiting in Import memories for the person to review.
+    memory_review: MigrationMemoryReview | None = None
 
 
 class OnboardingStep(WireModel):
@@ -5921,6 +5930,10 @@ class ProactiveMomentView(WireModel):
     # What Row-Bot prepared for it (a brief or a drafted reply), "" when nothing.
     prepared_ref: str = Field(max_length=64)
     evidence_count: int = Field(ge=0, le=20)
+    # For you's group, decided on the server from what the moment is about (never from when it was shown).
+    group: Literal["now", "later_today", "ready"] = "ready"
+    # When the thing it's about happens (a meeting's start), "" when it has no time of its own.
+    starts_at: ProactiveTime = ""
 
 
 class ProactiveMomentPage(WireModel):
@@ -5956,6 +5969,9 @@ class ProactiveMomentDetail(WireModel):
     moment: ProactiveMomentView
     # The chat an ``act`` with ``continue_in_chat`` carried on in (open it); "" otherwise.
     conversation_id: str = Field(max_length=256)
+    # The draft workflow an ``act`` with ``make_workflow`` made (open it for review: it is off and
+    # unscheduled); "" otherwise.
+    workflow_id: str = Field(default="", max_length=64)
     summary: str = Field(max_length=2000)
     evidence: list[ProactiveEvidence] = Field(max_length=20)
     why: list[Annotated[str, Field(max_length=300)]] = Field(max_length=8)
@@ -5988,6 +6004,17 @@ class ProactiveSourceView(WireModel):
     label: str = Field(max_length=60)
     on: bool
     privacy: str = Field(max_length=400)
+    # One of the person's apps for it is on and signed in (mail, calendar); Row-Bot's own are always.
+    connected: bool = True
+
+
+class ProactiveKindCounts(WireModel):
+    """A kind's last 30 days: reached a surface, acted on, dismissed, left alone. Kept on this computer."""
+
+    shown: int = Field(default=0, ge=0, le=1_000_000)
+    acted: int = Field(default=0, ge=0, le=1_000_000)
+    dismissed: int = Field(default=0, ge=0, le=1_000_000)
+    ignored: int = Field(default=0, ge=0, le=1_000_000)
 
 
 class ProactiveKindView(WireModel):
@@ -5998,6 +6025,7 @@ class ProactiveKindView(WireModel):
     urgent: bool
     # Went quiet after being ignored; turning it on again lets it speak.
     quieted: bool
+    last_30_days: ProactiveKindCounts = Field(default_factory=ProactiveKindCounts)
 
 
 class ProactiveRuleView(WireModel):
@@ -6025,6 +6053,10 @@ class ProactiveSettingsView(WireModel):
     kinds: list[ProactiveKindView] = Field(max_length=6)
     # The chat app urgent kinds may reach when the person is away ("" none).
     channel: str = Field(max_length=64)
+    # The end-of-day wrap comes at day_end (off at Quiet, on at Balanced and Eager until the person chooses).
+    wrap: bool = False
+    # The first-run introduction was answered or dismissed (once per person, on any device).
+    introduced: bool = False
     rules: list[ProactiveRuleView] = Field(max_length=200)
     privacy: str = Field(max_length=600)
 
@@ -6042,6 +6074,9 @@ class ProactiveSettingsChange(WireModel):
     kinds: dict[ProactiveKind, bool] | None = Field(default=None, max_length=6)
     urgent_kinds: list[ProactiveKind] | None = Field(default=None, max_length=6)
     channel: str | None = Field(default=None, max_length=64)
+    # The person's own choice for the end-of-day wrap, whatever the level.
+    wrap: bool | None = None
+    introduced: bool | None = None
 
 
 class ProactiveRuleWrite(WireModel):
@@ -6049,6 +6084,19 @@ class ProactiveRuleWrite(WireModel):
     kind: Literal["", "follow_up", "meeting_prep", "brief", "date", "change", "workflow_offer"] = ""
     topic: str = Field(default="", max_length=120)
     hour: int = Field(default=-1, ge=-1, le=23)
+
+
+class ProactiveDraftSendCard(WireModel):
+    """The approval card for sending a reply Row-Bot drafted: always shown, under every approval level."""
+
+    binding: str = Field(max_length=300)
+    action: str = Field(max_length=300)
+    destination: str = Field(max_length=300)
+    account: str = Field(max_length=300)
+    subject: str = Field(max_length=300)
+    text: str = Field(max_length=20_000)
+    reason: str = Field(max_length=300)
+    asked_at: ProactiveTime
 
 
 class ProactiveDraftView(WireModel):
@@ -6059,13 +6107,75 @@ class ProactiveDraftView(WireModel):
     moment_id: ProactiveMomentId
     kind: Literal["brief", "reply"]
     title: str = Field(max_length=200)
+    # As the person last saved it (Row-Bot's own words until then).
     body: str = Field(max_length=20_000)
     created_at: ProactiveTime
+    # A reply's recipient, subject and the thread it answers ("" for a brief, or when unknown).
+    reply_to: str = Field(default="", max_length=320)
+    subject: str = Field(default="", max_length=300)
+    thread: str = Field(default="", max_length=300)
+    # The person's mail app it goes out through: "Gmail", "Outlook" or "".
+    app: str = Field(default="", max_length=40)
+    updated_at: ProactiveTime = ""
+    sent_at: ProactiveTime = ""
+    # Why it can't be sent now, in words ("" when it can).
+    send_blocked: str = Field(default="", max_length=200)
+    # The approval card while sending it waits for the person's answer (null otherwise).
+    send: ProactiveDraftSendCard | None = None
 
 
 class ProactiveDraftPage(WireModel):
     schema_version: Literal[1]
     items: list[ProactiveDraftView] = Field(max_length=100)
+
+
+class ProactiveDraftEdit(WireModel):
+    """The person's edits to a drafted reply; ``to`` and ``subject`` stay as they are when left out."""
+
+    body: str = Field(max_length=20_000)
+    to: str | None = Field(default=None, max_length=320)
+    subject: str | None = Field(default=None, max_length=300)
+
+
+class ProactiveDraftSendAnswer(WireModel):
+    """The person's answer on the card, carrying the binding of exactly the card they saw."""
+
+    binding: str = Field(min_length=1, max_length=300)
+    approved: bool
+
+
+class ProactiveDraftSendOutcome(WireModel):
+    """sent (after approval), denied (nothing sent), changed (the reply changed since the card: look again)
+    or failed (the mail app couldn't send it)."""
+
+    schema_version: Literal[1]
+    outcome: Literal["sent", "denied", "changed", "failed"]
+    words: str = Field(max_length=300)
+    draft: ProactiveDraftView
+
+
+class ProactivePreviewItem(WireModel):
+    moment_id: ProactiveMomentId
+    kind: ProactiveKind
+    title: str = Field(max_length=200)
+    # When it would have come up ("" when it stays on Home).
+    at: ProactiveTime
+    where: Literal["buddy", "home"]
+    # Carried in the morning brief.
+    in_brief: bool
+
+
+class ProactivePreviewLevel(WireModel):
+    level: ProactiveLevel
+    items: list[ProactivePreviewItem] = Field(max_length=500)
+
+
+class ProactivePreview(WireModel):
+    """What each level would have brought up today, from today's moments; ``example`` when there were none."""
+
+    schema_version: Literal[1]
+    example: bool
+    levels: list[ProactivePreviewLevel] = Field(max_length=4)
 
 
 class ProactiveBoundary(WireModel):
@@ -7129,6 +7239,8 @@ class TaskEditorSnapshot(WireModel):
     approval_mode: str = Field(max_length=64)
     conversation_id: OpaqueId | None
     legacy_delivery: bool
+    # "failures": Row-Bot switched it off after failed runs in a row (D5).
+    disabled_reason: Literal["", "failures"] = ""
 
 
 class TaskSaveResult(WireModel):
@@ -8752,6 +8864,19 @@ class ConversationTokenUsage(WireModel):
     cache_read_percent: int | None = Field(default=None, ge=0, le=100)
     # Only a cost the provider itself returned (OpenRouter); no price table.
     cost_usd: float | None = Field(default=None, ge=0)
+    # Share of the newest turn request's input read from a prompt cache, where the provider reports it.
+    last_cache_read_percent: int | None = Field(default=None, ge=0, le=100)
+
+
+class ContextBreakdown(WireModel):
+    """What fills the context after the last reply, in estimated tokens: counts only, no names."""
+
+    instructions: int = Field(ge=0, le=2147483647)
+    tools: int = Field(ge=0, le=2147483647)
+    skills: int = Field(ge=0, le=2147483647)
+    memory: int = Field(ge=0, le=2147483647)
+    conversation: int = Field(ge=0, le=2147483647)
+    tool_count: int = Field(ge=0, le=2147483647)
 
 
 class ContextUpdated(WireModel):
@@ -8769,6 +8894,8 @@ class ContextUpdated(WireModel):
     scope: Literal["agent", "chat_only", "unknown"] = "unknown"
     capacity_state: str = Field(default="unavailable", max_length=64)
     conversation_usage: ConversationTokenUsage | None = None
+    # Only on a settled measurement; a live per-call event carries none.
+    breakdown: ContextBreakdown | None = None
 
 
 EVENT_PAYLOADS = {
@@ -9391,6 +9518,8 @@ class Notice(WireModel):
     at: str = Field(min_length=1, max_length=64)
     # The conversation it is about, when there is one to open (a file Row-Bot sent to the devices).
     conversation_id: str | None = Field(default=None, min_length=1, max_length=256)
+    # The workflow it is about, when there is one to open (a workflow Row-Bot switched off).
+    workflow_id: OpaqueId | None = None
 
 
 class NoticePage(WireModel):
@@ -10185,6 +10314,15 @@ class WorkspaceTodo(WireModel):
     status: str = Field(max_length=80)
 
 
+class WorkspaceProjectNote(WireModel):
+    path: str = Field(max_length=256)
+    state: Literal[
+        "used", "cut", "not_used_injection", "not_used_secret", "not_used_outside", "too_large", "unreadable"
+    ]
+    characters: int = Field(ge=0)
+    used_characters: int = Field(ge=0)
+
+
 class WorkspaceInspector(WireModel):
     resource_id: OpaqueId
     project_workspace_id: OpaqueId
@@ -10203,6 +10341,7 @@ class WorkspaceInspector(WireModel):
     processes: list[WorkspaceProcessStatus] = Field(max_length=200)
     todos: list[WorkspaceTodo] = Field(max_length=200)
     error: str = Field(default="", max_length=128)
+    project_notes: list[WorkspaceProjectNote] = Field(default_factory=list, max_length=8)
 
 
 class WorkspaceChangedFile(WireModel):

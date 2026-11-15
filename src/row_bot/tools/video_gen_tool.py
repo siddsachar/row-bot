@@ -1012,6 +1012,43 @@ def _animate_image(
     return f"Unknown video generation provider '{provider}'. Please select a valid model in Settings."
 
 
+# ── Paid calls go through the approval gate (as pictures do) ─────────────
+
+
+def _selection() -> str:
+    """The chosen video model as "provider/model" (a bare legacy name is Google's)."""
+    selection = _get_configured_selection()
+    return "/".join(_parse_model_config(selection)) if selection else ""
+
+
+def _generate_video_tool(prompt: str, duration_seconds: int = 8, aspect_ratio: str = "16:9",
+                         resolution: str = "720p") -> str:
+    from row_bot.tools.image_gen_tool import _led, paid_generation_check
+
+    refusal, line = paid_generation_check("generate_video", "video", _selection(),
+                                          f"make a video ({duration_seconds} seconds, {resolution})", prompt)
+    return refusal or _led(line, _generate_video(prompt, duration_seconds, aspect_ratio, resolution))
+
+
+def _animate_image_tool(prompt: str, image_source: str = "last", duration_seconds: int = 8,
+                        aspect_ratio: str = "16:9", resolution: str = "720p") -> str:
+    from row_bot.providers.media import bills_per_call
+    from row_bot.tools.image_gen_tool import _led, paid_generation_check
+
+    selection, line = _selection(), ""
+    if bills_per_call("video", selection) and _job_route(selection.partition("/")[0]) not in _TEXT_TO_VIDEO_ONLY:
+        try:
+            _resolve_image_source(image_source)  # Nothing to approve when there is no picture to animate.
+        except ValueError as e:
+            return str(e)
+        refusal, line = paid_generation_check(
+            "animate_image", "video", selection,
+            f"animate a picture into a video ({duration_seconds} seconds, {resolution})", prompt)
+        if refusal:
+            return refusal
+    return _led(line, _animate_image(prompt, image_source, duration_seconds, aspect_ratio, resolution))
+
+
 # ── Pydantic input schemas ───────────────────────────────────────────────
 
 class _GenerateVideoInput(BaseModel):
@@ -1111,7 +1148,7 @@ class VideoGenTool(BaseTool):
     def as_langchain_tools(self) -> list:
         return [
             StructuredTool.from_function(
-                func=_generate_video,
+                func=_generate_video_tool,
                 name="generate_video",
                 description=(
                     "Generate a video from a text description. Use this "
@@ -1123,7 +1160,7 @@ class VideoGenTool(BaseTool):
                 args_schema=_GenerateVideoInput,
             ),
             StructuredTool.from_function(
-                func=_animate_image,
+                func=_animate_image_tool,
                 name="animate_image",
                 description=(
                     "Turn a still image into a short video clip. Use this "

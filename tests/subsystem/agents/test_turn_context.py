@@ -11,6 +11,7 @@ model is told is still all there.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -384,3 +385,52 @@ def test_skill_load_and_a_skill_mention_reach_the_model_without_editing_the_syst
     assert "Report writer" in block and "Write three bullets" in block
     systems = [str(message.content) for message in update["llm_input_messages"] if message.type == "system"]
     assert not any("Write three bullets" in text for text in systems)
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    """The person's home folder, named after their account, with no workspace chosen yet."""
+    folder = tmp_path / "jane-account"
+    folder.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: folder))
+    monkeypatch.delenv("ROW_BOT_WORKSPACE", raising=False)
+    return folder
+
+
+def test_the_turn_context_names_the_workspace_under_home_without_the_account_name(env, home):
+    state = env.new_turn(None, "Make a packing list.", "t1")
+    first = _block(env.call(state, "t1"))
+
+    assert ("Workspace folder: ~/Documents/Row-Bot. File tools and the shell start here; relative paths are "
+            "inside it.") in first
+    assert "jane-account" not in first and str(home) not in first
+
+    state["messages"] = [*state["messages"], AIMessage(content="Done.")]
+    state = env.new_turn(state, "Add sun cream.", "t2")
+    assert "Workspace folder" not in _block(env.call(state, "t2"))  # unchanged, so not repeated
+
+
+def test_a_workspace_chosen_outside_home_is_named_as_it_is(env, home, tmp_path):
+    from row_bot.tools import registry
+
+    chosen = tmp_path / "Work"
+    chosen.mkdir()
+    registry.set_tool_config("filesystem", "workspace_root", str(chosen))
+    state = env.new_turn(None, "Make a packing list.", "t1")
+
+    assert f"Workspace folder: {chosen}. File tools" in _block(env.call(state, "t1"))
+
+
+def test_a_bound_code_folder_is_named_with_the_workspace_for_other_files(env, home, reload_for_data_dir):
+    threads, storage = reload_for_data_dir(None, "row_bot.threads", "row_bot.developer.storage")
+    repo = home / "code" / "app"
+    repo.mkdir(parents=True)
+    code_folder = storage.add_or_update_local_workspace(str(repo))
+    threads.create_thread("Fix the build", thread_id=THREAD_ID, thread_type="code",
+                          developer_workspace_id=code_folder.id, project_workspace_id=code_folder.id)
+    state = env.new_turn(None, "Why does the build fail?", "t1")
+    block = _block(env.call(state, "t1"))
+
+    assert ("Code folder: ~/code/app (the shell and Developer tools start here). Workspace folder for other "
+            "files: ~/Documents/Row-Bot.") in block
+    assert "jane-account" not in block

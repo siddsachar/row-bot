@@ -14,6 +14,10 @@ the system is idle.  Each night it:
 4. **Infers relationships** — entity pairs named together in one passage of a
    conversation, with no edge, are evaluated for a connection.
 
+Last, it **prepares tomorrow** for Proactive Row-Bot (``proactive.overnight``): read-only briefs for the
+next day's meetings and drafted replies for the follow-ups due, waiting for their moments; nothing at
+Proactive's Off level, and it stops when the person comes back.
+
 The conversations are read once per night, for both 2 and 4.  Nothing in the
 person's memory is deleted except merged duplicates and pruned inferences.
 All changes are tagged with ``source="dream_*"`` for traceability and
@@ -1819,6 +1823,35 @@ def run_dream_cycle(on_status=None) -> dict:
         _dreaming.clear()
 
 
+def _person_back() -> bool:
+    """Stop preparing: the person came back, a turn started, or the loop is stopping."""
+    from row_bot.runtime import executions
+
+    return _dream_stop.is_set() or not _is_idle() or bool(executions.generation_registry.active())
+
+
+def _prepare_tomorrow(summary: dict, status) -> None:
+    """Phase 6: Proactive Row-Bot prepares the day ahead, read-only (``proactive.overnight``): briefs for
+    tomorrow's meetings and drafts for the follow-ups due, waiting for their moments. Nothing at Off."""
+    status("Phase 6: Preparing tomorrow…")
+    try:
+        from row_bot.proactive import overnight
+
+        prepared = overnight.prepare_tomorrow(should_stop=_person_back)
+    except Exception as exc:
+        logger.warning("Overnight preparation failed", exc_info=True)
+        summary["errors"].append(f"Preparing tomorrow: {type(exc).__name__}")
+        return
+    summary["prepared"] = prepared
+    if prepared:
+        status(f"Prepared {prepared} for tomorrow")
+
+
+def _with_prepared(summary: dict) -> None:
+    if summary.get("prepared"):
+        summary["summary"] += f"; prepared {summary['prepared']} for tomorrow"
+
+
 BACKUP_NAME = "memory.db.pre-dream-whole-graph"
 
 
@@ -1893,6 +1926,8 @@ def _run_dream_cycle(on_status=None) -> dict:
         summary["summary"] = (
             f"Skipped — waits for {min_entities} saved memories; there are {entity_count} so far"
         )
+        _prepare_tomorrow(summary, _status)  # Tomorrow's preparation doesn't wait for memories.
+        _with_prepared(summary)
         summary["duration_s"] = (datetime.now(timezone.utc) - start_time).total_seconds()
         _append_journal(summary)
         return summary
@@ -1902,6 +1937,8 @@ def _run_dream_cycle(on_status=None) -> dict:
     if not _backup_before_first_whole_graph_cycle(cfg):
         summary["errors"].append("Skipped: memory could not be backed up before the first whole-graph cycle")
         summary["summary"] = "Skipped — memory could not be backed up first; it will try again next night"
+        _prepare_tomorrow(summary, _status)
+        _with_prepared(summary)
         summary["duration_s"] = (datetime.now(timezone.utc) - start_time).total_seconds()
         _append_journal(summary)
         return summary
@@ -2004,6 +2041,8 @@ def _run_dream_cycle(on_status=None) -> dict:
         summary["errors"].append("Saved knowledge projection repair failed")
         logger.warning("Post-dream projection repair failed: %s", exc)
 
+    _prepare_tomorrow(summary, _status)
+
     # Compose summary text
     m = len(summary["merges"])
     e = len(summary["enrichments"])
@@ -2023,6 +2062,8 @@ def _run_dream_cycle(on_status=None) -> dict:
         parts.append(f"{d} decayed, {p} pruned")
     if i_add or i_merge:
         parts.append(f"{i_add} insight(s), {i_merge} merged")
+    if summary.get("prepared"):
+        parts.append(f"{summary['prepared']} prepared for tomorrow")
     if errs:
         parts.append(f"{errs} error(s)")
     parts.append(f"in {duration:.0f}s")
