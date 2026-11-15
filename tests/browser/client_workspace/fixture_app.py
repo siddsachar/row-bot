@@ -8116,7 +8116,8 @@ _D1_OUTPUT = "$ npm test\n\n 12 passed (12)\n\n[Exit code: 0 | Duration: 1.4s]"
 
 
 def _d1_folder() -> Path:
-    folder = predecessor.DATA / "d1-folders" / "row-bot"
+    # Beside the data folder, never in it: a rule never covers Row-Bot's own private data.
+    folder = predecessor.DATA.parent / "d1-folders" / "row-bot"
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
@@ -8231,7 +8232,7 @@ def d1_rules(state: str, x_fixture_token: str = Header(default="")) -> dict:
             at=now - days * 86_400, decisions=((card, decided) if by == "person" else (decided,))))
     notion = approval_rules.create(approval_rules.Scope(
         "app", "mcp_notion_create_page", app_id="mcp:notion", app_name="Notion", tool_title="Create a page"))
-    documents = predecessor.DATA / "d1-folders" / "Documents"
+    documents = predecessor.DATA.parent / "d1-folders" / "Documents"
     documents.mkdir(parents=True, exist_ok=True)
     moves = approval_rules.create(approval_rules.Scope("move", "workspace_move_file", folder=str(documents)))
     approval_rules.update(moves.rule_id, enabled=False)
