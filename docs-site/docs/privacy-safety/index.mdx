@@ -9,6 +9,8 @@ import Screenshot from '@site/src/components/Screenshot';
 
 Row-Bot is local-first: the app and its data live on your machine. Local-first does not mean every feature is offline. Hosted models, web search, browser actions, account tools, channels, MCP servers, plugins, realtime voice, and media providers can send data outside the app when you configure and use them.
 
+For how Row-Bot keeps its agent's actions in bounds, and how to report a security problem, read [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds).
+
 ## Local Data
 
 Conversations, memories, documents, workflows, logs, designs, code folder records, skills, plugins, Buddy assets, and settings are stored in the active local Row-Bot data directory. The desktop Buddy's bubble reuses the selected conversation and does not create a second transcript store. To sit on your windows, the desktop Buddy reads the position and size of the window you are using and where your cursor is; it never reads window titles, app names, contents or pixels, and none of it leaves your computer.
@@ -105,11 +107,11 @@ Use approvals to review file writes, command execution, browser actions, account
 
 Approvals wait until you answer; they no longer expire on their own, unless a workflow step sets its own time limit. Every waiting approval shows in its conversation, in the sidebar's attention indicator and on Overview, with **Approve** and **Deny** in place, so background work can't slip past you. Each tool result records whether approval was needed, given or denied, and a denied action never runs.
 
-Approval level is policy: blocked actions stay blocked, **Ask** waits for you, **Auto**'s reviewer approves only what clearly matches your own request (it never sees tool results, files or web pages, and asks you when unsure), and **Hands-off** runs every action and records it. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled.
+Approval level is policy: blocked actions stay blocked, **Ask** waits for you, **Auto**'s reviewer approves only what clearly matches your own request (it never sees tool results, files or web pages, and asks you when unsure), and **Hands-off** runs every action and records it. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled. [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds) tells the whole story, including what is not a boundary.
 
 ### Programs On This Computer Can't Act As You
 
-On this computer, only Row-Bot's own window, or a browser it opens for you from its tray icon (**Open in Browser**), can change anything. Programs Row-Bot runs for you (a shell command, its own browser, a page it reads) connect from the same computer, so being on this computer isn't enough: they can look, never approve Row-Bot's own actions, change its approval level or settings, or pair a device. A Row-Bot tab you open yourself by typing its address shows **View only on this computer** in the sidebar until you open it from the window or the tray. Your phone and every signed-in device keep full access.
+On this computer, only Row-Bot's own window, or a browser it opens for you from its tray icon (**Open in Browser**), can change anything. Programs Row-Bot runs for you can look, never approve its actions or change its settings, and a tab you open by typing Row-Bot's address shows **View only on this computer**. See [Programs On This Computer Can't Act As You](/docs/privacy-safety/agent-in-bounds#programs-on-this-computer-cant-act-as-you).
 
 ## Sharing Logs Or Screenshots
 
