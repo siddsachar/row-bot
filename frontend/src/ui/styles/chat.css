@@ -3858,8 +3858,92 @@ button.attachment-tile-face:hover {
   margin: 0;
   color: var(--text-secondary);
 }
+.context-meter-detail:focus {
+  outline: none;
+}
 .context-meter-title {
   font-size: var(--text-13);
+}
+/* What fills the context: a thin bar, then one row a part (B7). */
+.context-breakdown {
+  display: grid;
+  gap: 8px;
+  padding: 4px 0 2px;
+}
+.context-breakdown-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+}
+.context-breakdown-bar > span {
+  flex-basis: 0;
+  min-width: 3px;
+  background: var(--part);
+}
+.context-breakdown [data-part='instructions'] {
+  --part: var(--chart-series-1);
+}
+.context-breakdown [data-part='tools'] {
+  --part: var(--chart-series-2);
+}
+.context-breakdown [data-part='skills'] {
+  --part: var(--chart-series-3);
+}
+.context-breakdown [data-part='memory'] {
+  --part: var(--chart-series-4);
+}
+.context-breakdown [data-part='conversation'] {
+  --part: var(--chart-series-5);
+}
+.context-breakdown-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.context-breakdown-list > li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto 3.5em;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 22px;
+  color: var(--text-secondary);
+}
+.context-breakdown-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--part);
+}
+.context-breakdown-label {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-breakdown-tokens,
+.context-breakdown-share {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.context-breakdown-share {
+  color: var(--text-muted);
+}
+.context-meter-detail .context-breakdown-note {
+  color: var(--text-muted);
+}
+.context-meter-more > .disclosure-summary {
+  min-height: 28px;
+  padding: 2px 0;
+  font-size: var(--text-12);
+}
+.context-meter-more > .disclosure-body {
+  display: grid;
+  gap: 6px;
+  padding: 0 0 2px 20px;
 }
 
 /* Waits (5.3.1): what this conversation waits for, one quiet line each. */

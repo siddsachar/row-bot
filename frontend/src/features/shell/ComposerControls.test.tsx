@@ -482,6 +482,56 @@ it('folds the model, approvals and context usage into + on a one-line composer',
   anchor.current.remove();
 });
 
+it("opens what fills the context from + on a one-line composer, once there's a measurement", async () => {
+  const anchor = { current: document.createElement('div') };
+  document.body.append(anchor.current);
+  render(
+    <ComposerControls
+      onError={vi.fn()}
+      singleLine
+      anchor={anchor}
+      contextUsage={{
+        conversation_id: mock.state.workspace!.conversation_id,
+        state: 'saved',
+        freshness: 'current',
+        status: 'ready',
+        estimated_input_tokens: 12000,
+        usable_input_tokens: 100000,
+        compact_at_tokens: 75000,
+        native_window_tokens: 128000,
+        effective_limit_tokens: 100000,
+        last_confirmed_input_tokens: null,
+        model_ref: 'fixture/model',
+        scope: 'agent',
+        capacity_state: 'ready',
+        breakdown: {
+          instructions: 2000,
+          tools: 6000,
+          skills: 0,
+          memory: 0,
+          conversation: 4000,
+          tool_count: 30,
+        },
+      }}
+    />,
+  );
+  const more = await menu('Add files and more');
+  await act(async () =>
+    fireEvent.click(
+      more.getByRole('menuitem', {
+        name: /12% of context · compacts at 75%/,
+      }),
+    ),
+  );
+  const details = within(
+    await screen.findByRole('dialog', { name: 'Context usage details' }),
+  );
+  expect(details.getByText('Tools (30)').closest('li')).toHaveTextContent(
+    '6,00050%',
+  );
+  anchor.current.remove();
+});
+
 function withApproval(
   approval_mode: 'approve' | 'auto' | 'full' | 'block',
   approval = { full_autonomy_confirmed: false, full_autonomy_available: true },
