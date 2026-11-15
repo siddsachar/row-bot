@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import sqlite3
 import sys
 import threading
@@ -196,39 +197,101 @@ def _is_app_event(message) -> bool:
     return bool(kwargs.get("row_bot_internal_event")) or (isinstance(ui, dict) and bool(ui.get("thread_event")))
 
 
+_PERSON_CHARS = 2_000  # of a person's message; also what a watermark's hash covers of any message
+# Of one of Row-Bot's answers in a trusted turn: a whole chat answer (most are 1,000 to 3,000
+# characters) with a question fits one 6,000-character extraction window; a longer one (code,
+# a report) is cut. About 1,000 tokens at most, where 200 characters (50 tokens) was read before.
+_ANSWER_CHARS = 4_000
+_LEFT_OUT = "[answer left out: this turn read outside content]"
+# A fence or untrusted tag, in any message (a child Agent's words, a relayed result).
+_FENCE_TAG = re.compile(r"<\s*/?\s*(?:EXTERNAL_CONTENT|untrusted)\b", re.IGNORECASE)
+# A file or image the person attached, inlined into their message (``file_context``, channel media).
+_ATTACHMENT = re.compile(r"(?:^|\n)\[Attached ")
+
+
+def _extraction_categories() -> frozenset[str]:
+    """What extraction may save: every memory category but ``self_knowledge`` (Learning's lessons)."""
+    from row_bot.memory import VALID_CATEGORIES
+
+    return frozenset(VALID_CATEGORIES) - {"self_knowledge"}
+
+
+def _content_text(content) -> str:
+    if isinstance(content, list):
+        text_parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                text_parts.append(block)
+        content = "\n".join(text_parts)
+    if not isinstance(content, str):
+        content = str(content) if content else ""
+    return content
+
+
+def _brings_outside_content(message) -> bool:
+    """Whether *message* brings outside content into the conversation (the trusted-turn rule).
+
+    Any tool call or tool result (a web page, an email, a file, a search, Row-Bot's own tools
+    too), a result marked untrusted, a message Row-Bot added for an event or another run, a file
+    or image the person attached, or a fence tag in any message.
+    """
+    kind = getattr(message, "type", None)
+    if kind == "tool" or getattr(message, "tool_calls", None) or getattr(message, "invalid_tool_calls", None):
+        return True
+    kwargs = getattr(message, "additional_kwargs", None)
+    kwargs = kwargs if isinstance(kwargs, dict) else {}
+    ui = kwargs.get("row_bot_ui")
+    if kwargs.get("row_bot_untrusted") or kwargs.get("tool_calls") or _is_app_event(message):
+        return True
+    if isinstance(ui, dict) and ui.get("channel_notification_key"):
+        return True  # a notice of another run's result
+    content = getattr(message, "content", "") or ""
+    if kind == "human" and isinstance(content, list) and any(
+        isinstance(block, dict) and block.get("type") not in (None, "text") for block in content
+    ):
+        return True  # an image or a file
+    text = _content_text(content)
+    return bool(_FENCE_TAG.search(text) or _ATTACHMENT.search(text))
+
+
 def _get_thread_messages(thread_id: str) -> list[dict]:
     """Load the person's and the assistant's messages from a thread's checkpoint.
 
     Each is ``{"role", "content"}``, with the message's ``id`` when it has one.
     An incognito conversation has none, and one that was incognito only those
     said after it was turned off (N11): every memory reader starts here.
+
+    Only trusted turns (the owner's rule): an answer of Row-Bot's is marked
+    ``"trusted": True`` only while nothing from outside has entered the
+    conversation (``_brings_outside_content``). From the first message that
+    brings outside content on, every later answer may quote it, since the model
+    reads the whole conversation each turn, so the conversation gives only the
+    person's messages from then on. Decided here, in code, before any prompt.
     """
     try:
         from row_bot.threads import get_latest_checkpoint_messages, incognito_state
         from row_bot.turn_context import is_person_message, is_turn_context_message
 
         messages = get_latest_checkpoint_messages(thread_id)
-        messages = messages[incognito_state(thread_id).readable_from(messages):]
+        readable_from = incognito_state(thread_id).readable_from(messages)
         result = []
-        for m in messages:
-            if is_turn_context_message(m) or _is_app_event(m):
-                # Row-Bot's per-turn context (time, state, recalled memories) and its own
-                # events: never a source of new memories, and never something the person said.
+        outside = False
+        for index, m in enumerate(messages):
+            if is_turn_context_message(m):
+                continue  # Row-Bot's per-turn context (time, state, recalled memories): its own text.
+            # Counted from the first message, incognito ones too: a later turn's model still read them.
+            outside = outside or _brings_outside_content(m)
+            if index < readable_from or _is_app_event(m):
+                # Row-Bot's own events: never a source of new memories, and never something the person said.
                 continue
             role = "user" if is_person_message(m) else ("assistant" if getattr(m, "type", None) == "ai" else None)
-            content = getattr(m, "content", "") or ""
-            if isinstance(content, list):
-                text_parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-                content = "\n".join(text_parts)
-            if not isinstance(content, str):
-                content = str(content) if content else ""
+            content = _content_text(getattr(m, "content", "") or "")
             if role and content.strip():
-                entry = {"role": role, "content": content[:2000]}
+                entry = {"role": role, "content": content[:_PERSON_CHARS if role == "user" else _ANSWER_CHARS]}
+                if role == "assistant" and not outside:
+                    entry["trusted"] = True
                 if getattr(m, "id", None):
                     entry["id"] = str(m.id)
                 result.append(entry)
@@ -238,16 +301,13 @@ def _get_thread_messages(thread_id: str) -> list[dict]:
         return []
 
 
-_ASSISTANT_TRUNCATE = 200  # chars — enough context, not enough to extract from
-
-
 def _format_conversation(messages: list[dict]) -> str:
     """Format messages into a readable conversation string.
 
-    User messages are included in full (they contain the facts we want).
-    Assistant messages are truncated to ``_ASSISTANT_TRUNCATE`` chars to
-    prevent the LLM from extracting facts from its own output — search
-    results, file listings, generated stories, workflow reports, etc.
+    The person's messages are read as loaded. An answer of Row-Bot's is read, up
+    to ``_ANSWER_CHARS``, only when it is marked trusted (``_get_thread_messages``);
+    any other answer is only a placeholder, so nothing of a turn that read a web
+    page, an email, a file or a tool result reaches the prompt.
     """
     lines = []
     for m in messages:
@@ -257,21 +317,22 @@ def _format_conversation(messages: list[dict]) -> str:
             continue
         if role == "user":
             lines.append(f"User: {content}")
-        else:
+        elif m.get("trusted") is True:
             text = str(content)
-            if len(text) > _ASSISTANT_TRUNCATE:
-                text = text[:_ASSISTANT_TRUNCATE] + " [...]"
+            if len(text) > _ANSWER_CHARS:
+                text = text[:_ANSWER_CHARS] + " [...]"
             lines.append(f"Assistant: {text}")
+        else:
+            lines.append(f"Assistant: {_LEFT_OUT}")
     return "\n".join(lines)
 
 
 def _extraction_answer():
     """The extraction reply as a JSON schema: entities and relations, as the prompt describes."""
-    from row_bot.memory import VALID_CATEGORIES
     from row_bot.providers.background import json_object, structured_answer
 
     entity = json_object({
-        "category": {"type": "string", "enum": sorted(VALID_CATEGORIES)},
+        "category": {"type": "string", "enum": sorted(_extraction_categories())},
         "subject": {"type": "string"},
         "content": {"type": "string"},
         "aliases": {"type": "string", "description": "Other names, comma separated, or an empty string."},
@@ -423,14 +484,14 @@ def _reconcile_entities(extracted: list[dict], source: str, source_context: dict
     memories that now hold them, and how many memories were added or changed."""
     import row_bot.knowledge_graph as kg
     import row_bot.memory_reconcile as reconcile
-    from row_bot.memory import VALID_CATEGORIES
 
+    categories = _extraction_categories()
     memories: list[reconcile.NewMemory] = []
     for entry in extracted:
         category = str(entry.get("category", "")).lower().strip()
         subject = str(entry.get("subject", "")).strip()
         content = str(entry.get("content", "")).strip()
-        if category not in VALID_CATEGORIES or not subject or not content:
+        if category not in categories or not subject or not content:
             continue
         aliases = entry.get("aliases", "")
         if isinstance(aliases, list):
@@ -480,8 +541,10 @@ def _dedup_and_save(
 
     Returns the number of new/updated memories + relations.
     """
-    from row_bot.memory import save_memory, find_by_subject, update_memory, VALID_CATEGORIES
+    from row_bot.memory import save_memory, find_by_subject, update_memory
     import row_bot.knowledge_graph as kg
+
+    categories = _extraction_categories()  # never self_knowledge: those are Learning's lessons
 
     saved_count = 0
     strict = {"validate":validate} if validate is not None else {}
@@ -506,7 +569,7 @@ def _dedup_and_save(
             if validate is not None:
                 validate()
             category = entry.get("category", "").lower().strip()
-            if category not in VALID_CATEGORIES:
+            if category not in categories:
                 continue
             subject = entry["subject"].strip()
             content = entry["content"].strip()
@@ -827,7 +890,9 @@ class _Unread:
 
 
 def _message_hash(message: dict) -> str:
-    text = f"{message.get('role', '')}\n{message.get('content', '')}"
+    # The first 2,000 characters: all that was loaded of any message before answers were read at more,
+    # so a watermark saved then still finds its messages.
+    text = f"{message.get('role', '')}\n{str(message.get('content', ''))[:_PERSON_CHARS]}"
     return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:16]
 
 
