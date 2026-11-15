@@ -20,6 +20,7 @@ import {
   Database,
   FileText,
   GraduationCap,
+  History,
   KeyRound,
   Lightbulb,
   Mic,
@@ -72,6 +73,7 @@ const icons: Record<string, Icon> = {
   skills: Sparkles,
   profiles: UsersRound,
   system: Shield,
+  activity: History,
   access: KeyRound,
   updates: ArrowUpCircle,
   data: Database,
@@ -96,6 +98,7 @@ const descriptions: Record<string, string> = {
   apps: 'Services Row-Bot can work in for you. Connect one in about a minute.',
   skills: 'Ways of doing a job that Row-Bot follows when they fit.',
   system: 'Where Row-Bot works on this computer, and what it may do there.',
+  activity: 'Everything Row-Bot did, and who allowed it.',
   access:
     'Use Row-Bot on a phone or another computer, and see what is signed in.',
   updates: 'The version you have and how new ones arrive.',

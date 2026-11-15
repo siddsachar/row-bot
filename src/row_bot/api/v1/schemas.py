@@ -2610,6 +2610,67 @@ class MonitorSnapshot(WireModel):
     logs: MonitorLogs
 
 
+ActivitySurface = Literal["chat", "workflow", "agent", "goal", "channel", "proactive", "developer"]
+ActivityOutcome = Literal[
+    "ran", "asked", "approved_by_you", "approved_by_reviewer", "hands_off", "allowed_by_rule",
+    "allowed_in_chat", "denied", "changed", "blocked", "failed",
+]
+
+
+class ActivityEntry(WireModel):
+    """One tool action in the activity log (D1): what ran, where, its outcome and who decided."""
+
+    entry_id: int = Field(ge=1, le=9007199254740991)
+    at: str = Field(max_length=40)
+    conversation_id: str = Field(max_length=256)
+    conversation_title: str = Field(max_length=160)
+    surface: ActivitySurface
+    # The workflow (task id) or helper agent run behind it; "" for a chat's own.
+    source_id: str = Field(max_length=256)
+    tool: str = Field(max_length=180)
+    title: str = Field(max_length=160)
+    app_id: str = Field(max_length=256)
+    app_name: str = Field(max_length=128)
+    # The card's words or the reviewed safe arguments, redacted; "In an incognito chat" for one.
+    summary: str = Field(max_length=300)
+    level: Literal["", "block", "approve", "auto", "full"]
+    outcome: ActivityOutcome
+    decided_by: Literal["none", "person", "reviewer", "hands_off", "rule", "chat_grant", "block", "policy"]
+    reason: str = Field(max_length=180)
+    risk: Literal["low", "medium", "high", "critical", "unknown"]
+    # Still waiting for the person's answer (an "asked" row that isn't pending was never answered).
+    pending: bool
+
+
+class ActivityPage(WireModel):
+    schema_version: Literal[1]
+    items: list[ActivityEntry] = Field(max_length=200)
+    # Pass as ``before`` for the next (older) page; null at the end.
+    next_before: int | None = Field(ge=1, le=9007199254740991)
+
+
+class ActivitySummary(WireModel):
+    """Monitor's line: actions since the person's midnight, how many asked them, how many they refused."""
+
+    schema_version: Literal[1]
+    total: int = Field(ge=0, le=2**31 - 1)
+    asked: int = Field(ge=0, le=2**31 - 1)
+    denied: int = Field(ge=0, le=2**31 - 1)
+
+
+class ActivityExportRequest(WireModel):
+    """The filters the page shows, for the CSV the person saves."""
+
+    surface: Literal["", "chat", "workflow", "agent", "goal", "channel", "proactive", "developer"] = ""
+    outcome: Literal["", "needed", "denied", "blocked"] = ""
+    q: str = Field(default="", max_length=200)
+
+
+class ActivityCleared(WireModel):
+    schema_version: Literal[1]
+    removed: int = Field(ge=0, le=2**31 - 1)
+
+
 class DreamRunRequest(WireModel):
     snapshot_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
