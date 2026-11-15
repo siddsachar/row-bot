@@ -110,6 +110,8 @@ class ContextUsage:
     checkpoint_message_digest: str = ""
     last_confirmed_input_tokens: int | None = None
     status: str = "ready"
+    # What fills the context, in the estimate's tokens (see _context_breakdown); settled snapshots only.
+    breakdown: dict[str, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -137,6 +139,8 @@ class PreparationInputs:
     tool_fingerprint: str
     policy_fingerprint: str
     execution_budget: Any = None
+    # Characters of the system prompt's skill and tool-guide sections, for the context breakdown.
+    skill_prompt_chars: int = 0
 
 
 apply_keys()
@@ -3081,6 +3085,9 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
     _stable_fingerprint = stable_prefix_fingerprint(_prompt_sections)
     for _ii, _section_message in enumerate(_section_messages):
         trimmed.insert(insert_idx + _ii, _section_message.message)
+    _skill_prompt_chars = sum(
+        len(_section.content) for _section in _injection_sections if _section.section_id.startswith("skills.")
+    )
 
     # Section texts for the DEBUG prefix diff (pre_model_trim); collected only when it runs.
     _prefix_sections: list[tuple[str, str]] = []
@@ -3158,6 +3165,7 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
                         anthropic_messages=True,
                     ),
                     "execution_budget": budget,
+                    "skill_prompt_chars": _skill_prompt_chars,
                 }
     except Exception as exc:
         # Non-fatal: the request goes out without the cache marker. Said once per thread, so a
@@ -3171,7 +3179,7 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
         # A model that isn't a cloud model runs on local Ollama (ChatOllama).
         ollama_chat=not _provider_id,
     )
-    return {"llm_input_messages": trimmed, "execution_budget": budget}
+    return {"llm_input_messages": trimmed, "execution_budget": budget, "skill_prompt_chars": _skill_prompt_chars}
 
 
 _CONTEXT_USAGE_SCHEMA_VERSION = 2
@@ -3536,6 +3544,7 @@ def _collect_agent_preparation_inputs(
         tool_fingerprint=_stable_json_hash(tuple(_current_canonical_tools_var.get() or ())),
         policy_fingerprint=_policy_fingerprint(policy),
         execution_budget=collected.get("execution_budget"),
+        skill_prompt_chars=int(collected.get("skill_prompt_chars") or 0),
     )
     _remember_preparation_inputs(config, inputs)
     return inputs
@@ -3990,6 +3999,68 @@ def _fixed_prompt_tool_envelope_tokens(inputs: PreparationInputs) -> int:
     )
 
 
+def _recall_block_chars(messages: list[BaseMessage]) -> int:
+    """Characters of the recall blocks in the turn contexts these messages carry.
+
+    A recall block is the last block of its turn context, so it runs from its header to the
+    closing tag. Foreign turn-context tags are neutralized before this, so every tag is Row-Bot's.
+    """
+    from row_bot.memory_policy import RECALL_BLOCK_HEADER
+
+    total = 0
+    for message in messages:
+        if isinstance(message, SystemMessage):
+            continue
+        text = _content_to_str(getattr(message, "content", ""))
+        start = text.find(turn_context.OPEN_TAG)
+        while start >= 0:
+            end = text.find(turn_context.CLOSE_TAG, start)
+            if end < 0:
+                break
+            recall = text.find(RECALL_BLOCK_HEADER, start, end)
+            if recall >= 0:
+                total += len(text[recall:end].rstrip())
+            start = text.find(turn_context.OPEN_TAG, end)
+    return total
+
+
+def _context_breakdown(inputs: PreparationInputs, prepared: PreparedModelInput) -> dict[str, int] | None:
+    """What fills the prepared request, in the estimate's tokens: counts only, never text or names.
+
+    Row-Bot's instructions (the system messages but their skill and tool-guide sections), the bound
+    tools, the skills and guides, the memories recalled into the turn contexts in view, and the
+    conversation (everything else, a compaction summary included). The approximate counter adds up
+    message by message, so the buckets partition the uncalibrated count; scaled by the calibration
+    with largest-remainder rounding, they add up to ``estimated_input_tokens`` exactly. Counted once
+    per settled turn, never on a model call; nothing here changes what is sent.
+    """
+    total = prepared.raw_estimated_input_tokens
+    target = prepared.usage.estimated_input_tokens
+    if total <= 0:
+        return None
+    system = _count_prepared_tokens(
+        [message for message in prepared.messages if isinstance(message, SystemMessage)], ()
+    )
+    tool_tokens = _count_prepared_tokens([], inputs.canonical_tools)
+    # Four characters a token, as the approximate counter reckons text.
+    skills = min(system, math.ceil(max(0, inputs.skill_prompt_chars) / 4))
+    rest = max(0, total - system - tool_tokens)
+    memory = min(rest, math.ceil(_recall_block_chars(prepared.messages) / 4))
+    raw = {
+        "instructions": system - skills,
+        "tools": tool_tokens,
+        "skills": skills,
+        "memory": memory,
+        "conversation": rest - memory,
+    }
+    basis = sum(raw.values())
+    scaled = {key: value * target // basis for key, value in raw.items()}
+    remainders = sorted(raw, key=lambda key: raw[key] * target % basis, reverse=True)
+    for key in remainders[: target - sum(scaled.values())]:
+        scaled[key] += 1
+    return {**scaled, "tool_count": len(inputs.canonical_tools)}
+
+
 # ── Failed compactions are not retried until the turn or the input changes (F26) ─────────────
 # A failure was remembered per checkpoint revision, which changes with every tool step, so a
 # compaction that could not work ran again (with its summarizer calls) on every model call. Now the
@@ -4357,6 +4428,7 @@ def _persist_settled_context_usage(
         tool_fingerprint=inputs.tool_fingerprint,
         policy_fingerprint=inputs.policy_fingerprint,
         execution_budget=inputs.execution_budget,
+        skill_prompt_chars=inputs.skill_prompt_chars,
     )
     summary_state = _validated_summary_for_inputs(settled_inputs)
     prepared = _prepare_model_input(
@@ -4370,6 +4442,7 @@ def _persist_settled_context_usage(
         "snapshot_kind": "settled",
         "checkpoint_message_digest": checkpoint_message_digest,
         "last_confirmed_input_tokens": last_confirmed_input_tokens,
+        "breakdown": _context_breakdown(settled_inputs, prepared),
     })
     _current_last_preparation_var.set(settled_inputs)
     _persist_context_usage(thread_id, usage)

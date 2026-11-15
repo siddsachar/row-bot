@@ -43,6 +43,7 @@ import type {
   AccountAuthCommand,
   XPostEdit,
   SaveOfferRequest,
+  ContextUsageView,
 } from './types';
 
 const INITIAL: ClientState = {
@@ -108,6 +109,26 @@ function readNoticePosition(): { after: number; epoch: string } {
     // No storage: this window shows each notice once while it stays open.
   }
   return { after: 0, epoch: '' };
+}
+
+/**
+ * A live per-call context count carries no breakdown (B7): the one from the
+ * last settled reply stays while the conversation, model and mode are the same.
+ */
+function withKeptBreakdown(
+  previous: ContextUsageView | null | undefined,
+  next: ContextUsageView,
+): ContextUsageView {
+  if (
+    next.breakdown ||
+    !previous?.breakdown ||
+    next.state === 'unknown' ||
+    previous.conversation_id !== next.conversation_id ||
+    previous.model_ref !== next.model_ref ||
+    previous.scope !== next.scope
+  )
+    return next;
+  return { ...next, breakdown: previous.breakdown };
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -1614,7 +1635,13 @@ export class ClientController {
     const workspace =
       event.type === 'context.updated' &&
       this.state.workspace?.conversation_id === event.conversation_id
-        ? { ...this.state.workspace, context_usage: event.payload }
+        ? {
+            ...this.state.workspace,
+            context_usage: withKeptBreakdown(
+              this.state.workspace.context_usage,
+              event.payload,
+            ),
+          }
         : this.state.workspace;
     this.update({ projection: next, activity, workspace });
     if (

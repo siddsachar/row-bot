@@ -110,7 +110,8 @@
   display: none;
 }
 /* Model, approvals and context usage live in the + menu. */
-.composer-plus-context {
+/* Before the first measurement a quiet label; after it, a row that opens the details. */
+.composer-plus-context:not(.menu-item) {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -122,6 +123,12 @@
   width: 18px;
   height: 18px;
   flex: none;
+}
+.composer-plus-context.menu-item .menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
 }
 
 /* ------------------------------------------------------ compact headers */
