@@ -5210,7 +5210,8 @@ class LearningLessonView(WireModel):
     # learning: tested and put into use by Learning (E5); agent_saved: Row-Bot saved it for itself during
     # a chat (Not tested, with Test it).
     origin: Literal["agent_saved", "learning"]
-    status: Literal["not_tested", "testing", "tested_better", "tested_not_better", "in_use", "off"]
+    # removed: in use, but its memory was removed outside Lessons (it shows In use again if that's undone).
+    status: Literal["not_tested", "testing", "tested_better", "tested_not_better", "in_use", "off", "removed"]
     kind: LearningAnyKind | None = None
     # How often recall used it this month ("used 12 times this month").
     used: int = Field(default=0, ge=0)

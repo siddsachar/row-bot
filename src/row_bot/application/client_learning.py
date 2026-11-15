@@ -1333,6 +1333,20 @@ def read_learning_conversation(conversation_id: str, *, validate: Callable[[], N
     return {"conversation_id": clean, "state": state, "reason": reason}
 
 
+def _memory_present(memory_id: str) -> bool:
+    """Whether a lesson's memory is still saved (unsure: yes, so a read error never shows it removed)."""
+
+    if not memory_id:
+        return True
+    try:
+        from row_bot import knowledge_graph
+
+        return knowledge_graph.get_entity(memory_id) is not None
+    except Exception:
+        logger.debug("Learning could not check a lesson's memory", exc_info=True)
+        return True
+
+
 def read_learning_lessons(*, validate: Callable[[], None]) -> dict[str, Any]:
     """Lessons (UX §7): those Learning put into use (In use, or Off after Undo), with their kind of work and
     how often recall used them this month, and those Row-Bot saved for itself during chats (its
@@ -1357,11 +1371,14 @@ def read_learning_lessons(*, validate: Callable[[], None]) -> dict[str, Any]:
                 continue  # shown below, as the memory it tests
             if state == "in_use" or (state == "not_used" and meta.get("state") == "undone"):
                 kind = str(meta.get("kind_of_work") or "other")
+                # Its memory removed outside Lessons (Memory, the memory tool): recall can't reach it, so it isn't
+                # in use. Undoing the removal puts the memory back by id, and it shows In use again.
+                status = "off" if state != "in_use" else "in_use" if _memory_present(memory_id) else "removed"
                 items.append({
                     "id": _text(proposal.get("id"), 128), "title": _text(proposal.get("title"), 200),
                     "text": _text((proposal.get("payload") or {}).get("text"), 600), "origin": "learning",
-                    "status": "in_use" if state == "in_use" else "off", "kind": kind if kind in _KINDS else "other",
-                    "used": changes.used_this_month(memory_id) if state == "in_use" else 0,
+                    "status": status, "kind": kind if kind in _KINDS else "other",
+                    "used": changes.used_this_month(memory_id) if status == "in_use" else 0,
                     "change_id": _text(proposal.get("id"), 128),
                     "updated_at": _text(proposal.get("updated_at"), 64),
                 })

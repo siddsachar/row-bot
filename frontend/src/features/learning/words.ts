@@ -508,7 +508,8 @@ export const LESSON_STATUS: Record<
   | 'tested_better'
   | 'tested_not_better'
   | 'in_use'
-  | 'off',
+  | 'off'
+  | 'removed',
   { tone: 'neutral' | 'success' | 'info'; label: string }
 > = {
   not_tested: { tone: 'neutral', label: 'Not tested' },
@@ -517,6 +518,7 @@ export const LESSON_STATUS: Record<
   tested_not_better: { tone: 'neutral', label: 'Tested: no help' },
   in_use: { tone: 'success', label: 'In use' },
   off: { tone: 'neutral', label: 'Off' },
+  removed: { tone: 'neutral', label: 'Memory removed' },
 };
 
 /** Why a change isn't used. */

@@ -351,3 +351,37 @@ it('Lessons: one in use says how often it was used and can be turned off; a save
     change_id: 'proposal_9',
   });
 });
+
+it('Lessons: one whose memory was removed elsewhere says so and offers no Turn off', async () => {
+  const io = fakeIO(on());
+  io.lessons = vi.fn(async () => ({
+    total: 1,
+    items: [
+      {
+        id: 'proposal_9',
+        title: 'Pick documents by ID',
+        text: 'When two documents share a title, choose by ID.',
+        origin: 'learning' as const,
+        status: 'removed' as const,
+        kind: 'document_lookups' as const,
+        used: 0,
+        change_id: 'proposal_9',
+        updated_at: '',
+      },
+    ],
+  }));
+  show(io, 'lessons');
+  const list = await screen.findByRole('list', { name: 'Lessons' });
+  expect(within(list).getByText('Memory removed')).toBeVisible();
+  expect(
+    within(list).getByText(
+      'Document lookups · its memory was removed, so Row-Bot doesn’t use it',
+    ),
+  ).toBeVisible();
+  const user = userEvent.setup();
+  await user.click(
+    within(list).getByRole('button', { name: 'More for Pick documents by ID' }),
+  );
+  expect(await screen.findByRole('menuitem', { name: 'Delete' })).toBeVisible();
+  expect(screen.queryByRole('menuitem', { name: 'Turn off' })).toBeNull();
+});
