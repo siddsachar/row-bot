@@ -9094,6 +9094,8 @@ class ContextUpdated(WireModel):
     conversation_usage: ConversationTokenUsage | None = None
     # Only on a settled measurement; a live per-call event carries none.
     breakdown: ContextBreakdown | None = None
+    # A summary of older messages is prepared ahead, so reaching the compaction point won't pause (B6).
+    summary_ready: bool = False
 
 
 EVENT_PAYLOADS = {
