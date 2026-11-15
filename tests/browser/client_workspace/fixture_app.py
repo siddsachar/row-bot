@@ -2081,9 +2081,20 @@ def s6_sandbox(body: dict, x_fixture_token: str = Header(default="")) -> dict:
         "[project]\nname = \"tide\"\nversion = \"0.1.0\"\n\n[project.optional-dependencies]\n"
         "test = [\"pytest-cov\"]\n", encoding="utf-8")
     (folder / "tests" / "test_tide.py").write_text("def test_high_tide():\n    assert True\n", encoding="utf-8")
-    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker", sandbox_network="off",
-                                             sandbox_image=_S6_IMAGE)
+    gate_fails = bool(body.get("gate_fails"))
+    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker",
+                                             sandbox_network="on" if gate_fails else "off", sandbox_image=_S6_IMAGE)
     _s6_docker(image_present=bool(body.get("image_present", True)))
+    if gate_fails:
+        # The network is on, but the network gate's image isn't here: the sandbox runs offline (D3-lite).
+        from types import SimpleNamespace
+
+        from row_bot.developer import sandbox_runtime
+
+        def missing(*_args, timeout=30):
+            return SimpleNamespace(returncode=1, stdout="", stderr="No such object")
+
+        sandbox_runtime._behind_gate_or_offline(missing, storage.get_workspace(workspace.id), "docker")
     return {"workspace": workspace.name}
 
 
@@ -2131,6 +2142,9 @@ def s6_reset(x_fixture_token: str = Header(default="")) -> dict:
         sandbox_prepare.stop_all(timeout=5)
     for name, value in _S6_STATE.pop("sandbox_seams", {}).items():
         setattr(sandbox_prepare, name, value)
+    from row_bot.developer import sandbox_runtime
+
+    sandbox_runtime._NETWORK_PROBLEMS.clear()
     real = _S6_STATE.pop("subprocess_run", None)
     if real is not None:
         import subprocess
@@ -5122,6 +5136,98 @@ def s8_models(action: str, favourites: str = "", x_fixture_token: str = Header(d
     else:
         raise HTTPException(status_code=422, detail="Unknown model fixture action")
     return {"action": action, "models": len(_S8_LOCAL_MODELS)}
+
+
+# ── C1: Save as a skill ─────────────────────────────────────────────────────
+# Two synthetic chats whose turns used tools: one the offer engine offers (its recurrence wording and the
+# judgement's yes), one with no offer that the person saves by hand. The judgement and the drafts are the
+# chat model's scripted answers; nothing calls a model.
+_C1_DRAFTS = {
+    "November expenses": {
+        "name": "monthly_expense_report", "display_name": "Monthly expense report", "icon": "🧾",
+        "description": "Builds a month's expense report from the receipts folder.",
+        "when_to_use": "When the person asks for their expense report for a month.",
+        "inputs": ["the month", "the receipts folder"],
+        "steps": ["List the month's receipts with `workspace_list_directory`.",
+                  "Read each receipt with `workspace_read_file`.", "Add up the totals with `calculate`.",
+                  "Write the table with `workspace_write_file`.", "Export it with `export_to_pdf`."],
+        "checks": ["The PDF lists every receipt and the total matches."], "tags": ["finance"],
+    },
+    "Trip photos": {
+        "name": "trip_photo_tidy_up", "display_name": "Trip photo tidy-up", "icon": "📷",
+        "description": "Renames a trip's photos by date and files them by day.",
+        "when_to_use": "After a trip, when the person asks to sort its photos.",
+        "inputs": ["the trip's folder"],
+        "steps": ["List the photos with `workspace_list_directory`.", "Rename each by its date with `workspace_move_file`.",
+                  "File them by day with `workspace_move_file`."],
+        "checks": ["Every photo is in a day's folder."], "tags": ["photos"],
+    },
+}
+_c1_fixture: dict = {}
+
+
+def _c1_turn(thread: str, request: str, steps: list[tuple[str, dict]], answer: str) -> list:
+    messages: list = [HumanMessage(id=fixture_id(f"{thread}:ask"), content=request)]
+    for index, (name, args) in enumerate(steps):
+        call_id = fixture_id(f"{thread}:call:{index}")
+        messages += [AIMessage(id=fixture_id(f"{thread}:step:{index}"), content="",
+                               tool_calls=[{"id": call_id, "name": name, "args": args}]),
+                     ToolMessage(id=fixture_id(f"{thread}:result:{index}"), tool_call_id=call_id, name=name,
+                                 content="Done.")]
+    return [*messages, AIMessage(id=fixture_id(f"{thread}:reply"), content=answer)]
+
+
+@app.post("/__c1_fixture/seed")
+def c1_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """Two chats, an offer on one, a draft from the other; earlier fixture offers and skills cleared."""
+    predecessor._authorize(x_fixture_token)
+    import shutil
+
+    from row_bot import evolution, skill_offers, skills, threads
+    from row_bot.data_paths import get_row_bot_data_dir
+    from row_bot.providers import background
+
+    if get_row_bot_data_dir(create=False).resolve() != predecessor.DATA.resolve():
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    original = _c1_fixture.setdefault("invoke", background.invoke_background)
+    titles = {}
+
+    def invoke_background(purpose, messages, *, answer=None, thread_id="", **how):
+        if purpose == "skill_offer_judge":
+            return json.dumps({"worth_skill": True, "task_name": "Monthly expense report",
+                               "varying_inputs": ["the month"]})
+        if purpose == "skill_draft":
+            return json.dumps(_C1_DRAFTS[titles[thread_id]])
+        return original(purpose, messages, answer=answer, thread_id=thread_id, **how)
+
+    background.invoke_background = invoke_background
+    (predecessor.DATA / "skill_offers.json").unlink(missing_ok=True)
+    for draft in _C1_DRAFTS.values():
+        for folder in skills.USER_SKILLS_DIR.glob(f"{draft['name']}*"):
+            shutil.rmtree(folder, ignore_errors=True)
+    evolution.remove_unapplied_proposals({
+        str(item.get("id")) for item in evolution.list_proposals(proposal_type="create_skill")})
+    skills.load_skills()
+    expenses = threads.create_thread("November expenses", name_source="manual", seed_default_skills=False)
+    photos = threads.create_thread("Trip photos", name_source="manual", seed_default_skills=False)
+    titles.update({expenses: "November expenses", photos: "Trip photos"})
+    turn = _c1_turn(expenses, "Do my monthly expense report from the receipts folder, like last month", [
+        ("workspace_list_directory", {"path": "Receipts/November"}),
+        ("workspace_read_file", {"path": "Receipts/November/taxi.pdf"}),
+        ("workspace_read_file", {"path": "Receipts/November/hotel.pdf"}),
+        ("calculate", {"expression": "42.50 + 18.20 + 120"}),
+        ("workspace_write_file", {"path": "Reports/November expenses.md", "content": "| Item | Cost |"}),
+        ("export_to_pdf", {"path": "Reports/November expenses.md"}),
+    ], "Your November expense report is ready: **£180.70** across three receipts, saved as "
+       "Reports/November expenses.pdf.")
+    threads.append_checkpoint_messages(expenses, turn)
+    assessment = skill_offers.consider_turn(expenses, turn)
+    trip = _c1_turn(photos, "Rename the photos from the Lisbon trip by date and sort them by day", [
+        ("workspace_list_directory", {"path": "Photos/Lisbon"}),
+        ("workspace_move_file", {"source": "Photos/Lisbon/IMG_0001.jpg", "destination": "Photos/Lisbon/Day 1/2026-10-02 09.14.jpg"}),
+    ], "Done: 46 photos renamed by date and sorted into four days.")
+    threads.append_checkpoint_messages(photos, trip)
+    return {"offered": assessment.offered, "expenses": expenses, "photos": photos}
 
 
 # ── #140: the backup model ──────────────────────────────────────────────────
