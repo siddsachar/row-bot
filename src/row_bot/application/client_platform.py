@@ -1629,8 +1629,10 @@ class ClientPlatformService:
                   "platform_command_id": command_id,
                   "model_override": model_ref}}
         if followup is not None:
-            # Continues the conversation's own work; never routed as steering.
+            # Continues the conversation's own work; never routed as steering. Its kind tells a goal step from
+            # Row-Bot's other follow-ups (Learning scopes those as their conversation).
             config["configurable"]["internal_goal_continuation"] = True
+            config["configurable"]["followup_kind"] = followup.kind
         from row_bot.workflow_turns import person_rules
         # A workflow's "Always ask me" apps and tools wait for the person in every turn of its
         # conversation, under every approval level (N9).
