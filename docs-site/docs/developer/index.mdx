@@ -47,6 +47,17 @@ The conversation's details card lists the folder under **Working on**. Its **⋯
 
 The Agents tool can also assign a child directly to an existing local folder. Row-Bot validates the path and registers it as that child's code folder; a folder assignment and a pre-existing workspace ID are alternative ways to select the workspace, not settings to combine.
 
+## Project Notes
+
+Many repositories keep instructions for coding agents: how to build, test and style the code. When a conversation works in a code folder, Row-Bot reads them from the folder's top level: `AGENTS.md`, `CLAUDE.md`, `.cursorrules` and `.github/copilot-instructions.md`.
+
+- Together they are kept to 8,000 characters (2,000 on a small local model). A longer file is cut, and Row-Bot is told where to read the rest.
+- Row-Bot treats them as the folder authors' notes, not your instructions. They can't change approvals, grant permissions, or ask it to send or reveal anything, and your own messages come first.
+- A file is left out when it seems to give the agent new instructions, looks like it holds a password or key, links outside the folder, is over 64 KB, or isn't plain text.
+- Under **Working on**, the folder shows **Project notes** with the files in use. The **ⓘ** button lists each file, whether it is used and why one was left out, and opens it in **Files**.
+
+Nothing is read from folders above the one you chose, and `CLAUDE.md` imports (`@file`) are not followed. To stop Row-Bot reading a file, rename or remove it; an edit applies from your next message.
+
 ## The Developer Panel
 
 - **Changes** lists changed files with their diffs (unified or split), and the agent's own change sets, each marked reviewed or not reviewed, with **Undo** or **Ask Row-Bot to undo** in its **⋯** menu. **Earlier agent changes** open their saved diffs.

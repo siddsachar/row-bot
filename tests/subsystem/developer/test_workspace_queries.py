@@ -263,7 +263,7 @@ def test_plain_folder_ignores_global_filters_but_actual_repository_remains_guard
     monkeypatch.setattr(inspector_snapshot, "request_snapshot_refresh", lambda *args, **kwargs: requested.append(args))
     async def snapshot(*_):
         return SimpleNamespace(version=1, error="", git_summary={"is_git": False},
-            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], command_specs=[], todos=[])
+            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], command_specs=[], todos=[], project_notes=())
     monkeypatch.setattr(inspector_snapshot, "wait_for_snapshot_refresh", snapshot)
     result = asyncio.run(service.get_workspace_inspector(choice.resource_id, "chat-a"))
     assert not result.is_git and requested
@@ -347,7 +347,7 @@ def test_inspector_reports_each_detected_check_command_for_a_reviewed_run(domain
 
     async def snapshot(*_):
         return SimpleNamespace(version=1, error="", git_summary={"is_git": False},
-            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], todos=[],
+            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], todos=[], project_notes=(),
             command_specs=[CommandSpec("pytest", "python -m pytest"),
                            CommandSpec("Django tests", "python manage.py test")])
 
