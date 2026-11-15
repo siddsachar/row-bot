@@ -506,3 +506,37 @@ def test_a_goal_waiting_on_the_person_marks_its_conversation_as_needing_them(goa
     listed = next(item for item in platform.list_conversations()["items"] if item["id"] == CONVERSATION)
     assert (view["activity_state"], view["activity_phase"]) == ("attention", "goal_needs_you")
     assert (listed["activity_state"], listed["activity_phase"]) == ("attention", "goal_needs_you")
+
+
+def test_a_goal_with_a_check_runs_it_after_the_turn_and_fixes_what_it_reported(goal_setup, monkeypatch):
+    """B3: the turn that says the goal is done ends, the check runs instead of the verifier, a failure gets a
+    turn with its output, and exit 0 completes the goal."""
+    from row_bot import goal_checks, goals
+    platform, _ = goal_setup
+    monkeypatch.setattr(goals, "_invoke_goal_verifier",
+                        lambda *_: pytest.fail("the check decides; no verifier runs"))
+    runs = [goal_checks.CheckRun(1, "FAIL test_links: docs/index.md"), goal_checks.CheckRun(0, "ok")]
+    monkeypatch.setattr(goal_checks, "execute_check", lambda *_args, **_kwargs: runs.pop(0))
+
+    class ClaimsDone(Recording):
+        def stream(self, text, enabled_tools, config, *, stop_event=None):
+            goals.update_goal_progress(thread_id=CONVERSATION, status="completed", progress="Links fixed.")
+            yield from super().stream(text, enabled_tools, config, stop_event=stop_event)
+
+    fake = ClaimsDone(completed("step 0"), completed("step 1"), completed("never"))
+    platform.stream_factory = fake.stream
+    platform.resume_factory = fake.resume
+    goal = goals.start_goal(CONVERSATION, "Fix the docs links", max_turns=0,
+                            check=goal_checks.review_check(CONVERSATION, "npm test"))
+    from row_bot.application import conversation_followups
+    conversation_followups.after_goal_change(platform, CONVERSATION, "start", goal)
+    for _ in range(200):
+        if goals.get_goal(goal["id"])["status"] == "completed":
+            break
+        threading.Event().wait(0.05)
+    wait_idle(platform, fake, 2)
+    latest = goals.get_goal(goal["id"])
+    assert (latest["status"], latest["check_state"], latest["turns_used"]) == ("completed", "passed", 2)
+    assert len(fake.calls) == 2, "no turn after the check passed"
+    assert fake.prompts[1].startswith("[Goal check failed]")
+    assert "FAIL test_links" in fake.prompts[1]

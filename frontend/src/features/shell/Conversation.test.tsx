@@ -3655,6 +3655,52 @@ it('starts a goal at once with /goal and no turn limit unless Agent runtime sets
   expect(mock.drafts.get('conversation-a')?.text).toBe('');
 });
 
+it('asks before /goal … check: starts, saying where the check runs (B3)', async () => {
+  withCommands();
+  mock.goals.mockResolvedValue({
+    conversation_id: 'conversation-a',
+    current_goal_id: null,
+    current_revision: 'none',
+    default_max_turns: 0,
+    items: [],
+  });
+  mock.reviewGoal.mockImplementation(async (_id: string, payload) => ({
+    ...payload,
+    disclosures: [
+      "Each time Row-Bot thinks the goal is done, it runs `npm run build` in Row-Bot's workspace. The goal counts as done only when it exits 0.",
+    ],
+    review_id: 'review-check',
+  }));
+  mock.executeGoal.mockResolvedValue({ status: 'completed' });
+  await sendText('/goal Ship the docs check: npm run build');
+  expect(mock.reviewGoal).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({
+      objective: 'Ship the docs',
+      check_command: 'npm run build',
+    }),
+  );
+  const asked = mock.open.mock.lastCall?.[0];
+  expect(asked).toMatchObject({
+    title: 'Start this goal with a check?',
+    description: 'Ship the docs',
+  });
+  expect(mock.executeGoal).not.toHaveBeenCalled();
+  const shown = render(<>{asked.content}</>);
+  expect(shown.container).toHaveTextContent(
+    "it runs npm run build in Row-Bot's workspace",
+  );
+  await act(async () =>
+    fireEvent.click(
+      within(shown.container).getByRole('button', { name: 'Start goal' }),
+    ),
+  );
+  await waitFor(() => expect(mock.executeGoal).toHaveBeenCalledOnce());
+  expect(mock.executeGoal.mock.calls[0][1]).toMatchObject({
+    payload: { check_command: 'npm run build', review_id: 'review-check' },
+  });
+});
+
 it('removes a default skill from this chat with Undo in the notice (B236)', async () => {
   withCommands();
   const skill = {
