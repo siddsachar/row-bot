@@ -1,7 +1,12 @@
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, screenshot, test } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
-import { composer, dismissNotices, newConversation } from './unified-helpers';
+import {
+  composer,
+  dismissNotices,
+  newConversation,
+  reloadDocument,
+} from './unified-helpers';
 
 /*
  * F3 · Answer components. Markdown tables sort and task lists tick in any
@@ -143,6 +148,20 @@ test('a reply’s components render from the server, and a choice sends the pers
     choices.getByRole('button', { name: 'Groceries' }),
   ).toBeDisabled();
   await screens(page, info, 'choices-after', () => choices);
+
+  // The ticks and the sent choice are kept with the chat: a reload shows them.
+  await reloadDocument(page);
+  await expect(
+    log
+      .getByRole('region', { name: 'This week' })
+      .getByRole('checkbox', { name: 'Check the energy bill' }),
+  ).toBeChecked();
+  await expect(log.getByText('2 of 3 done')).toBeVisible();
+  await expect(
+    log
+      .getByRole('group', { name: 'What should I look at next?' })
+      .getByRole('button', { name: /Subscriptions/ }),
+  ).toContainText('Sent');
 });
 
 const TABLE = [

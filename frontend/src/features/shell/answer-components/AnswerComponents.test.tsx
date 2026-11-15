@@ -142,7 +142,7 @@ it('sends a choice’s words through the composer once, then shows which was pic
 
 it('keeps the choices open when the composer can’t take a reply now', () => {
   const sent = composer(false);
-  show(CHOICES);
+  show({ ...CHOICES, id: 'block:choices-busy' });
   fireEvent.click(screen.getByRole('button', { name: 'Pro' }));
   expect(sent).toHaveBeenCalledExactlyOnceWith('Pro');
   expect(screen.getByRole('button', { name: 'Pro' })).toBeEnabled();
@@ -153,7 +153,7 @@ it('keeps the choices open when the composer can’t take a reply now', () => {
 
 it('sends nothing from another conversation’s answer', () => {
   const sent = composer();
-  show(CHOICES, 'conversation-b');
+  show({ ...CHOICES, id: 'block:choices-other' }, 'conversation-b');
   fireEvent.click(screen.getByRole('button', { name: 'Pro' }));
   expect(sent).not.toHaveBeenCalled();
 });
