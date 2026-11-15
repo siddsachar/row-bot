@@ -49,7 +49,7 @@ import { usePhone } from './use-phone';
 import './learning.css';
 
 const TURN_OFF_WORDS =
-  'Row-Bot stops recording, testing and training. Changes and models in use stay in use (undo them in Learning). Your learning data is kept until you delete it.';
+  'Row-Bot stops recording, testing and training. Changes and models in use stay in use: to take one out, undo it in Learning first, or turn Learning on again later. Your learning data is kept until you delete it.';
 
 /** "Create skills while chatting": the same setting as Preferences' old "Learn new skills" (D29). */
 function SkillsWhileChatting({
