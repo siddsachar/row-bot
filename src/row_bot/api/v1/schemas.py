@@ -193,6 +193,18 @@ class DeletePayload(WireModel):
     undo: bool = False
 
 
+class ForkPayload(WireModel):
+    """A new conversation from an earlier message (B5); the original is never changed.
+
+    "edit" (Edit and resend): *at_message_id* is the person's message, and the new conversation holds what came
+    before it; the client then sends the edited text there. "fork" (Fork from here): it is a reply, and the new
+    conversation holds everything up to the end of its turn.
+    """
+
+    at_message_id: str = Field(min_length=1, max_length=256)
+    mode: Literal["edit", "fork"]
+
+
 ConversationAction = Literal[
     "conversation.rename", "conversation.pin", "conversation.export"
 ]
@@ -8344,6 +8356,7 @@ class Command(WireModel):
         "conversation.incognito",
         "conversation.delete",
         "conversation.restore",
+        "conversation.fork",
         "conversation.submit",
         "conversation.stop",
         "conversation.steer",
@@ -8528,6 +8541,7 @@ COMMAND_PAYLOADS = {
     "conversation.incognito": IncognitoPayload,
     "conversation.delete": DeletePayload,
     "conversation.restore": EmptyPayload,
+    "conversation.fork": ForkPayload,
     "conversation.submit": SubmitPayload,
     "conversation.stop": StopPayload,
     "conversation.steer": SteerPayload,
@@ -9186,6 +9200,9 @@ class CommandReceipt(WireModel):
     saved_name: str | None = Field(default=None, max_length=128)
     # conversation.link.start (5.3.1 C): the conversation the person started from a proposal.
     linked_conversation_id: OpaqueId | None = None
+    # conversation.fork (B5): the new conversation, and for "edit" the edited message's files, copied into it.
+    forked_conversation_id: OpaqueId | None = None
+    draft_attachments: list[AttachmentView] = Field(default_factory=list, max_length=32)
     binding_id: OpaqueId | None = None
     code: str | None = Field(default=None, max_length=80)
     current_revision: str | None = Field(default=None, min_length=1, max_length=128)
@@ -9231,6 +9248,11 @@ class SessionProof(WireModel):
 Cursor = Annotated[str, StringConstraints(max_length=2048)]
 
 
+class ForkOrigin(WireModel):
+    id: OpaqueId
+    title: str = Field(max_length=256)
+
+
 class ConversationView(WireModel):
     id: OpaqueId
     revision: Revision
@@ -9242,6 +9264,8 @@ class ConversationView(WireModel):
     parent_conversation_id: OpaqueId | None = None
     # A conversation another one started (5.3.1 C): that conversation's id.
     started_from: OpaqueId | None = None
+    # A fork (B5): the conversation it was copied from, while that one still exists.
+    forked_from: ForkOrigin | None = None
     activity_state: Literal["active", "attention", "terminal"] | None = None
     activity_phase: str = Field(default="", max_length=64)
     category: Literal["chat", "designer", "code", "workflow"] = "chat"
