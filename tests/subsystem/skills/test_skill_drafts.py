@@ -89,7 +89,7 @@ def test_a_draft_comes_from_the_real_turn_and_is_saved_only_on_approval(offer_st
     assert draft["steps"] == DRAFT["steps"] and draft["inputs"] == ["the month"]
     assert draft["instructions"] == INSTRUCTIONS.strip()
     assert draft["source_title"] == "November expenses" and draft["proposal_status"] == "ready"
-    assert "5 steps with `workspace_list_directory`" in draft["why"] and "comes round again" in draft["why"]
+    assert "5 steps with 5 different tools." in draft["why"] and "comes round again" in draft["why"]
     proposal = evolution.get_proposal(item["proposal_id"])
     assert proposal["preview"]["source"]["conversation_id"] == "c"
     assert proposal["preview"]["source"]["message_id"] == turn.reply_id
@@ -254,6 +254,8 @@ def test_the_person_s_edit_is_final_and_approve_saves_exactly_it_on_but_not_pinn
     _run("skill.delete", {"revision": snapshot["revision"], "name": "monthly_expense_report",
                           "skill_revision": target["revision"]})
     assert skills.get_skill("monthly_expense_report") is None
+    # Taken back: the reply no longer shows it saved, and it counts as a no for that task.
+    assert skill_offers.conversation_offers("c")["items"][0]["status"] == "rejected"
 
 
 def test_an_edit_is_checked_for_secrets_and_against_the_draft_it_was_read_from(offer_stack) -> None:

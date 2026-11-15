@@ -2656,10 +2656,7 @@ const CATALOG: Record<string, Entry> = {
     "This chat is or was incognito, so it can't be saved as a skill.",
     'none',
   ],
-  skill_draft_no_steps: [
-    'This reply has no steps to save as a skill.',
-    'none',
-  ],
+  skill_draft_no_steps: ['This reply has no steps to save as a skill.', 'none'],
   skill_draft_unavailable: [
     "Couldn't reach this chat's model to draft a skill. Try again.",
     'retry',

@@ -463,7 +463,9 @@ def _status(offer: dict[str, Any], now: datetime) -> tuple[str, datetime | None]
             return "expired", None
         state = proposal.get("status")
         if state in {"applied", "verified"}:
-            return "saved", _parse(proposal.get("updated_at"))
+            # Saved, unless the person took it back (Undo, or deleted it later): then it counts as a no.
+            name = str((proposal.get("payload") or {}).get("name") or "")
+            return ("saved" if name and _skill(name) is not None else "rejected"), _parse(proposal.get("updated_at"))
         if state == "rejected":
             return "rejected", _parse(proposal.get("updated_at"))
         return "drafted", None
@@ -1082,9 +1084,8 @@ def _unique_name(base: str) -> str:
 
 
 def _step_words(facts: TurnFacts) -> str:
-    tools = list(dict.fromkeys(step.name for step in facts.counted))
-    named = ", ".join(f"`{name}`" for name in tools[:-1]) + (f" and `{tools[-1]}`" if len(tools) > 1 else f"`{tools[0]}`")
-    return f"{len(facts.counted)} steps with {named}."
+    steps, tools = len(facts.counted), len(facts.tool_set)
+    return f"{steps} step{'s' * (steps != 1)} with {tools} different tool{'s' * (tools != 1)}."
 
 
 def draft(
