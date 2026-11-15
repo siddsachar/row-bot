@@ -65,6 +65,20 @@ async function screens(
   await page.emulateMedia({ colorScheme: 'light' });
 }
 
+/** The turn has finished: no Stop in the composer, every chart drawn. */
+async function settled(page: Page) {
+  await expect(
+    page.getByRole('button', { name: 'Stop', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('.rich-chart-plot:not([data-status="ready"])'),
+  ).toHaveCount(0);
+  // The last message is confirmed: the composer (and so a reply button) can send.
+  await expect(
+    page.getByRole('button', { name: 'Check message', exact: true }),
+  ).toHaveCount(0);
+}
+
 /** Sends a message from the composer, as the person does. */
 async function ask(page: Page, text: string) {
   await composer(page).fill(text);
@@ -84,9 +98,12 @@ test('a reply’s components render from the server, and a choice sends the pers
       return;
     const body = request.postDataJSON() as {
       type?: string;
-      payload?: { text?: string };
+      payload?: { text?: string; tapped_choice?: { label?: string } };
     };
-    submitted.push(`${body.type}:${body.payload?.text ?? ''}`);
+    const tap = body.payload?.tapped_choice;
+    submitted.push(
+      `${body.type}:${body.payload?.text ?? ''}${tap ? ` [tap: ${tap.label}]` : ''}`,
+    );
   });
   await newConversation(page);
   await ask(page, 'f3 components fixture');
@@ -114,6 +131,8 @@ test('a reply’s components render from the server, and a choice sends the pers
     .getByRole('checkbox', { name: 'Check the energy bill' })
     .click();
   await expect(checklist.getByText('2 of 3 done')).toBeVisible();
+  // Every picture is of the settled turn: no Stop, the chart drawn.
+  await settled(page);
   await dismissNotices(page);
   await screens(page, info, 'components-figures-table', () => figures);
   await screens(page, info, 'components-chart', () =>
@@ -126,20 +145,20 @@ test('a reply’s components render from the server, and a choice sends the pers
   });
   await screens(page, info, 'choices-before', () => choices);
   const before = submitted.length;
-  // Just after a turn the composer may still be settling: it refuses with a
-  // notice and the person taps again.
-  await expect(async () => {
-    const option = choices.getByRole('button', { name: /Subscriptions/ });
-    if (await option.isEnabled()) await option.click();
-    await expect(option).toContainText('Sent', { timeout: 2000 });
-  }).toPass({ timeout: 10_000 });
+  // Like the composer's Send, the buttons wait for the turn; once it has
+  // settled one tap sends, with no refusal notice.
+  await choices.getByRole('button', { name: 'Subscriptions' }).click();
+  await expect(
+    choices.getByRole('button', { name: /Subscriptions/ }),
+  ).toContainText('Sent');
+  await expect(page.getByText(/can.t take that reply/)).toHaveCount(0);
   // The words went as the person's own message, and Row-Bot answered them.
   await expect(
     log.getByText('You pay for three: music, cloud storage and a news site.'),
   ).toBeVisible();
   await expect(log.getByText('List my subscriptions')).toBeVisible();
   expect(submitted.slice(before)).toEqual([
-    'conversation.submit:List my subscriptions',
+    'conversation.submit:List my subscriptions [tap: Subscriptions]',
   ]);
   const picked = choices.getByRole('button', { name: /Subscriptions/ });
   await expect(picked).toHaveAttribute('aria-pressed', 'true');
@@ -147,6 +166,8 @@ test('a reply’s components render from the server, and a choice sends the pers
   await expect(
     choices.getByRole('button', { name: 'Groceries' }),
   ).toBeDisabled();
+  await settled(page);
+  await dismissNotices(page);
   await screens(page, info, 'choices-after', () => choices);
 
   // The ticks and the sent choice are kept with the chat: a reload shows them.

@@ -101,7 +101,7 @@ import {
   slashArgument,
   type SlashArgument,
 } from './slash-arguments';
-import { resetContextGoals } from './ContextGoal';
+import { GoalCheckConfirm, resetContextGoals } from './ContextGoal';
 import {
   currentProfileChoice,
   openAgentProfiles,
@@ -139,7 +139,11 @@ import { useBuddyStill } from '../buddy/BuddyStill';
 import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import { ComputerStep, useComputerUse } from './ComputerStep';
 import { BrowserStep } from '../browser/BrowserThumbnail';
-import { registerPromptSender } from './composer-bridge';
+import {
+  registerPromptSender,
+  setPromptReady,
+  type TappedChoice,
+} from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
 import {
   INCOGNITO_PLACEHOLDER,
@@ -1194,39 +1198,69 @@ export default function Conversation({
           return;
         }
         const start = request.operation === 'start';
+        const check = start ? request.check : undefined;
+        const objective = start ? request.objective : '';
+        if (start && !objective) {
+          setError('Say what the goal should achieve before “check:”.');
+          return;
+        }
         const payload = {
           conversation_id: target,
           goal_id: page.current_goal_id,
           revision: page.current_revision,
           operation: request.operation,
-          objective: start ? request.objective : null,
+          objective: start ? objective : null,
           // The Agent runtime default, else no limit (B243).
           max_turns: start ? page.default_max_turns || null : null,
           reason: start ? null : '',
+          ...(check ? { check_command: check } : {}),
         };
         const review = await controller.reviewGoal(target, payload);
         if (!review) throw { code: 'capability_unavailable' };
-        const receipt = await controller.executeGoal(target, {
-          command_id: crypto.randomUUID(),
-          type: 'goal.control',
-          payload: { ...payload, review_id: review.review_id },
-        });
-        if (receipt.status !== 'completed') {
-          setError("The goal change wasn't confirmed. Try again.");
+        const apply = async () => {
+          const receipt = await controller.executeGoal(target, {
+            command_id: crypto.randomUUID(),
+            type: 'goal.control',
+            payload: { ...payload, review_id: review.review_id },
+          });
+          if (receipt.status !== 'completed') {
+            setError("The goal change wasn't confirmed. Try again.");
+            return;
+          }
+          resetContextGoals(target);
+          clear();
+          overlay.notify(
+            start
+              ? 'Goal set. Row-Bot is working on it.'
+              : {
+                  pause: 'Goal paused.',
+                  resume: 'Goal resumed.',
+                  clear: 'Goal stopped.',
+                  complete: 'Goal marked done.',
+                }[request.operation],
+          );
+        };
+        if (check) {
+          // The person's Confirm of where the check runs is its approval (B3).
+          overlay.open({
+            title: 'Start this goal with a check?',
+            description: objective,
+            content: (
+              <GoalCheckConfirm
+                review={review}
+                onCancel={() => overlay.close()}
+                onStart={() => {
+                  overlay.close();
+                  apply().catch((cause) =>
+                    setError(clientError(cause).message),
+                  );
+                }}
+              />
+            ),
+          });
           return;
         }
-        resetContextGoals(target);
-        clear();
-        overlay.notify(
-          start
-            ? 'Goal set. Row-Bot is working on it.'
-            : {
-                pause: 'Goal paused.',
-                resume: 'Goal resumed.',
-                clear: 'Goal stopped.',
-                complete: 'Goal marked done.',
-              }[request.operation],
-        );
+        await apply();
       } else if (command.handler_kind === 'agent') {
         await controller.intent(
           target,
@@ -1432,6 +1466,7 @@ export default function Conversation({
     capturedDraft?: ReturnType<typeof controller.getDraft>,
     selectedVersion = controller.getSelectionVersion(),
     retry = false,
+    tapped?: TappedChoice,
   ) {
     if (
       !id ||
@@ -1564,6 +1599,8 @@ export default function Conversation({
               write_targets: targets,
               // Retry runs the last message again in place, never a second copy of it.
               ...(retry ? { retry: true } : {}),
+              // A reply button's words: marked as the person's tap on that reply (never a note from Row-Bot).
+              ...(tapped ? { tapped_choice: tapped } : {}),
             },
             sendRevision,
             claim.commandId,
@@ -1623,6 +1660,7 @@ export default function Conversation({
     attachments: typeof draft.attachments = [],
     retry = false,
     questionChecked = false,
+    tapped?: TappedChoice,
   ) {
     const outgoing = example ? { text: example, attachments } : draft;
     // A message typed while Row-Bot's turn waits on one question answers it,
@@ -1726,7 +1764,7 @@ export default function Conversation({
       }));
     const text = outgoing.text;
     const selectedVersion = controller.getSelectionVersion();
-    void dispatch(text, targets, outgoing, selectedVersion, retry);
+    void dispatch(text, targets, outgoing, selectedVersion, retry, tapped);
   }
   /** The waiting approval is one question: the message answers it; else it goes as usual. */
   async function answerOrSend(
@@ -1797,27 +1835,35 @@ export default function Conversation({
   // Side panels (the Design panel's "Ask Row-Bot to change this…") hand a
   // short request to this composer, which sends it with its model and write
   // targets, queued behind a running turn like any other message.
-  const sendPanelPrompt = useEffectEvent((text: string) => {
-    if (
-      !id ||
-      !historyReady ||
-      state.status !== 'ready' ||
-      !sendActionReady ||
-      !controls?.model_selection ||
-      busy ||
-      talkBusy ||
-      pendingSubmit ||
-      pendingSteering ||
-      pendingResume
-    )
-      return false;
-    send(text, true);
-    return true;
-  });
+  // The composer can take a request from a panel or a reply button now (no turn or send in flight).
+  const promptReady = Boolean(
+    id &&
+    historyReady &&
+    state.status === 'ready' &&
+    sendActionReady &&
+    controls?.model_selection &&
+    !busy &&
+    !talkBusy &&
+    !pendingSubmit &&
+    !pendingSteering &&
+    !pendingResume,
+  );
+  const sendPanelPrompt = useEffectEvent(
+    (text: string, tapped?: TappedChoice) => {
+      if (!promptReady) return false;
+      send(text, true, [], false, false, tapped);
+      return true;
+    },
+  );
   useEffect(() => {
     if (!id) return;
-    return registerPromptSender(id, (text) => sendPanelPrompt(text));
+    return registerPromptSender(id, (text, tapped) =>
+      sendPanelPrompt(text, tapped),
+    );
   }, [id]);
+  useEffect(() => {
+    if (id) setPromptReady(id, promptReady);
+  }, [id, promptReady]);
   async function action(
     type: 'conversation.stop' | 'conversation.steer' | 'conversation.resume',
   ) {

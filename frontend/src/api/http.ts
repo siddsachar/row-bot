@@ -462,6 +462,18 @@ export class HttpTransport implements ClientTransport {
       feedback,
     );
   }
+  activity(filters: wire.ActivityFilters, signal?: AbortSignal) {
+    return wire.getActivity(this.base, this.session(), filters, signal);
+  }
+  activitySummary(since: number, signal?: AbortSignal) {
+    return wire.getActivitySummary(this.base, this.session(), since, signal);
+  }
+  exportActivity(body: wire.ActivityExportRequest) {
+    return wire.exportActivity(this.base, this.session(), body);
+  }
+  clearActivity() {
+    return wire.clearActivity(this.base, this.session());
+  }
   proactiveActivity(before?: number, limit?: number, signal?: AbortSignal) {
     return wire.getProactiveActivity(
       this.base,

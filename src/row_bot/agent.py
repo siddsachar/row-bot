@@ -7429,6 +7429,40 @@ def _learning_tool_call(turn: Any, request: Any, result: Any = None, *, untruste
         logger.debug("Learning could not capture a tool call (%s)", type(exc).__name__)
 
 
+def _activity_tool_call(request: Any, decisions: list, *, result: Any = None,
+                        error: BaseException | None = None) -> None:
+    """Hand one tool call to the activity log (D1): what ran, where, and the approval decisions noted while
+    it ran. Structured only: a result is read for its status and a leading ``BLOCKED`` refusal, nothing else."""
+    try:
+        from row_bot import activity_log
+
+        paused = failed = blocked = False
+        if error is not None:
+            from langgraph.errors import GraphBubbleUp
+
+            paused = isinstance(error, GraphBubbleUp)
+            failed = not paused and not isinstance(error, (InterruptedError, TaskStoppedError))
+        else:
+            failed = getattr(result, "status", "success") == "error"
+            content = getattr(result, "content", None)
+            blocked = isinstance(content, str) and content.lstrip().startswith(("BLOCKED", "🚫 BLOCKED"))
+        call = dict(request.tool_call or {})
+        args = call.get("args")
+        activity_log.record(activity_log.ToolCall(
+            call_id=str(call.get("id") or ""),
+            tool=_tool_call_runtime_name(call),
+            args=dict(args) if isinstance(args, dict) else {},
+            thread_id=_current_thread_id_var.get(""),
+            surface=_current_runtime_surface_var.get(""),
+            agent_run_id=_current_agent_run_id_var.get(""),
+            level=get_approval_mode(),
+            decisions=tuple(decisions),
+            paused=paused, failed=failed, blocked=blocked,
+        ))
+    except Exception as exc:
+        logger.debug("The activity log could not note a tool call (%s)", type(exc).__name__)
+
+
 def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
     from row_bot.application.attachment_context import tool_attachment_scope
     from row_bot.runtime.executions import current_execution, generation_registry
@@ -7441,13 +7475,16 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
     if handle is not None:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
-    with tool_attachment_scope() as caches:
+    from row_bot.tools.approval_gate import collect_activity
+    with tool_attachment_scope() as caches, collect_activity() as decisions:
         try:
             result = execute(request)
         except BaseException as exc:
+            _activity_tool_call(request, decisions, error=exc)
             if learning_turn is not None:
                 _learning_tool_call(learning_turn, request, error=exc)
             raise
+        _activity_tool_call(request, decisions, result=result)
         if handle is not None:
             handle.external_outcome = "sent"
         if not isinstance(result, ToolMessage):

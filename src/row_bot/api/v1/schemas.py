@@ -149,6 +149,12 @@ class ConversationSkillPayload(WireModel):
         return self
 
 
+class TappedChoice(WireModel):
+    """The reply whose button the person tapped, and the button's label (F3)."""
+    message_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9:_.-]+$")
+    label: str | None = Field(default=None, min_length=1, max_length=40)
+
+
 class SubmitPayload(WireModel):
     submission_id: UUID
     text: Annotated[str, StringConstraints(min_length=1, max_length=200000)]
@@ -159,6 +165,8 @@ class SubmitPayload(WireModel):
     retry: bool = False
     # Send a page's decisions (N5): the person's click; Row-Bot writes the message from the page itself.
     page_id: str | None = Field(default=None, pattern=r"^page-[0-9a-f]{8}$")
+    # A reply button's tap (F3): the reply that offered it. The text is the button's words, the person's own.
+    tapped_choice: TappedChoice | None = None
 
 
 class RenamePayload(WireModel):
@@ -2610,6 +2618,67 @@ class MonitorSnapshot(WireModel):
     logs: MonitorLogs
 
 
+ActivitySurface = Literal["chat", "workflow", "agent", "goal", "channel", "proactive", "developer"]
+ActivityOutcome = Literal[
+    "ran", "asked", "approved_by_you", "approved_by_reviewer", "hands_off", "allowed_by_rule",
+    "allowed_in_chat", "denied", "changed", "blocked", "failed",
+]
+
+
+class ActivityEntry(WireModel):
+    """One tool action in the activity log (D1): what ran, where, its outcome and who decided."""
+
+    entry_id: int = Field(ge=1, le=9007199254740991)
+    at: str = Field(max_length=40)
+    conversation_id: str = Field(max_length=256)
+    conversation_title: str = Field(max_length=160)
+    surface: ActivitySurface
+    # The workflow (task id) or helper agent run behind it; "" for a chat's own.
+    source_id: str = Field(max_length=256)
+    tool: str = Field(max_length=180)
+    title: str = Field(max_length=160)
+    app_id: str = Field(max_length=256)
+    app_name: str = Field(max_length=128)
+    # The card's words or the reviewed safe arguments, redacted; "In an incognito chat" for one.
+    summary: str = Field(max_length=300)
+    level: Literal["", "block", "approve", "auto", "full"]
+    outcome: ActivityOutcome
+    decided_by: Literal["none", "person", "reviewer", "hands_off", "rule", "chat_grant", "block", "policy"]
+    reason: str = Field(max_length=180)
+    risk: Literal["low", "medium", "high", "critical", "unknown"]
+    # Still waiting for the person's answer (an "asked" row that isn't pending was never answered).
+    pending: bool
+
+
+class ActivityPage(WireModel):
+    schema_version: Literal[1]
+    items: list[ActivityEntry] = Field(max_length=200)
+    # Pass as ``before`` for the next (older) page; null at the end.
+    next_before: int | None = Field(ge=1, le=9007199254740991)
+
+
+class ActivitySummary(WireModel):
+    """Monitor's line: actions since the person's midnight, how many asked them, how many they refused."""
+
+    schema_version: Literal[1]
+    total: int = Field(ge=0, le=2**31 - 1)
+    asked: int = Field(ge=0, le=2**31 - 1)
+    denied: int = Field(ge=0, le=2**31 - 1)
+
+
+class ActivityExportRequest(WireModel):
+    """The filters the page shows, for the CSV the person saves."""
+
+    surface: Literal["", "chat", "workflow", "agent", "goal", "channel", "proactive", "developer"] = ""
+    outcome: Literal["", "needed", "denied", "blocked"] = ""
+    q: str = Field(default="", max_length=200)
+
+
+class ActivityCleared(WireModel):
+    schema_version: Literal[1]
+    removed: int = Field(ge=0, le=2**31 - 1)
+
+
 class DreamRunRequest(WireModel):
     snapshot_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -3550,6 +3619,48 @@ GoalStatus = Literal[
     "cleared",
 ]
 GoalOperation = Literal["start", "pause", "resume", "complete", "clear"]
+# A goal's check (B3): '' before the goal looks done, then pending, running, passed, failed or error.
+GoalCheckState = Literal["", "pending", "running", "passed", "failed", "error"]
+
+
+class GoalCheckResult(WireModel):
+    exit_code: int | None
+    started_at: str = Field(max_length=64)
+    finished_at: str = Field(max_length=64)
+    duration_seconds: int = Field(ge=0)
+    # The last 2,000 characters of its output, redacted.
+    output_tail: str = Field(max_length=8193)
+
+
+class GoalCheck(WireModel):
+    command: str = Field(min_length=1, max_length=2049)
+    runs_in: str = Field(max_length=257)
+    state: GoalCheckState
+    result: GoalCheckResult | None
+
+
+class GoalCheckPlace(WireModel):
+    """Where a check set now would run, and the code folder's own commands to suggest."""
+
+    available: bool
+    runs_in: str = Field(max_length=257)
+    suggestions: list[str] = Field(max_length=4)
+
+
+class GoalCheckClassification(WireModel):
+    shell: Literal["safe", "needs_approval", "private_data", "blocked"]
+    action: str = Field(max_length=64)
+    read_only: bool
+
+
+class GoalCheckReview(WireModel):
+    """What the person approves with Confirm: this command, in this folder, at this level."""
+
+    command: str = Field(min_length=1, max_length=500)
+    workspace_id: str = Field(max_length=128)
+    runs_in: str = Field(max_length=300)
+    level: Literal["block", "approve", "auto", "full"]
+    classification: GoalCheckClassification
 
 
 class GoalSummary(WireModel):
@@ -3572,6 +3683,9 @@ class GoalSummary(WireModel):
     evidence: list[str] = Field(max_length=10)
     blockers: list[str] = Field(max_length=10)
     active_profile_id: str = Field(max_length=256)
+    # What done means in the person's words, and the check that must pass (B3).
+    done_means: str = Field(max_length=4097)
+    check: GoalCheck | None
 
 
 class GoalPage(WireModel):
@@ -3586,6 +3700,7 @@ class GoalPage(WireModel):
     next_cursor: str | None = Field(max_length=80)
     # The turn limit a new goal starts with (Agent runtime); 0 = no limit.
     default_max_turns: int = Field(ge=0, le=1000)
+    check_place: GoalCheckPlace
 
 
 class GoalDetail(WireModel):
@@ -3602,12 +3717,16 @@ class GoalCommandPayload(WireModel):
     max_turns: int | None = Field(ge=1, le=1000)
     max_minutes: int | None = Field(default=None, ge=1, le=10080)
     reason: str | None = Field(max_length=1024)
+    # A goal's start only (B3): what done means, and the command that must exit 0 first.
+    done_means: str | None = Field(default=None, max_length=1000)
+    check_command: str | None = Field(default=None, max_length=500)
 
 
 class GoalReview(GoalCommandPayload):
     schema_version: Literal[1]
     action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     disclosures: list[str] = Field(max_length=8)
+    check: GoalCheckReview | None = None
     review_id: str = Field(min_length=1, max_length=128)
 
 

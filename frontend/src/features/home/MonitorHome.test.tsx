@@ -1814,3 +1814,27 @@ it.each([
     expect(link).toHaveAttribute('target', '_blank');
   },
 );
+
+it("counts today's actions from the activity log and links to the whole list (D1)", async () => {
+  const loadActivitySummary = vi.fn(async () => ({
+    schema_version: 1 as const,
+    total: 42,
+    asked: 3,
+    denied: 1,
+  }));
+  renderMonitor({ loadActivitySummary });
+
+  expect(
+    await screen.findByText(
+      'Today: 42 actions · 3 asked you · 1 you said no to',
+    ),
+  ).toBeVisible();
+  const midnight = new Date(NOW.toDateString()).getTime() / 1000;
+  expect(loadActivitySummary).toHaveBeenCalledWith(
+    midnight,
+    expect.any(AbortSignal),
+  );
+  expect(
+    screen.getByRole('button', { name: 'See all activity' }),
+  ).toBeVisible();
+});

@@ -90,3 +90,25 @@ it('controls a goal with a word and starts one with anything else', () => {
     objective: 'Pause the newsletter drafts',
   });
 });
+
+it('reads the check a goal must pass after "check:" (B3)', () => {
+  expect(goalRequest('Ship check: npm test')).toEqual({
+    operation: 'start',
+    objective: 'Ship',
+    check: 'npm test',
+  });
+  expect(goalRequest('Ship the docs CHECK:  npm run build ')).toEqual({
+    operation: 'start',
+    objective: 'Ship the docs',
+    check: 'npm run build',
+  });
+  // Only the word on its own is the marker; an empty check is no check.
+  expect(goalRequest('Recheck: the links')).toEqual({
+    operation: 'start',
+    objective: 'Recheck: the links',
+  });
+  expect(goalRequest('Ship check:')).toEqual({
+    operation: 'start',
+    objective: 'Ship',
+  });
+});
