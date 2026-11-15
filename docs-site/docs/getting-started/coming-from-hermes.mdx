@@ -1,0 +1,77 @@
+---
+title: "Coming From Hermes?"
+description: "Bring your Hermes Agent memories, persona, skills, MCP servers and model into Row-Bot, see what doesn't come over, and how Hermes's ideas map to Row-Bot's."
+---
+
+# Coming From Hermes?
+
+If you use [Hermes Agent](https://github.com/NousResearch/hermes-agent), Nous Research's open-source agent, Row-Bot can bring over what it knows about you and how you set it up. The import reads Hermes's folder and never changes it, and nothing leaves your computer. This page describes Hermes Agent v0.23 (November 2026).
+
+## In One Minute
+
+1. [Install Row-Bot](/docs/getting-started/installation) and answer **How should Row-Bot think?** on [first launch](/docs/getting-started/first-launch).
+2. When Row-Bot finds Hermes on this computer (in `~/.hermes`, or `%LOCALAPPDATA%\hermes` on Windows), it offers to bring it along. **Import from Hermes Agent** opens **Settings › Data › Import from another assistant**; **Not now** leaves it for later.
+3. Choose **Scan folders**. Row-Bot lists what it found and where each item goes, and changes nothing yet.
+4. Tick what you want, choose **Apply selected items**, then **Confirm import**.
+5. When it's done, choose **Review memories** to check the memories before they're saved.
+
+If your Hermes home is somewhere else, enter that folder as **Source folder** in **Settings › Data**. Leave **Target folder** empty, so everything comes into the Row-Bot you're using.
+
+## What Comes Over
+
+- **Memories** (`memories/MEMORY.md` and `memories/USER.md`) wait in **Import memories** for you to check. Nothing is saved to Row-Bot's memory until you import them there.
+- **Persona** (`SOUL.md`) becomes your personality in **Settings › Preferences**: its prose, shortened to fit.
+- **Agent instructions** (`AGENTS.md`) become a skill, *Instructions from Hermes*, in **Settings › Skills**. It isn't pinned, so it isn't part of every chat.
+- **Skills**: each skill's `SKILL.md` is copied to **Settings › Skills**.
+- **MCP servers** (`mcp_servers` in `config.yaml`) come over when you tick them in the list. They arrive in **Settings › Apps** turned off, without their `env` or header values: fill those in, check the server, then turn it on.
+- **Main model** (`model` in `config.yaml`) becomes the main model in **Settings › Models** when its provider is one Row-Bot has, such as OpenAI, Anthropic, OpenRouter, Google, xAI or Ollama.
+- **Your own model servers** (custom providers) become **Custom endpoints** in **Settings › Models**. Row-Bot contacts one only when you use it.
+- **API keys** (`.env`) come over only if you turn on **Include API keys and tokens** before you scan, into the system keychain.
+
+What you already have stays as it is: an item that would replace your personality, main model or a skill is shown as a conflict, and comes over only if you turn on **Replace what you already have**, which keeps a backup first. An app or custom endpoint with the same name as one of yours is left alone.
+
+### Memories From Your Past Chats
+
+Hermes's chats aren't turned into Row-Bot conversations, but Row-Bot can look in them for things worth remembering. Open **Import memories** in **Home › Knowledge**, add Hermes's `state.db` (or a file from `hermes sessions export`), and turn on **Also look for memories in … past conversations**. It reads only what you wrote, newest first, up to the limit the dialog shows, using your chat model (on this computer, or through its provider). You check what it finds like any other memory, and **Undo import** takes an import back for 7 days.
+
+## What Doesn't Come Over
+
+- **Scheduled (cron) jobs**: make a [workflow](/docs/guides/workflows) for each one. A workflow is a scheduled chat, and can also start from a webhook or when another workflow finishes.
+- **The messaging gateway**: set up [Channels](/docs/integrations/channels) for Telegram, Discord, Slack, WhatsApp or SMS.
+- **Sign-ins** (`auth.json`, MCP tokens): sign in again in Row-Bot.
+- **Hermes plugins**: they aren't run. Row-Bot can browse the Hermes catalog in [Settings › Apps](/docs/settings/apps); a package made only for the Hermes app can't be added there.
+- **Nous Portal models**: Row-Bot doesn't connect to the Nous Portal, so the import lists such a model as not brought over. Choose a model in **Settings › Models**.
+- **Kanban and `/loop`**: Row-Bot has neither. A [goal](/docs/profiles-goals-agents/#goals) keeps working until something is done, and a workflow repeats on a schedule.
+
+Hermes's sessions, logs, cron jobs, plugins and state are copied into the import's report for you to look at, with secrets removed from text files. Binary files, such as `state.db`, are only noted there, not copied.
+
+## How Things Map
+
+| In Hermes | In Row-Bot |
+| --- | --- |
+| `/goal` | [Goals](/docs/profiles-goals-agents/#goals) |
+| Cron jobs | [Workflows](/docs/guides/workflows) |
+| `delegate_task` | [Delegated agents](/docs/profiles-goals-agents/#delegated-agents) (helpers) |
+| The messaging gateway | [Channels](/docs/integrations/channels) |
+| Manual approvals | **Ask** |
+| Smart approvals | **Auto**: its reviewer reads only your own messages |
+| YOLO | **Hands-off**, turned on by you, per conversation |
+| `config.yaml` | Settings: there is no file to edit |
+| Memory files | Memory in [Knowledge](/docs/knowledge/) |
+
+## What's Different On Purpose
+
+- **Approvals decide what an action may do.** Changing, sending, deleting and paying go through your approval level, and Auto's reviewer never sees web pages, files or tool results, so outside text can't approve its own action. See [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds).
+- **Imported memories are checked first.** Hermes's memory files can hold notes the agent wrote itself, so they wait for you in **Import memories**.
+- **Settings, not a config file.** Everything you set up lives in **Settings**, and Row-Bot keeps its data in its own folder.
+
+## Using Your ChatGPT Or Claude Plan
+
+Row-Bot signs in to ChatGPT and Grok plans directly. A Claude Pro or Max plan works through your own Claude Code, which Row-Bot installs from Anthropic if needed; Row-Bot never handles your Claude sign-in. See [Settings: Providers](/docs/settings/providers#claude-your-claude-plan).
+
+## Questions
+
+- **Can I keep using Hermes?** Yes. The import only reads Hermes's folder, and Row-Bot keeps its own data in its own folder, so both can run.
+- **Can I import again?** Yes. Items you already have are skipped, or shown as conflicts.
+- **How do I undo it?** Anything the import replaced is backed up first, in the `migration-backups` folder of Row-Bot's data. Imported memories have **Undo import** in **Import memories** for 7 days. Remove a skill or an app in its Settings page.
+- **I also use OpenClaw.** The same import brings OpenClaw over: choose it as **Source app** in **Settings › Data**. See [Import From Another Assistant](/docs/operations/#import-from-another-assistant).
