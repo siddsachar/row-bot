@@ -8860,6 +8860,19 @@ class ConversationTokenUsage(WireModel):
     cache_read_percent: int | None = Field(default=None, ge=0, le=100)
     # Only a cost the provider itself returned (OpenRouter); no price table.
     cost_usd: float | None = Field(default=None, ge=0)
+    # Share of the newest turn request's input read from a prompt cache, where the provider reports it.
+    last_cache_read_percent: int | None = Field(default=None, ge=0, le=100)
+
+
+class ContextBreakdown(WireModel):
+    """What fills the context after the last reply, in estimated tokens: counts only, no names."""
+
+    instructions: int = Field(ge=0, le=2147483647)
+    tools: int = Field(ge=0, le=2147483647)
+    skills: int = Field(ge=0, le=2147483647)
+    memory: int = Field(ge=0, le=2147483647)
+    conversation: int = Field(ge=0, le=2147483647)
+    tool_count: int = Field(ge=0, le=2147483647)
 
 
 class ContextUpdated(WireModel):
@@ -8877,6 +8890,8 @@ class ContextUpdated(WireModel):
     scope: Literal["agent", "chat_only", "unknown"] = "unknown"
     capacity_state: str = Field(default="unavailable", max_length=64)
     conversation_usage: ConversationTokenUsage | None = None
+    # Only on a settled measurement; a live per-call event carries none.
+    breakdown: ContextBreakdown | None = None
 
 
 EVENT_PAYLOADS = {
