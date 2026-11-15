@@ -44,6 +44,7 @@ describe('settings navigation metadata', () => {
       'Skills',
       'Apps',
       'System',
+      'Activity',
       'Devices & remote access',
       'Updates',
       'Data',

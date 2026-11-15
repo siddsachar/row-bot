@@ -17,6 +17,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import type {
+  ActivitySummary,
   MonitorLogs,
   SystemDiagnosis,
   SystemDiagnosisCheck,
@@ -50,6 +51,7 @@ import BackgroundProcesses, {
   type BackgroundProcessesIo,
 } from './BackgroundProcesses';
 import type { LearningIO } from '../learning/learning-state';
+import ActivityToday from './ActivityToday';
 
 export type MonitorAvailability =
   'available' | 'missing' | 'unavailable' | 'corrupt';
@@ -160,6 +162,11 @@ export type MonitorHomeProps = {
   processes?: BackgroundProcessesIo;
   /** Learning (preview), when this build has it: training shows as a row with Stop. */
   learning?: LearningIO | null;
+  /** Today's count from the activity log (D1), linking to Settings › Activity. */
+  loadActivitySummary?: (
+    since: number,
+    signal?: AbortSignal,
+  ) => Promise<ActivitySummary>;
   now?: Date;
 };
 
@@ -922,6 +929,7 @@ export default function MonitorHome({
   writeClipboard,
   processes,
   learning = null,
+  loadActivitySummary,
   now: suppliedNow,
 }: MonitorHomeProps) {
   const notify = useNotify();
@@ -1383,6 +1391,9 @@ export default function MonitorHome({
             />
           }
         />
+      )}
+      {loadActivitySummary && (
+        <ActivityToday load={loadActivitySummary} now={suppliedNow} />
       )}
       {processes && <BackgroundProcesses io={processes} learning={learning} />}
       {startupWarnings && startupWarnings.length > 0 && (
