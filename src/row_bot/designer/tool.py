@@ -859,7 +859,7 @@ def _generate_image_tool(prompt: str, page_index: int = -1,
     if _will_make(page_index):
         refusal, line = image_gen_tool.paid_generation_check(
             "designer_generate_image", "image", image_gen_tool._selection(), "make a picture for this design",
-            prompt)
+            prompt, size=size)
         if refusal:
             return refusal
     return image_gen_tool._led(line, _generate_image(prompt, page_index, position, width, height, size))
@@ -883,7 +883,8 @@ def _generate_video_tool(prompt: str, page_index: int = -1,
     if selection.partition("/")[0] in VIDEO_PROVIDERS and _will_make(page_index, image_source):
         refusal, line = paid_generation_check(
             "designer_generate_video", "video", selection,
-            f"make a video for this design ({int(duration or 6)} seconds, {resolution or '720p'})", prompt)
+            f"make a video for this design ({int(duration or 6)} seconds, {resolution or '720p'})", prompt,
+            seconds=int(duration or 6), resolution=resolution or "720p")
         if refusal:
             return refusal
     return _led(line, _generate_video(prompt, page_index, position, width, aspect_ratio, duration, resolution,

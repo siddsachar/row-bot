@@ -685,9 +685,9 @@ def test_xai_api_key_discovery_merges_model_endpoints_and_curated_composer(monke
                 "id": "future-renderer",
                 "display_name": "Future Renderer",
                 "pricing": [
-                    {"quality": "low", "resolution": "1k", "price_per_image": 4},
-                    {"quality": "medium", "resolution": "1k", "price_per_image": 6},
-                    {"quality": "medium", "resolution": "2k", "price_per_image": 8},
+                    {"quality": "low", "resolution": "1k", "price_per_image": 400_000_000},
+                    {"quality": "medium", "resolution": "1k", "price_per_image": 600_000_000},
+                    {"quality": "medium", "resolution": "2k", "price_per_image": 800_000_000},
                 ],
             }]})
         if url.endswith("/video-generation-models"):
@@ -748,10 +748,10 @@ def test_xai_oauth_image_metadata_merges_for_unknown_model_and_survives_cache(tm
             "input_modalities": ["text", "image"],
             "output_modalities": ["image"],
             "pricing": [
-                {"quality": "low", "resolution": "1k", "price_per_image": 4},
-                {"quality": "low", "resolution": "2k", "price_per_image": 6},
-                {"quality": "medium", "resolution": "1k", "price_per_image": 6},
-                {"quality": "medium", "resolution": "2k", "price_per_image": 8},
+                {"quality": "low", "resolution": "1k", "price_per_image": 400_000_000},
+                {"quality": "low", "resolution": "2k", "price_per_image": 600_000_000},
+                {"quality": "medium", "resolution": "1k", "price_per_image": 600_000_000},
+                {"quality": "medium", "resolution": "2k", "price_per_image": 800_000_000},
             ],
         }]}),
     ])

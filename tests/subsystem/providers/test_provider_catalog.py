@@ -201,10 +201,10 @@ def test_xai_pricing_matrix_becomes_canonical_generation_metadata():
 
     generation_parameters = xai_generation_parameters_from_item({
         "pricing": [
-            {"quality": "low", "resolution": "1k", "price_per_image": 4},
-            {"quality": "low", "resolution": "2k", "price_per_image": 6},
-            {"quality": "medium", "resolution": "1k", "price_per_image": 6},
-            {"quality": "medium", "resolution": "2k", "price_per_image": 8},
+            {"quality": "low", "resolution": "1k", "price_per_image": 400_000_000},
+            {"quality": "low", "resolution": "2k", "price_per_image": 600_000_000},
+            {"quality": "medium", "resolution": "1k", "price_per_image": 600_000_000},
+            {"quality": "medium", "resolution": "2k", "price_per_image": 800_000_000},
         ],
     })
     info = model_info_from_metadata(
@@ -224,6 +224,12 @@ def test_xai_pricing_matrix_becomes_canonical_generation_metadata():
             {"quality": "low", "resolution": "2k"},
             {"quality": "medium", "resolution": "1k"},
             {"quality": "medium", "resolution": "2k"},
+        ],
+        "prices": [
+            {"quality": "low", "resolution": "1k", "usd": 0.04},
+            {"quality": "low", "resolution": "2k", "usd": 0.06},
+            {"quality": "medium", "resolution": "1k", "usd": 0.06},
+            {"quality": "medium", "resolution": "2k", "usd": 0.08},
         ],
     }
     assert info.tasks == frozenset({"image_generation"})
