@@ -161,7 +161,18 @@ for (const size of ['desktop', 'phone'] as const) {
       await expect(notion).not.toContainText('Off ·');
       await shoot(page, info, 'always-allow-rules');
 
-      // Narrowing a command is checked like a new rule.
+      // Narrowing a command is checked like a new rule: the server refuses an install's dry run (422).
+      test.info().annotations.push({
+        type: 'expected-console-error',
+        description: JSON.stringify({
+          owner: 'always-allow',
+          fixture: 'a command rule narrowed to an install',
+          signature:
+            'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)',
+          count: 2,
+          upTo: true,
+        }),
+      });
       await npm.getByRole('button', { name: 'Edit rule' }).click();
       const edit = page.getByRole('dialog', { name: 'Edit rule' });
       const field = edit.getByRole('textbox', { name: /Exact command/ });
