@@ -344,6 +344,7 @@
     "learning_download_busy": 409,
     "learning_download_changed": 409,
     "learning_download_unavailable": 409,
+    "learning_engine_needed": 409,
     "learning_export_unavailable": 409,
     "learning_hugging_face_busy": 409,
     "learning_hugging_face_over_cap": 409,

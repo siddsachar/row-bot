@@ -363,7 +363,8 @@ CHECKED = "hf:Qwen/Qwen3-14B"
 def _checked(world, *, choose: bool = True):
     """Qwen3-14B's check passed here (faked steps); it trains on Hugging Face on its card (an L40S)."""
 
-    from tests.subsystem.learning.test_learning_open_models import FakeSteps, _check, _record
+    from tests.fixtures.open_models import FakeSteps
+    from tests.subsystem.learning.test_learning_open_models import _check, _record
 
     found = _check(world.root, FakeSteps(world.root), _record(world.root))
     if choose:

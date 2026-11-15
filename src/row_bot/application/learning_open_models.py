@@ -84,15 +84,29 @@ def view() -> list[dict[str, Any]]:
         return []
 
 
+def _engine_installed() -> bool:
+    """Whether this computer has the training engine: the check trains, converts and serves with it, so a check
+    without it would download the whole model only to fail."""
+
+    from row_bot.learning.training import downloads
+
+    try:
+        return downloads.get().view().engine_state == "installed"
+    except Exception:  # noqa: BLE001 - unknown: the person is asked to download it
+        logger.debug("Learning couldn't read the training engine's state", exc_info=True)
+        return False
+
+
 def _in_use(model_id: str) -> bool:
-    """Whether training uses this model: the starting model here, the model Hugging Face trains, or the model of a
-    Hugging Face run under way. Its record stays while it does (a version names the model it was trained from)."""
+    """Whether training uses this model: the starting model here, the model Hugging Face trains (while Learning
+    trains there), or the model of a Hugging Face run under way. Its record stays while it does."""
 
     from row_bot import learning
     from row_bot.application import learning_hugging_face
 
     settings = learning.read_settings()
-    if model_id in (settings.starting_model, settings.hf_model):
+    if model_id == settings.starting_model or (settings.train_where == "hugging_face"
+                                               and model_id == settings.hf_model):
         return True
     try:
         job = learning_hugging_face._current_job()  # noqa: SLF001 - the Hugging Face run, if any
@@ -129,6 +143,8 @@ def perform(action: str, command: dict[str, Any]) -> str:
     # check_model: read the card now (free), then ask nothing more: the client asked first (download, the card).
     if checker.running is not None:
         raise ClientPlatformError("learning_model_check_busy")  # one check at a time (it uses the card)
+    if not _engine_installed():
+        raise ClientPlatformError("learning_engine_needed")
     try:
         model, files = open_models.inspect(repo)
     except open_models.HubError as error:

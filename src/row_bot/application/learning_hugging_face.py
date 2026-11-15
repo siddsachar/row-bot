@@ -256,7 +256,7 @@ def perform(action: str, command: dict[str, Any]) -> str:
         _set_aside_planned()
         chosen = offered[model_id]
         if not chosen.certified:  # O138: a model the person checked here; its times and price are estimates
-            return (f"{chosen.name} will train on Hugging Face. It isn't certified: Row-Bot checked it on this "
+            return (f"{chosen.name} will train on Hugging Face. It isn’t certified: Row-Bot checked it on this "
                     "computer, and its time and price are estimates.")
         return f"{chosen.name} will train on Hugging Face."
     if action == "hf_choose_flavor":

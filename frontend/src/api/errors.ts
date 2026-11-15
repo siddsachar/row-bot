@@ -3011,6 +3011,10 @@ const CATALOG: Record<string, Entry> = {
     'Row-Bot trains from this model. Choose another model first.',
     'review',
   ],
+  learning_engine_needed: [
+    'Checking a model uses the training engine. Download it first in Settings › Learning.',
+    'review',
+  ],
   learning_quote_changed: [
     'The price changed since you looked. Check the new quote, then start again.',
     'review',

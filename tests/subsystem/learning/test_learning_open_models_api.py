@@ -9,8 +9,11 @@ import pytest
 from row_bot import threads  # noqa: F401 - bind threads to the session's folder first
 from row_bot.learning.store import LearningStore
 from row_bot.learning.training import open_models
+from tests.fixtures.open_models import REV, FakeSteps
+from tests.fixtures.open_models import FakeHubPages as FakeHub
+from tests.fixtures.open_models import card as _card
+from tests.fixtures.open_models import hub as _hub
 from tests.subsystem.client_protocol.test_settings_snapshot_api import api
-from tests.subsystem.learning.test_learning_open_models import REV, FakeHub, FakeSteps, _card, _hub
 from tests.subsystem.learning.test_learning_surfaces_api import _command, _ok, _turn_on, no_channels
 
 # ruff: noqa: F401, F811 -- the imported pytest fixtures are requested by name.
@@ -28,16 +31,14 @@ def models(api, no_channels, monkeypatch, tmp_path):
                                                 config={"architectures": ["Phi3ForCausalLM"]})]
     llama = _card("unsloth/Llama-3.1-8B-Instruct", cardData={"license": "llama3.1"},
                   config={"architectures": ["LlamaForCausalLM"]}, safetensors={"total": 8_030_261_248})
-    hub.pages.update({f"/api/models/{llama['id']}/tree/{REV}": hub.pages[f"/api/models/Qwen/Qwen3-14B/tree/{REV}"],
-                      f"/api/models/{llama['id']}": llama,
-                      "/api/models/meta-llama/Llama-3.1-8B-Instruct": _card(
-                          "meta-llama/Llama-3.1-8B-Instruct", gated="manual", cardData={"license": "llama3.1"})})
+    hub.add(llama).add(_card("meta-llama/Llama-3.1-8B-Instruct", gated="manual", cardData={"license": "llama3.1"}))
     monkeypatch.setattr(open_models, "safe_reader", hub)
     monkeypatch.setattr(open_models.search, "__kwdefaults__", {"reader": hub})
     monkeypatch.setattr(open_models.inspect, "__kwdefaults__", {"reader": hub})
     from row_bot.application import learning_open_models
 
     monkeypatch.setattr(learning_open_models, "_card_mib", lambda: 32_607)  # a 32 GB card
+    monkeypatch.setattr(learning_open_models, "_engine_installed", lambda: True)  # the training engine is here
     checker = open_models.Checker(data, steps=FakeSteps(tmp_path), start_threads=False)
     open_models.reset_checker(checker)
     yield client, headers, data, hub, checker
@@ -98,6 +99,19 @@ def test_a_licence_with_terms_is_agreed_in_the_same_ask_and_gated_or_unsupported
         assert refused.status_code == 409 and refused.json()["code"] == "learning_model_unavailable"
 
 
+def test_a_check_needs_the_training_engine_first_and_downloads_nothing_without_it(models, monkeypatch):
+    from row_bot.application import learning_open_models
+
+    client, headers, _data, hub, checker = models
+    monkeypatch.setattr(learning_open_models, "_engine_installed", lambda: False)
+
+    refused = _command(client, headers, "check_model", model="hf:Qwen/Qwen3-14B")
+
+    assert refused.status_code == 409 and refused.json()["code"] == "learning_engine_needed"
+    assert checker.running is None and open_models.records(_data) == []
+    assert not any("/api/models/" in url for url in hub.asked)  # nothing read or downloaded for it
+
+
 def test_stop_and_forget_follow_the_check(models):
     client, headers, _data, _hub, checker = models
 
@@ -142,7 +156,8 @@ def test_a_passed_model_trains_on_hugging_face_and_stays_while_training_uses_it(
     from row_bot.learning.remote import hub as hub_module
     from row_bot.learning.remote import training as remote_training
     from row_bot.learning.remote.training import RemoteTrainer
-    from tests.fixtures.hugging_face import FakeFetcher, FakeHub as FakeHfHub, FakeSignIn
+    from tests.fixtures.hugging_face import FakeFetcher, FakeSignIn
+    from tests.fixtures.hugging_face import FakeHub as FakeHfHub
     from tests.fixtures.learning import save_learning_settings
 
     client, headers, data, _hub, checker = models
@@ -163,7 +178,7 @@ def test_a_passed_model_trains_on_hugging_face_and_stays_while_training_uses_it(
 
         chosen = _ok(_command(client, headers, "hf_choose_model", model="hf:Qwen/Qwen3-14B"))
 
-        assert chosen["summary"] == ("Qwen3-14B will train on Hugging Face. It isn't certified: Row-Bot checked it "
+        assert chosen["summary"] == ("Qwen3-14B will train on Hugging Face. It isn’t certified: Row-Bot checked it "
                                      "on this computer, and its time and price are estimates.")
         hugging = chosen["snapshot"]["personal_model"]["hugging_face"]
         assert hugging["model"] == "hf:Qwen/Qwen3-14B" and hugging["quote"]["measured"] is False

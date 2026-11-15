@@ -96,6 +96,8 @@ _KEEP = re.compile(r"(?i)(\.safetensors|\.json|tokenizer\.model|merges\.txt|voca
                    r"\A(LICENSE|LICENCE|NOTICE|USE_POLICY)(\.[a-z]+)?\Z")
 
 CHECK_ITEMS = ("fits", "steps", "export", "tools")
+# While a check downloads, clients hear of its progress at most this often.
+ANNOUNCE_SECONDS = 3.0
 STATES = ("not_checked", "downloading", "checking", "passed", "failed", "stopped")
 
 
@@ -319,10 +321,13 @@ class HfCard:
     memory_gb: int
     price_per_hour: float
     step_time: float
+    # As the check says it: "an Nvidia L40S (48 GB)".
+    words: str
 
 
-HF_CARDS: tuple[HfCard, ...] = (HfCard("l40sx1", 48, 1.80, 1.5), HfCard("a100-large", 80, 2.50, 1.0),
-                                HfCard("h200", 141, 5.00, 1.0))
+HF_CARDS: tuple[HfCard, ...] = (HfCard("l40sx1", 48, 1.80, 1.5, "an Nvidia L40S (48 GB)"),
+                                HfCard("a100-large", 80, 2.50, 1.0, "an Nvidia A100 (80 GB)"),
+                                HfCard("h200", 141, 5.00, 1.0, "an Nvidia H200 (141 GB)"))
 # A checked model trains with the settings of the certified Hugging Face recipe nearest its size.
 REMOTE_BASES: tuple[tuple[float, str], ...] = ((18.0, "hf-9b"), (math.inf, "hf-27b"))
 
@@ -645,6 +650,7 @@ class Checker:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._running: str | None = None
+        self._announced = -math.inf
 
     @property
     def running(self) -> str | None:
@@ -660,14 +666,31 @@ class Checker:
                 raise PermissionError("licence")
             self._running = record.repo
             self._stop.clear()
-        record = write(replace(record, state="downloading", stage="download", failure=None, started_at=self._clock(),
-                               items={name: CheckItem() for name in CHECK_ITEMS}, sample=()), self._root)
+        record = self._save(replace(record, state="downloading", stage="download", failure=None,
+                                    started_at=self._clock(), items={name: CheckItem() for name in CHECK_ITEMS},
+                                    sample=()))
         if self._threads:
             threading.Thread(target=self.run, args=(record.repo,), name="learning-model-check", daemon=True).start()
         return record
 
     def stop(self) -> None:
         self._stop.set()
+
+    def _save(self, record: Record, *, progress: bool = False) -> Record:
+        """Save the check's record, and tell every open client to read Learning again (O127): at each step, and
+        while it downloads at most every few seconds."""
+
+        write(record, self._root)
+        now = self._clock()
+        if not progress or now - self._announced >= ANNOUNCE_SECONDS:
+            self._announced = now
+            try:
+                from row_bot import learning
+
+                learning.changed()
+            except Exception:  # noqa: BLE001 - a client reads it next time instead
+                logger.debug("Learning couldn't announce a model check's progress", exc_info=True)
+        return record
 
     def _check(self) -> None:
         if self._stop.is_set():
@@ -681,7 +704,7 @@ class Checker:
             return self._run(record)
         except Stopped:
             found = read(repo, self._root) or record
-            return write(replace(found, state="stopped", stage=None), self._root) if found is not None else None
+            return self._save(replace(found, state="stopped", stage=None)) if found is not None else None
         except Exception:  # noqa: BLE001 - a broken check fails, it never breaks Row-Bot
             logger.warning("Learning's model check failed unexpectedly", exc_info=True)
             found = read(repo, self._root) or record
@@ -695,15 +718,15 @@ class Checker:
         items = dict(record.items)
         items[name] = CheckItem(state, words, data)
         stage = name if state == "running" else record.stage
-        return write(replace(record, items=items, stage=stage), self._root)
+        return self._save(replace(record, items=items, stage=stage))
 
     def _fail(self, record: Record, name: str, words: str, code: str | None = None) -> Record:
         record = self._item(record, name, "failed", words)
         items = dict(record.items)
         for later in CHECK_ITEMS[CHECK_ITEMS.index(name) + 1:] if name in CHECK_ITEMS else ():
             items[later] = CheckItem("skipped")
-        return write(replace(record, items=items, state="failed", stage=None, failure=code or name,
-                             checked_at=self._clock()), self._root)
+        return self._save(replace(record, items=items, state="failed", stage=None, failure=code or name,
+                                  checked_at=self._clock()))
 
     def _run(self, record: Record) -> Record:
         steps = self._steps or EngineSteps(self._root)
@@ -711,7 +734,7 @@ class Checker:
         work.mkdir(parents=True, exist_ok=True)
         try:
             pinned = list(record.pinned) or steps.pin(record, self._check)
-            record = write(replace(record, pinned=tuple(pinned)), self._root)
+            record = self._save(replace(record, pinned=tuple(pinned)))
             model = pinned_model(record)
             if model is None:
                 return self._fail(record, "fits", "Row-Bot couldn’t read the model’s files.", "download_failed")
@@ -719,7 +742,7 @@ class Checker:
             def moved(done: int) -> None:
                 nonlocal record
                 if done - record.downloaded_bytes >= 64 * 2**20 or done >= record.download_bytes:
-                    record = write(replace(record, downloaded_bytes=done), self._root)
+                    record = self._save(replace(record, downloaded_bytes=done), progress=True)
 
             try:
                 weights_dir = steps.download(model, moved, self._check)
@@ -728,7 +751,7 @@ class Checker:
             except Exception:  # noqa: BLE001
                 return self._fail(record, "fits", "The download didn’t finish. Check the connection and try again.",
                                   "download_failed")
-            record = write(replace(record, state="checking", downloaded_bytes=model.download_bytes), self._root)
+            record = self._save(replace(record, state="checking", downloaded_bytes=model.download_bytes))
             card_mib, share = steps.card()
             record = self._item(record, "fits", "running")
             fit = steps.fit(weights_dir, max_seq=FULL_SEQ, cap_share=share, work=work, check=self._check)
@@ -740,9 +763,11 @@ class Checker:
                                     f"{fit.cap_mib / 1024:.1f} GB it may use.",
                                     peak_mib=fit.peak_mib, cap_mib=fit.cap_mib, seconds_per_step=fit.step_seconds)
             elif flavor is not None:
+                card = next(item.words for item in HF_CARDS if item.flavor == flavor)
                 record = self._item(record, "fits", "passed",
                                     f"Too big to train on this card (it needs more than {fit.cap_mib / 1024:.1f} GB); "
-                                    f"trains on Hugging Face on {flavor}.", peak_mib=fit.peak_mib, cap_mib=fit.cap_mib)
+                                    f"it trains on Hugging Face on {card}.", peak_mib=fit.peak_mib,
+                                    cap_mib=fit.cap_mib)
                 fit = steps.fit(weights_dir, max_seq=SHORT_SEQ, cap_share=share, work=work, check=self._check)
                 if not fit.ran:
                     return self._fail(record, "steps", "Even a short trial doesn’t fit this card, so Row-Bot can’t "
@@ -750,7 +775,7 @@ class Checker:
             else:
                 return self._fail(record, "fits", "Too big to train on this card or on one of Hugging Face’s.",
                                   "too_big")
-            record = write(replace(record, trains_here=here, hugging_face_flavor=flavor), self._root)
+            record = self._save(replace(record, trains_here=here, hugging_face_flavor=flavor))
             record = self._item(record, "steps", "running")
             ok, words = sane(fit)
             if not ok:
@@ -772,14 +797,13 @@ class Checker:
             record = self._item(record, "tools", "running")
             sample = steps.tool_sample(gguf, work, self._check)
             passed = sum(1 for item in sample if item.get("passed"))
-            record = write(replace(record, sample=tuple(sample)), self._root)
+            record = self._save(replace(record, sample=tuple(sample)))
             if passed < TOOL_PASSES:
                 return self._fail(record, "tools", f"It called Row-Bot’s tools right {passed} of {len(sample)} "
                                   "times; it needs at least 2.", "tools")
             record = self._item(record, "tools", "passed",
                                 f"It called Row-Bot’s tools right {passed} of {len(sample)} times.")
-            return write(replace(record, state="passed", stage=None, failure=None, checked_at=self._clock()),
-                         self._root)
+            return self._save(replace(record, state="passed", stage=None, failure=None, checked_at=self._clock()))
         finally:
             import shutil
 
