@@ -41,6 +41,9 @@ export function StartingModelSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // A model chosen under Other models becomes the starting model inside this sheet: the radios follow it.
+  useEffect(() => setChoice(current), [current]);
+
   const check = () => {
     setHardware(null);
     setCheckFailed(false);

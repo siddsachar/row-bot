@@ -6401,6 +6401,98 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
     raise HTTPException(404, "Unknown Learning fixture action")
 
 
+# ── Learning (preview), C1 Part 4: any open model, found on Hugging Face and checked here ──
+
+_c1m: dict[str, object] = {}
+
+
+@app.post("/__c1m_fixture/learning/{action}")
+def c1m_learning(action: str, name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """Any open model for the C1 Part 4 spec: Hugging Face's public pages from memory (a search's results and each
+    model's card and files), and the check on this computer played step by step by fake steps. Nothing reaches
+    huggingface.co, a GPU or a download."""
+    predecessor._authorize(x_fixture_token)
+    import shutil as _shutil
+
+    from row_bot.learning.training import open_models
+    from tests.fixtures.open_models import FakeHubPages, FakeSteps, card
+
+    if action == "restore":
+        for owner, attribute, original in reversed(_c1m.pop("patched", [])):
+            setattr(owner, attribute, original)
+        open_models.reset_checker(None)
+        _shutil.rmtree(open_models.folder(), ignore_errors=True)
+        _c1m.clear()
+        return {"action": action}
+    if action == "models":
+        llama = {"config": {"architectures": ["LlamaForCausalLM"]}, "cardData": {"license": "llama3.1"},
+                 "tags": ["llama", "license:llama3.1"]}
+        found = [
+            card(),
+            card("unsloth/Llama-3.1-8B-Instruct", safetensors={"total": 8_030_261_248}, downloads=2_400_000,
+                 **llama),
+            card("meta-llama/Llama-3.1-8B-Instruct", gated="manual", safetensors={"total": 8_030_261_248},
+                 downloads=9_800_000, **llama),
+            card("unsloth/Llama-3.3-70B-Instruct", safetensors={"total": 70_553_706_496}, downloads=310_000,
+                 **{**llama, "cardData": {"license": "llama3.3"}}),
+            card("Qwen/Qwen3-30B-A3B", config={"architectures": ["Qwen3MoeForCausalLM"]},
+                 safetensors={"total": 30_532_122_624}, downloads=1_900_000),
+            card("microsoft/Phi-4-mini-instruct", config={"architectures": ["Phi3ForCausalLM"]},
+                 cardData={"license": "mit"}, safetensors={"total": 3_836_021_760}, downloads=870_000),
+        ]
+        pages = FakeHubPages({"/api/models?": found})
+        for item in found:
+            pages.add(item)
+        steps = FakeSteps(open_models.folder())
+        patched = [(open_models, "safe_reader", open_models.safe_reader),
+                   (open_models.search, "__kwdefaults__", open_models.search.__kwdefaults__),
+                   (open_models.inspect, "__kwdefaults__", open_models.inspect.__kwdefaults__)]
+        _c1m.setdefault("patched", patched)
+        open_models.safe_reader = pages
+        open_models.search.__kwdefaults__ = {"reader": pages}
+        open_models.inspect.__kwdefaults__ = {"reader": pages}
+        open_models.reset_checker(open_models.Checker(steps=steps, start_threads=False))
+        _c1m.update(steps=steps)
+        return {"action": action}
+    steps = _c1m.get("steps")
+    checker = open_models.checker()
+    if steps is None:
+        raise HTTPException(409, "Set up the fake Hugging Face pages first")
+    if action == "check":
+        # name: downloading (45% of its files), checking (it fits; the training steps running), or the check run
+        # to its end: passed, failed (its tool sample), too-big (it fits only on Hugging Face's cards), or stopped
+        # (after Stop: the check ends at its next step)
+        repo = checker.running or next((record.repo for record in open_models.records()), None)
+        record = open_models.read(repo) if repo else None
+        if record is None:
+            raise HTTPException(409, "Start a check first")
+        if name == "downloading":
+            open_models.write(replace(record, downloaded_bytes=int(record.download_bytes * 0.45)))
+        elif name == "checking":
+            items = dict(record.items)
+            items["fits"] = open_models.CheckItem("passed", "Trains on this card: peak 21.2 GB of the 25.5 GB it "
+                                                  "may use.")
+            items["steps"] = open_models.CheckItem("running")
+            open_models.write(replace(record, state="checking", stage="steps", items=items,
+                                      downloaded_bytes=record.download_bytes))
+        elif name in ("passed", "failed", "too-big", "stopped"):
+            steps.tools = (True, False, False) if name == "failed" else (True, True, False)
+            steps.fits = name != "too-big"
+            checker.run(record.repo)
+            ended = open_models.read(record.repo)
+            if ended is not None and ended.item("export").state == "passed":  # a real export's size, not the fake's
+                items = dict(ended.items)
+                items["export"] = open_models.CheckItem("passed", "Converted to a 9.0 GB file at Q4_K_M.")
+                open_models.write(replace(ended, items=items))
+        else:
+            raise HTTPException(404, "Unknown check state")
+        from row_bot import learning
+
+        learning.changed()  # the open Learning screens read it again, as the check's own steps make them
+        return {"action": action, "model": record.id}
+    raise HTTPException(404, "Unknown Learning fixture action")
+
+
 @app.post("/__l2x_fixture/learning/{action}")
 def l2x_learning(action: str, name: str = "", x_fixture_token: str = Header(default="")) -> dict:
     """Row-Bot's own model server for the L2x spec: an RTX 5090 (or no NVIDIA card), the server's

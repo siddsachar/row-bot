@@ -119,6 +119,7 @@ BROWSER_SMOKE_SPECS = (
     "learning-changes",
     "learning-method",
     "learning-hugging-face",
+    "learning-other-models",
     # The setup page's sign-in link clears its code from the address (A1): security-sensitive.
     "setup-link",
 )
@@ -150,6 +151,7 @@ BROWSER_PHONE_SPECS = (
     "model-visibility", "learning", "learning-training", "learning-download", "learning-version", "learning-use", "learning-starting-model",
     "learning-method",
     "learning-hugging-face",
+    "learning-other-models",
     "settings-claude-plan", "install-count", "hosted-first-run", "place-words", "memory-guidance",
     "hosted-settings", "backup-model", "hermes-import",
 )
