@@ -267,7 +267,7 @@ test('a networked sandbox whose network gate cannot start says its network is of
     );
     await expect(note).toHaveAttribute('role', 'status');
     await expect(note).toContainText(
-      "The sandbox's network is off for now. The sandbox's network gate runs from the default sandbox image, which isn't on this computer",
+      "The sandbox's network is off for now. The network gate needs the default sandbox image, which isn't on this computer",
     );
     await expect(note).toContainText('docker pull');
     await expect(note).toContainText(

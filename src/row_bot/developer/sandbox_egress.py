@@ -153,7 +153,7 @@ def ensure_gate(docker: Docker, workspace_id: str, *, binary: str = "docker") ->
         _call(docker, "rm", "-f", name, timeout=30)
     if _call(docker, "image", "inspect", DEFAULT_SANDBOX_IMAGE, timeout=15).returncode != 0:
         raise GateUnavailable(
-            "The sandbox's network gate runs from the default sandbox image, which isn't on this computer: "
+            "The network gate needs the default sandbox image, which isn't on this computer: "
             f"download it with `docker pull {DEFAULT_SANDBOX_IMAGE}`."
         )
     try:
