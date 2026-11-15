@@ -321,7 +321,8 @@ test('the details card names the folder’s project notes, what was cut and what
       data: { conversation_id: conversation, left_out: leftOut },
     });
     expect(written.ok()).toBe(true);
-    await page.reload();
+    // The composer is the ready signal; waiting for "load" can hang in CI.
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(composer(page)).toBeVisible();
   };
 
