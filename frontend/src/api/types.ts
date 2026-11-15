@@ -1044,6 +1044,23 @@ export interface ClientTransport {
     change: Wire.AnswerStateChange,
     signal?: AbortSignal,
   ): Promise<Wire.AnswerStateView>;
+  /** "Save as a skill" (C1): a chat's offers and drafts. */
+  skillOffers?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** Draft a skill from one reply's turn, on the chat's own model. */
+  draftSkill?(
+    conversationId: string,
+    body: Wire.SkillDraftRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** "Not now" on an offer. */
+  dismissSkillOffer?(
+    conversationId: string,
+    offerId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
   /** One frame address for a visual in a reply (F3), served once, no network. */
   createVisualFrame?(
     conversationId: string,
