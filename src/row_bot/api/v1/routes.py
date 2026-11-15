@@ -103,6 +103,13 @@ def _schedule_zone_name() -> str:
 
 _STATUS = {
     "not_found": 404,
+    # Always allow (D1): a rule that can't be made, changed or read.
+    "rule_not_eligible": 409,
+    "rules_full": 409,
+    "rule_exists": 409,
+    "rule_command_refused": 422,
+    "rule_not_editable": 422,
+    "rules_unavailable": 503,
     "cursor_expired": 410,
     "invalid_command": 422,
     "invalid_task_query": 422,
@@ -5986,6 +5993,81 @@ def create_router(
 
         return await respond(request, dto.ActivityCleared, await call(clear_activity))
 
+    # --- Always allow (D1): the person's standing rules, made only from a real card ----------------------
+    # Person-only: no tool reaches these routes, and a rule's scope always comes from the stored approval.
+
+    def _approval_rule_id(rule_id: str) -> str:
+        if len(rule_id) != 16 or any(char not in "0123456789abcdef" for char in rule_id):
+            raise ProtocolError("not_found", 404)
+        return rule_id
+
+    async def _rules(operation: Callable, *args: Any, **kwargs: Any) -> Any:
+        import sqlite3
+
+        from row_bot.approval_rules import RuleError
+
+        try:
+            return await call(operation, *args, **kwargs)
+        except RuleError as exc:
+            raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from None
+        except sqlite3.Error:
+            raise ProtocolError("rules_unavailable", 503) from None
+
+    @router.get("/approval-rules")
+    async def approval_rules_page(request: Request) -> JSONResponse:
+        """Every Always allow rule, with its words, last use and count (Settings › Activity)."""
+        await session(request)
+        from row_bot.application.client_approval_rules import read_rules
+
+        return await respond(request, dto.ApprovalRulePage, await _rules(read_rules))
+
+    @router.post("/approval-rules")
+    async def approval_rule_create(request: Request) -> JSONResponse:
+        """Always allow… on a card the person is looking at: the rule its stored approval offers."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ApprovalRuleCreate, 4 * 1024)
+        view = await call(service.get_approval, body.approval_id)
+        if view.get("status") != "pending":
+            raise ProtocolError("approval_already_resolved", 409)
+        # The nonce of the card they saw, bound to the command that then approves it.
+        security.consume_nonce(current, body.approval_id, str(view["revision"]), str(view["action_digest"]),
+                               body.nonce, str(body.command_id))
+        await call(dispatch_validation(request, current))
+        from row_bot.application.client_approval_rules import create_from_approval
+
+        return await respond(request, dto.ApprovalRuleView, await _rules(create_from_approval, body.approval_id))
+
+    @router.put("/approval-rules/{rule_id}")
+    async def approval_rule_update(request: Request, rule_id: str) -> JSONResponse:
+        """Switch a rule on or off, or change a command rule's exact command (checked again)."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ApprovalRuleUpdate, 4 * 1024)
+        if body.enabled is None and body.command is None:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_approval_rules import update_rule
+
+        result = await _rules(update_rule, _approval_rule_id(rule_id), enabled=body.enabled, command=body.command)
+        return await respond(request, dto.ApprovalRuleView, result)
+
+    @router.delete("/approval-rules/{rule_id}")
+    async def approval_rule_delete(request: Request, rule_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_approval_rules import delete_rule
+
+        return await respond(request, dto.ApprovalRulePage, await _rules(delete_rule, _approval_rule_id(rule_id)))
+
+    @router.post("/approval-rules/dry-run")
+    async def approval_rule_dry_run(request: Request) -> JSONResponse:
+        """Would this have asked? What a draft rule would have allowed in the last 30 days; reads the log only."""
+        await session(request)
+        body = await _body(request, dto.ApprovalRuleDryRunRequest, 4 * 1024)
+        if bool(body.approval_id) == bool(body.rule_id) or (body.approval_id and body.command is not None):
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_approval_rules import dry_run
+
+        result = await _rules(dry_run, approval_id=body.approval_id, rule_id=body.rule_id, command=body.command)
+        return await respond(request, dto.ApprovalRuleDryRun, result)
+
     # --- Proactive Row-Bot (5.3.4): For you, "Why this?", feedback, the Activity log and settings ---------
 
     def _moment_id(moment_id: str) -> str:
@@ -11646,6 +11728,7 @@ def create_router(
                 "setup",
                 "app",
                 "repeatable",
+                "rule_eligible",
                 "reviewer_reason",
                 "question",
                 "questions",

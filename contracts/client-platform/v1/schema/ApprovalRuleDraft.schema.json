@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "description": "What one \"Always allow\" rule covers, in words and in its parts (each shown by name, never a path).",
+  "properties": {
+    "app_name": {
+      "maxLength": 128,
+      "title": "App Name",
+      "type": "string"
+    },
+    "command": {
+      "maxLength": 500,
+      "title": "Command",
+      "type": "string"
+    },
+    "folder_name": {
+      "maxLength": 260,
+      "title": "Folder Name",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "app",
+        "command",
+        "move"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "tool_title": {
+      "maxLength": 96,
+      "title": "Tool Title",
+      "type": "string"
+    },
+    "words": {
+      "maxLength": 800,
+      "title": "Words",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "words",
+    "app_name",
+    "tool_title",
+    "command",
+    "folder_name"
+  ],
+  "title": "ApprovalRuleDraft",
+  "type": "object"
+}

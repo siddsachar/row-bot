@@ -105,6 +105,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactExportRevealResult",
     "ExportSaved", "ExportRevealRequest", "SaveOfferRequest", "SaveOffer",
     "ActivityEntry", "ActivityPage", "ActivitySummary", "ActivityExportRequest", "ActivityCleared",
+    "ApprovalRuleDraft", "ApprovalRuleView", "ApprovalRulePage", "ApprovalRuleCreate", "ApprovalRuleUpdate",
+    "ApprovalRuleDryRunRequest", "ApprovalRuleCounts", "ApprovalRuleExample", "ApprovalRuleDryRun",
     "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
@@ -247,6 +249,11 @@ OPERATIONS = (
     ("get", "/activity/summary", None, "ActivitySummary"),
     ("post", "/activity/export", "ActivityExportRequest", "SaveOffer"),
     ("delete", "/activity", None, "ActivityCleared"),
+    ("get", "/approval-rules", None, "ApprovalRulePage"),
+    ("post", "/approval-rules", "ApprovalRuleCreate", "ApprovalRuleView"),
+    ("put", "/approval-rules/{rule_id}", "ApprovalRuleUpdate", "ApprovalRuleView"),
+    ("delete", "/approval-rules/{rule_id}", None, "ApprovalRulePage"),
+    ("post", "/approval-rules/dry-run", "ApprovalRuleDryRunRequest", "ApprovalRuleDryRun"),
     ("post", "/waits/{wait_id}/stop", None, "WaitPage"),
     ("post", "/waits/{wait_id}/control", "WatchControl", "WaitPage"),
     ("post", "/conversations/{conversation_id}/watches", "WatchCreate", "WaitPage"),
@@ -963,6 +970,17 @@ export const exportActivity = (base: string, proof: SessionProof, body: Activity
   jsonRequest(base, '/activity/export', 'SaveOffer', proof, 'POST', validateWire('ActivityExportRequest', body), undefined, signal);
 export const clearActivity = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ActivityCleared> =>
   jsonRequest(base, '/activity', 'ActivityCleared', proof, 'DELETE', undefined, undefined, signal);
+/** Always allow (D1): the person's standing rules, made only from a real card; "Would this have asked?". */
+export const getApprovalRules = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ApprovalRulePage> =>
+  jsonRequest(base, '/approval-rules', 'ApprovalRulePage', proof, 'GET', undefined, undefined, signal);
+export const createApprovalRule = (base: string, proof: SessionProof, body: ApprovalRuleCreate, signal?: AbortSignal): Promise<ApprovalRuleView> =>
+  jsonRequest(base, '/approval-rules', 'ApprovalRuleView', proof, 'POST', validateWire('ApprovalRuleCreate', body), undefined, signal);
+export const updateApprovalRule = (base: string, proof: SessionProof, rule: string, body: ApprovalRuleUpdate, signal?: AbortSignal): Promise<ApprovalRuleView> =>
+  jsonRequest(base, `/approval-rules/${id(rule)}`, 'ApprovalRuleView', proof, 'PUT', validateWire('ApprovalRuleUpdate', body), undefined, signal);
+export const deleteApprovalRule = (base: string, proof: SessionProof, rule: string, signal?: AbortSignal): Promise<ApprovalRulePage> =>
+  jsonRequest(base, `/approval-rules/${id(rule)}`, 'ApprovalRulePage', proof, 'DELETE', undefined, undefined, signal);
+export const dryRunApprovalRule = (base: string, proof: SessionProof, body: ApprovalRuleDryRunRequest, signal?: AbortSignal): Promise<ApprovalRuleDryRun> =>
+  jsonRequest(base, '/approval-rules/dry-run', 'ApprovalRuleDryRun', proof, 'POST', validateWire('ApprovalRuleDryRunRequest', body), undefined, signal);
 /** Proactive Row-Bot: For you, "Why this?", feedback, the Activity log, settings, rules and drafts. */
 export const getProactiveMoments = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveMomentPage> =>
   jsonRequest(base, '/proactive/moments', 'ProactiveMomentPage', proof, 'GET', undefined, undefined, signal);

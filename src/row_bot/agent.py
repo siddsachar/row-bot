@@ -5729,12 +5729,11 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
     ``always_ask``: an app tool its app's access says to ask about (a routine change without Full access, or a
     high-impact one); the reviewer is told so, and decides as for any other action."""
     from functools import wraps
+    from row_bot.approval_rules import APP_ASKS_RISK, CHANGE_RISK
     from row_bot.tools.approval_gate import resolve_approval_line, with_approval
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
-    risks = ("changes or deletes something",) + (
-        ("its app's access says to ask first (a high-impact change, or one without Full access)",)
-        if always_ask else ())
+    risks = (CHANGE_RISK,) + ((APP_ASKS_RISK,) if always_ask else ())
     # BaseTool's default async implementation delegates to its own _run. Keep
     # that delegate on an unwrapped copy so async calls ask exactly once.
     original = tool.model_copy()

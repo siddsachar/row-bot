@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "ApprovalRuleView": {
+      "additionalProperties": false,
+      "properties": {
+        "app_name": {
+          "maxLength": 128,
+          "title": "App Name",
+          "type": "string"
+        },
+        "command": {
+          "maxLength": 500,
+          "title": "Command",
+          "type": "string"
+        },
+        "created_at": {
+          "maxLength": 40,
+          "title": "Created At",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "folder_name": {
+          "maxLength": 260,
+          "title": "Folder Name",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "app",
+            "command",
+            "move"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "last_used_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Used At"
+        },
+        "rule_id": {
+          "pattern": "^[0-9a-f]{16}$",
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "tool_title": {
+          "maxLength": 96,
+          "title": "Tool Title",
+          "type": "string"
+        },
+        "uses": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Uses",
+          "type": "integer"
+        },
+        "words": {
+          "maxLength": 800,
+          "title": "Words",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "words",
+        "app_name",
+        "tool_title",
+        "command",
+        "folder_name",
+        "rule_id",
+        "enabled",
+        "created_at",
+        "last_used_at",
+        "uses"
+      ],
+      "title": "ApprovalRuleView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Settings \u203a System \u203a Activity \u203a Always allow: every rule, newest first.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ApprovalRuleView"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "max_rules": {
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Max Rules",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "items",
+    "max_rules"
+  ],
+  "title": "ApprovalRulePage",
+  "type": "object"
+}

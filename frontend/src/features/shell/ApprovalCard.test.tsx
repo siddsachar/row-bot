@@ -16,6 +16,8 @@ const approval = vi.fn();
 const intent = vi.fn();
 const pendingApprovals = vi.fn();
 const open = vi.fn();
+const createApprovalRule = vi.fn();
+const dryRunApprovalRule = vi.fn();
 const browserLive = vi.fn(async function* (
   _conversation: string,
   _view: string,
@@ -44,7 +46,14 @@ const browserLive = vi.fn(async function* (
 });
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({
-    controller: { approval, intent, pendingApprovals, browserLive },
+    controller: {
+      approval,
+      intent,
+      pendingApprovals,
+      browserLive,
+      createApprovalRule,
+      dryRunApprovalRule,
+    },
   }),
 }));
 vi.mock('../../ui/overlays', () => ({
@@ -498,6 +507,109 @@ it('offers allowing an action in this chat only when it is repeatable (F21, 5.3.
       '3',
     ),
   );
+});
+
+const dryRun = {
+  schema_version: 1,
+  rule: {
+    kind: 'command',
+    words: 'Always allow `npm test` in row-bot',
+    app_name: '',
+    tool_title: '',
+    command: 'npm test',
+    folder_name: 'row-bot',
+  },
+  days: 30,
+  total: 3,
+  counts: {
+    approved_by_you: 2,
+    denied: 1,
+    approved_by_reviewer: 0,
+    allowed_in_chat: 0,
+    changed: 0,
+    asked: 0,
+  },
+  examples: [
+    {
+      at: new Date().toISOString(),
+      conversation_title: 'Fix the build',
+      title: 'Run shell command',
+      summary: 'Run shell command: npm test',
+      outcome: 'denied',
+    },
+  ],
+} as const;
+
+it('offers Always allow only on a card a rule may cover (D1)', async () => {
+  await renderCard();
+  expect(
+    screen.queryByRole('button', { name: 'Always allow…' }),
+  ).not.toBeInTheDocument();
+});
+
+it('saves Always allow after its dry run warns of a no, then approves with the same command (D1)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'run_command',
+    rule_eligible: true,
+  });
+  dryRunApprovalRule.mockResolvedValue(dryRun);
+  createApprovalRule.mockResolvedValue({});
+  render(<ApprovalCard id="approval-a" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Always allow…' }));
+  const sheet = open.mock.calls.at(-1)![0];
+  expect(sheet.title).toBe('Always allow this?');
+  render(sheet.content);
+
+  expect(
+    await screen.findByText(
+      'In the last 30 days this rule would have allowed 3 actions without asking: you approved 2 and you said no to 1.',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      /You said no to one of these\. With this rule, it would have run\./,
+    ),
+  ).toBeVisible();
+  // The sheet asks only about this approval: the server says what the rule covers.
+  expect(dryRunApprovalRule).toHaveBeenCalledWith(
+    { approval_id: 'approval-a' },
+    expect.any(AbortSignal),
+  );
+  expect(intent).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Save and approve' }));
+
+  await waitFor(() => expect(intent).toHaveBeenCalled());
+  const [{ command_id: commandId }] = createApprovalRule.mock.calls[0];
+  expect(createApprovalRule).toHaveBeenCalledWith({
+    approval_id: 'approval-a',
+    nonce: 'nonce-a',
+    command_id: commandId,
+  });
+  expect(intent).toHaveBeenCalledWith(
+    'approval-a',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce-a' },
+    '3',
+    commandId,
+  );
+});
+
+it('approves nothing when the rule can’t be saved (D1)', async () => {
+  approval.mockResolvedValue({ ...view, rule_eligible: true });
+  dryRunApprovalRule.mockResolvedValue(dryRun);
+  createApprovalRule.mockRejectedValue({ code: 'rules_full', status: 409 });
+  render(<ApprovalCard id="approval-a" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Always allow…' }));
+  render(open.mock.calls.at(-1)![0].content);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Save and approve' }),
+  );
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'You have 100 Always allow rules',
+  );
+  expect(intent).not.toHaveBeenCalled();
 });
 
 it('says quietly why the Auto reviewer asked, on the card and in its details (A0)', async () => {

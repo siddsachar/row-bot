@@ -571,6 +571,11 @@
       "title": "Risk Class",
       "type": "string"
     },
+    "rule_eligible": {
+      "default": false,
+      "title": "Rule Eligible",
+      "type": "boolean"
+    },
     "safe_argument_summary": {
       "default": "",
       "maxLength": 1024,

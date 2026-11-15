@@ -2662,6 +2662,8 @@ class ActivityEntry(WireModel):
     risk: Literal["low", "medium", "high", "critical", "unknown"]
     # Still waiting for the person's answer (an "asked" row that isn't pending was never answered).
     pending: bool
+    # The Always allow rule that allowed it ("" when none did).
+    rule_id: str = Field(default="", max_length=32)
 
 
 class ActivityPage(WireModel):
@@ -2691,6 +2693,91 @@ class ActivityExportRequest(WireModel):
 class ActivityCleared(WireModel):
     schema_version: Literal[1]
     removed: int = Field(ge=0, le=2**31 - 1)
+
+
+ApprovalRuleKind = Literal["app", "command", "move"]
+RuleId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
+
+
+class ApprovalRuleDraft(WireModel):
+    """What one "Always allow" rule covers, in words and in its parts (each shown by name, never a path)."""
+
+    kind: ApprovalRuleKind
+    # "Always allow Notion › Create a page", "Always allow `npm test` in row-bot", "Always allow moving and …".
+    words: str = Field(max_length=800)
+    app_name: str = Field(max_length=128)
+    tool_title: str = Field(max_length=96)
+    command: str = Field(max_length=500)
+    folder_name: str = Field(max_length=260)
+
+
+class ApprovalRuleView(ApprovalRuleDraft):
+    rule_id: RuleId
+    enabled: bool
+    created_at: str = Field(max_length=40)
+    last_used_at: str | None = Field(max_length=40)
+    uses: int = Field(ge=0, le=2**31 - 1)
+
+
+class ApprovalRulePage(WireModel):
+    """Settings › System › Activity › Always allow: every rule, newest first."""
+
+    schema_version: Literal[1]
+    items: list[ApprovalRuleView] = Field(max_length=100)
+    max_rules: int = Field(ge=1, le=100)
+
+
+class ApprovalRuleCreate(WireModel):
+    """Always allow… on a card: only the approval, as the person saw it (its nonce). The server makes the rule
+    from the stored approval; the same command id then approves the card."""
+
+    approval_id: OpaqueId
+    nonce: Annotated[str, StringConstraints(min_length=32, max_length=256)]
+    command_id: UUID
+
+
+class ApprovalRuleUpdate(WireModel):
+    """Switch a rule on or off, or change a command rule's exact command (checked again)."""
+
+    enabled: bool | None = None
+    command: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class ApprovalRuleDryRunRequest(WireModel):
+    """The draft from a card (``approval_id``), or a rule with an edited command (``rule_id``, ``command``)."""
+
+    approval_id: OpaqueId | None = None
+    rule_id: RuleId | None = None
+    command: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class ApprovalRuleCounts(WireModel):
+    approved_by_you: int = Field(ge=0, le=2**31 - 1)
+    denied: int = Field(ge=0, le=2**31 - 1)
+    approved_by_reviewer: int = Field(ge=0, le=2**31 - 1)
+    allowed_in_chat: int = Field(ge=0, le=2**31 - 1)
+    changed: int = Field(ge=0, le=2**31 - 1)
+    asked: int = Field(ge=0, le=2**31 - 1)
+
+
+class ApprovalRuleExample(WireModel):
+    at: str = Field(max_length=40)
+    conversation_title: str = Field(max_length=160)
+    title: str = Field(max_length=160)
+    summary: str = Field(max_length=300)
+    outcome: Literal["approved_by_you", "denied", "approved_by_reviewer", "allowed_in_chat", "changed", "asked"]
+
+
+class ApprovalRuleDryRun(WireModel):
+    """Would this have asked? What the draft rule would have allowed in the last 30 days (the activity log)."""
+
+    schema_version: Literal[1]
+    rule: ApprovalRuleDraft
+    days: int = Field(ge=1, le=90)
+    total: int = Field(ge=0, le=2**31 - 1)
+    counts: ApprovalRuleCounts
+    # Newest first, with any the person said no to first; at most 5.
+    examples: list[ApprovalRuleExample] = Field(max_length=5)
 
 
 class DreamRunRequest(WireModel):
@@ -10261,6 +10348,8 @@ class ApprovalView(WireModel):
     app: TraceAppRef | None = None
     # Whether "Allow in this chat" is offered for this action (F21, 5.3.1 B2).
     repeatable: bool = False
+    # Whether "Always allow…" is offered: one action a standing rule may cover (D1); the server makes the rule.
+    rule_eligible: bool = False
     # Under Auto: why the reviewer asked the person rather than approving ("The reviewer asked you: …").
     reviewer_reason: str = Field(default="", max_length=240)
     # The card's question in Row-Bot's own words, when the action has one.

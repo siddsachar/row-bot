@@ -2868,6 +2868,9 @@ def _n11_resume(enabled_tools: list[str], config: dict, approved: bool, *, inter
     from row_bot.tools.memory_tool import INCOGNITO_NOT_SAVED
 
     thread = str(config["configurable"]["thread_id"])
+    if thread in _D1_PENDING:
+        yield from _d1_resume(config, approved)
+        return
     pending = _N11_PENDING.pop(thread, None)
     if pending is None:
         yield from _n12b_resume(enabled_tools, config, approved, interrupt_ids=interrupt_ids,
@@ -2899,6 +2902,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
     if text.startswith("l1a ") and text.rstrip().endswith("fixture"):
         # Learning (L1a): a reply to Teach on, after a step that failed.
         yield from _l1a_stream(text, config)
+        return
+    if "always allow fixture" in text:
+        # D1 Always allow: `npm test` through the real approval gate, which asks or finds the person's rule.
+        yield from _d1_rule_stream(config)
         return
     if text.strip() in _N11_REPLIES:
         # Incognito chats (N11): a plain reply, or the real save_memory card in an incognito chat.
@@ -8203,6 +8210,161 @@ def b4_reset(x_fixture_token: str = Header(default="")) -> dict:
             tasks.delete_task(task["id"])
     waits._publish()
     return {"ok": True}
+
+
+# D1 Always allow: "Run the tests always allow fixture" runs `npm test` in a fixture code folder through the
+# real approval gate: it asks (the card offers Always allow…) until the person saves a rule, then the rule
+# allows it. /__d1_fixture/rules/seed seeds a month of that command's activity (one "you said no") and two
+# rules; /__d1_fixture/rules/clear removes them, the rules and the folder's chat rows.
+_D1_PENDING: dict[str, tuple[str, dict, tuple]] = {}
+_D1_CHAT = "d1-rules-chat"
+_D1_OUTPUT = "$ npm test\n\n 12 passed (12)\n\n[Exit code: 0 | Duration: 1.4s]"
+
+
+def _d1_folder() -> Path:
+    # Beside the data folder, never in it: a rule never covers Row-Bot's own private data.
+    folder = predecessor.DATA.parent / "d1-folders" / "row-bot"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _d1_payload() -> dict:
+    folder = _d1_folder()
+    return {"tool": "run_command", "label": "Run shell command", "description": "Run shell command: npm test",
+            "args": {"command": "npm test"}, "folder": folder.name, "folder_path": str(folder)}
+
+
+def _d1_rule_stream(config: dict):
+    from row_bot import activity_log
+    from row_bot.approval_rules import COMMAND_RISK
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools import approval_gate
+
+    call = predecessor._record("submit", config, "d1-rule")
+    thread = call["conversation_id"]
+    identity = f"d1-rule:{call['generation_id']}"
+    tool_id = fixture_id(identity + ":tool")
+    payload = _d1_payload()
+    cards: list[dict] = []
+    try:
+        append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+            tool_calls=[{"id": tool_id, "name": "run_command", "args": payload["args"]}])])
+        yield "tool_call", {"tool_call_id": tool_id, "name": "run_command", "args": payload["args"]}
+        with approval_gate.collect_activity() as notes:
+            _outcome, line = approval_gate.resolve_approval_line(
+                payload, approval_mode="approve", risks=(COMMAND_RISK,),
+                approval_callback=lambda card: cards.append(card) or False)
+        if cards:
+            asked = tuple(note for note in notes if note.get("stage") == "asking")
+            _D1_PENDING[thread] = (tool_id, payload["args"], asked)
+            activity_log.record(activity_log.ToolCall(call_id=tool_id, tool="run_command", args=payload["args"],
+                                                      thread_id=thread, decisions=asked, paused=True))
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), **cards[0]}]
+            return
+        content = f"{line}\n{_D1_OUTPUT}"
+        result_id = fixture_id(identity + ":result")
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name="run_command",
+                                                        content=content)])
+        activity_log.record(activity_log.ToolCall(call_id=tool_id, tool="run_command", args=payload["args"],
+                                                  thread_id=thread, decisions=tuple(notes)))
+        yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "run_command",
+                            "args": payload["args"], "content": content}
+        yield from _natural_final(call, thread, "The tests passed: 12 of 12.", "d1-rule")
+    finally:
+        call["quiesced"] = True
+
+
+def _d1_resume(config: dict, approved: bool):
+    from row_bot import activity_log
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools.approval_gate import APPROVAL_DENIED, APPROVAL_GIVEN
+
+    thread = str(config["configurable"]["thread_id"])
+    tool_id, args, asked = _D1_PENDING.pop(thread)
+    call = predecessor._record("resume", config, "d1-answer")
+    identity = f"d1-resume:{call['generation_id']}:{call['sequence']}"
+    try:
+        decided = {**asked[-1], "stage": "decided", "outcome": "allow" if approved else "deny", "by": "person"}
+        activity_log.record(activity_log.ToolCall(call_id=tool_id, tool="run_command", args=args, thread_id=thread,
+                                                  decisions=(*asked, decided)))
+        content = (f"{APPROVAL_GIVEN}\n{_D1_OUTPUT}" if approved
+                   else f"{APPROVAL_DENIED}\nCommand cancelled by user.")
+        result_id = fixture_id(identity + ":result")
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name="run_command",
+                                                        content=content)])
+        yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "run_command",
+                            "args": args, "content": content}
+        yield from _natural_final(call, thread, "The tests passed: 12 of 12." if approved
+                                  else "Okay, I didn't run the tests.", "d1-answer")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__d1_fixture/rules/{state}")
+def d1_rules(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    import sqlite3
+    from contextlib import closing
+
+    from row_bot import activity_log, approval_rules, threads
+    from row_bot.data_paths import get_activity_db_path
+    from row_bot.thread_cleanup import delete_thread
+
+    if state not in {"seed", "clear"}:
+        raise HTTPException(status_code=404, detail="Unknown rules state")
+    # A card a failed journey left waiting is answered no, as the person would: a card left waiting shows in
+    # every later spec's sidebar and Buddy.
+    from row_bot.application.client_platform import client_platform_service
+    from row_bot.tasks import _get_conn
+
+    for thread in list(_D1_PENDING):
+        with closing(_get_conn()) as connection:
+            waiting = [str(row[0]) for row in connection.execute(
+                "SELECT id FROM approval_requests WHERE source_thread_id = ? AND status = 'pending'", (thread,))]
+        for approval_id in waiting:
+            try:
+                answered = client_platform_service._resolve_approval(approval_id, {"decision": "reject"})
+            except Exception:
+                logging.getLogger(__name__).warning("A D1 card couldn't be answered", exc_info=True)
+                continue
+            handle = client_platform_service.registry.get(answered.get("execution_id", ""))
+            if handle is not None:
+                handle.producer_done.wait(10)
+    for rule in approval_rules.list_rules():
+        approval_rules.delete(rule.rule_id)
+    if threads._thread_exists(_D1_CHAT):
+        delete_thread(_D1_CHAT)
+    activity_log.clear()
+    _D1_PENDING.clear()
+    if state == "clear":
+        return {"ready": True}
+    chat = threads.create_thread("Fix the flaky test", thread_id=_D1_CHAT, seed_default_skills=False)
+    scope = approval_rules.candidate(_d1_payload(), (approval_rules.COMMAND_RISK,))
+    assert scope is not None
+    now = time.time()
+    card = {"stage": "asking", "level": "approve", "label": "Run shell command",
+            "description": "Run shell command: npm test", "risk": "unknown", **scope.note()}
+    # A month of `npm test` in row-bot: approved, once by the reviewer, and once refused.
+    seeded = (("d1-r1", 2, "allow", "person"), ("d1-r2", 4, "allow", "person"), ("d1-r3", 6, "deny", "person"),
+              ("d1-r4", 9, "allow", "reviewer"), ("d1-r5", 15, "allow", "person"), ("d1-r6", 40, "allow", "person"))
+    for call_id, days, outcome, by in reversed(seeded):
+        level = "auto" if by == "reviewer" else "approve"
+        decided = {**card, "level": level, "stage": "decided", "outcome": outcome, "by": by,
+                   **({"reason": "You asked me to run the tests before pushing."} if by == "reviewer" else {})}
+        activity_log.record(activity_log.ToolCall(
+            call_id=call_id, tool="run_command", args={"command": "npm test"}, thread_id=chat, level=level,
+            at=now - days * 86_400, decisions=((card, decided) if by == "person" else (decided,))))
+    notion = approval_rules.create(approval_rules.Scope(
+        "app", "mcp_notion_create_page", app_id="mcp:notion", app_name="Notion", tool_title="Create a page"))
+    documents = predecessor.DATA.parent / "d1-folders" / "Documents"
+    documents.mkdir(parents=True, exist_ok=True)
+    moves = approval_rules.create(approval_rules.Scope("move", "workspace_move_file", folder=str(documents)))
+    approval_rules.update(moves.rule_id, enabled=False)
+    activity_log.flush()
+    with closing(sqlite3.connect(get_activity_db_path())) as connection, connection:
+        connection.execute("UPDATE approval_rules SET uses = 4, last_used_at = ? WHERE id = ?",
+                           (now - 3 * 86_400, notion.rule_id))
+    return {"ready": True, "folder": _d1_folder().name}
 
 
 if __name__ == "__main__":

@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "at": {
+      "maxLength": 40,
+      "title": "At",
+      "type": "string"
+    },
+    "conversation_title": {
+      "maxLength": 160,
+      "title": "Conversation Title",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "approved_by_you",
+        "denied",
+        "approved_by_reviewer",
+        "allowed_in_chat",
+        "changed",
+        "asked"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 300,
+      "title": "Summary",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 160,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "at",
+    "conversation_title",
+    "title",
+    "summary",
+    "outcome"
+  ],
+  "title": "ApprovalRuleExample",
+  "type": "object"
+}

@@ -1733,6 +1733,12 @@ def _issued_tool(name: str) -> tuple[str, str] | None:
     return found.pop() if len(found) == 1 else None
 
 
+def issued_tool(name: str) -> tuple[str, str] | None:
+    """(server, its own tool name) for a chat tool name this runtime issued; None for a look-alike or a
+    name two apps share. Never connects."""
+    return _issued_tool(name)
+
+
 def servers_for_tool(name: str) -> set[str]:
     """Every server a chat tool's name could come from, so leaving an app out leaves out a shared name too."""
     return {server for server, _ in _candidates(name)}

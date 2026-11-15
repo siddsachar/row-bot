@@ -1,9 +1,9 @@
 """Approving the rest of a turn's, or a chat's, actions of one kind (F21, 5.3.1 B2).
 
-The real graph streams and resumes with a fake model; the tools interrupt as
-the Developer tools do. Approving for the turn answers later approvals of the
-same kind in that turn, and nothing beyond it: another kind still asks, and
-the next turn asks again.
+The real graph streams and resumes with a fake model; the tools ask through the
+approval gate as the Developer tools do. Approving for the turn answers later
+approvals of the same kind in that turn, in the gate, before any card (D1): another
+kind still asks, and the next turn asks again.
 """
 # ruff: noqa: F811 -- the imported platform fixture is requested by name.
 from __future__ import annotations
@@ -59,7 +59,10 @@ def tools():
     done: list[str] = []
 
     def gated(name: str, effect: str) -> str:
-        if not interrupt({"tool": name, "label": name, "description": effect, "args": {"message": effect}}):
+        from row_bot.tools.approval_gate import request_approval
+
+        payload = {"tool": name, "label": name, "description": effect, "args": {"message": effect}}
+        if request_approval(payload, approval_mode="approve", approval_callback=lambda card: interrupt(card)) is not True:
             return "Cancelled."
         done.append(effect)
         return f"Done: {effect}"
@@ -159,13 +162,13 @@ def test_buddy_stops_saying_needs_approval_once_the_approval_is_answered(platfor
     assert done == ["one", "two"]
     events = [str(event.type) for event in bus.recent(after_id=start, limit=200)
               if event.payload.get("thread_id") == "conversation-a"]
-    # The first commit asked; the person's answer and the standing grant's
-    # answer each clear it at once, and the granted commit never asked.
+    # The first commit asked and the person's answer cleared it at once; the granted commit never asked
+    # (the gate allowed it), so nothing was answered for it either.
     assert events.count("approval.needed") == 1
     asked = events.index("approval.needed")
     answered = events.index("approval.approved", asked)
     assert "generation.started" not in events[asked:answered]
-    assert events.count("approval.approved") == 2
+    assert events.count("approval.approved") == 1
 
 
 def test_allow_in_this_chat_answers_that_kind_in_later_turns_too(platform, tools):
