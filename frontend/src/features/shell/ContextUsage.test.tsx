@@ -257,6 +257,18 @@ it('shows no breakdown section for an older measurement without one', () => {
   expect(screen.queryByRole('list')).toBeNull();
 });
 
+it('says quietly when a summary of older messages is ready, and only then', () => {
+  const { rerender } = render(
+    <ContextUsage usage={{ ...measured, summary_ready: true }} />,
+  );
+  fireEvent.click(screen.getByText('Context 12%'));
+  expect(
+    screen.getByText('A summary of older messages is ready.'),
+  ).toBeInTheDocument();
+  rerender(<ContextUsage usage={measured} />);
+  expect(screen.queryByText(/A summary of older messages/)).toBeNull();
+});
+
 it("gives the last request's cache share its own line when the provider reports it", () => {
   const { rerender } = render(
     <ContextUsage

@@ -480,6 +480,17 @@ def _no_title_model(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_background_summary(monkeypatch):
+    # A cloud chat that settles near its compaction point prepares its next summary on a
+    # background thread (B6). Tests that run turns script the turn, not that summarizer:
+    # unscripted, the thread would call the compaction model after the test. The prepared
+    # compaction tests run it in line.
+    agent = sys.modules.get("row_bot.agent")
+    if agent is not None and hasattr(agent, "_submit_preparation"):
+        monkeypatch.setattr(agent, "_submit_preparation", lambda _job: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_connection_catalog_refresh(monkeypatch):
     # Connecting or disconnecting a provider refreshes its model catalog on a background thread
     # (B411). Tests that connect one script the account, not its catalog: unscripted, the thread
