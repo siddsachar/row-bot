@@ -793,6 +793,13 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  answer_state_revision_conflict: [
+    'Your ticks changed on another device. Try again.',
+    'retry',
+    RETRY,
+  ],
+  answer_choice_taken: ['A reply was already sent from these buttons.', 'none'],
+  answer_state_full: ["This chat can't keep any more ticks.", 'none'],
   generation_active: [
     'Row-Bot is still answering. Wait for it to finish, or stop it first.',
     'review',
