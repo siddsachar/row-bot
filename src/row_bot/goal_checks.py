@@ -175,15 +175,23 @@ def preflight(goal: Mapping[str, Any]) -> str:
     """Why the goal's check may not run now ('' when it may): each run checks the level and classification
     again."""
     from row_bot import goals
-    from row_bot.approval_policy import normalize_approval_mode
 
     command = str(goal.get("check_command") or "")
     approval = goals.check_approval(goal)
     if approval.get("approved_by") != "person":
         return f"No one approved `{command}`. Set the check again."
-    conversation_id = str(goal.get("thread_id") or "")
+    return recheck(str(goal.get("thread_id") or ""), command, str(goal.get("check_workspace_id") or ""),
+                   approval.get("classification"))
+
+
+def recheck(conversation_id: str, command: str, workspace_id: str, approved_kind: Any) -> str:
+    """Why an approved command may not run now ('' when it may): the conversation's code folder is still the one
+    it was approved for, the level allows it (Block: only commands that just read) and it still counts as what was
+    approved. A goal's check and a watch's command (B4) are both checked here before each run."""
+    from row_bot.approval_policy import normalize_approval_mode
+
     place = place_for(conversation_id)
-    if place.workspace_id != str(goal.get("check_workspace_id") or ""):
+    if place.workspace_id != workspace_id:
         return "The conversation's code folder changed since you set the check. Set the check again."
     level = normalize_approval_mode(conversation_level(conversation_id))
     kind = classification(command, place)
@@ -191,7 +199,7 @@ def preflight(goal: Mapping[str, Any]) -> str:
     if refused is not None:
         return ("This chat is on Block now, which only allows checks that just read." if refused.code == READ_ONLY
                 else refused.words)
-    if kind != approval.get("classification"):
+    if kind != approved_kind:
         return f"`{command}` counts as a different kind of command than when you set it. Set the check again."
     return ""
 

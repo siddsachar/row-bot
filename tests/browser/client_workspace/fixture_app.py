@@ -7982,5 +7982,78 @@ def d1_activity(state: str, x_fixture_token: str = Header(default="")) -> dict:
     return {"ready": True}
 
 
+# B4: watches. A page watch reads this synthetic page instead of the web; seeded watches are records whose next
+# check is a day away, so nothing runs while a spec looks at their cards.
+def _b4_page(url: str) -> str:
+    return f"SOURCE_URL: {url}\n\nAll systems normal"
+
+
+_B4_STATES = {
+    "watching": {"checks": 3, "changes": 1, "result": "Checks still running (3 of 5).", "tokens": 12_400},
+    "trouble": {"checks": 4, "changes": 0, "result": "Couldn't check: it didn't finish in 60 seconds",
+                "trouble": True},
+    "capped": {"checks": 41, "changes": 20, "result": "Changed", "end": "capped"},
+    "expired": {"checks": 48, "changes": 2, "result": "No change", "end": "expired"},
+}
+
+
+@app.post("/__b4_fixture/watch")
+def b4_watch(payload: dict, x_fixture_token: str = Header(default="")) -> dict:
+    """Seed one watch in a conversation, in a given state: watching, trouble, capped or expired."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import waits
+
+    waits._read_page = _b4_page
+    conversation = str(payload.get("conversation_id") or "")
+    state_name = str(payload.get("state") or "watching")
+    mode = str(payload.get("mode") or "judged")
+    now = time.time()
+    spec = ({"mode": "judged", "question": "Is PR 590 in row-bot ready to merge?", "then": "Tell me."}
+            if mode == "judged" else
+            {"mode": "command", "command": "gh pr checks 590", "then": "Tell me.",
+             "approval": {"workspace_id": "", "classification": {"shell": "safe", "action": "", "read_only": True},
+                          "approved_by": "read_only"}})
+    label = "PR 590 is ready to merge" if mode == "judged" else "CI on PR 590"
+    record = waits.create(conversation, "watch", label, spec=spec, every_minutes=30 if mode == "judged" else 10,
+                          now=now - 3600)
+    seeded = dict(_B4_STATES[state_name])
+    tokens = seeded.pop("tokens", 0)
+    state = {**waits._state(record), **seeded, "checked_at": now - 600}
+    with waits.closing(waits._conn()) as conn, conn:
+        conn.execute("UPDATE waits SET spec = ?, next_at = ?, status = ?, ended_at = ? WHERE id = ?",
+                     (json.dumps({**record["spec"], "state": state}), now + 86400,
+                      ("ran_out" if state_name == "expired" else "done") if "end" in seeded else "waiting",
+                      now - 60 if "end" in seeded else 0.0, record["id"]))
+    if tokens:
+        from row_bot.prompt_cache import ModelUsage
+        from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
+
+        thread = f"b4-check-{record['id']}"
+        state["check_thread"] = thread
+        with waits.closing(waits._conn()) as conn, conn:
+            conn.execute("UPDATE waits SET spec = ? WHERE id = ?",
+                         (json.dumps({**record["spec"], "state": state}), record["id"]))
+        record_model_usage(UsageRecord(purpose="main", provider="openrouter", model="synthetic", thread_id=thread,
+                                       usage=ModelUsage(input_tokens=tokens - 400, output_tokens=400, cost=0.04)))
+    waits._publish()
+    return {"wait_id": record["id"]}
+
+
+@app.post("/__b4_fixture/reset")
+def b4_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Stop every watch and put their cards away; remove the workflows made from them."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import tasks, waits
+
+    waits._read_page = _b4_page
+    with waits.closing(waits._conn()) as conn, conn:
+        conn.execute("DELETE FROM waits WHERE kind = 'watch'")
+    for task in tasks.list_tasks():
+        if str(task["name"]).startswith("Watch: "):
+            tasks.delete_task(task["id"])
+    waits._publish()
+    return {"ok": True}
+
+
 if __name__ == "__main__":
     main()

@@ -1910,6 +1910,27 @@ const CATALOG: Record<string, Entry> = {
   ],
   row_bot_sandbox_unavailable: ['That sandbox is no longer here.', 'none'],
   wait_unavailable: ['That wait has already ended.', 'none'],
+  watch_needs_approval: [
+    'That command needs your approval, so Row-Bot will ask first.',
+    'none',
+  ],
+  watch_page_refused: [
+    'Only a public web page can be watched, not an address on this computer or your network.',
+    'none',
+  ],
+  watch_limit: [
+    'Row-Bot keeps at most 10 watches across your chats, and 5 waits in a chat. Stop one first.',
+    'none',
+  ],
+  watch_invalid: [
+    'That watch can’t be set: a watch checks at most once a minute.',
+    'none',
+  ],
+  watch_lifetime_max: [
+    'A watch lasts at most 7 days. Make it a workflow to keep checking.',
+    'none',
+  ],
+  watch_paused: ['Resume the watch first.', 'none'],
   row_bot_sandbox_refused: [
     'The sandbox can’t do that now: start it first, or delete one (five at most).',
     'none',

@@ -1171,6 +1171,7 @@
             "agents",
             "agent",
             "goal",
+            "watch",
             "status",
             "tools",
             "export",
