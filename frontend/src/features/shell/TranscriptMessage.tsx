@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import {
   MessageSquareShare,
   BookOpen,
+  BookmarkCheck,
+  BookmarkPlus,
   CornerDownRight,
   Cpu,
   GraduationCap,
@@ -48,6 +50,7 @@ import type { TracedAgent } from './transcript-model';
 import { TurnMarker } from './TurnMarker';
 import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
 import { useTeach } from '../learning/chat-learning';
+import { SkillOfferHint, useSkillOffers } from '../skills/skill-offers';
 import { copyUnavailableMessage } from '../../platform/clipboard';
 
 const NO_BLOCKS: TranscriptRow['blocks'] = [];
@@ -278,6 +281,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   onFork,
   onRecover,
   toolbar = true,
+  usedTools = false,
   copyText,
   children,
 }: {
@@ -316,11 +320,15 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   toolbar?: boolean;
   /** What Copy copies: the whole assistant turn at its last row. */
   copyText?: string;
+  /** This row ends an assistant turn that used tools: it can be saved as a skill (C1). */
+  usedTools?: boolean;
   children?: ReactNode;
 }) {
   const { controller, platform } = useRuntime();
   // Teach Row-Bot, while Learning (preview) is on and uses this chat.
   const teach = useTeach();
+  // Save as a skill (C1), in the person's own chats.
+  const skillOffers = useSkillOffers();
   const [expanded, setExpanded] = useState('');
   const [cursor, setCursor] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -425,6 +433,23 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const messageId = row.message_id ?? '';
   const canEdit = row.role === 'user' && Boolean(onEditResend && messageId);
   const canFork = row.role === 'assistant' && Boolean(onFork && messageId);
+  const canSaveSkill =
+    row.role === 'assistant' &&
+    usedTools &&
+    Boolean(skillOffers && messageId) &&
+    !failure;
+  const skillOffer = canSaveSkill ? skillOffers?.offer(messageId) : undefined;
+  const savedSkill =
+    skillOffer?.status === 'saved' ? skillOffer.skill_id : null;
+  const saveSkill = () =>
+    savedSkill
+      ? skillOffers?.openSkill(savedSkill)
+      : skillOffers?.save(messageId);
+  const saveSkillLabel = savedSkill
+    ? `Saved as a skill: ${skillOffer?.draft?.display_name || skillOffer?.task_name || savedSkill}`
+    : skillOffer?.status === 'drafted'
+      ? 'Open skill draft'
+      : 'Save as skill';
   const files = shown.flatMap((block) =>
     block.type === 'attachment' ? [block.name] : [],
   );
@@ -484,6 +509,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     ...(canFork
       ? [{ label: 'Fork from here', onSelect: () => void fork() }]
       : []),
+    ...(canSaveSkill ? [{ label: saveSkillLabel, onSelect: saveSkill }] : []),
     ...(row.role === 'assistant' && teach && row.message_id
       ? [
           {
@@ -837,6 +863,25 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 )}
               </IconButton>
             )}
+            {canSaveSkill && (
+              <IconButton
+                size="sm"
+                label={saveSkillLabel}
+                title={
+                  savedSkill
+                    ? 'Open it in Settings › Skills'
+                    : 'Save how Row-Bot did this as a skill it can reuse'
+                }
+                data-skill-offer={skillOffer?.status}
+                onClick={saveSkill}
+              >
+                {savedSkill ? (
+                  <BookmarkCheck size={15} aria-hidden />
+                ) : (
+                  <BookmarkPlus size={15} aria-hidden />
+                )}
+              </IconButton>
+            )}
             {row.role === 'assistant' && teach && row.message_id && (
               <IconButton
                 size="sm"
@@ -857,6 +902,9 @@ export const TranscriptMessage = memo(function TranscriptMessage({
               </IconButton>
             )}
           </div>
+        )}
+        {actionable && latest && skillOffer && (
+          <SkillOfferHint offer={skillOffer} />
         )}
         {actionable && (
           // Opened by a long-press on the message; out of the tab order,
