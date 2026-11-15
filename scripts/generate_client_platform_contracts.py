@@ -104,6 +104,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactExport",
     "ArtifactExportRevealResult",
     "ExportSaved", "ExportRevealRequest", "SaveOfferRequest", "SaveOffer",
+    "ActivityEntry", "ActivityPage", "ActivitySummary", "ActivityExportRequest", "ActivityCleared",
     "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
@@ -242,6 +243,10 @@ OPERATIONS = (
     ("post", "/video-projects/{project_id}/export", "VideoProjectExport", "VideoProjectView"),
     ("get", "/video-brand", None, "VideoBrand"),
     ("get", "/waits", None, "WaitPage"),
+    ("get", "/activity", None, "ActivityPage"),
+    ("get", "/activity/summary", None, "ActivitySummary"),
+    ("post", "/activity/export", "ActivityExportRequest", "SaveOffer"),
+    ("delete", "/activity", None, "ActivityCleared"),
     ("post", "/waits/{wait_id}/stop", None, "WaitPage"),
     ("get", "/proactive/moments", None, "ProactiveMomentPage"),
     ("get", "/proactive/moments/{moment_id}", None, "ProactiveMomentDetail"),
@@ -907,6 +912,16 @@ export const getWaits = (base: string, proof: SessionProof, signal?: AbortSignal
   jsonRequest(base, '/waits', 'WaitPage', proof, 'GET', undefined, undefined, signal);
 export const stopWait = (base: string, proof: SessionProof, wait: string, signal?: AbortSignal): Promise<WaitPage> =>
   jsonRequest(base, `/waits/${id(wait)}/stop`, 'WaitPage', proof, 'POST', undefined, undefined, signal);
+/** The activity log (D1): every tool action, its outcome and who decided; its CSV and the person's Clear. */
+export type ActivityFilters = {before?: number; limit?: number; surface?: ActivityExportRequest['surface']; outcome?: ActivityExportRequest['outcome']; conversation?: string; q?: string};
+export const getActivity = (base: string, proof: SessionProof, filters: ActivityFilters = {}, signal?: AbortSignal): Promise<ActivityPage> =>
+  jsonRequest(base, '/activity' + query({before: filters.before, limit: filters.limit, surface: filters.surface || undefined, outcome: filters.outcome || undefined, conversation: filters.conversation || undefined, q: filters.q || undefined}), 'ActivityPage', proof, 'GET', undefined, undefined, signal);
+export const getActivitySummary = (base: string, proof: SessionProof, since: number, signal?: AbortSignal): Promise<ActivitySummary> =>
+  jsonRequest(base, '/activity/summary' + query({since}), 'ActivitySummary', proof, 'GET', undefined, undefined, signal);
+export const exportActivity = (base: string, proof: SessionProof, body: ActivityExportRequest, signal?: AbortSignal): Promise<SaveOffer> =>
+  jsonRequest(base, '/activity/export', 'SaveOffer', proof, 'POST', validateWire('ActivityExportRequest', body), undefined, signal);
+export const clearActivity = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ActivityCleared> =>
+  jsonRequest(base, '/activity', 'ActivityCleared', proof, 'DELETE', undefined, undefined, signal);
 /** Proactive Row-Bot: For you, "Why this?", feedback, the Activity log, settings, rules and drafts. */
 export const getProactiveMoments = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveMomentPage> =>
   jsonRequest(base, '/proactive/moments', 'ProactiveMomentPage', proof, 'GET', undefined, undefined, signal);

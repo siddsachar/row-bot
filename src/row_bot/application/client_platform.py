@@ -609,6 +609,9 @@ class ClientPlatformService:
             self.registry.finish(handle, status=status)
             from row_bot.application import approval_grants
             if status == "waiting_approval" and handle.approval_granted:
+                from row_bot import activity_log
+                # Answered by what the person allowed for this chat: the log says so, not "You approved".
+                activity_log.mark_chat_grant(handle.conversation_id)
                 try:
                     self._resolve_approval_locked(handle.approval_id, {"decision": "approve"},
                                                   runtime_surface=handle.runtime_surface)
@@ -627,6 +630,8 @@ class ClientPlatformService:
                 return
             if status != "waiting_approval":
                 approval_grants.end_turn(handle.conversation_id)
+                from row_bot import activity_log
+                activity_log.settle_pending(handle.conversation_id)
             if status == "completed":
                 try:
                     client_queue.dispatch(self, handle.conversation_id, automatic=True)

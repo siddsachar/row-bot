@@ -110,6 +110,8 @@ BROWSER_SMOKE_SPECS = (
     "outlook",
     "incognito",
     "live-updates",
+    # The activity log (D1): every action and who decided, its filters, CSV and Clear; Monitor's line.
+    "activity-log",
     "learning",
     "learning-training",
     "learning-download",
