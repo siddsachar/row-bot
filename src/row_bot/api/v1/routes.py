@@ -5510,8 +5510,9 @@ def create_router(
 
     @router.get("/monitor/scheduled-posts")
     async def monitor_scheduled_posts(request: Request) -> JSONResponse:
-        # Posts approved for a time slot, waiting for it (G3): Home's Review lists them with Cancel.
-        await session(request)
+        # Posts approved for a time slot, waiting for it (G3): Home's Review lists them with Cancel. On screen,
+        # so it doesn't wait behind background reads.
+        await session(request, lane="view")
         from row_bot.tools import x_posting
 
         result = await call(x_posting.scheduled_posts)
@@ -6315,7 +6316,8 @@ def create_router(
 
     @router.get("/pages/{page_id}")
     async def page_read(request: Request, page_id: str) -> JSONResponse:
-        await session(request)
+        # A page card in the chat reads its page's title: on screen, so it doesn't wait behind background reads.
+        await session(request, lane="view")
         from row_bot.pages import require, view
 
         found = await _page_call(require, _page_id(page_id))

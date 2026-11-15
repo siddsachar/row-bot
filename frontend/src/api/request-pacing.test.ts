@@ -5,6 +5,8 @@ import {
   getAnswerState,
   getApproval,
   getDelivery,
+  getPage,
+  getScheduledPosts,
   getVideoEdits,
   saveDraft,
   sendConversationCommand,
@@ -550,6 +552,122 @@ it('reads a reply’s ticks at once while the reads a reply sets off wait (F3)',
   // Before a tick is saved its chat's state is read: that read never waits.
   const state = await getAnswerState('', proof, 'conversation-a');
   expect(state.revision).toBe('r1');
+  expect(fetcher).toHaveBeenCalledTimes(21);
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await queries;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('serves a read that waited before a newer one, even when its timer runs late', async () => {
+  vi.useFakeTimers();
+  // The page's clock, moved by hand: a busy page runs a waiting read's timer
+  // late, and a fresh read can arrive in that gap.
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const order: string[] = [];
+  const fetcher = vi.fn(async (url: string) => {
+    order.push(url.includes('cursor=waited') ? 'waited' : 'newer');
+    return {
+      ok: true,
+      json: async () => ({ items: [], has_more: false, next_cursor: null }),
+    };
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  // The query budget is spent by 20 library reads.
+  await Promise.all(
+    Array.from({ length: 20 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  // A library page waits for the next token...
+  const waited = listConversations('', proof, 50, 'waited', abort.signal);
+  await vi.advanceTimersByTimeAsync(0);
+  // ...which comes, but its timer hasn't run yet when a newer read arrives.
+  now += 600;
+  const later = Promise.allSettled([
+    listConversations('', proof, 50, undefined, abort.signal),
+  ]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(order.slice(20)).toEqual([]);
+  await vi.advanceTimersByTimeAsync(600);
+  await waited;
+  // The token went to the read that was waiting first.
+  expect(order[20]).toBe('waited');
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await later;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('reads a page card’s page at once while background reads wait (N5)', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/pages/')
+        ? {
+            page_id: 'page-1234abcd',
+            conversation_id: 'conversation-a',
+            conversation_title: 'Beta',
+            title: 'Sales by week',
+            version: 1,
+            libraries: [],
+            created_at: '2026-11-15T10:00:00Z',
+            updated_at: '2026-11-15T10:00:00Z',
+            state_revision: 0,
+            pending: 0,
+            decisions: [],
+          }
+        : { items: [], has_more: false, next_cursor: null },
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  const queries = Promise.allSettled(
+    Array.from({ length: 25 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  const view = await getPage('', proof, 'page-1234abcd');
+  expect(view.title).toBe('Sales by week');
+  expect(fetcher).toHaveBeenCalledTimes(21);
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await queries;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('reads Home’s scheduled posts at once while background reads wait (G3)', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('scheduled-posts')
+        ? { schema_version: 1, items: [] }
+        : { items: [], has_more: false, next_cursor: null },
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  const queries = Promise.allSettled(
+    Array.from({ length: 25 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  const posts = await getScheduledPosts('', proof);
+  expect(posts.items).toEqual([]);
   expect(fetcher).toHaveBeenCalledTimes(21);
   abort.abort();
   await vi.runAllTimersAsync();
