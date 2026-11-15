@@ -116,6 +116,64 @@ def test_a_wait_already_brings_it_back(chat):
     assert len(fake.calls) == 1, "the wait carries it on when the render is done"
 
 
+MISSING = "The launch notes are written up. I saved them to `launch-notes.md` in your workspace."
+
+
+def workspace():
+    from row_bot.application.conversation_creation import configured_workspace_root
+    return configured_workspace_root()
+
+
+def test_a_reply_that_names_a_file_it_never_saved_checks_once(chat):
+    """A2 WP4: one turn to make the file or correct the reply, and never a chain of them."""
+    from row_bot.application.conversation_followups import FILE_CHECK_NOTE, file_check_prompt
+    fake = Recording(replied(MISSING, "first"), replied("Saved them to `launch-notes.md` now.", "second"),
+                     replied("unused", "third"))
+    send(chat, fake, "Write up the launch notes", "notes")
+    settle(chat, fake, 2)
+    assert len(fake.calls) == 2, "one check turn, never a chain of them"
+    assert fake.prompts[1] == file_check_prompt(["launch-notes.md"]) == (
+        "This is Row-Bot, not the person: your last reply says you saved `launch-notes.md`, but there's no "
+        "file there. Make it now, or correct your reply in a line.")
+    assert notes(chat) == [FILE_CHECK_NOTE]
+
+
+@pytest.mark.parametrize("reply", [
+    MISSING,  # The file is there.
+    "The launch notes are online at https://example.test/launch-notes.md.",
+    "Want me to save the notes as launch-notes.md?",
+])
+def test_a_reply_naming_a_file_that_is_there_a_link_or_an_offer_does_not_check(chat, reply):
+    (workspace() / "launch-notes.md").write_text("# Launch\n", encoding="utf-8")
+    fake = Recording(replied(reply, "only"), replied("unused", "extra"))
+    send(chat, fake, "Write up the launch notes", "notes")
+    settle(chat, fake, 1)
+    assert len(fake.calls) == 1
+    assert notes(chat) == []
+
+
+@pytest.mark.parametrize("status", ["waiting_approval", "interrupted", "stopped"])
+def test_no_file_check_after_an_unfinished_turn(chat, status):
+    from row_bot.application import conversation_followups
+    conversation_followups.after_platform_turn(CONVERSATION, generation_id="turn-1", status=status,
+                                               assistant_text=MISSING, model_ref="fixture/model")
+    assert conversation_followups.pending(CONVERSATION) is None
+
+
+def test_no_file_check_while_a_goal_is_live(chat, monkeypatch):
+    """The goal's own follow-ups drive its next turn."""
+    from row_bot import goals
+    from row_bot.application import conversation_followups
+    goals.start_goal(CONVERSATION, "Write up the launch")
+    monkeypatch.setattr(goals, "_invoke_goal_verifier",
+                        lambda _goal, _context: {"progress": "progress", "reason": "More to do."})
+    conversation_followups.after_platform_turn(CONVERSATION, generation_id="turn-1", status="completed",
+                                               assistant_text=MISSING, model_ref="fixture/model")
+    followup = conversation_followups.pending(CONVERSATION)
+    assert followup is not None and followup.kind == "goal"
+    assert followup.note != conversation_followups.FILE_CHECK_NOTE
+
+
 def test_the_persons_message_replaces_a_pending_carry_on(chat):
     from row_bot.application import conversation_followups
     conversation_followups._PENDING[CONVERSATION] = conversation_followups.Followup(
