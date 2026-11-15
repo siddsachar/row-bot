@@ -5213,6 +5213,10 @@ def main() -> None:
     from row_bot import goals as goal_owner
     # Goals verify with a scripted verdict, never a model call.
     goal_owner._invoke_goal_verifier = _goal_verifier
+    from row_bot import goal_checks
+    # A goal's check (B3) passes with a scripted output: no command runs.
+    goal_checks.execute_check = lambda command, _place, **_kwargs: goal_checks.CheckRun(
+        0, f"Fixture check: {command} passed.")
     from row_bot.application import conversation_naming
     # A new conversation keeps its first-words name: its title is never a model call.
     conversation_naming._ask = lambda model_ref, message, reply: ""
