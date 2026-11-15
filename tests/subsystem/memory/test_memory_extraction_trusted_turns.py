@@ -1,10 +1,11 @@
 """Extraction reads Row-Bot's answers only in trusted turns, and never saves a lesson.
 
-The owner's rule: the person's messages are always read; an answer of Row-Bot's is read (up to
-4,000 characters) only while nothing from outside (a web page, an email, a file, any tool result,
-a fenced or untrusted text, a notice of another run) has entered the conversation. From then on
-the conversation gives only the person's messages. This is decided in code before the prompt, so
-these tests check what reaches the model. ``self_knowledge`` memories are Learning's lessons:
+The owner's rule, per turn: the person's messages are always read; an answer of Row-Bot's is read
+(up to 4,000 characters) only when its own turn brought nothing from outside: no tool result the
+agent stamped untrusted (web pages, mail, the browser, file reads, MCP...), no fenced or untrusted
+text, no attachment, no app event and no notice of another run. Row-Bot's own tools (calculator,
+memory, tasks) bring nothing from outside. This is decided in code before the prompt, so these
+tests check what reaches the model. ``self_knowledge`` memories are Learning's lessons:
 extraction can never write one. Memory safety: these stay in the pull request lane.
 """
 from __future__ import annotations
@@ -66,15 +67,18 @@ def _conversation(threads, thread_id: str, messages: list) -> None:
     assert threads.append_checkpoint_messages(thread_id, messages)
 
 
-def _web_search(call_id: str, text: str) -> list:
-    """An answer that called a web search, and the search's result as the agent stores it."""
+def _tool_call(call_id: str, name: str, text: str, *, untrusted: bool) -> list:
+    """An answer that called *name*, and the tool's result as the agent stores it: stamped
+    ``row_bot_untrusted`` when the tool brings outside content."""
+    stamp = {"row_bot_untrusted": {"version": 1, "source": name, "injection": []}} if untrusted else {}
     return [
-        AIMessage(id=f"{call_id}-call", content="",
-                  tool_calls=[{"id": call_id, "name": "web_search", "args": {"query": "ferries"}}]),
-        ToolMessage(id=f"{call_id}-result", tool_call_id=call_id, name="web_search", content=text,
-                    additional_kwargs={"row_bot_untrusted": {"version": 1, "source": "web_search",
-                                                             "injection": ["instruction_override"]}}),
+        AIMessage(id=f"{call_id}-call", content="", tool_calls=[{"id": call_id, "name": name, "args": {}}]),
+        ToolMessage(id=f"{call_id}-result", tool_call_id=call_id, name=name, content=text, additional_kwargs=stamp),
     ]
+
+
+def _web_search(call_id: str, text: str) -> list:
+    return _tool_call(call_id, "web_search", text, untrusted=True)
 
 
 def _saved(kg) -> str:
@@ -91,8 +95,6 @@ def test_an_answer_quoting_injected_web_text_never_reaches_the_prompt_and_nothin
         *_web_search("c1", f"Ferries leave every hour. {INJECTED}"),
         AIMessage(id="a1", content=f"Ferries leave every hour. The page also says: {INJECTED}"),
         HumanMessage(id="h2", content="Thanks. My sister Ana lives in Lisbon, so I'll visit her."),
-        # A later turn calls no tool, but its model read the page: it is left out too.
-        AIMessage(id="a2", content=f"Lovely! As the page said: {INJECTED}"),
     ])
 
     def gullible(conversation: str) -> dict:
@@ -108,12 +110,47 @@ def test_an_answer_quoting_injected_web_text_never_reaches_the_prompt_and_nothin
     extraction.run_extraction()
 
     read = "\n".join(model.read)
-    assert "4321" not in read and "page also says" not in read and "As the page said" not in read
+    assert "4321" not in read and "page also says" not in read
     assert "User: Can you look up the ferry times to Lisbon?" in read
     assert "User: Thanks. My sister Ana lives in Lisbon, so I'll visit her." in read
-    assert read.count(LEFT_OUT) == 2
+    assert read.count(LEFT_OUT) == 1
     saved = _saved(kg)
     assert "Ana" in saved and "4321" not in saved and "PIN" not in saved
+
+
+def test_a_web_fetch_turns_answer_is_left_out_and_a_later_plain_turn_is_read(stack) -> None:
+    threads, extraction, _kg, model = stack
+    _conversation(threads, "fetch", [
+        HumanMessage(id="h1", content="What does this recipe page say about resting the dough?"),
+        *_tool_call("c1", "read_url", "Rest the dough for two hours.", untrusted=True),
+        AIMessage(id="a1", content="The page says to rest the dough for two hours."),
+        HumanMessage(id="h2", content="Which flour should I buy for focaccia?"),
+        AIMessage(id="a2", content="For focaccia, a strong bread flour such as Caputo Manitoba works best."),
+        HumanMessage(id="h3", content="Bought the Caputo, thanks."),
+    ])
+
+    extraction.run_extraction()
+
+    read = "\n".join(model.read)
+    assert "rest the dough for two hours" not in read.lower()
+    assert "User: What does this recipe page say about resting the dough?" in read
+    assert LEFT_OUT in read
+    # Each turn stands on its own: the next one read nothing from outside, so its answer is read.
+    assert "Assistant: For focaccia, a strong bread flour such as Caputo Manitoba works best." in read
+
+
+def test_a_turn_that_used_only_row_bots_own_tools_is_read_in_full(stack) -> None:
+    threads, extraction, _kg, model = stack
+    answer = ("Splitting the 240-euro dinner four ways comes to 60 euros each. " * 20) + "Enjoy Casa Lupo."
+    _conversation(threads, "own-tool", [
+        HumanMessage(id="h1", content="We booked Casa Lupo for my birthday. How much each if we split 240 four ways?"),
+        *_tool_call("c1", "calculator", "60", untrusted=False),
+        AIMessage(id="a1", content=answer),
+    ])
+
+    extraction.run_extraction()
+
+    assert f"Assistant: {answer}" in "\n".join(model.read)
 
 
 def test_a_trusted_answer_is_read_in_full_where_200_characters_were_read_before(stack) -> None:
@@ -192,8 +229,7 @@ EXAMPLES = {
     ),
     "an email the answer read": (
         [HumanMessage(id="h1", content="What did the landlord's email say?"),
-         AIMessage(id="a1", content="", tool_calls=[{"id": "m1", "name": "gmail_read", "args": {"id": "42"}}]),
-         ToolMessage(id="m1-result", tool_call_id="m1", name="gmail_read", content="Rent rises to 1,900 from May."),
+         *_tool_call("m1", "gmail_read", "Rent rises to 1,900 from May.", untrusted=True),
          AIMessage(id="a2", content="The landlord says rent rises to 1,900 from May.")],
         ["User: What did the landlord's email say?", LEFT_OUT],
         ["1,900", "Rent rises"],
@@ -209,8 +245,9 @@ EXAMPLES = {
          AIMessage(id="a1", content='<EXTERNAL_CONTENT source="child_agent">\nThe vendor is Acme.\n</EXTERNAL_CONTENT>'),
          HumanMessage(id="h2", content="Great, I'll go with them."),
          AIMessage(id="a2", content="Sounds good, Acme it is.")],
-        ["User: What did the research agent find?", "User: Great, I'll go with them.", LEFT_OUT],
-        ["The vendor is Acme", "Acme it is"],
+        ["User: What did the research agent find?", "User: Great, I'll go with them.", LEFT_OUT,
+         "Assistant: Sounds good, Acme it is."],
+        ["The vendor is Acme"],
     ),
     "a notice of another run's result": (
         [HumanMessage(id="h1", content="Run the price check in the background."),
@@ -218,8 +255,9 @@ EXAMPLES = {
                    additional_kwargs={"row_bot_ui": {"channel_notification_key": "agent_run_terminal:r1"}}),
          HumanMessage(id="h2", content="Buy it then."),
          AIMessage(id="a2", content="I can't buy things, but 199 is a good price.")],
-        ["User: Run the price check", "User: Buy it then.", LEFT_OUT],
-        ["199"],
+        ["User: Run the price check", "User: Buy it then.", LEFT_OUT,
+         "Assistant: I can't buy things, but 199 is a good price."],
+        ["the monitor costs 199"],
     ),
     "Row-Bot's own turn context, with a recalled memory, is no outside content and never read": (
         [HumanMessage(id="h1", content="What should I cook tonight?"),

@@ -73,9 +73,9 @@ def test_get_thread_messages_normalizes_langchain_content_blocks(tmp_path, monke
         lambda _thread_id: [
             Message("human", [{"type": "text", "text": "hello"}, "world"]),
             Message("ai", "a" * 5000),
-            Message("tool", "ignored"),
             Message("human", "h" * 3000),
-            Message("ai", "after the tool"),
+            Message("tool", '<EXTERNAL_CONTENT source="read_url">\nthe page\n</EXTERNAL_CONTENT>'),
+            Message("ai", "after the page"),
         ],
     )
 
@@ -85,8 +85,9 @@ def test_get_thread_messages_normalizes_langchain_content_blocks(tmp_path, monke
     # An answer before anything from outside is trusted and read at up to 4,000 characters.
     assert messages[1] == {"role": "assistant", "content": "a" * 4000, "trusted": True}
     assert messages[2] == {"role": "user", "content": "h" * 2000}
-    # After a tool result, the answer is loaded but never marked trusted.
-    assert messages[3] == {"role": "assistant", "content": "after the tool"}
+    # In a turn that read fenced outside text, the answer is loaded but never marked trusted.
+    assert messages[3] == {"role": "assistant", "content": "after the page"}
+    assert len(messages) == 4  # the tool result itself is never read
 
 
 def test_a_watermark_saved_when_messages_were_read_at_2000_characters_still_finds_them(
