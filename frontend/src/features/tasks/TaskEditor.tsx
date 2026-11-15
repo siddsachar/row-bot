@@ -111,7 +111,7 @@ export default function TaskEditor({
   const [fields, setFields] = useTaskEditValue<TaskEditableFields>(
     session,
     'fields',
-    emptyFields(),
+    session.seed ?? emptyFields(),
     true,
   );
   const [snapshot, setSnapshot] = useTaskEditValue<TaskEditorSnapshot | null>(
@@ -135,7 +135,7 @@ export default function TaskEditor({
       };
     ++epoch.current;
     setSnapshot(null);
-    setFields(emptyFields());
+    setFields(session.seed ?? emptyFields());
     setError('');
     setStale(false);
     setLoading(!!taskId);

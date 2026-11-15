@@ -203,6 +203,27 @@ it('says in one quiet line when the backup model took over a turn (#140)', () =>
   expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
 });
 
+it('shows a watch that ran out as a quiet line, not a reply (B4)', () => {
+  const line = {
+    ...reply,
+    id: 'assistant:checkpoint:ran-out',
+    message_id: 'ran-out',
+    note: 'watch',
+    blocks: [
+      {
+        id: 'b',
+        type: 'markdown',
+        text: 'Stopped watching “the deploy”: its 24 hours ran out.',
+      },
+    ],
+  } as unknown as TranscriptRow;
+  render(<TranscriptMessage row={line} conversationId="conversation-a" />);
+  expect(screen.getByRole('note')).toHaveTextContent(
+    'Stopped watching “the deploy”: its 24 hours ran out.',
+  );
+  expect(screen.queryByRole('article')).toBeNull();
+});
+
 it('says quietly which replies the personal model gave, and when the main model finished one (Learning)', () => {
   const { rerender } = render(
     <TranscriptMessage

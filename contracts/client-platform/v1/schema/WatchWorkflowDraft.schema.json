@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "description": "What \"Make this a workflow\" fills the workflow editor with (B4); the person reviews it and saves.",
+  "properties": {
+    "every_minutes": {
+      "maximum": 10080,
+      "minimum": 1,
+      "title": "Every Minutes",
+      "type": "integer"
+    },
+    "name": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "prompt": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Prompt",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "prompt",
+    "every_minutes"
+  ],
+  "title": "WatchWorkflowDraft",
+  "type": "object"
+}
