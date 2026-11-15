@@ -7812,5 +7812,73 @@ def mr_seed(x_fixture_token: str = Header(default="")) -> dict:
     return {"ok": True}
 
 
+# D1 the activity log: a spec seeds a day of actions of every kind in one chat (/__d1_fixture/activity/seed)
+# and clears them, with that chat, afterwards (/__d1_fixture/activity/clear). Rows go through the log's own
+# writer, as the tool-call middleware writes them.
+_ACTIVITY_CHAT = "d1-activity-chat"
+
+
+@app.post("/__d1_fixture/activity/{state}")
+def d1_activity(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    from row_bot import activity_log, threads
+    from row_bot.thread_cleanup import delete_thread
+
+    if state not in {"seed", "clear"}:
+        raise HTTPException(status_code=404, detail="Unknown activity state")
+    if threads._thread_exists(_ACTIVITY_CHAT):
+        delete_thread(_ACTIVITY_CHAT)
+    activity_log.clear()
+    if state == "clear":
+        return {"ready": True}
+    chat = threads.create_thread("Tidy my downloads", thread_id=_ACTIVITY_CHAT, seed_default_skills=False)
+    now = time.time()
+
+    def asked(**card: str) -> dict:
+        return {"stage": "asking", "level": card.pop("level", "approve"), **card}
+
+    def decided(outcome: str, by: str, **card: str) -> dict:
+        return {"stage": "decided", "level": card.pop("level", "approve"), "outcome": outcome, "by": by, **card}
+
+    rows = [
+        ("a1", "x_post", 5, "chat", (asked(label="Post on X", description="Post on X: Launch day! Row-Bot 5.4 is out."),),
+         True),
+        ("a2", "workspace_delete_file", 12, "chat", (
+            asked(label="Delete files", description="Delete 14 old screenshots in Downloads"),
+            decided("allow", "person", label="Delete files", description="Delete 14 old screenshots in Downloads")),
+         False),
+        ("a3", "run_command", 26, "chat", (decided(
+            "allow", "reviewer", level="auto", label="Run a command", description="Run npm test in row-bot",
+            reason="You asked me to run the tests before pushing."),), False),
+        ("a4", "send_gmail_message", 41, "chat", (
+            asked(label="Send an email", description="Send the weekly report to sam@example.test"),
+            decided("deny", "person", label="Send an email",
+                    description="Send the weekly report to sam@example.test")), False),
+        ("a5", "workspace_move_file", 63, "agent", (decided(
+            "allow", "hands_off", level="full", label="Move a file",
+            description="Move invoice-2026-11.pdf to Documents/Taxes"),), False),
+        ("a6", "run_command", 95, "chat", (decided(
+            "block", "block", level="block", label="Run a command", description="Install ffmpeg with winget"),),
+         False),
+        ("a7", "workspace_read_file", 120, "proactive", (), False),
+        ("a8", "web_search", 150, "channel", (), False),
+        ("a9", "workspace_write_file", 26 * 60, "chat", (decided(
+            "allow", "hands_off", level="full", label="Upload a file", description="Upload report.pdf to Drive"),),
+         False),
+    ]
+    midnight = time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1))
+    # Oldest first, as the log writes them; "today" stays today even just after midnight.
+    for call_id, tool, minutes_ago, surface, decisions, paused in reversed(rows):
+        at = now - minutes_ago * 60
+        if minutes_ago < 24 * 60:
+            at = max(at, midnight + (now - midnight) * (1 - minutes_ago / 1440))
+        activity_log.record(activity_log.ToolCall(
+            call_id=f"d1-{call_id}", tool=tool, thread_id=chat, surface=surface, at=at,
+            level=(decisions[-1]["level"] if decisions else "approve"), decisions=decisions, paused=paused,
+            failed=call_id == "a9"))
+    activity_log.flush()
+    return {"ready": True}
+
+
 if __name__ == "__main__":
     main()

@@ -1094,6 +1094,17 @@ export interface ClientTransport {
     limit?: number,
     signal?: AbortSignal,
   ): Promise<Wire.ProactiveActivityPage>;
+  /** The activity log (D1): Settings › System › Activity and Monitor's line. */
+  activity?(
+    filters: Wire.ActivityFilters,
+    signal?: AbortSignal,
+  ): Promise<Wire.ActivityPage>;
+  activitySummary?(
+    since: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ActivitySummary>;
+  exportActivity?(body: Wire.ActivityExportRequest): Promise<Wire.SaveOffer>;
+  clearActivity?(): Promise<Wire.ActivityCleared>;
   proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
   changeProactiveSettings?(
     change: Wire.ProactiveSettingsChange,

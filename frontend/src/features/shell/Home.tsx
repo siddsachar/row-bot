@@ -714,6 +714,9 @@ export default function Home({
                 loadTasks={identity ? loadTasks : undefined}
                 processes={identity ? processes : undefined}
                 learning={learning}
+                loadActivitySummary={
+                  identity ? controller.activitySummary : undefined
+                }
               />
             ),
           },

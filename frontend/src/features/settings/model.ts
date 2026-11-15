@@ -31,7 +31,7 @@ export const settingsGroups = [
   {
     id: 'system',
     label: 'System',
-    leaves: ['system', 'access', 'updates', 'data'],
+    leaves: ['system', 'activity', 'access', 'updates', 'data'],
   },
 ] as const;
 
@@ -58,6 +58,7 @@ const leafLabels: Record<ListedLeafId, string> = {
   skills: 'Skills',
   apps: 'Apps',
   system: 'System',
+  activity: 'Activity',
   access: 'Devices & remote access',
   updates: 'Updates',
   data: 'Data',
@@ -86,6 +87,8 @@ export const settingsKeywords: Record<ListedLeafId, string> = {
   apps: 'integrations mcp plugins packages connectors servers marketplace discover connect catalogs runtimes accounts github google gmail calendar x twitter outlook microsoft office 365 oauth channels telegram discord slack sms whatsapp messaging',
   system:
     'shell commands browser computer use workspace folder logging logs files blocked privacy telemetry',
+  activity:
+    'actions audit log history approvals approved denied blocked reviewer hands-off who allowed export csv clear',
   access:
     'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
   updates: 'version upgrade release channel beta',
