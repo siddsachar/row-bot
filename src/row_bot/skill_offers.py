@@ -506,16 +506,18 @@ def _chat_filter(thread_id: str) -> str:
 
 
 def _learning_opted_out(thread_id: str) -> bool:
-    """With Learning on, "Don't learn from this chat" covers skill offers too. Off: the switch only."""
+    """With Learning on, paused or not, "Don't learn from this chat" covers skill offers too. Off: the
+    switch only. An opt-out that can't be read counts as opted out."""
 
     from row_bot import learning
 
-    if not learning.is_enabled():
+    # ``is_enabled()`` is False while Learning is paused, and a pause keeps the person's opt-outs.
+    if not learning.read_settings().enabled:
         return False
     try:
-        from row_bot.learning import scope
+        from row_bot.learning.store import LearningStore
 
-        return scope.check(thread_id).reason == scope.CHAT_OPTED_OUT
+        return LearningStore().is_chat_opted_out(thread_id)
     except Exception:
         logger.debug("Learning's opt-out for a skill offer couldn't be read", exc_info=True)
         return True
