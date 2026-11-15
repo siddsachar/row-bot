@@ -5783,6 +5783,56 @@ def create_router(
             raise ProtocolError("wait_unavailable", 404)
         return await respond(request, dto.WaitPage, await call(_wait_page))
 
+    # --- The activity log (D1): every tool action, its outcome and who decided ------------------------
+    # Read by the person's own app only; no tool reads, writes or clears it.
+
+    _ACTIVITY_SURFACES = {"", "chat", "workflow", "agent", "goal", "channel", "proactive", "developer"}
+    _ACTIVITY_OUTCOMES = {"", "needed", "denied", "blocked"}
+
+    @router.get("/activity")
+    async def activity_page(request: Request, before: int = 0, limit: int = 50, surface: str = "",
+                            outcome: str = "", conversation: str = "", q: str = "") -> JSONResponse:
+        """Every tool action Row-Bot took, newest first, with its outcome and who decided (Settings › Activity)."""
+        await session(request)
+        if (before < 0 or not 1 <= limit <= 200 or surface not in _ACTIVITY_SURFACES
+                or outcome not in _ACTIVITY_OUTCOMES or len(conversation) > 256 or len(q) > 200):
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_activity import read_activity
+
+        result = await call(read_activity, before=before, limit=limit, surface=surface, outcome=outcome,
+                            conversation=conversation, q=q)
+        return await respond(request, dto.ActivityPage, result)
+
+    @router.get("/activity/summary")
+    async def activity_summary(request: Request, since: float = 0) -> JSONResponse:
+        """Monitor's line: actions since the person's midnight, how many asked them, how many they refused."""
+        await session(request)
+        if not 0 <= since <= 2**33:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_activity import read_summary
+
+        return await respond(request, dto.ActivitySummary, await call(read_summary, since=since))
+
+    @router.post("/activity/export")
+    async def activity_export(request: Request) -> JSONResponse:
+        """The filtered log as a CSV to save (the one save path): the Save dialog, a download or Exports."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ActivityExportRequest, 4 * 1024)
+        from row_bot.application import client_activity, save_offers
+
+        data = await call(client_activity.export_csv, surface=body.surface, outcome=body.outcome, q=body.q)
+        await call(dispatch_validation(request, current))
+        result = await call(save_offers.offer, current.id, client_activity.export_name(), data)
+        return await respond(request, dto.SaveOffer, result)
+
+    @router.delete("/activity")
+    async def activity_clear(request: Request) -> JSONResponse:
+        """The person's "Clear activity": every row goes (their rules, when there are any, stay)."""
+        await session(request, lane="mutation")
+        from row_bot.application.client_activity import clear_activity
+
+        return await respond(request, dto.ActivityCleared, await call(clear_activity))
+
     # --- Proactive Row-Bot (5.3.4): For you, "Why this?", feedback, the Activity log and settings ---------
 
     def _moment_id(moment_id: str) -> str:

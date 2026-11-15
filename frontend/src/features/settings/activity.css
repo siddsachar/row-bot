@@ -1,0 +1,290 @@
+/* Settings › System › Activity (D1): a scannable list by day, compact filters, plain outcome pills. */
+
+.activity-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.activity-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.activity-where {
+  width: auto;
+  min-width: 132px;
+}
+.activity-search {
+  display: flex;
+  flex: 1 1 180px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-inline-start: 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+.activity-search:focus-within {
+  border-color: var(--accent-solid);
+}
+.activity-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.activity-search input:focus,
+.activity-search input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.activity-day h4 {
+  margin: 0;
+  padding: 12px 16px 4px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-weight: var(--weight-semibold);
+}
+.activity-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.activity-row + .activity-row {
+  border-top: 1px solid var(--border-hairline);
+}
+.activity-row-main {
+  display: grid;
+  grid-template-columns: 64px 24px minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.activity-row-main:hover {
+  background: var(--surface-raised);
+}
+.activity-row-main:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: -2px;
+}
+.activity-time {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.activity-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+.activity-what {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+.activity-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-summary,
+.activity-where-line {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-summary {
+  color: var(--text-secondary);
+}
+.activity-outcome {
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-outcome[data-tone='accent'] {
+  background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
+  box-shadow: none;
+  color: var(--accent-solid);
+}
+.activity-outcome[data-tone='success'] {
+  background: var(--status-success-background);
+  box-shadow: none;
+  color: var(--status-success-text);
+}
+.activity-outcome[data-tone='warning'] {
+  background: var(--status-warning-background);
+  box-shadow: none;
+  color: var(--status-warning-text);
+}
+.activity-outcome[data-tone='danger'] {
+  background: var(--status-danger-background);
+  box-shadow: none;
+  color: var(--status-danger-text);
+}
+.activity-chevron {
+  color: var(--text-muted);
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+.activity-row[data-open] .activity-chevron {
+  transform: rotate(180deg);
+}
+
+.activity-detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+  padding: 4px 16px 12px 114px;
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.activity-detail dt {
+  color: var(--text-muted);
+}
+.activity-detail dd {
+  margin: 2px 0 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.activity-detail code {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+.activity-open {
+  display: flex;
+  align-items: end;
+}
+.activity-open a {
+  color: var(--accent-solid);
+  font-weight: var(--weight-medium);
+}
+
+.activity-quiet,
+.activity-end {
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.activity-end {
+  border-top: 1px solid var(--border-hairline);
+  text-align: center;
+  font-size: var(--text-12);
+}
+.activity-more {
+  display: block;
+  margin: 6px auto 10px;
+}
+.activity-log .empty-state {
+  padding: 32px 16px;
+}
+
+/* A phone: one column; the filters scroll sideways; the pill goes under the words. */
+@media (max-width: 767px) {
+  .activity-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .activity-filters::-webkit-scrollbar {
+    display: none;
+  }
+  .activity-filters > * {
+    flex: none;
+  }
+  .activity-search {
+    flex: 1 0 150px;
+  }
+  .activity-row-main {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'icon what time'
+      'icon pill chevron';
+    row-gap: 6px;
+    padding: 10px 16px;
+  }
+  .activity-time {
+    grid-area: time;
+    align-self: start;
+  }
+  .activity-chevron {
+    justify-self: end;
+  }
+  .activity-icon {
+    grid-area: icon;
+    align-self: start;
+  }
+  .activity-what {
+    grid-area: what;
+  }
+  .activity-outcome {
+    grid-area: pill;
+    justify-self: start;
+    max-width: 100%;
+  }
+  .activity-chevron {
+    grid-area: chevron;
+  }
+  .activity-title,
+  .activity-summary {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .activity-detail {
+    grid-template-columns: 1fr 1fr;
+    padding: 0 16px 12px 50px;
+  }
+}
+
+@media (forced-colors: active) {
+  .activity-outcome {
+    border: 1px solid CanvasText;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-chevron {
+    transition: none;
+  }
+}

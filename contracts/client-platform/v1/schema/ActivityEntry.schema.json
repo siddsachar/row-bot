@@ -1,0 +1,153 @@
+{
+  "additionalProperties": false,
+  "description": "One tool action in the activity log (D1): what ran, where, its outcome and who decided.",
+  "properties": {
+    "app_id": {
+      "maxLength": 256,
+      "title": "App Id",
+      "type": "string"
+    },
+    "app_name": {
+      "maxLength": 128,
+      "title": "App Name",
+      "type": "string"
+    },
+    "at": {
+      "maxLength": 40,
+      "title": "At",
+      "type": "string"
+    },
+    "conversation_id": {
+      "maxLength": 256,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "conversation_title": {
+      "maxLength": 160,
+      "title": "Conversation Title",
+      "type": "string"
+    },
+    "decided_by": {
+      "enum": [
+        "none",
+        "person",
+        "reviewer",
+        "hands_off",
+        "rule",
+        "chat_grant",
+        "block",
+        "policy"
+      ],
+      "title": "Decided By",
+      "type": "string"
+    },
+    "entry_id": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Entry Id",
+      "type": "integer"
+    },
+    "level": {
+      "enum": [
+        "",
+        "block",
+        "approve",
+        "auto",
+        "full"
+      ],
+      "title": "Level",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "ran",
+        "asked",
+        "approved_by_you",
+        "approved_by_reviewer",
+        "hands_off",
+        "allowed_by_rule",
+        "allowed_in_chat",
+        "denied",
+        "changed",
+        "blocked",
+        "failed"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "pending": {
+      "title": "Pending",
+      "type": "boolean"
+    },
+    "reason": {
+      "maxLength": 180,
+      "title": "Reason",
+      "type": "string"
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical",
+        "unknown"
+      ],
+      "title": "Risk",
+      "type": "string"
+    },
+    "source_id": {
+      "maxLength": 256,
+      "title": "Source Id",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 300,
+      "title": "Summary",
+      "type": "string"
+    },
+    "surface": {
+      "enum": [
+        "chat",
+        "workflow",
+        "agent",
+        "goal",
+        "channel",
+        "proactive",
+        "developer"
+      ],
+      "title": "Surface",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 160,
+      "title": "Title",
+      "type": "string"
+    },
+    "tool": {
+      "maxLength": 180,
+      "title": "Tool",
+      "type": "string"
+    }
+  },
+  "required": [
+    "entry_id",
+    "at",
+    "conversation_id",
+    "conversation_title",
+    "surface",
+    "source_id",
+    "tool",
+    "title",
+    "app_id",
+    "app_name",
+    "summary",
+    "level",
+    "outcome",
+    "decided_by",
+    "reason",
+    "risk",
+    "pending"
+  ],
+  "title": "ActivityEntry",
+  "type": "object"
+}

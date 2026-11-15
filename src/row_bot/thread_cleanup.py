@@ -421,6 +421,12 @@ def _purge_owned_state(thread_id: str) -> tuple[int, tuple[str, ...]]:
     except Exception:
         logger.debug("Usage ledger cleanup failed for %s", thread_id, exc_info=True)
     try:
+        from row_bot.activity_log import delete_conversation
+
+        delete_conversation(thread_id)
+    except Exception:
+        logger.debug("Activity log cleanup failed for %s", thread_id, exc_info=True)
+    try:
         changed += _purge_learning_state(thread_id)
     except Exception:
         # Every purge pass retries it; idle maintenance sweeps what is left.
@@ -1320,18 +1326,28 @@ def run_idle_maintenance() -> dict[str, Any]:
             usage_pruned = prune_usage()
         except Exception:
             logger.debug("Usage ledger pruning skipped", exc_info=True)
+        activity_pruned = 0
+        try:
+            from row_bot.activity_log import prune
+
+            activity_pruned = prune()
+        except Exception:
+            logger.debug("Activity log pruning skipped", exc_info=True)
         logger.info(
-            "Idle conversation maintenance checkpoints=%s orphans=%s compaction=%s usage_pruned=%s",
+            "Idle conversation maintenance checkpoints=%s orphans=%s compaction=%s usage_pruned=%s "
+            "activity_pruned=%s",
             checkpoint_stats,
             orphan_stats,
             [item.get("reason") for item in compaction],
             usage_pruned,
+            activity_pruned,
         )
         return {
             "checkpoints": checkpoint_stats,
             "orphans": orphan_stats,
             "compaction": compaction,
             "usage_pruned": usage_pruned,
+            "activity_pruned": activity_pruned,
         }
     finally:
         _maintenance_lock.release()
