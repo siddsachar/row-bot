@@ -113,7 +113,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
-    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
 
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
@@ -589,6 +589,9 @@ OPERATIONS = (
     ("put", "/conversations/{conversation_id}/draft", "DraftSave", "DraftView"),
     ("get", "/conversations/{conversation_id}/answer-state", None, "AnswerStateView"),
     ("put", "/conversations/{conversation_id}/answer-state", "AnswerStateChange", "AnswerStateView"),
+    ("get", "/conversations/{conversation_id}/skill-offers", None, "SkillOfferPage"),
+    ("post", "/conversations/{conversation_id}/skill-offers/draft", "SkillDraftRequest", "SkillOfferPage"),
+    ("post", "/conversations/{conversation_id}/skill-offers/{offer_id}/dismiss", None, "SkillOfferPage"),
     ("post", "/conversations/{conversation_id}/visual-page", "VisualPageRequest", "PageView"),
     ("post", "/conversations/{conversation_id}/visual-frame", "VisualFrameRequest", "VisualFrame"),
     ("post", "/resources/commands", "Command", "CommandReceipt"),
@@ -834,6 +837,13 @@ export const getAnswerState = (base: string, proof: SessionProof, conversation: 
   jsonRequest(base, `/conversations/${id(conversation)}/answer-state`, 'AnswerStateView', proof, 'GET', undefined, undefined, signal);
 export const saveAnswerState = (base: string, proof: SessionProof, conversation: string, body: AnswerStateChange, signal?: AbortSignal): Promise<AnswerStateView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/answer-state`, 'AnswerStateView', proof, 'PUT', body, undefined, signal);
+/** "Save as a skill" (C1): a chat's offers and drafts; drafting one; "Not now". */
+export const getSkillOffers = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<SkillOfferPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/skill-offers`, 'SkillOfferPage', proof, 'GET', undefined, undefined, signal);
+export const draftSkill = (base: string, proof: SessionProof, conversation: string, body: SkillDraftRequest, signal?: AbortSignal): Promise<SkillOfferPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/skill-offers/draft`, 'SkillOfferPage', proof, 'POST', body, undefined, signal);
+export const dismissSkillOffer = (base: string, proof: SessionProof, conversation: string, offer: string, signal?: AbortSignal): Promise<SkillOfferPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/skill-offers/${id(offer)}/dismiss`, 'SkillOfferPage', proof, 'POST', undefined, undefined, signal);
 /** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
 export const createVisualFrame = (base: string, proof: SessionProof, conversation: string, body: VisualFrameRequest, signal?: AbortSignal): Promise<VisualFrame> =>
   jsonRequest(base, `/conversations/${id(conversation)}/visual-frame`, 'VisualFrame', proof, 'POST', body, undefined, signal);

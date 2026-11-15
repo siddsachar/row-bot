@@ -49,6 +49,9 @@ PURPOSES: tuple[str, ...] = (
     "child",
     "synthesis",
     "finalization",
+    # Skill offers (C1): the judgement after a finished task, and the draft on the person's click.
+    "skill_offer_judge",
+    "skill_draft",
     # Learning (preview, E13): its own model calls, counted against its monthly token limit.
     "learning_diagnosis",
     "learning_test",

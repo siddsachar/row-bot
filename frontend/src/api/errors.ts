@@ -2680,6 +2680,41 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  // "Save as a skill" (C1).
+  skill_offer_missing: ['This skill offer is no longer here.', 'none'],
+  skill_offer_changed: [
+    'This skill offer changed. Look at it again.',
+    'retry',
+    RETRY,
+  ],
+  skill_draft_busy: [
+    'Row-Bot is already drafting a skill from this chat.',
+    'none',
+  ],
+  skill_draft_private: [
+    "This chat is or was incognito, so it can't be saved as a skill.",
+    'none',
+  ],
+  skill_draft_no_steps: ['This reply has no steps to save as a skill.', 'none'],
+  skill_draft_unavailable: [
+    "Couldn't reach this chat's model to draft a skill. Try again.",
+    'retry',
+    RETRY,
+  ],
+  skill_draft_failed: [
+    "Couldn't draft a skill from this chat. Try again.",
+    'retry',
+    RETRY,
+  ],
+  skill_draft_refused: [
+    "Couldn't draft a skill from this chat: the draft kept adding links, addresses or other things a skill can't hold. Try again.",
+    'retry',
+    RETRY,
+  ],
+  skill_draft_secret: [
+    'Take out the password, key or token before saving.',
+    'none',
+  ],
   skill_receipt_missing: [
     "Row-Bot can't find the earlier install. Check your skills before trying again.",
     'review',
