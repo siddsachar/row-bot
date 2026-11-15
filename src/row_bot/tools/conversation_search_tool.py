@@ -29,7 +29,7 @@ class _SearchConversationsInput(BaseModel):
     query: str = Field(
         description=(
             "Keywords or phrase to search for in past conversations. "
-            "All words must appear in a message for it to match."
+            "All words must appear in a message, or in a message and the one next to it, for it to match."
         )
     )
     max_results: int = Field(
@@ -44,7 +44,14 @@ class _ListConversationsInput(BaseModel):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-_SNIPPET_LEN = 500  # max chars per message snippet
+# About 4 characters a token: a message is shown whole up to ~1,500 tokens, and a search's
+# matches together stay under ~6,000 tokens (under a fifth of a 32K local window, and far below
+# the 100K tool-result cap). A longer message is cut around where its keywords are.
+_MESSAGE_CHARS = 6_000  # one message, cut markers included
+_RESULTS_CHARS = 24_000  # every match shown, headers included
+_MIN_MATCH_CHARS = 1_000  # a match with less room left than this is not shown
+_MARKER_ROOM = 80  # the two cut markers of one message
+_SEPARATOR = "\n\n---\n\n"
 _MAX_THREADS = 200  # safety cap on how many threads to scan
 _LIST_CHARS = 20_000  # list_conversations beyond this is read on with read_tool_output
 
@@ -89,9 +96,68 @@ def _get_thread_messages(thread_id: str, *, own: bool = False) -> list[dict]:
         return []
 
 
-def _snippet(text: str, max_len: int = _SNIPPET_LEN) -> str:
-    """Truncate text to *max_len* chars, adding ellipsis if needed."""
-    return text[:max_len] + ("…" if len(text) > max_len else "")
+def _match_span(lower: str, keywords: list[str]) -> tuple[int, int]:
+    """The shortest stretch of *lower* that holds each of the *keywords* it contains."""
+    hits = sorted((m.start(), kw) for kw in set(keywords) for m in re.finditer(re.escape(kw), lower))
+    wanted = len({kw for _pos, kw in hits})
+    best: tuple[int, int] | None = None
+    counts: dict[str, int] = {}
+    left = 0
+    for pos, kw in hits:
+        counts[kw] = counts.get(kw, 0) + 1
+        while len(counts) == wanted:
+            first, first_kw = hits[left]
+            if best is None or pos + len(kw) - first < best[1] - best[0]:
+                best = (first, pos + len(kw))
+            counts[first_kw] -= 1
+            if not counts[first_kw]:
+                del counts[first_kw]
+            left += 1
+    return best or (0, 0)
+
+
+def _excerpt(text: str, keywords: list[str], limit: int) -> str:
+    """*text* whole if it fits in *limit* characters, else the part around its keywords, marked as cut."""
+    if len(text) <= limit:
+        return text
+    window = max(1, limit - _MARKER_ROOM)
+    start, end = _match_span(text.lower(), keywords)
+    begin = max(0, min((start + end - window) // 2, len(text) - window))
+    stop = begin + window
+    before = f"[… {begin:,} characters before]\n" if begin else ""
+    after = f"\n[{len(text) - stop:,} characters after …]" if stop < len(text) else ""
+    return before + text[begin:stop] + after
+
+
+def _matches_in(messages: list[dict], keywords: list[str]) -> tuple[list[list[dict]], list[list[dict]]]:
+    """A thread's messages holding every keyword, then neighbouring pairs that hold them between them."""
+    lowered = [msg["content"].lower() for msg in messages]
+    alone = [all(kw in text for kw in keywords) for text in lowered]
+    singles = [[msg] for msg, hit in zip(messages, alone) if hit]
+    pairs: list[list[dict]] = []
+    i = 0
+    while i < len(messages) - 1:
+        if not (alone[i] or alone[i + 1]) and all(kw in lowered[i] or kw in lowered[i + 1] for kw in keywords):
+            pairs.append(messages[i:i + 2])
+            i += 2
+        else:
+            i += 1
+    return singles, pairs
+
+
+def _render(number: int, match: dict, keywords: list[str], room: int) -> str:
+    """One match in at most *room* characters, each message in at most ``_MESSAGE_CHARS``."""
+    msgs = match["messages"]
+    roles = " + ".join(msg["role"].title() for msg in msgs)
+    head = f"[Match {number}] Thread: \"{match['thread']}\" | Date: {match['date']} | {roles}\n"
+    if len(msgs) == 1:
+        return head + _excerpt(msgs[0]["content"], keywords, min(_MESSAGE_CHARS, room - len(head)))
+    labels = [f"{msg['role'].title()}: " for msg in msgs]
+    limit = min(_MESSAGE_CHARS, (room - len(head) - sum(map(len, labels)) - 2) // 2)
+    return head + "\n\n".join(
+        label + _excerpt(msg["content"], [kw for kw in keywords if kw in msg["content"].lower()], limit)
+        for label, msg in zip(labels, msgs)
+    )
 
 
 # ── Tool functions ───────────────────────────────────────────────────────────
@@ -107,7 +173,12 @@ def _visible_threads() -> tuple[list, str]:
 
 
 def _search_conversations(query: str, max_results: int = 15) -> str:
-    """Search all past conversations for messages containing *query* keywords."""
+    """Search all past conversations for messages containing *query* keywords.
+
+    A message holding every keyword ranks before two neighbouring messages that hold them
+    between them; within each, newer conversations come first. A message is shown whole up
+    to ``_MESSAGE_CHARS``, and all matches together up to ``_RESULTS_CHARS``.
+    """
     threads, own = _visible_threads()
     if not threads:
         return "No saved conversations found."
@@ -116,29 +187,23 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
     keywords = [kw.lower() for kw in query.split() if kw]
     if not keywords:
         return "Please provide at least one search keyword."
+    max_results = max(1, int(max_results))
 
-    matches: list[dict] = []
+    singles: list[dict] = []
+    pairs: list[dict] = []
     threads_scanned = 0
 
     for tid, name, created_at, updated_at, *_cs_rest in threads[:_MAX_THREADS]:
         messages = _get_thread_messages(tid, own=bool(own) and tid == own)
         threads_scanned += 1
-
-        for msg in messages:
-            content_lower = msg["content"].lower()
-            if all(kw in content_lower for kw in keywords):
-                matches.append({
-                    "thread": name,
-                    "thread_id": tid,
-                    "date": (updated_at or "")[:10],
-                    "role": msg["role"],
-                    "snippet": _snippet(msg["content"]),
-                })
-                if len(matches) >= max_results:
-                    break
-        if len(matches) >= max_results:
+        found_alone, found_paired = _matches_in(messages, keywords)
+        date = (updated_at or "")[:10]
+        singles += [{"thread": name, "date": date, "messages": msgs} for msgs in found_alone]
+        pairs += [{"thread": name, "date": date, "messages": msgs} for msgs in found_paired]
+        if len(singles) >= max_results:
             break
 
+    matches = (singles + pairs)[:max_results]
     if not matches:
         return (
             f"No messages matching '{query}' found "
@@ -146,17 +211,27 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
         )
 
     parts: list[str] = []
-    for i, m in enumerate(matches, 1):
-        parts.append(
-            f"[Match {i}] Thread: \"{m['thread']}\" | Date: {m['date']} | "
-            f"{m['role'].title()}\n{m['snippet']}"
-        )
+    used = 0
+    for match in matches:
+        gap = len(_SEPARATOR) if parts else 0
+        room = _RESULTS_CHARS - used - gap
+        if room < _MIN_MATCH_CHARS:
+            break
+        part = _render(len(parts) + 1, match, keywords, room)
+        used += gap + len(part)
+        parts.append(part)
 
     header = (
         f"Found {len(matches)} match(es) for '{query}' "
         f"across {threads_scanned} conversation(s):\n\n"
     )
-    return header + "\n\n---\n\n".join(parts)
+    footer = ""
+    if len(parts) < len(matches):
+        footer = (
+            f"\n\n[{len(matches) - len(parts)} more match(es) not shown: results are limited to "
+            f"{_RESULTS_CHARS:,} characters. Add keywords to narrow the search.]"
+        )
+    return header + _SEPARATOR.join(parts) + footer
 
 
 def _list_conversations() -> str:
@@ -214,7 +289,7 @@ class ConversationSearchTool(BaseTool):
                     "references something discussed previously, e.g. 'What did "
                     "I ask about taxes?', 'When did we talk about Python?', "
                     "'Find where I mentioned that recipe'. All keywords must "
-                    "appear in a message for it to match."
+                    "appear in a message, or in a message and the one next to it."
                 ),
                 args_schema=_SearchConversationsInput,
             ),
