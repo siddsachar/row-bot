@@ -101,7 +101,7 @@ transcribe: 447
 update_memory: 1056
 use_code_folder: 628
 video: 5666
-wait_for: 1899
+wait_for: 2571
 wait_stop: 259
 waits: 160
 wiki_export_conversation: 344
@@ -118,4 +118,4 @@ workspace_read_file: 867
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (120 tools): 89597
+TOTAL (120 tools): 90269

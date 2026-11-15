@@ -5,23 +5,29 @@ import {
   profileChoice,
   reasoningChoice,
   slashArgument,
+  watchRequest,
 } from './slash-arguments';
 
-const commands = ['goal', 'reasoning', 'profile', 'agent', 'status'].map(
-  (id) => ({
-    id,
-    token: `/${id}`,
-    aliases: id === 'agent' ? ['/subagent'] : [],
-    label: id,
-    description: id,
-    icon: '',
-    category: 'Chat',
-    argument_mode: 'prefix' as const,
-    argument_hint: '',
-    handler_kind: id,
-    skill_id: null,
-  }),
-) as unknown as Parameters<typeof slashArgument>[1];
+const commands = [
+  'goal',
+  'reasoning',
+  'profile',
+  'agent',
+  'watch',
+  'status',
+].map((id) => ({
+  id,
+  token: `/${id}`,
+  aliases: id === 'agent' ? ['/subagent'] : id === 'watch' ? ['/loop'] : [],
+  label: id,
+  description: id,
+  icon: '',
+  category: 'Chat',
+  argument_mode: 'prefix' as const,
+  argument_hint: '',
+  handler_kind: id,
+  skill_id: null,
+})) as unknown as Parameters<typeof slashArgument>[1];
 
 it('recognises a palette command that carries an argument', () => {
   expect(slashArgument('/goal Ship the docs', commands)).toMatchObject({
@@ -89,4 +95,76 @@ it('controls a goal with a word and starts one with anything else', () => {
     operation: 'start',
     objective: 'Pause the newsletter drafts',
   });
+});
+
+it('reads the check a goal must pass after "check:" (B3)', () => {
+  expect(goalRequest('Ship check: npm test')).toEqual({
+    operation: 'start',
+    objective: 'Ship',
+    check: 'npm test',
+  });
+  expect(goalRequest('Ship the docs CHECK:  npm run build ')).toEqual({
+    operation: 'start',
+    objective: 'Ship the docs',
+    check: 'npm run build',
+  });
+  // Only the word on its own is the marker; an empty check is no check.
+  expect(goalRequest('Recheck: the links')).toEqual({
+    operation: 'start',
+    objective: 'Recheck: the links',
+  });
+  expect(goalRequest('Ship check:')).toEqual({
+    operation: 'start',
+    objective: 'Ship',
+  });
+});
+
+it('sets a page or a backticked command watch directly, and leaves anything else to the model (B4)', () => {
+  expect(watchRequest('10m https://status.example.com')).toEqual({
+    kind: 'direct',
+    mode: 'page',
+    target: 'https://status.example.com',
+    everyMinutes: 10,
+  });
+  expect(watchRequest('`gh pr checks 590` every 5 minutes')).toEqual({
+    kind: 'direct',
+    mode: 'command',
+    target: 'gh pr checks 590',
+    everyMinutes: 5,
+  });
+  expect(watchRequest('2h https://example.com/price')).toMatchObject({
+    everyMinutes: 120,
+  });
+  // No interval: it paces itself.
+  expect(watchRequest('https://example.com')).toMatchObject({
+    everyMinutes: 0,
+  });
+  expect(watchRequest('the deploy and tell me when it is live')).toEqual({
+    kind: 'model',
+  });
+  expect(watchRequest('"is the PR ready to merge?" every 30m')).toEqual({
+    kind: 'model',
+  });
+  expect(watchRequest('0m https://example.com')).toMatchObject({
+    kind: 'invalid',
+  });
+  expect(watchRequest('3000m https://example.com')).toMatchObject({
+    kind: 'invalid',
+  });
+});
+
+it('runs a direct /watch or /loop here and sends a described one as a message (B4)', () => {
+  expect(
+    slashArgument('/watch 10m https://status.example.com', commands),
+  ).toMatchObject({ command: { id: 'watch' } });
+  expect(slashArgument('/loop `npm test`', commands)).toMatchObject({
+    command: { id: 'watch' },
+    argument: '`npm test`',
+  });
+  expect(
+    slashArgument('/watch the deploy until it is live', commands),
+  ).toBeNull();
+  expect(
+    slashArgument('/watch 0m https://example.com', commands),
+  ).toMatchObject({ command: { id: 'watch' } });
 });

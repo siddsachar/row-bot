@@ -26,6 +26,8 @@ import type { LiveFrame } from './types';
  *   vault, a setting or a personal model's use changed.
  * - `proactive`: Proactive Row-Bot: a moment made, shown, settled or changed,
  *   a rule, a draft or an Activity line.
+ * - `skill_offers`: "Save as a skill": an offer under a reply made or
+ *   dismissed, a draft written or edited, or saved or rejected.
  *
  * Subscribe with `controller.live.subscribe(topic, onChange)`, which returns
  * an unsubscribe, or in a component with `useLiveUpdate(topics, onChange)`
@@ -46,7 +48,8 @@ export type LiveTopic =
   | 'models'
   | 'notices'
   | 'learning'
-  | 'proactive';
+  | 'proactive'
+  | 'skill_offers';
 
 /** How often a screen re-reads anyway, for when the live stream is unavailable. */
 export const LIVE_FALLBACK_MS = 60_000;

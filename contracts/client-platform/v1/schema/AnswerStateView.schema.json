@@ -1,0 +1,51 @@
+{
+  "additionalProperties": false,
+  "description": "The person's ticks and sent choices on a chat's answer components (F3); never in the transcript.",
+  "properties": {
+    "choices": {
+      "patternProperties": {
+        "^block:[0-9a-f]{24}$": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "title": "Choices",
+      "type": "object"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "revision": {
+      "maxLength": 128,
+      "title": "Revision",
+      "type": "string"
+    },
+    "ticks": {
+      "patternProperties": {
+        "^block:[0-9a-f]{24}$": {
+          "patternProperties": {
+            "^[A-Za-z0-9_-]{1,96}$": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "title": "Ticks",
+      "type": "object"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "revision",
+    "ticks",
+    "choices"
+  ],
+  "title": "AnswerStateView",
+  "type": "object"
+}

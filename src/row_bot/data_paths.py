@@ -141,6 +141,12 @@ def get_usage_db_path(*, create_parent: bool = True) -> Path:
     return data_dir / "usage.db"
 
 
+def get_activity_db_path(*, create_parent: bool = True) -> Path:
+    """Return the activity log's path (every tool action, its outcome and who decided)."""
+    data_dir = get_row_bot_data_dir(create=create_parent)
+    return data_dir / "activity.db"
+
+
 def get_access_db_path(*, create_parent: bool = True) -> Path:
     """Return the access database path.
 

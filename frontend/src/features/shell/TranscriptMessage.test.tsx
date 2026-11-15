@@ -203,6 +203,27 @@ it('says in one quiet line when the backup model took over a turn (#140)', () =>
   expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
 });
 
+it('shows a watch that ran out as a quiet line, not a reply (B4)', () => {
+  const line = {
+    ...reply,
+    id: 'assistant:checkpoint:ran-out',
+    message_id: 'ran-out',
+    note: 'watch',
+    blocks: [
+      {
+        id: 'b',
+        type: 'markdown',
+        text: 'Stopped watching “the deploy”: its 24 hours ran out.',
+      },
+    ],
+  } as unknown as TranscriptRow;
+  render(<TranscriptMessage row={line} conversationId="conversation-a" />);
+  expect(screen.getByRole('note')).toHaveTextContent(
+    'Stopped watching “the deploy”: its 24 hours ran out.',
+  );
+  expect(screen.queryByRole('article')).toBeNull();
+});
+
 it('says quietly which replies the personal model gave, and when the main model finished one (Learning)', () => {
   const { rerender } = render(
     <TranscriptMessage
@@ -360,7 +381,7 @@ it('has no Teach without Learning, nor on your own messages', () => {
 });
 
 it('opens a message’s actions on a long-press, and Select text makes its text selectable (D10)', async () => {
-  const onEdit = vi.fn();
+  const onEditResend = vi.fn();
   const row = {
     id: 'user:message-9',
     message_id: 'message-9',
@@ -371,7 +392,7 @@ it('opens a message’s actions on a long-press, and Select text makes its text 
     <TranscriptMessage
       row={row}
       conversationId="conversation-a"
-      onEdit={onEdit}
+      onEditResend={onEditResend}
     />,
   );
   const article = screen.getByRole('article');
@@ -386,7 +407,7 @@ it('opens a message’s actions on a long-press, and Select text makes its text 
     within(menu)
       .getAllByRole('menuitem')
       .map((item) => item.textContent),
-  ).toEqual(['Copy message', 'Select text', 'Edit as a new message']);
+  ).toEqual(['Copy message', 'Select text', 'Edit and resend']);
   fireEvent.click(within(menu).getByRole('menuitem', { name: 'Select text' }));
   await waitFor(() =>
     expect(article).toHaveAttribute('data-selecting', 'true'),
@@ -394,4 +415,132 @@ it('opens a message’s actions on a long-press, and Select text makes its text 
   await waitFor(() =>
     expect(window.getSelection()?.toString()).toBe('Book the hall for Friday'),
   );
+});
+
+const mineToEdit = {
+  id: 'user:mine-2',
+  message_id: 'mine-2',
+  role: 'user',
+  blocks: [{ id: 'b', type: 'markdown', text: 'Book the hall for Friday' }],
+} as unknown as TranscriptRow;
+
+it('Edit and resend turns the message into its field; Escape puts it back unchanged (B5)', async () => {
+  const onEditResend = vi.fn();
+  render(
+    <TranscriptMessage
+      row={mineToEdit}
+      conversationId="conversation-a"
+      onEditResend={onEditResend}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }));
+  const field = screen.getByRole('textbox', { name: 'Edit your message' });
+  expect(field).toHaveValue('Book the hall for Friday');
+  expect(field).toHaveFocus();
+  expect(
+    screen.getByText('Sends in a new conversation. This one stays as it is.'),
+  ).toBeInTheDocument();
+  // The message's own actions wait until the edit ends.
+  expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
+
+  fireEvent.keyDown(field, { key: 'Escape' });
+
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.getByText('Book the hall for Friday')).toBeInTheDocument();
+  expect(onEditResend).not.toHaveBeenCalled();
+});
+
+it('Enter sends the edited text once, with a spinner until the fork answers (B5)', async () => {
+  let finish!: () => void;
+  const onEditResend = vi.fn(
+    () => new Promise<void>((done) => (finish = done)),
+  );
+  render(
+    <TranscriptMessage
+      row={mineToEdit}
+      conversationId="conversation-a"
+      onEditResend={onEditResend}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }));
+  const field = screen.getByRole('textbox', { name: 'Edit your message' });
+  fireEvent.change(field, { target: { value: 'Book the hall for Saturday' } });
+  fireEvent.keyDown(field, { key: 'Enter' });
+  fireEvent.keyDown(field, { key: 'Enter' });
+
+  expect(onEditResend).toHaveBeenCalledTimes(1);
+  expect(onEditResend).toHaveBeenCalledWith(
+    'mine-2',
+    'Book the hall for Saturday',
+  );
+  expect(
+    screen.getByRole('button', { name: 'Send in a new conversation' }),
+  ).toBeDisabled();
+  finish();
+  await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
+});
+
+it('a refused edit stays open and says why (B5)', async () => {
+  const onEditResend = vi.fn(async () => {
+    throw { code: 'generation_active' };
+  });
+  render(
+    <TranscriptMessage
+      row={mineToEdit}
+      conversationId="conversation-a"
+      onEditResend={onEditResend}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Send in a new conversation' }),
+  );
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    "Couldn't fork: the conversation is busy. Try when the reply ends.",
+  );
+  expect(
+    screen.getByRole('textbox', { name: 'Edit your message' }),
+  ).toHaveValue('Book the hall for Friday');
+});
+
+it('Fork from here sits in a reply’s actions and its long-press menu, only when offered (B5)', async () => {
+  const onFork = vi.fn(async () => undefined);
+  const reply = {
+    id: 'assistant:reply-4',
+    message_id: 'reply-4',
+    role: 'assistant',
+    blocks: [
+      { id: 'b', type: 'markdown', text: 'The hall is free on Friday.' },
+    ],
+  } as unknown as TranscriptRow;
+  const { rerender } = render(
+    <TranscriptMessage row={reply} conversationId="conversation-a" />,
+  );
+  expect(screen.queryByRole('button', { name: 'Fork from here' })).toBeNull();
+
+  rerender(
+    <TranscriptMessage
+      row={reply}
+      conversationId="conversation-a"
+      onFork={onFork}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Fork from here' }));
+  await waitFor(() => expect(onFork).toHaveBeenCalledWith('reply-4'));
+
+  const article = screen.getByRole('article');
+  const press = new Event('touchstart', { bubbles: true });
+  Object.defineProperty(press, 'touches', {
+    value: [{ clientX: 40, clientY: 40 }],
+  });
+  article.dispatchEvent(press);
+  const menu = await screen.findByRole('menu', {}, { timeout: 2000 });
+  expect(
+    within(menu).getByRole('menuitem', { name: 'Fork from here' }),
+  ).toBeInTheDocument();
+  // A person's message is edited, never forked after; a reply is never edited.
+  expect(
+    within(menu).queryByRole('menuitem', { name: 'Edit and resend' }),
+  ).toBeNull();
 });

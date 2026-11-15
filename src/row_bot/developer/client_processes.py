@@ -12,7 +12,7 @@ import sys
 from typing import Callable, Literal
 import uuid
 
-from row_bot.developer import client_edits, runtime
+from row_bot.developer import client_edits, runtime, sandbox_egress
 from row_bot.developer.sandbox import ApprovalDecision, decide_action
 
 _START_LOCK = threading.RLock()
@@ -148,8 +148,9 @@ def _prepared_container(workspace, expected_id: str | None = None) -> tuple[str,
     if (len(matching) != 1 or matching[0].get("RW") is not True or type(matching[0].get("Source")) is not str
             or _mounted_path(matching[0]["Source"]) != os.path.normcase(os.path.normpath(str(shadow.resolve())))):
         raise ValueError("sandbox_container_changed")
-    if expected_id is None and (value.get("image") != workspace.sandbox_image
-            or (value.get("network") == "none") != (workspace.sandbox_network == "off")):
+    # No network, or (when it is on) the sandbox's private network behind its gate; never Docker's own.
+    networks = {"none"} if workspace.sandbox_network == "off" else {"none", sandbox_egress.network_name(workspace.id)}
+    if expected_id is None and (value.get("image") != workspace.sandbox_image or value.get("network") not in networks):
         raise ValueError("sandbox_container_changed")
     return probe.binary, value["id"]
 

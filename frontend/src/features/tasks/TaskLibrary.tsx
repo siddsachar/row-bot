@@ -1423,7 +1423,11 @@ export default function TaskLibrary() {
           load={controller.taskEditor}
           create={selected.edits.create}
           save={selected.edits.save}
-          onSaved={saved}
+          onSaved={() => {
+            // A watch made into this workflow stops once it's saved (B4).
+            if (!selected.session.taskId) selected.session.afterCreate?.();
+            saved();
+          }}
           onCancel={close}
           deliveryChannels={delivery?.channels ?? []}
           onTaskSettings={() =>

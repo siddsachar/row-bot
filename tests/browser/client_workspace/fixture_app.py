@@ -2081,9 +2081,20 @@ def s6_sandbox(body: dict, x_fixture_token: str = Header(default="")) -> dict:
         "[project]\nname = \"tide\"\nversion = \"0.1.0\"\n\n[project.optional-dependencies]\n"
         "test = [\"pytest-cov\"]\n", encoding="utf-8")
     (folder / "tests" / "test_tide.py").write_text("def test_high_tide():\n    assert True\n", encoding="utf-8")
-    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker", sandbox_network="off",
-                                             sandbox_image=_S6_IMAGE)
+    gate_fails = bool(body.get("gate_fails"))
+    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker",
+                                             sandbox_network="on" if gate_fails else "off", sandbox_image=_S6_IMAGE)
     _s6_docker(image_present=bool(body.get("image_present", True)))
+    if gate_fails:
+        # The network is on, but the network gate's image isn't here: the sandbox runs offline (D3-lite).
+        from types import SimpleNamespace
+
+        from row_bot.developer import sandbox_runtime
+
+        def missing(*_args, timeout=30):
+            return SimpleNamespace(returncode=1, stdout="", stderr="No such object")
+
+        sandbox_runtime._behind_gate_or_offline(missing, storage.get_workspace(workspace.id), "docker")
     return {"workspace": workspace.name}
 
 
@@ -2131,6 +2142,9 @@ def s6_reset(x_fixture_token: str = Header(default="")) -> dict:
         sandbox_prepare.stop_all(timeout=5)
     for name, value in _S6_STATE.pop("sandbox_seams", {}).items():
         setattr(sandbox_prepare, name, value)
+    from row_bot.developer import sandbox_runtime
+
+    sandbox_runtime._NETWORK_PROBLEMS.clear()
     real = _S6_STATE.pop("subprocess_run", None)
     if real is not None:
         import subprocess
@@ -2657,6 +2671,108 @@ def _n5_stream(text: str, config: dict):
         call["quiesced"] = True
 
 
+# ── F3: answer components ──────────────────────────────────────────────────
+# The reply is plain text with fenced rowbot-* blocks, as a model writes it; the
+# real projection makes the blocks. A reply button's words come back as the
+# person's message, and get their own scripted answer.
+def _f3_fence(tag: str, body: dict) -> str:
+    return f"```rowbot-{tag}\n{json.dumps(body, ensure_ascii=False)}\n```"
+
+
+_F3_COMPONENTS = "\n\n".join([
+    "Here's your October summary.",
+    _f3_fence("figures", {"title": "October spend", "items": [
+        {"label": "Total", "value": 2140, "unit": "£", "delta": "-8% vs Sep", "tone": "good"},
+        {"label": "Groceries", "value": 512, "unit": "£", "delta": "+4%", "tone": "bad"},
+        {"label": "Eating out", "value": 186, "unit": "£"},
+        {"label": "Saved", "value": 18, "unit": "%", "delta": "+2 pts", "tone": "good"}]}),
+    _f3_fence("table", {"title": "Biggest costs", "columns": [
+        {"key": "item", "label": "Item"}, {"key": "cost", "label": "Cost", "type": "currency"},
+        {"key": "paid", "label": "Paid", "type": "date"}], "rows": [
+        {"item": "Rent", "cost": "£1,200", "paid": "1 Oct 2026"},
+        {"item": "Groceries", "cost": "£512", "paid": "30 Oct 2026"},
+        {"item": "Train pass", "cost": "£238", "paid": "3 Oct 2026"},
+        {"item": "Eating out", "cost": "£186", "paid": "24 Oct 2026"}],
+        "note": "From your bank export.",
+        "actions": [{"label": "Find savings", "reply": "Where could I save next month?"}]}),
+    _f3_fence("chart", {"title": "Spend by month", "kind": "bar", "x": ["Aug", "Sep", "Oct"],
+                        "series": [{"name": "Total", "values": [2210, 2330, 2140]}], "unit": "£"}),
+    _f3_fence("progress", {"title": "Goals", "items": [
+        {"label": "Holiday fund", "value": 900, "target": 1500, "unit": "£"},
+        {"label": "Emergency fund", "value": 3200, "target": 3000, "unit": "£"}]}),
+    _f3_fence("checklist", {"title": "This week", "items": [
+        {"id": "gym", "text": "Cancel the unused gym plan", "done": True},
+        {"id": "move", "text": "Move £200 to the holiday fund"},
+        {"id": "bill", "text": "Check the energy bill"}]}),
+    _f3_fence("choices", {"prompt": "What should I look at next?", "options": [
+        {"label": "Groceries", "reply": "Break down my grocery spending"},
+        {"label": "Subscriptions", "reply": "List my subscriptions"},
+        {"label": "Next month's budget", "reply": "Draft next month's budget"}]}),
+])
+# Two visuals: an SVG diagram, and a small interactive explanation whose probe tries the network.
+_F3_DIAGRAM = """<svg viewBox="0 0 420 128" role="img" aria-label="The water cycle">
+<title>The water cycle</title>
+<style>text{font:13px system-ui;fill:var(--rb-text-primary)} .box{fill:var(--rb-surface-raised);stroke:var(--rb-border-control)}
+.arrow{stroke:var(--rb-accent-solid);stroke-width:2;fill:none;marker-end:url(#tip)}</style>
+<defs><marker id="tip" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+<path d="M0 0L8 4L0 8z" fill="var(--rb-accent-solid)"/></marker></defs>
+<rect class="box" x="10" y="50" width="110" height="44" rx="8"/><text x="65" y="77" text-anchor="middle">Sea</text>
+<rect class="box" x="155" y="10" width="110" height="44" rx="8"/><text x="210" y="37" text-anchor="middle">Clouds</text>
+<rect class="box" x="300" y="50" width="110" height="44" rx="8"/><text x="355" y="77" text-anchor="middle">Rivers</text>
+<path class="arrow" d="M90 50 Q120 20 152 30"/><path class="arrow" d="M265 32 Q300 24 330 48"/>
+<path class="arrow" d="M300 92 Q210 140 122 92"/></svg>"""
+_F3_SLIDER = """<title>Compound interest</title>
+<style>label{display:grid;gap:6px;font-size:14px} output{font:600 22px system-ui;color:var(--rb-accent-solid)}
+input{accent-color:var(--rb-accent-solid);width:100%} p{color:var(--rb-text-secondary);margin:6px 0 0}</style>
+<label>Years saved: <input id="years" type="range" min="1" max="40" value="10" aria-label="Years"></label>
+<p>£1,000 at 5% a year grows to <output id="total">£1,629</output></p>
+<p id="probe" data-network="unknown">Network: checking…</p>
+<script>
+const years = document.getElementById('years'), total = document.getElementById('total');
+function show() { total.textContent = '£' + Math.round(1000 * Math.pow(1.05, years.value)).toLocaleString('en-GB'); }
+years.addEventListener('input', show); show();
+const probe = document.getElementById('probe');
+fetch('https://example.com/f3-visual-probe').then(() => { probe.dataset.network = 'reached'; },
+  () => { probe.dataset.network = 'blocked'; }).finally(() => { probe.textContent = 'Network: ' + probe.dataset.network; });
+</script>"""
+_F3_VISUALS = "\n\n".join([
+    "Here's how it works.",
+    f"```rowbot-visual\n{_F3_DIAGRAM}\n```",
+    "And how saving grows over time:",
+    f"```rowbot-visual\n{_F3_SLIDER}\n```",
+])
+_F3_REPLIES = {
+    "f3 components fixture": _F3_COMPONENTS,
+    "f3 visuals fixture": _F3_VISUALS,
+    "List my subscriptions": "You pay for three: music, cloud storage and a news site.",
+}
+
+
+def _f3_stream(text: str, config: dict):
+    call = predecessor._record("submit", config, "f3-components")
+    try:
+        yield from _natural_final(call, call["conversation_id"], _F3_REPLIES[text.strip()], "f3")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__f3_fixture/reset")
+def f3_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Once its scripted turns have ended, F3 leaves no provider work behind on the shared server: a later spec
+    (the real-host bootstrap) checks that nothing ran."""
+    predecessor._authorize(x_fixture_token)
+    deadline = time.monotonic() + 30
+    while True:
+        with predecessor._lock:
+            mine = [call for call in predecessor._calls if call["case"] == "f3-components"]
+            if all(call["quiesced"] for call in mine):
+                predecessor._calls[:] = [call for call in predecessor._calls if call["case"] != "f3-components"]
+                return {"forgotten": len(mine)}
+        if time.monotonic() > deadline:
+            raise HTTPException(status_code=409, detail="An F3 turn is still running")
+        threading.Event().wait(0.1)
+
+
 # ── N11: incognito chats ───────────────────────────────────────────────────
 # The model's save_memory call is scripted; its card is the real tool's own in
 # an incognito chat (run in a small graph, so it asks as it does in a turn).
@@ -2795,6 +2911,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
     if text.strip() in _N5_PROMPTS:
         # Pages (N5): the real page tools on the skill's templates.
         yield from _n5_stream(text, config)
+        return
+    if text.strip() in _F3_REPLIES:
+        # Answer components (F3): a reply with rowbot-* fences, and the answer to a reply button.
+        yield from _f3_stream(text, config)
         return
     if text.startswith("[") and "from the page" in text.split("\n", 1)[0]:
         # The person's Send under a page (N5), as the real message Row-Bot wrote from it.
@@ -2963,6 +3083,33 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "paid picture fixture" in text:
+        # D4: a picture on an API key asks, and its card says what it costs (or that the price is unknown).
+        from row_bot.providers.media_prices import price_for
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "paid-picture")
+        thread = call["conversation_id"]
+        identity = f"paid-picture:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        known = "unknown price" not in text
+        provider, label, model = ("openai", "OpenAI", "gpt-image-2") if known else (
+            "openrouter", "OpenRouter", "bytedance-seed/seedream-4.5")
+        args = {"prompt": "a lighthouse at dawn, watercolour", "size": "1024x1024", "quality": "medium"}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "generate_image", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "generate_image", "args": args}
+            yield "interrupt", [{
+                "__interrupt_id": fixture_id(identity + ":approval"), "tool": "generate_image",
+                "label": f"Make a picture on {label}",
+                "question": f"Make a picture on {label}? It costs money on your {label} account.",
+                "description": (f"Row-Bot will make a picture with {model} on {label}: \"{args['prompt']}\". "
+                                f"{label} charges your API key for each one, so this costs money."),
+                "risk_class": "medium", "args": {"prompt": args["prompt"], "model": model, "provider": label},
+                "price": price_for(provider, label, model, choices={"quality": "medium", "size": "1024x1024"})}]
+        finally:
+            call["quiesced"] = True
+        return
     if "reviewer asked fixture" in text:
         # Auto (A0): the reviewer asked the person rather than approving; its reason is on the card.
         from row_bot.threads import append_checkpoint_messages
@@ -3067,6 +3214,19 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                 yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": name, "args": args,
                                     "content": result}
             yield from _natural_final(call, thread, "Saved the summary and committed the tidy-up.", "decided")
+        finally:
+            call["quiesced"] = True
+        return
+    if text.rstrip().endswith("fork fixture"):
+        # Edit and resend, Fork from here (B5): a plain reply naming the message, so each copy is told apart.
+        from langchain_core.messages import HumanMessage
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "fork")
+        thread = call["conversation_id"]
+        try:
+            append_checkpoint_messages(thread, [HumanMessage(
+                content=text, id=call["submission_id"] or fixture_id(f"fork:{call['generation_id']}:user"))])
+            yield from _natural_final(call, thread, f"Noted: {text.strip().removesuffix(' fork fixture')}.", "fork")
         finally:
             call["quiesced"] = True
         return
@@ -4978,6 +5138,98 @@ def s8_models(action: str, favourites: str = "", x_fixture_token: str = Header(d
     return {"action": action, "models": len(_S8_LOCAL_MODELS)}
 
 
+# ── C1: Save as a skill ─────────────────────────────────────────────────────
+# Two synthetic chats whose turns used tools: one the offer engine offers (its recurrence wording and the
+# judgement's yes), one with no offer that the person saves by hand. The judgement and the drafts are the
+# chat model's scripted answers; nothing calls a model.
+_C1_DRAFTS = {
+    "November expenses": {
+        "name": "monthly_expense_report", "display_name": "Monthly expense report", "icon": "🧾",
+        "description": "Builds a month's expense report from the receipts folder.",
+        "when_to_use": "When the person asks for their expense report for a month.",
+        "inputs": ["the month", "the receipts folder"],
+        "steps": ["List the month's receipts with `workspace_list_directory`.",
+                  "Read each receipt with `workspace_read_file`.", "Add up the totals with `calculate`.",
+                  "Write the table with `workspace_write_file`.", "Export it with `export_to_pdf`."],
+        "checks": ["The PDF lists every receipt and the total matches."], "tags": ["finance"],
+    },
+    "Trip photos": {
+        "name": "trip_photo_tidy_up", "display_name": "Trip photo tidy-up", "icon": "📷",
+        "description": "Renames a trip's photos by date and files them by day.",
+        "when_to_use": "After a trip, when the person asks to sort its photos.",
+        "inputs": ["the trip's folder"],
+        "steps": ["List the photos with `workspace_list_directory`.", "Rename each by its date with `workspace_move_file`.",
+                  "File them by day with `workspace_move_file`."],
+        "checks": ["Every photo is in a day's folder."], "tags": ["photos"],
+    },
+}
+_c1_fixture: dict = {}
+
+
+def _c1_turn(thread: str, request: str, steps: list[tuple[str, dict]], answer: str) -> list:
+    messages: list = [HumanMessage(id=fixture_id(f"{thread}:ask"), content=request)]
+    for index, (name, args) in enumerate(steps):
+        call_id = fixture_id(f"{thread}:call:{index}")
+        messages += [AIMessage(id=fixture_id(f"{thread}:step:{index}"), content="",
+                               tool_calls=[{"id": call_id, "name": name, "args": args}]),
+                     ToolMessage(id=fixture_id(f"{thread}:result:{index}"), tool_call_id=call_id, name=name,
+                                 content="Done.")]
+    return [*messages, AIMessage(id=fixture_id(f"{thread}:reply"), content=answer)]
+
+
+@app.post("/__c1_fixture/seed")
+def c1_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """Two chats, an offer on one, a draft from the other; earlier fixture offers and skills cleared."""
+    predecessor._authorize(x_fixture_token)
+    import shutil
+
+    from row_bot import evolution, skill_offers, skills, threads
+    from row_bot.data_paths import get_row_bot_data_dir
+    from row_bot.providers import background
+
+    if get_row_bot_data_dir(create=False).resolve() != predecessor.DATA.resolve():
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    original = _c1_fixture.setdefault("invoke", background.invoke_background)
+    titles = {}
+
+    def invoke_background(purpose, messages, *, answer=None, thread_id="", **how):
+        if purpose == "skill_offer_judge":
+            return json.dumps({"worth_skill": True, "task_name": "Monthly expense report",
+                               "varying_inputs": ["the month"]})
+        if purpose == "skill_draft":
+            return json.dumps(_C1_DRAFTS[titles[thread_id]])
+        return original(purpose, messages, answer=answer, thread_id=thread_id, **how)
+
+    background.invoke_background = invoke_background
+    (predecessor.DATA / "skill_offers.json").unlink(missing_ok=True)
+    for draft in _C1_DRAFTS.values():
+        for folder in skills.USER_SKILLS_DIR.glob(f"{draft['name']}*"):
+            shutil.rmtree(folder, ignore_errors=True)
+    evolution.remove_unapplied_proposals({
+        str(item.get("id")) for item in evolution.list_proposals(proposal_type="create_skill")})
+    skills.load_skills()
+    expenses = threads.create_thread("November expenses", name_source="manual", seed_default_skills=False)
+    photos = threads.create_thread("Trip photos", name_source="manual", seed_default_skills=False)
+    titles.update({expenses: "November expenses", photos: "Trip photos"})
+    turn = _c1_turn(expenses, "Do my monthly expense report from the receipts folder, like last month", [
+        ("workspace_list_directory", {"path": "Receipts/November"}),
+        ("workspace_read_file", {"path": "Receipts/November/taxi.pdf"}),
+        ("workspace_read_file", {"path": "Receipts/November/hotel.pdf"}),
+        ("calculate", {"expression": "42.50 + 18.20 + 120"}),
+        ("workspace_write_file", {"path": "Reports/November expenses.md", "content": "| Item | Cost |"}),
+        ("export_to_pdf", {"path": "Reports/November expenses.md"}),
+    ], "Your November expense report is ready: **£180.70** across three receipts, saved as "
+       "Reports/November expenses.pdf.")
+    threads.append_checkpoint_messages(expenses, turn)
+    assessment = skill_offers.consider_turn(expenses, turn)
+    trip = _c1_turn(photos, "Rename the photos from the Lisbon trip by date and sort them by day", [
+        ("workspace_list_directory", {"path": "Photos/Lisbon"}),
+        ("workspace_move_file", {"source": "Photos/Lisbon/IMG_0001.jpg", "destination": "Photos/Lisbon/Day 1/2026-10-02 09.14.jpg"}),
+    ], "Done: 46 photos renamed by date and sorted into four days.")
+    threads.append_checkpoint_messages(photos, trip)
+    return {"offered": assessment.offered, "expenses": expenses, "photos": photos}
+
+
 # ── #140: the backup model ──────────────────────────────────────────────────
 # A local main model (one of S8's) with a cloud backup, and a chat the backup
 # finished. Synthetic settings and messages only; nothing calls a model.
@@ -5213,6 +5465,10 @@ def main() -> None:
     from row_bot import goals as goal_owner
     # Goals verify with a scripted verdict, never a model call.
     goal_owner._invoke_goal_verifier = _goal_verifier
+    from row_bot import goal_checks
+    # A goal's check (B3) passes with a scripted output: no command runs.
+    goal_checks.execute_check = lambda command, _place, **_kwargs: goal_checks.CheckRun(
+        0, f"Fixture check: {command} passed.")
     from row_bot.application import conversation_naming
     # A new conversation keeps its first-words name: its title is never a model call.
     conversation_naming._ask = lambda model_ref, message, reply: ""
@@ -7805,6 +8061,147 @@ def mr_seed(x_fixture_token: str = Header(default="")) -> dict:
     kg.semantic_search = semantic_search
     background.invoke_background = invoke_background
     memory_review._model = lambda: {"name": "qwen3:8b", "provider": "Local", "on_this_computer": True}
+    return {"ok": True}
+
+
+# D1 the activity log: a spec seeds a day of actions of every kind in one chat (/__d1_fixture/activity/seed)
+# and clears them, with that chat, afterwards (/__d1_fixture/activity/clear). Rows go through the log's own
+# writer, as the tool-call middleware writes them.
+_ACTIVITY_CHAT = "d1-activity-chat"
+
+
+@app.post("/__d1_fixture/activity/{state}")
+def d1_activity(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    from row_bot import activity_log, threads
+    from row_bot.thread_cleanup import delete_thread
+
+    if state not in {"seed", "clear"}:
+        raise HTTPException(status_code=404, detail="Unknown activity state")
+    if threads._thread_exists(_ACTIVITY_CHAT):
+        delete_thread(_ACTIVITY_CHAT)
+    activity_log.clear()
+    if state == "clear":
+        return {"ready": True}
+    chat = threads.create_thread("Tidy my downloads", thread_id=_ACTIVITY_CHAT, seed_default_skills=False)
+    now = time.time()
+
+    def asked(**card: str) -> dict:
+        return {"stage": "asking", "level": card.pop("level", "approve"), **card}
+
+    def decided(outcome: str, by: str, **card: str) -> dict:
+        return {"stage": "decided", "level": card.pop("level", "approve"), "outcome": outcome, "by": by, **card}
+
+    rows = [
+        ("a1", "x_post", 5, "chat", (asked(label="Post on X", description="Post on X: Launch day! Row-Bot 5.4 is out."),),
+         True),
+        ("a2", "workspace_delete_file", 12, "chat", (
+            asked(label="Delete files", description="Delete 14 old screenshots in Downloads"),
+            decided("allow", "person", label="Delete files", description="Delete 14 old screenshots in Downloads")),
+         False),
+        ("a3", "run_command", 26, "chat", (decided(
+            "allow", "reviewer", level="auto", label="Run a command", description="Run npm test in row-bot",
+            reason="You asked me to run the tests before pushing."),), False),
+        ("a4", "send_gmail_message", 41, "chat", (
+            asked(label="Send an email", description="Send the weekly report to sam@example.test"),
+            decided("deny", "person", label="Send an email",
+                    description="Send the weekly report to sam@example.test")), False),
+        ("a5", "workspace_move_file", 63, "agent", (decided(
+            "allow", "hands_off", level="full", label="Move a file",
+            description="Move invoice-2026-11.pdf to Documents/Taxes"),), False),
+        ("a6", "run_command", 95, "chat", (decided(
+            "block", "block", level="block", label="Run a command", description="Install ffmpeg with winget"),),
+         False),
+        ("a7", "workspace_read_file", 120, "proactive", (), False),
+        ("a8", "web_search", 150, "channel", (), False),
+        ("a9", "workspace_write_file", 26 * 60, "chat", (decided(
+            "allow", "hands_off", level="full", label="Upload a file", description="Upload report.pdf to Drive"),),
+         False),
+    ]
+    midnight = time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1))
+    # Oldest first, as the log writes them; "today" stays today even just after midnight.
+    for call_id, tool, minutes_ago, surface, decisions, paused in reversed(rows):
+        at = now - minutes_ago * 60
+        if minutes_ago < 24 * 60:
+            at = max(at, midnight + (now - midnight) * (1 - minutes_ago / 1440))
+        activity_log.record(activity_log.ToolCall(
+            call_id=f"d1-{call_id}", tool=tool, thread_id=chat, surface=surface, at=at,
+            level=(decisions[-1]["level"] if decisions else "approve"), decisions=decisions, paused=paused,
+            failed=call_id == "a9"))
+    activity_log.flush()
+    return {"ready": True}
+
+
+# B4: watches. A page watch reads this synthetic page instead of the web; seeded watches are records whose next
+# check is a day away, so nothing runs while a spec looks at their cards.
+def _b4_page(url: str) -> str:
+    return f"SOURCE_URL: {url}\n\nAll systems normal"
+
+
+_B4_STATES = {
+    "watching": {"checks": 3, "changes": 1, "result": "Checks still running (3 of 5).", "tokens": 12_400},
+    "trouble": {"checks": 4, "changes": 0, "result": "Couldn't check: it didn't finish in 60 seconds",
+                "trouble": True},
+    "capped": {"checks": 41, "changes": 20, "result": "Changed", "end": "capped"},
+    "expired": {"checks": 48, "changes": 2, "result": "No change", "end": "expired"},
+}
+
+
+@app.post("/__b4_fixture/watch")
+def b4_watch(payload: dict, x_fixture_token: str = Header(default="")) -> dict:
+    """Seed one watch in a conversation, in a given state: watching, trouble, capped or expired."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import waits
+
+    waits._read_page = _b4_page
+    conversation = str(payload.get("conversation_id") or "")
+    state_name = str(payload.get("state") or "watching")
+    mode = str(payload.get("mode") or "judged")
+    now = time.time()
+    spec = ({"mode": "judged", "question": "Is PR 590 in row-bot ready to merge?", "then": "Tell me."}
+            if mode == "judged" else
+            {"mode": "command", "command": "gh pr checks 590", "then": "Tell me.",
+             "approval": {"workspace_id": "", "classification": {"shell": "safe", "action": "", "read_only": True},
+                          "approved_by": "read_only"}})
+    label = "PR 590 is ready to merge" if mode == "judged" else "CI on PR 590"
+    record = waits.create(conversation, "watch", label, spec=spec, every_minutes=30 if mode == "judged" else 10,
+                          now=now - 3600)
+    seeded = dict(_B4_STATES[state_name])
+    tokens = seeded.pop("tokens", 0)
+    state = {**waits._state(record), **seeded, "checked_at": now - 600}
+    with waits.closing(waits._conn()) as conn, conn:
+        conn.execute("UPDATE waits SET spec = ?, next_at = ?, status = ?, ended_at = ? WHERE id = ?",
+                     (json.dumps({**record["spec"], "state": state}), now + 86400,
+                      ("ran_out" if state_name == "expired" else "done") if "end" in seeded else "waiting",
+                      now - 60 if "end" in seeded else 0.0, record["id"]))
+    if tokens:
+        from row_bot.prompt_cache import ModelUsage
+        from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
+
+        thread = f"b4-check-{record['id']}"
+        state["check_thread"] = thread
+        with waits.closing(waits._conn()) as conn, conn:
+            conn.execute("UPDATE waits SET spec = ? WHERE id = ?",
+                         (json.dumps({**record["spec"], "state": state}), record["id"]))
+        record_model_usage(UsageRecord(purpose="main", provider="openrouter", model="synthetic", thread_id=thread,
+                                       usage=ModelUsage(input_tokens=tokens - 400, output_tokens=400, cost=0.04)))
+    waits._publish()
+    return {"wait_id": record["id"]}
+
+
+@app.post("/__b4_fixture/reset")
+def b4_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Stop every watch and put their cards away; remove the workflows made from them."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import tasks, waits
+
+    waits._read_page = _b4_page
+    with waits.closing(waits._conn()) as conn, conn:
+        conn.execute("DELETE FROM waits WHERE kind = 'watch'")
+    for task in tasks.list_tasks():
+        if str(task["name"]).startswith("Watch: "):
+            tasks.delete_task(task["id"])
+    waits._publish()
     return {"ok": True}
 
 

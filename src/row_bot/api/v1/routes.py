@@ -230,6 +230,9 @@ _STATUS.update(
             "directory_revision_conflict",
             "snapshot_revision_conflict",
             "draft_revision_conflict",
+            "answer_state_revision_conflict",
+            "answer_choice_taken",
+            "answer_state_full",
         ),
         409,
     )
@@ -318,6 +321,11 @@ _STATUS.update(
 _STATUS.update(
     {
         "goal_library_too_large": 413,
+        # A goal's check that can't be set (B3): it can't run here, the chat only allows checks that read,
+        # or the conversation is a channel's.
+        "goal_check_refused": 422,
+        "goal_check_read_only": 422,
+        "goal_check_unavailable": 422,
         "profile_library_too_large": 413,
         "receipt_unavailable": 404,
         "goal_operation_unconfirmed": 409,
@@ -813,6 +821,21 @@ _STATUS.update(
     )
 )
 _STATUS.update(dict.fromkeys(("skill_missing", "skill_operation_unavailable"), 404))
+# "Save as a skill" (C1): an offer gone or settled, a draft already being written, a chat that is
+# or was incognito, a reply with no steps, the chat's model unavailable, or a draft refused.
+_STATUS.update(
+    {
+        "skill_offer_missing": 404,
+        "skill_offer_changed": 409,
+        "skill_draft_busy": 409,
+        "skill_draft_private": 409,
+        "skill_draft_no_steps": 409,
+        "skill_draft_unavailable": 503,
+        "skill_draft_failed": 422,
+        "skill_draft_refused": 422,
+        "skill_draft_secret": 422,
+    }
+)
 _STATUS.update(
     {
         "skill_unavailable": 503,
@@ -1105,6 +1128,14 @@ _STATUS.update(
         "video_brand_invalid": 422,
         "row_bot_sandbox_unavailable": 404,
         "wait_unavailable": 404,
+        # A watch (B4): a command that needs the approval card goes to the model; a private page, a full set of
+        # watches, a bad interval; one at its 7 days, or paused for Check now.
+        "watch_needs_approval": 409,
+        "watch_page_refused": 422,
+        "watch_limit": 409,
+        "watch_invalid": 422,
+        "watch_lifetime_max": 409,
+        "watch_paused": 409,
         "row_bot_sandbox_refused": 409,
         "sent_file_unavailable": 404,
         "sent_file_expired": 410,
@@ -3260,6 +3291,66 @@ def create_router(
         await readable_conversation(conversation_id)
         return await respond(request, dto.DraftView, result)
 
+    @router.get("/conversations/{conversation_id}/answer-state")
+    async def answer_state_view(conversation_id: str, request: Request) -> JSONResponse:
+        """The person's ticks and sent choices on this chat's answer components (F3)."""
+        await session(request)
+        from row_bot.application.answer_state import read_answer_state
+
+        result = await call(read_answer_state, service, conversation_id)
+        return await respond(request, dto.AnswerStateView, result)
+
+    @router.put("/conversations/{conversation_id}/answer-state")
+    async def answer_state_save(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.AnswerStateChange, 4096)
+        from row_bot.application.answer_state import save_answer_state
+
+        return await respond(
+            request,
+            dto.AnswerStateView,
+            await call(
+                save_answer_state,
+                service,
+                conversation_id,
+                body.model_dump(mode="json"),
+                dispatch_validation(request, current),
+            ),
+        )
+
+    @router.get("/conversations/{conversation_id}/skill-offers")
+    async def skill_offers_view(conversation_id: str, request: Request) -> JSONResponse:
+        """This chat's "Save as a skill" offers and drafts (C1)."""
+        await session(request)
+        from row_bot.application.skill_offer_views import read_skill_offers
+
+        result = await call(read_skill_offers, service, conversation_id)
+        return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/conversations/{conversation_id}/skill-offers/draft")
+    async def skill_offer_draft(conversation_id: str, request: Request) -> JSONResponse:
+        """Draft a skill from one reply's turn, on the chat's own model, for the person to review."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillDraftRequest, 4096)
+        from row_bot.application.skill_offer_views import draft_skill
+
+        result = await call(
+            draft_skill, service, conversation_id, body.model_dump(mode="json"),
+            dispatch_validation(request, current),
+        )
+        return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/conversations/{conversation_id}/skill-offers/{offer_id}/dismiss")
+    async def skill_offer_dismiss(conversation_id: str, offer_id: str, request: Request) -> JSONResponse:
+        """"Not now": the offer closes; its task isn't offered again for 30 days."""
+        current = await session(request, lane="mutation")
+        from row_bot.application.skill_offer_views import dismiss_skill_offer
+
+        result = await call(
+            dismiss_skill_offer, service, conversation_id, offer_id, dispatch_validation(request, current)
+        )
+        return await respond(request, dto.SkillOfferPage, result)
+
     @router.get("/conversations/{conversation_id}/queue")
     async def queue_view(
         conversation_id: str,
@@ -5057,6 +5148,7 @@ def create_router(
             "skill.delete",
             "skill.proposal.apply",
             "skill.proposal.reject",
+            "skill.proposal.edit",
         }
         if body.type not in kinds or str(body.client_session_id) != current.id:
             raise ProtocolError("invalid_skill_command", 422)
@@ -5758,13 +5850,72 @@ def create_router(
         from row_bot.application.client_platform import ClientPlatformError
 
         items = []
-        for record in waits.waiting():
+        # A watch that ran out or reached its change cap keeps its card until the person puts it away (B4).
+        for record in [*waits.waiting(), *waits.ended_watches()]:
             try:
                 meta = service._metadata(record["conversation_id"])
             except ClientPlatformError:
                 continue  # Its conversation is gone: nothing will start there.
             items.append({**waits.view(record), "conversation_title": str(meta.get("name") or "")[:160]})
         return {"schema_version": 1, "items": items[:500]}
+
+    def _wait_id(wait_id: str) -> str:
+        if len(wait_id) != 12 or any(char not in "0123456789abcdef" for char in wait_id):
+            raise ProtocolError("wait_unavailable", 404)
+        return wait_id
+
+    def _set_watch(conversation_id: str, body: Any) -> dict:
+        """``/watch`` with no model call (B4): a public page, or a command that only reads. A command that doesn't
+        is refused (``watch_needs_approval``): it goes to the model, whose wait_for shows the approval card."""
+        from row_bot import goal_checks, waits
+        from row_bot.application.client_platform import ClientPlatformError
+
+        try:
+            service._metadata(conversation_id)
+        except ClientPlatformError:
+            raise ProtocolError("not_found", 404) from None
+        target = body.target.strip()
+        if body.mode == "page":
+            if waits.page_refusal(target):
+                raise ProtocolError("watch_page_refused", 422)
+            spec = {"mode": "page", "url": target}
+        else:
+            try:
+                approval = waits.command_approval(conversation_id, target, "read_only")
+            except goal_checks.CheckRefused as refused:
+                raise ProtocolError(refused.code, 422) from None
+            if not approval["classification"].get("read_only"):
+                raise ProtocolError("watch_needs_approval", 409)
+            spec = {"mode": "command", "command": target, "approval": approval}
+        label = target if len(target) <= 60 else target[:59] + "…"
+        try:
+            waits.create(conversation_id, "watch", label, spec={**spec, "then": "", "focus": "", "ends_when": ""},
+                         every_minutes=body.every_minutes)
+        except waits.WaitError as error:
+            raise ProtocolError("watch_limit" if "already" in str(error) else "watch_invalid",
+                                409 if "already" in str(error) else 422) from None
+        return _wait_page()
+
+    def _control_watch(wait_id: str, action: str) -> dict:
+        from row_bot import waits
+
+        refused = waits.control(wait_id, action)
+        if refused:
+            raise ProtocolError(refused, {"wait_unavailable": 404, "invalid_command": 422}.get(refused, 409))
+        return _wait_page()
+
+    @router.post("/conversations/{conversation_id}/watches")
+    async def set_watch(request: Request, conversation_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.WatchCreate, 4 * 1024)
+        return await respond(request, dto.WaitPage, await call(_set_watch, conversation_id, body))
+
+    @router.post("/waits/{wait_id}/control")
+    async def control_watch(request: Request, wait_id: str) -> JSONResponse:
+        """The watch card's Pause, Resume, Check now and Extend (B4)."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.WatchControl, 1024)
+        return await respond(request, dto.WaitPage, await call(_control_watch, _wait_id(wait_id), body.action))
 
     @router.get("/waits")
     async def waits_page(request: Request) -> JSONResponse:
@@ -5782,6 +5933,56 @@ def create_router(
         if not await call(waits.stop, wait_id):
             raise ProtocolError("wait_unavailable", 404)
         return await respond(request, dto.WaitPage, await call(_wait_page))
+
+    # --- The activity log (D1): every tool action, its outcome and who decided ------------------------
+    # Read by the person's own app only; no tool reads, writes or clears it.
+
+    _ACTIVITY_SURFACES = {"", "chat", "workflow", "agent", "goal", "channel", "proactive", "developer"}
+    _ACTIVITY_OUTCOMES = {"", "needed", "denied", "blocked"}
+
+    @router.get("/activity")
+    async def activity_page(request: Request, before: int = 0, limit: int = 50, surface: str = "",
+                            outcome: str = "", conversation: str = "", q: str = "") -> JSONResponse:
+        """Every tool action Row-Bot took, newest first, with its outcome and who decided (Settings › Activity)."""
+        await session(request)
+        if (before < 0 or not 1 <= limit <= 200 or surface not in _ACTIVITY_SURFACES
+                or outcome not in _ACTIVITY_OUTCOMES or len(conversation) > 256 or len(q) > 200):
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_activity import read_activity
+
+        result = await call(read_activity, before=before, limit=limit, surface=surface, outcome=outcome,
+                            conversation=conversation, q=q)
+        return await respond(request, dto.ActivityPage, result)
+
+    @router.get("/activity/summary")
+    async def activity_summary(request: Request, since: float = 0) -> JSONResponse:
+        """Monitor's line: actions since the person's midnight, how many asked them, how many they refused."""
+        await session(request)
+        if not 0 <= since <= 2**33:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.application.client_activity import read_summary
+
+        return await respond(request, dto.ActivitySummary, await call(read_summary, since=since))
+
+    @router.post("/activity/export")
+    async def activity_export(request: Request) -> JSONResponse:
+        """The filtered log as a CSV to save (the one save path): the Save dialog, a download or Exports."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ActivityExportRequest, 4 * 1024)
+        from row_bot.application import client_activity, save_offers
+
+        data = await call(client_activity.export_csv, surface=body.surface, outcome=body.outcome, q=body.q)
+        await call(dispatch_validation(request, current))
+        result = await call(save_offers.offer, current.id, client_activity.export_name(), data)
+        return await respond(request, dto.SaveOffer, result)
+
+    @router.delete("/activity")
+    async def activity_clear(request: Request) -> JSONResponse:
+        """The person's "Clear activity": every row goes (their rules, when there are any, stay)."""
+        await session(request, lane="mutation")
+        from row_bot.application.client_activity import clear_activity
+
+        return await respond(request, dto.ActivityCleared, await call(clear_activity))
 
     # --- Proactive Row-Bot (5.3.4): For you, "Why this?", feedback, the Activity log and settings ---------
 
@@ -6150,6 +6351,26 @@ def create_router(
 
         found = await _page_call(decide, _page_id(page_id), body.id, body.choice, body.note, body.label)
         return await respond(request, dto.PageView, await call(view, found))
+
+    @router.post("/conversations/{conversation_id}/visual-frame")
+    async def visual_frame(conversation_id: str, request: Request) -> JSONResponse:
+        """One frame address for a visual in a reply (F3): served once, sandboxed, with no network."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.VisualFrameRequest, 256 * 1024)
+        from row_bot.application.answer_components import visual_frame as make
+
+        frame_url = await _page_call(make, service, conversation_id, body.html, body.theme.model_dump())
+        return await respond(request, dto.VisualFrame, {"frame_url": frame_url})
+
+    @router.post("/conversations/{conversation_id}/visual-page")
+    async def visual_page(conversation_id: str, request: Request) -> JSONResponse:
+        """The person's "Open as page" on a visual in a reply (F3): the same HTML as a page in that chat."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.VisualPageRequest, 256 * 1024)
+        from row_bot.application.answer_components import visual_page as make
+
+        made = await _page_call(make, service, conversation_id, body.title, body.html)
+        return await respond(request, dto.PageView, made)
 
     def _standalone(page_id: str, theme: dict) -> tuple[str, str]:
         from row_bot.pages import document, download_name, require
@@ -11429,6 +11650,7 @@ def create_router(
                 "folder",
                 "x_post",
                 "setting_change",
+                "price",
                 "policy_revision",
             )
             if k in view

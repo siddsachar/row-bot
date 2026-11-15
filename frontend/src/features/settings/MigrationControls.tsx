@@ -61,6 +61,24 @@ function savedCommand(): MigrationApplyCommand | null {
   }
 }
 
+/** What waits in Import memories: the memories found, and past chats to look in if the person chooses. */
+function readyToReview({
+  found,
+  conversations = 0,
+}: {
+  found: number;
+  conversations?: number;
+}) {
+  const memories = plural(found, 'memory', 'memories');
+  const chats = plural(conversations, 'past chat');
+  const waiting = !conversations
+    ? `${memories} ${found === 1 ? 'is' : 'are'} ready to review.`
+    : !found
+      ? `${chats} ${conversations === 1 ? 'is' : 'are'} ready to look in for memories.`
+      : `${memories} and ${chats} are ready to review.`;
+  return `${waiting} Nothing is saved to memory until you check them.`;
+}
+
 export function MigrationControls({
   owner,
   canBrowse = false,
@@ -562,9 +580,7 @@ export function MigrationControls({
             <p>
               {reviewed
                 ? 'You checked these memories in Import memories.'
-                : `${plural(receipt.memory_review.found, 'memory', 'memories')} ${
-                    receipt.memory_review.found === 1 ? 'is' : 'are'
-                  } ready to review. Nothing is saved to memory until you check them.`}
+                : readyToReview(receipt.memory_review)}
             </p>
           )}
           <div className="actions">
