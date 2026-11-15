@@ -2081,9 +2081,20 @@ def s6_sandbox(body: dict, x_fixture_token: str = Header(default="")) -> dict:
         "[project]\nname = \"tide\"\nversion = \"0.1.0\"\n\n[project.optional-dependencies]\n"
         "test = [\"pytest-cov\"]\n", encoding="utf-8")
     (folder / "tests" / "test_tide.py").write_text("def test_high_tide():\n    assert True\n", encoding="utf-8")
-    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker", sandbox_network="off",
-                                             sandbox_image=_S6_IMAGE)
+    gate_fails = bool(body.get("gate_fails"))
+    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker",
+                                             sandbox_network="on" if gate_fails else "off", sandbox_image=_S6_IMAGE)
     _s6_docker(image_present=bool(body.get("image_present", True)))
+    if gate_fails:
+        # The network is on, but the network gate's image isn't here: the sandbox runs offline (D3-lite).
+        from types import SimpleNamespace
+
+        from row_bot.developer import sandbox_runtime
+
+        def missing(*_args, timeout=30):
+            return SimpleNamespace(returncode=1, stdout="", stderr="No such object")
+
+        sandbox_runtime._behind_gate_or_offline(missing, storage.get_workspace(workspace.id), "docker")
     return {"workspace": workspace.name}
 
 
@@ -2131,6 +2142,9 @@ def s6_reset(x_fixture_token: str = Header(default="")) -> dict:
         sandbox_prepare.stop_all(timeout=5)
     for name, value in _S6_STATE.pop("sandbox_seams", {}).items():
         setattr(sandbox_prepare, name, value)
+    from row_bot.developer import sandbox_runtime
+
+    sandbox_runtime._NETWORK_PROBLEMS.clear()
     real = _S6_STATE.pop("subprocess_run", None)
     if real is not None:
         import subprocess

@@ -10689,6 +10689,7 @@ class WorkspaceInspector(WireModel):
     todos: list[WorkspaceTodo] = Field(max_length=200)
     error: str = Field(default="", max_length=128)
     project_notes: list[WorkspaceProjectNote] = Field(default_factory=list, max_length=8)
+    sandbox_network_note: str = Field(default="", max_length=1024)
 
 
 class WorkspaceChangedFile(WireModel):
