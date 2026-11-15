@@ -2621,8 +2621,25 @@ def fork_conversation(source_id: str, *, at_message_id: str, include_message: bo
             _purge_owned_state(new_id)
             _clear_in_memory_state(new_id)
             raise
+        _learning_chat_forked(source, new_id)
     logger.info("Forked conversation %s into %s at message %d of %d", source[:8], new_id[:8], cut, len(messages))
     return forked
+
+
+def _learning_chat_forked(source: str, fork: str) -> None:
+    """A fork of a chat left out of Learning is left out too: every request in it carries the copied messages.
+    Only when Learning has a store (otherwise one path check); never raises into the fork."""
+    try:
+        from row_bot import learning
+        if not learning.store_exists():
+            return
+        from row_bot.learning.store import LearningStore
+
+        store = LearningStore()
+        if store.is_chat_opted_out(source):
+            store.set_chat_opt_out(fork, True)
+    except Exception:
+        logger.debug("Learning could not carry a chat's opt-out to its fork", exc_info=True)
 
 
 def _fork_cut(messages: list, message_id: str, include_message: bool) -> int:
