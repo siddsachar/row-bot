@@ -501,7 +501,11 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             {/* A page is an arbitrary text/plain slice of a large message: it
                 can cut through Markdown, so it is shown exactly as sent. */}
             {expanded || (
-              <TranscriptBlocks blocks={shown} copyText={copyCode} />
+              <TranscriptBlocks
+                blocks={shown}
+                copyText={copyCode}
+                conversationId={conversationId ?? undefined}
+              />
             )}
           </div>
         )}

@@ -3014,6 +3014,196 @@
   }
 }
 
+/* Answer components (F3): a table, checklist, figures, progress or choices
+   inside a reply, drawn from validated data with the app's own pieces. */
+.answer-component {
+  display: grid;
+  gap: 8px;
+  max-width: 100%;
+  margin: 12px 0;
+}
+.answer-component > .markdown-table {
+  margin: 0;
+}
+.answer-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.answer-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font: var(--weight-semibold) var(--text-14) / 20px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.answer-count {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.answer-note,
+.answer-prompt {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 20px;
+}
+.answer-prompt {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+}
+.answer-pending {
+  padding: 10px 12px;
+  border: 1px dashed var(--border-hairline);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.answer-component .answer-checklist {
+  display: grid;
+  margin: 0;
+  padding: 4px 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  list-style: none;
+}
+.answer-component li {
+  margin: 0;
+}
+.answer-component .answer-checklist li + li {
+  border-top: 1px solid var(--border-hairline);
+}
+.answer-checklist label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.answer-checklist input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.answer-checklist li[data-done] span {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+}
+.answer-figures .stat-value {
+  font-variant-numeric: tabular-nums;
+}
+.answer-component .answer-progress {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  list-style: none;
+}
+.answer-progress li {
+  display: grid;
+  gap: 6px;
+}
+.answer-progress-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  font-size: var(--text-13);
+  line-height: 18px;
+}
+.answer-progress-label {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.answer-progress-value {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.answer-progress-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-hover);
+}
+.answer-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-solid);
+  transition: width var(--motion-panel) var(--ease-out);
+}
+.answer-progress li[data-over] .answer-progress-bar > span {
+  background: var(--status-success-text);
+}
+.answer-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.answer-replies[data-variant='choices'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+}
+.answer-reply {
+  justify-content: flex-start;
+  max-width: 100%;
+  min-height: 32px;
+  text-align: start;
+}
+.answer-reply > span:not(.answer-reply-sent) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.answer-replies[data-variant='actions'] .answer-reply {
+  border-radius: 999px;
+}
+.answer-reply svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.answer-reply[data-picked] {
+  border-color: color-mix(in srgb, var(--accent-solid) 55%, transparent);
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+  opacity: 1;
+}
+.answer-reply[data-picked] svg {
+  color: var(--accent-solid);
+}
+.answer-reply-sent {
+  margin-inline-start: auto;
+  padding-inline-start: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+}
+@media (pointer: coarse) {
+  .answer-reply {
+    min-height: 44px;
+  }
+  .answer-checklist label {
+    min-height: 44px;
+    align-items: center;
+  }
+  .answer-checklist input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+  }
+}
+
 /* Markdown task lists: real checkboxes the person can tick. */
 .task-list {
   padding-inline-start: 4px;

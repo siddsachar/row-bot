@@ -2657,6 +2657,58 @@ def _n5_stream(text: str, config: dict):
         call["quiesced"] = True
 
 
+# ── F3: answer components ──────────────────────────────────────────────────
+# The reply is plain text with fenced rowbot-* blocks, as a model writes it; the
+# real projection makes the blocks. A reply button's words come back as the
+# person's message, and get their own scripted answer.
+def _f3_fence(tag: str, body: dict) -> str:
+    return f"```rowbot-{tag}\n{json.dumps(body, ensure_ascii=False)}\n```"
+
+
+_F3_COMPONENTS = "\n\n".join([
+    "Here's your October summary.",
+    _f3_fence("figures", {"title": "October spend", "items": [
+        {"label": "Total", "value": 2140, "unit": "£", "delta": "-8% vs Sep", "tone": "good"},
+        {"label": "Groceries", "value": 512, "unit": "£", "delta": "+4%", "tone": "bad"},
+        {"label": "Eating out", "value": 186, "unit": "£"},
+        {"label": "Saved", "value": 18, "unit": "%", "delta": "+2 pts", "tone": "good"}]}),
+    _f3_fence("table", {"title": "Biggest costs", "columns": [
+        {"key": "item", "label": "Item"}, {"key": "cost", "label": "Cost", "type": "currency"},
+        {"key": "paid", "label": "Paid", "type": "date"}], "rows": [
+        {"item": "Rent", "cost": "£1,200", "paid": "1 Oct 2026"},
+        {"item": "Groceries", "cost": "£512", "paid": "30 Oct 2026"},
+        {"item": "Train pass", "cost": "£238", "paid": "3 Oct 2026"},
+        {"item": "Eating out", "cost": "£186", "paid": "24 Oct 2026"}],
+        "note": "From your bank export.",
+        "actions": [{"label": "Find savings", "reply": "Where could I save next month?"}]}),
+    _f3_fence("chart", {"title": "Spend by month", "kind": "bar", "x": ["Aug", "Sep", "Oct"],
+                        "series": [{"name": "Total", "values": [2210, 2330, 2140]}], "unit": "£"}),
+    _f3_fence("progress", {"title": "Goals", "items": [
+        {"label": "Holiday fund", "value": 900, "target": 1500, "unit": "£"},
+        {"label": "Emergency fund", "value": 3200, "target": 3000, "unit": "£"}]}),
+    _f3_fence("checklist", {"title": "This week", "items": [
+        {"id": "gym", "text": "Cancel the unused gym plan", "done": True},
+        {"id": "move", "text": "Move £200 to the holiday fund"},
+        {"id": "bill", "text": "Check the energy bill"}]}),
+    _f3_fence("choices", {"prompt": "What should I look at next?", "options": [
+        {"label": "Groceries", "reply": "Break down my grocery spending"},
+        {"label": "Subscriptions", "reply": "List my subscriptions"},
+        {"label": "Next month's budget", "reply": "Draft next month's budget"}]}),
+])
+_F3_REPLIES = {
+    "f3 components fixture": _F3_COMPONENTS,
+    "List my subscriptions": "You pay for three: music, cloud storage and a news site.",
+}
+
+
+def _f3_stream(text: str, config: dict):
+    call = predecessor._record("submit", config, "f3-components")
+    try:
+        yield from _natural_final(call, call["conversation_id"], _F3_REPLIES[text.strip()], "f3")
+    finally:
+        call["quiesced"] = True
+
+
 # ── N11: incognito chats ───────────────────────────────────────────────────
 # The model's save_memory call is scripted; its card is the real tool's own in
 # an incognito chat (run in a small graph, so it asks as it does in a turn).
@@ -2795,6 +2847,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
     if text.strip() in _N5_PROMPTS:
         # Pages (N5): the real page tools on the skill's templates.
         yield from _n5_stream(text, config)
+        return
+    if text.strip() in _F3_REPLIES:
+        # Answer components (F3): a reply with rowbot-* fences, and the answer to a reply button.
+        yield from _f3_stream(text, config)
         return
     if text.startswith("[") and "from the page" in text.split("\n", 1)[0]:
         # The person's Send under a page (N5), as the real message Row-Bot wrote from it.
