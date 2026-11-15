@@ -290,6 +290,64 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
   });
 });
 
+test('a goal with a check is reviewed first and done only once its check passes (B3)', async ({
+  page,
+}, info) => {
+  test.setTimeout(120_000);
+  await newConversation(page);
+  const context = page.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  await expect(composer(page)).toBeVisible();
+  if (!(await context.isVisible()))
+    await headerAction(page, 'Conversation details');
+  await context
+    .getByRole('button', { name: 'Set a goal', exact: true })
+    .click();
+  const form = context.getByRole('form', { name: 'Set a goal' });
+  await form
+    .getByRole('textbox', {
+      name: 'What should this conversation achieve?',
+      exact: true,
+    })
+    .fill('Build the docs site');
+  await form.getByText('Done means and check', { exact: true }).click();
+  await form
+    .getByRole('textbox', { name: 'Done means…', exact: true })
+    .fill('The docs build and every link works');
+  await form
+    .getByRole('textbox', { name: 'Check with', exact: true })
+    .fill('npm run build');
+  await expect(form.getByText(/Runs in Row-Bot's workspace/)).toBeVisible();
+  await form.getByRole('button', { name: 'Start goal', exact: true }).click();
+  // The review says where it runs; Confirm and start approves that command.
+  const review = form.getByRole('group', { name: 'Before it starts' });
+  await expect(review).toContainText(
+    "it runs npm run build in Row-Bot's workspace",
+  );
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'goal-check-review');
+  await form
+    .getByRole('button', { name: 'Confirm and start', exact: true })
+    .click();
+  const goal = context.locator('.context-goal');
+  await expect(
+    goal.getByText('Done means: The docs build and every link works'),
+  ).toBeVisible();
+  // The fixture's verifier calls it done after two turns; the check then
+  // runs (scripted to pass) and only then is the goal Done.
+  await expect(goal.getByText('Done', { exact: true })).toBeVisible();
+  await expect(goal.getByText(/^Verified by npm run build · /)).toBeVisible();
+  await goal
+    .getByRole('button', { name: "Show the check's output", exact: true })
+    .click();
+  await expect(
+    page.getByRole('dialog', { name: "The check's output" }),
+  ).toContainText('Fixture check: npm run build passed.');
+  await screenshot(page, info, 'goal-check-verified');
+  await page.keyboard.press('Escape');
+});
+
 test('retained settings expose real capability state without leaving the unified client', async ({
   page,
 }, info) => {

@@ -484,7 +484,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -939,7 +939,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -1348,7 +1348,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -1830,7 +1830,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -2234,7 +2234,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -2624,7 +2624,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },

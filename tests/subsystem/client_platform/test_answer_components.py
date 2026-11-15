@@ -138,6 +138,8 @@ def test_a_chart_becomes_the_existing_chart_block_with_the_given_series():
     ("choices", {"options": [{"label": "Only", "reply": "Only"}]}),
     ("choices", {"options": [{"label": str(index), "reply": "r"} for index in range(7)]}),
     ("figures", {"items": [{"label": "<b></b>", "value": 1}]}),
+    ("choices", {"options": [{"label": "Clear", "reply": "/clear"}, {"label": "Keep", "reply": "Keep it"}]}),
+    ("table", {**TABLE, "actions": [{"label": "Goal", "reply": "/goal Ship it"}]}),
 ])
 def test_a_body_that_does_not_fit_stays_an_ordinary_code_block_with_its_text(tag, body):
     fence = _fence(tag, body)

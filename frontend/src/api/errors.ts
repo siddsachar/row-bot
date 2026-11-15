@@ -2668,6 +2668,15 @@ const CATALOG: Record<string, Entry> = {
     "That goal action isn't available right now.",
     'none',
   ],
+  goal_check_read_only: [
+    'This chat is on Block, which only allows checks that just read.',
+    'none',
+  ],
+  goal_check_refused: ["That command can't run here.", 'none'],
+  goal_check_unavailable: [
+    "A channel conversation's goal can't have a check.",
+    'none',
+  ],
   goal_library_too_large: ['There are too many saved goals to show.', 'none'],
   goal_operation_unconfirmed: [
     "Row-Bot couldn't confirm the goal change. Check the goal before trying again.",

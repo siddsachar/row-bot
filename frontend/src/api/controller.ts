@@ -2910,6 +2910,16 @@ export class ClientController {
     this.query(() => this.transport.waits?.(signal));
   stopWait = (waitId: string) =>
     this.query(() => this.transport.stopWait?.(waitId));
+  /** The activity log (D1): every tool action, its outcome and who decided. */
+  activity = (
+    filters: import('./types').ActivityFilters,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.activity?.(filters, signal));
+  activitySummary = (since: number, signal?: AbortSignal) =>
+    this.query(() => this.transport.activitySummary?.(since, signal));
+  exportActivity = (body: import('./types').ActivityExportRequest) =>
+    this.query(() => this.transport.exportActivity?.(body));
+  clearActivity = () => this.query(() => this.transport.clearActivity?.());
   /** Proactive Row-Bot (see `features/proactive/proactive-state.ts`). */
   proactiveMoments = (signal?: AbortSignal) =>
     this.query(() => this.transport.proactiveMoments?.(signal));
