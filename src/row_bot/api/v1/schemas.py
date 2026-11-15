@@ -2485,6 +2485,8 @@ class MigrationFailedItem(WireModel):
 class MigrationMemoryReview(WireModel):
     batch_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     found: int = Field(ge=0, le=5000)
+    # Past chats in the batch, for the person to look in for memories there (only if they choose).
+    conversations: int = Field(default=0, ge=0)
 
 
 class MigrationApplyReceipt(WireModel):
