@@ -72,27 +72,43 @@ def test_get_thread_messages_normalizes_langchain_content_blocks(tmp_path, monke
         "row_bot.threads.get_latest_checkpoint_messages",
         lambda _thread_id: [
             Message("human", [{"type": "text", "text": "hello"}, "world"]),
-            Message("ai", "a" * 3000),
-            Message("tool", "ignored"),
-            Message("human", {"not": "text"}),
+            Message("ai", "a" * 5000),
+            Message("human", "h" * 3000),
+            Message("tool", '<EXTERNAL_CONTENT source="read_url">\nthe page\n</EXTERNAL_CONTENT>'),
+            Message("ai", "after the page"),
         ],
     )
 
     messages = memory_extraction._get_thread_messages("thread-1")
 
     assert messages[0] == {"role": "user", "content": "hello\nworld"}
-    assert messages[1]["role"] == "assistant"
-    assert len(messages[1]["content"]) == 2000
-    assert messages[2] == {"role": "user", "content": "{'not': 'text'}"}
+    # An answer before anything from outside is trusted and read at up to 4,000 characters.
+    assert messages[1] == {"role": "assistant", "content": "a" * 4000, "trusted": True}
+    assert messages[2] == {"role": "user", "content": "h" * 2000}
+    # In a turn that read fenced outside text, the answer is loaded but never marked trusted.
+    assert messages[3] == {"role": "assistant", "content": "after the page"}
+    assert len(messages) == 4  # the tool result itself is never read
 
 
-def test_format_conversation_truncates_assistant_and_skips_malformed_messages(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+def test_a_watermark_saved_when_messages_were_read_at_2000_characters_still_finds_them(
+        tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    memory_extraction = fresh_memory_stack(tmp_path, monkeypatch, reload_for_data_dir)["memory_extraction"]
+    answer = {"role": "assistant", "content": "b" * 3500, "trusted": True, "id": "a1"}
+    before = dict(answer, content=answer["content"][:2000])  # as it was loaded before
+
+    watermark = memory_extraction._watermark_for([before], "")
+
+    assert memory_extraction._resume_index([answer], watermark) == 1
+
+
+def test_format_conversation_reads_only_trusted_answers_and_skips_malformed_messages(tmp_path, monkeypatch, reload_for_data_dir) -> None:
     memory_extraction = fresh_memory_stack(tmp_path, monkeypatch, reload_for_data_dir)["memory_extraction"]
 
     text = memory_extraction._format_conversation(
         [
             {"role": "user", "content": "I like deterministic tests."},
-            {"role": "assistant", "content": "x" * 250},
+            {"role": "assistant", "content": "x" * 4500, "trusted": True},
+            {"role": "assistant", "content": "untrusted words"},
             {"role": "tool", "content": "ignored"},
             {"content": "missing role"},
             "not a dict",
@@ -100,7 +116,9 @@ def test_format_conversation_truncates_assistant_and_skips_malformed_messages(tm
     )
 
     assert "User: I like deterministic tests." in text
-    assert "Assistant: " + ("x" * 200) + " [...]" in text
+    assert "Assistant: " + ("x" * 4000) + " [...]" in text
+    assert "Assistant: [answer left out: this turn read outside content]" in text
+    assert "untrusted words" not in text
     assert "ignored" not in text
     assert "missing role" not in text
 

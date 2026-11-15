@@ -67,11 +67,18 @@ def _assert_fenced_and_scanned(seen: str, name: str, raw: str) -> None:
         ("documents", {"documents"}),
         ("shell", {"run_command", "read_terminal"}),
         ("developer", {"developer_read_file", "developer_search", "developer_run_command"}),
+        ("wolfram_alpha", {"wolfram_alpha"}),
     ],
 )
 def test_results_of_tools_returning_outside_content_are_fenced_and_scanned(
     monkeypatch, parent: str, names: set[str]
 ) -> None:
+    from row_bot import api_keys
+
+    real_key = api_keys.get_key
+    # Wolfram binds its tool only with an App ID.
+    monkeypatch.setattr(api_keys, "get_key", lambda name, *args, **kwargs: "fixture-app-id"
+                        if name == "WOLFRAM_ALPHA_APPID" else real_key(name, *args, **kwargs))
     tool = tool_registry.get_tool(parent)
     bound = {lc_tool.name for lc_tool in tool.as_langchain_tools()}
     # The names the model really calls; a declared name the tool never binds protects nothing.

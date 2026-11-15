@@ -311,27 +311,42 @@ AGENT_BG_OVERRIDE = (
 
 EXTRACTION_PROMPT = """\
 You are a memory extraction assistant. Read the conversation below between \
-a user and an AI assistant. Extract ONLY facts that reveal who the user is, \
-what they care about, and what they are working on. Be conservative — it is \
+a user and an AI assistant. Extract the facts worth keeping about the \
+user's life: who they are, what they care about and what they are working \
+on; the people, places and events in their life, including what they \
+learned from or shared about others; and the substance of answers they \
+asked the assistant for and would want remembered. Be conservative — it is \
 far better to extract nothing than to save low-value noise. The user's full \
 conversation history is already searchable separately, so only save facts \
 that belong in a permanent knowledge base about this person.
 
 THE KEY TEST — Before extracting ANYTHING, ask yourself:
-"Did the USER explicitly state or clearly imply this fact about their own \
-life, work, relationships, or interests?" If YES → extract. If NO → skip.
+"Is this a fact about the user's life, or about the people, places and \
+events in it, that the user stated or clearly implied, or the substance of \
+an answer the user asked for and would want remembered?" If YES → extract. \
+If NO → skip.
+- From the user: facts about their own life, work, relationships and \
+  interests, and what they learned from or shared about others ("My sister \
+  moved to Lisbon", "Sam told me he is allergic to nuts").
+- From the assistant: only the substance of an answer the user asked for and \
+  took up or would want kept: a recommendation they chose, the name of a \
+  place, product or person found for them, a plan they agreed to. Save it as \
+  the user's (e.g. "The user chose Nostalgia, a vintage shop the assistant \
+  recommended"), never as general knowledge.
+- An assistant line that reads "[answer left out: ...]" came from a turn \
+  that read outside content; nothing of it is known.
 
-ENTITIES — Only extract when the USER stated or implied it:
-- person: People the user knows — family, friends, colleagues, pets
+ENTITIES — Only extract what passes the key test:
+- person: People the user knows or tells about — family, friends, colleagues, pets — and what the user learned about them
 - preference: The user's own likes, dislikes, habits, routines, choices
 - fact: Biographical details about the user — name, age, health, qualifications
-- event: Events with lasting personal significance — birthdays, deadlines, milestones, anniversaries
-- place: Places personally relevant to the user — home, workplace, travel destinations
+- event: Events with lasting personal significance in the user's life or the lives of people they know — birthdays, deadlines, milestones, anniversaries
+- place: Places personally relevant to the user — home, workplace, travel destinations, a place found for them
 - project: The user's own work projects, side projects, goals, initiatives
 - organisation: Companies, teams, institutions the user belongs to or works with
 - concept: Technologies, methodologies the user is actively working with or studying
 - skill: The user's abilities, programming languages, spoken languages, certifications
-- media: Books, movies, podcasts, papers the user says they are reading/watching/recommending
+- media: Books, movies, podcasts, papers the user says they are reading/watching/recommending, or chose from a recommendation
 
 Write descriptions as if they will appear in a knowledge base article — be \
 descriptive and include context, not just telegraphic labels.
@@ -388,9 +403,14 @@ ALIASES:
 - Format: "aliases": "Sarah, Mom" or "aliases": "Robert, Bob"
 
 DO NOT EXTRACT — these are the most common mistakes:
-- Content from AI responses — search results, news articles, web summaries, \
-  generated reports, research findings the AI looked up. The user asking \
-  "search for AI news" does NOT mean those news items are the user's knowledge.
+- General content from AI answers — explanations, news, summaries, generated \
+  reports, research findings, lists of options the user did not take up. The \
+  user asking "tell me the AI news" does NOT make those news items the user's \
+  knowledge; only what the user chose or would want kept counts.
+- Chit-chat and one-off trivia — greetings, thanks, small talk, a passing \
+  question answered once that the user will not need again.
+- Things the user would not want kept — passwords, codes, account or card \
+  numbers, and anything they asked to keep off the record or to forget.
 - Creative writing — fictional characters, places, events, or plot elements \
   from stories the AI generated. "Write me a story about a space captain" \
   does not create real entities.
@@ -409,8 +429,10 @@ DO NOT EXTRACT — these are the most common mistakes:
   (e.g. "The user is learning Rust").
 
 Rules:
-- ONLY extract facts the USER stated or implied about their own life, work, \
-  relationships, interests, or projects they are personally involved in
+- ONLY extract what passes the key test: facts the user stated or implied \
+  about their life (themselves, the people, places and events in it, their \
+  work, interests and projects), or the substance of an answer they asked \
+  for and would want remembered
 - When in doubt, do NOT extract — err on the side of silence
 - Return a JSON array of objects. There are TWO types of objects:
   1. Entity: {{"category": "...", "subject": "...", "content": "..."}}
