@@ -170,14 +170,18 @@ it('keeps the buttons waiting while Row-Bot is still answering, like the compose
   const pro = screen.getByRole('button', { name: 'Pro' });
   expect(pro).toBeDisabled();
   expect(
-    screen.getByText('You can choose when Row-Bot has finished.'),
+    screen.getByText(
+      'Choices open when Row-Bot is ready for your next message.',
+    ),
   ).toBeVisible();
   fireEvent.click(pro);
   expect(sent).not.toHaveBeenCalled();
   act(() => setPromptReady('conversation-a', true));
   expect(pro).toBeEnabled();
   expect(
-    screen.queryByText('You can choose when Row-Bot has finished.'),
+    screen.queryByText(
+      'Choices open when Row-Bot is ready for your next message.',
+    ),
   ).toBeNull();
   fireEvent.click(pro);
   expect(sent).toHaveBeenCalledOnce();

@@ -129,7 +129,7 @@ function Replies({
       })}
       {!ready && picked === null && (
         <span className="answer-replies-wait">
-          You can choose when Row-Bot has finished.
+          Choices open when Row-Bot is ready for your next message.
         </span>
       )}
     </div>
