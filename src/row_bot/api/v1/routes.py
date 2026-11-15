@@ -3293,8 +3293,9 @@ def create_router(
 
     @router.get("/conversations/{conversation_id}/answer-state")
     async def answer_state_view(conversation_id: str, request: Request) -> JSONResponse:
-        """The person's ticks and sent choices on this chat's answer components (F3)."""
-        await session(request)
+        """The person's ticks and sent choices on this chat's answer components (F3): read as the reply is
+        shown, so it doesn't wait behind background reads (the client paces it the same way)."""
+        await session(request, lane="view")
         from row_bot.application.answer_state import read_answer_state
 
         result = await call(read_answer_state, service, conversation_id)
