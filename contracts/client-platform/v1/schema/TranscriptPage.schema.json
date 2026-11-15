@@ -1,5 +1,29 @@
 {
   "$defs": {
+    "AnswerAction": {
+      "additionalProperties": false,
+      "description": "A reply button (F3): tapping it sends ``reply`` as the person's own message, nothing else.",
+      "properties": {
+        "label": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "reply": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reply",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "reply"
+      ],
+      "title": "AnswerAction",
+      "type": "object"
+    },
     "AttachmentBlock": {
       "additionalProperties": false,
       "properties": {
@@ -61,6 +85,14 @@
     "ChartBlock": {
       "additionalProperties": false,
       "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/AnswerAction"
+          },
+          "maxItems": 4,
+          "title": "Actions",
+          "type": "array"
+        },
         "figure_json": {
           "maxLength": 131072,
           "title": "Figure Json",
@@ -91,6 +123,239 @@
         "text"
       ],
       "title": "ChartBlock",
+      "type": "object"
+    },
+    "ChecklistBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/AnswerAction"
+          },
+          "maxItems": 4,
+          "title": "Actions",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ChecklistItemView"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 16384,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "checklist",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "items",
+        "actions",
+        "text"
+      ],
+      "title": "ChecklistBlock",
+      "type": "object"
+    },
+    "ChecklistItemView": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "title": "Done",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9_-]{1,96}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "done"
+      ],
+      "title": "ChecklistItemView",
+      "type": "object"
+    },
+    "ChoicesBlock": {
+      "additionalProperties": false,
+      "description": "A rowbot-choices component: 2-6 reply buttons; a tap sends that option's words as the person.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/AnswerAction"
+          },
+          "maxItems": 6,
+          "minItems": 2,
+          "title": "Options",
+          "type": "array"
+        },
+        "prompt": {
+          "maxLength": 300,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "choices",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "prompt",
+        "options",
+        "text"
+      ],
+      "title": "ChoicesBlock",
+      "type": "object"
+    },
+    "FigureView": {
+      "additionalProperties": false,
+      "properties": {
+        "delta": {
+          "maxLength": 60,
+          "title": "Delta",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "tone": {
+          "enum": [
+            "good",
+            "bad",
+            "neutral"
+          ],
+          "title": "Tone",
+          "type": "string"
+        },
+        "unit": {
+          "maxLength": 12,
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "label",
+        "value",
+        "unit",
+        "delta",
+        "tone"
+      ],
+      "title": "FigureView",
+      "type": "object"
+    },
+    "FiguresBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/AnswerAction"
+          },
+          "maxItems": 4,
+          "title": "Actions",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/FigureView"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 4096,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "figures",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "items",
+        "actions",
+        "text"
+      ],
+      "title": "FiguresBlock",
       "type": "object"
     },
     "GenerationState": {
@@ -349,6 +614,94 @@
       "title": "MermaidBlock",
       "type": "object"
     },
+    "ProgressBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/AnswerAction"
+          },
+          "maxItems": 4,
+          "title": "Actions",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ProgressItemView"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 8192,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "progress",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "items",
+        "actions",
+        "text"
+      ],
+      "title": "ProgressBlock",
+      "type": "object"
+    },
+    "ProgressItemView": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "target": {
+          "exclusiveMinimum": 0,
+          "title": "Target",
+          "type": "number"
+        },
+        "unit": {
+          "maxLength": 12,
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "minimum": 0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "value",
+        "target",
+        "unit"
+      ],
+      "title": "ProgressItemView",
+      "type": "object"
+    },
     "SettingChange": {
       "additionalProperties": false,
       "description": "A change to one of Row-Bot's settings, in words: the row's name, where it is, what it was and becomes.",
@@ -390,6 +743,116 @@
         "after"
       ],
       "title": "SettingChange",
+      "type": "object"
+    },
+    "TableBlock": {
+      "additionalProperties": false,
+      "description": "A rowbot-table component: plain-text cells in column order, sorted in the client.",
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/AnswerAction"
+          },
+          "maxItems": 4,
+          "title": "Actions",
+          "type": "array"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/TableColumn"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 500,
+          "title": "Note",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "items": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 262144,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "table",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "columns",
+        "rows",
+        "note",
+        "actions",
+        "text"
+      ],
+      "title": "TableBlock",
+      "type": "object"
+    },
+    "TableColumn": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "text",
+            "number",
+            "currency",
+            "percent",
+            "date"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "type"
+      ],
+      "title": "TableColumn",
       "type": "object"
     },
     "TextBlock": {
@@ -811,8 +1274,13 @@
               "mapping": {
                 "attachment": "#/$defs/AttachmentBlock",
                 "chart": "#/$defs/ChartBlock",
+                "checklist": "#/$defs/ChecklistBlock",
+                "choices": "#/$defs/ChoicesBlock",
+                "figures": "#/$defs/FiguresBlock",
                 "markdown": "#/$defs/MarkdownBlock",
                 "mermaid": "#/$defs/MermaidBlock",
+                "progress": "#/$defs/ProgressBlock",
+                "table": "#/$defs/TableBlock",
                 "text": "#/$defs/TextBlock",
                 "youtube": "#/$defs/YouTubeBlock"
               },
@@ -830,6 +1298,21 @@
               },
               {
                 "$ref": "#/$defs/ChartBlock"
+              },
+              {
+                "$ref": "#/$defs/TableBlock"
+              },
+              {
+                "$ref": "#/$defs/ChecklistBlock"
+              },
+              {
+                "$ref": "#/$defs/FiguresBlock"
+              },
+              {
+                "$ref": "#/$defs/ProgressBlock"
+              },
+              {
+                "$ref": "#/$defs/ChoicesBlock"
               },
               {
                 "$ref": "#/$defs/YouTubeBlock"
