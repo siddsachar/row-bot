@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -96,7 +98,7 @@ def create_realistic_hermes_home(root: str | Path) -> Path:
     _write(home / "cron" / "jobs.json", _json({"jobs": [{"name": "daily briefing", "schedule": "daily:08:30"}]}))
     _write(home / "mcp-tokens" / "linear.json", _json({"access_token": "linear-secret-token"}))
     _write(home / "auth.json", _json({"providers": {"openai": {"api_key": "sk-legacy-auth"}}}))
-    _write(home / "state.db", "sqlite placeholder for Hermes state\n")
+    _write_hermes_state(home / "state.db")
     return home
 
 
@@ -206,6 +208,43 @@ def create_realistic_openclaw_home(root: str | Path) -> Path:
     _write(home / "workspace" / ".agents" / "skills" / "project-context" / "SKILL.md", "---\nname: project-context\ndescription: Project context\n---\n\nUse workspace notes.\n")
     _write(home / "state.db", "sqlite placeholder for OpenClaw gateway state\n")
     return home
+
+
+# Hermes's chats: state.db's sessions and messages, as Hermes writes them (in write-ahead-log mode).
+_HERMES_CHATS = (
+    ("s-garden", "cli", "Garden plans", 1762900000, (
+        ("user", "I am building raised beds this spring."), ("assistant", "Good plan: start with the soil."))),
+    ("s-atlas", "telegram", "Atlas release", 1763000000, (
+        ("user", "Remind me that Atlas ships on Fridays."), ("tool", '{"ok": true}'),
+        ("assistant", "Noted: Atlas ships on Fridays."))),
+    ("s-run", "cli", None, 1763100000, (
+        ("user", "I run 10k every Sunday morning."), ("assistant", "Nice routine."))),
+)
+
+
+def write_hermes_chat(conn: sqlite3.Connection, session_id: str, title: str | None, started: float,
+                      turns: tuple[tuple[str, str], ...], *, source: str = "cli") -> None:
+    """Add one chat to an open Hermes ``state.db``."""
+    conn.execute("INSERT INTO sessions VALUES (?, ?, ?, ?, ?)",
+                 (session_id, source, title, started, started + 60 * len(turns)))
+    conn.executemany(
+        "INSERT INTO messages (session_id, role, content, timestamp, active, compacted) VALUES (?, ?, ?, ?, 1, 0)",
+        [(session_id, role, text, started + index) for index, (role, text) in enumerate(turns)],
+    )
+
+
+def _write_hermes_state(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.executescript(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, title TEXT, started_at REAL, ended_at REAL);"
+            "CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,"
+            " timestamp REAL, active INTEGER, compacted INTEGER);"
+        )
+        for session_id, source, title, started, turns in _HERMES_CHATS:
+            write_hermes_chat(conn, session_id, title, started, turns, source=source)
+        conn.commit()
 
 
 def _write(path: Path, content: str) -> None:
