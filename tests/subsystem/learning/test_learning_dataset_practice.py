@@ -25,9 +25,10 @@ pytestmark = [pytest.mark.subsystem]
 
 HOUR = 3600.0
 NIGHT = "2027-01-16"
-#: This fixture's rows as ``main`` compiles them before L4b (``a9cc5ceeb``), captured and in the serving shape.
-ROWS_BEFORE = {"captured": "ef330b4c5798e2367cfe226302986e92c0b90d39b4a1c6a7763da6c0ac711836",
-               "serving": "9ac59db3d505222b2f5f27bcaf956a39eee7455c8b8924525dd459c40dda7dbc"}
+#: This fixture's rows as ``main`` compiles them without L4b (``9cc6b0870``, the 16 GB recipe), captured and in
+#: the serving shape.
+ROWS_BEFORE = {"captured": "431a67b52af853bcbff6ea2da990cecf7374adf59a8c49fc8aee3c9dceb42641",
+               "serving": "ccbfa8822b132bfb5d4bc3c7064ec408c76baf5130cd654f636ff5823c6ad35d"}
 MANIFEST_KEYS = {"format", "version", "id", "sha256", "recipe", "max_seq_length", "measured", "examples", "validation",
                  "historical", "rendering", "derived", "derived_ids", "left_out", "providers", "terms_note",
                  "corrections_waiting", "paths_made_relative", "first_at", "last_at", "conversations", "example_ids",
@@ -36,7 +37,7 @@ MANIFEST_KEYS = {"format", "version", "id", "sha256", "recipe", "max_seq_length"
 
 @pytest.fixture
 def recipe():
-    return recipes.load("8gb")
+    return recipes.load("16gb")
 
 
 @pytest.fixture
