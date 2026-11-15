@@ -21,11 +21,14 @@ const server = vi.hoisted(() => ({
   views: new Map<string, View>(),
   saves: [] as AnswerStateChange[],
   failNext: '' as string,
+  // The next read's answer, when a test holds it back or fails it.
+  reads: [] as (() => Promise<View>)[],
 }));
 
 vi.mock('../../../runtime', () => {
   const controller = {
     answerState: async (conversation: string) =>
+      server.reads.shift()?.() ??
       structuredClone(
         server.views.get(conversation) ?? {
           conversation_id: conversation,
@@ -242,4 +245,44 @@ it('keeps a Markdown task list’s ticks for the chat', async () => {
     item_id: 'task-0',
     done: true,
   });
+});
+
+it('reads the chat’s state again when the first read fails, so kept ticks still show', async () => {
+  server.views.set('chat-8', {
+    conversation_id: 'chat-8',
+    revision: 'r3',
+    ticks: { [LIST]: { room: true } },
+    choices: {},
+  });
+  // Shown before the connection is ready: the first read is refused.
+  server.reads.push(() => Promise.reject({ code: 'authentication_required' }));
+  checklist('chat-8');
+  const room = screen.getByRole('checkbox', { name: 'Book the room' });
+  await waitFor(() => expect(room).toBeChecked(), { timeout: 3000 });
+});
+
+it('never lets a read that started before a tick take the tick back', async () => {
+  server.views.set('chat-9', {
+    conversation_id: 'chat-9',
+    revision: 'r0',
+    ticks: {},
+    choices: {},
+  });
+  // The chat's first read is slow: it answers with the state from before the tick.
+  let answer: (view: View) => void = () => {};
+  server.reads.push(() => new Promise<View>((resolve) => (answer = resolve)));
+  checklist('chat-9');
+  const room = screen.getByRole('checkbox', { name: 'Book the room' });
+  await act(async () => fireEvent.click(room));
+  expect(server.views.get('chat-9')!.ticks[LIST]).toEqual({ room: true });
+  await act(async () =>
+    answer({
+      conversation_id: 'chat-9',
+      revision: 'r0',
+      ticks: {},
+      choices: {},
+    }),
+  );
+  expect(room).toBeChecked();
+  expect(screen.getByText('1 of 2 done')).toBeVisible();
 });

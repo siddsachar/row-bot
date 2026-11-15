@@ -4332,6 +4332,15 @@ button.attachment-tile-face:hover {
 .context-meter-detail .context-breakdown-note {
   color: var(--text-muted);
 }
+.context-meter-detail .context-summary-ready {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+.context-summary-ready > svg {
+  flex: none;
+}
 .context-meter-more > .disclosure-summary {
   min-height: 28px;
   padding: 2px 0;
