@@ -29,6 +29,28 @@ See [Settings: Skills](/docs/settings/skills) for the page itself.
 5. Test it with **Try it** or a small prompt.
 6. Revise if Row-Bot overuses or misunderstands it.
 
+## Save How Row-Bot Did Something
+
+Any reply whose work used tools has **Save as skill** (a bookmark icon) in its actions. Row-Bot drafts a skill from what it actually did in that turn, on the chat's own model, and opens it for you to review.
+
+Row-Bot also offers this by itself, but only when a skill looks really worth it. A line under the reply names the task: **Save “Monthly expense report” as a skill?** It offers only when all of these hold:
+
+- the work was in your own chat (never an incognito chat, one that was incognito, a channel chat, a helper's, a workflow's or Proactive Row-Bot's);
+- it took at least five real steps with three different tools, and it made or changed something: research, lookups and questions never get an offer;
+- every step ran (none was denied or blocked) and no skill you have already covers it;
+- there is a reason to expect it again: you did something like it in another chat in the last 30 days, you showed Row-Bot how you wanted the steps done, it took a few tries to get right, or you said it comes round again ("every month", "weekly", "like last time");
+- one short check on the chat's model agrees a skill would make it faster or more reliable next time, and names what changes each time.
+
+Row-Bot offers at most three a day and one per chat. **Not now** hides that task for 30 days, and three in a row pause offers for two weeks.
+
+The review sheet shows **Why Row-Bot offered this**, **What it will do** and the SKILL.md itself, with the chat it came from:
+
+- **Approve** saves the skill and turns it on, so it loads by itself when a request matches. It isn't pinned. The notice that follows has **Undo**.
+- **Edit** changes its name, what it does, when to use it, what changes each time, its steps and its checks. Your edit is final: no model rewrites it.
+- **Reject** asks why, and Row-Bot won't offer that task again for a while.
+
+Nothing is saved until you approve, and a draft never adds links, addresses, credentials or permission to skip approvals: Row-Bot drafts again once without them, then stops. A draft you leave waits in **Settings › Skills** under **Skill proposals**, marked **From** its chat; deleting the chat deletes the draft. Row-Bot's own offers follow the **Learn new skills** switch in Settings › Preferences (**Create skills while chatting** with Learning); **Save as skill** is always there.
+
 ## What Skills Change
 
 Skills shape Row-Bot's behavior; they do not automatically grant credentials or bypass approvals. A skill can make Row-Bot more consistent for a task, but tools still need to be enabled and approved where appropriate.
