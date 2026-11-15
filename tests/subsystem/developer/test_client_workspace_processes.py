@@ -451,6 +451,28 @@ def test_prepared_container_mismatch_never_starts_command_or_creates_owner(docke
     assert d.runs.list_agent_write_locks() == []
 
 
+@pytest.mark.parametrize(("network", "starts"), [("bridge", False), ("host", False), ("private", True),
+                                                 ("none", True)])
+def test_a_networked_sandbox_process_starts_only_behind_its_gate_or_offline(docker, network, starts):
+    """With the sandbox network on, a container on Docker's own network (this computer in reach) never runs it."""
+    from row_bot.developer import sandbox_egress
+
+    d = docker.d
+    workspace = d.storage.get_workspace(d.workspace.id)
+    workspace.sandbox_network = "on"
+    workspace.touch()
+    d.storage.save_workspace(workspace)
+    docker.options["inspect_changes"] = {
+        "network": sandbox_egress.network_name(workspace.id) if network == "private" else network}
+    result = d.start(command="python3 -V")
+    if starts:
+        assert d.state(result.process_id).done.wait(30)
+        assert d.runs.get_agent_run(result.run_id)["result_json"]["completion_receipt"]["payload"]["quiesced"]
+    else:
+        assert result.quiesced and result.state == "failed"
+        assert not docker.receipt_path.exists() and not d.runtime.tracked_processes(d.workspace.path)
+
+
 def test_remote_explicit_stop_waits_for_signed_completion(docker, monkeypatch):
     d = docker.d
     # The fixture's 0.05 s suits launchers that never answer; this one does answer, and a

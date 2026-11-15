@@ -145,6 +145,8 @@ class WorkspaceInspector:
     todos: tuple[WorkspaceTodo, ...]
     error: str = ""
     project_notes: tuple[WorkspaceProjectNote, ...] = ()
+    # Why a sandbox with its network on is running without it for now (its gate didn't start).
+    sandbox_network_note: str = ""
 
 
 @dataclass(frozen=True)
@@ -576,7 +578,15 @@ async def get_workspace_inspector(resource_id: str, conversation_id: str,
         tuple(WorkspaceTodo(t.id[:256], t.label[:4096], t.status[:80]) for t in snapshot.todos[:100]),
         "inspector_refresh_failed" if snapshot.error or refresh_error else "",
         tuple(WorkspaceProjectNote(item.path, item.state, item.characters, item.used_characters)
-              for item in snapshot.project_notes))
+              for item in snapshot.project_notes),
+        _sandbox_network_note(workspace))
+
+
+def _sandbox_network_note(workspace: DeveloperWorkspace) -> str:
+    if workspace.execution_mode != "docker" or workspace.sandbox_network == "off":
+        return ""
+    from row_bot.developer.sandbox_runtime import network_problem
+    return network_problem(workspace.id)[:1024]
 
 
 def list_inspector_changes(resource_id: str, conversation_id: str, cursor: str | None = None,

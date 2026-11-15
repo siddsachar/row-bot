@@ -298,6 +298,12 @@
       "title": "Resource Id",
       "type": "string"
     },
+    "sandbox_network_note": {
+      "default": "",
+      "maxLength": 1024,
+      "title": "Sandbox Network Note",
+      "type": "string"
+    },
     "snapshot_revision": {
       "maxLength": 128,
       "title": "Snapshot Revision",
