@@ -3038,30 +3038,42 @@ button.agent-row-main:focus-visible {
   resize: vertical;
   font-size: var(--type-size-label);
 }
+/* The two limits side by side (wrapping on a narrow rail), then Cancel and
+   Start goal on their own row, right-aligned. */
 .context-goal-form-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+  gap: 6px 12px;
 }
 .context-goal-form-row > label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-inline-end: auto;
   color: var(--text-muted);
   font-size: var(--type-size-metadata);
 }
 .context-goal-form-row .input {
-  width: 64px;
+  /* Wide enough for its "No limit" placeholder. */
+  width: 10ch;
   min-height: 28px;
   padding: 2px 6px;
 }
-.context-goal-form-row .button {
+.context-goal-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.context-goal-form-actions .button {
   min-height: 28px;
   padding: 3px 10px;
   font-size: var(--type-size-metadata);
+}
+@media (pointer: coarse) {
+  .context-goal-form-actions .button {
+    min-height: var(--control-size);
+  }
 }
 .context-goal-history {
   margin-top: 4px;

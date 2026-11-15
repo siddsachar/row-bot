@@ -862,6 +862,8 @@ export default function ContextGoal({
                   onChange={(event) => edited(setHours)(event.target.value)}
                 />
               </label>
+            </div>
+            <div className="context-goal-form-actions">
               <Button
                 variant="ghost"
                 disabled={busy}
