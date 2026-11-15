@@ -606,7 +606,60 @@ def render_frame(page_id: str, theme: Any) -> str:
 
     page = require(page_id)
     _rate(page_id, "frame", FRAMES_PER_MINUTE)
-    html = document(page, theme)
+    return _serve_once(document(page, theme))
+
+
+# An inline visual in a reply (F3) reuses the page frame: served once, under ``FRAME_HEADERS`` (no network,
+# sandboxed again). It has no bridge; it only tells the chat its height, and hears which theme is shown.
+MAX_VISUAL_BYTES = 200 * KB
+VISUAL_FRAMES_PER_MINUTE = 120
+_VISUAL_BOOT = (
+    "(function(){var last=0;function send(){var h=Math.ceil(document.documentElement.getBoundingClientRect().height);"
+    "if(h!==last){last=h;parent.postMessage({type:'rowbot-visual-height',h:h},'*');}}"
+    "new ResizeObserver(send).observe(document.documentElement);addEventListener('load',send);"
+    "addEventListener('message',function(e){if(e.source===parent&&e.data&&e.data.type==='rowbot-visual-theme')"
+    "{document.documentElement.dataset.theme=e.data.mode==='dark'?'dark':'light';}});})();"
+)
+# A quiet base look under the visual's own styles (which come later and win): the theme's colour scheme,
+# Row-Bot's text colour and font, its accent on form controls, and modest margins.
+_VISUAL_STYLE = (
+    ":root{color-scheme:light}:root[data-theme=\"dark\"]{color-scheme:dark}"
+    "html,body{margin:0;background:transparent}"
+    "body{padding:12px;color:var(--rb-text-primary);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",Roboto,"
+    "sans-serif;-webkit-font-smoothing:antialiased}"
+    "body>:first-child{margin-top:0}body>:last-child{margin-bottom:0}"
+    "h1,h2,h3,h4{margin:0 0 .5em;line-height:1.25;font-weight:600}h1{font-size:1.4em}h2{font-size:1.2em}"
+    "h3,h4{font-size:1em}p,ul,ol,figure,table{margin:0 0 .75em}"
+    "a{color:var(--rb-accent-solid)}small,figcaption{color:var(--rb-text-secondary)}"
+    "input,select,textarea,button,progress,meter{accent-color:var(--rb-accent-solid);font:inherit;color:inherit}"
+    "input[type=range]{width:100%;margin:.5em 0}"
+    "button,select,input:not([type=range]):not([type=checkbox]):not([type=radio]),textarea{"
+    "padding:.35em .7em;border:1px solid var(--rb-border-control);border-radius:8px;"
+    "background:var(--rb-surface-raised)}button{cursor:pointer}"
+    ":focus-visible{outline:2px solid var(--rb-focus-ring);outline-offset:2px}"
+    "table{border-collapse:collapse}th,td{padding:.35em .6em;border-bottom:1px solid var(--rb-border-subtle);"
+    "text-align:left}"
+    "body>svg{display:block;margin:0 auto}svg,img,canvas,video{max-width:100%;height:auto}"
+)
+
+
+def render_visual_frame(conversation_id: str, html: str, theme: Any) -> str:
+    """One frame address for a visual Row-Bot drew in this chat: its HTML/SVG with the theme's tokens."""
+
+    if not isinstance(html, str) or not html.strip():
+        raise PageError("chat_page_invalid", "The visual is empty.")
+    if len(html.encode("utf-8")) > MAX_VISUAL_BYTES:
+        raise PageError("chat_page_too_large", "The visual is over 200 KB.")
+    _rate(f"visual:{conversation_id}", "frame", VISUAL_FRAMES_PER_MINUTE)
+    tokens = theme_tokens(theme)
+    return _serve_once(
+        f'<!doctype html><html data-theme="{tokens["mode"]}"><head><meta charset="utf-8">'
+        f'<style id="rowbot-tokens">{_token_css(tokens)}{_VISUAL_STYLE}</style>'
+        f"<script>{_VISUAL_BOOT}</script></head><body>\n{html}\n</body></html>"
+    )
+
+
+def _serve_once(html: str) -> str:
     token = secrets.token_hex(16)
     now = time.monotonic()
     with _LOCK:

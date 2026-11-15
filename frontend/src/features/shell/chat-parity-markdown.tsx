@@ -235,6 +235,7 @@ const PENDING: Record<string, string> = {
   'rowbot-figures': 'Preparing figures…',
   'rowbot-progress': 'Preparing progress…',
   'rowbot-choices': 'Preparing choices…',
+  'rowbot-visual': 'Drawing a visual…',
 };
 
 type TaskOwner = { conversationId?: string; blockId: string };

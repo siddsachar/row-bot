@@ -1282,6 +1282,7 @@
                 "progress": "#/$defs/ProgressBlock",
                 "table": "#/$defs/TableBlock",
                 "text": "#/$defs/TextBlock",
+                "visual": "#/$defs/VisualBlock",
                 "youtube": "#/$defs/YouTubeBlock"
               },
               "propertyName": "type"
@@ -1313,6 +1314,9 @@
               },
               {
                 "$ref": "#/$defs/ChoicesBlock"
+              },
+              {
+                "$ref": "#/$defs/VisualBlock"
               },
               {
                 "$ref": "#/$defs/YouTubeBlock"
@@ -1727,6 +1731,49 @@
         "summary_truncated"
       ],
       "title": "TranscriptTraceItem",
+      "type": "object"
+    },
+    "VisualBlock": {
+      "additionalProperties": false,
+      "description": "A rowbot-visual (F3): HTML/SVG the client draws only in a sandboxed frame with no network.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 204800,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 200,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "visual",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "source",
+        "text"
+      ],
+      "title": "VisualBlock",
       "type": "object"
     },
     "YouTubeBlock": {

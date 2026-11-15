@@ -1044,6 +1044,18 @@ export interface ClientTransport {
     change: Wire.AnswerStateChange,
     signal?: AbortSignal,
   ): Promise<Wire.AnswerStateView>;
+  /** One frame address for a visual in a reply (F3), served once, no network. */
+  createVisualFrame?(
+    conversationId: string,
+    request: Wire.VisualFrameRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.VisualFrame>;
+  /** The person's "Open as page" on a visual in a reply (F3). */
+  createVisualPage?(
+    conversationId: string,
+    request: Wire.VisualPageRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.PageView>;
   /** One frame address for a page in this theme, loaded once in a sandbox. */
   pageFrame?(
     pageId: string,

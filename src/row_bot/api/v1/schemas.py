@@ -9387,6 +9387,32 @@ class ProgressBlock(WireModel):
     text: str = Field(max_length=8192)
 
 
+class VisualBlock(WireModel):
+    """A rowbot-visual (F3): HTML/SVG the client draws only in a sandboxed frame with no network."""
+    id: OpaqueId
+    type: Literal["visual"]
+    title: str = Field(max_length=120)
+    source: str = Field(min_length=1, max_length=204800)
+    text: str = Field(max_length=200)
+
+
+class VisualFrameRequest(WireModel):
+    """A visual's HTML/SVG and the theme shown, for one sandboxed frame."""
+    html: str = Field(min_length=1, max_length=204800)
+    theme: PageTheme
+
+
+class VisualFrame(WireModel):
+    """The visual's frame address, served once to a frame with ``sandbox="allow-scripts"``, no network."""
+    frame_url: Annotated[str, StringConstraints(pattern=r"^/page-frames/[0-9a-f]{32}$")]
+
+
+class VisualPageRequest(WireModel):
+    """The person's "Open as page" on a visual: its title and HTML, made a page in that chat."""
+    title: str = Field(max_length=120)
+    html: str = Field(min_length=1, max_length=204800)
+
+
 class ChoicesBlock(WireModel):
     """A rowbot-choices component: 2-6 reply buttons; a tap sends that option's words as the person."""
     id: OpaqueId
@@ -9425,6 +9451,7 @@ TranscriptBlock = Annotated[
         FiguresBlock,
         ProgressBlock,
         ChoicesBlock,
+        VisualBlock,
         YouTubeBlock,
         AttachmentBlock,
     ],

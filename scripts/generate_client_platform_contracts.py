@@ -111,7 +111,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
-    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange","ParentSteeringView", "ClientQueueView",
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
 
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
@@ -580,6 +580,8 @@ OPERATIONS = (
     ("put", "/conversations/{conversation_id}/draft", "DraftSave", "DraftView"),
     ("get", "/conversations/{conversation_id}/answer-state", None, "AnswerStateView"),
     ("put", "/conversations/{conversation_id}/answer-state", "AnswerStateChange", "AnswerStateView"),
+    ("post", "/conversations/{conversation_id}/visual-page", "VisualPageRequest", "PageView"),
+    ("post", "/conversations/{conversation_id}/visual-frame", "VisualFrameRequest", "VisualFrame"),
     ("post", "/resources/commands", "Command", "CommandReceipt"),
     ("post", "/resources/folder-selection", None, "FolderGrantView"),
     ("post", "/resources/folder-selection/claim", "FolderGrantClaim", "FolderGrantView"),
@@ -823,6 +825,12 @@ export const getAnswerState = (base: string, proof: SessionProof, conversation: 
   jsonRequest(base, `/conversations/${id(conversation)}/answer-state`, 'AnswerStateView', proof, 'GET', undefined, undefined, signal);
 export const saveAnswerState = (base: string, proof: SessionProof, conversation: string, body: AnswerStateChange, signal?: AbortSignal): Promise<AnswerStateView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/answer-state`, 'AnswerStateView', proof, 'PUT', body, undefined, signal);
+/** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
+export const createVisualFrame = (base: string, proof: SessionProof, conversation: string, body: VisualFrameRequest, signal?: AbortSignal): Promise<VisualFrame> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/visual-frame`, 'VisualFrame', proof, 'POST', body, undefined, signal);
+/** The person's "Open as page" on a visual in a reply (F3). */
+export const createVisualPage = (base: string, proof: SessionProof, conversation: string, body: VisualPageRequest, signal?: AbortSignal): Promise<PageView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/visual-page`, 'PageView', proof, 'POST', body, undefined, signal);
 export const getResourceLibrary = (base: string, proof: SessionProof, kind: 'artifact'|'workspace', cursor?: string, signal?: AbortSignal): Promise<ResourceChoicePage> =>
   jsonRequest(base, `/resources/library/${kind}` + query({cursor}), 'ResourceChoicePage', proof, 'GET', undefined, undefined, signal);
 export const getDeckSetup = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<DeckSetupOptions> =>

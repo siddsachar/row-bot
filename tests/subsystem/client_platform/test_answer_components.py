@@ -195,3 +195,19 @@ def test_the_block_bound_still_holds_with_many_components():
     blocks = _project("\n\n".join([fence] * (MAX_BLOCKS + 20)))
     assert len(blocks) == MAX_BLOCKS
     assert {block["type"] for block in blocks} == {"progress"}
+
+
+def test_a_visual_keeps_its_html_for_the_sandboxed_frame_and_names_itself():
+    svg = '<svg viewBox="0 0 10 10"><title>Water <b>cycle</b></title><circle r="4"/></svg>'
+    blocks = _project("A diagram:\n\n```rowbot-visual\n" + svg + "\n```")
+    assert [block["type"] for block in blocks] == ["markdown", "visual"]
+    assert blocks[1]["source"] == svg
+    assert blocks[1]["title"] == "Water cycle"
+    assert blocks[1]["text"] == "Visual: Water cycle"
+
+
+def test_an_empty_or_oversized_visual_stays_code():
+    for body in (" ", "<div>" + "x" * (200 * 1024) + "</div>"):
+        fence = "```rowbot-visual\n" + body + "\n```"
+        blocks = _project(fence)
+        assert [block["type"] for block in blocks] == ["markdown"]

@@ -185,6 +185,122 @@ test('a reply’s components render from the server, and a choice sends the pers
   ).toContainText('Sent');
 });
 
+test('a visual draws in its sandbox with no network, expands, and opens as a page', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium pass',
+  );
+  // The browser says what it refused the visual's network probe (Chromium's words).
+  const probe = 'https://example.com/f3-visual-probe';
+  for (const signature of [
+    `Connecting to '${probe}' violates the following Content Security Policy directive: "connect-src 'none'". The action has been blocked.`,
+    `Fetch API cannot load ${probe}. Refused to connect because it violates the document's Content Security Policy.`,
+  ])
+    info.annotations.push({
+      type: 'expected-console-error',
+      description: JSON.stringify({
+        owner: 'answer components',
+        fixture: 'interactive visual network probe',
+        signature,
+        count: 1,
+        upTo: true,
+      }),
+    });
+  const outside: string[] = [];
+  page.on('request', (request) => {
+    if (!new URL(request.url()).hostname.match(/^(127\.0\.0\.1|localhost)$/))
+      outside.push(request.url());
+  });
+  await newConversation(page);
+  await ask(page, 'f3 visuals fixture');
+  const log = page.getByRole('log', { name: 'Conversation' });
+  const visuals = log.locator('.answer-visual');
+  await expect(visuals).toHaveCount(2);
+  const diagram = visuals.first();
+  await expect(diagram.locator('.rich-block-title')).toHaveText(
+    'The water cycle',
+  );
+  await expect(diagram.getByText('Made by Row-Bot')).toBeVisible();
+  const frames = log.locator('iframe.answer-visual-frame');
+  for (const index of [0, 1]) {
+    await expect(frames.nth(index)).toHaveAttribute('sandbox', 'allow-scripts');
+    // A document Row-Bot serves once, under its own no-network policy.
+    await expect(frames.nth(index)).toHaveAttribute(
+      'src',
+      /^\/page-frames\/[0-9a-f]{32}$/,
+    );
+  }
+  const svg = page.frameLocator('iframe[title="The water cycle"]');
+  await expect(svg.getByText('Clouds')).toBeVisible();
+
+  // The interactive one runs its own script; its network probe is refused.
+  const slider = page.frameLocator('iframe[title="Compound interest"]');
+  await expect(slider.locator('#probe')).toHaveAttribute(
+    'data-network',
+    'blocked',
+  );
+  await expect(slider.locator('#total')).toHaveText('£1,629');
+  await slider.getByRole('slider', { name: 'Years' }).fill('20');
+  await expect(slider.locator('#total')).toHaveText('£2,653');
+  // The frame grew to its content, within bounds.
+  const height = await frames
+    .nth(1)
+    .evaluate((element) => element.getBoundingClientRect().height);
+  expect(height).toBeGreaterThanOrEqual(120);
+  expect(height).toBeLessThanOrEqual(900);
+  expect(outside).toEqual([]);
+  // The base look: the controls take Row-Bot's accent, not the browser's.
+  const accent = await slider
+    .getByRole('slider', { name: 'Years' })
+    .evaluate((element) => getComputedStyle(element).accentColor);
+  expect(accent).not.toBe('auto');
+  await slider
+    .getByRole('slider', { name: 'Years' })
+    .evaluate((element) => (element as HTMLElement).blur());
+  // Each frame hugs its content: no empty band under the diagram.
+  for (const index of [0, 1]) {
+    const fit = await frames.nth(index).evaluate((element) => {
+      const frame = element as HTMLIFrameElement;
+      return { frame: frame.getBoundingClientRect().height };
+    });
+    const content = await page
+      .frameLocator('iframe.answer-visual-frame')
+      .nth(index)
+      .locator('html')
+      .evaluate((root) => root.getBoundingClientRect().height);
+    expect(Math.abs(fit.frame - Math.max(120, content))).toBeLessThanOrEqual(2);
+  }
+
+  await dismissNotices(page);
+  await screens(page, info, 'visual-diagram', () => diagram);
+  await screens(page, info, 'visual-slider', () => visuals.nth(1));
+
+  await diagram.getByRole('button', { name: 'Expand' }).click();
+  const dialog = page.getByRole('dialog', { name: 'The water cycle' });
+  await expect(dialog.locator('iframe.answer-visual-frame')).toHaveAttribute(
+    'sandbox',
+    'allow-scripts',
+  );
+  await screens(page, info, 'visual-expanded', () => dialog);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  await diagram.getByRole('button', { name: 'Open as page' }).click();
+  const panel = page.getByRole('region', { name: 'The water cycle page' });
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('iframe')).toHaveAttribute(
+    'sandbox',
+    'allow-scripts',
+  );
+  await expect(
+    page.frameLocator('iframe.page-frame').getByText('Clouds'),
+  ).toBeVisible();
+  await screenshot(page, info, 'visual-open-as-page');
+  expect(outside).toEqual([]);
+});
+
 const TABLE = [
   'Here is the budget:',
   '',

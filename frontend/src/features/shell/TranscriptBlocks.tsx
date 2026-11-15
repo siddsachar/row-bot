@@ -32,6 +32,7 @@ import {
   AnswerTable,
   ChartReplies,
 } from './answer-components/AnswerComponents';
+import { AnswerVisual } from './answer-components/Visual';
 import { saveProblem, useSaveFile } from './save-file';
 import {
   fileKind,
@@ -484,6 +485,7 @@ export function publicBlockText(block: Block) {
     case 'figures':
     case 'progress':
     case 'choices':
+    case 'visual':
       return block.text;
     case 'youtube':
       return `${block.title}\n${block.url}`;
@@ -560,6 +562,15 @@ export function TranscriptBlocks({
             return <AnswerProgress block={block} target={target} key={key} />;
           case 'choices':
             return <AnswerChoices block={block} target={target} key={key} />;
+          case 'visual':
+            return (
+              <AnswerVisual
+                block={block}
+                conversationId={conversationId}
+                copyText={copyText}
+                key={key}
+              />
+            );
           case 'youtube':
             return <YouTube block={block} key={key} />;
           case 'attachment':
