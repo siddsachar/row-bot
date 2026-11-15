@@ -100,10 +100,14 @@ export function profileChoice(
 }
 
 export type GoalRequest =
-  | { operation: 'start'; objective: string }
+  | { operation: 'start'; objective: string; check?: string }
   | { operation: 'pause' | 'resume' | 'clear' | 'complete' };
 
-/** "/goal pause" controls the goal; anything else starts one. */
+/**
+ * "/goal pause" controls the goal; anything else starts one, and
+ * "/goal Ship the docs check: npm run build" names the command that must
+ * pass before it counts as done (B3).
+ */
 export function goalRequest(argument: string): GoalRequest {
   const control: Record<string, GoalRequest['operation']> = {
     pause: 'pause',
@@ -115,7 +119,13 @@ export function goalRequest(argument: string): GoalRequest {
     complete: 'complete',
   };
   const operation = control[words(argument)];
-  return operation && operation !== 'start'
-    ? ({ operation } as GoalRequest)
-    : { operation: 'start', objective: argument.trim() };
+  if (operation && operation !== 'start') return { operation } as GoalRequest;
+  const marker = /(?:^|\s)check:\s*/i.exec(argument);
+  if (!marker) return { operation: 'start', objective: argument.trim() };
+  const check = argument.slice(marker.index + marker[0].length).trim();
+  return {
+    operation: 'start',
+    objective: argument.slice(0, marker.index).trim(),
+    ...(check ? { check } : {}),
+  };
 }

@@ -1,10 +1,111 @@
 {
+  "$defs": {
+    "GoalCheckClassification": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 64,
+          "title": "Action",
+          "type": "string"
+        },
+        "read_only": {
+          "title": "Read Only",
+          "type": "boolean"
+        },
+        "shell": {
+          "enum": [
+            "safe",
+            "needs_approval",
+            "private_data",
+            "blocked"
+          ],
+          "title": "Shell",
+          "type": "string"
+        }
+      },
+      "required": [
+        "shell",
+        "action",
+        "read_only"
+      ],
+      "title": "GoalCheckClassification",
+      "type": "object"
+    },
+    "GoalCheckReview": {
+      "additionalProperties": false,
+      "description": "What the person approves with Confirm: this command, in this folder, at this level.",
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/GoalCheckClassification"
+        },
+        "command": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "block",
+            "approve",
+            "auto",
+            "full"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "runs_in": {
+          "maxLength": 300,
+          "title": "Runs In",
+          "type": "string"
+        },
+        "workspace_id": {
+          "maxLength": 128,
+          "title": "Workspace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "workspace_id",
+        "runs_in",
+        "level",
+        "classification"
+      ],
+      "title": "GoalCheckReview",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "action_digest": {
       "pattern": "^[0-9a-f]{64}$",
       "title": "Action Digest",
       "type": "string"
+    },
+    "check": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GoalCheckReview"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "check_command": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Check Command"
     },
     "conversation_id": {
       "maxLength": 256,
@@ -19,6 +120,19 @@
       "maxItems": 8,
       "title": "Disclosures",
       "type": "array"
+    },
+    "done_means": {
+      "anyOf": [
+        {
+          "maxLength": 1000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Done Means"
     },
     "goal_id": {
       "anyOf": [
