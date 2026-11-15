@@ -421,7 +421,9 @@ def test_the_dry_run_counts_what_the_rule_would_have_allowed(data, project, tmp_
     _row("reviewer", "approved_by_reviewer", days_ago=2.5, note=scope.note())
     _row("no-1", "denied", days_ago=5, note=scope.note())
     _row("no-2", "denied", days_ago=1.5, note=scope.note())
-    _row("waiting", "asked", days_ago=0.1, note=scope.note())
+    _row("unanswered", "asked", days_ago=0.1, note=scope.note())
+    activity_log.settle_pending("chat-dry-run")  # A card its turn left unanswered.
+    _row("waiting", "asked", days_ago=0, note=scope.note(), thread="chat-now")  # The card the rule is made from.
     _row("old", "approved_by_you", days_ago=31, note=scope.note())
     _row("elsewhere", "approved_by_you", days_ago=1, note=other_folder.note())
     _row("lint", "approved_by_you", days_ago=1, note=other_command.note())

@@ -564,7 +564,8 @@ def query(*, before: int = 0, limit: int = 50, **filters: Any) -> tuple[list[dic
 
 def rule_candidates(kind: str, outcomes: Iterable[str], *, since: float) -> list[dict[str, Any]]:
     """Rows since *since* of one action kind (a rule's ``kind:tool``) with one of *outcomes*, newest first,
-    never an action only the person may approve: what a draft rule's dry run weighs."""
+    never an action only the person may approve, nor a card still waiting (the card a rule is being made
+    from among them): what a draft rule's dry run weighs."""
 
     path = _existing()
     if path is None or not kind:
@@ -574,7 +575,7 @@ def rule_candidates(kind: str, outcomes: Iterable[str], *, since: float) -> list
         connection.row_factory = sqlite3.Row
         return [dict(row) for row in connection.execute(
             f"SELECT id, at, conversation_id, outcome, title, summary, app_name, scope_app, scope_folder, "
-            f"scope_command FROM actions WHERE kind = ? AND at >= ? AND person_only = 0 "
+            f"scope_command FROM actions WHERE kind = ? AND at >= ? AND person_only = 0 AND status = 'final' "
             f"AND outcome IN ({', '.join('?' * len(wanted))}) ORDER BY id DESC LIMIT 5000",
             (kind, float(since), *wanted))]
 

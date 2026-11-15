@@ -8312,6 +8312,24 @@ def d1_rules(state: str, x_fixture_token: str = Header(default="")) -> dict:
 
     if state not in {"seed", "clear"}:
         raise HTTPException(status_code=404, detail="Unknown rules state")
+    # A card a failed journey left waiting is answered no, as the person would: a card left waiting shows in
+    # every later spec's sidebar and Buddy.
+    from row_bot.application.client_platform import client_platform_service
+    from row_bot.tasks import _get_conn
+
+    for thread in list(_D1_PENDING):
+        with closing(_get_conn()) as connection:
+            waiting = [str(row[0]) for row in connection.execute(
+                "SELECT id FROM approval_requests WHERE source_thread_id = ? AND status = 'pending'", (thread,))]
+        for approval_id in waiting:
+            try:
+                answered = client_platform_service._resolve_approval(approval_id, {"decision": "reject"})
+            except Exception:
+                logging.getLogger(__name__).warning("A D1 card couldn't be answered", exc_info=True)
+                continue
+            handle = client_platform_service.registry.get(answered.get("execution_id", ""))
+            if handle is not None:
+                handle.producer_done.wait(10)
     for rule in approval_rules.list_rules():
         approval_rules.delete(rule.rule_id)
     if threads._thread_exists(_D1_CHAT):

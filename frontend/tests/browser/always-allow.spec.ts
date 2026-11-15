@@ -31,6 +31,21 @@ const SIZES = {
   phone: { width: 375, height: 812 },
 } as const;
 
+/** Light and dark pictures of what shows. */
+async function pictures(page: Page, info: TestInfo, name: string) {
+  const suffix = (page.viewportSize()?.width ?? 1280) < 700 ? '-phone' : '';
+  for (const appearance of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: appearance });
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-theme',
+      appearance,
+    );
+    await assertNoOverflow(page);
+    await screenshot(page, info, `${name}${suffix}-${appearance}`);
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+}
+
 /** Light and dark, then an accessibility scan of what shows. */
 async function shoot(page: Page, info: TestInfo, name: string) {
   const suffix = (page.viewportSize()?.width ?? 1280) < 700 ? '-phone' : '';
@@ -76,12 +91,14 @@ for (const size of ['desktop', 'phone'] as const) {
         await shoot(page, info, 'always-allow-card');
         await always.click();
       } else {
+        await shoot(page, info, 'always-allow-card');
         await card
           .getByRole('button', { name: 'More choices', exact: true })
           .click();
         const item = page.getByRole('menuitem', { name: /Always allow…/ });
         await expect(item).toBeVisible();
-        await shoot(page, info, 'always-allow-card');
+        // An open menu hides the rest of the page from assistive technology: pictures only.
+        await pictures(page, info, 'always-allow-card-menu');
         await item.click();
       }
 
