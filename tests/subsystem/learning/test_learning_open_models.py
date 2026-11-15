@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from row_bot.learning.training import open_models
+from row_bot.learning.training import open_models, recipes
 
 pytestmark = [pytest.mark.subsystem]
 
@@ -343,3 +343,47 @@ def test_hugging_face_s_card_for_a_model_follows_its_size(params, flavor):
 def test_the_serving_estimate_matches_the_measured_9b_and_27b_within_a_tenth():
     for params, measured in ((9.0, 7_680), (27.0, 20_480)):
         assert abs(open_models.serve_estimate(params).need_mib - measured) / measured < 0.1
+
+
+# ── Training a checked model on Hugging Face ─────────────────────────────────
+
+
+@pytest.mark.parametrize(("total", "base", "flavor", "alternative"), [
+    (14_768_307_200, "hf-9b", "l40sx1", "a100-large"), (70_553_706_496, "hf-27b", "a100-large", "h200")])
+def test_a_checked_model_trains_on_hugging_face_with_the_nearest_certified_recipe_never_certified(
+        tmp_path, total, base, flavor, alternative):
+    card = _card(safetensors={"total": total})
+    found = _check(tmp_path, FakeSteps(tmp_path, fits=False), _record(tmp_path, card))
+    certified = recipes.load(base)
+
+    recipe = open_models.remote_recipe(found)
+
+    assert (recipe.certified, recipe.starting_model, recipe.quantization) == (False, "hf:Qwen/Qwen3-14B", "Q4_K_M")
+    assert recipe.settings == certified.settings and recipe.epochs == certified.epochs
+    assert recipe.serve_context == certified.serve_context and recipe.sha256 != certified.sha256
+    assert recipe.remote["flavor"] == flavor  # the card the check chose
+    assert [item["flavor"] for item in recipe.remote["alternatives"]] == [alternative]
+    assert recipe.title == "Qwen3-14B on Hugging Face" and recipe.evidence.startswith("Not certified.")
+
+
+def test_a_checked_model_s_hugging_face_estimate_grows_with_its_size_and_each_card_s_speed(tmp_path):
+    small = _check(tmp_path, FakeSteps(tmp_path), _record(tmp_path, _card("Qwen/Qwen3-8B",
+                                                                         safetensors={"total": 9_000_000_000})))
+    large = _check(tmp_path, FakeSteps(tmp_path), _record(tmp_path, _card(safetensors={"total": 14_768_307_200})))
+
+    nine, bigger = open_models.remote_recipe(small).remote, open_models.remote_recipe(large).remote
+    measured = recipes.load("hf-9b").remote
+
+    on_l40s = next(item for item in measured["alternatives"] if item["flavor"] == "l40sx1")["seconds_per_step"]
+    assert nine["seconds_per_step"] >= on_l40s  # never quicker than the certified 9B measured on that card
+    assert bigger["seconds_per_step"] > nine["seconds_per_step"]
+    assert bigger["export_seconds_per_pass"] > nine["export_seconds_per_pass"]
+    assert bigger["alternatives"][0]["seconds_per_step"] < bigger["seconds_per_step"]  # the A100 is quicker
+
+
+def test_a_model_that_didn_t_pass_or_fits_no_single_card_has_no_hugging_face_recipe(tmp_path):
+    failed = _check(tmp_path, FakeSteps(tmp_path, tools=(False, False, False)), _record(tmp_path))
+    huge = replace(failed, state="passed", hugging_face_flavor=None)
+
+    assert open_models.remote_recipe(failed) is None and open_models.remote_recipe(huge) is None
+    assert open_models.hugging_face_choices(32_607, tmp_path) == ()

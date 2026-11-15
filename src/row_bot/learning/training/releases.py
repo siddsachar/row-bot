@@ -421,7 +421,7 @@ class ReleaseMaker:
         model = weights.model_for(gate.read_settings(self._root).starting_model, self._root, weights.QWEN35_9B)
         remote = _remote_record(job, self._root)
         if remote is not None:  # the model the Hugging Face run trained (C1); its files may not be here
-            model = weights.MODELS.get(remote.model_id, model)
+            model = weights.model_for(remote.model_id, self._root, model)
         found = weights.status(model, self._root)
         return (model, found.folder if found.state == "downloaded" else None,
                 model.weights_bytes or model.download_bytes)

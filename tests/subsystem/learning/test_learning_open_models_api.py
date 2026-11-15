@@ -130,6 +130,48 @@ def test_a_model_that_passed_its_check_becomes_the_starting_model_for_local_trai
 
     assert switched["summary"].startswith("Switched to Qwen3-14B.")
     assert learning.read_settings(data).starting_model == "hf:Qwen/Qwen3-14B"
+    starting = switched["snapshot"]["personal_model"]["starting_model"]
+    assert (starting["id"], starting["name"], starting["licence"]) == ("hf:Qwen/Qwen3-14B", "Qwen3-14B", "Apache 2.0")
     pinned = weights.model_for("hf:Qwen/Qwen3-14B", data)
     assert (pinned.repo, pinned.revision) == ("Qwen/Qwen3-14B", REV) and len(pinned.files) == 2
     assert weights.model_for("hf:Some/Unchecked", data, weights.QWEN35_9B) is weights.QWEN35_9B
+
+
+def test_a_passed_model_trains_on_hugging_face_and_stays_while_training_uses_it(models):
+    from row_bot.learning import runner as runner_module
+    from row_bot.learning.remote import hub as hub_module
+    from row_bot.learning.remote import training as remote_training
+    from row_bot.learning.remote.training import RemoteTrainer
+    from tests.fixtures.hugging_face import FakeFetcher, FakeHub as FakeHfHub, FakeSignIn
+    from tests.fixtures.learning import save_learning_settings
+
+    client, headers, data, _hub, checker = models
+    save_learning_settings(data, train_where="hugging_face")
+    runner = runner_module.get()
+    trainer = RemoteTrainer(data, jobs=runner.supervisor.jobs, hub=FakeHfHub(), sign_in=FakeSignIn(),
+                            fetcher=FakeFetcher(FakeHfHub()), card_mib=lambda: 32_607, start_threads=False,
+                            flavors=lambda: [hub_module.Flavor("l40sx1", "1x Nvidia L40S", 48, 0.03)])
+    saved, runner.remote = runner.remote, trainer
+    remote_training.configure(trainer)
+    try:
+        _ok(_command(client, headers, "check_model", model="hf:Qwen/Qwen3-14B"))
+        checker.run("Qwen/Qwen3-14B")
+        hugging = client.get("/api/v1/learning", headers=headers).json()["personal_model"]["hugging_face"]
+        offered = {model["id"]: model for model in hugging["models"]}
+        assert offered["hf:Qwen/Qwen3-14B"]["certified"] is False and not offered["hf:Qwen/Qwen3-14B"]["recommended"]
+        assert offered["qwen3.8-27b"]["recommended"] and hugging["model"] == "qwen3.8-27b"
+
+        chosen = _ok(_command(client, headers, "hf_choose_model", model="hf:Qwen/Qwen3-14B"))
+
+        assert chosen["summary"] == ("Qwen3-14B will train on Hugging Face. It isn't certified: Row-Bot checked it "
+                                     "on this computer, and its time and price are estimates.")
+        hugging = chosen["snapshot"]["personal_model"]["hugging_face"]
+        assert hugging["model"] == "hf:Qwen/Qwen3-14B" and hugging["quote"]["measured"] is False
+        for action in ("forget_model", "check_model"):  # training uses it: it stays as checked
+            refused = _command(client, headers, action, model="hf:Qwen/Qwen3-14B")
+            assert refused.status_code == 409 and refused.json()["code"] == "learning_model_in_use"
+        _ok(_command(client, headers, "hf_choose_model", model="qwen3.5-9b"))
+        _ok(_command(client, headers, "forget_model", model="hf:Qwen/Qwen3-14B"))
+    finally:
+        runner.remote = saved
+        remote_training.configure(None)

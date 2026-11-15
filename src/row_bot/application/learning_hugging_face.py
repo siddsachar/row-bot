@@ -65,6 +65,12 @@ def _model_view(model: Any, card_mib: int | None, recommended: str) -> dict[str,
             "download_bytes": int(option.gguf_bytes) if option is not None else 0}
 
 
+def _recommended(models: Any) -> str:
+    """The strongest certified model this computer can run: a checked model is never the recommended one."""
+
+    return next((model.id for model in models if model.certified), "")
+
+
 def _quote_view(quote: Any) -> dict[str, Any] | None:
     if quote is None:
         return None
@@ -108,7 +114,7 @@ def view(settings: learning.LearningSettings) -> dict[str, Any] | None:
         card = trainer.card_mib()
         models = trainer.models()
         chosen = trainer.choice()
-        recommended = models[0].id if models else ""
+        recommended = _recommended(models)
         job = _current_job()
         quote = None
         if chosen is not None:
@@ -248,7 +254,11 @@ def perform(action: str, command: dict[str, Any]) -> str:
             raise ClientPlatformError("learning_training_changed")
         _save({"hugging_face.model": model_id})
         _set_aside_planned()
-        return f"{offered[model_id].name} will train on Hugging Face."
+        chosen = offered[model_id]
+        if not chosen.certified:  # O138: a model the person checked here; its times and price are estimates
+            return (f"{chosen.name} will train on Hugging Face. It isn't certified: Row-Bot checked it on this "
+                    "computer, and its time and price are estimates.")
+        return f"{chosen.name} will train on Hugging Face."
     if action == "hf_choose_flavor":
         flavor = str(command.get("flavor") or "")
         trainer = _trainer()

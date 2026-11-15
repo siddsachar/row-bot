@@ -309,8 +309,22 @@ def serve_estimate(params_b: float | None) -> catalog.ServeOption | None:
     return catalog.ServeOption("Q4_K_M", gguf, int(gguf / 2**20 * 1.25) + 1024)
 
 
-# Hugging Face's single cards (``GET /api/jobs/hardware``), smallest first, with their memory.
-HF_CARDS: tuple[tuple[str, int], ...] = (("l40sx1", 48), ("a100-large", 80), ("h200", 141))
+@dataclass(frozen=True)
+class HfCard:
+    """One of Hugging Face's single cards (``GET /api/jobs/hardware``): its memory, its hourly price when reviewed
+    (Hugging Face's live price wins in the quote) and its time a training step against the A100's (the L40S's is
+    the certified recipes' reviewed estimate; the H200 is taken as the A100, so its estimate errs long)."""
+
+    flavor: str
+    memory_gb: int
+    price_per_hour: float
+    step_time: float
+
+
+HF_CARDS: tuple[HfCard, ...] = (HfCard("l40sx1", 48, 1.80, 1.5), HfCard("a100-large", 80, 2.50, 1.0),
+                                HfCard("h200", 141, 5.00, 1.0))
+# A checked model trains with the settings of the certified Hugging Face recipe nearest its size.
+REMOTE_BASES: tuple[tuple[float, str], ...] = ((18.0, "hf-9b"), (math.inf, "hf-27b"))
 
 
 def hugging_face_flavor(params_b: float | None) -> str | None:
@@ -320,7 +334,50 @@ def hugging_face_flavor(params_b: float | None) -> str | None:
     if not params_b:
         return None
     need = params_b * 0.7 + 12
-    return next((name for name, memory in HF_CARDS if need <= memory * 0.95), None)
+    return next((card.flavor for card in HF_CARDS if need <= card.memory_gb * 0.95), None)
+
+
+def _per_billion(key: str) -> float:
+    """Seconds a billion parameters take on the A100 for ``key`` (a step, or one pass's export): the larger of the
+    certified Hugging Face recipes' measured rates, so a checked model's estimate errs long."""
+
+    from row_bot.learning.training import recipes
+
+    rates = []
+    for model in catalog.CERTIFIED:
+        if not model.remote_recipe:
+            continue
+        remote = recipes.load(model.remote_recipe).remote or {}
+        speed = next((card.step_time for card in HF_CARDS if card.flavor == remote.get("flavor")), 1.0)
+        rates.append(float(remote[key]) / (speed if key == "seconds_per_step" else 1.0) / model.params_b)
+    return max(rates)
+
+
+def remote_recipe(record: Record) -> Any:
+    """The Hugging Face recipe that trains a checked model (O138), or None when no single card there holds it: the
+    certified recipe nearest its size (its settings, passes and serving shape), never certified, on the card the
+    check chose with the next larger card as the alternative, and times scaled from the certified recipes'
+    measured runs by the model's size and each card's speed. Its quote says the times and price are estimates."""
+
+    from row_bot.learning.training import recipes
+
+    serve = serve_estimate(record.params_b)
+    first = next((index for index, card in enumerate(HF_CARDS) if card.flavor == record.hugging_face_flavor), None)
+    if record.state != "passed" or first is None or serve is None or not record.params_b:
+        return None
+    params = float(record.params_b)
+    base = recipes.load(next(recipe for limit, recipe in REMOTE_BASES if params <= limit))
+    step = _per_billion("seconds_per_step") * params
+    cards = HF_CARDS[first:first + 2]  # its card, and the next larger one (as the certified recipes offer)
+    remote = {**dict(base.remote or {}), "flavor": cards[0].flavor, "price_per_hour": cards[0].price_per_hour,
+              "seconds_per_step": round(step * cards[0].step_time, 1),
+              "export_seconds_per_pass": round(_per_billion("export_seconds_per_pass") * params),
+              "alternatives": [{"flavor": card.flavor, "price_per_hour": card.price_per_hour,
+                                "seconds_per_step": round(step * card.step_time, 1)} for card in cards[1:]]}
+    return recipes.for_starting_model(
+        base, record.id, title=f"{record.name} on Hugging Face", quantization=serve.quantization, remote=remote,
+        evidence=(f"Not certified. {record.name} at {record.revision} passed Row-Bot's check on this computer; it "
+                  f"trains with {base.title}'s settings, and its times are estimates from that model's size."))
 
 
 # ── The checks' records ─────────────────────────────────────────────────────
@@ -471,20 +528,44 @@ def pinned_model(record: Record) -> weights.PinnedModel | None:
                     for item in record.pinned))
 
 
+def _choice(record: Record) -> catalog.ModelChoice | None:
+    serve = serve_estimate(record.params_b)
+    if record.state != "passed" or serve is None:
+        return None
+    remote = remote_recipe(record)
+    return catalog.ModelChoice(
+        id=record.id, name=record.name, repo=record.repo, revision=record.revision, licence=record.licence,
+        licence_id=record.licence_id, params_b=float(record.params_b or 0.0), certified=False,
+        # The certified Hugging Face recipe it trains with there (``remote_recipe`` adapts it to this model).
+        remote_recipe=remote.id if remote is not None else None,
+        serve=(serve,), pinned=pinned_model(record),
+        checks={name: {"state": record.item(name).state, "words": record.item(name).words} for name in CHECK_ITEMS},
+    )
+
+
 def as_choice(record: Record, card_mib: int | None) -> catalog.ModelChoice | None:
     """A checked model as one more model to choose (O138): uncertified, with what was checked. None until its
     checks passed, or when this card can't run it afterwards (O131)."""
 
-    serve = serve_estimate(record.params_b)
-    if record.state != "passed" or serve is None:
-        return None
-    choice = catalog.ModelChoice(
-        id=record.id, name=record.name, repo=record.repo, revision=record.revision, licence=record.licence,
-        licence_id=record.licence_id, params_b=float(record.params_b or 0.0), certified=False,
-        serve=(serve,), pinned=pinned_model(record),
-        checks={name: {"state": record.item(name).state, "words": record.item(name).words} for name in CHECK_ITEMS},
-    )
-    return choice if choice.serve_for(card_mib) is not None else None
+    choice = _choice(record)
+    return choice if choice is not None and choice.serve_for(card_mib) is not None else None
+
+
+def checked_choice(model_id: str, root: Path | None = None) -> catalog.ModelChoice | None:
+    """The checked model ``model_id`` names (``hf:<repo>``) once its check passed: what a run already under way
+    trains (offering it is :func:`as_choice`'s, for this card)."""
+
+    repo = repo_of(model_id)
+    record = read(repo, root) if repo else None
+    return _choice(record) if record is not None else None
+
+
+def hugging_face_choices(card_mib: int | None, root: Path | None = None) -> tuple[catalog.ModelChoice, ...]:
+    """The checked models Hugging Face can train for this computer (O138), newest first: passed, a single card
+    there holds them, and this card runs them afterwards (O131)."""
+
+    found = (as_choice(record, card_mib) for record in records(root))
+    return tuple(choice for choice in found if choice is not None and choice.remote_recipe)
 
 
 # ── The check ───────────────────────────────────────────────────────────────
@@ -859,8 +940,8 @@ def reset_checker(value: Checker | None = None) -> None:
 
 
 __all__ = [
-    "CHECK_ITEMS", "Checker", "CheckItem", "EngineSteps", "FitResult", "HubError", "OpenModel", "Record", "Steps",
-    "Stopped", "TERMS", "TOOL_SAMPLE", "as_choice", "checker", "describe", "forget", "hugging_face_flavor", "inspect",
-    "model_id", "new_record", "pinned_model", "read", "records", "repo_of", "reset_checker", "sane", "search",
-    "serve_estimate", "write",
+    "CHECK_ITEMS", "Checker", "CheckItem", "EngineSteps", "FitResult", "HF_CARDS", "HfCard", "HubError", "OpenModel",
+    "Record", "Steps", "Stopped", "TERMS", "TOOL_SAMPLE", "as_choice", "checked_choice", "checker", "describe",
+    "forget", "hugging_face_choices", "hugging_face_flavor", "inspect", "model_id", "new_record", "pinned_model",
+    "read", "records", "remote_recipe", "repo_of", "reset_checker", "sane", "search", "serve_estimate", "write",
 ]

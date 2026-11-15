@@ -3007,6 +3007,10 @@ const CATALOG: Record<string, Entry> = {
     'That check isn’t running any more.',
     'review',
   ],
+  learning_model_in_use: [
+    'Row-Bot trains from this model. Choose another model first.',
+    'review',
+  ],
   learning_quote_changed: [
     'The price changed since you looked. Check the new quote, then start again.',
     'review',

@@ -355,6 +355,7 @@
     "learning_method_changed": 409,
     "learning_model_check_busy": 409,
     "learning_model_check_changed": 409,
+    "learning_model_in_use": 409,
     "learning_model_unavailable": 409,
     "learning_not_enough_disk": 409,
     "learning_nothing_to_train": 409,

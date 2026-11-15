@@ -84,6 +84,29 @@ def view() -> list[dict[str, Any]]:
         return []
 
 
+def _in_use(model_id: str) -> bool:
+    """Whether training uses this model: the starting model here, the model Hugging Face trains, or the model of a
+    Hugging Face run under way. Its record stays while it does (a version names the model it was trained from)."""
+
+    from row_bot import learning
+    from row_bot.application import learning_hugging_face
+
+    settings = learning.read_settings()
+    if model_id in (settings.starting_model, settings.hf_model):
+        return True
+    try:
+        job = learning_hugging_face._current_job()  # noqa: SLF001 - the Hugging Face run, if any
+    except Exception:  # noqa: BLE001
+        logger.debug("Learning couldn't read the current run", exc_info=True)
+        return False
+    if job is None or job.state not in ("preparing", "running", "unknown_remote"):
+        return False
+    from row_bot.learning.remote import training as remote_training
+
+    record = remote_training.read_record(job.id)
+    return record is not None and record.model_id == model_id
+
+
 def perform(action: str, command: dict[str, Any]) -> str:
     from row_bot.learning.training import open_models
 
@@ -96,6 +119,8 @@ def perform(action: str, command: dict[str, Any]) -> str:
             raise ClientPlatformError("learning_model_check_changed")
         checker.stop()
         return "Stopping the check. What it downloaded stays for the next try."
+    if _in_use(open_models.model_id(repo)):
+        raise ClientPlatformError("learning_model_in_use")  # choose another model first
     if action == "forget_model":
         if checker.running == repo:
             raise ClientPlatformError("learning_model_check_busy")

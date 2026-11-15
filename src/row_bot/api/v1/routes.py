@@ -436,6 +436,7 @@ _STATUS.update(
         "learning_model_unavailable": 409,
         "learning_model_check_busy": 409,
         "learning_model_check_changed": 409,
+        "learning_model_in_use": 409,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,
