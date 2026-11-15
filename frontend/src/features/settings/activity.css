@@ -1,12 +1,12 @@
 /* Settings › System › Activity (D1): a scannable list by day, compact filters, plain outcome pills. */
 
-.activity-tools {
+.alog-tools {
   display: inline-flex;
   align-items: center;
   gap: 2px;
 }
 
-.activity-filters {
+.alog-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -14,39 +14,36 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-hairline);
 }
-.activity-where {
+.alog-where.input {
   width: auto;
   min-width: 132px;
+  min-height: 32px;
+  padding-block: 4px;
+  border-radius: 8px;
+  font-size: var(--text-13);
 }
-.activity-search {
+.alog-search {
+  position: relative;
   display: flex;
   flex: 1 1 180px;
   align-items: center;
-  gap: 6px;
   min-width: 0;
-  padding-inline-start: 10px;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-control);
-  background: var(--surface-raised);
+}
+.alog-search > svg {
+  position: absolute;
+  left: 10px;
   color: var(--text-muted);
+  pointer-events: none;
 }
-.activity-search:focus-within {
-  border-color: var(--accent-solid);
-}
-.activity-search input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.activity-search input:focus,
-.activity-search input:focus-visible {
-  outline: none;
-  box-shadow: none;
+.alog-search > .input {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 10px 4px 30px;
+  border-radius: 8px;
+  font-size: var(--text-13);
 }
 
-.activity-day h4 {
+.alog-day h4 {
   margin: 0;
   padding: 12px 16px 4px;
   color: var(--text-muted);
@@ -54,16 +51,16 @@
   line-height: var(--leading-12);
   font-weight: var(--weight-semibold);
 }
-.activity-list {
+.alog-list {
   display: grid;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.activity-row + .activity-row {
+.alog-row + .alog-row {
   border-top: 1px solid var(--border-hairline);
 }
-.activity-row-main {
+.alog-row-main {
   display: grid;
   grid-template-columns: 64px 24px minmax(0, 1fr) auto 16px;
   align-items: center;
@@ -78,19 +75,19 @@
   text-align: start;
   cursor: pointer;
 }
-.activity-row-main:hover {
+.alog-row-main:hover {
   background: var(--surface-raised);
 }
-.activity-row-main:focus-visible {
+.alog-row-main:focus-visible {
   outline: 2px solid var(--accent-solid);
   outline-offset: -2px;
 }
-.activity-time {
+.alog-time {
   color: var(--text-muted);
   font-size: var(--text-12);
   font-variant-numeric: tabular-nums;
 }
-.activity-icon {
+.alog-icon {
   display: inline-grid;
   place-items: center;
   width: 24px;
@@ -99,12 +96,12 @@
   background: var(--surface-raised);
   color: var(--text-secondary);
 }
-.activity-what {
+.alog-what {
   display: grid;
   min-width: 0;
   gap: 1px;
 }
-.activity-title {
+.alog-title {
   overflow: hidden;
   color: var(--text-primary);
   font-size: var(--text-13);
@@ -113,8 +110,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.activity-summary,
-.activity-where-line {
+.alog-summary,
+.alog-where-line {
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--text-12);
@@ -122,10 +119,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.activity-summary {
+.alog-summary {
   color: var(--text-secondary);
 }
-.activity-outcome {
+.alog-outcome {
   display: inline-flex;
   align-items: center;
   max-width: 220px;
@@ -141,101 +138,109 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.activity-outcome[data-tone='accent'] {
+.alog-outcome[data-tone='accent'] {
   background: color-mix(in srgb, var(--accent-solid) 14%, transparent);
   box-shadow: none;
   color: var(--accent-solid);
 }
-.activity-outcome[data-tone='success'] {
+.alog-outcome[data-tone='success'] {
   background: var(--status-success-background);
   box-shadow: none;
   color: var(--status-success-text);
 }
-.activity-outcome[data-tone='warning'] {
+.alog-outcome[data-tone='warning'] {
   background: var(--status-warning-background);
   box-shadow: none;
   color: var(--status-warning-text);
 }
-.activity-outcome[data-tone='danger'] {
+.alog-outcome[data-tone='danger'] {
   background: var(--status-danger-background);
   box-shadow: none;
   color: var(--status-danger-text);
 }
-.activity-chevron {
+.alog-chevron {
   color: var(--text-muted);
   transition: transform var(--motion-fast) var(--ease-standard);
 }
-.activity-row[data-open] .activity-chevron {
+.alog-row[data-open] .alog-chevron {
   transform: rotate(180deg);
 }
 
-.activity-detail {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 8px 16px;
-  margin: 0;
+.alog-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 24px;
   padding: 4px 16px 12px 114px;
   font-size: var(--text-12);
   line-height: var(--leading-12);
 }
-.activity-detail dt {
+.alog-detail dl {
+  display: grid;
+  flex: 1 1 360px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+.alog-detail dt {
   color: var(--text-muted);
 }
-.activity-detail dd {
+.alog-detail dd {
   margin: 2px 0 0;
   color: var(--text-primary);
   overflow-wrap: anywhere;
 }
-.activity-detail code {
+.alog-detail code {
   font-family: var(--font-mono);
   font-size: var(--text-12);
 }
-.activity-open {
-  display: flex;
-  align-items: end;
+.alog-open {
+  margin: 0;
 }
-.activity-open a {
+.alog-open a {
   color: var(--accent-solid);
   font-weight: var(--weight-medium);
 }
 
-.activity-quiet,
-.activity-end {
+.alog-quiet,
+.alog-end {
   margin: 0;
   padding: 14px 16px;
   color: var(--text-muted);
   font-size: var(--text-13);
 }
-.activity-end {
+.alog-end {
   border-top: 1px solid var(--border-hairline);
   text-align: center;
   font-size: var(--text-12);
 }
-.activity-more {
+.alog-more {
   display: block;
   margin: 6px auto 10px;
 }
-.activity-log .empty-state {
+.alog-log .empty-state {
   padding: 32px 16px;
 }
 
-/* A phone: one column; the filters scroll sideways; the pill goes under the words. */
+/* A phone: one column; the pill goes under the words. */
 @media (max-width: 767px) {
-  .activity-filters {
-    flex-wrap: nowrap;
+  /* The outcome chips scroll sideways if they must; Where and Search share the next line. */
+  .alog-show {
+    max-width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
   }
-  .activity-filters::-webkit-scrollbar {
+  .alog-show::-webkit-scrollbar {
     display: none;
   }
-  .activity-filters > * {
-    flex: none;
+  .alog-where.input {
+    flex: 0 0 auto;
+    min-width: 0;
   }
-  .activity-search {
-    flex: 1 0 150px;
+  .alog-search {
+    flex: 1 1 140px;
   }
-  .activity-row-main {
+  .alog-row-main {
     grid-template-columns: 24px minmax(0, 1fr) auto;
     grid-template-areas:
       'icon what time'
@@ -243,48 +248,50 @@
     row-gap: 6px;
     padding: 10px 16px;
   }
-  .activity-time {
+  .alog-time {
     grid-area: time;
     align-self: start;
   }
-  .activity-chevron {
+  .alog-chevron {
     justify-self: end;
   }
-  .activity-icon {
+  .alog-icon {
     grid-area: icon;
     align-self: start;
   }
-  .activity-what {
+  .alog-what {
     grid-area: what;
   }
-  .activity-outcome {
+  .alog-outcome {
     grid-area: pill;
     justify-self: start;
     max-width: 100%;
   }
-  .activity-chevron {
+  .alog-chevron {
     grid-area: chevron;
   }
-  .activity-title,
-  .activity-summary {
+  .alog-title,
+  .alog-summary {
     white-space: normal;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
   }
-  .activity-detail {
-    grid-template-columns: 1fr 1fr;
+  .alog-detail {
     padding: 0 16px 12px 50px;
+  }
+  .alog-detail dl {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
 @media (forced-colors: active) {
-  .activity-outcome {
+  .alog-outcome {
     border: 1px solid CanvasText;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .activity-chevron {
+  .alog-chevron {
     transition: none;
   }
 }

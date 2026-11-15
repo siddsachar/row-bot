@@ -88,7 +88,7 @@ pages:
   activity:
     description: See every action Row-Bot took with a tool, its outcome and who allowed
       it; filter it, export it as CSV, or clear it.
-    docs_route: /docs/privacy-safety/#activity-log
+    docs_route: /docs/privacy-safety/
     security: The log stays on this computer for 90 days; summaries leave out what
       tools read, and incognito chats show no words. Only you can clear it.
   access:

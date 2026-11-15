@@ -300,12 +300,12 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
 
   return (
     <SettingsGroup
-      title="Activity"
+      title="Every action"
       anchor="activity"
-      className="activity-log"
+      className="alog-log"
       note="Kept 90 days on this computer. Only you can clear it."
       meta={
-        <div className="activity-tools">
+        <div className="alog-tools">
           <IconButton
             size="sm"
             label="Export as CSV"
@@ -325,11 +325,11 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
         </div>
       }
     >
-      <div className="activity-filters" role="group" aria-label="Filters">
+      <div className="alog-filters" role="group" aria-label="Filters">
         <Segmented
           label="Show"
           size="sm"
-          className="activity-show"
+          className="alog-show"
           value={show}
           onChange={setShow}
           options={[
@@ -341,7 +341,7 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
         />
         <Select
           aria-label="Where"
-          className="activity-where"
+          className="alog-where"
           value={where}
           onChange={(event) => setWhere(event.currentTarget.value as Where)}
         >
@@ -351,7 +351,7 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
             </option>
           ))}
         </Select>
-        <label className="activity-search">
+        <label className="alog-search">
           <Search size={14} aria-hidden />
           <Input
             type="search"
@@ -386,7 +386,7 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
         !items.length &&
         !error &&
         (anything ? (
-          <p className="activity-quiet">
+          <p className="alog-quiet">
             Nothing matches these filters.{' '}
             {(show !== 'all' || where !== '' || typed !== '') && (
               <Button
@@ -408,9 +408,9 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
           </EmptyState>
         ))}
       {days.map(({ day, entries }) => (
-        <div key={day} className="activity-day">
+        <div key={day} className="alog-day">
           <h4>{day}</h4>
-          <ul className="activity-list">
+          <ul className="alog-list">
             {entries.map((entry) => (
               <ActivityRow
                 key={entry.entry_id}
@@ -429,7 +429,7 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
       {items !== null && items.length > 0 && next !== null && (
         <Button
           variant="ghost"
-          className="small activity-more"
+          className="small alog-more"
           disabled={busy === 'more'}
           onClick={() => void earlier()}
         >
@@ -437,7 +437,7 @@ export default function ActivitySettings({ io: given }: { io?: ActivityIO }) {
         </Button>
       )}
       {items !== null && items.length > 0 && next === null && (
-        <p className="activity-end">That’s everything from the last 90 days.</p>
+        <p className="alog-end">That’s everything from the last 90 days.</p>
       )}
     </SettingsGroup>
   );
@@ -462,74 +462,76 @@ function ActivityRow({
   const where =
     entry.conversation_title ||
     (entry.conversation_id ? 'A chat' : surface.label);
-  const detailId = `activity-detail-${entry.entry_id}`;
+  const detailId = `alog-detail-${entry.entry_id}`;
   return (
-    <li className="activity-row" data-open={open || undefined}>
+    <li className="alog-row" data-open={open || undefined}>
       <button
         type="button"
-        className="activity-row-main"
+        className="alog-row-main"
         aria-expanded={open}
         aria-controls={detailId}
         onClick={onToggle}
       >
-        <span className="activity-time">{time}</span>
-        <span className="activity-icon" title={surface.label}>
+        <span className="alog-time">{time}</span>
+        <span className="alog-icon" title={surface.label}>
           <Icon size={15} aria-hidden />
         </span>
-        <span className="activity-what">
-          <span className="activity-title">
+        <span className="alog-what">
+          <span className="alog-title">
             {entry.app_name ? `${entry.app_name} › ` : ''}
             {entry.title || entry.tool}
           </span>
           {entry.summary && (
-            <span className="activity-summary">{entry.summary}</span>
+            <span className="alog-summary">{entry.summary}</span>
           )}
-          <span className="activity-where-line">
+          <span className="alog-where-line">
             {surface.label !== 'Chat' && `${surface.label} · `}
             {where}
           </span>
         </span>
-        <span className="activity-outcome" data-tone={outcome.tone}>
+        <span className="alog-outcome" data-tone={outcome.tone}>
           {outcome.label}
         </span>
-        <ChevronDown size={14} aria-hidden className="activity-chevron" />
+        <ChevronDown size={14} aria-hidden className="alog-chevron" />
       </button>
       {open && (
-        <dl className="activity-detail" id={detailId}>
-          <div>
-            <dt>Decided by</dt>
-            <dd>{DECIDED[entry.decided_by]}</dd>
-          </div>
-          {entry.reason && (
+        <div className="alog-detail" id={detailId}>
+          <dl>
             <div>
-              <dt>
-                {entry.decided_by === 'person' ? 'Why it asked you' : 'Why'}
-              </dt>
-              <dd>{entry.reason}</dd>
+              <dt>Decided by</dt>
+              <dd>{DECIDED[entry.decided_by]}</dd>
             </div>
-          )}
-          {entry.level && (
+            {entry.reason && (
+              <div>
+                <dt>
+                  {entry.decided_by === 'person' ? 'Why it asked you' : 'Why'}
+                </dt>
+                <dd>{entry.reason}</dd>
+              </div>
+            )}
+            {entry.level && (
+              <div>
+                <dt>Approval level</dt>
+                <dd>{LEVELS[entry.level] ?? entry.level}</dd>
+              </div>
+            )}
             <div>
-              <dt>Approval level</dt>
-              <dd>{LEVELS[entry.level] ?? entry.level}</dd>
+              <dt>Tool</dt>
+              <dd>
+                <code>{entry.tool}</code>
+              </dd>
             </div>
-          )}
-          <div>
-            <dt>Tool</dt>
-            <dd>
-              <code>{entry.tool}</code>
-            </dd>
-          </div>
+          </dl>
           {entry.conversation_id && (
-            <div className="activity-open">
+            <p className="alog-open">
               <Link
                 to={`/conversations/${encodeURIComponent(entry.conversation_id)}`}
               >
                 Open in chat
               </Link>
-            </div>
+            </p>
           )}
-        </dl>
+        </div>
       )}
     </li>
   );
