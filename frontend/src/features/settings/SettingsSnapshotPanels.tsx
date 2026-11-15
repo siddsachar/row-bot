@@ -6021,7 +6021,7 @@ function PreferencesPage({
             mutation={mutation}
             field="identity.self_improvement_enabled"
             label="Learn new skills"
-            hint={`${identity.name || 'Row-Bot'} writes and improves its own skills over time.`}
+            hint={`${identity.name || 'Row-Bot'} writes and improves its own skills over time, and offers to save multi-step work as a skill. Nothing is saved until you approve.`}
             value={identity.self_improvement_enabled}
           />
         )}
