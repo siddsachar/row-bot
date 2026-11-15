@@ -2082,6 +2082,51 @@ def _ways_of_working_text(budget: Any) -> str:
     return text
 
 
+# The code folder's project notes (B2), read once per turn: a file edited mid-turn applies from the next turn.
+_PROJECT_NOTES: dict[tuple[str, str], str] = {}
+
+
+def _read_project_notes_section(small_profile: bool) -> str:
+    try:
+        from pathlib import Path
+
+        from row_bot.developer import project_notes
+        from row_bot.developer.storage import get_workspace
+        from row_bot.developer.tool_context import get_thread_id, get_workspace_id, infer_workspace_id_from_thread
+
+        workspace_id = get_workspace_id() or infer_workspace_id_from_thread(get_thread_id())
+        workspace = get_workspace(workspace_id) if workspace_id else None
+        if workspace is None:
+            return ""
+        budget = project_notes.budget_for(small=small_profile)
+        notes = project_notes.read_project_notes(Path(workspace.path), budget=budget)
+        return project_notes.render_section(notes, workspace.name, budget=budget)
+    except Exception as exc:
+        logger.debug("Project notes skipped (non-fatal): %s", exc)
+        return ""
+
+
+def _project_notes_text(budget: Any, small_profile: bool) -> str:
+    """The code folder's project notes section, as read at this turn's first model call; "" without the
+    Developer tools (no code folder, or Chat Only)."""
+    if "developer" not in _offered_tool_parents() or not _has_code_folder():
+        return ""
+    turn_id = _turn_id_from_budget(budget)
+    if not turn_id:
+        return _read_project_notes_section(small_profile)
+    key = (_current_thread_id_var.get() or "", turn_id)
+    with _TURN_CONTEXT_VALUES_LOCK:
+        cached = _PROJECT_NOTES.get(key)
+    if cached is not None:
+        return cached
+    text = _read_project_notes_section(small_profile)
+    with _TURN_CONTEXT_VALUES_LOCK:
+        _PROJECT_NOTES[key] = text
+        while len(_PROJECT_NOTES) > _TURN_CONTEXT_VALUES_MAX:
+            _PROJECT_NOTES.pop(next(iter(_PROJECT_NOTES)))
+    return text
+
+
 def _agent_summary_state(messages: list) -> dict | None:
     """The validated compaction summary in force for this Agent thread, or None."""
     thread_id = _current_thread_id_var.get() or ""
@@ -3051,6 +3096,11 @@ def _collect_agent_complete_input(state: dict, *, policy: Any = None, pressure: 
         tool_guides_text,
         source="skills",
     )
+    if _section is not None:
+        _stable_injection_sections.append(_section)
+
+    # The code folder's own notes for agents (B2): read at the turn's start, bounded, scanned and fenced.
+    _section = stable_section("developer.project_notes", _project_notes_text(budget, small_profile), source="developer")
     if _section is not None:
         _stable_injection_sections.append(_section)
 
