@@ -312,3 +312,29 @@ def test_a_check_tells_open_clients_of_each_step_and_of_its_download_every_few_s
 
     assert found.state == "passed" and heard[-1] == "passed" and "checking" in heard
     assert 2 < heard.count("downloading") < 10  # the bytes every few seconds, never each report
+
+
+def test_a_model_built_for_a_shorter_context_than_a_personal_model_runs_at_fails_at_fits(tmp_path):
+    # A personal model is served at 32K: one built for 8K would read past what it learned.
+    import json
+
+    steps = FakeSteps(tmp_path)
+    weights = tmp_path / "weights"
+    weights.mkdir(exist_ok=True)
+    (weights / "config.json").write_text(json.dumps({"max_position_embeddings": 8192}), encoding="utf-8")
+
+    found = _check(tmp_path, steps, _record(tmp_path))
+
+    assert (found.state, found.failure) == ("failed", "context_too_short")
+    assert "8,192" in found.item("fits").words and "32,768" in found.item("fits").words
+    assert not any(call[0] == "fit" for call in steps.calls)  # nothing trained
+    assert open_models.as_choice(found, 32_607) is None
+
+
+def test_a_model_s_context_comes_from_its_config_or_its_text_part(tmp_path):
+    import json
+
+    assert open_models.context_limit(tmp_path) is None  # no config: it doesn't say
+    (tmp_path / "config.json").write_text(json.dumps({"text_config": {"max_position_embeddings": 262144}}),
+                                         encoding="utf-8")
+    assert open_models.context_limit(tmp_path) == 262144

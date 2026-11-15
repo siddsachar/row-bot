@@ -619,6 +619,25 @@ class Steps:
 
 
 SHORT_SEQ = 2048
+# A personal model is served with this context (the certified recipes' ``serve_context``): a model built for
+# less would read past what it learned, so its check fails.
+SERVE_CONTEXT = 32768
+
+
+def context_limit(weights_dir: Path) -> int | None:
+    """The longest input the model was built for, from its ``config.json`` (None: it doesn't say)."""
+
+    try:
+        config = json.loads((Path(weights_dir) / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(config, Mapping):
+        return None
+    for section in (config, config.get("text_config")):
+        value = section.get("max_position_embeddings") if isinstance(section, Mapping) else None
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return None
 FULL_SEQ = 16384
 
 
@@ -758,6 +777,11 @@ class Checker:
             record = self._save(replace(record, state="checking", downloaded_bytes=model.download_bytes))
             card_mib, share = steps.card()
             record = self._item(record, "fits", "running")
+            limit = context_limit(weights_dir)
+            if limit is not None and limit < SERVE_CONTEXT:
+                return self._fail(record, "fits", f"It was built to read {limit:,} tokens at once; a personal "
+                                  f"model needs {SERVE_CONTEXT:,} for Row-Bot’s tools and your chat.",
+                                  "context_too_short")
             fit = steps.fit(weights_dir, max_seq=FULL_SEQ, cap_share=share, work=work, check=self._check)
             flavor = hugging_face_flavor(record.params_b)
             here = fit.ran
