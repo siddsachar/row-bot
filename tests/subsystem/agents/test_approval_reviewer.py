@@ -317,4 +317,7 @@ def test_a_chat_the_person_typed_in_is_judged_as_before(monkeypatch):
 
     assert verdict.approved
     [messages] = seen
-    assert json.loads(messages[1]["content"])["where"]["request_written_by"] is None
+    # Exactly the input a chat had before editors: no source fact, no editor rule.
+    assert "request_written_by" not in messages[1]["content"]
+    assert messages[0]["content"] == approval_review._SYSTEM_PROMPT
+    assert "editor" not in messages[0]["content"]
