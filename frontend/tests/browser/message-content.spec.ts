@@ -170,3 +170,75 @@ test('long tool output, adjacent table, and immediate video embed fit wide and n
     await screenshot(page, info, `slice7-video-${width}`);
   }
 });
+
+test('a wide code block in the person’s message scrolls in its own box; the bubble keeps to its column (RM5)', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium layout pass',
+  );
+  await openFixture(page);
+  const wide = `printf '%s' "This is a long one-line command for the layout test. Reply with the words you can read, then stop, and keep the whole line on screen."`;
+  await page.evaluate((line) => {
+    const { controller } = (window as FixtureWindow).__ROW_BOT_FIXTURE__;
+    const projection = controller.getSnapshot().projection!;
+    const base = projection.rows[0];
+    const row = {
+      ...base,
+      id: 'rm5-user',
+      message_id: 'rm5-user',
+      role: 'user' as const,
+      blocks: [
+        {
+          id: 'rm5-user-text',
+          type: 'markdown' as const,
+          text: `Please check this before the meeting:\n\n\`\`\`bash\n${line}\n\`\`\``,
+        },
+      ],
+      traces: [],
+    };
+    (controller as unknown as { update(patch: unknown): void }).update({
+      history: null,
+      projection: { ...projection, rows: [row] },
+    });
+  }, wide);
+  const bubble = page.locator('.message-user .message-text').first();
+  await expect(bubble).toContainText('Please check this before the meeting');
+  for (const [width, height, size] of [
+    [1440, 900, 'desktop'],
+    [375, 812, 'phone'],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await bubble.scrollIntoViewIfNeeded();
+    const layout = await page.evaluate(() => {
+      const box = (selector: string) =>
+        document.querySelector(selector)!.getBoundingClientRect();
+      const code = document.querySelector('.message-user .code-sample')!;
+      return {
+        transcript: box('.transcript'),
+        column: box('.message-user > .transcript-content'),
+        bubble: box('.message-user .message-text'),
+        code: [code.scrollWidth, code.clientWidth],
+        page: [
+          document.documentElement.scrollWidth,
+          document.documentElement.clientWidth,
+        ],
+      };
+    });
+    // Nothing is cut on the left: the bubble stays inside its column and the transcript.
+    expect(layout.bubble.left).toBeGreaterThanOrEqual(layout.column.left - 1);
+    expect(layout.bubble.left).toBeGreaterThanOrEqual(
+      layout.transcript.left - 1,
+    );
+    expect(layout.bubble.right).toBeLessThanOrEqual(layout.column.right + 1);
+    // The code scrolls inside its own box; the page never scrolls sideways.
+    expect(layout.code[0]).toBeGreaterThan(layout.code[1]);
+    expect(layout.page[0]).toBeLessThanOrEqual(layout.page[1] + 1);
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await screenshot(page, info, `rm5-user-wide-code-${size}-${scheme}`);
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+  }
+});

@@ -6,6 +6,14 @@ import { useOverlay } from '../../ui/overlays';
 import { commandReceipts, ReceiptStorageError } from './command-receipts';
 import { takeHomeDraft, unusedChat } from './new-chat';
 
+// Refusals at the door, before any command runs: this window isn't signed in, its address isn't allowed,
+// or it has no session.
+const REFUSED_UNRUN = new Set([
+  'sign_in_required',
+  'origin_rejected',
+  'authentication_required',
+]);
+
 /** Mount once in the persistent shell. Every New chat entry shares this owner. */
 export default function useNewChat() {
   const state = { handshake: useClientSelector((value) => value.handshake) };
@@ -96,6 +104,8 @@ export default function useNewChat() {
       controller.getSnapshot().handshake?.instance_id === instance &&
       controller.getSnapshot().handshake?.client_session_id === session;
     let reserved: string | null = null;
+    // The receipt this press saved, never one an earlier press left.
+    let fresh: string | null = null;
     const opened = (conversationId: string) => {
       setFocusConversationId(conversationId);
       // Typed on Home while the chat was on its way: it waits in the new chat's composer (M12). A message
@@ -151,10 +161,19 @@ export default function useNewChat() {
         return;
       }
       const identity = saved?.commandId ?? crypto.randomUUID();
-      if (!saved)
-        commandReceipts.reserve(key, { commandId: identity, steeringId: null });
-      reserved = identity;
-      setPending(identity);
+      // A window that can only look is refused before anything runs, so it keeps nothing to check after
+      // signing in (RM2).
+      if (saved || snapshot.handshake?.may_act !== false) {
+        if (!saved) {
+          commandReceipts.reserve(key, {
+            commandId: identity,
+            steeringId: null,
+          });
+          fresh = identity;
+        }
+        reserved = identity;
+        setPending(identity);
+      }
       const result = saved
         ? await controller.receipt(identity)
         : await controller.intent(
@@ -199,6 +218,16 @@ export default function useNewChat() {
         );
       }
     } catch (cause) {
+      // Refused at the door (signed out, not allowed): the create never ran, so nothing is left to check.
+      if (fresh && REFUSED_UNRUN.has(clientError(cause).code)) {
+        try {
+          commandReceipts.clear(key, fresh);
+          reserved = null;
+          if (alive.current) setPending(null);
+        } catch {
+          // Storage refused the clear: the receipt stays checkable, as before.
+        }
+      }
       if (current()) {
         if (clientError(cause).code === 'not_found' && reserved)
           setMissing({ key, commandId: reserved });

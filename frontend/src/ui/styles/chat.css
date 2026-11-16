@@ -504,6 +504,9 @@
   margin-inline-start: auto;
 }
 .message-user .message-text {
+  /* Never wider than its column: a wide code block scrolls in its own box
+     instead of pushing the bubble past the transcript's left edge (RM5). */
+  max-width: min(100%, var(--prose-width));
   padding: 9px 14px;
   border-radius: 18px 18px 6px 18px;
   background: var(--surface-raised);

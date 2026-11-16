@@ -49,6 +49,7 @@ const mock = vi.hoisted(() => ({
     status: 'ready',
     handshake: {
       instance_id: '',
+      may_act: true,
       models: [] as ModelChoice[],
       application_capabilities: [] as string[],
     },
@@ -227,6 +228,7 @@ beforeEach(() => {
   mock.state.search = null;
   mock.state.activity = [];
   mock.state.handshake.instance_id = crypto.randomUUID();
+  mock.state.handshake.may_act = true;
   mock.state.handshake.models = [];
   mock.state.handshake.application_capabilities = [];
   mock.platformDiscover.mockResolvedValue({
@@ -2687,6 +2689,73 @@ it('checks an absent New chat receipt without replay and requires explicit revie
   });
   expect(mock.intent).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument();
+});
+
+it('makes the chat after signing in when New chat was refused while signed out (RM2)', async () => {
+  const key = `row-bot.new-chat.${mock.state.handshake.instance_id}`;
+  mock.intent.mockRejectedValueOnce({ code: 'sign_in_required' });
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    "This window isn't signed in, so it can only look.",
+  );
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Check new chat' })).toBeNull();
+  // Signing in loads the page again in the same tab.
+  rendered.unmount();
+  mock.intent.mockImplementation(async (...args: unknown[]) => ({
+    command_id: args[4],
+    status: 'completed',
+    conversation_id: 'created-conversation',
+  }));
+  await act(async () => {
+    conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  });
+  expect(mock.receipt).not.toHaveBeenCalled();
+  expect(mock.navigate).toHaveBeenCalledWith(
+    '/conversations/created-conversation',
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps nothing to check from a window that can only look, even when its answer is lost (RM2)', async () => {
+  const key = `row-bot.new-chat.${mock.state.handshake.instance_id}`;
+  mock.state.handshake.may_act = false;
+  mock.intent.mockRejectedValueOnce(new TypeError('Fixture lost response'));
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  });
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Check new chat' })).toBeNull();
+  rendered.unmount();
+  mock.state.handshake.may_act = true;
+  mock.intent.mockImplementation(async (...args: unknown[]) => ({
+    command_id: args[4],
+    status: 'completed',
+    conversation_id: 'created-conversation',
+  }));
+  await act(async () => {
+    conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  });
+  expect(mock.receipt).not.toHaveBeenCalled();
+  expect(mock.navigate).toHaveBeenCalledWith(
+    '/conversations/created-conversation',
+  );
 });
 
 it('fails closed before queue dispatch if its recovery identity cannot be saved', async () => {
