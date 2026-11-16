@@ -172,10 +172,10 @@ def _pick(moment: dict[str, Any], desktop: Desktop, settings: dict[str, Any]) ->
                         channel=deliver.channel_ready(settings))
 
 
-def _put(surface: str, moment: dict[str, Any], settings: dict[str, Any]) -> bool:
+def _put(surface: str, moment: dict[str, Any], settings: dict[str, Any], now: float) -> bool:
     from row_bot.proactive import deliver
 
-    return deliver.send(surface, moment, settings)
+    return deliver.send(surface, moment, settings, now=now)
 
 
 def _send(boundary: str | None, at: datetime, desktop: Desktop, settings: dict[str, Any]) -> list[dict[str, Any]]:
@@ -217,7 +217,7 @@ def _send(boundary: str | None, at: datetime, desktop: Desktop, settings: dict[s
         if not store.move(moment["id"], "shown", from_states=("pending",), now=now, surface=place, shown_at=now,
                           why=list(decision.why)):
             continue
-        if not _put(place, moment, settings):
+        if not _put(place, moment, settings, now):
             store.move(moment["id"], "pending", from_states=("shown",), now=now, surface="", shown_at=0.0, why=[])
             continue
         store.count(moment["kind"], "shown", now=now)

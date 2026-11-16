@@ -206,6 +206,30 @@ const EXACT: Record<string, Verb> = {
   outlook_forward_mail: verb('Forwarded an email', 'Forwarding an email', Mail),
   outlook_update_mail: verb('Filed an email', 'Filing an email', Mail),
   outlook_delete_mail: verb('Deleted an email', 'Deleting an email', Mail),
+  // Google Calendar's tools, each in its own card's words ("Create …", "Change …", "Move …", "Delete …"),
+  // never the family's "Check the calendar" (R1).
+  search_events: verb(
+    'Searched the calendar',
+    'Searching the calendar',
+    Calendar,
+  ),
+  create_calendar_event: verb(
+    'Created an event',
+    'Creating an event',
+    Calendar,
+  ),
+  create_calendar_events: verb('Created events', 'Creating events', Calendar),
+  update_calendar_event: verb(
+    'Changed an event',
+    'Changing an event',
+    Calendar,
+  ),
+  move_calendar_event: verb('Moved an event', 'Moving an event', Calendar),
+  delete_calendar_event: verb(
+    'Deleted an event',
+    'Deleting an event',
+    Calendar,
+  ),
   outlook_list_events: verb(
     'Checked the calendar',
     'Checking the calendar',
@@ -731,7 +755,11 @@ export function imperative(participle: string): string {
   let stem = first.slice(0, -3);
   const lower = stem.toLowerCase();
   if (SILENT_E.has(lower)) stem += 'e';
-  else if (/([bdgmnprt])\1$/i.test(stem)) stem = stem.slice(0, -1);
+  // "Cancelling" doubles its "l"; most "-lling" words don't ("Telling").
+  else if (lower === 'cancell') stem = stem.slice(0, -1);
+  // A consonant doubled after one short vowel ("Running" → "Run"), never a word's own ("Adding" → "Add").
+  else if (/[^aeiou][aeiou]([bdgmnprt])\1$/i.test(stem))
+    stem = stem.slice(0, -1);
   return [stem, ...rest].join(' ');
 }
 

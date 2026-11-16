@@ -30,13 +30,13 @@ describe('Settings › Proactive', () => {
     const item = (
       moment_id: string,
       title: string,
-      where: 'buddy' | 'home',
+      where: 'buddy' | 'notification' | 'home',
       in_brief = false,
     ) => ({
       moment_id,
       kind: 'follow_up' as const,
       title,
-      at: where === 'buddy' ? new Date(2026, 10, 16, 9, 50).toISOString() : '',
+      at: where !== 'home' ? new Date(2026, 10, 16, 9, 50).toISOString() : '',
       where,
       in_brief,
     });
@@ -51,6 +51,8 @@ describe('Settings › Proactive', () => {
             items: [
               item('0000000000000001', 'Design review brief', 'buddy'),
               item('0000000000000002', 'Priya hasn’t replied', 'home', true),
+              item('0000000000000003', 'Venue walkthrough', 'home'),
+              item('0000000000000004', 'Menu tasting call', 'notification'),
             ],
           },
           {
@@ -69,6 +71,10 @@ describe('Settings › Proactive', () => {
       await screen.findByText('Today at Quiet you’d have seen'),
     ).toBeVisible();
     expect(screen.getByText('Home only (in the brief)')).toBeVisible();
+    // Where each really went (R5): one stayed on Home, one was a notification.
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[2]).toHaveTextContent('Venue walkthroughHome only');
+    expect(rows[3]).toHaveTextContent('Menu tasting callA notification');
     expect(screen.queryByText(/An example day/)).toBeNull();
     await userEvent.click(screen.getByRole('radio', { name: 'Balanced' }));
     expect(

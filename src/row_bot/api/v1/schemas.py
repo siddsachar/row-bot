@@ -6686,7 +6686,9 @@ class ProactivePreviewItem(WireModel):
     title: str = Field(max_length=200)
     # When it would have come up ("" when it stays on Home).
     at: ProactiveTime
-    where: Literal["buddy", "home"]
+    # The surface it went to, or would have: Buddy's bubble, a desktop or in-app notification, the phone, the
+    # chosen chat app, or Home only.
+    where: Literal["buddy", "notification", "phone", "chat_app", "home"]
     # Carried in the morning brief.
     in_brief: bool
 
