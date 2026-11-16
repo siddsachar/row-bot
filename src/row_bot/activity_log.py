@@ -433,30 +433,20 @@ def _incognito(conversation_id: str) -> bool:
         return False
 
 
-def _safe_summary(tool: str, args: Mapping[str, Any]) -> str:
-    """The reviewed safe-argument vocabulary only (never what a tool read or wrote)."""
+def tool_words(tool: str) -> str:
+    """A tool's own name in words ("Read url"): the title of a call that had no label or app tool. The client
+    says such a call in the words its chat steps use instead (W19)."""
 
-    from row_bot.application.conversation_traces import safe_tool_call_args
+    from row_bot.application.conversation_traces import canonical_tool_name
 
-    inner = args.get("arguments") if tool and isinstance(args.get("arguments"), Mapping) else None
-    safe = safe_tool_call_args(dict(inner if inner is not None else args))
-    parts = []
-    for key, value in safe.items():
-        if isinstance(value, list):
-            value = ", ".join(str(item) for item in value)
-        parts.append(f"{key.replace('_', ' ')}: {value}")
-    return "; ".join(parts)
+    words = canonical_tool_name(tool).replace("_", " ").strip()
+    return words[:1].upper() + words[1:] if words else "Tool"
 
 
 def _title(tool: str, app: Mapping[str, Any] | None, label: str) -> str:
     if app and app.get("tool"):
         return str(app["tool"])
-    if label:
-        return label
-    from row_bot.application.conversation_traces import canonical_tool_name
-
-    words = canonical_tool_name(tool).replace("_", " ").strip()
-    return words[:1].upper() + words[1:] if words else "Tool"
+    return label or tool_words(tool)
 
 
 def _row(call: ToolCall) -> tuple[Any, ...] | None:
@@ -474,7 +464,8 @@ def _row(call: ToolCall) -> tuple[Any, ...] | None:
 
     app = app_of_tool(call.tool, dict(call.args))
     tool = str(call.tool or "")[:180]
-    summary = outcome.summary or _safe_summary(str(call.tool or ""), call.args)
+    # What an approval card said; a call that asked nobody has none (its arguments are internal: W19).
+    summary = outcome.summary
     reason = outcome.reason
     if _incognito(conversation):
         summary, reason = INCOGNITO_SUMMARY, ""

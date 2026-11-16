@@ -3641,6 +3641,15 @@
   flex: 1 1 180px;
   min-width: 0;
 }
+/* "This device" keeps its words; the last-seen line wraps under it (W11). */
+.access-devices .entity-row-meta {
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 0;
+}
+.access-devices .entity-row-meta .status-indicator {
+  flex: none;
+}
 .access-devices .entity-row-meta > span:not(.status-indicator) {
   white-space: normal;
 }

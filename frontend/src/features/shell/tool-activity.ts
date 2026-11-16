@@ -261,6 +261,10 @@ const EXACT: Record<string, Verb> = {
   move_file: verb('Moved a file', 'Moving a file', Folder),
   file_delete: verb('Deleted a file', 'Deleting a file', Folder),
   tool_search: verb('Found tools', 'Finding tools', Wrench),
+  // Said the same in chat steps and Settings › Activity (W19).
+  skill_search: verb('Looked for a skill', 'Looking for a skill', BookOpen),
+  skill_load: verb('Read a skill', 'Reading a skill', BookOpen),
+  agent_wait: verb('Waited for a helper', 'Waiting for a helper', Bot),
   x_post: verb('Posted on X', 'Posting on X', Globe),
   x_read: verb('Read X', 'Reading X', Globe),
   x_engage: verb('Engaged on X', 'Engaging on X', Globe),

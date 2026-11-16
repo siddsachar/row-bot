@@ -1715,6 +1715,26 @@ export default function Conversation({
       void answerOrSend(waiting, outgoing.text.trim(), keepTargets, retry);
       return;
     }
+    // "/goal Ship the docs", "/reasoning high", "/profile writer",
+    // "/agent <task>" run here instead of reaching the model as text (B112).
+    const withArgument = example
+      ? null
+      : slashArgument(outgoing.text, composerSnapshot?.commands ?? []);
+    // A watch on a public page or a command needs no model (W8): it is set
+    // even while the chat's model can't answer. One the model must set (a
+    // question, or a command that needs approval) still waits for it.
+    if (
+      id &&
+      withArgument?.command.handler_kind === 'watch' &&
+      watchRequest(withArgument.argument).kind !== 'model' &&
+      state.status === 'ready' &&
+      !pendingSteering &&
+      !pendingSubmit &&
+      !pendingResume
+    ) {
+      void runSlashArgument(withArgument);
+      return;
+    }
     const modelStatus = state.workspace?.model_status;
     if (
       id &&
@@ -1746,11 +1766,6 @@ export default function Conversation({
       !sendActionReady
     )
       return;
-    // "/goal Ship the docs", "/reasoning high", "/profile writer",
-    // "/agent <task>" run here instead of reaching the model as text (B112).
-    const withArgument = example
-      ? null
-      : slashArgument(outgoing.text, composerSnapshot?.commands ?? []);
     if (withArgument) {
       void runSlashArgument(withArgument);
       return;

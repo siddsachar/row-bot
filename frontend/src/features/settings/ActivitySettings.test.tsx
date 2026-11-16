@@ -132,6 +132,41 @@ describe('Settings › System › Activity', () => {
     ).toBeVisible();
   });
 
+  it('says a call nobody was asked about in the words chat steps use, never its tool name (W19)', async () => {
+    setup([
+      page([
+        entry({
+          entry_id: 4,
+          tool: 'agent_wait',
+          title: '',
+          summary: '',
+          outcome: 'ran',
+          decided_by: 'none',
+        }),
+        entry({
+          entry_id: 5,
+          tool: 'read_url',
+          title: '',
+          summary: '',
+          outcome: 'ran',
+        }),
+        entry({
+          entry_id: 6,
+          tool: 'duckduckgo_search',
+          title: '',
+          summary: '',
+          outcome: 'ran',
+        }),
+      ]),
+    ]);
+
+    const list = within(await screen.findByRole('list'));
+    expect(list.getByText('Wait for a helper')).toBeVisible();
+    expect(list.getByText('Read page')).toBeVisible();
+    expect(list.getByText('Search the web')).toBeVisible();
+    expect(list.queryByText(/agent_wait|Agent wait|read_url/)).toBeNull();
+  });
+
   it('filters by outcome, by where it ran and by words', async () => {
     const io = setup();
     await screen.findByText('Reviewer approved');

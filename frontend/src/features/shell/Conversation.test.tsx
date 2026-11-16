@@ -103,6 +103,7 @@ const mock = vi.hoisted(() => ({
   delegatedRun: vi.fn(),
   pendingApprovals: vi.fn(),
   command: vi.fn(),
+  setWatch: vi.fn(),
   forgetConversation: vi.fn(),
   videoProject: vi.fn(),
 }));
@@ -176,6 +177,7 @@ vi.mock('../../runtime', () => {
       delegatedRun: (conversationId: string, runId: string) =>
         mock.delegatedRun(conversationId, runId),
       command: mock.command,
+      setWatch: mock.setWatch,
       forgetConversation: mock.forgetConversation,
     },
     platform: {
@@ -3561,6 +3563,69 @@ async function sendText(text: string) {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   });
 }
+
+/** A chat whose model can't answer, with /watch among its commands; Enter on ``text``. */
+async function enterWithoutModel(text: string) {
+  withCommands();
+  const composer = mock.state.workspace!.composer!;
+  composer.commands = [
+    ...composer.commands,
+    {
+      ...composer.commands[0],
+      id: 'watch',
+      token: '/watch',
+      label: 'Watch',
+      handler_kind: 'watch',
+    },
+  ];
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.state.workspace!.model_status = {
+    state: 'unavailable',
+    reason: "ChatGPT / Codex isn't connected",
+    fix: 'reconnect',
+    local: false,
+  };
+  mock.setWatch.mockResolvedValue({ schema_version: 1 });
+  mock.drafts.set('conversation-a', { text, attachments: [] });
+  await act(async () => conversation());
+  const box = screen.getByRole<HTMLTextAreaElement>('textbox', {
+    name: 'Message',
+  });
+  // The caret at the end, as after typing (the slash menu is closed).
+  box.setSelectionRange(text.length, text.length);
+  fireEvent.select(box);
+  await act(async () => fireEvent.keyDown(box, { key: 'Enter' }));
+}
+
+it('sets a command watch while the chat model cannot answer: it needs no model (W8)', async () => {
+  await enterWithoutModel('/watch 1m `dir`');
+
+  expect(mock.setWatch).toHaveBeenCalledWith('conversation-a', {
+    mode: 'command',
+    target: 'dir',
+    every_minutes: 1,
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('sets a page watch while the chat model cannot answer (W8)', async () => {
+  await enterWithoutModel('/watch 30m https://example.com/');
+
+  expect(mock.setWatch).toHaveBeenCalledWith('conversation-a', {
+    mode: 'page',
+    target: 'https://example.com/',
+    every_minutes: 30,
+  });
+});
+
+it('a question watch still needs the model, and says so (W8)', async () => {
+  await enterWithoutModel('/watch 15m tell me when the date is announced');
+
+  expect(mock.setWatch).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    "ChatGPT / Codex isn't connected. Nothing was sent; your message is kept.",
+  );
+});
 
 it('sets the thinking level from /reasoning high instead of sending it (B112)', async () => {
   withCommands();
