@@ -69,7 +69,9 @@ def test_picker_keeps_unavailable_current_and_only_starred_available_choices():
         "model:openai:current", "model:openai:ready",
     }
     assert picker["options"][0]["available"] is False
-    assert "unavailable" in picker["warning"]
+    # By the model's name, in /status's words: never "default" or "refresh the catalog" (W3).
+    assert picker["warning"] == (
+        "current can't run: OpenAI API isn't connected. Connect it below, or choose another model.")
 
 
 
@@ -86,7 +88,14 @@ def test_a_saved_model_its_provider_no_longer_lists_says_so():
 def test_a_saved_model_whose_provider_has_listed_nothing_keeps_the_general_warning():
     rows = (_row("model:google:veo-3.1-generate-preview", category="video", ready=True),)
     picker = owner._picker("image", "model:openai:gpt-image-1", rows, enabled=True)
-    assert picker["warning"].startswith("Current Image default is unavailable.")
+    assert picker["warning"] == (
+        "gpt-image-1 isn't available right now. Check OpenAI API below, or choose another model.")
+
+
+def test_a_local_default_that_is_gone_names_the_model_and_ollama():
+    picker = owner._picker("chat", "model:ollama:qwen3:8b", (), enabled=None)
+    assert picker["warning"] == (
+        "qwen3:8b isn't available in Ollama Local right now. Check it below, or choose another model.")
 
 
 def test_legacy_media_defaults_remain_provider_qualified():

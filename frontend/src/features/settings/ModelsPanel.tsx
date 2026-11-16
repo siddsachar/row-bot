@@ -676,8 +676,7 @@ export default function ModelsPanel({
           status={
             state.brain.warning || brainNote ? (
               <StatusLine tone="warning">
-                {brainNote ||
-                  state.brain.warning?.replace('Chat', 'Main model')}
+                {brainNote || state.brain.warning}
               </StatusLine>
             ) : undefined
           }

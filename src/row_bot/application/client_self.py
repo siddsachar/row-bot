@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from typing import Any
 
 from row_bot.application.client_platform import ClientPlatformError
@@ -112,11 +113,37 @@ def _update_line() -> str:
     return "up to date"
 
 
-def person_status(conversation_id: str) -> str:
+_INTERRUPTED = frozenset({"resume_required", "interrupted"})
+
+
+def _waiting_conversations(conversations: Iterable[dict], approvals: Iterable[dict]) -> list[tuple[str, str]]:
+    """The listed conversations waiting on the person that no waiting approval already counts, as the sidebar
+    counts them (``needs.ts`` ``conversationsWaiting``): a goal's question, stopped agent work, or an approval
+    the list doesn't hold yet. Each as its title and what it waits for, in Home's words."""
+    listed = {item.get("conversation_id") for item in approvals}
+    waiting = []
+    for row in conversations:
+        phase = str(row.get("activity_phase") or "")
+        interrupted = row.get("activity_state") == "attention" and phase in _INTERRUPTED
+        asks = row.get("activity_state") == "attention" or any(
+            state.get("status") == "waiting_approval" for state in row.get("generation_state") or [])
+        if not asks or (row.get("id") in listed and not interrupted):
+            continue
+        words = ("agent work was interrupted" if interrupted
+                 else "a goal is waiting for your answer" if phase == "goal_needs_you"
+                 else "agent work needs your attention" if row.get("activity_state") == "attention"
+                 and phase != "waiting_approval"
+                 else "waiting for your approval")
+        waiting.append((str(row.get("title") or "Untitled conversation").rstrip("."), words))
+    return waiting
+
+
+def person_status(conversation_id: str, conversations: Iterable[dict] = ()) -> str:
     """What /status shows: never the model's own overview, ids or paths.
 
-    Needs you counts what the sidebar counts (W3): the attention list's problems and the approvals waiting.
-    Monitor's warnings, which the sidebar leaves out, follow on their own line.
+    Needs you counts what the sidebar counts (W3): the attention list's problems, the approvals waiting and
+    the listed ``conversations`` waiting on the person that no approval counts (a goal's question, stopped
+    agent work). Monitor's warnings, which the sidebar leaves out, follow on their own line.
     """
     from row_bot.application.client_diagnosis import ATTENTION_ELSEWHERE, read_system_health
     from row_bot.application.client_monitor import read_attention, read_pending_approvals
@@ -128,13 +155,16 @@ def person_status(conversation_id: str) -> str:
     lines = [f"**Row-Bot {__version__}** · {_update_line()}", "", _model_line(conversation_id),
              f"- **Approvals in this chat:** {approval_label(_get_thread_approval_mode(conversation_id))}"]
     found = read_attention(include_update=False)["problems"]
-    waiting = int(read_pending_approvals()["total"])
-    if not found and not waiting:
+    approvals = read_pending_approvals()
+    waiting = int(approvals["total"])
+    chats = _waiting_conversations(conversations, approvals["items"])
+    if not found and not waiting and not chats:
         lines.append("- **Needs you:** nothing")
     else:
-        lines.append(f"- **Needs you:** {len(found) + waiting}")
+        lines.append(f"- **Needs you:** {len(found) + waiting + len(chats)}")
         if waiting:
             lines.append(f"  - {waiting} {'approval is' if waiting == 1 else 'approvals are'} waiting")
+        lines.extend(f"  - {title} · {words}" for title, words in chats)
         for problem in found:
             title = str(problem["title"]).rstrip(".")
             detail = str(problem.get("detail") or "").rstrip(".")
