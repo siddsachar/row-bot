@@ -41,7 +41,7 @@ import AttentionIndicator from './AttentionIndicator';
 import SandboxNotice from './SandboxNotice';
 import ViewOnlyNotice from './ViewOnlyNotice';
 import { useWaits } from './Waits';
-import { useShellSettled } from '../../shell-settled';
+import { useBackgroundReady } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
   Brand,
@@ -170,8 +170,8 @@ const noSession = () => () => {};
 
 /**
  * The agent library's profiles are a sidebar nicety: they are read once per
- * server instance, after the open conversation has loaded, never on a
- * reconnect to the same instance (B29).
+ * server instance, after the first screen is up, never on a reconnect to the
+ * same instance (B29).
  */
 function useProfiles(
   session: GoalProfileSettingsSession | undefined,
@@ -185,7 +185,7 @@ function useProfiles(
   const [profiles, setProfiles] = useState<ProfileSummary[] | null>(null);
   const loaded = useRef('');
   const instance = state.handshake?.instance_id ?? '';
-  const settled = useShellSettled();
+  const settled = useBackgroundReady();
   useEffect(() => {
     const key = `${instance}\u0000${String(refresh)}`;
     if (!session || !settled || !instance || loaded.current === key) return;
@@ -317,6 +317,8 @@ export default function Navigation({
   const state = useClientState();
   const { controller, platform, conversationActionsOwner, goalProfileOwner } =
     useRuntime();
+  // What needs the person is read once the first screen is up.
+  const backgroundReady = useBackgroundReady();
   const overlay = useOverlay();
   // Learning (preview): "Don't learn from this chat" while Learning is on.
   const learningMenuItem = useLearningChatMenu();
@@ -918,8 +920,10 @@ export default function Navigation({
       <SandboxNotice />
       <ViewOnlyNotice />
       <AttentionIndicator
-        load={controller.attention}
-        loadApprovals={controller.pendingApprovals}
+        load={backgroundReady ? controller.attention : undefined}
+        loadApprovals={
+          backgroundReady ? controller.pendingApprovals : undefined
+        }
         conversations={state.conversations}
         onNavigate={openRoute}
       />
@@ -1225,6 +1229,8 @@ export function NavigationRail({
   const overlay = useOverlay();
   const location = useLocation();
   const session = goalProfileOwner?.get();
+  // What needs the person is read once the first screen is up.
+  const backgroundReady = useBackgroundReady();
   return (
     <nav className="navigation-rail" aria-label="Collapsed navigation">
       <div className="navigation-rail-group">
@@ -1269,8 +1275,10 @@ export function NavigationRail({
         <SandboxNotice compact />
         <ViewOnlyNotice compact />
         <AttentionIndicator
-          load={controller.attention}
-          loadApprovals={controller.pendingApprovals}
+          load={backgroundReady ? controller.attention : undefined}
+          loadApprovals={
+            backgroundReady ? controller.pendingApprovals : undefined
+          }
           conversations={state.conversations}
           compact
         />

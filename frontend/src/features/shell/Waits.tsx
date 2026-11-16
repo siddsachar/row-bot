@@ -23,9 +23,9 @@ import { IconButton } from '../../ui/primitives';
 /**
  * What conversations wait for (5.3.1): a process to end, a check to show
  * something, a time, another conversation, or a watch (B4). Read again when
- * the server says conversations changed, which is where a wait's changes are
- * published. `waits` are the live ones; `ended` are watches that ran out or
- * reached their change cap and keep their card until put away.
+ * the server says waits changed (the `waits` topic). `waits` are the live
+ * ones; `ended` are watches that ran out or reached their change cap and keep
+ * their card until put away.
  */
 export function useWaits(): {
   waits: WaitView[];
@@ -36,7 +36,7 @@ export function useWaits(): {
   const { controller } = useRuntime();
   const [items, setItems] = useState<WaitView[]>([]);
   const [readAt, setReadAt] = useState(0);
-  useLiveUpdate(['conversations'], () => setReadAt(Date.now()));
+  useLiveUpdate(['waits'], () => setReadAt(Date.now()));
 
   useEffect(() => {
     const abort = new AbortController();

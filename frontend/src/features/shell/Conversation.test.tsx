@@ -121,6 +121,8 @@ vi.mock('react-router-dom', () => ({
 vi.mock('../../runtime', () => {
   const runtime = {
     controller: {
+      // The first screen is up: its background reads go at once.
+      firstScreenSettled: true,
       getSnapshot: () => mock.state,
       getSelectionVersion: () => mock.version,
       dictationScope: () => null,
