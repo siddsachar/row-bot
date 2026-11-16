@@ -743,6 +743,40 @@ const CATALOG: Record<string, Entry> = {
     'Other people share this conversation, so it runs on Auto at most. Hands-off is only for your own chats.',
     'none',
   ],
+  full_autonomy_editor_conversation: [
+    'An editor wrote in this chat, so it runs on Auto at most. Hands-off is only for chats you have in Row-Bot.',
+    'none',
+  ],
+  // Editors (row-bot mcp): connecting one and writing its config.
+  keychain_unavailable: [
+    "Row-Bot couldn't keep the editor's key: this computer's keychain is locked or unavailable. Unlock it, then try again.",
+    'retry',
+    RETRY,
+  ],
+  config_changed: [
+    'The file changed since you looked at it. Look at the change again.',
+    'review',
+  ],
+  config_not_plain: [
+    "Row-Bot won't change this file: it has comments or isn't plain settings. Copy the settings into it yourself.",
+    'none',
+  ],
+  config_unreadable: [
+    "Row-Bot couldn't read this file. Copy the settings into it yourself.",
+    'none',
+  ],
+  config_too_large: [
+    'This file is too large for Row-Bot to change. Copy the settings into it yourself.',
+    'none',
+  ],
+  config_unwritable: [
+    "Row-Bot couldn't change this file. Copy the settings into it yourself.",
+    'none',
+  ],
+  config_not_written: [
+    'Add these settings to the editor yourself: Row-Bot only shows them.',
+    'none',
+  ],
   full_autonomy_person_only: [
     'Only you can turn on Hands-off, in Row-Bot.',
     'none',

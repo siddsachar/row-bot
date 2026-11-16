@@ -1,0 +1,71 @@
+/* Settings › Devices & remote access › Editors (row-bot mcp, E4). */
+.editor-options {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.editor-path {
+  font-family: var(--font-mono);
+  font-size: var(--type-size-metadata);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.editor-path-block {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+}
+.editor-snippet {
+  position: relative;
+  min-width: 0;
+}
+.editor-snippet pre,
+.editor-change pre {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 2;
+}
+.editor-snippet pre {
+  padding-right: 48px;
+}
+.editor-snippet pre:focus-visible,
+.editor-change pre:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.editor-snippet-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.editor-change {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.editor-change-label {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+  font-weight: var(--weight-medium);
+}
+.editor-change[data-after='true'] pre {
+  border-color: var(--accent-solid);
+}

@@ -17,6 +17,8 @@ class RouteKind(StrEnum):
     AUTHENTICATED = "authenticated"
     DELEGATED = "delegated"
     LAUNCHER = "launcher"
+    # A program on this computer with its own token, which the route checks: loopback only.
+    LOCAL_TOKEN = "local_token"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +100,8 @@ _VIEW_ONLY_CHANGES = re.compile(
 PLUGIN_WEBHOOK_PATH = re.compile(
     r"/plugin-webhooks/[a-z][a-z0-9\-]{1,63}/[a-z0-9][a-z0-9_-]{0,63}"
 )
+# ``row-bot mcp``'s calls for a connected editor (E4): its token, from this computer only.
+EDITOR_CALL_PATH = "/api/editors/call"
 LAUNCHER_ONLY_PATHS = frozenset(
     {
         "/api/launcher-ping",
@@ -124,6 +128,7 @@ AUTHENTICATED_ROUTE_PREFIXES: tuple[str, ...] = (
     "/api/designer",
     "/api/shell",
     "/api/terminal",
+    "/api/editors",
 )
 
 
@@ -177,6 +182,8 @@ class AccessPolicy:
             return RouteClassification(RouteKind.PUBLIC)
         if path in LAUNCHER_ONLY_PATHS or path.startswith("/api/launcher/"):
             return RouteClassification(RouteKind.LAUNCHER)
+        if path == EDITOR_CALL_PATH:
+            return RouteClassification(RouteKind.LOCAL_TOKEN)
         if path.startswith("/api/webhook/"):
             # Webhook task secrets remain authoritative at the route itself.
             return RouteClassification(RouteKind.DELEGATED)
@@ -213,6 +220,10 @@ class AccessPolicy:
             if context.direct_loopback and not context.forwarding_headers:
                 return AuthorizationDecision(True, 200, "local_launcher")
             return AuthorizationDecision(False, 403, "launcher_local_only")
+        if classification.kind is RouteKind.LOCAL_TOKEN:
+            if context.direct_loopback and not context.forwarding_headers:
+                return AuthorizationDecision(True, 200, "local_token")
+            return AuthorizationDecision(False, 403, "local_only")
         if not context.authenticated:
             return AuthorizationDecision(False, 401, "authentication_required")
         if classification.changes_state and not context.may_act:

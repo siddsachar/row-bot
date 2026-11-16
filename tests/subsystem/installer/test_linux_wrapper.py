@@ -199,6 +199,22 @@ def test_a_second_start_while_row_bot_runs_neither_counts_nor_supervises(tmp_pat
     assert first.wait(timeout=30) == 0
 
 
+def test_an_editors_mcp_bridge_runs_the_current_release_once_and_never_supervises(tmp_path):
+    root = tmp_path / "row-bot"
+    _release(root, "1.0.0", "0")
+    _release(root, "2.0.0", "3", "3")
+    layout.set_linux_current(root, "2.0.0")
+    layout.write_state(root, layout.InstallState(active="2.0.0", previous="1.0.0", pending_verification=True))
+
+    result = _run([str(root / "current" / "bin" / "row-bot"), "mcp", "--editor", "codex"], _env(tmp_path))
+
+    # Its exit is the bridge's own: never retried, never counted toward a rollback.
+    assert result.returncode == 3
+    assert [(run[0], run[6]) for run in _runs(tmp_path)] == [("2.0.0", "mcp --editor codex")]
+    state = layout.read_state(root)
+    assert (state.active, state.pending_verification, state.unverified_launches) == ("2.0.0", True, 0)
+
+
 @pytest.mark.slow
 def test_a_current_release_that_cannot_start_is_reported_not_entered(tmp_path):
     root = tmp_path / "row-bot"

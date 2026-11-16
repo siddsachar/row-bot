@@ -10040,6 +10040,13 @@ class LinkedFrom(WireModel):
     kind: Literal["message", "reply"] = "message"
 
 
+class FromEditor(WireModel):
+    """The editor the person typed a message in (``row-bot mcp``, E4)."""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9-]{0,31}$")
+    name: str = Field(min_length=1, max_length=64)
+
+
 class HeldMessage(WireModel):
     """A message another conversation left for a workflow's next run, shown under that run's line."""
 
@@ -10088,6 +10095,8 @@ class TranscriptRow(WireModel):
                   "linked", "backup_model", "watch"] | None = None
     # A message from another conversation (5.3.1 C, note "linked"): where it came from.
     linked_from: LinkedFrom | None = None
+    # The person's message typed in an editor (E4): which one ("From Claude Code").
+    from_editor: FromEditor | None = None
     # A workflow run's line (note "continuation"): the messages other conversations left for that run.
     held: list[HeldMessage] = Field(default_factory=list, max_length=10)
     # A workflow run's last line, when the run didn't finish: why, in plain words.

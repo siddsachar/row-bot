@@ -1555,6 +1555,10 @@ client_platform_service.bind_voice(_voice_coordinator,
 
 install_client_platform(app, client_platform_service, instance_id=client_platform_service.instance_id,
                         folder_selections=FolderSelections(picker=select_existing_workspace_folder))
+from row_bot.editors.routes import register_editor_routes
+
+# Editors (row-bot mcp, E4): Settings' connect/revoke and the bridge's loopback call.
+register_editor_routes(app, client_platform_service)
 
 from row_bot.client_assets import install_client_assets
 

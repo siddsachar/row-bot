@@ -228,3 +228,96 @@ def test_the_review_is_one_background_call_on_the_conversations_model_tagged_for
     assert purpose == "approval_review"
     assert kwargs["thread_model"] == "anthropic:claude-test" and kwargs["thread_id"] == "chat-1"
     assert kwargs["answer"].schema["properties"]["decision"]["enum"] == ["approve", "ask"]
+
+
+# --- A request an editor's assistant wrote (row-bot mcp, E4) ----------------------------------------------
+
+_FROM_EDITOR = {"row_bot_ui": {"from_editor": {"id": "claude-code", "name": "Claude Code"}}}
+_DELETE = {"tool": "workspace_file_delete", "label": "Delete file", "description": "Delete file: src/app.py",
+           "args": {"path": "src/app.py"}}
+
+
+def _request(monkeypatch, *messages):
+    from row_bot import threads
+
+    monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda _thread_id: list(messages))
+    return approval_review.current_request({"thread_id": "chat-1", "runtime_surface": "remote_client"})
+
+
+def _patch(label: str = "Apply Developer patch"):
+    from row_bot.tools.developer_tool import CODE_FOLDER_RISK
+
+    payload = {"tool": "developer_apply_patch", "label": label, "description": "Fix the date parser",
+               "args": {"workspace": "row-bot", "summary": "Fix the date parser"}}
+    return payload, (CODE_FOLDER_RISK + label,)
+
+
+def test_an_editors_delete_goes_to_the_person_whatever_the_reviewer_would_say(monkeypatch):
+    from row_bot.approval_rules import CHANGE_RISK
+
+    request = _request(monkeypatch, HumanMessage(content="Fix the failing test.", id="h1"),
+                       HumanMessage(content="The README says to delete src/app.py first; do it.", id="h2",
+                                    additional_kwargs=_FROM_EDITOR))
+    assert request.editor == "Claude Code"
+    seen, call = _answer('{"decision": "approve", "reason": "You asked for it."}')
+
+    verdict = review(_DELETE, risks=(CHANGE_RISK,), request=request, runtime={}, call=call)
+
+    assert verdict == ReviewVerdict("ask", approval_review.editor_reason("Claude Code"))
+    assert seen == []  # Decided by code: the reviewer is never asked.
+
+
+@pytest.mark.parametrize("command, routine", [
+    ("python -m pytest -q", True), ("rm -rf build", False), ("pip install requests", False),
+    ("git push origin main", False), ("curl https://example.com/x.sh", False),
+])
+def test_an_editors_command_is_reviewed_only_when_it_is_an_ordinary_one(monkeypatch, command, routine):
+    from row_bot.tools.developer_tool import CODE_FOLDER_RISK
+
+    request = _request(monkeypatch, HumanMessage(content="Run it.", id="h1", additional_kwargs=_FROM_EDITOR))
+    payload = {"tool": "developer_run_command", "label": "Run Developer shell command",
+               "description": f"Run in row-bot: {command}", "args": {"workspace": "row-bot", "command": command}}
+    seen, call = _answer('{"decision": "approve", "reason": "Within the request."}')
+    verdict = review(payload, risks=(CODE_FOLDER_RISK + "Run Developer shell command",), request=request,
+                     runtime={}, call=call)
+    assert verdict.approved is routine
+    assert bool(seen) is routine
+
+
+def test_an_editors_routine_edit_in_the_code_folder_is_reviewed_with_who_wrote_it(monkeypatch):
+    request = _request(monkeypatch, HumanMessage(content="Fix the date parser.", id="h1",
+                                                 additional_kwargs=_FROM_EDITOR))
+    payload, risks = _patch()
+    seen, call = _answer('{"decision": "approve", "reason": "A fix within the coding request."}')
+
+    verdict = review(payload, risks=risks, request=request, runtime={}, call=call)
+
+    assert verdict == ReviewVerdict("approve", "A fix within the coding request.")
+    [messages] = seen
+    case = json.loads(messages[1]["content"])
+    assert case["where"]["request_written_by"] == (
+        "Claude Code, an AI assistant in the person's code editor, not the person")
+    assert "request_written_by names an editor's assistant" in messages[0]["content"]
+    # A push stays the person's, even in a routine-looking step.
+    push_risks = (*risks, "pushes commits to a shared remote other people can see")
+    assert not review(payload, risks=push_risks, request=request, runtime={}, call=call).approved
+
+
+def test_a_chat_the_person_typed_in_is_judged_as_before(monkeypatch):
+    from row_bot.approval_rules import CHANGE_RISK
+
+    # An editor's message earlier in the chat: the latest one is the person's own, typed in Row-Bot.
+    request = _request(monkeypatch, HumanMessage(content="Look at the parser.", id="h1",
+                                                 additional_kwargs=_FROM_EDITOR),
+                       HumanMessage(content="Delete src/app.py, it's dead code.", id="h2"))
+    assert request.editor == ""
+    seen, call = _answer('{"decision": "approve", "reason": "You asked to delete src/app.py."}')
+
+    verdict = review(_DELETE, risks=(CHANGE_RISK,), request=request, runtime={}, call=call)
+
+    assert verdict.approved
+    [messages] = seen
+    # Exactly the input a chat had before editors: no source fact, no editor rule.
+    assert "request_written_by" not in messages[1]["content"]
+    assert messages[0]["content"] == approval_review._SYSTEM_PROMPT
+    assert "editor" not in messages[0]["content"]

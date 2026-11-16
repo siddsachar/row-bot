@@ -20,6 +20,11 @@
  *
  * python.exe runs with CREATE_NO_WINDOW: a hidden console, as the .vbs/.bat
  * pair gave it, so console programs it starts never open a window.
+ *
+ * `Row-Bot.exe mcp ...` is an editor's bridge to the running Row-Bot
+ * (src/row_bot/editors/bridge.py) on the editor's stdin and stdout: it runs the
+ * active version once, beside the app, and never supervises, relaunches or
+ * counts as a launch.
  */
 #define WIN32_LEAN_AND_MEAN
 #define UNICODE
@@ -684,6 +689,13 @@ static void show_error(const wchar_t *message)
     MessageBoxW(NULL, message, L"Row-Bot", MB_OK | MB_ICONERROR);
 }
 
+/* An editor's `Row-Bot.exe mcp ...`: the bridge runs beside the app, never as its supervisor. */
+static int editor_bridge(void)
+{
+    const wchar_t *arguments = forwarded_arguments();
+    return wcsncmp(arguments, L"mcp", 3) == 0 && (arguments[3] == 0 || arguments[3] == L' ' || arguments[3] == L'\t');
+}
+
 /* One supervising launcher per install and data folder; a second start only hands over. */
 static HANDLE claim_supervisor(void)
 {
@@ -736,9 +748,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous_instance, PWSTR comma
             GetEnvironmentVariableW(L"PATH", g_original_path, path_length);
     }
 
-    supervisor = claim_supervisor();
+    supervisor = editor_bridge() ? NULL : claim_supervisor();
     if (!supervisor) {
-        /* Row-Bot already runs from here: launcher.py shows it and exits. */
+        /* Row-Bot already runs from here: launcher.py shows it and exits (or an editor's bridge runs). */
         PROCESS_INFORMATION process;
         State state;
         int has = read_state(&state);

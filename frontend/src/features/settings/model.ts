@@ -90,7 +90,7 @@ export const settingsKeywords: Record<ListedLeafId, string> = {
   activity:
     'actions audit log history approvals approved denied blocked reviewer hands-off who allowed export csv clear always allow rules standing',
   access:
-    'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
+    'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public editor mcp claude code cursor codex zed',
   updates: 'version upgrade release channel beta',
   data: 'migration import hermes openclaw danger delete',
 };
