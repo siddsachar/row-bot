@@ -117,7 +117,7 @@ _READS = frozenset({
     "list_conversations", "search_conversations", "conversation_links", "media_find", "page_read",
     "tracker_query", "task_list", "wiki_read", "wiki_stats", "browser_navigate", "browser_extract",
     "browser_screenshot", "browser_scroll", "browser_tabs", "browser_wait_for", "browser_viewport",
-    "browser_download", "workspace_read_file", "workspace_list_directory", "workspace_file_search",
+    "browser_download", "workspace_read_file", "workspace_find", "workspace_list_directory", "workspace_file_search",
     "developer_read_file", "developer_list_files", "developer_search", "developer_git_status",
     "developer_get_diff", "developer_workspace_info", "developer_list_agent_changes",
     "developer_preview_patch", "transcribe", "x_read", "outlook_read_mail", "agent_profiles",

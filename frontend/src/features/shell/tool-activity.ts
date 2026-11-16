@@ -256,6 +256,7 @@ const EXACT: Record<string, Verb> = {
   write_file: verb('Wrote a file', 'Writing a file', FilePen),
   list_directory: verb('Listed files', 'Listing files', Folder),
   file_search: verb('Searched files', 'Searching files', Search),
+  find: verb('Looked for files', 'Looking for files', Search),
   copy_file: verb('Copied a file', 'Copying a file', Folder),
   move_file: verb('Moved a file', 'Moving a file', Folder),
   file_delete: verb('Deleted a file', 'Deleting a file', Folder),

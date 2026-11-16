@@ -20,7 +20,7 @@ pytestmark = pytest.mark.subsystem
 
 SNAPSHOT = Path(__file__).resolve().parents[2] / "snapshots" / "tools" / "default_tool_schema_sizes.txt"
 # Optional tool modules the default tool set includes (tests import optional modules on purpose).
-OPTIONAL_DEFAULT_MODULES = ("row_bot.tools.developer_tool", "row_bot.tools.chart_tool")
+OPTIONAL_DEFAULT_MODULES = ("row_bot.tools.developer_tool", "row_bot.tools.chart_tool", "row_bot.tools.browser_tool")
 
 
 def _schema_chars(tool) -> int:

@@ -486,3 +486,21 @@ def test_a_grant_can_be_removed_runs_out_after_an_hour_and_ends_with_its_convers
 def test_an_every_address_bind_says_to_open_localhost(browser, url):
     assert _tool("browser_navigate", url=url).endswith("Open http://localhost:5173 instead.")
     assert browser.asked == [] and browser.acts == []
+
+
+def test_a_null_for_an_optional_field_is_the_same_as_leaving_it_out(browser):
+    """B1: optional fields carry no null branch in their schema, but models often send null anyway."""
+    tools = {tool.name: tool for tool in browser_tool.BrowserTool().as_langchain_tools()}
+    calls = [("browser_press", {"key": "Escape"}, {"ref": None}),
+             ("browser_scroll", {"direction": "down"}, {"ref": None}),
+             ("browser_wait_for", {}, {"text": None, "gone": None, "seconds": None}),
+             ("browser_tabs", {"action": "list"}, {"tab": None, "url": None})]
+
+    for name, given, nulls in calls:
+        browser.acts.clear()
+        tools[name].invoke(given)
+        left_out = list(browser.acts)
+        browser.acts.clear()
+        tools[name].invoke({**given, **nulls})
+        assert browser.acts == left_out and left_out, name
+    assert tools["browser_extract"].args_schema.model_validate({"ref": None}).ref == ""

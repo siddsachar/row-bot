@@ -402,7 +402,7 @@ def test_the_turn_context_names_the_workspace_under_home_without_the_account_nam
     first = _block(env.call(state, "t1"))
 
     assert ("Workspace folder: ~/Documents/Row-Bot. File tools and the shell start here; relative paths are "
-            "inside it.") in first
+            "inside it, and a file tool asks the person before it uses a full path elsewhere.") in first
     assert "jane-account" not in first and str(home) not in first
 
     state["messages"] = [*state["messages"], AIMessage(content="Done.")]
