@@ -479,3 +479,54 @@ it("opens one new chat from the installed app's New chat shortcut", async () => 
   expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
   expect(transport.counters.commands).toBe(commands + 1);
 });
+
+it('keeps what was typed on Home while a slow New chat opens (M12)', async () => {
+  vi.stubGlobal('innerWidth', 1440);
+  vi.stubGlobal('innerHeight', 900);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  // Over a slow link the new chat takes a while to be made.
+  let arrive!: () => void;
+  const slow = new Promise<void>((resolve) => (arrive = resolve));
+  const command = transport.command.bind(transport);
+  vi.spyOn(transport, 'command').mockImplementation(async (...args) => {
+    if (args[1].type === 'conversation.create') await slow;
+    return command(...args);
+  });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+
+  const ask = await screen.findByRole(
+    'textbox',
+    { name: 'Ask Row-Bot' },
+    { timeout: 3000 },
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  fireEvent.change(ask, {
+    target: { value: 'Suggest a name for a second cat' },
+  });
+  await act(async () => arrive());
+
+  await waitFor(
+    () =>
+      expect(screen.getByLabelText('Current route').textContent).toMatch(
+        /^\/conversations\/fixture-/,
+      ),
+    { timeout: 3000 },
+  );
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(
+    'Suggest a name for a second cat',
+  );
+});

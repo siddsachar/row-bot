@@ -77,6 +77,7 @@ import {
 import { usePendingApprovals } from '../shell/pending-approvals';
 import FixAction, { RunAgain } from './FixAction';
 import MemoryNoticeActions from './MemoryNotice';
+import { setHomeDraft } from '../shell/new-chat';
 import { useWaits, waitHow } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
 import { useProactive, useProactiveOn } from '../proactive/proactive-state';
@@ -299,7 +300,13 @@ function AskBox({
   onAsk: NonNullable<OverviewHomeProps['onAsk']>;
   asking: boolean;
 }) {
+  // Shared while Home shows: a New chat opening as the person types takes it along (M12).
   const [text, setText] = useState('');
+  const type = (value: string) => {
+    setText(value);
+    setHomeDraft(value);
+  };
+  useEffect(() => () => setHomeDraft(''), []);
   function submit(event: FormEvent) {
     event.preventDefault();
     const value = text.trim();
@@ -315,7 +322,7 @@ function AskBox({
         enterKeyHint="send"
         autoComplete="off"
         value={text}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => type(event.target.value)}
       />
       <IconButton
         label="Add files in a new chat"

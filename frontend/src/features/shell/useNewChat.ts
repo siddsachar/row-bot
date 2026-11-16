@@ -4,7 +4,7 @@ import { clientError } from '../../api/errors';
 import { useClientSelector, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { commandReceipts, ReceiptStorageError } from './command-receipts';
-import { unusedChat } from './new-chat';
+import { takeHomeDraft, unusedChat } from './new-chat';
 
 /** Mount once in the persistent shell. Every New chat entry shares this owner. */
 export default function useNewChat() {
@@ -98,6 +98,15 @@ export default function useNewChat() {
     let reserved: string | null = null;
     const opened = (conversationId: string) => {
       setFocusConversationId(conversationId);
+      // Typed on Home while the chat was on its way: it waits in the new chat's composer (M12). A message
+      // asked from Home is that text, already on its way.
+      const typed = takeHomeDraft();
+      if (
+        typed.trim() &&
+        !firstMessage.trim() &&
+        !controller.getDraft(conversationId).text.trim()
+      )
+        controller.setDraft(conversationId, { text: typed, attachments: [] });
       if (firstMessage.trim() && !send) {
         controller.setDraft(conversationId, {
           text: firstMessage,

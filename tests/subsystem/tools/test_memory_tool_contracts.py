@@ -238,3 +238,26 @@ def test_memory_tool_missing_link_endpoint_is_reported_without_raising(tmp_path,
 
     assert memory_tool._link_memories("missing", "also missing", "related_to").startswith("Error: source entity")
     assert memory_tool._explore_connections("missing").startswith("Entity 'missing' not found")
+
+
+def test_linking_to_the_user_links_to_the_persons_own_entity_made_once(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    """M15: in a plain chat 3 of 4 link_memories calls failed with "target entity 'User' not found": nothing had
+    made the person's own entity yet. "User" (or "me") is the person: the first link makes their entity, and
+    later links, under either name, reach the same one."""
+    stack = fresh_memory_stack(tmp_path, monkeypatch, reload_for_data_dir)
+    memory_tool = stack["memory_tool"]
+    monkeypatch.setattr(memory_tool, "_check_contradiction", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    memory_tool._save_memory("person", "Dana", "Dana is starting a new job at a design studio.")
+    memory_tool._save_memory("event", "Multnomah Falls hike", "Hiked at Multnomah Falls last Friday.")
+
+    friend = memory_tool._link_memories("User", "Dana", "friend_of")
+    hike = memory_tool._link_memories("Multnomah Falls hike", "me", "attended_by")
+
+    assert friend.startswith("Relationship created successfully") and "User --[friend_of]--> Dana" in friend
+    assert hike.startswith("Relationship created successfully") and "--> User" in hike
+    users = [entity for entity in json.loads(memory_tool._list_memories("person")) if entity["subject"] == "User"]
+    assert len(users) == 1
+    assert "Relationships (2):" in memory_tool._explore_connections("User")
+    # Anyone else who isn't saved is still reported, never made up.
+    assert memory_tool._link_memories("User", "Sam", "knows").startswith("Error: target entity 'Sam' not found")
