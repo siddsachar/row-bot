@@ -49,13 +49,16 @@ STAGES = ("profile", "past", "days", "generations", "checks", "benchmark", "tidy
 LAST = ("benchmark", "tidy")
 #: A person's run kept under another name: ``<person>@<label>`` (``--archive``).
 ARCHIVE_MARK = "@"
-#: Rough cloud tokens for --plan, from the pilots: a live request (a turn or two on GPT-6.1 Sol with the
-#: person's tools, a correction now and then: about 50K), the main model on the packs once a run (64 visible
-#: + 32 hidden x 3, kept 30 days and shared between the people), and its replay of a person's held-out work
-#: in each of their comparisons (about three: the runner's two and the benchmark).
+#: Rough cloud tokens for --plan, from the pilots and the 15-16 Nov rehearsal (one person, 16 GB: 26.9M before
+#: its benchmark): a live request (a turn or two on GPT-6.1 Sol with the person's tools, a correction now and
+#: then: about 50K), the main model on the packs once a run (64 visible + 32 hidden x 3, kept 30 days and shared
+#: between the people), its replay of a person's held-out work in their comparisons and change tests (6.8M over
+#: 55 nights, the benchmark on top), and each inherited generation (L4a): a strategy trial's arms at their equal
+#: budget and its judging (two trials took 15.0M).
 PLAN_TOKENS_PER_REQUEST = 50_000
 PLAN_TOKENS_MAIN_PACKS = 2_500_000
-PLAN_TOKENS_REPLAY_PER_PERSON = 3_000_000
+PLAN_TOKENS_REPLAY_PER_PERSON = 9_000_000
+PLAN_TOKENS_PER_GENERATION = 7_500_000
 
 Runner = Callable[[list[str], Mapping[str, str], Path], int]
 
@@ -131,9 +134,10 @@ class ReleaseCheck:
                          "past_turns": sum(len(item.requests) for item in history.past),
                          "live_requests": len(history.stream), "history": history.fingerprint()[:12]})
         requests = sum(row["live_requests"] for row in rows)
+        per_person = PLAN_TOKENS_REPLAY_PER_PERSON + int(self.args.generations or 0) * PLAN_TOKENS_PER_GENERATION
         estimate = (requests * PLAN_TOKENS_PER_REQUEST + PLAN_TOKENS_MAIN_PACKS
-                    + len(rows) * PLAN_TOKENS_REPLAY_PER_PERSON) * len([tier for tier in self.tiers
-                                                                       if self.tier_status(tier) == "ran"] or [1])
+                    + len(rows) * per_person) * len([tier for tier in self.tiers
+                                                    if self.tier_status(tier) == "ran"] or [1])
         return {"people": rows, "tiers": {tier: self.tier_status(tier) for tier in self.tiers},
                 "estimated_cloud_tokens": estimate, "cap": self.args.cap_tokens,
                 "fits": estimate <= self.args.cap_tokens}
