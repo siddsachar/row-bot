@@ -642,6 +642,59 @@ it('a message sent while Row-Bot waits on one question answers it in those words
   expect(mock.drafts.get('conversation-a')?.text).toBe('');
 });
 
+it('a waiting question card reads as a question in the step line and the status, never an approval (R7)', async () => {
+  activeConversation();
+  mock.state.projection = {
+    ...mock.state.projection!,
+    generation: {
+      generation_id: 'run-a',
+      quiesced: true,
+      can_stop: true,
+      status: 'waiting_approval',
+      approval_id: 'approval-q',
+    },
+  } as unknown as Snapshot;
+  mock.state.activity = [
+    {
+      cursor: '4',
+      event: {
+        event_id: 'event-question',
+        type: 'approval.required',
+        conversation_id: 'conversation-a',
+        projection_revision: '4',
+        protocol_version: '1.0',
+        server_epoch: 'epoch',
+        source: 'runtime',
+        source_epoch: 'epoch',
+        source_stream_id: 'conversation-a',
+        source_sequence_start: '4',
+        source_sequence_end: '4',
+        payload: {
+          status: 'waiting_approval',
+          approval_id: 'approval-q',
+          questions: [
+            {
+              header: 'Drink',
+              question: 'Do you prefer tea or coffee?',
+              options: [{ label: 'Tea' }, { label: 'Coffee' }],
+            },
+          ],
+        },
+      },
+    },
+  ] as never[];
+  mock.approval.mockReturnValue(new Promise(() => undefined));
+  await act(async () => conversation());
+  const statuses = screen
+    .getAllByRole('status')
+    .map((element) => element.textContent ?? '');
+  expect(statuses).toContain('Waiting for your answer.');
+  expect(statuses.join(' ')).not.toMatch(/approval/i);
+  expect(screen.getByRole('group', { name: 'Activity' })).toHaveTextContent(
+    'Waiting for your answer',
+  );
+});
+
 function computerAsking() {
   activeConversation();
   mock.state.projection = {
@@ -1865,6 +1918,75 @@ it('takes what was sent out of the composer as soon as Row-Bot has it, before th
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
   await act(async () => refreshed());
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+});
+
+it('sends a message Entered while the chat is still opening once it has opened, never dropping it (R2)', async () => {
+  idleConversation();
+  const opened = mock.state.workspace;
+  // Still opening: the chat's controls have not been read yet.
+  mock.state.workspace = null;
+  mock.state.loadingConversation = true;
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+  let view!: ReturnType<typeof conversation>;
+  await act(async () => {
+    view = conversation();
+  });
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  await act(async () => {
+    fireEvent.keyDown(box, { key: 'Enter' });
+  });
+  expect(mock.intent).not.toHaveBeenCalled();
+  mock.state.workspace = opened;
+  mock.state.loadingConversation = false;
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.objectContaining({ text: 'Original queued draft' }),
+    expect.any(String),
+    expect.any(String),
+    { onReceipt: expect.any(Function) },
+  );
+  // Opening again later never sends it a second time.
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+});
+
+it('drops a message Entered while the chat was opening if it is edited before it opens (R2)', async () => {
+  idleConversation();
+  const opened = mock.state.workspace;
+  mock.state.workspace = null;
+  mock.state.loadingConversation = true;
+  let view!: ReturnType<typeof conversation>;
+  await act(async () => {
+    view = conversation();
+  });
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  await act(async () => {
+    fireEvent.keyDown(box, { key: 'Enter' });
+  });
+  fireEvent.change(box, {
+    target: { value: 'Original queued draft, and more' },
+  });
+  mock.state.workspace = opened;
+  mock.state.loadingConversation = false;
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(box).toHaveValue('Original queued draft, and more');
 });
 
 it('sends the files again with Send again, not their names as text (B136)', async () => {

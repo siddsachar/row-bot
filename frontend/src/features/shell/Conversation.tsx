@@ -488,6 +488,10 @@ export default function Conversation({
     value: ReturnType<typeof controller.getDraft>;
   } | null>(null);
   const firstPromptSent = useRef<string | null>(null);
+  const [openingPrompt, setOpeningPrompt] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
   // Edit and resend (B5): the edited text, sent once the new conversation is open.
   const [forkPrompt, setForkPrompt] = useState<{
     conversationId: string;
@@ -899,6 +903,18 @@ export default function Conversation({
         record.event.type === 'approval.required' &&
         record.event.payload.approval_id === generation?.approval_id,
     );
+  // The turn waits on Row-Bot's question card: it reads as a question, never
+  // an approval (R7). The live event says so; after a reload the waiting list does.
+  const waitingOnQuestion = Boolean(
+    generation?.status === 'waiting_approval' &&
+    generation.approval_id &&
+    ((approvalEvent?.event.type === 'approval.required' &&
+      (approvalEvent.event.payload.questions?.length ?? 0) > 0) ||
+      approvalsFeed.page?.items.some(
+        (item) =>
+          item.id === generation.approval_id && item.kind === 'question',
+      )),
+  );
   // Row-Bot's browser shows as a live step while the turn uses it, on every
   // signed-in device; tapping it opens the Browser pane (N12-A).
   // The turn's tool steps settle into the transcript as they're saved, so this
@@ -1715,6 +1731,17 @@ export default function Conversation({
       void answerOrSend(waiting, outgoing.text.trim(), keepTargets, retry);
       return;
     }
+    // Enter while the chat is still opening (its controls not read yet) is
+    // kept and sent once it has opened, never dropped (R2).
+    if (
+      !example &&
+      id &&
+      outgoing.text.trim() &&
+      (!historyReady || state.workspace?.conversation_id !== id)
+    ) {
+      setOpeningPrompt({ conversationId: id, text: outgoing.text });
+      return;
+    }
     // "/goal Ship the docs", "/reasoning high", "/profile writer",
     // "/agent <task>" run here instead of reaching the model as text (B112).
     const withArgument = example
@@ -1849,6 +1876,23 @@ export default function Conversation({
     }
     if (!answered) send(undefined, keepTargets, [], retry, true);
   }
+  // A message sent while the chat was opening goes once it has opened, unless
+  // it was changed meanwhile or the person left the chat (R2).
+  const sendOpeningPrompt = useEffectEvent(() => send());
+  const workspaceOpen = Boolean(id) && state.workspace?.conversation_id === id;
+  useEffect(() => {
+    if (!openingPrompt) return;
+    if (
+      openingPrompt.conversationId !== id ||
+      draft.text !== openingPrompt.text
+    ) {
+      setOpeningPrompt(null);
+      return;
+    }
+    if (!historyReady || !workspaceOpen) return;
+    setOpeningPrompt(null);
+    sendOpeningPrompt();
+  }, [openingPrompt, id, draft.text, historyReady, workspaceOpen]);
   const sendFirstPrompt = useEffectEvent(() => send());
   useEffect(() => {
     if (
@@ -3530,7 +3574,9 @@ export default function Conversation({
         running: 'Row-Bot is working.',
         stopping: 'Stopping — waiting for the worker to finish.',
         stopped: 'Stopped.',
-        waiting_approval: 'Waiting for your approval.',
+        waiting_approval: waitingOnQuestion
+          ? 'Waiting for your answer.'
+          : 'Waiting for your approval.',
         completed: 'Response complete.',
         interrupted: claudeSignedOut
           ? 'Claude signed you out.'
@@ -3869,6 +3915,7 @@ export default function Conversation({
                           waiting:
                             generation?.status === 'waiting_approval' &&
                             !computerPause,
+                          asking: waitingOnQuestion,
                           paused: computerPause,
                           stopping: generation?.status === 'stopping',
                           startedAt: runStartedAt,
