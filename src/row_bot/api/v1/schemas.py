@@ -2658,6 +2658,82 @@ class LocalRuntimeSnapshot(WireModel):
     on_this_computer: bool
 
 
+LocalModelFit = Literal["gpu", "partial", "cpu", "too_big"]
+LocalModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9.-]+$")]
+
+
+class LocalModelOption(WireModel):
+    """One pinned model "Run on this computer" can download, and how it would run here."""
+
+    id: LocalModelId
+    name: str = Field(max_length=128)
+    model_ref: str = Field(min_length=1, max_length=256)
+    size_bytes: int = Field(ge=0)
+    fit: LocalModelFit
+    # Good for everyday chat; long tasks want a larger model or a provider.
+    everyday: bool
+    # "4-bit", "3-bit", "2-bit": the build of the model that fits.
+    quantization: str = Field(max_length=32)
+    # A smaller model of the generation before the default, offered where the default doesn't fit.
+    older: bool
+    installed: bool
+    # What pressing Download would fetch now (the build too when it isn't installed); 0 when ready.
+    download_bytes: int = Field(ge=0)
+
+
+class LocalModelDownload(WireModel):
+    model_id: LocalModelId
+    acceleration: str = Field(max_length=32)
+    total_bytes: int = Field(ge=0)
+    done_bytes: int = Field(ge=0)
+    phase: Literal["downloading", "checking", "finished", "stopped", "failed"]
+    reason: str | None = Field(default=None, max_length=64)
+    facts: dict[str, int] | None = None
+
+
+class LocalModelFailure(WireModel):
+    reason: str = Field(max_length=64)
+    needed_bytes: int | None = Field(default=None, ge=0)
+    free_bytes: int | None = Field(default=None, ge=0)
+    download_bytes: int | None = Field(default=None, ge=0)
+
+
+class LocalModelRuntimeView(WireModel):
+    """Run on this computer (E1): this computer, the pinned models and what is installed."""
+
+    schema_version: Literal[1]
+    state: Literal["unavailable", "not_installed", "downloading", "installed", "running", "failed"]
+    computer: str = Field(max_length=256)
+    acceleration: str = Field(max_length=32)
+    acceleration_label: str = Field(max_length=64)
+    note: str | None = Field(default=None, max_length=64)
+    release: str = Field(max_length=32)
+    build_installed: bool
+    # The size of the current build when an older one is installed (it keeps working until updated).
+    update_bytes: int = Field(ge=0)
+    recommended: LocalModelId | None = None
+    models: list[LocalModelOption] = Field(max_length=16)
+    download: LocalModelDownload | None = None
+    failure: LocalModelFailure | None = None
+    disk_bytes: int = Field(ge=0)
+    free_bytes: int = Field(ge=0)
+    # After Remove: the space it gave back.
+    freed_bytes: int | None = Field(default=None, ge=0)
+    # False on another device (a phone): downloads are a desktop action.
+    on_this_computer: bool
+
+
+class LocalModelInstallRequest(WireModel):
+    model_id: LocalModelId
+    # The size the Download button showed; the download starts only while it still holds.
+    download_bytes: int = Field(ge=0)
+
+
+class LocalModelRemoveRequest(WireModel):
+    # One model; absent: the runtime and every model.
+    model_id: LocalModelId | None = None
+
+
 class ModelTestResult(WireModel):
     schema_version: Literal[1]
     ok: bool

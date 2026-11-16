@@ -31,6 +31,8 @@ PLATFORM_SENSITIVE = frozenset({
     "row_bot.launcher",
     "row_bot.learning.sandbox",
     "row_bot.learning.training.engine",
+    "row_bot.local_runtime.install",
+    "row_bot.local_runtime.server",
     "row_bot.mcp_client.requirements",
     "row_bot.native_client",
     "row_bot.plugins.sandbox",
