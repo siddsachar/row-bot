@@ -5672,6 +5672,9 @@ def is_background_workflow() -> bool:
 _DESTRUCTIVE_LABELS: dict[str, str] = {
     "workspace_file_delete": "Delete file",
     "workspace_move_file": "Move / rename file",
+    "create_calendar_event": "Create calendar event",
+    "create_calendar_events": "Create calendar events",
+    "update_calendar_event": "Change calendar event",
     "delete_calendar_event": "Delete calendar event",
     "move_calendar_event": "Move calendar event",
     "send_gmail_message": "Send email",
@@ -5679,6 +5682,8 @@ _DESTRUCTIVE_LABELS: dict[str, str] = {
     "outlook_reply_mail": "Reply to email",
     "outlook_forward_mail": "Forward email",
     "outlook_delete_mail": "Delete email",
+    "outlook_create_event": "Create event",
+    "outlook_update_event": "Change event",
     "outlook_cancel_event": "Cancel event",
     "outlook_respond_event": "Answer invitation",
     "delete_memory": "Delete memory",
@@ -5724,14 +5729,55 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
     return f"{label}: {args_str}"
 
 
+# An app's arguments that invite people or tell an event's guests (any app's calendar tool), as lowercase letters.
+_GUEST_ARGUMENTS = frozenset({"attendees", "guests", "invitees", "requiredattendees", "optionalattendees"})
+_TELL_GUEST_ARGUMENTS = frozenset({"sendupdates", "sendnotifications", "sendinvitations", "notifyattendees",
+                                   "notifyguests"})
+
+
+def _tells_guests(value) -> bool:
+    """Whether a call's own arguments invite people or tell an event's guests (W21), nested ones included."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            word = "".join(ch for ch in str(key).lower() if ch.isalpha())
+            if word in _GUEST_ARGUMENTS and item:
+                return True
+            if word in _TELL_GUEST_ARGUMENTS and item and str(item).strip().casefold() not in {"none", "false", "no"}:
+                return True
+            if _tells_guests(item):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_tells_guests(item) for item in value)
+    return False
+
+
+def _own_approval_card(tool_name: str, given: dict) -> tuple[str, str, bool] | None:
+    """A calendar or Outlook action's own card: its question, what it will do, and whether it invites other people
+    or tells an event's guests; None for other tools, or when it can't be written (the call itself asks)."""
+    from row_bot.tools import calendar_tool
+
+    if tool_name.startswith("outlook_"):
+        from row_bot.tools.outlook_tool import approval_card
+    elif tool_name in calendar_tool.CHANGE_OPERATIONS:
+        approval_card = calendar_tool.approval_card
+    else:
+        return None
+    try:
+        return approval_card(tool_name, given)
+    except Exception:
+        logger.warning("%s's approval card couldn't be written; it asks with the call itself", tool_name, exc_info=True)
+        return None
+
+
 def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
     """Keep sync and async targets behind the same current approval decision, resolved by the approval level
     (``approval_gate``): the person under Ask, the reviewer first under Auto, the level itself under Hands-off.
     ``always_ask``: an app tool its app's access says to ask about (a routine change without Full access, or a
-    high-impact one); the reviewer is told so, and decides as for any other action."""
+    high-impact one); the reviewer is told so, and decides as for any other action. A calendar change that invites
+    other people or tells an event's guests is the person's own to approve under Auto (``CALENDAR_GUESTS_RISK``)."""
     from functools import wraps
     from row_bot.approval_rules import APP_ASKS_RISK, CHANGE_RISK
-    from row_bot.tools.approval_gate import resolve_approval_line, with_approval
+    from row_bot.tools.approval_gate import CALENDAR_GUESTS_RISK, resolve_approval_line, with_approval
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
     risks = (CHANGE_RISK,) + ((APP_ASKS_RISK,) if always_ask else ())
@@ -5744,6 +5790,8 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
         mode = get_approval_mode()
         decision = decision_for_action(mode)
         if decision == "block":
+            # Noted as Block's decision, for the activity log.
+            resolve_approval_line({"tool": tool.name, "label": label, "args": kwargs}, approval_mode=mode)
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
                     "tool. Inform the user that this action was skipped "
@@ -5770,14 +5818,13 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                 if given:
                     args_str += ", " + ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
             description = _enrich_description(tool.name, label, args_str, kwargs)
-        if tool.name.startswith("outlook_"):
-            # Outlook's card names who it goes to and what it says, or the event's time, attendees and place.
-            try:
-                from row_bot.tools.outlook_tool import approval_card
-
-                question, description = approval_card(tool.name, given)
-            except Exception:
-                logger.warning("Outlook's approval card couldn't be written; it asks with the call itself", exc_info=True)
+        # Outlook's and Google Calendar's own cards name who it goes to and what it says, or the event's time,
+        # guests and place; without one, the call's own arguments say whether it reaches other people.
+        card = _own_approval_card(tool.name, given)
+        if card is not None:
+            question, description, guests = card
+        else:
+            guests = _tells_guests(given) or _tells_guests(list(args))
         try:
             from row_bot.tools.discovery import is_external_discovery_invocation
             external_discovery_active = is_external_discovery_invocation()
@@ -5789,9 +5836,10 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                 "args": kwargs or (args[0] if args else {}),
                 "external_discovery_active": external_discovery_active,
                 **({"question": question} if question else {}),
+                **({"risk_class": "high"} if guests else {}),
             },
             approval_mode=mode,
-            risks=risks,
+            risks=risks + ((CALENDAR_GUESTS_RISK,) if guests else ()),
             # This module's own name, so a test can stand in for the person.
             approval_callback=lambda payload: interrupt(payload),
         )
@@ -5820,6 +5868,24 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
         tool.coroutine = gated_async
     else:
         tool._arun = gated_async
+
+
+def _gate_changes(lc_tools: list, destructive_names: set[str], approval_mode: str,
+                  app_asks: set[str] | frozenset[str] = frozenset()) -> list:
+    """The tools a graph offers at this level, each change behind the approval gate.
+
+    Workflows and chats gate alike: Block leaves the changes out; every other level wraps them, and the gate
+    resolves each call by the level (the person under Ask, the reviewer first under Auto, the level itself under
+    Hands-off). A workflow run pauses when the person is asked. run_command self-gates at runtime via
+    classify_command, and a tool marked row_bot_gates_itself (x_post) asks with its own card, bound to exactly
+    what it sends.
+    """
+    if approval_mode == "block":
+        return [t for t in lc_tools if t.name not in destructive_names]
+    for t in lc_tools:
+        if t.name in destructive_names and not (t.metadata or {}).get("row_bot_gates_itself"):
+            _wrap_with_interrupt_gate(t, always_ask=t.name in app_asks)
+    return lc_tools
 
 
 def clear_agent_cache():
@@ -6753,18 +6819,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             lc_tools = eager_core_tools + external_tools
 
             # Append tools from enabled plugins (totally separate registry)
-            # Workflows and chats gate alike: block=strip destructive tools; every other level wraps them,
-            # and the gate resolves each call by the level (the person under Ask, the reviewer first under
-            # Auto, the level itself under Hands-off). A workflow run pauses when the person is asked.
-            # run_command self-gates at runtime via classify_command, and a tool marked
-            # row_bot_gates_itself (x_post) asks with its own card, bound to exactly what it sends.
-            if approval_mode == "block":
-                lc_tools = [t for t in lc_tools
-                            if t.name not in destructive_names]
-            else:
-                for t in lc_tools:
-                    if t.name in destructive_names and not (t.metadata or {}).get("row_bot_gates_itself"):
-                        _wrap_with_interrupt_gate(t, always_ask=t.name in app_asks)
+            lc_tools = _gate_changes(lc_tools, destructive_names, approval_mode, app_asks)
 
             lc_tools = _apply_provider_tool_schema_compatibility(
                 lc_tools,
