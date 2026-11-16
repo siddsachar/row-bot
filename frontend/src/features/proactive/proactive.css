@@ -536,6 +536,11 @@
 .proactive-draft-text {
   overflow-wrap: anywhere;
 }
+.proactive-draft-text > p,
+.proactive-draft-text > ul,
+.proactive-draft-text > ol {
+  margin: 0 0 var(--space-2);
+}
 .proactive-draft-text > :first-child {
   margin-top: 0;
 }

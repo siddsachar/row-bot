@@ -117,6 +117,7 @@ def test_a_create_without_guests_asks_under_ask_and_the_row_says_you_decided(goo
     turns.answer(True, events)
     row = _row("c1")
     assert (row["outcome"], row["decided_by"], row["level"]) == ("approved_by_you", "person", "approve")
+    assert row["title"] == "Create an event", "the log names what it did, never 'Check the calendar' (R1)"
     assert [event["summary"] for event in google.events.values()] == ["Focus time"]
 
 
