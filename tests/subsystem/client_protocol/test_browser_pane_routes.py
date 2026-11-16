@@ -207,6 +207,29 @@ def test_show_row_bot_how_records_in_memory_and_is_refused_in_an_incognito_chat(
     assert demo.current(private) is None
 
 
+def test_a_narration_clip_reaches_the_local_transcriber_with_its_offset(service, browser, monkeypatch):  # noqa: F811
+    from row_bot.browser import demo
+    from row_bot.voice import narration
+
+    monkeypatch.setattr(demo, "_DEMOS", {})
+    monkeypatch.setattr(narration, "status", lambda: {"ready": True, "code": ""})
+    heard: list[tuple] = []
+    monkeypatch.setattr(narration, "transcribe", lambda chat, demo_id, audio, kind, offset, **_kw: heard.append(
+        (chat, demo_id, audio, kind, offset)))
+    chat = _chat(service)
+    recorded = demo.start(chat, url="https://example.org/")
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        url = f"/api/v1/conversations/{chat}/browser/demo/{recorded.id}/narration"
+        sent = client.post(url + "?offset=12.5", content=b"webm-audio",
+                           headers={**headers, "Content-Type": "audio/webm;codecs=opus"})
+        assert sent.status_code == 200, sent.text
+        assert sent.json()["narration"] == {"ready": True, "code": ""}
+        assert client.post(url + "?offset=-1", content=b"x", headers={**headers, "Content-Type": "audio/webm"}
+                           ).status_code == 422
+    assert heard == [(chat, recorded.id, b"webm-audio", "audio/webm;codecs=opus", 12.5)]
+
+
 def test_the_address_bar_refuses_what_never_opens_and_allows_what_the_person_typed(service, browser):  # noqa: F811
     chat = _chat(service)
     engine = _Engine()

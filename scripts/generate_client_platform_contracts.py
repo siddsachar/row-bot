@@ -32,7 +32,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ConversationActionReview", "ConversationActionCommand", "ConversationActionReceipt",
     "BrowserTab", "BrowserPaneState", "BrowserFrame", "BrowserInputEvent", "BrowserInput", "BrowserInputResult",
     "BrowserPaneAction", "BrowserSite", "BrowserSitePage", "BrowserSitesClear", "BrowserSitesCleared",
-    "BrowserDemoSummary", "BrowserDemoStep", "BrowserDemoView", "BrowserDemoPage", "BrowserDemoAlways",
+    "BrowserDemoSummary", "BrowserDemoStep", "BrowserDemoView", "BrowserDemoNarration", "BrowserDemoPage",
+    "BrowserDemoAlways",
     "ComputerUseSnapshot", "ComputerUsePreview", "ComputerUseCommand", "ComputerUseReceipt",
     "Snapshot", "TranscriptPage", "SubscriptionView",
     "EventPage", "Choices", "HandshakeView", "ApprovalView", "ResourceView", "Acknowledgement",
@@ -164,6 +165,7 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/stop", None, "BrowserDemoPage"),
     ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/undo", None, "BrowserDemoPage"),
     ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/discard", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/narration", "bytes", "BrowserDemoPage"),
     ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/steps/{step_id}/always", "BrowserDemoAlways",
      "BrowserDemoPage"),
     ("get", "/browser/sites", None, "BrowserSitePage"),
@@ -1500,7 +1502,18 @@ export const startBrowserDemo = (base: string, proof: SessionProof, conversation
   jsonRequest(base, `/conversations/${id(conversation)}/browser/demo`, 'BrowserDemoPage', proof, 'POST', undefined, undefined, signal);
 export const controlBrowserDemo = (base: string, proof: SessionProof, conversation: string, demo: string, action: 'stop' | 'undo' | 'discard', signal?: AbortSignal): Promise<BrowserDemoPage> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser/demo/${id(demo)}/${action}`, 'BrowserDemoPage', proof, 'POST', undefined, undefined, signal);
-export const setBrowserDemoAlways = (base: string, proof: SessionProof, conversation: string, demo: string, step: number, body: BrowserDemoAlways, signal?: AbortSignal): Promise<BrowserDemoPage> =>
+/** One narration clip for a demo (audio, and when it started in the demo), transcribed on this computer only. */
+export async function sendBrowserDemoNarration(base: string, proof: SessionProof, conversation: string, demo: string, offset: number, audio: Blob, signal?: AbortSignal): Promise<BrowserDemoPage> {
+  if (!audio.size || audio.size > 67108864) throw new Error(audio.size ? 'payload_too_large' : 'empty_audio');
+  const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/browser/demo/${id(demo)}/narration` + query({offset: Math.max(0, Math.round(offset * 10) / 10)}), {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store', signal, body: audio,
+    headers: {...proofHeaders(proof), 'Content-Type': audio.type},
+  });
+  const value = await response.json();
+  if (!response.ok) throw validateWire<Problem>('Problem', value);
+  return validateWire<BrowserDemoPage>('BrowserDemoPage', value);
+}
+export const setBrowserDemoAlways =(base: string, proof: SessionProof, conversation: string, demo: string, step: number, body: BrowserDemoAlways, signal?: AbortSignal): Promise<BrowserDemoPage> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser/demo/${id(demo)}/steps/${step}/always`, 'BrowserDemoPage', proof, 'POST', validateWire('BrowserDemoAlways', body), undefined, signal);
 /** Sites with saved sign-ins in Row-Bot's browser. */
 export const getBrowserSites =(base: string, proof: SessionProof, signal?: AbortSignal): Promise<BrowserSitePage> =>

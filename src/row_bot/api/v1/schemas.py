@@ -424,9 +424,16 @@ class BrowserDemoView(WireModel):
     steps: list[BrowserDemoStep] = Field(max_length=200)
 
 
+class BrowserDemoNarration(WireModel):
+    """Whether narration can be transcribed on this computer (a local speech model and ffmpeg)."""
+    ready: bool
+    code: Literal["", "narration_no_model", "narration_no_ffmpeg", "narration_unavailable"]
+
+
 class BrowserDemoPage(WireModel):
     conversation_id: OpaqueId
     demo: BrowserDemoView | None
+    narration: BrowserDemoNarration | None = None
 
 
 class BrowserDemoAlways(WireModel):

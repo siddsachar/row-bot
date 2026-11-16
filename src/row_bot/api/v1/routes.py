@@ -476,6 +476,9 @@ _STATUS.update(
         "demo_changed": 409,
         "demo_no_steps": 409,
         "demo_step_missing": 404,
+        "narration_no_model": 409,
+        "narration_no_ffmpeg": 503,
+        "narration_unavailable": 503,
     }
 )
 _STATUS.update(
@@ -2979,6 +2982,35 @@ def create_router(
     # Done, Undo last step and Discard.
     for _action in ("stop", "undo", "discard"):
         _demo_control_route(_action)
+
+    @router.post("/conversations/{conversation_id}/browser/demo/{demo_id}/narration")
+    async def browser_demo_narration(conversation_id: str, demo_id: str, request: Request,
+                                     offset: float = 0.0) -> JSONResponse:
+        """One narration clip (audio, when it started in the demo), transcribed on this computer only."""
+        from row_bot.voice.narration import MAX_BYTES, MAX_SECONDS
+
+        current = await session(request, lane="mutation")
+        if not 0 <= offset <= MAX_SECONDS:
+            raise ProtocolError("invalid_command", 422)
+        mime = request.headers.get("content-type", "")[:128]
+        validate = await browser_authority(conversation_id, request, current)
+        await call(validate)
+        data = bytearray()
+        try:
+            async with asyncio.timeout(120):
+                async for chunk in request.stream():
+                    if len(data) + len(chunk) > MAX_BYTES:
+                        raise ProtocolError("payload_too_large", 413)
+                    data.extend(chunk)
+        except TimeoutError:
+            raise ProtocolError("audio_receive_timeout", 408) from None
+        audio = bytes(data)
+        del data
+        from row_bot.application.client_browser import demo_narration
+
+        result = await call(demo_narration, conversation_id, _demo_id(demo_id), audio, mime, offset,
+                            session_key=str(current.id))
+        return await respond(request, dto.BrowserDemoPage, result)
 
     @router.post("/conversations/{conversation_id}/browser/demo/{demo_id}/steps/{step_id}/always")
     async def browser_demo_always(conversation_id: str, demo_id: str, step_id: int, request: Request) -> JSONResponse:
