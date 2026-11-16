@@ -5021,6 +5021,10 @@ def start_approval_monitor() -> None:
 
     def _monitor():
         import time
+
+        from row_bot import startup_imports
+
+        startup_imports.warm()  # Its X posts import the tools: after start-up's shared imports, never alongside (RM4).
         while True:
             try:
                 _check_approval_timeouts()

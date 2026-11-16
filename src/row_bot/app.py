@@ -176,20 +176,51 @@ _CHANNEL_MODULES = (
     "row_bot.channels.discord_channel",
     "row_bot.channels.whatsapp",
 )
+_CHANNEL_DISPLAY_NAMES = {
+    "row_bot.channels.telegram": "Telegram",
+    "row_bot.channels.slack": "Slack",
+    "row_bot.channels.sms": "SMS",
+    "row_bot.channels.discord_channel": "Discord",
+    "row_bot.channels.whatsapp": "WhatsApp",
+}
 
 
 def _load_channel_modules() -> list[str]:
-    """Import channel adapters so installed extras self-register."""
+    """Import channel adapters so installed extras self-register; return a start-up warning for each that didn't.
+
+    One whose packages are installed but that failed to import is tried once more after the others, under
+    start-up's import lock (RM4), before it is reported.
+    """
     import importlib
 
-    skipped: list[str] = []
-    for module_name in _CHANNEL_MODULES:
+    from row_bot import startup_imports
+
+    def _import(module_name: str) -> ImportError | None:
         try:
             importlib.import_module(module_name)
         except ImportError as exc:
-            skipped.append(f"{module_name}: {exc}")
-            logger.info("Optional channel module skipped: %s (%s)", module_name, exc)
-    return skipped
+            return exc
+        return None
+
+    warnings: list[str] = []
+    with startup_imports.serially():
+        failed = [(name, exc) for name in _CHANNEL_MODULES if (exc := _import(name)) is not None]
+        for module_name, exc in failed:
+            if not startup_imports.package_missing(exc):
+                logger.warning("Channel module %s failed to load; trying again: %s", module_name, exc)
+                exc = _import(module_name)
+                if exc is None:
+                    logger.info("Channel module %s loaded on the second try", module_name)
+                    continue
+            display = _CHANNEL_DISPLAY_NAMES.get(module_name, module_name)
+            if startup_imports.package_missing(exc):
+                logger.info("Optional channel module skipped: %s (%s)", module_name, exc)
+                warnings.append(f"{display} isn't available: its package isn't installed. "
+                                "Install the channels extra to enable it.")
+            else:
+                logger.error("Channel module %s didn't load", module_name, exc_info=exc)
+                warnings.append(f"{display} didn't load. Restart Row-Bot to try again.")
+    return warnings
 
 
 def _startup_fields(**fields) -> str:
@@ -692,6 +723,9 @@ async def _run_startup_sequence():
         from row_bot import server_memory
 
         def _close_idle_browser() -> None:
+            from row_bot import startup_imports
+
+            startup_imports.warm()  # Its first tick may come while start-up still imports the tools (RM4).
             from row_bot.tools.browser_tool import get_session_manager as _get_bs_mgr
 
             _get_bs_mgr().close_when_idle()
@@ -761,6 +795,14 @@ async def _run_startup_sequence():
         logger.warning("Could not apply the Developer tool's new default", exc_info=True)
 
     await _load_cached_model_catalog(_set)
+
+    # The knowledge graph, the MCP runtime and the tools import once, here, before the workers below that use
+    # them start (the approval monitor, the prewarms, the connection checks): first imports from several
+    # threads at once broke on a slow disk (RM4). Off the event loop, so the first screen keeps loading.
+    _set("🧰 Loading tools…")
+    from row_bot import startup_imports
+    with _startup_phase("shared_imports"):
+        await asyncio.to_thread(startup_imports.warm)
 
     _set("🔄 Scheduling memory extraction…")
     with _startup_phase("memory_extraction_scheduler"):
@@ -933,16 +975,13 @@ async def _run_startup_sequence():
     # Prepare channels via registry. Actual live channel handshakes run after
     # core UI readiness so slow providers do not block the local app shell.
     _set("📡 Preparing channels…")
-    # Ensure channel modules are imported so they self-register.
+    # Ensure channel modules are imported so they self-register: off the event loop, under start-up's
+    # import lock (RM4).
     with _startup_phase("channel_module_import"):
-        skipped_channels = _load_channel_modules()
+        channel_warnings = await asyncio.to_thread(_load_channel_modules)
     _schedule_background_task(_prewarm_apps_background(), name="row-bot-apps-prewarm")
-    for skipped_channel in skipped_channels:
-        _startup_warning(
-            f"Channel adapter unavailable: {skipped_channel}. "
-            "Install the channels extra to enable it.",
-            source="channels",
-        )
+    for channel_warning in channel_warnings:
+        _startup_warning(channel_warning, source="channels")
     try:
         from row_bot.channels.auth_store import migrate_legacy_channel_secrets
         with _startup_phase("channel_secret_migration"):

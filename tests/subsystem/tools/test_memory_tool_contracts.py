@@ -33,19 +33,23 @@ def test_memory_tool_exposes_expected_subtools_and_delete_is_destructive(tmp_pat
     assert "save_memory" in tool.execute("anything")
 
 
-def test_optional_tool_import_failures_are_isolated(monkeypatch) -> None:
+def test_optional_tool_import_failure_drops_only_what_it_left_broken(monkeypatch, request) -> None:
+    """A failed optional tool drops its orphans, never a module another thread imported meanwhile (RM4)."""
     import row_bot.tools as tools_pkg
 
+    meanwhile, orphan = "row_bot.tools.imported_meanwhile", "rm4_failed_optional_dependency.part"
+    request.addfinalizer(lambda: [sys.modules.pop(name, None) for name in (meanwhile, orphan)])
+
     def fail_import(_module_name: str) -> None:
-        sys.modules["row_bot.tools.partial_optional_dependency"] = ModuleType(
-            "row_bot.tools.partial_optional_dependency"
-        )
+        sys.modules[meanwhile] = ModuleType(meanwhile)  # Its package is loaded: another thread's import.
+        sys.modules[orphan] = ModuleType(orphan)  # Its package failed with the optional tool.
         raise RuntimeError("optional dependency exploded")
 
     monkeypatch.setattr(tools_pkg.importlib, "import_module", fail_import)
 
     tools_pkg._import_tool_module("row_bot.tools.optional_broken", optional=True)
-    assert "row_bot.tools.partial_optional_dependency" not in sys.modules
+    assert meanwhile in sys.modules
+    assert orphan not in sys.modules
     with pytest.raises(RuntimeError, match="optional dependency exploded"):
         tools_pkg._import_tool_module("row_bot.tools.required_broken", optional=False)
 

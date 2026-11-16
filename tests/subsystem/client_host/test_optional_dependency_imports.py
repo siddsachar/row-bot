@@ -26,23 +26,22 @@ def test_optional_tool_import_helper_skips_missing_optional_module(monkeypatch):
         tools._import_tool_module("row_bot.tools.browser_tool", optional=False)
 
 
-def test_channel_loader_skips_missing_optional_adapter(monkeypatch):
-    import row_bot.app as app_mod
+def test_an_installed_optional_tool_that_failed_to_import_is_tried_again(monkeypatch):
+    import row_bot.tools as tools
 
-    real_import = importlib.import_module
+    calls: list[str] = []
 
-    def fake_import(name: str):
-        if name == "row_bot.channels.telegram":
-            raise ImportError("No module named 'telegram'")
-        return real_import(name)
+    def flaky_import(name: str):
+        calls.append(name)
+        if len(calls) == 1:  # A start-up race (RM4): its packages are there.
+            raise ImportError("cannot import name 'x' from partially initialized module 'json'", name="json")
+        return None
 
-    monkeypatch.setattr(app_mod, "_CHANNEL_MODULES", ("row_bot.channels.telegram",))
-    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr(tools.importlib, "import_module", flaky_import)
 
-    skipped = app_mod._load_channel_modules()
+    tools._import_tool_module("row_bot.tools.mcp_tool", optional=True)
 
-    assert skipped
-    assert skipped[0].startswith("row_bot.channels.telegram:")
+    assert calls == ["row_bot.tools.mcp_tool", "row_bot.tools.mcp_tool"]
 
 
 @pytest.mark.parametrize(
