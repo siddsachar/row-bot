@@ -336,9 +336,12 @@ export function AnswerProgress({
         {block.items.map((item, index) => {
           const share = Math.round((100 * item.value) / item.target);
           const over = item.value - item.target;
-          const words =
-            `${withUnit(item.value, item.unit)} of ${withUnit(item.target, item.unit)}` +
-            ` (${share}%)`;
+          // "3 of 5 steps": a word unit once, after the target; "$300 of $500" keeps its symbol (M4).
+          const done =
+            item.unit && !CURRENCY.has(item.unit) && item.unit !== '%'
+              ? formatNumber(item.value)
+              : withUnit(item.value, item.unit);
+          const words = `${done} of ${withUnit(item.target, item.unit)} (${share}%)`;
           return (
             <li key={index} data-over={over > 0 ? 'true' : undefined}>
               <div className="answer-progress-line">

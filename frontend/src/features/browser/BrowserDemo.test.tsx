@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
@@ -176,6 +176,40 @@ it('shows recording with its steps and time, and Done, Undo and Discard', async 
 
   await user.click(within(bar).getByRole('button', { name: 'Done' }));
   expect(mock.controlBrowserDemo).toHaveBeenCalledWith('c', DEMO, 'stop');
+});
+
+it('counts a new recording from 0:00 however long the bar was open before (M6)', () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'performance'],
+  });
+  try {
+    const bar = (current: BrowserDemoSummary | null) => (
+      <MemoryRouter>
+        <OverlayProvider>
+          <BrowserDemo
+            conversationId="c"
+            current={current}
+            signIn={false}
+            chatTitle="Bank statements"
+            stage={document.body}
+          />
+        </OverlayProvider>
+      </MemoryRouter>
+    );
+    const view = render(bar(null));
+    // The pane stays open half a minute before Show Row-Bot how is pressed.
+    act(() => vi.advanceTimersByTime(30_000));
+    view.rerender(bar(summary({ steps: 1, elapsed_seconds: 0 })));
+    act(() => vi.advanceTimersByTime(2_000));
+    const status = screen.getByRole('status', { name: 'Show Row-Bot how' });
+    expect(status).toHaveTextContent('1 step · 0:02');
+    // The server's next update moves the count on from its own time, never back.
+    view.rerender(bar(summary({ steps: 2, elapsed_seconds: 2.5 })));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(status).toHaveTextContent('2 steps · 0:03');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('narration is off by default and says why when no local speech model is installed', async () => {
