@@ -136,6 +136,48 @@ test('On this computer: what is running first, every way to run models as an equ
   ).toBeVisible({ timeout: 15_000 });
 });
 
+test('on a phone, a long model name truncates in its row and the page never scrolls sideways (W2)', async ({
+  page,
+}, testInfo) => {
+  await fixture(page, '/__e1_fixture/local-runtime/fresh?found=lmstudio');
+  await fixture(page, '/__p10_fixture/first-run/fresh?runtime=not_installed');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/app-v2/');
+  await page
+    .getByRole('group', { name: 'How should Row-Bot think?' })
+    .getByRole('button', { name: /On this computer/ })
+    .click();
+  const models = page.getByRole('list', { name: 'LM Studio models' });
+  const long = models.getByRole('button', { name: /mistral-small-3\.3-24b/ });
+  await expect(long).toBeVisible();
+  const sizes = await page.evaluate(() => {
+    const view = document.querySelector('.first-run')!;
+    const name = [
+      ...document.querySelectorAll<HTMLElement>(
+        '.first-run-model > span:first-child',
+      ),
+    ].find((item) => item.textContent?.startsWith('mistral-small'))!;
+    return {
+      page: [view.scrollWidth, view.clientWidth],
+      name: [name.scrollWidth, name.clientWidth],
+      parents: [...document.querySelectorAll<HTMLElement>('main, .first-run')]
+        .map((item) => item.scrollWidth - item.clientWidth)
+        .filter((extra) => extra > 1),
+    };
+  });
+  expect(sizes.page[0]).toBeLessThanOrEqual(sizes.page[1] + 1);
+  expect(sizes.parents).toEqual([]);
+  // The name is cut with an ellipsis inside its row.
+  expect(sizes.name[0]).toBeGreaterThan(sizes.name[1]);
+  await assertNoOverflow(page);
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await long.scrollIntoViewIfNeeded();
+    await screenshot(page, testInfo, `long-model-name-phone-${scheme}`);
+  }
+  await page.emulateMedia({ colorScheme: null });
+});
+
 test('Use on a found server’s model connects it and makes the model the default', async ({
   page,
 }) => {

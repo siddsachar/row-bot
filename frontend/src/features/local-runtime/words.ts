@@ -19,11 +19,12 @@ export function modelLabel(
     : `${model.name} · ${model.quantization}`;
 }
 
-/** How a model would run here, in a few words. */
-export function fitWords(fit: LocalModelOption['fit']): string {
+/** How a model would run here, in a few words (the badge in the model list). A Mac has no separate
+ * graphics card: its model fits the memory it shares (M2). */
+export function fitWords(fit: LocalModelOption['fit'], mac = false): string {
   switch (fit) {
     case 'gpu':
-      return 'Fits your graphics card';
+      return mac ? 'Fits this Mac’s memory' : 'Fits your graphics card';
     case 'partial':
       return 'Partly on the graphics card (slower)';
     case 'cpu':
@@ -87,6 +88,21 @@ export function remainingWords(
   if (seconds < 3600) return `about ${Math.round(seconds / 60)} min`;
   const hours = seconds / 3600;
   return `about ${hours < 10 ? hours.toFixed(1) : Math.round(hours)} h`;
+}
+
+/**
+ * The models the sliders offer (W4): Qwen3.8 27B at the build sized to this
+ * computer's card (the largest that fits on it, else the smallest), then the
+ * smaller models of the generation before. A build already downloaded stays
+ * listed, so it can be chosen again.
+ */
+export function choiceModels(view: LocalModelRuntimeView): LocalModelOption[] {
+  const builds = view.models.filter((model) => !model.older);
+  const sized =
+    builds.find((model) => model.fit === 'gpu') ?? builds[builds.length - 1];
+  return view.models.filter(
+    (model) => model.older || model === sized || model.installed,
+  );
 }
 
 /** The model Download would fetch now: the chosen one, else the recommendation. */

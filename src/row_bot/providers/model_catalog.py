@@ -391,7 +391,9 @@ def _catalog_row(
         status_reason = "This model is not currently available from the provider."
     if provider_id == "codex" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
-        status_reason = "Codex account is connected, but direct chat runtime is not enabled yet."
+        # A sign-in that is saved but can't be used now (unreadable, expired or refused): sign in again (W3).
+        if configured:
+            status_reason = "Row-Bot can't use your ChatGPT sign-in right now. Sign in again in Settings › Models."
     if provider_id == "claude_subscription" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
         status_reason = "Set up Claude in Settings › Models: it runs Claude Code on this computer."

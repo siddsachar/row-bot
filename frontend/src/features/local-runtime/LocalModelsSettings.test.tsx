@@ -115,7 +115,7 @@ beforeEach(() => {
     providers: [
       card('ollama', 'Ollama', 3),
       card('custom_openai_lmstudio-1234', 'LM Studio', 2),
-      card('custom_openai_llamacpp', 'This computer', 1),
+      card('custom_openai_llamacpp', 'Row-Bot (llama.cpp)', 1),
       { ...card('openai', 'OpenAI', 40), billing: 'pay_per_use' as const },
     ],
   });
