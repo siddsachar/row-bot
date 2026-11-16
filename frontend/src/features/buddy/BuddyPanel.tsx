@@ -95,6 +95,8 @@ export function createBuddyPanelSession(
   let epoch = 0;
   let viewVersion = 0;
   let observers = 0;
+  // A plain read of the saved view is running (nothing to lose on reload).
+  let reading = false;
   let timer: ReturnType<typeof setInterval> | null = null;
   let observation: AbortController | null = null;
   const emit = (patch: Partial<State>) => {
@@ -304,9 +306,11 @@ export function createBuddyPanelSession(
         }
       };
     },
+    // Reading the saved view holds nothing the person would lose: a reload
+    // meanwhile never asks to leave.
     hasRetained: () =>
       state.pending ||
-      state.busy ||
+      (state.busy && !reading) ||
       !!reviewed ||
       preferencesEditor.get('dirty', false) ||
       preferencesEditor.get('busy', false) ||
@@ -323,7 +327,14 @@ export function createBuddyPanelSession(
     },
     async load() {
       try {
-        return await exclusive(load);
+        return await exclusive(async () => {
+          reading = true;
+          try {
+            return await load();
+          } finally {
+            reading = false;
+          }
+        });
       } catch (error) {
         if (!state.revoked)
           emit({

@@ -6,7 +6,10 @@ import PhoneTabBar, { phoneTabFor } from './PhoneTabBar';
 const pendingApprovals = vi.fn();
 const attention = vi.fn();
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: { pendingApprovals, attention } }),
+  useRuntime: () => ({
+    // The first screen is up: the count is read at once.
+    controller: { firstScreenSettled: true, pendingApprovals, attention },
+  }),
   useClientState: () => ({ conversations: [] }),
 }));
 

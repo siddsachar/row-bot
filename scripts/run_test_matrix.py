@@ -130,6 +130,8 @@ BROWSER_SMOKE_SPECS = (
     "learning-hugging-face",
     # The setup page's sign-in link clears its code from the address (A1): security-sensitive.
     "setup-link",
+    # The request budget: API requests at app open and during one reply stay under their numbers.
+    "request-budget",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
