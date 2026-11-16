@@ -1409,6 +1409,8 @@ def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
             "THEN json_array_length(t.prompts) ELSE 0 END AS step_count, "
             "substr(t.schedule, 1, 256) AS schedule, substr(t.at, 1, 80) AS at, "
             "substr(t.last_run, 1, 80) AS last_run, t.persistent_thread_id, "
+            # The schedule's own zone: its next run is at its wall-clock time there (RM3).
+            "substr(COALESCE(t.timezone, ''), 1, 64) AS timezone, "
             "substr(COALESCE(t.disabled_reason, ''), 1, 32) AS disabled_reason, "
             "(SELECT substr(r.status, 1, 80) FROM task_runs r WHERE r.task_id=t.id "
             "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS last_status, "
@@ -3955,8 +3957,9 @@ def _build_trigger(task: dict, *, now: datetime | None = None):
 def estimate_next_run(task: Mapping[str, Any], now: datetime | None = None) -> str | None:
     """Next fire time implied by a saved schedule, as an ISO timestamp.
 
-    In the schedule's zone with its offset when it keeps one; a schedule saved
-    without a zone reads as local time with no offset. This reads saved
+    In the schedule's zone with its offset; a schedule saved without a zone is
+    in this computer's zone, with its offset too, so a device in another zone
+    reads the same instant (RM3). This reads saved
     metadata only and never asks the scheduler, so list views stay free of
     runtime probes. Daily, weekly, cron and one-time schedules are exact;
     interval schedules are estimated from the last run. Disabled, unscheduled,
@@ -3966,13 +3969,11 @@ def estimate_next_run(task: Mapping[str, Any], now: datetime | None = None) -> s
         return None
     from row_bot import schedule_zones
 
-    named = str(task.get("timezone") or "")
-    tz = schedule_zones.zone(named)
+    tz = schedule_zones.zone(task.get("timezone"))
     now = (now or datetime.now()).astimezone().replace(microsecond=0)
 
     def shown(value: datetime) -> str:
-        value = value.astimezone(tz) if named else value.astimezone().replace(tzinfo=None)
-        return value.isoformat(timespec="seconds")
+        return value.astimezone(tz).isoformat(timespec="seconds")
 
     at = str(task.get("at") or "").strip()
     if at:
