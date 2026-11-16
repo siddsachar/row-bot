@@ -5,6 +5,7 @@ import {
   Bell,
   Clock,
   House,
+  MessageCircle,
   Pencil,
   Smartphone,
   Smile,
@@ -95,20 +96,27 @@ function TimeSelect({
   );
 }
 
-const WHERE: Record<
-  'bubble' | 'home' | 'phone',
-  { icon: ReactNode; words: string }
-> = {
+type Where = 'bubble' | 'notification' | 'phone' | 'chat_app' | 'home';
+
+const WHERE: Record<Where, { icon: ReactNode; words: string }> = {
   bubble: { icon: <Smile size={15} aria-hidden />, words: 'Buddy’s bubble' },
-  home: { icon: <House size={15} aria-hidden />, words: 'Home only' },
+  notification: {
+    icon: <Bell size={15} aria-hidden />,
+    words: 'A notification',
+  },
   phone: { icon: <Smartphone size={15} aria-hidden />, words: 'Your phone' },
+  chat_app: {
+    icon: <MessageCircle size={15} aria-hidden />,
+    words: 'Your chat app',
+  },
+  home: { icon: <House size={15} aria-hidden />, words: 'Home only' },
 };
 
 type PreviewRow = {
   key: string;
   time: string;
   line: string;
-  where: 'bubble' | 'home' | 'phone';
+  where: Where;
   inBrief?: boolean;
 };
 
@@ -142,7 +150,8 @@ function LevelPreview({
           key: item.moment_id,
           time: item.at ? clockOf(item.at) : '',
           line: item.title,
-          where: item.where === 'buddy' ? 'bubble' : 'home',
+          // Where it really went, or would have (R5).
+          where: item.where === 'buddy' ? 'bubble' : item.where,
           inBrief: item.in_brief,
         }),
       )

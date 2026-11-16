@@ -534,12 +534,18 @@
   font-size: var(--text-12);
 }
 .proactive-draft-text {
-  margin: 0;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-.proactive-draft .proactive-brief-lines {
-  padding-left: 0;
+.proactive-draft-text > p,
+.proactive-draft-text > ul,
+.proactive-draft-text > ol {
+  margin: 0 0 var(--space-2);
+}
+.proactive-draft-text > :first-child {
+  margin-top: 0;
+}
+.proactive-draft-text > :last-child {
+  margin-bottom: 0;
 }
 
 /* -------------------------------------------------- Settings › Proactive */
