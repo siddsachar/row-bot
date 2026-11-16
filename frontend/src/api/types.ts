@@ -294,6 +294,45 @@ export interface ClientTransport {
     body: Wire.BrowserPaneAction,
     signal?: AbortSignal,
   ): Promise<Wire.BrowserPaneState>;
+  /** Show Row-Bot how (C3): the person's steps in the pane, recorded in memory. */
+  browserDemo?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  startBrowserDemo?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  controlBrowserDemo?(
+    conversation: string,
+    demo: string,
+    action: 'stop' | 'undo' | 'discard',
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  setBrowserDemoAlways?(
+    conversation: string,
+    demo: string,
+    step: number,
+    always: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  /** One narration clip, transcribed on this computer only. */
+  sendBrowserDemoNarration?(
+    conversation: string,
+    demo: string,
+    offset: number,
+    audio: Blob,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  /** Draft a skill from a stopped demo, for review in the skill sheet. */
+  draftDemoSkill?(
+    conversation: string,
+    demo: string,
+    body: Wire.SkillDemoDraftRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** Try it: a new chat with a saved skill pinned and its request in the composer. */
+  trySkill?(name: string, signal?: AbortSignal): Promise<Wire.SkillTryResult>;
   /** Sites with saved sign-ins in Row-Bot's browser (Settings › Browser). */
   browserSites?(signal?: AbortSignal): Promise<Wire.BrowserSitePage>;
   clearBrowserSites?(
@@ -1044,6 +1083,23 @@ export interface ClientTransport {
     change: Wire.AnswerStateChange,
     signal?: AbortSignal,
   ): Promise<Wire.AnswerStateView>;
+  /** "Save as a skill" (C1): a chat's offers and drafts. */
+  skillOffers?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** Draft a skill from one reply's turn, on the chat's own model. */
+  draftSkill?(
+    conversationId: string,
+    body: Wire.SkillDraftRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** "Not now" on an offer. */
+  dismissSkillOffer?(
+    conversationId: string,
+    offerId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
   /** One frame address for a visual in a reply (F3), served once, no network. */
   createVisualFrame?(
     conversationId: string,
@@ -1135,6 +1191,20 @@ export interface ClientTransport {
   ): Promise<Wire.ActivitySummary>;
   exportActivity?(body: Wire.ActivityExportRequest): Promise<Wire.SaveOffer>;
   clearActivity?(): Promise<Wire.ActivityCleared>;
+  /** Always allow (D1): standing rules, made only from a card; "Would this have asked?". */
+  approvalRules?(signal?: AbortSignal): Promise<Wire.ApprovalRulePage>;
+  createApprovalRule?(
+    body: Wire.ApprovalRuleCreate,
+  ): Promise<Wire.ApprovalRuleView>;
+  updateApprovalRule?(
+    ruleId: string,
+    body: Wire.ApprovalRuleUpdate,
+  ): Promise<Wire.ApprovalRuleView>;
+  deleteApprovalRule?(ruleId: string): Promise<Wire.ApprovalRulePage>;
+  dryRunApprovalRule?(
+    body: Wire.ApprovalRuleDryRunRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ApprovalRuleDryRun>;
   proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
   changeProactiveSettings?(
     change: Wire.ProactiveSettingsChange,

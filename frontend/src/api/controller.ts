@@ -85,6 +85,22 @@ const RECOVERY_DELAYS = [500, 1500, 3000, 5000];
 const SESSION_RECOVERY_ATTEMPTS = 3;
 /** With no conversation stream open, background notices are read this often. */
 const NOTICE_READ_MS = 30000;
+/**
+ * A burst of `conversations` signals (a turn starting: its name, its state,
+ * the chat moving up) reads the sidebar's list once. The first signal opens
+ * this window, later ones join it, and the list is read at its end: at most
+ * one read a second, and never more than a second late.
+ */
+export const LIST_SIGNAL_WINDOW_MS = 1000;
+/**
+ * Reads the first screen doesn't show (Monitor's counts, Buddy, Proactive,
+ * voice, profiles) start this long after it is up: the list is read and the
+ * open conversation, if any, is connected (`afterFirstScreen`). By then the
+ * open conversation's own reads have gone.
+ */
+export const FIRST_SCREEN_SETTLE_MS = 300;
+/** And at most this long after the handshake, so a slow open never holds them. */
+export const FIRST_SCREEN_LONGEST_MS = 3000;
 const NOTICE_POSITION_KEY = 'row-bot.notices.v1';
 
 /**
@@ -261,11 +277,8 @@ export class ClientController {
     this.transport = reportNetworkFailures(transport);
     this.live = new LiveUpdates(this.transport, undefined, random);
     // A run started in the background, a conversation named, pinned or
-    // deleted elsewhere: the sidebar shows it at once.
-    this.live.subscribe(
-      'conversations',
-      () => void this.refreshConversationList(),
-    );
+    // deleted elsewhere: the sidebar shows it within a second.
+    this.live.subscribe('conversations', () => this.conversationsChanged());
     // "Row-Bot sent you …" shows at once where no conversation stream carries it.
     this.live.subscribe('notices', () => void this.readNotices());
   }
@@ -630,6 +643,7 @@ export class ClientController {
     }
     this.state = { ...this.state, ...patch, revision: this.state.revision + 1 };
     this.metrics.notifications += 1;
+    this.noteFirstScreen();
     this.listeners.forEach((listener) => listener());
   }
   private failed(error: unknown): void {
@@ -844,6 +858,47 @@ export class ClientController {
     this.startPromise = this.bootstrap();
     return this.startPromise;
   }
+  private firstScreenTimer: ReturnType<typeof setTimeout> | null = null;
+  private firstScreenAt = Infinity;
+  private firstScreenWaiters: (() => void)[] = [];
+  private listRead = false;
+  /** Whether the first screen is up (see `afterFirstScreen`). */
+  firstScreenSettled = false;
+  /**
+   * Resolves once the window's first screen is up: the conversation list is
+   * read, the open conversation (if any) is connected, and
+   * `FIRST_SCREEN_SETTLE_MS` have passed; or `FIRST_SCREEN_LONGEST_MS` after
+   * the handshake, whichever comes first. Reads the first screen doesn't show
+   * wait for it, so they never spend the request budget before it; a screen
+   * of their own reads at once.
+   */
+  afterFirstScreen(): Promise<void> {
+    if (this.firstScreenSettled) return Promise.resolve();
+    return new Promise((resolve) => this.firstScreenWaiters.push(resolve));
+  }
+  /** The list is read and the open conversation, if any, is connected. */
+  private noteFirstScreen(): void {
+    if (this.firstScreenSettled || !this.listRead) return;
+    const { status, selectedConversationId, connection } = this.state;
+    if (
+      status === 'ready' &&
+      (!selectedConversationId || connection !== 'none')
+    )
+      this.firstScreenIn(FIRST_SCREEN_SETTLE_MS);
+  }
+  /** The first screen is up `ms` from now, unless an earlier time is set. */
+  private firstScreenIn(ms: number): void {
+    const at = Date.now() + ms;
+    if (this.firstScreenSettled || this.disposed || at >= this.firstScreenAt)
+      return;
+    this.firstScreenAt = at;
+    if (this.firstScreenTimer) clearTimeout(this.firstScreenTimer);
+    this.firstScreenTimer = setTimeout(() => {
+      this.firstScreenTimer = null;
+      this.firstScreenSettled = true;
+      this.firstScreenWaiters.splice(0).forEach((resolve) => resolve());
+    }, ms);
+  }
   private async bootstrap(): Promise<void> {
     const authentication = ++this.authenticationNumber;
     const signal = this.lifetime.signal;
@@ -896,12 +951,16 @@ export class ClientController {
       }
       this.unsavedDrafts.clear();
       this.update({ handshake, status: 'ready' });
+      this.firstScreenIn(FIRST_SCREEN_LONGEST_MS);
       if (this.visible) this.live.start();
       await this.drainRetiredSubscriptions(authentication, signal);
       if (this.disposed || authentication !== this.authenticationNumber) return;
       // Library and selected history are independent authenticated reads. A
       // slow sidebar refresh must not delay recovery of the active conversation.
-      const library = this.loadMoreConversations(true);
+      const library = this.loadMoreConversations(true).finally(() => {
+        this.listRead = true;
+        this.noteFirstScreen();
+      });
       let opening: Promise<void> | undefined;
       const reopen =
         this.state.selectedConversationId ?? this.recoverySelection;
@@ -919,6 +978,8 @@ export class ClientController {
       await Promise.all([library, opening]);
     } catch (error) {
       if (authentication === this.authenticationNumber) this.failed(error);
+      // Nothing waits for a screen that didn't open; its reads say so themselves.
+      this.firstScreenIn(FIRST_SCREEN_SETTLE_MS);
     }
   }
 
@@ -996,6 +1057,15 @@ export class ClientController {
           });
       }
     }
+  }
+  private listSignal: ReturnType<typeof setTimeout> | null = null;
+  /** A `conversations` signal: read the list at the end of its window. */
+  private conversationsChanged(): void {
+    if (this.listSignal || this.disposed) return;
+    this.listSignal = setTimeout(() => {
+      this.listSignal = null;
+      void this.refreshConversationList();
+    }, LIST_SIGNAL_WINDOW_MS);
   }
   private listRefresh: Promise<void> | null = null;
   private listRefreshAgain = false;
@@ -2848,6 +2918,34 @@ export class ClientController {
         signal,
       );
     });
+  /** "Save as a skill" (C1): this chat's offers and drafts. */
+  skillOffers = (conversationId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.skillOffers?.(conversationId, signal));
+  /** Draft a skill from the turn that ends with this reply (an offer, or "Save as skill"). */
+  draftSkill = (
+    conversationId: string,
+    messageId: string,
+    offerId?: string,
+    cancel?: AbortSignal,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.draftSkill)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.draftSkill(
+        conversationId,
+        offerId
+          ? { message_id: messageId, offer_id: offerId }
+          : { message_id: messageId },
+        signal,
+      );
+    }, cancel);
+  /** "Not now": the offer closes and its task isn't offered again for a while. */
+  dismissSkillOffer = (conversationId: string, offerId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.dismissSkillOffer)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.dismissSkillOffer(conversationId, offerId, signal);
+    });
   /** One frame address for a page, served once to its sandboxed frame. */
   pageFrame = (pageId: string, theme: PageTheme, signal?: AbortSignal) =>
     this.authenticatedResult((current) => {
@@ -2925,6 +3023,21 @@ export class ClientController {
   exportActivity = (body: import('./types').ActivityExportRequest) =>
     this.query(() => this.transport.exportActivity?.(body));
   clearActivity = () => this.query(() => this.transport.clearActivity?.());
+  /** Always allow (D1): the person's standing rules; a rule is made only from a card. */
+  approvalRules = (signal?: AbortSignal) =>
+    this.query(() => this.transport.approvalRules?.(signal));
+  createApprovalRule = (body: import('./types').ApprovalRuleCreate) =>
+    this.query(() => this.transport.createApprovalRule?.(body));
+  updateApprovalRule = (
+    ruleId: string,
+    body: import('./types').ApprovalRuleUpdate,
+  ) => this.query(() => this.transport.updateApprovalRule?.(ruleId, body));
+  deleteApprovalRule = (ruleId: string) =>
+    this.query(() => this.transport.deleteApprovalRule?.(ruleId));
+  dryRunApprovalRule = (
+    body: import('./types').ApprovalRuleDryRunRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.dryRunApprovalRule?.(body, signal));
   /** Proactive Row-Bot (see `features/proactive/proactive-state.ts`). */
   proactiveMoments = (signal?: AbortSignal) =>
     this.query(() => this.transport.proactiveMoments?.(signal));
@@ -3580,6 +3693,62 @@ export class ClientController {
     this.query(() =>
       this.transport.browserAction?.(conversation, action, signal),
     );
+  /** Show Row-Bot how (C3): the demo in this chat's pane, its controls and its narration. */
+  browserDemo = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.browserDemo?.(conversation, signal));
+  startBrowserDemo = (conversation: string) =>
+    this.query(() => this.transport.startBrowserDemo?.(conversation));
+  controlBrowserDemo = (
+    conversation: string,
+    demo: string,
+    action: 'stop' | 'undo' | 'discard',
+  ) =>
+    this.query(() =>
+      this.transport.controlBrowserDemo?.(conversation, demo, action),
+    );
+  setBrowserDemoAlways = (
+    conversation: string,
+    demo: string,
+    step: number,
+    always: boolean,
+  ) =>
+    this.query(() =>
+      this.transport.setBrowserDemoAlways?.(conversation, demo, step, always),
+    );
+  sendBrowserDemoNarration = (
+    conversation: string,
+    demo: string,
+    offset: number,
+    audio: Blob,
+  ) =>
+    this.query(() =>
+      this.transport.sendBrowserDemoNarration?.(
+        conversation,
+        demo,
+        offset,
+        audio,
+      ),
+    );
+  /** Draft a skill from the steps the person showed. */
+  draftDemoSkill = (
+    conversation: string,
+    demo: string,
+    purpose: string,
+    cancel?: AbortSignal,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.draftDemoSkill)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.draftDemoSkill(
+        conversation,
+        demo,
+        { purpose },
+        signal,
+      );
+    }, cancel);
+  /** Try it: a new chat with the skill pinned and its request in the composer, unsent. */
+  trySkill = (name: string) =>
+    this.query(() => this.transport.trySkill?.(name));
   browserSites = (signal?: AbortSignal) =>
     this.query(() => this.transport.browserSites?.(signal));
   clearBrowserSites = (site: string | null, signal?: AbortSignal) =>
@@ -6064,6 +6233,10 @@ export class ClientController {
     this.unsavedDrafts.clear();
     if (this.noticeTimer) clearInterval(this.noticeTimer);
     this.noticeTimer = null;
+    if (this.listSignal) clearTimeout(this.listSignal);
+    this.listSignal = null;
+    if (this.firstScreenTimer) clearTimeout(this.firstScreenTimer);
+    this.firstScreenTimer = null;
     this.noticeListeners.clear();
     this.lifetime.abort();
     this.selection.abort();

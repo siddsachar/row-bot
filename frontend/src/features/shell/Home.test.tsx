@@ -133,6 +133,11 @@ vi.mock('../../runtime', () => ({
     taskEditSessions: mock.taskEditSessions,
   }),
 }));
+// The first screen is up: Buddy beside the greeting reads at once.
+vi.mock('../../shell-settled', async (load) => ({
+  ...(await load<typeof import('../../shell-settled')>()),
+  useBackgroundReady: () => true,
+}));
 
 vi.mock('../../ui/overlays', async (load) => {
   const actual = await load<typeof import('../../ui/overlays')>();

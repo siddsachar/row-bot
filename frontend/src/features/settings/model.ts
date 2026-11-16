@@ -88,7 +88,7 @@ export const settingsKeywords: Record<ListedLeafId, string> = {
   system:
     'shell commands browser computer use workspace folder logging logs files blocked privacy telemetry',
   activity:
-    'actions audit log history approvals approved denied blocked reviewer hands-off who allowed export csv clear',
+    'actions audit log history approvals approved denied blocked reviewer hands-off who allowed export csv clear always allow rules standing',
   access:
     'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
   updates: 'version upgrade release channel beta',

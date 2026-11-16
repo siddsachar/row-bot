@@ -256,6 +256,7 @@ const EXACT: Record<string, Verb> = {
   write_file: verb('Wrote a file', 'Writing a file', FilePen),
   list_directory: verb('Listed files', 'Listing files', Folder),
   file_search: verb('Searched files', 'Searching files', Search),
+  find: verb('Looked for files', 'Looking for files', Search),
   copy_file: verb('Copied a file', 'Copying a file', Folder),
   move_file: verb('Moved a file', 'Moving a file', Folder),
   file_delete: verb('Deleted a file', 'Deleting a file', Folder),
@@ -431,6 +432,10 @@ export function splitApproval(text: string): {
 export function approvedWithoutYou(approval: string): string | null {
   if (/^approved by the reviewer\b/i.test(approval)) return 'Reviewer approved';
   if (/^allowed by hands-off\b/i.test(approval)) return 'Hands-off';
+  // What the person allowed beforehand (D1): one of their Always allow rules, or for this chat.
+  if (/^allowed by your rule\b/i.test(approval)) return 'Your rule';
+  if (/^allowed by you for this chat\b/i.test(approval))
+    return 'Allowed in this chat';
   return null;
 }
 

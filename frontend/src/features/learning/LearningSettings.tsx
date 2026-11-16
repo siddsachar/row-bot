@@ -68,7 +68,7 @@ function SkillsWhileChatting({
         mutation={mutation}
         field="identity.self_improvement_enabled"
         label="Create skills while chatting"
-        hint={`${preferences.identity.name || 'Row-Bot'} writes and improves its own skills as it works. This works with Learning on or off.`}
+        hint={`${preferences.identity.name || 'Row-Bot'} offers to save multi-step work as a skill, and suggests improvements to the skills it uses. Nothing is saved until you approve. This works with Learning on or off.`}
         value={preferences.identity.self_improvement_enabled}
       />
     </SettingsGroup>

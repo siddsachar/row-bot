@@ -144,6 +144,27 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+it('never holds the page while it only reads its saved view, but does while saving', async () => {
+  const io = transport();
+  const read = deferred<BuddySnapshot>();
+  vi.mocked(io.snapshot).mockReturnValueOnce(read.promise);
+  const session = createBuddyPanelSession(io, () => {});
+  const loading = session.load();
+  await Promise.resolve();
+  expect(session.getSnapshot().busy).toBe(true);
+  expect(session.hasRetained()).toBe(false);
+  read.resolve(snapshot);
+  await loading;
+
+  const sent = deferred<BuddyReceipt>();
+  vi.mocked(io.execute).mockReturnValueOnce(sent.promise);
+  const saving = session.save({ display_name: 'Pip' }, snapshot.revision);
+  await vi.waitFor(() => expect(io.execute).toHaveBeenCalled());
+  expect(session.hasRetained()).toBe(true);
+  sent.resolve({ command_id: 'saved', status: 'completed' });
+  await saving.catch(() => undefined);
+});
+
 describe('controller-lifetime Buddy commands', () => {
   it('shares status reads across mounted views and aborts the final observer without changing drafts', async () => {
     vi.useFakeTimers();

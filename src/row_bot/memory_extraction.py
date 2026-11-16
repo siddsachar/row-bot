@@ -17,13 +17,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import sqlite3
 import sys
 import threading
 import time
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.prompts import EXTRACTION_PROMPT
@@ -196,41 +197,121 @@ def _is_app_event(message) -> bool:
     return bool(kwargs.get("row_bot_internal_event")) or (isinstance(ui, dict) and bool(ui.get("thread_event")))
 
 
+_PERSON_CHARS = 2_000  # of a person's message; also what a watermark's hash covers of any message
+# Of one of Row-Bot's answers in a trusted turn: a whole chat answer (most are 1,000 to 3,000
+# characters) with a question fits one 6,000-character extraction window; a longer one (code,
+# a report) is cut. About 1,000 tokens at most, where 200 characters (50 tokens) was read before.
+_ANSWER_CHARS = 4_000
+_LEFT_OUT = "[answer left out: this turn read outside content]"
+# A fence or untrusted tag, in any message (a child Agent's words, a relayed result).
+_FENCE_TAG = re.compile(r"<\s*/?\s*(?:EXTERNAL_CONTENT|untrusted)\b", re.IGNORECASE)
+# A file or image the person attached, inlined into their message (``file_context``, channel media).
+_ATTACHMENT = re.compile(r"(?:^|\n)\[Attached ")
+
+
+def _extraction_categories() -> frozenset[str]:
+    """What extraction may save: every memory category but ``self_knowledge`` (Learning's lessons)."""
+    from row_bot.memory import VALID_CATEGORIES
+
+    return frozenset(VALID_CATEGORIES) - {"self_knowledge"}
+
+
+def _content_text(content) -> str:
+    if isinstance(content, list):
+        text_parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                text_parts.append(block)
+        content = "\n".join(text_parts)
+    if not isinstance(content, str):
+        content = str(content) if content else ""
+    return content
+
+
+def _brings_outside_content(message) -> bool:
+    """Whether *message* brings outside content into its turn (the trusted-turn rule).
+
+    A tool result the agent stamped untrusted when it stored it (``row_bot_untrusted``: web pages
+    and searches, mail, the browser, file reads, command output, MCP, plugin and Custom Tools), a
+    fence or untrusted tag in any message (a child Agent's words, a wait's outside text), a file or
+    image the person attached, a message Row-Bot added for an event, or a notice of another run.
+    Decided by those marks, never by a list of tool names, so a new untrusted tool is covered;
+    Row-Bot's own tools (calculator, memory, tasks...) stamp nothing and bring nothing from outside.
+    """
+    kind = getattr(message, "type", None)
+    kwargs = getattr(message, "additional_kwargs", None)
+    kwargs = kwargs if isinstance(kwargs, dict) else {}
+    ui = kwargs.get("row_bot_ui")
+    if kwargs.get("row_bot_untrusted") or _is_app_event(message):
+        return True
+    if isinstance(ui, dict) and ui.get("channel_notification_key"):
+        return True  # a notice of another run's result
+    content = getattr(message, "content", "") or ""
+    if kind == "human" and isinstance(content, list) and any(
+        isinstance(block, dict) and block.get("type") not in (None, "text") for block in content
+    ):
+        return True  # an image or a file
+    text = _content_text(content)
+    return bool(_FENCE_TAG.search(text) or _ATTACHMENT.search(text))
+
+
 def _get_thread_messages(thread_id: str) -> list[dict]:
     """Load the person's and the assistant's messages from a thread's checkpoint.
 
     Each is ``{"role", "content"}``, with the message's ``id`` when it has one.
     An incognito conversation has none, and one that was incognito only those
     said after it was turned off (N11): every memory reader starts here.
+
+    Only trusted turns (the owner's rule, per turn): a turn runs from one of the
+    person's messages to their next. An answer of Row-Bot's is marked
+    ``"trusted": True`` only when nothing earlier in its own turn brought outside
+    content (``_brings_outside_content``); otherwise the turn gives only the
+    person's message. A later turn starts trusted again. Decided here, in code,
+    before any prompt.
+
+    A message carries the ``date`` (ISO) its turn began, from the turn's context,
+    when it has one.
     """
     try:
         from row_bot.threads import get_latest_checkpoint_messages, incognito_state
-        from row_bot.turn_context import is_person_message, is_turn_context_message
+        from row_bot.turn_context import is_person_message, is_turn_context_message, turn_began
 
         messages = get_latest_checkpoint_messages(thread_id)
-        messages = messages[incognito_state(thread_id).readable_from(messages):]
+        readable_from = incognito_state(thread_id).readable_from(messages)
         result = []
-        for m in messages:
-            if is_turn_context_message(m) or _is_app_event(m):
-                # Row-Bot's per-turn context (time, state, recalled memories) and its own
-                # events: never a source of new memories, and never something the person said.
+        outside = False  # something in this turn, so far, came from outside
+        day = ""  # the date of the turn being read, from its context
+        undated: list[dict] = []  # its messages said before its context (the person's)
+        for index, m in enumerate(messages):
+            if is_turn_context_message(m):
+                began = turn_began(m)
+                if began is not None:
+                    day = began.date().isoformat()
+                    for entry in undated:
+                        entry["date"] = day
+                    undated = []
+                continue  # Row-Bot's per-turn context (time, state, recalled memories): its own text.
+            if is_person_message(m) and not _is_app_event(m):
+                outside = False  # A new turn.
+                day, undated = "", []  # Its context, just after this message, dates it.
+            outside = outside or _brings_outside_content(m)
+            if index < readable_from or _is_app_event(m):
+                # Row-Bot's own events: never a source of new memories, and never something the person said.
                 continue
             role = "user" if is_person_message(m) else ("assistant" if getattr(m, "type", None) == "ai" else None)
-            content = getattr(m, "content", "") or ""
-            if isinstance(content, list):
-                text_parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-                content = "\n".join(text_parts)
-            if not isinstance(content, str):
-                content = str(content) if content else ""
+            content = _content_text(getattr(m, "content", "") or "")
             if role and content.strip():
-                entry = {"role": role, "content": content[:2000]}
+                entry = {"role": role, "content": content[:_PERSON_CHARS if role == "user" else _ANSWER_CHARS]}
+                if role == "assistant" and not outside:
+                    entry["trusted"] = True
                 if getattr(m, "id", None):
                     entry["id"] = str(m.id)
+                if day:
+                    entry["date"] = day
+                else:
+                    undated.append(entry)
                 result.append(entry)
         return result
     except Exception as exc:
@@ -238,16 +319,13 @@ def _get_thread_messages(thread_id: str) -> list[dict]:
         return []
 
 
-_ASSISTANT_TRUNCATE = 200  # chars — enough context, not enough to extract from
-
-
 def _format_conversation(messages: list[dict]) -> str:
     """Format messages into a readable conversation string.
 
-    User messages are included in full (they contain the facts we want).
-    Assistant messages are truncated to ``_ASSISTANT_TRUNCATE`` chars to
-    prevent the LLM from extracting facts from its own output — search
-    results, file listings, generated stories, workflow reports, etc.
+    The person's messages are read as loaded. An answer of Row-Bot's is read, up
+    to ``_ANSWER_CHARS``, only when it is marked trusted (``_get_thread_messages``);
+    any other answer is only a placeholder, so nothing of a turn that read a web
+    page, an email, a file or a tool result reaches the prompt.
     """
     lines = []
     for m in messages:
@@ -257,21 +335,22 @@ def _format_conversation(messages: list[dict]) -> str:
             continue
         if role == "user":
             lines.append(f"User: {content}")
-        else:
+        elif m.get("trusted") is True:
             text = str(content)
-            if len(text) > _ASSISTANT_TRUNCATE:
-                text = text[:_ASSISTANT_TRUNCATE] + " [...]"
+            if len(text) > _ANSWER_CHARS:
+                text = text[:_ANSWER_CHARS] + " [...]"
             lines.append(f"Assistant: {text}")
+        else:
+            lines.append(f"Assistant: {_LEFT_OUT}")
     return "\n".join(lines)
 
 
 def _extraction_answer():
     """The extraction reply as a JSON schema: entities and relations, as the prompt describes."""
-    from row_bot.memory import VALID_CATEGORIES
     from row_bot.providers.background import json_object, structured_answer
 
     entity = json_object({
-        "category": {"type": "string", "enum": sorted(VALID_CATEGORIES)},
+        "category": {"type": "string", "enum": sorted(_extraction_categories())},
         "subject": {"type": "string"},
         "content": {"type": "string"},
         "aliases": {"type": "string", "description": "Other names, comma separated, or an empty string."},
@@ -295,19 +374,37 @@ class _NoReply(list):
     """
 
 
-def _extract_from_conversation(conversation_text: str) -> list[dict]:
-    """Call the LLM to extract personal facts from a conversation.
+def _day_name(day: date, year: int) -> str:
+    text = f"{day.strftime('%A')} {day.day} {day.strftime('%B')}"
+    return text if day.year == year else f"{text} {day.year}"
+
+
+def _dated_line(day: date) -> str:
+    """The conversation's date, and the weeks either side of it by weekday, so a relative date
+    ("last Friday", "next Tuesday") is read off a list, not worked out."""
+    before = ", ".join(_day_name(day - timedelta(days=back), day.year) for back in range(7, 0, -1))
+    after = ", ".join(_day_name(day + timedelta(days=ahead), day.year) for ahead in range(1, 8))
+    return (
+        f"This conversation is dated {day.strftime('%A')}, {day.day} {day.strftime('%B %Y')}.\n"
+        f"The week before it: {before} {day.year}.\n"
+        f"The week after it: {after} {day.year}."
+    )
+
+
+def _extract_from_conversation(conversation_text: str, *, dated: date | None = None) -> list[dict]:
+    """Call the LLM to extract personal facts from a conversation said on *dated* (today when not known).
 
     An unattended background call (WP C1): the default chat model at the
     lowest reasoning effort, a bounded reply, a JSON schema where the provider
     takes one, and the JSON-array parser for every other reply. A call that
-    fails returns ``_NoReply()``.
+    fails returns ``_NoReply()``. The date comes after the instructions, so
+    their cached prefix is the same every day.
     """
     try:
         from langchain_core.messages import HumanMessage
         from row_bot.providers.background import invoke_background
 
-        prompt = EXTRACTION_PROMPT.format(conversation=conversation_text, today=date.today().strftime("%d %B %Y"))
+        prompt = EXTRACTION_PROMPT.format(conversation=conversation_text, dated=_dated_line(dated or date.today()))
         raw = invoke_background("extraction", [HumanMessage(content=prompt)], answer=_extraction_answer())
     except Exception as exc:
         logger.warning("Memory extraction LLM call failed: %s", exc)
@@ -418,19 +515,19 @@ def _merge_properties(existing: dict, incoming: dict) -> dict:
 
 
 def _reconcile_entities(extracted: list[dict], source: str, source_context: dict | None, *,
-                        validate=None, invoke=None) -> tuple[dict[str, str], int]:
+                        validate=None, invoke=None, dated: date | None = None) -> tuple[dict[str, str], int]:
     """Reconcile a chat's (or an import's) new memories with saved ones; their subjects mapped to the
     memories that now hold them, and how many memories were added or changed."""
     import row_bot.knowledge_graph as kg
     import row_bot.memory_reconcile as reconcile
-    from row_bot.memory import VALID_CATEGORIES
 
+    categories = _extraction_categories()
     memories: list[reconcile.NewMemory] = []
     for entry in extracted:
         category = str(entry.get("category", "")).lower().strip()
         subject = str(entry.get("subject", "")).strip()
         content = str(entry.get("content", "")).strip()
-        if category not in VALID_CATEGORIES or not subject or not content:
+        if category not in categories or not subject or not content:
             continue
         aliases = entry.get("aliases", "")
         if isinstance(aliases, list):
@@ -442,7 +539,7 @@ def _reconcile_entities(extracted: list[dict], source: str, source_context: dict
     if not memories:
         return {}, 0
     outcomes = reconcile.reconcile(memories, actor="extraction", invoke=invoke,
-                                   purpose="extraction", validate=validate)
+                                   purpose="extraction", validate=validate, today=dated)
     mapped: dict[str, str] = {}
     for outcome in outcomes:
         names = [outcome.memory.subject, *outcome.memory.aliases.split(",")]
@@ -457,7 +554,7 @@ def _dedup_and_save(
     extracted: list[dict],
     source: str = "extraction",
     source_context: dict | None = None,
-    *, validate=None, invoke=None,
+    *, validate=None, invoke=None, dated: date | None = None,
 ) -> int:
     """Save extracted memories and relations, deduplicating against existing ones.
 
@@ -477,11 +574,15 @@ def _dedup_and_save(
         Document extraction passes ``"document:<filename>"``.
     source_context : dict, optional
         Thread/document provenance to store in entity properties.
+    dated : date, optional
+        When the conversation was said: reconcile's "today" (``date.today()`` when not given).
 
     Returns the number of new/updated memories + relations.
     """
-    from row_bot.memory import save_memory, find_by_subject, update_memory, VALID_CATEGORIES
+    from row_bot.memory import save_memory, find_by_subject, update_memory
     import row_bot.knowledge_graph as kg
+
+    categories = _extraction_categories()  # never self_knowledge: those are Learning's lessons
 
     saved_count = 0
     strict = {"validate":validate} if validate is not None else {}
@@ -499,14 +600,15 @@ def _dedup_and_save(
             subject_to_id[kg._normalize_subject("User")] = user_entity["id"]
 
         if not source.startswith("document:"):
-            mapped, changed = _reconcile_entities(extracted, source, source_context, validate=validate, invoke=invoke)
+            mapped, changed = _reconcile_entities(extracted, source, source_context, validate=validate, invoke=invoke,
+                                                  dated=dated)
             subject_to_id.update(mapped)
             saved_count += changed
         for entry in extracted if source.startswith("document:") else ():
             if validate is not None:
                 validate()
             category = entry.get("category", "").lower().strip()
-            if category not in VALID_CATEGORIES:
+            if category not in categories:
                 continue
             subject = entry["subject"].strip()
             content = entry["content"].strip()
@@ -824,10 +926,13 @@ class _Unread:
     messages: list[dict]
     start: int  # the first message not read yet
     revision: str  # the checkpoint the messages came from
+    updated: str = ""  # when the conversation last changed: the date of messages its turns did not date
 
 
 def _message_hash(message: dict) -> str:
-    text = f"{message.get('role', '')}\n{message.get('content', '')}"
+    # The first 2,000 characters: all that was loaded of any message before answers were read at more,
+    # so a watermark saved then still finds its messages.
+    text = f"{message.get('role', '')}\n{str(message.get('content', ''))[:_PERSON_CHARS]}"
     return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:16]
 
 
@@ -966,7 +1071,18 @@ def _unread(thread_id: str, updated: str, watermark: dict | None, cutoff: str,
         # Nothing new from the person: no call, the watermark just moves on.
         _save_watermark(thread_id, _watermark_for(messages, revision))
         return None
-    return _Unread(messages, start, revision)
+    return _Unread(messages, start, revision, updated)
+
+
+def _window_date(messages: list[dict], updated: str) -> date | None:
+    """The date of a window's messages: the newest one's turn, else when the conversation last changed."""
+    for message in reversed(messages):
+        if message.get("date"):
+            return date.fromisoformat(str(message["date"]))
+    try:
+        return datetime.fromisoformat(updated).date() if updated else None
+    except ValueError:
+        return None
 
 
 def _newest_window_start(messages: list[dict]) -> int:
@@ -986,7 +1102,8 @@ def _conversation_windows(messages: list[dict], start: int) -> list[tuple[str, i
     Each window holds up to ``_CONVERSATION_BUDGET`` characters, after up to two messages already read, as
     context. Every unread message is in one window: before, only the newest 6,000 characters of what was
     unread were read and the rest was passed over for good (memory audit, Nov 2026). A message longer than
-    the budget gets a window of its own.
+    the budget gets a window of its own. A window holds one day's messages, so it has one date
+    (``_window_date``).
     """
     windows: list[tuple[str, int]] = []
     index = start
@@ -994,10 +1111,13 @@ def _conversation_windows(messages: list[dict], start: int) -> list[tuple[str, i
         kept: list[str] = []
         used = 0
         end = index
+        day = ""
         while end < len(messages):
             line = _format_conversation([messages[end]])
-            if line and kept and used + len(line) + 1 > _CONVERSATION_BUDGET:
+            said = str(messages[end].get("date") or "")
+            if line and kept and (used + len(line) + 1 > _CONVERSATION_BUDGET or (day and said and said != day)):
                 break
+            day = day or said
             if line:
                 kept.append(line)
                 used += len(line) + 1
@@ -1157,13 +1277,16 @@ def _read_conversations(
         thread_extracted = thread_saved = 0
         finished = True
         stopped = False
+        begin = unread.start
         for text, end in _conversation_windows(unread.messages, unread.start):
+            dated = _window_date(unread.messages[begin:end], unread.updated)
+            begin = end
             if text:
                 if calls >= _CALLS_PER_RUN or (should_continue is not None and not should_continue()):
                     finished = False
                     break
                 calls += 1
-                extracted = _extract_from_conversation(text)
+                extracted = _extract_from_conversation(text, dated=dated)
                 if incognito_state(tid).incognito:
                     # Turned incognito while it was being read: nothing more from it is saved or read.
                     finished = stopped = False
@@ -1184,6 +1307,7 @@ def _read_conversations(
                                 "thread_id": tid,
                                 "thread_name": name,
                             },
+                            dated=dated,
                         )
                     except ReconcileUnavailable:
                         journal_entry["errors"].append("The model did not reply; the rest waits for the next run")

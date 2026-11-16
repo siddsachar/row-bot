@@ -131,6 +131,7 @@ describe('tool activity', () => {
     expect(stepVerb('workspace_list_directory', 'pending')).toBe(
       'Listing files',
     );
+    expect(stepVerb('workspace_find', 'succeeded')).toBe('Looked for files');
   });
 
   it('asks approval questions in the imperative', () => {

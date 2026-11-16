@@ -111,9 +111,13 @@ BROWSER_SMOKE_SPECS = (
     "outlook",
     "incognito",
     "conversation-fork",
+    # Save as a skill (C1): the offer by name, the review sheet, edit, approve, Settings' "From".
+    "skill-offers",
     "live-updates",
     # The activity log (D1): every action and who decided, its filters, CSV and Clear; Monitor's line.
     "activity-log",
+    # Always allow (D1): a card's rule and its dry run, the rule allowing it next time, Settings' rules.
+    "always-allow",
     "learning",
     "learning-training",
     "learning-download",
@@ -126,6 +130,11 @@ BROWSER_SMOKE_SPECS = (
     "learning-hugging-face",
     # The setup page's sign-in link clears its code from the address (A1): security-sensitive.
     "setup-link",
+    # The request budget: API requests at app open and during one reply stay under their numbers.
+    "request-budget",
+    # Show Row-Bot how (C3): record in the Browser pane, the steps, the draft with "What you showed", Try it.
+    # Last, so the specs before it keep their shards.
+    "browser-demo",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

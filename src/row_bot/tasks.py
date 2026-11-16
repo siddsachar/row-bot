@@ -3705,7 +3705,8 @@ def _set_run_total(run_id: str, total: int) -> None:
         conn.close()
 
 
-@_publishes_live("runs", "conversations")
+# A skipped run starts no turn and writes nothing a conversation's row shows: runs only.
+@_publishes_live("runs")
 def _record_skipped_run(task: Mapping[str, Any], thread_id: str, message: str) -> None:
     now = datetime.now().isoformat()
     conn = _get_conn()

@@ -2081,9 +2081,20 @@ def s6_sandbox(body: dict, x_fixture_token: str = Header(default="")) -> dict:
         "[project]\nname = \"tide\"\nversion = \"0.1.0\"\n\n[project.optional-dependencies]\n"
         "test = [\"pytest-cov\"]\n", encoding="utf-8")
     (folder / "tests" / "test_tide.py").write_text("def test_high_tide():\n    assert True\n", encoding="utf-8")
-    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker", sandbox_network="off",
-                                             sandbox_image=_S6_IMAGE)
+    gate_fails = bool(body.get("gate_fails"))
+    storage.set_workspace_execution_settings(workspace.id, execution_mode="docker",
+                                             sandbox_network="on" if gate_fails else "off", sandbox_image=_S6_IMAGE)
     _s6_docker(image_present=bool(body.get("image_present", True)))
+    if gate_fails:
+        # The network is on, but the network gate's image isn't here: the sandbox runs offline (D3-lite).
+        from types import SimpleNamespace
+
+        from row_bot.developer import sandbox_runtime
+
+        def missing(*_args, timeout=30):
+            return SimpleNamespace(returncode=1, stdout="", stderr="No such object")
+
+        sandbox_runtime._behind_gate_or_offline(missing, storage.get_workspace(workspace.id), "docker")
     return {"workspace": workspace.name}
 
 
@@ -2131,6 +2142,9 @@ def s6_reset(x_fixture_token: str = Header(default="")) -> dict:
         sandbox_prepare.stop_all(timeout=5)
     for name, value in _S6_STATE.pop("sandbox_seams", {}).items():
         setattr(sandbox_prepare, name, value)
+    from row_bot.developer import sandbox_runtime
+
+    sandbox_runtime._NETWORK_PROBLEMS.clear()
     real = _S6_STATE.pop("subprocess_run", None)
     if real is not None:
         import subprocess
@@ -2854,6 +2868,9 @@ def _n11_resume(enabled_tools: list[str], config: dict, approved: bool, *, inter
     from row_bot.tools.memory_tool import INCOGNITO_NOT_SAVED
 
     thread = str(config["configurable"]["thread_id"])
+    if thread in _D1_PENDING:
+        yield from _d1_resume(config, approved)
+        return
     pending = _N11_PENDING.pop(thread, None)
     if pending is None:
         yield from _n12b_resume(enabled_tools, config, approved, interrupt_ids=interrupt_ids,
@@ -2885,6 +2902,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
     if text.startswith("l1a ") and text.rstrip().endswith("fixture"):
         # Learning (L1a): a reply to Teach on, after a step that failed.
         yield from _l1a_stream(text, config)
+        return
+    if "always allow fixture" in text:
+        # D1 Always allow: `npm test` through the real approval gate, which asks or finds the person's rule.
+        yield from _d1_rule_stream(config)
         return
     if text.strip() in _N11_REPLIES:
         # Incognito chats (N11): a plain reply, or the real save_memory card in an incognito chat.
@@ -5122,6 +5143,165 @@ def s8_models(action: str, favourites: str = "", x_fixture_token: str = Header(d
     else:
         raise HTTPException(status_code=422, detail="Unknown model fixture action")
     return {"action": action, "models": len(_S8_LOCAL_MODELS)}
+
+
+# ── C1: Save as a skill ─────────────────────────────────────────────────────
+# Two synthetic chats whose turns used tools: one the offer engine offers (its recurrence wording and the
+# judgement's yes), one with no offer that the person saves by hand. The judgement and the drafts are the
+# chat model's scripted answers; nothing calls a model.
+_C1_DRAFTS = {
+    "November expenses": {
+        "name": "monthly_expense_report", "display_name": "Monthly expense report", "icon": "🧾",
+        "description": "Builds a month's expense report from the receipts folder.",
+        "when_to_use": "When the person asks for their expense report for a month.",
+        "inputs": ["the month", "the receipts folder"],
+        "steps": ["List the month's receipts with `workspace_list_directory`.",
+                  "Read each receipt with `workspace_read_file`.", "Add up the totals with `calculate`.",
+                  "Write the table with `workspace_write_file`.", "Export it with `export_to_pdf`."],
+        "checks": ["The PDF lists every receipt and the total matches."], "tags": ["finance"],
+    },
+    "Trip photos": {
+        "name": "trip_photo_tidy_up", "display_name": "Trip photo tidy-up", "icon": "📷",
+        "description": "Renames a trip's photos by date and files them by day.",
+        "when_to_use": "After a trip, when the person asks to sort its photos.",
+        "inputs": ["the trip's folder"],
+        "steps": ["List the photos with `workspace_list_directory`.", "Rename each by its date with `workspace_move_file`.",
+                  "File them by day with `workspace_move_file`."],
+        "checks": ["Every photo is in a day's folder."], "tags": ["photos"],
+    },
+}
+_c1_fixture: dict = {}
+
+
+def _c1_turn(thread: str, request: str, steps: list[tuple[str, dict]], answer: str) -> list:
+    messages: list = [HumanMessage(id=fixture_id(f"{thread}:ask"), content=request)]
+    for index, (name, args) in enumerate(steps):
+        call_id = fixture_id(f"{thread}:call:{index}")
+        messages += [AIMessage(id=fixture_id(f"{thread}:step:{index}"), content="",
+                               tool_calls=[{"id": call_id, "name": name, "args": args}]),
+                     ToolMessage(id=fixture_id(f"{thread}:result:{index}"), tool_call_id=call_id, name=name,
+                                 content="Done.")]
+    return [*messages, AIMessage(id=fixture_id(f"{thread}:reply"), content=answer)]
+
+
+@app.post("/__c1_fixture/seed")
+def c1_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """Two chats, an offer on one, a draft from the other; earlier fixture offers and skills cleared."""
+    predecessor._authorize(x_fixture_token)
+    import shutil
+
+    from row_bot import evolution, skill_offers, skills, threads
+    from row_bot.data_paths import get_row_bot_data_dir
+    from row_bot.providers import background
+
+    if get_row_bot_data_dir(create=False).resolve() != predecessor.DATA.resolve():
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    original = _c1_fixture.setdefault("invoke", background.invoke_background)
+    titles = {}
+
+    def invoke_background(purpose, messages, *, answer=None, thread_id="", **how):
+        if purpose == "skill_offer_judge":
+            return json.dumps({"worth_skill": True, "task_name": "Monthly expense report",
+                               "varying_inputs": ["the month"]})
+        if purpose == "skill_draft":
+            return json.dumps(_C1_DRAFTS[titles[thread_id]])
+        return original(purpose, messages, answer=answer, thread_id=thread_id, **how)
+
+    background.invoke_background = invoke_background
+    (predecessor.DATA / "skill_offers.json").unlink(missing_ok=True)
+    for draft in _C1_DRAFTS.values():
+        for folder in skills.USER_SKILLS_DIR.glob(f"{draft['name']}*"):
+            shutil.rmtree(folder, ignore_errors=True)
+    evolution.remove_unapplied_proposals({
+        str(item.get("id")) for item in evolution.list_proposals(proposal_type="create_skill")})
+    skills.load_skills()
+    expenses = threads.create_thread("November expenses", name_source="manual", seed_default_skills=False)
+    photos = threads.create_thread("Trip photos", name_source="manual", seed_default_skills=False)
+    titles.update({expenses: "November expenses", photos: "Trip photos"})
+    turn = _c1_turn(expenses, "Do my monthly expense report from the receipts folder, like last month", [
+        ("workspace_list_directory", {"path": "Receipts/November"}),
+        ("workspace_read_file", {"path": "Receipts/November/taxi.pdf"}),
+        ("workspace_read_file", {"path": "Receipts/November/hotel.pdf"}),
+        ("calculate", {"expression": "42.50 + 18.20 + 120"}),
+        ("workspace_write_file", {"path": "Reports/November expenses.md", "content": "| Item | Cost |"}),
+        ("export_to_pdf", {"path": "Reports/November expenses.md"}),
+    ], "Your November expense report is ready: **£180.70** across three receipts, saved as "
+       "Reports/November expenses.pdf.")
+    threads.append_checkpoint_messages(expenses, turn)
+    assessment = skill_offers.consider_turn(expenses, turn)
+    trip = _c1_turn(photos, "Rename the photos from the Lisbon trip by date and sort them by day", [
+        ("workspace_list_directory", {"path": "Photos/Lisbon"}),
+        ("workspace_move_file", {"source": "Photos/Lisbon/IMG_0001.jpg", "destination": "Photos/Lisbon/Day 1/2026-10-02 09.14.jpg"}),
+    ], "Done: 46 photos renamed by date and sorted into four days.")
+    threads.append_checkpoint_messages(photos, trip)
+    return {"offered": assessment.offered, "expenses": expenses, "photos": photos}
+
+
+# ── C3: Show Row-Bot how ──────────────────────────────────────────────────────
+# The pane is N12's synthetic engine (no Chromium), so the person's steps come from the spec as the
+# demo recorder would describe them; the draft is the chat model's scripted answer.
+_C3_DRAFT = {
+    "name": "download_a_statement", "display_name": "Download a statement", "icon": "🏦",
+    "description": "Downloads a month's statement from homecover.example.",
+    "when_to_use": "When the person asks for a statement for a month.",
+    "inputs": ["the month"],
+    "steps": ["Open homecover.example/account with `browser_navigate`.",
+              "Ask the person to finish this step on the page themselves, then carry on.",
+              "Click the link labelled \"Statements\" with `browser_click`.",
+              "Type the month into the field labelled \"Month\" with `browser_type`.",
+              "Click the button labelled \"Download statement\" with `browser_click`."],
+    "checks": ["A statement for that month was downloaded."], "tags": ["finance"],
+}
+_c3_fixture: dict = {}
+
+
+@app.post("/__c3_fixture/seed")
+def c3_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """The chat model drafts the demo's skill; an earlier run's skill and drafts are cleared."""
+    predecessor._authorize(x_fixture_token)
+    import shutil
+
+    from row_bot import evolution, skills
+    from row_bot.data_paths import get_row_bot_data_dir
+    from row_bot.providers import background
+
+    if get_row_bot_data_dir(create=False).resolve() != predecessor.DATA.resolve():
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    original = _c3_fixture.setdefault("invoke", background.invoke_background)
+
+    def invoke_background(purpose, messages, *, answer=None, thread_id="", **how):
+        if purpose == "skill_draft" and "Sites:" in str(messages[-1].content):
+            return json.dumps(_C3_DRAFT)
+        return original(purpose, messages, answer=answer, thread_id=thread_id, **how)
+
+    background.invoke_background = invoke_background
+    for folder in skills.USER_SKILLS_DIR.glob(f"{_C3_DRAFT['name']}*"):
+        shutil.rmtree(folder, ignore_errors=True)
+    evolution.remove_unapplied_proposals({
+        str(item.get("id")) for item in evolution.list_proposals(proposal_type="create_skill")})
+    skills.load_skills()
+    return {"ready": True}
+
+
+@app.post("/__c3_fixture/steps")
+def c3_steps(body: dict, x_fixture_token: str = Header(default="")) -> dict:
+    """Steps the person took in the pane, as the recorder describes them (it can't watch a picture)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.browser import demo
+
+    chat = str(body["conversation_id"])
+    recorded = demo.observer(chat)
+    if recorded is None:
+        raise HTTPException(status_code=409, detail="No demo is recording")
+    for item in body.get("steps") or []:
+        facts = {key: item.get(key, "") for key in ("role", "name", "context", "title", "tag", "type",
+                                                     "autocomplete", "words")}
+        step = demo._step_from(str(item["kind"]), facts, str(item.get("url") or ""))
+        step.secret = str(item.get("secret") or step.secret)
+        step.value = "" if step.secret else str(item.get("value") or "")
+        demo._add(recorded, step)
+    _browser_tool.get_session_manager().get_session()._publish(chat)
+    return {"steps": len(recorded.steps)}
 
 
 # ── #140: the backup model ──────────────────────────────────────────────────
@@ -8097,6 +8277,161 @@ def b4_reset(x_fixture_token: str = Header(default="")) -> dict:
             tasks.delete_task(task["id"])
     waits._publish()
     return {"ok": True}
+
+
+# D1 Always allow: "Run the tests always allow fixture" runs `npm test` in a fixture code folder through the
+# real approval gate: it asks (the card offers Always allow…) until the person saves a rule, then the rule
+# allows it. /__d1_fixture/rules/seed seeds a month of that command's activity (one "you said no") and two
+# rules; /__d1_fixture/rules/clear removes them, the rules and the folder's chat rows.
+_D1_PENDING: dict[str, tuple[str, dict, tuple]] = {}
+_D1_CHAT = "d1-rules-chat"
+_D1_OUTPUT = "$ npm test\n\n 12 passed (12)\n\n[Exit code: 0 | Duration: 1.4s]"
+
+
+def _d1_folder() -> Path:
+    # Beside the data folder, never in it: a rule never covers Row-Bot's own private data.
+    folder = predecessor.DATA.parent / "d1-folders" / "row-bot"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _d1_payload() -> dict:
+    folder = _d1_folder()
+    return {"tool": "run_command", "label": "Run shell command", "description": "Run shell command: npm test",
+            "args": {"command": "npm test"}, "folder": folder.name, "folder_path": str(folder)}
+
+
+def _d1_rule_stream(config: dict):
+    from row_bot import activity_log
+    from row_bot.approval_rules import COMMAND_RISK
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools import approval_gate
+
+    call = predecessor._record("submit", config, "d1-rule")
+    thread = call["conversation_id"]
+    identity = f"d1-rule:{call['generation_id']}"
+    tool_id = fixture_id(identity + ":tool")
+    payload = _d1_payload()
+    cards: list[dict] = []
+    try:
+        append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+            tool_calls=[{"id": tool_id, "name": "run_command", "args": payload["args"]}])])
+        yield "tool_call", {"tool_call_id": tool_id, "name": "run_command", "args": payload["args"]}
+        with approval_gate.collect_activity() as notes:
+            _outcome, line = approval_gate.resolve_approval_line(
+                payload, approval_mode="approve", risks=(COMMAND_RISK,),
+                approval_callback=lambda card: cards.append(card) or False)
+        if cards:
+            asked = tuple(note for note in notes if note.get("stage") == "asking")
+            _D1_PENDING[thread] = (tool_id, payload["args"], asked)
+            activity_log.record(activity_log.ToolCall(call_id=tool_id, tool="run_command", args=payload["args"],
+                                                      thread_id=thread, decisions=asked, paused=True))
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), **cards[0]}]
+            return
+        content = f"{line}\n{_D1_OUTPUT}"
+        result_id = fixture_id(identity + ":result")
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name="run_command",
+                                                        content=content)])
+        activity_log.record(activity_log.ToolCall(call_id=tool_id, tool="run_command", args=payload["args"],
+                                                  thread_id=thread, decisions=tuple(notes)))
+        yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "run_command",
+                            "args": payload["args"], "content": content}
+        yield from _natural_final(call, thread, "The tests passed: 12 of 12.", "d1-rule")
+    finally:
+        call["quiesced"] = True
+
+
+def _d1_resume(config: dict, approved: bool):
+    from row_bot import activity_log
+    from row_bot.threads import append_checkpoint_messages
+    from row_bot.tools.approval_gate import APPROVAL_DENIED, APPROVAL_GIVEN
+
+    thread = str(config["configurable"]["thread_id"])
+    tool_id, args, asked = _D1_PENDING.pop(thread)
+    call = predecessor._record("resume", config, "d1-answer")
+    identity = f"d1-resume:{call['generation_id']}:{call['sequence']}"
+    try:
+        decided = {**asked[-1], "stage": "decided", "outcome": "allow" if approved else "deny", "by": "person"}
+        activity_log.record(activity_log.ToolCall(call_id=tool_id, tool="run_command", args=args, thread_id=thread,
+                                                  decisions=(*asked, decided)))
+        content = (f"{APPROVAL_GIVEN}\n{_D1_OUTPUT}" if approved
+                   else f"{APPROVAL_DENIED}\nCommand cancelled by user.")
+        result_id = fixture_id(identity + ":result")
+        append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name="run_command",
+                                                        content=content)])
+        yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "run_command",
+                            "args": args, "content": content}
+        yield from _natural_final(call, thread, "The tests passed: 12 of 12." if approved
+                                  else "Okay, I didn't run the tests.", "d1-answer")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__d1_fixture/rules/{state}")
+def d1_rules(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    import sqlite3
+    from contextlib import closing
+
+    from row_bot import activity_log, approval_rules, threads
+    from row_bot.data_paths import get_activity_db_path
+    from row_bot.thread_cleanup import delete_thread
+
+    if state not in {"seed", "clear"}:
+        raise HTTPException(status_code=404, detail="Unknown rules state")
+    # A card a failed journey left waiting is answered no, as the person would: a card left waiting shows in
+    # every later spec's sidebar and Buddy.
+    from row_bot.application.client_platform import client_platform_service
+    from row_bot.tasks import _get_conn
+
+    for thread in list(_D1_PENDING):
+        with closing(_get_conn()) as connection:
+            waiting = [str(row[0]) for row in connection.execute(
+                "SELECT id FROM approval_requests WHERE source_thread_id = ? AND status = 'pending'", (thread,))]
+        for approval_id in waiting:
+            try:
+                answered = client_platform_service._resolve_approval(approval_id, {"decision": "reject"})
+            except Exception:
+                logging.getLogger(__name__).warning("A D1 card couldn't be answered", exc_info=True)
+                continue
+            handle = client_platform_service.registry.get(answered.get("execution_id", ""))
+            if handle is not None:
+                handle.producer_done.wait(10)
+    for rule in approval_rules.list_rules():
+        approval_rules.delete(rule.rule_id)
+    if threads._thread_exists(_D1_CHAT):
+        delete_thread(_D1_CHAT)
+    activity_log.clear()
+    _D1_PENDING.clear()
+    if state == "clear":
+        return {"ready": True}
+    chat = threads.create_thread("Fix the flaky test", thread_id=_D1_CHAT, seed_default_skills=False)
+    scope = approval_rules.candidate(_d1_payload(), (approval_rules.COMMAND_RISK,))
+    assert scope is not None
+    now = time.time()
+    card = {"stage": "asking", "level": "approve", "label": "Run shell command",
+            "description": "Run shell command: npm test", "risk": "unknown", **scope.note()}
+    # A month of `npm test` in row-bot: approved, once by the reviewer, and once refused.
+    seeded = (("d1-r1", 2, "allow", "person"), ("d1-r2", 4, "allow", "person"), ("d1-r3", 6, "deny", "person"),
+              ("d1-r4", 9, "allow", "reviewer"), ("d1-r5", 15, "allow", "person"), ("d1-r6", 40, "allow", "person"))
+    for call_id, days, outcome, by in reversed(seeded):
+        level = "auto" if by == "reviewer" else "approve"
+        decided = {**card, "level": level, "stage": "decided", "outcome": outcome, "by": by,
+                   **({"reason": "You asked me to run the tests before pushing."} if by == "reviewer" else {})}
+        activity_log.record(activity_log.ToolCall(
+            call_id=call_id, tool="run_command", args={"command": "npm test"}, thread_id=chat, level=level,
+            at=now - days * 86_400, decisions=((card, decided) if by == "person" else (decided,))))
+    notion = approval_rules.create(approval_rules.Scope(
+        "app", "mcp_notion_create_page", app_id="mcp:notion", app_name="Notion", tool_title="Create a page"))
+    documents = predecessor.DATA.parent / "d1-folders" / "Documents"
+    documents.mkdir(parents=True, exist_ok=True)
+    moves = approval_rules.create(approval_rules.Scope("move", "workspace_move_file", folder=str(documents)))
+    approval_rules.update(moves.rule_id, enabled=False)
+    activity_log.flush()
+    with closing(sqlite3.connect(get_activity_db_path())) as connection, connection:
+        connection.execute("UPDATE approval_rules SET uses = 4, last_used_at = ? WHERE id = ?",
+                           (now - 3 * 86_400, notion.rule_id))
+    return {"ready": True, "folder": _d1_folder().name}
 
 
 if __name__ == "__main__":
