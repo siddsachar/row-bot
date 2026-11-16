@@ -50,9 +50,90 @@ _IDLE = {
 def pane_state(conversation_id: str) -> dict[str, Any]:
     """The pane's state; never starts the browser."""
 
+    from row_bot.browser import demo
+
     engine = _engine(start=False)
     state = dict(engine.pane_state(conversation_id)) if engine is not None else dict(_IDLE)
+    state.setdefault("demo", demo.summary(conversation_id))
     return {"schema_version": 1, "conversation_id": conversation_id, **state}
+
+
+# ── Show Row-Bot how (C3): the person's own steps, kept in memory ─────────────
+
+
+def _private(conversation_id: str) -> bool:
+    from row_bot import threads
+
+    state = threads.incognito_state(conversation_id)
+    return bool(state.incognito or state.boundary is not None)
+
+
+def _demo_call(conversation_id: str, work: Any) -> dict[str, Any]:
+    from row_bot.browser import demo
+
+    try:
+        work()
+    except demo.DemoError as error:
+        raise ClientBrowserError(error.code) from None
+    return demo.page(conversation_id)
+
+
+def demo_page(conversation_id: str) -> dict[str, Any]:
+    from row_bot.browser import demo
+
+    return demo.page(conversation_id)
+
+
+def demo_start(conversation_id: str) -> dict[str, Any]:
+    """Start recording the person's steps: a page must be open, and Row-Bot not mid-step in it.
+
+    A chat that is or was incognito keeps nothing, as for "Save as a skill" (C1)."""
+
+    from row_bot.browser import demo
+
+    _enabled()
+    if _private(conversation_id):
+        raise ClientBrowserError("demo_private")
+    engine = _engine(start=False)
+    state = engine.pane_state(conversation_id) if engine is not None else _IDLE
+    if state.get("status") != "running" or not state.get("url"):
+        raise ClientBrowserError("demo_no_page")
+    if state.get("acting"):
+        raise ClientBrowserError("demo_browser_busy")
+    result = _demo_call(conversation_id, lambda: demo.start(conversation_id, url=state["url"],
+                                                            title=str(state.get("title") or "")))
+    _changed(engine, conversation_id)
+    return result
+
+
+def demo_control(conversation_id: str, demo_id: str, action: str, *, step: int = 0,
+                 always: bool = False) -> dict[str, Any]:
+    """Done, Undo last step, Discard, and "always this" for one typed value."""
+
+    from row_bot.browser import demo
+
+    work = {
+        "stop": lambda: demo.stop(conversation_id, demo_id),
+        "undo": lambda: demo.undo(conversation_id, demo_id),
+        "discard": lambda: demo.discard(conversation_id, demo_id),
+        "always": lambda: demo.set_always(conversation_id, demo_id, step, always),
+    }.get(action)
+    if work is None:
+        raise ClientBrowserError("invalid_browser_command")
+    result = _demo_call(conversation_id, work)
+    _changed(_engine(start=False), conversation_id)
+    return result
+
+
+def _changed(engine: Any, conversation_id: str) -> None:
+    """The pane's line follows the demo at once."""
+
+    if engine is None:
+        return
+    try:
+        engine._publish(conversation_id)  # noqa: SLF001 - the pane's own state stream
+    except Exception:
+        logger.debug("The pane couldn't be told about the demo", exc_info=True)
 
 
 def frame_view(frame: Any) -> dict[str, Any]:

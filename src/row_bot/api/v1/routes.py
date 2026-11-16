@@ -467,6 +467,15 @@ _STATUS.update(
         "browser_disabled": 403,
         "browser_navigation_denied": 403,
         "browser_unavailable": 503,
+        # Show Row-Bot how (C3).
+        "demo_private": 409,
+        "demo_no_page": 409,
+        "demo_browser_busy": 409,
+        "demo_recording": 409,
+        "demo_missing": 404,
+        "demo_changed": 409,
+        "demo_no_steps": 409,
+        "demo_step_missing": 404,
     }
 )
 _STATUS.update(
@@ -2929,6 +2938,60 @@ def create_router(
         await call(validate)
         result = await call(pane_action, conversation_id, body.action, url=body.url, tab=body.tab)
         return await respond(request, dto.BrowserPaneState, result)
+
+    # Show Row-Bot how (C3): the person's own steps in the pane, recorded in memory for a skill.
+    @router.get("/conversations/{conversation_id}/browser/demo")
+    async def browser_demo(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        validate = await browser_authority(conversation_id, request, current)
+        from row_bot.application.client_browser import demo_page
+
+        await call(validate)
+        return await respond(request, dto.BrowserDemoPage, await call(demo_page, conversation_id))
+
+    @router.post("/conversations/{conversation_id}/browser/demo")
+    async def browser_demo_start(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        validate = await browser_authority(conversation_id, request, current)
+        from row_bot.application.client_browser import demo_start
+
+        await call(validate)
+        return await respond(request, dto.BrowserDemoPage, await call(demo_start, conversation_id))
+
+    def _demo_id(demo_id: str) -> str:
+        if len(demo_id or "") != 32 or any(char not in "0123456789abcdef" for char in demo_id):
+            raise ProtocolError("demo_missing", 404)
+        return demo_id
+
+    def _demo_control_route(action: str) -> None:
+        async def control(conversation_id: str, demo_id: str, request: Request) -> JSONResponse:
+            current = await session(request, lane="mutation")
+            validate = await browser_authority(conversation_id, request, current)
+            from row_bot.application.client_browser import demo_control
+
+            await call(validate)
+            result = await call(demo_control, conversation_id, _demo_id(demo_id), action)
+            return await respond(request, dto.BrowserDemoPage, result)
+
+        control.__name__ = f"browser_demo_{action}"
+        router.post(f"/conversations/{{conversation_id}}/browser/demo/{{demo_id}}/{action}")(control)
+
+    # Done, Undo last step and Discard.
+    for _action in ("stop", "undo", "discard"):
+        _demo_control_route(_action)
+
+    @router.post("/conversations/{conversation_id}/browser/demo/{demo_id}/steps/{step_id}/always")
+    async def browser_demo_always(conversation_id: str, demo_id: str, step_id: int, request: Request) -> JSONResponse:
+        """"Always this" for one typed value, or back to an input."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.BrowserDemoAlways, 1024)
+        validate = await browser_authority(conversation_id, request, current)
+        from row_bot.application.client_browser import demo_control
+
+        await call(validate)
+        result = await call(demo_control, conversation_id, _demo_id(demo_id), "always", step=step_id,
+                            always=body.always)
+        return await respond(request, dto.BrowserDemoPage, result)
 
     @router.get("/browser/sites")
     async def browser_sites(request: Request) -> JSONResponse:

@@ -386,6 +386,54 @@ class BrowserTab(WireModel):
     active: bool
 
 
+class BrowserDemoSummary(WireModel):
+    """Show Row-Bot how (C3) in the pane's line: whether the person's steps are being recorded."""
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["recording", "stopped"]
+    ended: Literal["", "done", "step_limit", "time_limit"]
+    steps: int = Field(ge=0, le=200)
+    elapsed_seconds: float = Field(ge=0, le=100_000)
+
+
+class BrowserDemoStep(WireModel):
+    """One recorded step: the page, the control and, for typing, an example value (never a secret's)."""
+    id: int = Field(ge=1, le=1_000_000)
+    at: float = Field(ge=0, le=100_000)
+    kind: Literal["open", "click", "type", "key", "back", "forward", "reload", "tab"]
+    text: str = Field(max_length=600)
+    site: str = Field(max_length=253)
+    path: str = Field(max_length=200)
+    title: str = Field(max_length=200)
+    value: str = Field(max_length=300)
+    secret: Literal["", "password", "code", "card", "sensitive", "sign_in", "hidden"]
+    secret_text: str = Field(max_length=120)
+    always: bool
+    input: bool
+    unsafe: bool
+    narration: str = Field(max_length=2000)
+
+
+class BrowserDemoView(WireModel):
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["recording", "stopped"]
+    ended: Literal["", "done", "step_limit", "time_limit"]
+    elapsed_seconds: float = Field(ge=0, le=100_000)
+    max_steps: int = Field(ge=1, le=1000)
+    max_seconds: int = Field(ge=1, le=100_000)
+    narrated: bool
+    steps: list[BrowserDemoStep] = Field(max_length=200)
+
+
+class BrowserDemoPage(WireModel):
+    conversation_id: OpaqueId
+    demo: BrowserDemoView | None
+
+
+class BrowserDemoAlways(WireModel):
+    """"Always this": keep one typed value as it is in the skill, instead of making it an input."""
+    always: bool
+
+
 class BrowserPaneState(WireModel):
     """What the Browser pane shows for one conversation: never page content or field values."""
     schema_version: Literal[1]
@@ -403,6 +451,7 @@ class BrowserPaneState(WireModel):
     recording: bool
     tabs: list[BrowserTab] = Field(max_length=32)
     revision: int = Field(ge=0)
+    demo: BrowserDemoSummary | None = None
 
 
 class BrowserFrame(WireModel):
