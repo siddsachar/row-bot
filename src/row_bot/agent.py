@@ -1427,7 +1427,8 @@ def _workspace_line() -> str:
     if code_folder:
         return (f"Code folder: {display_path(code_folder)} (the shell and Developer tools start here). "
                 f"Workspace folder for other files: {workspace}.")
-    return f"Workspace folder: {workspace}. File tools and the shell start here; relative paths are inside it."
+    return (f"Workspace folder: {workspace}. File tools and the shell start here; relative paths are inside it, "
+            "and a file tool asks the person before it uses a full path elsewhere.")
 
 
 def _runtime_turn_fields(tool_names: list[str]) -> list:
@@ -6123,14 +6124,20 @@ LOCAL_MIDDLE_CONTEXT_TOKENS = 131_072
 ON_DEMAND_TOOL_GROUPS = frozenset({"row_bot_status"})
 # Rarely used on any window: offered through tool search (and by name), not bound to every call.
 # Pages, questions, helpers, processes, tasks, memory and web stay bound: Row-Bot uses them unasked.
+# B1: the plain-chat tool block stays within its budget (tests/subsystem/agents/test_default_tool_budget.py).
 RARELY_USED_TOOL_GROUPS = frozenset({
     "row_bot_updater", "custom_tool_builder", "video_editing", "file_delivery", "tracker", "wiki", "goal",
     "youtube", "arxiv", "system_info",
+    "sound", "media", "weather", "wikipedia", "linked_conversations", "chart",
 })
 RARELY_USED_TOOLS = frozenset({
     "agent_profiles", "agent_profile_save", "agent_promote", "agent_retry",
     "row_bot_create_skill", "row_bot_patch_skill", "row_bot_send_feedback", "row_bot_apply_proposal",
     "row_bot_reject_proposal", "row_bot_verify_proposal", "row_bot_review_skill_library", "row_bot_fix",
+    "browser_record", "sandbox", "browser_viewport", "browser_upload", "browser_download", "browser_select",
+    "row_bot_update_setting", "agent_message", "agent_stop", "read_terminal", "clone_repository",
+    "link_memories", "explore_connections", "list_memories", "task_run_now", "task_delete", "export_to_pdf",
+    "list_conversations",
 })
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
     "current_on_demand_tools", default={}

@@ -51,6 +51,19 @@ The review sheet shows **Why Row-Bot offered this**, **What it will do** and the
 
 Nothing is saved until you approve, and a draft never adds links, addresses, credentials or permission to skip approvals: Row-Bot drafts again once without them, then stops. A draft you leave waits in **Settings › Skills** under **Skill proposals**, marked **From** its chat; deleting the chat deletes the draft. Row-Bot's own offers follow the **Learn new skills** switch in Settings › Preferences (**Create skills while chatting** with Learning); **Save as skill** is always there.
 
+## Show Row-Bot How
+
+Some tasks are easier to show than to describe. In the Browser pane, press **Show Row-Bot how** (on a phone it's in **⋯ More browser actions**) and do the task yourself: open pages, click, type. Row-Bot keeps the **steps**, never a video: the page each one was on and the control you used, by its role and visible name.
+
+- **While it records**, a bar says **Showing Row-Bot how** with a red dot, the number of steps and the time, and the page is outlined in red. **Done** finishes; **Undo last step**, **Discard** and **Steps so far** sit beside it. Row-Bot's own browser steps in that chat wait until you finish.
+- **What you type** becomes an input the skill asks for each time. Pin a value (**Always type …**) to keep it as it is.
+- **Narration** is optional: turn the microphone on and say what you're doing. It's transcribed on this computer by your local speech model (Whisper or SenseVoice), never by a cloud service, even when Talk or Realtime use one. Without a local speech model the microphone says how to install one; your steps still work.
+- **Limits**: a demo stops by itself at 200 steps or 15 minutes.
+
+**Done** asks **What is this for?** (optional, one line), then Row-Bot drafts the skill on the chat's own model and opens it in the same review sheet as **Save as skill**, with **What you showed**: the steps it was written from. **Approve** saves it, and **Try it** opens a new chat with the skill on and its request in the message box, for you to fill in and send. Every step it takes asks as usual for that chat.
+
+**Privacy.** Nothing typed into a password, one-time code, card or other sensitive field is kept, nor anything typed on a sign-in or payment page or inside a part of the page Row-Bot can't see into: the skill hands those steps back to you, and Row-Bot never types them. Addresses are kept without their query or fragment. Page text is kept only as short control names and titles, and left out when it looks like instructions. Steps stay in memory only: they're forgotten once the skill is drafted, an hour after you finish, when you discard them, or with the chat. The audio is never written to disk; only the words are kept, beside the steps they were said around. An incognito chat keeps nothing, so the button is off there.
+
 ## What Skills Change
 
 Skills shape Row-Bot's behavior; they do not automatically grant credentials or bypass approvals. A skill can make Row-Bot more consistent for a task, but tools still need to be enabled and approved where appropriate.

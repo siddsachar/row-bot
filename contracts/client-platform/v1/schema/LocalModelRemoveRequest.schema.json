@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "model_id": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9.-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Id"
+    }
+  },
+  "title": "LocalModelRemoveRequest",
+  "type": "object"
+}

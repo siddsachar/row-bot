@@ -41,7 +41,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             python: "3.12"
             tier: nightly
           - os: windows-latest
@@ -94,7 +94,7 @@ jobs:
   browser:
     name: Browser nightly set (Chromium desktop and phone)
     if: github.event.schedule != '23 5 * * 0'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
@@ -169,7 +169,7 @@ jobs:
   browser-engines:
     name: Browser smoke (${{ matrix.engine }}, weekly)
     if: github.event.schedule == '23 5 * * 0' || inputs.weekly
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false

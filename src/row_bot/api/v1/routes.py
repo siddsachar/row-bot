@@ -467,6 +467,18 @@ _STATUS.update(
         "browser_disabled": 403,
         "browser_navigation_denied": 403,
         "browser_unavailable": 503,
+        # Show Row-Bot how (C3).
+        "demo_private": 409,
+        "demo_no_page": 409,
+        "demo_browser_busy": 409,
+        "demo_recording": 409,
+        "demo_missing": 404,
+        "demo_changed": 409,
+        "demo_no_steps": 409,
+        "demo_step_missing": 404,
+        "narration_no_model": 409,
+        "narration_no_ffmpeg": 503,
+        "narration_unavailable": 503,
     }
 )
 _STATUS.update(
@@ -2930,6 +2942,89 @@ def create_router(
         result = await call(pane_action, conversation_id, body.action, url=body.url, tab=body.tab)
         return await respond(request, dto.BrowserPaneState, result)
 
+    # Show Row-Bot how (C3): the person's own steps in the pane, recorded in memory for a skill.
+    @router.get("/conversations/{conversation_id}/browser/demo")
+    async def browser_demo(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        validate = await browser_authority(conversation_id, request, current)
+        from row_bot.application.client_browser import demo_page
+
+        await call(validate)
+        return await respond(request, dto.BrowserDemoPage, await call(demo_page, conversation_id))
+
+    @router.post("/conversations/{conversation_id}/browser/demo")
+    async def browser_demo_start(conversation_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        validate = await browser_authority(conversation_id, request, current)
+        from row_bot.application.client_browser import demo_start
+
+        await call(validate)
+        return await respond(request, dto.BrowserDemoPage, await call(demo_start, conversation_id))
+
+    def _demo_id(demo_id: str) -> str:
+        if len(demo_id or "") != 32 or any(char not in "0123456789abcdef" for char in demo_id):
+            raise ProtocolError("demo_missing", 404)
+        return demo_id
+
+    def _demo_control_route(action: str) -> None:
+        async def control(conversation_id: str, demo_id: str, request: Request) -> JSONResponse:
+            current = await session(request, lane="mutation")
+            validate = await browser_authority(conversation_id, request, current)
+            from row_bot.application.client_browser import demo_control
+
+            await call(validate)
+            result = await call(demo_control, conversation_id, _demo_id(demo_id), action)
+            return await respond(request, dto.BrowserDemoPage, result)
+
+        control.__name__ = f"browser_demo_{action}"
+        router.post(f"/conversations/{{conversation_id}}/browser/demo/{{demo_id}}/{action}")(control)
+
+    # Done, Undo last step and Discard.
+    for _action in ("stop", "undo", "discard"):
+        _demo_control_route(_action)
+
+    @router.post("/conversations/{conversation_id}/browser/demo/{demo_id}/narration")
+    async def browser_demo_narration(conversation_id: str, demo_id: str, request: Request,
+                                     offset: float = 0.0) -> JSONResponse:
+        """One narration clip (audio, when it started in the demo), transcribed on this computer only."""
+        from row_bot.voice.narration import MAX_BYTES, MAX_SECONDS
+
+        current = await session(request, lane="mutation")
+        if not 0 <= offset <= MAX_SECONDS:
+            raise ProtocolError("invalid_command", 422)
+        mime = request.headers.get("content-type", "")[:128]
+        validate = await browser_authority(conversation_id, request, current)
+        await call(validate)
+        data = bytearray()
+        try:
+            async with asyncio.timeout(120):
+                async for chunk in request.stream():
+                    if len(data) + len(chunk) > MAX_BYTES:
+                        raise ProtocolError("payload_too_large", 413)
+                    data.extend(chunk)
+        except TimeoutError:
+            raise ProtocolError("audio_receive_timeout", 408) from None
+        audio = bytes(data)
+        del data
+        from row_bot.application.client_browser import demo_narration
+
+        result = await call(demo_narration, conversation_id, _demo_id(demo_id), audio, mime, offset,
+                            session_key=str(current.id))
+        return await respond(request, dto.BrowserDemoPage, result)
+
+    @router.post("/conversations/{conversation_id}/browser/demo/{demo_id}/steps/{step_id}/always")
+    async def browser_demo_always(conversation_id: str, demo_id: str, step_id: int, request: Request) -> JSONResponse:
+        """"Always this" for one typed value, or back to an input."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.BrowserDemoAlways, 1024)
+        validate = await browser_authority(conversation_id, request, current)
+        from row_bot.application.client_browser import demo_control
+
+        await call(validate)
+        result = await call(demo_control, conversation_id, _demo_id(demo_id), "always", step=step_id,
+                            always=body.always)
+        return await respond(request, dto.BrowserDemoPage, result)
+
     @router.get("/browser/sites")
     async def browser_sites(request: Request) -> JSONResponse:
         await session(request, lane="view")
@@ -3347,6 +3442,30 @@ def create_router(
             dispatch_validation(request, current),
         )
         return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/conversations/{conversation_id}/browser/demo/{demo_id}/draft")
+    async def skill_demo_draft(conversation_id: str, demo_id: str, request: Request) -> JSONResponse:
+        """Show Row-Bot how (C3): draft a skill from the steps the person showed, for their review."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillDemoDraftRequest, 4096)
+        if len(demo_id or "") != 32 or any(char not in "0123456789abcdef" for char in demo_id):
+            raise ProtocolError("demo_missing", 404)
+        from row_bot.application.skill_offer_views import draft_demo_skill
+
+        result = await call(
+            draft_demo_skill, service, conversation_id, demo_id, body.model_dump(mode="json"),
+            dispatch_validation(request, current),
+        )
+        return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/skills/{name}/try")
+    async def skill_try(name: str, request: Request) -> JSONResponse:
+        """Try it: a new chat with the saved skill pinned and its request in the composer, not sent."""
+        current = await session(request, lane="mutation")
+        from row_bot.application.skill_offer_views import try_skill
+
+        result = await call(try_skill, service, name, dispatch_validation(request, current))
+        return await respond(request, dto.SkillTryResult, result)
 
     @router.post("/conversations/{conversation_id}/skill-offers/{offer_id}/dismiss")
     async def skill_offer_dismiss(conversation_id: str, offer_id: str, request: Request) -> JSONResponse:
@@ -6825,6 +6944,72 @@ def create_router(
         return await respond(
             request, dto.LocalRuntimeSnapshot, {**snapshot, "on_this_computer": on_machine}
         )
+
+    @router.get("/setup/local-servers")
+    async def setup_local_servers(request: Request) -> JSONResponse:
+        # Asked only when "On this computer" opens: 127.0.0.1 on each runtime's usual port, nowhere else.
+        await session(request)
+        from row_bot.application.client_local_servers import detect
+
+        return await respond(request, dto.LocalServersSnapshot, await call(detect))
+
+    @router.post("/setup/local-servers/connect")
+    async def setup_local_server_connect(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.LocalServerConnectRequest, 1024)
+        from row_bot.application.client_local_servers import connect
+
+        return await respond(request, dto.LocalServerConnection, await call(connect, body.kind, body.port))
+
+    # Run on this computer (E1): the pinned llama.cpp build and models Row-Bot downloads and runs.
+    async def local_model_runtime(request: Request, result: dict) -> JSONResponse:
+        on_machine = on_this_computer(await _context(request))
+        return await respond(
+            request, dto.LocalModelRuntimeView, {**result, "on_this_computer": on_machine}
+        )
+
+    @router.get("/local-runtime")
+    async def local_runtime_view(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_local_runtime import snapshot
+
+        return await local_model_runtime(request, await call(snapshot))
+
+    @router.post("/local-runtime/install")
+    async def local_runtime_install(request: Request) -> JSONResponse:
+        # The person pressed Download (the button named the size). A download lands on the computer
+        # Row-Bot runs on, so only its own desktop app starts one.
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        body = await _body(request, dto.LocalModelInstallRequest, 1024)
+        from row_bot.application.client_local_runtime import install_model
+
+        return await local_model_runtime(
+            request, await call(install_model, body.model_id, body.download_bytes)
+        )
+
+    @router.post("/local-runtime/stop")
+    async def local_runtime_stop(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_local_runtime import stop
+
+        return await local_model_runtime(request, await call(stop))
+
+    @router.post("/local-runtime/remove")
+    async def local_runtime_remove(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        body = await _body(request, dto.LocalModelRemoveRequest, 1024)
+        from row_bot.application.client_local_runtime import remove
+
+        return await local_model_runtime(request, await call(remove, body.model_id))
+
+    @router.post("/local-runtime/repair")
+    async def local_runtime_repair(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_local_runtime import repair
+
+        return await local_model_runtime(request, await call(repair))
 
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:

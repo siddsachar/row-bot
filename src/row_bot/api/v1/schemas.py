@@ -386,6 +386,61 @@ class BrowserTab(WireModel):
     active: bool
 
 
+class BrowserDemoSummary(WireModel):
+    """Show Row-Bot how (C3) in the pane's line: whether the person's steps are being recorded."""
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["recording", "stopped"]
+    ended: Literal["", "done", "step_limit", "time_limit"]
+    steps: int = Field(ge=0, le=200)
+    elapsed_seconds: float = Field(ge=0, le=100_000)
+
+
+class BrowserDemoStep(WireModel):
+    """One recorded step: the page, the control and, for typing, an example value (never a secret's)."""
+    id: int = Field(ge=1, le=1_000_000)
+    at: float = Field(ge=0, le=100_000)
+    kind: Literal["open", "click", "type", "key", "back", "forward", "reload", "tab"]
+    text: str = Field(max_length=600)
+    site: str = Field(max_length=253)
+    path: str = Field(max_length=200)
+    title: str = Field(max_length=200)
+    value: str = Field(max_length=300)
+    secret: Literal["", "password", "code", "card", "sensitive", "sign_in", "hidden"]
+    secret_text: str = Field(max_length=120)
+    always: bool
+    input: bool
+    unsafe: bool
+    narration: str = Field(max_length=2000)
+
+
+class BrowserDemoView(WireModel):
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["recording", "stopped"]
+    ended: Literal["", "done", "step_limit", "time_limit"]
+    elapsed_seconds: float = Field(ge=0, le=100_000)
+    max_steps: int = Field(ge=1, le=1000)
+    max_seconds: int = Field(ge=1, le=100_000)
+    narrated: bool
+    steps: list[BrowserDemoStep] = Field(max_length=200)
+
+
+class BrowserDemoNarration(WireModel):
+    """Whether narration can be transcribed on this computer (a local speech model and ffmpeg)."""
+    ready: bool
+    code: Literal["", "narration_no_model", "narration_no_ffmpeg", "narration_unavailable"]
+
+
+class BrowserDemoPage(WireModel):
+    conversation_id: OpaqueId
+    demo: BrowserDemoView | None
+    narration: BrowserDemoNarration | None = None
+
+
+class BrowserDemoAlways(WireModel):
+    """"Always this": keep one typed value as it is in the skill, instead of making it an input."""
+    always: bool
+
+
 class BrowserPaneState(WireModel):
     """What the Browser pane shows for one conversation: never page content or field values."""
     schema_version: Literal[1]
@@ -403,6 +458,7 @@ class BrowserPaneState(WireModel):
     recording: bool
     tabs: list[BrowserTab] = Field(max_length=32)
     revision: int = Field(ge=0)
+    demo: BrowserDemoSummary | None = None
 
 
 class BrowserFrame(WireModel):
@@ -2602,6 +2658,113 @@ class LocalRuntimeSnapshot(WireModel):
     on_this_computer: bool
 
 
+LocalModelFit = Literal["gpu", "partial", "cpu", "too_big"]
+LocalModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9.-]+$")]
+
+
+class LocalModelOption(WireModel):
+    """One pinned model "Run on this computer" can download, and how it would run here."""
+
+    id: LocalModelId
+    name: str = Field(max_length=128)
+    model_ref: str = Field(min_length=1, max_length=256)
+    size_bytes: int = Field(ge=0)
+    fit: LocalModelFit
+    # Good for everyday chat; long tasks want a larger model or a provider.
+    everyday: bool
+    # "4-bit", "3-bit", "2-bit": the build of the model that fits.
+    quantization: str = Field(max_length=32)
+    # A smaller model of the generation before the default, offered where the default doesn't fit.
+    older: bool
+    installed: bool
+    # What pressing Download would fetch now (the build too when it isn't installed); 0 when ready.
+    download_bytes: int = Field(ge=0)
+
+
+class LocalModelDownload(WireModel):
+    model_id: LocalModelId
+    acceleration: str = Field(max_length=32)
+    total_bytes: int = Field(ge=0)
+    done_bytes: int = Field(ge=0)
+    phase: Literal["downloading", "checking", "finished", "stopped", "failed"]
+    reason: str | None = Field(default=None, max_length=64)
+    facts: dict[str, int] | None = None
+
+
+class LocalModelFailure(WireModel):
+    reason: str = Field(max_length=64)
+    needed_bytes: int | None = Field(default=None, ge=0)
+    free_bytes: int | None = Field(default=None, ge=0)
+    download_bytes: int | None = Field(default=None, ge=0)
+
+
+class LocalModelRuntimeView(WireModel):
+    """Run on this computer (E1): this computer, the pinned models and what is installed."""
+
+    schema_version: Literal[1]
+    state: Literal["unavailable", "not_installed", "downloading", "installed", "running", "failed"]
+    computer: str = Field(max_length=256)
+    acceleration: str = Field(max_length=32)
+    acceleration_label: str = Field(max_length=64)
+    note: str | None = Field(default=None, max_length=64)
+    release: str = Field(max_length=32)
+    build_installed: bool
+    # The size of the current build when an older one is installed (it keeps working until updated).
+    update_bytes: int = Field(ge=0)
+    recommended: LocalModelId | None = None
+    models: list[LocalModelOption] = Field(max_length=16)
+    download: LocalModelDownload | None = None
+    failure: LocalModelFailure | None = None
+    disk_bytes: int = Field(ge=0)
+    free_bytes: int = Field(ge=0)
+    # After Remove: the space it gave back.
+    freed_bytes: int | None = Field(default=None, ge=0)
+    # False on another device (a phone): downloads are a desktop action.
+    on_this_computer: bool
+
+
+LocalServerKind = Literal["ollama", "lmstudio", "vllm", "llama_cpp"]
+
+
+class LocalServerFound(WireModel):
+    """A local model server that answered on its usual loopback port when "On this computer" opened."""
+
+    kind: LocalServerKind
+    label: str = Field(max_length=64)
+    port: int = Field(ge=1, le=65535)
+    base_url: str = Field(max_length=128)
+    models: list[str] = Field(max_length=64)
+    # The provider its models are under when it is already connected (Ollama always), else None.
+    provider_id: str | None = Field(default=None, max_length=160)
+
+
+class LocalServersSnapshot(WireModel):
+    schema_version: Literal[1]
+    servers: list[LocalServerFound] = Field(max_length=8)
+
+
+class LocalServerConnectRequest(WireModel):
+    kind: LocalServerKind
+    port: int = Field(ge=1, le=65535)
+
+
+class LocalServerConnection(WireModel):
+    schema_version: Literal[1]
+    provider_id: str = Field(max_length=160)
+    model_refs: list[str] = Field(max_length=64)
+
+
+class LocalModelInstallRequest(WireModel):
+    model_id: LocalModelId
+    # The size the Download button showed; the download starts only while it still holds.
+    download_bytes: int = Field(ge=0)
+
+
+class LocalModelRemoveRequest(WireModel):
+    # One model; absent: the runtime and every model.
+    model_id: LocalModelId | None = None
+
+
 class ModelTestResult(WireModel):
     schema_version: Literal[1]
     ok: bool
@@ -3738,13 +3901,15 @@ class SkillDraftView(WireModel):
     overlaps: list[SkillDraftOverlap] = Field(max_length=3)
     errors: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
     warnings: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
+    # Show Row-Bot how (C3): the steps the person showed, for "What you showed" (empty otherwise).
+    shown: list[Annotated[str, StringConstraints(max_length=400)]] = Field(default_factory=list, max_length=200)
 
 
 class SkillOfferView(WireModel):
     """"Save as a skill" under one reply (C1): offered, drafted, saved, rejected or dismissed."""
     id: OpaqueId
     message_id: str = Field(max_length=256)
-    origin: Literal["offered", "manual"]
+    origin: Literal["offered", "manual", "demo"]
     status: Literal["offered", "drafted", "saved", "rejected", "dismissed"]
     task_name: str = Field(max_length=80)
     why: str = Field(max_length=400)
@@ -3758,6 +3923,17 @@ class SkillOfferPage(WireModel):
     conversation_id: OpaqueId
     revision: str = Field(min_length=1, max_length=128)
     items: list[SkillOfferView] = Field(max_length=50)
+
+
+class SkillDemoDraftRequest(WireModel):
+    """Draft a skill from the steps the person showed (C3), with their optional "What is this for?"."""
+    purpose: str = Field(default="", max_length=200)
+
+
+class SkillTryResult(WireModel):
+    """Try it: a new chat with the skill pinned and its request in the composer, not sent."""
+    conversation_id: OpaqueId
+    text: str = Field(max_length=2000)
 
 
 class SkillDraftRequest(WireModel):

@@ -112,6 +112,7 @@ const LINE = 'Learning: training your personal model';
  * Buddy (the sidebar's, on a desktop) has caught up: its quiet line while training runs,
  * and something else once it stops. Buddy notices what runs every few seconds and the
  * sidebar reads Buddy when a page opens (then every 30 s), so the page is opened again.
+ * Buddy is read once the page's own reads have gone, so it shows a few seconds in.
  */
 async function buddySays(page: Page, info: TestInfo, training: boolean) {
   if (phone(info)) return;
@@ -120,8 +121,8 @@ async function buddySays(page: Page, info: TestInfo, training: boolean) {
     .getByRole('status');
   await expect(async () => {
     await page.reload();
-    if (training) await expect(status).toHaveText(LINE, { timeout: 2_000 });
-    else await expect(status).not.toHaveText(LINE, { timeout: 2_000 });
+    if (training) await expect(status).toHaveText(LINE, { timeout: 8_000 });
+    else await expect(status).not.toHaveText(LINE, { timeout: 8_000 });
   }).toPass({ timeout: 30_000 });
   await expect(card(page)).toBeVisible();
   await expect(

@@ -141,6 +141,14 @@ function setup(
     pendingApprovals: vi.fn(async () => ({ items: [] })),
     browserLocalAddresses: vi.fn(),
     removeBrowserLocalAddress: vi.fn(),
+    startBrowserDemo: vi.fn(async () => ({
+      conversation_id: 'conversation-a',
+      demo: null,
+    })),
+    browserDemo: vi.fn(async () => ({
+      conversation_id: 'conversation-a',
+      demo: null,
+    })),
   } as unknown as ClientController & {
     browserAction: ReturnType<typeof vi.fn>;
     browserInput: ReturnType<typeof vi.fn>;
@@ -467,6 +475,46 @@ it('the chat’s live step names the site and opens the pane', async () => {
     screen.getByRole('button', { name: 'Open the browser: homeserve.co.uk' }),
   );
   expect(onOpen).toHaveBeenCalled();
+});
+
+it('Show Row-Bot how starts from the toolbar once a page is open, and waits while Row-Bot acts', async () => {
+  const { controller } = setup({});
+  const start = await screen.findByRole('button', {
+    name: /^Show Row-Bot how/,
+  });
+  await userEvent.click(start);
+  expect(
+    (controller as unknown as { startBrowserDemo: ReturnType<typeof vi.fn> })
+      .startBrowserDemo,
+  ).toHaveBeenCalledWith('conversation-a');
+});
+
+it('Show Row-Bot how is disabled with its reason while Row-Bot is mid-step', async () => {
+  setup({ acting: 'Clicking button "Next"' }, { running: true });
+  expect(
+    await screen.findByRole('button', {
+      name: 'Wait for Row-Bot to finish in the browser',
+    }),
+  ).toBeDisabled();
+});
+
+it('while a demo records, the pane says so in place of its status line', async () => {
+  setup({
+    demo: {
+      id: 'a'.repeat(32),
+      status: 'recording',
+      ended: '',
+      steps: 3,
+      elapsed_seconds: 5,
+    },
+  });
+  expect(
+    await screen.findByRole('status', { name: 'Show Row-Bot how' }),
+  ).toHaveTextContent('Showing Row-Bot how 3 steps · 0:05');
+  expect(
+    screen.queryByRole('button', { name: /^Show Row-Bot how/ }),
+  ).toBeNull();
+  expect(screen.getByRole('button', { name: 'Done' })).toBeVisible();
 });
 
 it('reads Row-Bot’s action words without control roles', () => {

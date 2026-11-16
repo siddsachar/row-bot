@@ -305,101 +305,39 @@ RunStatus = Literal[tuple(sorted(AGENT_RUN_STATUSES))]  # type: ignore[valid-typ
 # Thread, run, message and orchestration ids are not in this schema: delegate_work takes them
 # from the running turn (the parent thread, the parent run, this turn's orchestration).
 class _DelegateWorkInput(BaseModel):
-    objective: str = Field(description="Specific objective for the child Agent.")
-    profile: str = Field(
-        default="",
-        description="Agent Profile slug or id, such as research, review, develop, verify, or worker.",
-    )
+    # Empty fields inherit: this chat's model, reasoning level and code folder, the profile's workspace mode.
+    objective: str
+    profile: str = Field(default="", description="e.g. research, review, develop, verify, worker.")
     context: str = Field(
         default="",
-        description=(
-            "Focused context packet for the child. Include only relevant facts, files, constraints, and expected output. "
-            "A reviewer must receive the complete material or a concrete workspace-relative artifact path plus review criteria."
-        ),
+        description="Only what it needs. A reviewer gets the whole material or its path, and the criteria.",
     )
-    context_mode: ContextMode = Field(default="auto", description="How much parent context the child gets.")
-    display_name: str = Field(default="", description="Optional short display name for the child Agent run.")
-    model: str = Field(
-        default="",
-        description=(
-            "Optional active pinned Brain model canonical ref or exact pinned label for this child Agent. "
-            "For natural model requests, inspect row_bot_status category='model' first and pass the selected canonical ref. "
-            "Leave empty to inherit the parent model."
-        ),
-    )
-    reasoning: str = Field(
-        default="",
-        description=(
-            "Optional reasoning level in /reasoning words (e.g. low, high, off, 'budget 4000'). "
-            "Empty keeps the conversation's level."
-        ),
-    )
-    developer_workspace_id: str = Field(
-        default="",
-        description="Optional Developer workspace id to use. Omit to inherit the current thread workspace.",
-    )
-    developer_workspace_path: str = Field(
-        default="",
-        description=(
-            "Optional existing local folder to register and assign only to this child Agent. "
-            "Use distinct folder paths for independent parallel writers. Mutually exclusive "
-            "with developer_workspace_id."
-        ),
-    )
-    use_worktree: bool = Field(
-        default=False,
-        description="Run the child in its own local git Worktree when a git-backed Developer workspace is available.",
-    )
-    workspace_mode: Literal["", "auto", "read_only", "single_writer", "worktree"] = Field(
-        default="",
-        description="Optional workspace mode override.",
-    )
-    wait: bool = Field(
-        default=False,
-        description=(
-            "Prefer false so the child runs asynchronously and the parent thread remains responsive. "
-            "Use true only when the user explicitly asks you to wait or same-turn synthesis is required."
-        ),
-    )
-    timeout_seconds: float = Field(default=60.0, description="Maximum seconds to wait when wait=true.")
-    required: bool = Field(
-        default=True,
-        description=(
-            "Required children delay the parent final answer and are synthesized automatically. "
-            "Use false only for explicitly requested background/fire-and-forget work."
-        ),
-    )
-    depends_on: list[str] = Field(
-        default=[],
-        description=(
-            "Earlier child run ids in this orchestration that must finish before this child starts. "
-            "This controls launch order only and never transfers dependency output into context."
-        ),
-    )
+    context_mode: ContextMode = Field(default="auto", description="How much of this chat it sees.")
+    display_name: str = ""
+    model: str = Field(default="", description="A pinned Brain model's ref.")
+    reasoning: str = Field(default="", description="/reasoning words: low, high, off…")
+    code_folder: str = Field(default="", description="A folder's path (one per parallel writer) or a code folder id.")
+    workspace_mode: Literal["", "auto", "read_only", "single_writer", "worktree"] = ""
+    wait: bool = Field(default=False, description="Block this turn on it: only when the person asks.")
+    timeout_seconds: float = 60.0
+    required: bool = Field(default=True, description="false only for background work the person asked for.")
+    depends_on: list[str] = Field(default=[], description="Run ids to finish first (order only).")
 
 
 class _AgentStatusInput(BaseModel):
-    run_id: str = Field(default="", description="Agent Run id. If omitted, list this conversation's child runs.")
-    orchestration_id: str = Field(default="", description="Orchestration id to inspect as a group.")
-    statuses: list[RunStatus] = Field(default=[], description="Optional statuses to filter by.")
-    include_events: bool = Field(default=False, description="Include recent event log entries.")
-    limit: int = Field(default=10, description="Maximum runs or events to return.")
-    full_result: bool = Field(
-        default=False,
-        description="With run_id: also return the child's whole final answer (results are otherwise shortened).",
-    )
+    run_id: str = Field(default="", description="Empty lists this chat's helpers.")
+    orchestration_id: str = Field(default="")
+    statuses: list[RunStatus] = Field(default=[])
+    include_events: bool = Field(default=False)
+    limit: int = Field(default=10)
+    full_result: bool = Field(default=False, description="With run_id: its whole final answer.")
 
 
 class _AgentWaitInput(BaseModel):
-    run_id: str = Field(default="", description="One Agent Run id to wait for.")
-    orchestration_id: str = Field(
-        default="",
-        description=(
-            "Orchestration id whose current required cohort must be joined before the parent finalizes."
-        ),
-    )
-    timeout_seconds: float = Field(default=60.0, description="Maximum seconds to wait.")
-    include_events: bool = Field(default=True, description="Include recent events in the result.")
+    run_id: str = Field(default="", description="One run.")
+    orchestration_id: str = Field(default="", description="Its required helpers, all together.")
+    timeout_seconds: float = Field(default=60.0)
+    include_events: bool = Field(default=True)
 
     @model_validator(mode="after")
     def _exactly_one_target(self):
@@ -459,9 +397,7 @@ def _delegate_work(
     model: str = "",
     reasoning: str = "",
     parent_thread_id: str = "",
-    developer_workspace_id: str = "",
-    developer_workspace_path: str = "",
-    use_worktree: bool = False,
+    code_folder: str = "",
     workspace_mode: str = "",
     parent_run_id: str = "",
     parent_message_id: str = "",
@@ -478,26 +414,23 @@ def _delegate_work(
     # top-level chat calls have no active run id and retain the explicit value.
     parent_run_id = str(runtime.get("agent_run_id") or parent_run_id or "")
     enabled_tool_names = list(runtime.get("enabled_tool_names") or ())
-    workspace_path = str(developer_workspace_path or "").strip()
-    if str(developer_workspace_id or "").strip() and workspace_path:
-        return _json_response({
-            "ok": False,
-            "message": (
-                "developer_workspace_id and developer_workspace_path are mutually exclusive."
-            ),
-            "run": {},
-        })
-    if workspace_path:
+    # One field for the helper's folder: a path (it has a separator or starts with ~) is registered as a
+    # code folder of its own; anything else is a code folder id.
+    folder = str(code_folder or "").strip()
+    developer_workspace_id = ""
+    if folder and (any(mark in folder for mark in ("/", "\\")) or folder.startswith("~")):
         try:
             from row_bot.developer.storage import add_or_update_local_workspace
 
-            developer_workspace_id = add_or_update_local_workspace(workspace_path).id
+            developer_workspace_id = add_or_update_local_workspace(folder).id
         except Exception as exc:
             return _json_response({
                 "ok": False,
                 "message": str(exc),
                 "run": {},
             })
+    elif folder:
+        developer_workspace_id = folder
     parent_model_ref = str(runtime.get("model_override") or "").strip()
     if not parent_model_ref:
         try:
@@ -607,7 +540,6 @@ def _delegate_work(
             reasoning=str(reasoning or "").strip(),
             approval_mode=str(runtime.get("approval_mode") or ""),
             developer_workspace_id=developer_workspace_id,
-            use_worktree=use_worktree,
             workspace_mode=workspace_mode,
             orchestration_id=orchestration_id if not wait else "",
             orchestration_required=required,
@@ -1020,25 +952,22 @@ class AgentsTool(BaseTool):
                 func=_delegate_work,
                 name="delegate_work",
                 description=(
-                    "Start a child Agent for focused async background work. With wait=false, "
-                    "continue useful independent work, then group-join required work before finalizing. "
-                    "Use it on your own for research or work on several separate items, one child each."
+                    "Start a helper Agent for focused background work; use it on your own for research or "
+                    "several separate items, one each. Keep working, then agent_wait(orchestration_id) before "
+                    "you answer. More: agents_guide."
                 ),
                 args_schema=_DelegateWorkInput,
             ),
             StructuredTool.from_function(
                 func=_agent_status,
                 name="agent_status",
-                description="Inspect one Agent Run, an orchestration, or this conversation's child runs.",
+                description="Look at one helper run, an orchestration, or this chat's helpers.",
                 args_schema=_AgentStatusInput,
             ),
             StructuredTool.from_function(
                 func=_agent_wait,
                 name="agent_wait",
-                description=(
-                    "Wait for one child run, or join an orchestration's current required cohort "
-                    "with orchestration_id before finalizing the parent answer."
-                ),
+                description="Wait for one helper, or join an orchestration's required helpers before you answer.",
                 args_schema=_AgentWaitInput,
             ),
             StructuredTool.from_function(

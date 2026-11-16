@@ -335,6 +335,8 @@ If NO → skip.
   recommended"), never as general knowledge.
 - An assistant line that reads "[answer left out: ...]" came from a turn \
   that read outside content; nothing of it is known.
+- A long assistant line is shortened: "[...]" marks where sentences were \
+  left out, and code, tables and long lists are left out.
 
 ENTITIES — Only extract what passes the key test:
 - person: People the user knows or tells about — family, friends, colleagues, pets — and what the user learned about them
@@ -366,6 +368,20 @@ THE "User" ENTITY:
 - When extracting relations, always use "User" as the subject for the user.
   Example: {{"relation_type": "lives_in", "source_subject": "User",
   "target_subject": "London", "confidence": 0.9}}
+
+WHO SAID IT — keep every fact with the person it belongs to:
+- Lines starting "User" are the person this memory belongs to. Lines starting \
+  "Assistant" are the other side: usually the AI assistant, sometimes another \
+  person (their name is in brackets when known, e.g. "Assistant (Caroline):").
+- Facts about the user come only from the user's own lines. Something the \
+  other side says about themselves is THEIR fact, never the user's: "I'm \
+  trans", said on an Assistant line, is about that speaker, not about the user.
+- Save the other side's facts under their own name (category person, event \
+  or place), never under "User", the user's name, or a "User's ..." subject, \
+  and never as preference, fact or skill (those are the user's own).
+- Give every object "said_by": "user" when the user's own lines state or \
+  clearly imply it (a choice the user confirmed counts), "assistant" when only \
+  the other side's lines say it.
 
 RELATIONS — Look for connections between entities:
 - Family: mother_of, father_of, sibling_of, married_to, child_of, partner_of
@@ -437,9 +453,9 @@ Rules:
   for and would want remembered
 - When in doubt, do NOT extract — err on the side of silence
 - Return a JSON array of objects. There are TWO types of objects:
-  1. Entity: {{"category": "...", "subject": "...", "content": "..."}}
+  1. Entity: {{"category": "...", "subject": "...", "content": "...", "said_by": "user"}}
      Optionally include "aliases": "name1, name2" for alternative names.
-  2. Relation: {{"relation_type": "...", "source_subject": "...", "target_subject": "...", "confidence": 0.9}}
+  2. Relation: {{"relation_type": "...", "source_subject": "...", "target_subject": "...", "confidence": 0.9, "said_by": "user"}}
 - category must be one of: person, preference, fact, event, place, project, organisation, concept, skill, media
 - relation_type should be a snake_case label (e.g. "mother_of", "lives_in")
 - NEVER use vague relation types: related_to, associated_with, connected_to,
@@ -455,19 +471,24 @@ Rules:
 Example — user says "My name is Alex, I'm a software engineer at Acme Corp in London. \
 I'm reading Designing Data-Intensive Applications and learning Rust on the side. My dad Robert lives in Manchester":
 [
-  {{"category": "person", "subject": "User", "content": "User's name is Alex. Software engineer based in London.", "aliases": "Alex"}},
-  {{"category": "person", "subject": "Dad", "content": "User's father is named Robert, lives in Manchester", "aliases": "Robert"}},
-  {{"category": "organisation", "subject": "Acme Corp", "content": "Company where the user works as a software engineer"}},
-  {{"category": "place", "subject": "London", "content": "City where the user lives and works"}},
-  {{"category": "place", "subject": "Manchester", "content": "City where the user's father Robert lives"}},
-  {{"category": "media", "subject": "Designing Data-Intensive Applications", "content": "Book the user is currently reading, by Martin Kleppmann — covers distributed systems and data architecture"}},
-  {{"category": "skill", "subject": "Rust", "content": "Programming language the user is learning as a side project"}},
-  {{"relation_type": "employed_by", "source_subject": "User", "target_subject": "Acme Corp", "confidence": 1.0}},
-  {{"relation_type": "lives_in", "source_subject": "User", "target_subject": "London", "confidence": 1.0}},
-  {{"relation_type": "father_of", "source_subject": "Dad", "target_subject": "User", "confidence": 1.0}},
-  {{"relation_type": "lives_in", "source_subject": "Dad", "target_subject": "Manchester", "confidence": 0.9}},
-  {{"relation_type": "reading", "source_subject": "User", "target_subject": "Designing Data-Intensive Applications", "confidence": 1.0}},
-  {{"relation_type": "learning", "source_subject": "User", "target_subject": "Rust", "confidence": 1.0}}
+  {{"category": "person", "subject": "User", "content": "User's name is Alex. Software engineer based in London.", "aliases": "Alex", "said_by": "user"}},
+  {{"category": "person", "subject": "Dad", "content": "User's father is named Robert, lives in Manchester", "aliases": "Robert", "said_by": "user"}},
+  {{"category": "organisation", "subject": "Acme Corp", "content": "Company where the user works as a software engineer", "said_by": "user"}},
+  {{"category": "place", "subject": "London", "content": "City where the user lives and works", "said_by": "user"}},
+  {{"category": "place", "subject": "Manchester", "content": "City where the user's father Robert lives", "said_by": "user"}},
+  {{"category": "media", "subject": "Designing Data-Intensive Applications", "content": "Book the user is currently reading, by Martin Kleppmann — covers distributed systems and data architecture", "said_by": "user"}},
+  {{"category": "skill", "subject": "Rust", "content": "Programming language the user is learning as a side project", "said_by": "user"}},
+  {{"relation_type": "employed_by", "source_subject": "User", "target_subject": "Acme Corp", "confidence": 1.0, "said_by": "user"}},
+  {{"relation_type": "lives_in", "source_subject": "User", "target_subject": "London", "confidence": 1.0, "said_by": "user"}},
+  {{"relation_type": "father_of", "source_subject": "Dad", "target_subject": "User", "confidence": 1.0, "said_by": "user"}},
+  {{"relation_type": "lives_in", "source_subject": "Dad", "target_subject": "Manchester", "confidence": 0.9, "said_by": "user"}},
+  {{"relation_type": "reading", "source_subject": "User", "target_subject": "Designing Data-Intensive Applications", "confidence": 1.0, "said_by": "user"}},
+  {{"relation_type": "learning", "source_subject": "User", "target_subject": "Rust", "confidence": 1.0, "said_by": "user"}}
+]
+
+Example — on an Assistant line, another person says "I'm Sam. I just moved to Leeds and I'm learning the cello":
+[
+  {{"category": "person", "subject": "Sam", "content": "Sam recently moved to Leeds and is learning the cello", "said_by": "assistant"}}
 ]
 
 {dated}

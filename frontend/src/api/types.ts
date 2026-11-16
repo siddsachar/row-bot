@@ -294,6 +294,45 @@ export interface ClientTransport {
     body: Wire.BrowserPaneAction,
     signal?: AbortSignal,
   ): Promise<Wire.BrowserPaneState>;
+  /** Show Row-Bot how (C3): the person's steps in the pane, recorded in memory. */
+  browserDemo?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  startBrowserDemo?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  controlBrowserDemo?(
+    conversation: string,
+    demo: string,
+    action: 'stop' | 'undo' | 'discard',
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  setBrowserDemoAlways?(
+    conversation: string,
+    demo: string,
+    step: number,
+    always: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  /** One narration clip, transcribed on this computer only. */
+  sendBrowserDemoNarration?(
+    conversation: string,
+    demo: string,
+    offset: number,
+    audio: Blob,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  /** Draft a skill from a stopped demo, for review in the skill sheet. */
+  draftDemoSkill?(
+    conversation: string,
+    demo: string,
+    body: Wire.SkillDemoDraftRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** Try it: a new chat with a saved skill pinned and its request in the composer. */
+  trySkill?(name: string, signal?: AbortSignal): Promise<Wire.SkillTryResult>;
   /** Sites with saved sign-ins in Row-Bot's browser (Settings › Browser). */
   browserSites?(signal?: AbortSignal): Promise<Wire.BrowserSitePage>;
   clearBrowserSites?(
@@ -1292,6 +1331,26 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.OnboardingReceipt>;
   localRuntime?(signal?: AbortSignal): Promise<Wire.LocalRuntimeSnapshot>;
+  localServers?(signal?: AbortSignal): Promise<Wire.LocalServersSnapshot>;
+  connectLocalServer?(
+    body: Wire.LocalServerConnectRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalServerConnection>;
+  localModelRuntime?(signal?: AbortSignal): Promise<Wire.LocalModelRuntimeView>;
+  installLocalModel?(
+    body: Wire.LocalModelInstallRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  stopLocalModelRuntime?(
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  removeLocalModelRuntime?(
+    body: Wire.LocalModelRemoveRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  repairLocalModelRuntime?(
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
   testChosenModel?(signal?: AbortSignal): Promise<Wire.ModelTestResult>;
   checkProviderKey?(
     body: Wire.ProviderKeyCheckRequest,
