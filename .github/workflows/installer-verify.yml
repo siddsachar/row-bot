@@ -50,7 +50,7 @@ env:
 
 jobs:
   preflight:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -158,7 +158,7 @@ jobs:
   verify-linux:
     if: ${{ inputs.linux }}
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
@@ -492,7 +492,7 @@ jobs:
     name: 5.1 bridge (Linux)
     if: ${{ inputs.bridge && inputs.linux }}
     needs: verify-linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
