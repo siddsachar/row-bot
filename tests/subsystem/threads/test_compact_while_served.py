@@ -8,44 +8,23 @@ for its life, `compact()` takes it alone before it touches anything, and a datab
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import sqlite3
-import subprocess
-import sys
 from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from row_bot import chat_compact
-from row_bot.data_folder_lock import IN_USE_MESSAGE
+from row_bot.data_folder_lock import IN_USE_MESSAGE, FolderInUse
+from tests.helpers.data_folder_server import folder_files, start_server, stop_server, wal_database
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
-SRC = Path(__file__).resolve().parents[3] / "src"
-# A server's hold on the data folder, as app.py takes it, and its idle connection to threads.db with a write
-# still in the WAL. `nolock` is a server that holds no lock (an older Row-Bot, another program).
-SERVER = """
-import sqlite3, sys
-from pathlib import Path
-folder = Path(sys.argv[1])
-if sys.argv[2] == "lock":
-    from row_bot.data_folder_lock import hold_for_server
-    hold_for_server(folder)
-conn = sqlite3.connect(folder / "threads.db")
-conn.execute("PRAGMA wal_autocheckpoint=0")
-with conn:
-    conn.execute("INSERT INTO checkpoints VALUES ('film', '', 'cp-99', x'00')")
-print("ready", flush=True)
-sys.stdin.read()
-"""
-
 
 def _chat_database(folder: Path) -> Path:
-    database = folder / "threads.db"
+    database = wal_database(folder / "threads.db")
     with closing(sqlite3.connect(database)) as conn, conn:
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("CREATE TABLE thread_meta (thread_id TEXT PRIMARY KEY, name TEXT)")
         conn.execute("CREATE TABLE checkpoints (thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT, checkpoint BLOB)")
         conn.execute("INSERT INTO thread_meta VALUES ('film', 'Launch film')")
@@ -54,48 +33,29 @@ def _chat_database(folder: Path) -> Path:
     return database
 
 
-def _start_server(folder: Path, mode: str) -> subprocess.Popen:
-    env = {**os.environ, "PYTHONPATH": str(SRC), "ROW_BOT_DATA_DIR": str(folder), "ROW_BOT_INSTALL_COUNT": "0"}
-    server = subprocess.Popen([sys.executable, "-c", SERVER, str(folder), mode], stdin=subprocess.PIPE,
-                              stdout=subprocess.PIPE, text=True, env=env)
-    assert server.stdout.readline().strip() == "ready"
-    return server
-
-
-def _stop(server: subprocess.Popen) -> None:
-    server.stdin.close()
-    server.wait(timeout=30)
-    server.stdout.close()
-
-
-def _files(folder: Path) -> dict[str, str]:
-    return {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in sorted(folder.glob("threads.db*")) if not path.name.endswith("-shm")}
-
-
-def _checkpoints(database: Path) -> int:
+def _count(database: Path, table: str) -> int:
     with closing(sqlite3.connect(database)) as conn:
-        return conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone()[0]
+        return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608 - the tests' own names
 
 
 @pytest.mark.parametrize("mode", ["lock", "nolock"], ids=["a server holding the lock", "a server without it"])
 def test_compacting_is_refused_while_a_server_has_the_data_folder_and_changes_nothing(tmp_path, mode) -> None:
     database = _chat_database(tmp_path)
-    server = _start_server(tmp_path, mode)
+    server = start_server(tmp_path, mode, ("threads.db",))
     try:
-        before = _files(tmp_path)
+        before = folder_files(tmp_path)
         assert "threads.db-wal" in before, "the server's write is still in the WAL"
-        with pytest.raises(chat_compact.ChatsInUse) as refused:
+        with pytest.raises(FolderInUse) as refused:
             chat_compact.compact(database)
         assert str(refused.value) == IN_USE_MESSAGE
-        assert _files(tmp_path) == before, "the file and its WAL are untouched, and nothing is left beside them"
-        assert _checkpoints(database) == 31, "every saved state is still there"
+        assert folder_files(tmp_path) == before, "the file and its WAL are untouched, and nothing is left beside them"
+        assert _count(database, "checkpoints") == 30 and _count(database, "rows") == 4
     finally:
-        _stop(server)
+        stop_server(server)
 
     result = chat_compact.compact(database)  # The server has stopped: the system dropped its lock.
-    assert result["checkpoints"] == 31 - chat_compact.KEPT
-    assert _checkpoints(database) == chat_compact.KEPT
+    assert result["checkpoints"] == 30 - chat_compact.KEPT
+    assert _count(database, "checkpoints") == chat_compact.KEPT and _count(database, "rows") == 4
     assert (tmp_path / ("threads.db" + chat_compact.KEPT_SUFFIX)).is_file()
     assert not (tmp_path / "threads.db.compact").exists()
 
@@ -114,7 +74,7 @@ def test_a_failed_swap_leaves_the_chat_database_in_place_and_no_copy_behind(tmp_
         replace(source, target)
 
     monkeypatch.setattr(chat_compact.os, "replace", refusing)
-    with pytest.raises(chat_compact.ChatsInUse, match=r"^Quit Row-Bot \(or stop the server\) before compacting"):
+    with pytest.raises(FolderInUse, match=r"^Quit Row-Bot \(or stop the server\) before compacting"):
         chat_compact.compact(database)
     monkeypatch.undo()
 
@@ -133,11 +93,10 @@ def test_the_command_says_to_quit_row_bot_in_plain_words(tmp_path, monkeypatch, 
 
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     database = _chat_database(tmp_path)
-    server = _start_server(tmp_path, "lock")
+    server = start_server(tmp_path, "lock")
     try:
         assert launcher._compact_chats() == 1
     finally:
-        _stop(server)
-    said = capsys.readouterr().out
-    assert said.strip() == IN_USE_MESSAGE
-    assert _checkpoints(database) == 31
+        stop_server(server)
+    assert capsys.readouterr().out.strip() == IN_USE_MESSAGE
+    assert _count(database, "checkpoints") == 30

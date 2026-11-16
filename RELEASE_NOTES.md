@@ -220,7 +220,8 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   optional: from 5.3.4 the file stops growing. While a server runs on the volume (in
   this container or another), it refuses and changes nothing: every server holds a new
   `data-folder.lock` there while it runs, and a server doesn't start while chats are
-  being compacted.
+  being compacted. `--reset-db`, `--reset-tasks-db` and `--restore-data` refuse the
+  same way.
 - New core dependency: `py-vapid`, which signs the push wake-ups. Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
 - Try it free signs in to OpenRouter through the server's public HTTPS address
   (`/api/v1/settings/providers/openrouter/sign-in/callback`, which needs no session

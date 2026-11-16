@@ -21,22 +21,17 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from row_bot.data_folder_lock import IN_USE_MESSAGE, DataFolderLock, lock_path
+from row_bot.data_folder_lock import IN_USE_MESSAGE, FolderInUse, alone
 
 KEPT = 3  # Saved states each chat keeps, as threads.CHECKPOINTS_KEPT.
 KEPT_SUFFIX = ".pre-compact"
 
 
-class ChatsInUse(RuntimeError):
-    """Row-Bot, or something else, has the data folder open: nothing was changed."""
-
-
 def compact(database: Path) -> dict[str, int]:
     """Compact *database* in place; {"before", "after"} sizes in bytes and the saved states removed.
 
-    Refused, with nothing changed, while anything has the data folder open (W6): every Row-Bot server holds its
-    lock (``data_folder_lock``), and a connection that still holds the file after this one closes it keeps its
-    ``-wal`` (an idle connection in WAL mode holds no SQLite lock, but SQLite deletes the WAL only for the last one).
+    Refused with FolderInUse, nothing changed, while anything has the data folder open (W6): every Row-Bot
+    server holds its lock, and another connection to the file keeps its ``-wal`` (``data_folder_lock.alone``).
     """
     database = Path(database)
     kept = database.with_name(database.name + KEPT_SUFFIX)
@@ -44,25 +39,12 @@ def compact(database: Path) -> dict[str, int]:
         raise RuntimeError(f"{kept.name} is still there from the last time: delete it (or move it) first.")
     if not database.is_file():
         raise RuntimeError(f"There's no chat database at {database}.")
-    lock = DataFolderLock(lock_path(database.parent))
-    try:
-        held = lock.acquire(exclusive=True)
-    except OSError as exc:
-        raise ChatsInUse(f"{IN_USE_MESSAGE} ({lock.path.name} can't be opened: {exc.strerror or exc})") from None
-    if not held:
-        raise ChatsInUse(IN_USE_MESSAGE)
-    try:
+    with alone(database.parent, [database], message=IN_USE_MESSAGE):
         return _compact_alone(database, kept)
-    finally:
-        lock.release()
 
 
 def _compact_alone(database: Path, kept: Path) -> dict[str, int]:
     wal = database.with_name(database.name + "-wal")
-    with closing(sqlite3.connect(database, timeout=0)) as probe:
-        probe.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()
-    if wal.exists():
-        raise ChatsInUse(IN_USE_MESSAGE)
     before = database.stat().st_size
     fresh = database.with_name(database.name + ".compact")
     fresh.unlink(missing_ok=True)
@@ -72,7 +54,7 @@ def _compact_alone(database: Path, kept: Path) -> dict[str, int]:
             if check.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise RuntimeError("The compact copy didn't pass its check; the chat database stays in place.")
         if wal.exists():  # Opened by something else while the copy was made: the copy may lack its writes.
-            raise ChatsInUse(IN_USE_MESSAGE)
+            raise FolderInUse(IN_USE_MESSAGE)
         _swap(database, fresh, kept)
     finally:
         fresh.unlink(missing_ok=True)
@@ -104,7 +86,7 @@ def _swap(database: Path, fresh: Path, kept: Path) -> None:
     try:
         os.replace(database, kept)
     except OSError:  # Windows won't move a file something still has open.
-        raise ChatsInUse(IN_USE_MESSAGE) from None
+        raise FolderInUse(IN_USE_MESSAGE) from None
     try:
         database.with_name(database.name + "-shm").unlink(missing_ok=True)
         os.replace(fresh, database)
@@ -113,4 +95,4 @@ def _swap(database: Path, fresh: Path, kept: Path) -> None:
             os.replace(kept, database)
         except OSError:
             raise RuntimeError(f"Your chats are in {kept.name}: rename it back to {database.name}.") from None
-        raise ChatsInUse(IN_USE_MESSAGE) from None
+        raise FolderInUse(IN_USE_MESSAGE) from None

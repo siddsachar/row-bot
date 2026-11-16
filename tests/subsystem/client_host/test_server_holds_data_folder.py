@@ -21,7 +21,7 @@ from row_bot.data_folder_lock import DataFolderLock, lock_path
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 ROOT = Path(__file__).resolve().parents[3]
-REFUSED = "Row-Bot didn't start: its chats are being compacted."
+REFUSED = "Row-Bot didn't start: its data is being compacted, reset or restored."
 
 
 @pytest.fixture
