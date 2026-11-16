@@ -438,6 +438,65 @@ def test_row_bots_own_envelope_binds_its_core_groups_at_32k(data_dir):
     assert shape.envelope_for(200_000).profile == "full"
 
 
+def test_the_serving_shape_offers_rarely_used_tools_on_demand_as_serving_does(data_dir, monkeypatch):
+    # Serving offers the rarely used tools through tool search on every window, inside the 32K core groups too
+    # (B1, #942): a row is shaped the same way.
+    from row_bot import agent
+
+    monkeypatch.setattr(agent, "RARELY_USED_TOOLS", frozenset({*agent.RARELY_USED_TOOLS, "task_create"}))
+    small, window = shape.envelope_for(32_768), shape.envelope_for(65_536)
+
+    assert small.defers("task_create") and not small.defers("save_memory") and "task_create" not in small.bound
+    assert window.defers("task_create") and window.defers("youtube_search")  # a rarely used group
+    assert not window.defers("save_memory")
+
+
+def _schema_tool(name, *parameters):
+    return {"type": "function", "function": {"name": name, "description": f"{name}.", "parameters": {
+        "type": "object", "properties": {item: {"type": "string"} for item in parameters}}}}
+
+
+def _tool_call(call_id, tool_name, **arguments):
+    return {"id": call_id, "type": "function", "function": {"name": tool_name, "arguments": json.dumps(arguments)}}
+
+
+def test_a_retired_tool_reads_as_todays_tool_in_a_row_captured_before_it_changed():
+    # B1 (#942) merged two workspace tools into one: a row captured before it teaches today's tool.
+    find = _schema_tool("find", "path", "pattern")
+    envelope = shape.Envelope(serve_context=32_768, profile="small", bound=frozenset({"find"}),
+                              retired={"list_folder": ("find", {"dir_path": "path"}, find)})
+    messages = [
+        {"role": "user", "content": "What's in docs?"},
+        {"role": "assistant", "content": "", "tool_calls": [_tool_call("c1", "list_folder", dir_path="docs")],
+         "weight": 1},
+        {"role": "tool", "content": "a.md", "tool_call_id": "c1"},
+        {"role": "assistant", "content": "It has a.md.", "weight": 1},
+    ]
+
+    _, rendered, tools, stats = shape.render([], messages, [_schema_tool("list_folder", "dir_path")], envelope,
+                                             agent=False)
+
+    call = rendered[1]["tool_calls"][0]["function"]
+    assert call["name"] == "find" and json.loads(call["arguments"]) == {"path": "docs"}
+    assert tools == [find] and stats.calls_renamed == 1 and stats.changed
+    # A build that still has the old tool has nothing retired: the row stays as captured.
+    still = shape.Envelope(serve_context=32_768, profile="small", bound=frozenset({"list_folder"}))
+    assert shape.render([], messages, [_schema_tool("list_folder", "dir_path")], still,
+                        agent=False)[1][1]["tool_calls"][0]["function"]["name"] == "list_folder"
+
+
+def test_the_workspace_tools_b1_merged_are_retired_only_once_a_build_has_workspace_find(data_dir):
+    from row_bot.tools import registry
+
+    names = {str(item.name) for item in registry.get_tool("filesystem").as_langchain_tools()}
+    retired = shape.envelope_for(32_768).retired
+    if "workspace_find" in names:
+        assert set(retired) == {"workspace_list_directory", "workspace_file_search"}
+        assert {new for new, _moved, _schema in retired.values()} == {"workspace_find"}
+    else:
+        assert retired == {}
+
+
 def test_a_row_captured_with_an_earlier_self_knowledge_section_serves_without_it(data_dir):
     # The full prompt's self-knowledge section changes between versions (its feature list went on 24 Oct, its
     # skill guidance changes with "Save as a skill"); the small prompt the personal model serves never has it.
