@@ -14,7 +14,7 @@ from typing import Literal
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from row_bot.tools.base import BaseTool
+from row_bot.tools.base import BaseTool, NullMeansUnset
 from row_bot.tools import registry
 import row_bot.tasks as tasks_db
 from row_bot.approval_policy import approval_label, legacy_safety_mode_to_approval_mode
@@ -40,7 +40,7 @@ _TASK_LIST_CHARS = 30_000  # Beyond this the list is saved, and read on with rea
 _OFF_AFTER_FAILURES = f"failed {tasks_db.FAILURES_BEFORE_OFF} times in a row"
 
 
-class _TaskCreateInput(BaseModel):
+class _TaskCreateInput(NullMeansUnset):
     # Icon, description and notification text keep their defaults here; task_update sets them.
     # An empty field is unset.
     name: str
@@ -76,7 +76,7 @@ class _TaskDeleteInput(BaseModel):
     task_id: str = Field(description="Task id from task_list.")
 
 
-class _TaskUpdateInput(BaseModel):
+class _TaskUpdateInput(NullMeansUnset):
     # A field left out stays as it is; '' clears the ones that say so (the others: empty is left out).
     task_id: str
     name: str = ""

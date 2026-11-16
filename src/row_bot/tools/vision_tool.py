@@ -304,9 +304,9 @@ class VisionTool(BaseTool):
                 func=_analyze_image,
                 name="analyze_image",
                 description=(
-                    "Answer a question about an image. source: browser (the page in Row-Bot's browser), file "
-                    "(file_path), screen (the desktop) or camera; screen and camera only when the person asks "
-                    "about them, and each asks first. files: several pictures or videos at once."
+                    "Answer a question about an image. source: browser (Row-Bot's browser page), file "
+                    "(file_path), screen or camera (only when the person asks about them; each asks first). "
+                    "files: several pictures or videos at once."
                 ),
                 args_schema=_AnalyzeInput,
             ),

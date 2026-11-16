@@ -63,7 +63,7 @@ class _UpdateMemoryInput(BaseModel):
 
 
 class _DeleteMemoryInput(BaseModel):
-    memory_id: str = Field(description="ID from search_memory or list_memories.")
+    memory_id: str = Field(description="From recall or search_memory.")
 
 
 class _LinkMemoriesInput(BaseModel):

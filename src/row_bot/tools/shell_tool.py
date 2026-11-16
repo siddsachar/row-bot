@@ -1317,8 +1317,6 @@ class ShellTool(BaseTool):
 
     def as_langchain_tools(self) -> list:
         """Return ``run_command``, ``read_terminal`` and the background process tools."""
-        from row_bot.background_processes import MAX_RUNNING_PER_CONVERSATION
-
         tool_instance = self
 
         def guarded(call):
@@ -1423,8 +1421,7 @@ class ShellTool(BaseTool):
                 description=(
                     "Start a program that keeps running (a dev server or watcher): use it, not run_command, for "
                     "anything that serves or watches. Asks like run_command. Returns its process_id, first output "
-                    f"and local address. At most {MAX_RUNNING_PER_CONVERSATION} per conversation; stop one used "
-                    "for a preview when done."
+                    "and local address. Stop one used for a preview when done."
                 ),
             ),
             StructuredTool.from_function(
@@ -1432,8 +1429,8 @@ class ShellTool(BaseTool):
                 name="check_process",
                 args_schema=_CheckProcessInput,
                 description=(
-                    "Check a background process of this conversation: running or not, exit code, run time, "
-                    "local address and its last output lines. Without a process_id, list them."
+                    "A background process of this conversation: running or not, exit code, run time, local "
+                    "address and last output lines. Without a process_id, all of them."
                 ),
             ),
             StructuredTool.from_function(

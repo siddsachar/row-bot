@@ -6124,7 +6124,7 @@ LOCAL_MIDDLE_CONTEXT_TOKENS = 131_072
 ON_DEMAND_TOOL_GROUPS = frozenset({"row_bot_status"})
 # Rarely used on any window: offered through tool search (and by name), not bound to every call.
 # Pages, questions, helpers, processes, tasks, memory and web stay bound: Row-Bot uses them unasked.
-# B1: the plain-chat tool block stays within 32,000 characters (tests/subsystem/agents/test_default_tool_budget.py).
+# B1: the plain-chat tool block stays within its budget (tests/subsystem/agents/test_default_tool_budget.py).
 RARELY_USED_TOOL_GROUPS = frozenset({
     "row_bot_updater", "custom_tool_builder", "video_editing", "file_delivery", "tracker", "wiki", "goal",
     "youtube", "arxiv", "system_info",
@@ -6138,11 +6138,6 @@ RARELY_USED_TOOLS = frozenset({
     "row_bot_update_setting", "agent_message", "agent_stop", "read_terminal", "clone_repository",
     "link_memories", "explore_connections", "list_memories", "task_run_now", "task_delete", "export_to_pdf",
     "list_conversations",
-    # Beyond the plan's list, to meet the budget: follow-ups and inspections whose names a bound tool's
-    # result gives (check_process, stop_process) or the guides name, forgetting a memory (asked for in
-    # words), and the setups a person asks for by name, whose fields are all optional.
-    "agent_status", "page_read", "waits", "wait_stop", "delete_memory", "check_process", "stop_process",
-    "browser_tabs", "create_design", "create_code_folder", "use_code_folder",
 })
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
     "current_on_demand_tools", default={}

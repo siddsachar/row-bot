@@ -43,7 +43,7 @@ from row_bot.browser.policy import (
 from row_bot.browser.service import ACTION_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS, STOPPED, BrowserStopped
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.tools import registry
-from row_bot.tools.base import BaseTool
+from row_bot.tools.base import BaseTool, NullMeansUnset
 
 DATA_DIR = _DEFAULT_HISTORY_PATH.parent
 _HISTORY_PATH = _DEFAULT_HISTORY_PATH
@@ -113,12 +113,12 @@ class _SelectInput(BaseModel):
     options: list[str] = Field(description="Option label(s) to choose")
 
 
-class _PressInput(BaseModel):
+class _PressInput(NullMeansUnset):
     key: str = Field(description="Key or combination, e.g. Enter, Escape, ArrowDown, Control+A")
     ref: str = Field(default="", description="Ref to focus first; else the focused element")
 
 
-class _ScrollInput(BaseModel):
+class _ScrollInput(NullMeansUnset):
     direction: Literal["up", "down"] = Field(default="down")
     amount: int = Field(default=3, ge=1, le=20, description="Screens of about 400 px")
     ref: str = Field(default="", description="Scroll this element into view instead")
@@ -128,13 +128,13 @@ class _ScrollInput(BaseModel):
 WAIT_SECONDS = 90
 
 
-class _WaitInput(BaseModel):
+class _WaitInput(NullMeansUnset):
     text: str = Field(default="", description="Wait until this text shows")
     gone: str = Field(default="", description="Wait until this text goes")
     seconds: float = Field(default=0, ge=0, le=WAIT_SECONDS, description="Or just wait this long")
 
 
-class _TabsInput(BaseModel):
+class _TabsInput(NullMeansUnset):
     action: Literal["list", "switch", "new", "close"] = Field(default="list")
     tab: str = Field(default="", description="Tab id for switch or close, e.g. t2")
     url: str = Field(default="", description="Address for a new tab")
@@ -144,7 +144,7 @@ class _ScreenshotInput(BaseModel):
     full_page: bool = Field(default=False, description="The whole page instead of what's on screen")
 
 
-class _ExtractInput(BaseModel):
+class _ExtractInput(NullMeansUnset):
     ref: str = Field(default="", description="Only this element's text")
 
 
@@ -1137,9 +1137,8 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
 
 _TOOLS: tuple[tuple[Any, str, str, type[BaseModel] | None], ...] = (
     (browser_navigate, "browser_navigate",
-     "Open a web address in Row-Bot's browser (or back, forward, reload) and return the page with refs. "
-     "The person watches in the Browser pane and stays signed in to sites there. Addresses on this computer "
-     "(localhost:5173) ask the person once per chat; servers you started here open without asking.",
+     "Open a web address in Row-Bot's browser (or back, forward, reload); returns the page with refs. An "
+     "address on this computer asks the person once per chat; a server you started here opens without asking.",
      _NavigateInput),
     (browser_click, "browser_click", "Click a control by its ref; returns the page after it.", _ClickInput),
     (browser_type, "browser_type",

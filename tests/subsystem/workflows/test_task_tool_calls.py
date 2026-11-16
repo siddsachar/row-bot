@@ -61,3 +61,23 @@ def test_task_update_sets_the_icon_description_and_notification_text(tools):
     assert (changed["icon"], changed["description"], changed["notify_label"]) == (
         "🧘", "Every desk day.", "Time to stretch")
     assert cleared["description"] == "" and cleared["icon"] == "🧘" and cleared["name"] == "Stretch"
+
+
+def test_a_null_for_an_optional_field_is_the_same_as_leaving_it_out(tools):
+    """Models often send null for fields they don't use; the schemas carry no null branch (B1)."""
+    tasks, by_name = tools
+    nulls = {"schedule": None, "run_at": None, "delivery_channel": None,
+             "delivery_target": None, "model": None, "agent_profile": None, "approval_mode": None,
+             "timezone": None}
+
+    task = _created(tasks, by_name["task_create"].invoke({"name": "Water the plants", "delay_minutes": 5, **nulls}))
+    by_name["task_update"].invoke({"task_id": task["id"], "name": None, "icon": None, "run_at": None,
+                                   "notify_label": None, "schedule": None, "model": None, "notes": None,
+                                   "timezone": None, "description": "Every other day"})
+    after = tasks.get_task(task["id"])
+
+    assert task["notify_only"] and task.get("schedule") is None and not task.get("delivery_channel")
+    assert (after["name"], after["icon"], after["at"], after["description"]) == (
+        "Water the plants", task["icon"], task["at"], "Every other day")
+    reminder = by_name["task_create"].invoke({"name": "Plain", "delay_minutes": None, "prompts": ["Say hi."]})
+    assert not _created(tasks, reminder).get("at")  # a null delay is no delay

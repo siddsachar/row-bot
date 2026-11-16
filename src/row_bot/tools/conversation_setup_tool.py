@@ -503,8 +503,7 @@ def clone_repository(repo_url: str = "") -> str:
 class _DesignInput(BaseModel):
     design_type: DesignType = Field(
         default="deck",
-        description="document: a report or one-pager; landing: a web page; app_mockup: app screens, a poster "
-                    "or a social post.",
+        description="app_mockup also covers a poster or social post.",
     )
     name: str = Field(default="", description="Short, from the request, e.g. “Harbour cleanup deck”.")
     brief: str = Field(default="", description="What it should contain.")
@@ -557,7 +556,7 @@ class ConversationSetupTool(BaseTool):
                 name="create_design",
                 description=(
                     "Create a design when the person asks for one: a card with Open, Rename and Undo; drafting "
-                    "goes on by itself next step. Not for images, charts or chat answers."
+                    "goes on by itself next step."
                 ),
                 args_schema=_DesignInput,
             ),
@@ -567,7 +566,7 @@ class ConversationSetupTool(BaseTool):
                 description=(
                     "Create a code folder (in Drafts) when the person asks you to build an app, site, script "
                     "or other code project: a card with Open, Rename and Undo; building goes on by itself next "
-                    "step. Not for questions, snippets, workflows, workspace files or a folder they have."
+                    "step."
                 ),
                 args_schema=_CodeFolderInput,
             ),
@@ -575,9 +574,8 @@ class ConversationSetupTool(BaseTool):
                 func=use_code_folder,
                 name="use_code_folder",
                 description=(
-                    "Work on a folder or project the person already has. A code folder they added with exactly "
-                    "that name is used at once; otherwise they pick it on a card. Use it instead of asking for "
-                    "a path or reading folders with the shell."
+                    "Work on a folder or project the person already has. One they added before with exactly "
+                    "that name is used at once; otherwise they pick it on a card."
                 ),
                 args_schema=_UseFolderInput,
             ),

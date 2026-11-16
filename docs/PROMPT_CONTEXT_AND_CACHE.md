@@ -381,8 +381,12 @@ message says changes it.
   Block a destructive one is not offered at all. A profile with its own tool
   list binds exactly that list. App, plugin, Custom Tool and channel tools keep
   their descriptions in the catalog.
-- **The plain-chat tool block has a budget**: 32,000 provider-facing characters
-  (about 8,000 tokens) for a 200K cloud chat with no code folder and no apps
+- **A null means left out.** Optional fields that an empty value already
+  leaves unset are plain in the schema (`"default": ""`, no null branch);
+  `tools.base.NullMeansUnset` drops a `null` a model sends for one before
+  validation, so it behaves as the field left out.
+- **The plain-chat tool block has a budget**: 36,000 provider-facing characters
+  (about 9,000 tokens) for a 200K cloud chat with no code folder and no apps
   (`tests/subsystem/agents/test_default_tool_budget.py`, snapshot
   `tests/snapshots/tools/plain_chat_tool_set.txt`). Raising it is a deliberate
   edit of the number in that test.

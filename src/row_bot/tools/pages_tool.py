@@ -16,7 +16,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from row_bot.tools import registry
-from row_bot.tools.base import BaseTool
+from row_bot.tools.base import BaseTool, NullMeansUnset
 
 Library = Literal["charts", "rowbot-style"]
 _REMOTE = re.compile(r"<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)\s*=\s*['\"]?(?:https?:)?//", re.IGNORECASE)
@@ -67,6 +67,8 @@ def _page_update(page: str, html: str | None = None, data: Any = None, title: st
     found = pages.find(conversation, page) if conversation else None
     if found is None:
         return f"There's no page {page!r} in this chat. Use its id (page-…) from page_create."
+    # An empty title or HTML is left as it is, like one left out.
+    title, html = title or None, html or None
     try:
         updated = pages.update(found, title=title, html=html, data=data, libraries=libraries,
                                data_given=data is not None)
@@ -78,6 +80,7 @@ def _page_update(page: str, html: str | None = None, data: Any = None, title: st
 def _page_read(page: str, version: int | None = None, include_html: bool = False) -> str:
     from row_bot import pages
 
+    version = version or None  # 0, like one left out, is the current version
     conversation = _conversation()
     found = pages.find(conversation, page) if conversation else None
     if found is None:
@@ -110,18 +113,18 @@ class _CreateInput(BaseModel):
         "charts: Chart.js 4 (window.Chart). rowbot-style: Row-Bot's look (rb- classes)."))
 
 
-class _UpdateInput(BaseModel):
-    # Each field given replaces the whole old value; one left out stays.
+class _UpdateInput(NullMeansUnset):
+    # Each field given replaces the whole old value; one left out (or empty) stays.
     page: str = Field(description="Its id (page-…) or exact title.")
-    html: str | None = None
+    html: str = ""
     data: Any = None
-    title: str | None = None
+    title: str = ""
     libraries: list[Library] | None = None
 
 
-class _ReadInput(BaseModel):
+class _ReadInput(NullMeansUnset):
     page: str = Field(description="Its id (page-…) or exact title.")
-    version: int | None = Field(default=None, description="An earlier one (the last 10 are kept).")
+    version: int = Field(default=0, description="An earlier one (the last 10 are kept).")
     include_html: bool = Field(default=False, description="Also the HTML and data.")
 
 
