@@ -103,27 +103,26 @@ def _page_read(page: str, version: int | None = None, include_html: bool = False
 
 
 class _CreateInput(BaseModel):
-    title: str = Field(description="A short title, shown on the card and above the page.")
-    html: str = Field(description=(
-        "One HTML document with inline CSS and JS (up to 1 MB). No network: nothing loads from the internet. "
-        "Use window.rowbot for data, state and decisions."))
-    data: Any = Field(default=None, description="JSON the page reads with rowbot.data() (up to 1 MB).")
+    title: str
+    html: str = Field(description="One document, CSS and JS inline, no network; window.rowbot for data and state.")
+    data: Any = Field(default=None, description="JSON for rowbot.data().")
     libraries: list[Library] = Field(default_factory=list, description=(
-        "charts: Chart.js 4 as window.Chart. rowbot-style: Row-Bot's look in light and dark (rb- classes)."))
+        "charts: Chart.js 4 (window.Chart). rowbot-style: Row-Bot's look (rb- classes)."))
 
 
 class _UpdateInput(BaseModel):
-    page: str = Field(description="The page's id (page-…), or its exact title.")
-    html: str | None = Field(default=None, description="The whole new HTML document, if it changes.")
-    data: Any = Field(default=None, description="The whole new data, if it changes (progress, new numbers).")
-    title: str | None = Field(default=None, description="A new title, if it changes.")
-    libraries: list[Library] | None = Field(default=None, description="The libraries, if they change.")
+    # Each field given replaces the whole old value; one left out stays.
+    page: str = Field(description="Its id (page-…) or exact title.")
+    html: str | None = None
+    data: Any = None
+    title: str | None = None
+    libraries: list[Library] | None = None
 
 
 class _ReadInput(BaseModel):
-    page: str = Field(description="The page's id (page-…), or its exact title.")
-    version: int | None = Field(default=None, description="An earlier version to read (the last 10 are kept).")
-    include_html: bool = Field(default=False, description="Also return the HTML and data.")
+    page: str = Field(description="Its id (page-…) or exact title.")
+    version: int | None = Field(default=None, description="An earlier one (the last 10 are kept).")
+    include_html: bool = Field(default=False, description="Also the HTML and data.")
 
 
 class PagesTool(BaseTool):
@@ -157,10 +156,9 @@ class PagesTool(BaseTool):
                 func=_page_create,
                 name="page_create",
                 description=(
-                    "Make an interactive page the person opens beside the chat: a plan with Approve / Change / "
-                    "Skip, a checklist, a dashboard, a comparison, a form or a small tool. Use it on your own, "
-                    "unasked, whenever your answer is one of these. Load the Making a page skill first for the "
-                    "templates and rules."
+                    "Make an interactive page beside the chat: a plan with Approve / Change / Skip, a checklist, "
+                    "a dashboard, a comparison, a form or a small tool; unasked, whenever your answer is one. "
+                    "skill_load('making_pages') first."
                 ),
                 args_schema=_CreateInput,
             ),
@@ -168,8 +166,8 @@ class PagesTool(BaseTool):
                 func=_page_update,
                 name="page_update",
                 description=(
-                    "Change a page: new data (progress, fresh numbers), HTML, title or libraries. A new "
-                    "version; its state and decisions stay."
+                    "Change a page (new data, HTML, title or libraries); give only what changes, whole. A new "
+                    "version: its state and decisions stay."
                 ),
                 args_schema=_UpdateInput,
             ),

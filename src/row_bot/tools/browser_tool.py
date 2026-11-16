@@ -115,13 +115,13 @@ class _SelectInput(BaseModel):
 
 class _PressInput(BaseModel):
     key: str = Field(description="Key or combination, e.g. Enter, Escape, ArrowDown, Control+A")
-    ref: Optional[str] = Field(default=None, description="Ref to focus first; else the focused element")
+    ref: str = Field(default="", description="Ref to focus first; else the focused element")
 
 
 class _ScrollInput(BaseModel):
     direction: Literal["up", "down"] = Field(default="down")
     amount: int = Field(default=3, ge=1, le=20, description="Screens of about 400 px")
-    ref: Optional[str] = Field(default=None, description="Scroll this element into view instead")
+    ref: str = Field(default="", description="Scroll this element into view instead")
 
 
 # How long one browser_wait_for waits (R6): a 30-second cap made a long job 36 waits in a row.
@@ -129,15 +129,15 @@ WAIT_SECONDS = 90
 
 
 class _WaitInput(BaseModel):
-    text: Optional[str] = Field(default=None, description="Wait until this text shows")
-    gone: Optional[str] = Field(default=None, description="Wait until this text goes")
-    seconds: Optional[float] = Field(default=None, ge=0, le=WAIT_SECONDS, description="Or just wait this long")
+    text: str = Field(default="", description="Wait until this text shows")
+    gone: str = Field(default="", description="Wait until this text goes")
+    seconds: float = Field(default=0, ge=0, le=WAIT_SECONDS, description="Or just wait this long")
 
 
 class _TabsInput(BaseModel):
     action: Literal["list", "switch", "new", "close"] = Field(default="list")
-    tab: Optional[str] = Field(default=None, description="Tab id for switch or close, e.g. t2")
-    url: Optional[str] = Field(default=None, description="Address for a new tab")
+    tab: str = Field(default="", description="Tab id for switch or close, e.g. t2")
+    url: str = Field(default="", description="Address for a new tab")
 
 
 class _ScreenshotInput(BaseModel):
@@ -145,7 +145,7 @@ class _ScreenshotInput(BaseModel):
 
 
 class _ExtractInput(BaseModel):
-    ref: Optional[str] = Field(default=None, description="Only this element's text")
+    ref: str = Field(default="", description="Only this element's text")
 
 
 class _UploadInput(BaseModel):
@@ -771,7 +771,7 @@ def browser_tabs(action: str = "list", tab: str | None = None, url: str | None =
             return refusal
 
     async def step(current: Any) -> str:
-        return await session.tab_step(thread_id, action, tab, selected_url)
+        return await session.tab_step(thread_id, action, tab or None, selected_url)
 
     _history(thread_id, f"tab_{action}", url=_history_url(selected_url) if selected_url else None)
     result = _run(session, thread_id, {"list": "Checking tabs", "switch": "Switching tab", "new": "Opening a tab",
@@ -788,7 +788,7 @@ def browser_extract(ref: str | None = None) -> str:
     if refusal:
         return refusal
     try:
-        return session.extract(thread_id, ref)
+        return session.extract(thread_id, ref or None)
     except BaseException as exc:
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise

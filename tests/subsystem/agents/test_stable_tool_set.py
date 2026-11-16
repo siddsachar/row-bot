@@ -198,7 +198,7 @@ def test_the_mcp_guide_the_index_names_loads_with_skill_load(conversation, monke
 
 def test_developer_tools_and_workflows_come_with_a_code_folder(tmp_path, monkeypatch, reload_for_data_dir):
     """F34: without a code folder every Developer tool fails, so none is bound and its guide is not
-    sent; the setup tools stay, with one line saying a code folder brings them. With one, the tools
+    sent; the setup tools stay offered (on demand, B1), with one line saying a code folder brings them. With one, the tools
     and guide are bound and the Developer workflows load through skill_load, never injected."""
     _activation, skills = reload_for_data_dir(tmp_path / "data", "row_bot.skills_activation", "row_bot.skills")
     skills.load_skills()
@@ -221,7 +221,8 @@ def test_developer_tools_and_workflows_come_with_a_code_folder(tmp_path, monkeyp
 
     monkeypatch.setattr(agent, "_has_code_folder", lambda: False)
     without = _bound_tools(agent.get_agent_graph(list(tools)))
-    assert set(without) == {"create_code_folder", "use_code_folder", READER, ASK}
+    assert set(without) == {"tool_search", "tool_invoke", READER, ASK}
+    assert set(agent._current_on_demand_tools_var.get()) == {"create_code_folder", "use_code_folder"}
     assert "CODE TOOLS: the Developer tools" in agent._agent_runtime_guidance(sorted(tools))
     assert "Developer Tool Guide" not in skills.get_skills_prompt(
         [], active_tool_names=agent._current_effective_tool_parent_names_var.get())

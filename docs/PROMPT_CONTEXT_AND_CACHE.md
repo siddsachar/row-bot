@@ -370,8 +370,22 @@ message says changes it.
   sign-in leaves them out, until a new sign-in.
 - **Developer tools come with a code folder.** Without one every Developer
   tool fails, so none of them (nor the Developer guide) is bound. The setup
-  tools stay, and the runtime guidance says a code folder brings the Developer
-  tools. Binding a folder adds them from the next turn.
+  tools stay offered, and the runtime guidance says a code folder brings the
+  Developer tools. Binding a folder adds them from the next turn.
+- **Less-used tools are offered on demand on every window** (B1):
+  `agent.RARELY_USED_TOOL_GROUPS` and `RARELY_USED_TOOLS`. They are not bound;
+  `tool_search` lists them by group (`group: tool_a, tool_b`, names only, at
+  most 1,500 characters) and returns a tool's whole input schema. Each one runs
+  when called by its own name or through `tool_invoke`, wrapped before it is
+  bridged, so its approval, profile limits and repeat guard are unchanged; under
+  Block a destructive one is not offered at all. A profile with its own tool
+  list binds exactly that list. App, plugin, Custom Tool and channel tools keep
+  their descriptions in the catalog.
+- **The plain-chat tool block has a budget**: 32,000 provider-facing characters
+  (about 8,000 tokens) for a 200K cloud chat with no code folder and no apps
+  (`tests/subsystem/agents/test_default_tool_budget.py`, snapshot
+  `tests/snapshots/tools/plain_chat_tool_set.txt`). Raising it is a deliberate
+  edit of the number in that test.
 
 The tool list is rebuilt only on a real configuration change, which costs one
 cache reset each: an MCP server connecting or disconnecting, tool settings or a
@@ -400,8 +414,14 @@ Larger windows keep the prompt as described above.
 Every bound tool's schema is part of each request's prefix, so each topic has
 one home:
 
-- scheduling guidance is in the `task_create` description; the system prompt
-  only points to it;
+- scheduling decision rules (which field for which request) are in the
+  `task_create` description; how workflows run and are written, the schedule
+  formats in full and the reminder examples are in `workflow_guide`, read with
+  `skill_load`; the system prompt only points to them;
+- the workspace scope is said once: the turn context names the workspace folder
+  and says a file tool asks before it uses a full path elsewhere
+  (`workspace_write_file` keeps its own note); listing and searching are one
+  tool, `workspace_find`;
 - status categories and settings are enums on `row_bot_status` and
   `row_bot_update_setting`, explained in `row_bot_status_guide`;
 - memory rules are in the system prompt, not repeated in each memory tool;

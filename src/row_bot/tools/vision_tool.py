@@ -286,42 +286,27 @@ class VisionTool(BaseTool):
     def as_langchain_tools(self) -> list:
 
         class _AnalyzeInput(BaseModel):
-            question: str = Field(
-                description="A specific visual question, e.g. 'What error is on the screen?'."
-            )
+            question: str
             # When to use each source is in the tool description (and the vision guide).
             source: Literal["camera", "screen", "file", "browser"] | None = Field(
-                default=None, description="Where the image comes from (camera when nothing else is given)."
+                default=None, description="camera when nothing else is given."
             )
-            file_path: str = Field(
-                default="",
-                description="Image path for source='file', workspace-relative or absolute.",
-            )
+            file_path: str = Field(default="", description="For source='file'.")
             files: list[str] = Field(
                 default_factory=list,
-                description=("Up to 8 pictures in one look: chat files by name, workspace paths, 'browser', "
-                             "rec-…, edit-… (a video gives frames)."),
+                description="Up to 8: chat files by name, paths, 'browser', rec-…, edit-… (a video gives frames).",
             )
-            contact_sheet: bool = Field(
-                default=False,
-                description="Tile files (up to 48 pictures or frames) into one labelled picture.",
-            )
-            frames: int = Field(default=0, description="Frames per video (default 4; 12 on a sheet).")
+            contact_sheet: bool = Field(default=False, description="Tile files (up to 48) into one labelled picture.")
+            frames: int = Field(default=0, description="Per video (4 if 0; 12 on a sheet).")
 
         return [
             StructuredTool.from_function(
                 func=_analyze_image,
                 name="analyze_image",
                 description=(
-                    "Look at an image and answer a visual question. "
-                    "source='browser' looks at the page open in Row-Bot's "
-                    "browser: use it for any screenshot of a web page. "
-                    "source='file' with file_path reads a workspace image. "
-                    "source='screen' captures the person's whole desktop and "
-                    "source='camera' their webcam: use those only when they "
-                    "ask about their screen or something in front of the "
-                    "camera; each asks the person first. files looks at several "
-                    "pictures or videos at once."
+                    "Answer a question about an image. source: browser (the page in Row-Bot's browser), file "
+                    "(file_path), screen (the desktop) or camera; screen and camera only when the person asks "
+                    "about them, and each asks first. files: several pictures or videos at once."
                 ),
                 args_schema=_AnalyzeInput,
             ),
