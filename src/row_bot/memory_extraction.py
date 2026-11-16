@@ -198,10 +198,27 @@ def _is_app_event(message) -> bool:
 
 
 _PERSON_CHARS = 2_000  # of a person's message; also what a watermark's hash covers of any message
-# Of one of Row-Bot's answers in a trusted turn: a whole chat answer (most are 1,000 to 3,000
-# characters) with a question fits one 6,000-character extraction window; a longer one (code,
-# a report) is cut. About 1,000 tokens at most, where 200 characters (50 tokens) was read before.
+# What is read of one of Row-Bot's answers in a trusted turn (``_answer_excerpt``, P2: reading long
+# answers in full cost BEAM 10-12x the tokens for no gain): its first ~1,200 characters, then only
+# the later sentences that name a person, place, date, amount or a choice the user made; never code
+# blocks, tables or long lists. At most 4,000 characters (about 1,000 tokens), out of the first
+# 12,000 of the answer.
+_ANSWER_HEAD_CHARS = 1_200
 _ANSWER_CHARS = 4_000
+_ANSWER_SCAN_CHARS = 12_000
+_LONG_LIST_ITEMS = 8  # a list with more items than this is left out
+_CODE_BLOCK = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+•]|\d{1,3}[.)])\s+")
+_SENTENCE = re.compile(r"[^.!?]+(?:[.!?]+[\"')\]]*|$)")
+_MONTHS_AND_DAYS = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|"
+    r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"today|tomorrow|yesterday|tonight|weekend)\b", re.IGNORECASE)
+_CHOICE = re.compile(
+    r"\byou(?:'ve| have|'ll| will)? (?:chose|chosen|choose|picked|decided|booked|ordered|bought|went with|"
+    r"signed up|settled on|agreed)\b|\byour (?:choice|pick|order|booking|plan|appointment|reservation)\b",
+    re.IGNORECASE)
+_NAME_WORD = re.compile(r"(?<=[\s,;:(])[A-Z][a-z]+(?:[-'][A-Za-z]+)?")
 _LEFT_OUT = "[answer left out: this turn read outside content]"
 # A fence or untrusted tag, in any message (a child Agent's words, a relayed result).
 _FENCE_TAG = re.compile(r"<\s*/?\s*(?:EXTERNAL_CONTENT|untrusted)\b", re.IGNORECASE)
@@ -310,7 +327,7 @@ def _get_thread_messages(thread_id: str) -> list[dict]:
             role = "user" if is_person_message(m) else ("assistant" if getattr(m, "type", None) == "ai" else None)
             content = _content_text(getattr(m, "content", "") or "")
             if role and content.strip():
-                entry = {"role": role, "content": content[:_PERSON_CHARS if role == "user" else _ANSWER_CHARS]}
+                entry = {"role": role, "content": content[:_PERSON_CHARS if role == "user" else _ANSWER_SCAN_CHARS]}
                 if role == "assistant" and not outside:
                     entry["trusted"] = True
                 if getattr(m, "id", None):
@@ -327,6 +344,69 @@ def _get_thread_messages(thread_id: str) -> list[dict]:
     except Exception as exc:
         logger.debug("Could not load thread %s: %s", thread_id, exc)
         return []
+
+
+def _without_blocks(text: str) -> str:
+    """*text* with its code blocks, tables and long lists each replaced by a short note."""
+    text = _CODE_BLOCK.sub("[code left out]", text)
+    kept: list[str] = []
+    run: list[str] = []  # the list or table being read
+    kind = ""
+
+    def close() -> None:
+        nonlocal run, kind
+        if kind == "table" and len(run) >= 2:
+            kept.append("[table left out]")
+        elif kind == "list" and len(run) > _LONG_LIST_ITEMS:
+            kept.append(f"[list of {len(run)} items left out]")
+        else:
+            kept.extend(run)
+        run, kind = [], ""
+
+    for line in text.split("\n"):
+        line_kind = "table" if line.lstrip().startswith("|") else ("list" if _LIST_ITEM.match(line) else "")
+        if line_kind != kind:
+            close()
+            kind = line_kind
+        if line_kind:
+            run.append(line)
+        else:
+            kept.append(line)
+    close()
+    return "\n".join(kept)
+
+
+def _names_something(sentence: str) -> bool:
+    """A sentence worth keeping past an answer's start: it names a person or place (a capitalised word
+    after its first), a date, an amount (any digit), or a choice the user made."""
+    return bool(re.search(r"\d", sentence) or _MONTHS_AND_DAYS.search(sentence) or _CHOICE.search(sentence)
+                or _NAME_WORD.search(sentence.strip()))
+
+
+def _answer_excerpt(text: str) -> str:
+    """What extraction reads of a trusted answer: its first ~1,200 characters, then the later sentences
+    that name a person, place, date, amount or a choice; code blocks, tables and long lists left out.
+    Deterministic, and at most ``_ANSWER_CHARS``."""
+    text = _without_blocks(text).strip()
+    if len(text) <= _ANSWER_HEAD_CHARS:
+        return text
+    head = text[:_ANSWER_HEAD_CHARS]
+    # End the start at a sentence or line break when one is near.
+    cut = max(head.rfind(". "), head.rfind("\n"), head.rfind("! "), head.rfind("? "))
+    if cut >= _ANSWER_HEAD_CHARS * 2 // 3:
+        head = head[:cut + 1]
+    kept: list[str] = []
+    for line in text[len(head):].split("\n"):
+        for sentence in _SENTENCE.findall(line):
+            sentence = sentence.strip()
+            if sentence and not sentence.startswith("[") and _names_something(sentence):
+                kept.append(sentence)
+    excerpt = head.rstrip()
+    for sentence in kept:
+        if len(excerpt) + len(sentence) + 7 > _ANSWER_CHARS:
+            break
+        excerpt += " [...] " + sentence
+    return excerpt + " [...]"
 
 
 def _format_conversation(messages: list[dict]) -> str:
@@ -351,10 +431,7 @@ def _format_conversation(messages: list[dict]) -> str:
         if role == "user":
             lines.append(f"{label}: {content}")
         elif m.get("trusted") is True:
-            text = str(content)
-            if len(text) > _ANSWER_CHARS:
-                text = text[:_ANSWER_CHARS] + " [...]"
-            lines.append(f"{label}: {text}")
+            lines.append(f"{label}: {_answer_excerpt(str(content))}")
         else:
             lines.append(f"{label}: {_LEFT_OUT}")
     return "\n".join(lines)

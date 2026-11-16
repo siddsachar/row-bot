@@ -141,7 +141,7 @@ def test_a_web_fetch_turns_answer_is_left_out_and_a_later_plain_turn_is_read(sta
 
 def test_a_turn_that_used_only_row_bots_own_tools_is_read_in_full(stack) -> None:
     threads, extraction, _kg, model = stack
-    answer = ("Splitting the 240-euro dinner four ways comes to 60 euros each. " * 20) + "Enjoy Casa Lupo."
+    answer = "Splitting the 240-euro dinner four ways comes to 60 euros each. Enjoy Casa Lupo!"
     _conversation(threads, "own-tool", [
         HumanMessage(id="h1", content="We booked Casa Lupo for my birthday. How much each if we split 240 four ways?"),
         *_tool_call("c1", "calculator", "60", untrusted=False),
@@ -153,7 +153,7 @@ def test_a_turn_that_used_only_row_bots_own_tools_is_read_in_full(stack) -> None
     assert f"Assistant: {answer}" in "\n".join(model.read)
 
 
-def test_a_trusted_answer_is_read_in_full_where_200_characters_were_read_before(stack) -> None:
+def test_a_trusted_answers_later_sentence_naming_the_shop_is_read_where_200_characters_were_before(stack) -> None:
     threads, extraction, _kg, model = stack
     answer = ("Here are a few vintage shops worth a look. " * 30) + "My pick for records is Nostalgia, on Rua Augusta."
     assert answer.index("Nostalgia") > 1000
@@ -166,7 +166,8 @@ def test_a_trusted_answer_is_read_in_full_where_200_characters_were_read_before(
     extraction.run_extraction()
 
     assert len(model.read) == 1
-    assert f"Assistant: {answer}" in model.read[0]
+    assert "My pick for records is Nostalgia, on Rua Augusta." in model.read[0]
+    assert len(model.read[0]) < len(answer)  # the filler past its start is left out
 
 
 def test_extraction_never_offers_or_saves_a_self_knowledge_memory(stack) -> None:

@@ -82,8 +82,8 @@ def test_get_thread_messages_normalizes_langchain_content_blocks(tmp_path, monke
     messages = memory_extraction._get_thread_messages("thread-1")
 
     assert messages[0] == {"role": "user", "content": "hello\nworld"}
-    # An answer before anything from outside is trusted and read at up to 4,000 characters.
-    assert messages[1] == {"role": "assistant", "content": "a" * 4000, "trusted": True}
+    # An answer before anything from outside is trusted, and loaded at up to 12,000 characters to choose from.
+    assert messages[1] == {"role": "assistant", "content": "a" * 5000, "trusted": True}
     assert messages[2] == {"role": "user", "content": "h" * 2000}
     # In a turn that read fenced outside text, the answer is loaded but never marked trusted.
     assert messages[3] == {"role": "assistant", "content": "after the page"}
@@ -107,7 +107,7 @@ def test_format_conversation_reads_only_trusted_answers_and_skips_malformed_mess
     text = memory_extraction._format_conversation(
         [
             {"role": "user", "content": "I like deterministic tests."},
-            {"role": "assistant", "content": "x" * 4500, "trusted": True},
+            {"role": "assistant", "content": "Sure, happy to help.", "trusted": True},
             {"role": "assistant", "content": "untrusted words"},
             {"role": "tool", "content": "ignored"},
             {"content": "missing role"},
@@ -116,7 +116,7 @@ def test_format_conversation_reads_only_trusted_answers_and_skips_malformed_mess
     )
 
     assert "User: I like deterministic tests." in text
-    assert "Assistant: " + ("x" * 4000) + " [...]" in text
+    assert "Assistant: Sure, happy to help." in text
     assert "Assistant: [answer left out: this turn read outside content]" in text
     assert "untrusted words" not in text
     assert "ignored" not in text

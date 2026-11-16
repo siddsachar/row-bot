@@ -335,6 +335,8 @@ If NO → skip.
   recommended"), never as general knowledge.
 - An assistant line that reads "[answer left out: ...]" came from a turn \
   that read outside content; nothing of it is known.
+- A long assistant line is shortened: "[...]" marks where sentences were \
+  left out, and code, tables and long lists are left out.
 
 ENTITIES — Only extract what passes the key test:
 - person: People the user knows or tells about — family, friends, colleagues, pets — and what the user learned about them
