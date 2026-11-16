@@ -1,6 +1,6 @@
 """Outlook's mail and calendar tools on Microsoft Graph v1.0 (N10): each request's shape, plain results with
 Outlook links, and approvals that mirror Gmail's (reading never asks; sending, replying, forwarding, deleting,
-cancelling, answering and inviting do, with a card naming who it reaches and what it says). Microsoft's
+creating, changing, cancelling and answering do, with a card naming who it reaches and what it says). Microsoft's
 sign-in and Graph are fakes on loopback; no token is ever in a result."""
 
 from __future__ import annotations
@@ -95,8 +95,8 @@ def test_sending_mail_sends_what_its_card_showed(outlook, tmp_path):
     outlook.graph[("POST", "/me/sendMail")] = 202
     message = {"to": ["amy@example.test"], "cc": ["bob@example.test"], "subject": "Q3 numbers",
                "body": "Hi Amy,\n\nThe numbers are attached.", "attachments": ["report.pdf"]}
-    question, card = outlook_tool.approval_card("outlook_send_mail", message)
-    assert question == f"Send this email from {ADDRESS}?"
+    question, card, tells_attendees = outlook_tool.approval_card("outlook_send_mail", message)
+    assert question == f"Send this email from {ADDRESS}?" and tells_attendees is False
     assert card.splitlines()[:5] == [f"From: {ADDRESS}", "To: amy@example.test", "Cc: bob@example.test",
                                      "Subject: Q3 numbers", "Attachments: report.pdf (1 KB)"]
     assert card.endswith("Body:\nHi Amy,\n\nThe numbers are attached.")
@@ -187,15 +187,15 @@ def test_reply_forward_file_and_delete_send_graphs_own_requests(outlook):
 
 def test_the_cards_for_a_reply_a_forward_and_a_delete_name_the_message_and_who_it_reaches(outlook):
     outlook.graph[("GET", "/me/messages/AAMk1%2Fx%2By%3D")] = MESSAGE
-    question, card = outlook_tool.approval_card("outlook_reply_mail", {"message_id": MESSAGE["id"], "body": "Thanks!",
-                                                                      "reply_all": True})
+    question, card, _ = outlook_tool.approval_card("outlook_reply_mail", {"message_id": MESSAGE["id"], "body": "Thanks!",
+                                                                         "reply_all": True})
     assert question == "Reply to everyone on “Q3 numbers” from Amy Lee <amy@example.test>?"
     assert "To: Amy Lee <amy@example.test>, bob@example.test" in card and card.endswith("Body: Thanks!")
-    question, card = outlook_tool.approval_card("outlook_forward_mail", {"message_id": MESSAGE["id"],
-                                                                        "to": ["carol@example.test"]})
+    question, card, _ = outlook_tool.approval_card("outlook_forward_mail", {"message_id": MESSAGE["id"],
+                                                                           "to": ["carol@example.test"]})
     assert question == "Forward “Q3 numbers” from Amy Lee <amy@example.test> to carol@example.test?"
     assert "Attachments: the original's attachments go with it" in card
-    question, card = outlook_tool.approval_card("outlook_delete_mail", {"message_id": MESSAGE["id"]})
+    question, card, _ = outlook_tool.approval_card("outlook_delete_mail", {"message_id": MESSAGE["id"]})
     assert question == "Delete “Q3 numbers” from Amy Lee <amy@example.test>?"
     assert "Where it goes: Deleted Items, where it can be restored" in card
 
@@ -252,29 +252,64 @@ def test_free_times_skip_weekends_and_gaps_too_short():
         (datetime(2026, 10, 26, 9, 0, tzinfo=london), busy[0][0]), (busy[0][1], datetime(2026, 10, 26, 17, 0, tzinfo=london))]
 
 
-def test_an_event_without_attendees_is_added_at_once_and_one_with_attendees_asks_first(outlook):
-    made = {**EVENT, "attendees": []}
-    outlook.graph[("POST", "/me/events")] = made
-    added = outlook_tool.create_event(subject="Focus time", start="2026-10-23 14:00", end="2026-10-23 15:00")
-    assert added.startswith("Added “Focus time”") and outlook.asked == []
+def _offered(name: str, level: str):
+    """An Outlook calendar tool as the agent offers it at this level: behind the approval gate, or left out."""
+    import row_bot.agent as agent
+    from row_bot.tools.outlook_tool import OutlookCalendarTool
+
+    tool = OutlookCalendarTool()
+    offered = agent._gate_changes(tool.as_langchain_tools(), tool.destructive_tool_names, level)
+    return next((item for item in offered if item.name == name), None)
+
+
+def _call(monkeypatch, name: str, level: str, answer, **arguments) -> tuple[str, list[dict]]:
+    """One call through the agent's gate at this level; the person's answer, should they be asked."""
+    import row_bot.agent as agent
+
+    asked: list[dict] = []
+    monkeypatch.setattr(agent, "interrupt", lambda payload: asked.append(payload) or answer)
+    token = agent._approval_mode_var.set(level)
+    try:
+        return _offered(name, level).invoke(arguments), asked
+    finally:
+        agent._approval_mode_var.reset(token)
+
+
+def test_creating_an_event_always_asks_and_one_with_attendees_is_yours_to_approve(outlook, monkeypatch):
+    """W21: every event change asks; one whose invitations reach other people asks the person even under Auto."""
+    from row_bot import approval_review
+    from row_bot.approval_review import ReviewVerdict
+
+    outlook.graph[("POST", "/me/events")] = {**EVENT, "attendees": []}
+    focus = {"subject": "Focus time", "start": "2026-10-23 14:00", "end": "2026-10-23 15:00"}
+    refused, asked = _call(monkeypatch, "outlook_create_event", "approve", False, **focus)
+    assert "cancelled" in refused.lower() and outlook.seen("POST", "/v1.0/me/events") == []
+    assert asked[0]["question"] == "Add “Focus time” to your calendar?" and "risk_class" not in asked[0]
+    added, _ = _call(monkeypatch, "outlook_create_event", "approve", True, **focus)
+    assert added.startswith("Approval: asked; approved by you\nAdded “Focus time”")
     (request,) = outlook.seen("POST", "/v1.0/me/events")
     assert request.body["start"] == {"dateTime": "2026-10-23T14:00:00", "timeZone": "Europe/London"}
     assert "attendees" not in request.body
-    outlook.state["answer"] = False
-    refused = outlook_tool.create_event(subject="Team sync", start="2026-10-23 10:00", end="2026-10-23 10:30",
-                                        location="Room 4", attendees=["amy@example.test"], online_meeting=True)
-    assert "nothing was changed in Outlook" in refused and len(outlook.seen("POST", "/v1.0/me/events")) == 1
-    (asked,) = outlook.asked
-    assert asked["question"] == "Send invitations for “Team sync”?"
-    assert asked["description"].splitlines() == ["Event: Team sync", "When: Fri 23 Oct 2026 10:00–10:30 (Europe/London)",
-                                                 "Where: Room 4", "Teams meeting: Yes", "Attendees: amy@example.test"]
-    outlook.state["answer"] = True
+
+    reviewed: list[dict] = []
+    monkeypatch.setattr(approval_review, "review",
+                        lambda payload, **_: reviewed.append(payload) or ReviewVerdict("approve", "You asked."))
     outlook.graph[("POST", "/me/events")] = EVENT
-    invited = outlook_tool.create_event(subject="Team sync", start="2026-10-23 10:00", end="2026-10-23 10:30",
-                                        location="Room 4", attendees=["amy@example.test"], online_meeting=True)
+    sync = {"subject": "Team sync", "start": "2026-10-23 10:00", "end": "2026-10-23 10:30", "location": "Room 4",
+            "attendees": ["amy@example.test"], "online_meeting": True}
+    invited, (card,) = _call(monkeypatch, "outlook_create_event", "auto", True, **sync)
+    assert reviewed == []  # The reviewer never approves invitations for the person.
+    assert card["question"] == "Send invitations for “Team sync”?" and card["risk_class"] == "high"
+    assert card["review"]["reason"] == "Only you can approve what your calendar sends to other people."
+    assert card["description"].splitlines() == ["Event: Team sync", "When: Fri 23 Oct 2026 10:00–10:30 (Europe/London)",
+                                                "Where: Room 4", "Teams meeting: Yes", "Attendees: amy@example.test"]
     assert "Invitations went to amy@example.test." in invited and "Teams link: https://teams.microsoft.com" in invited
     body = outlook.seen("POST", "/v1.0/me/events")[-1].body
     assert body["isOnlineMeeting"] is True and body["attendees"][0]["type"] == "required"
+
+    assert _offered("outlook_create_event", "block") is None  # Block leaves every change out.
+    ran, asked = _call(monkeypatch, "outlook_create_event", "full", False, **sync)
+    assert ran.startswith("Approval: allowed by Hands-off") and asked == []
 
 
 def test_changing_cancelling_and_answering_events(outlook):
@@ -284,11 +319,12 @@ def test_changing_cancelling_and_answering_events(outlook):
                                       "end": {"dateTime": "2026-10-23T11:30:00", "timeZone": "Europe/London"}}
     for action in ("cancel", "accept", "decline", "tentativelyAccept"):
         outlook.graph[("POST", f"{path}/{action}")] = 202
+    question, _card, tells = outlook_tool.approval_card("outlook_update_event", {"event_id": "AAMkEv1"})
+    assert (question, tells) == ("Change “Team sync” and update its attendees?", True)  # It has attendees.
     moved = outlook_tool.update_event(event_id="AAMkEv1", start="2026-10-23 11:00", end="2026-10-23 11:30")
-    assert outlook.asked[-1]["question"] == "Change “Team sync” and update its attendees?"  # It has attendees.
     assert moved.startswith("Changed “Team sync” (Fri 23 Oct 2026 11:00–11:30). Its attendees get the update.")
-    question, card = outlook_tool.approval_card("outlook_cancel_event", {"event_id": "AAMkEv1", "comment": "Moved"})
-    assert question == "Cancel “Team sync” and tell its attendees?"
+    question, card, tells = outlook_tool.approval_card("outlook_cancel_event", {"event_id": "AAMkEv1", "comment": "Moved"})
+    assert question == "Cancel “Team sync” and tell its attendees?" and tells
     assert card.splitlines()[:4] == ["Event: Team sync", "When: Fri 23 Oct 2026 10:00–10:30", "Where: Room 4 · Teams",
                                      "Attendees: Amy Lee <amy@example.test>"]
     assert outlook_tool.cancel_event(event_id="AAMkEv1", comment="Moved") == (
@@ -298,7 +334,11 @@ def test_changing_cancelling_and_answering_events(outlook):
     assert answered.startswith("Tentatively accepted “Team sync”")
     assert outlook.seen("POST", f"/v1.0{path}/tentativelyAccept")[0].body == {"comment": "Maybe", "sendResponse": True}
     from row_bot.tools.outlook_tool import OutlookCalendarTool
-    assert OutlookCalendarTool().destructive_tool_names == {"outlook_cancel_event", "outlook_respond_event"}
+    assert OutlookCalendarTool().destructive_tool_names == {"outlook_create_event", "outlook_update_event",
+                                                            "outlook_cancel_event", "outlook_respond_event"}
+    question, _card, tells = outlook_tool.approval_card("outlook_respond_event", {"event_id": "AAMkEv1",
+                                                                                 "response": "accept"})
+    assert (question, tells) == ("Accept “Team sync”?", False)  # An answer goes to the organiser who asked.
 
 
 def test_a_failure_is_said_plainly_and_a_sign_in_that_stopped_working_says_how_to_fix_it(outlook):

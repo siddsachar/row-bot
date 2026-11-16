@@ -8030,7 +8030,7 @@ def _n10_stream(text: str, config: dict):
         append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
             tool_calls=[{"id": tool_id, "name": name, "args": args}])])
         yield "tool_call", {"tool_call_id": tool_id, "name": name, "args": args}
-        question, description = outlook_tool.approval_card(name, args)
+        question, description, _tells_attendees = outlook_tool.approval_card(name, args)
         yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), "tool": name,
                              "label": outlook_tool.TITLES[name], "question": question, "description": description,
                              "args": args}]
