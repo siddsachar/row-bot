@@ -5237,6 +5237,73 @@ def c1_seed(x_fixture_token: str = Header(default="")) -> dict:
     return {"offered": assessment.offered, "expenses": expenses, "photos": photos}
 
 
+# ── C3: Show Row-Bot how ──────────────────────────────────────────────────────
+# The pane is N12's synthetic engine (no Chromium), so the person's steps come from the spec as the
+# demo recorder would describe them; the draft is the chat model's scripted answer.
+_C3_DRAFT = {
+    "name": "download_a_statement", "display_name": "Download a statement", "icon": "🏦",
+    "description": "Downloads a month's statement from homecover.example.",
+    "when_to_use": "When the person asks for a statement for a month.",
+    "inputs": ["the month"],
+    "steps": ["Open homecover.example/account with `browser_navigate`.",
+              "Ask the person to finish this step on the page themselves, then carry on.",
+              "Click the link labelled \"Statements\" with `browser_click`.",
+              "Type the month into the field labelled \"Month\" with `browser_type`.",
+              "Click the button labelled \"Download statement\" with `browser_click`."],
+    "checks": ["A statement for that month was downloaded."], "tags": ["finance"],
+}
+_c3_fixture: dict = {}
+
+
+@app.post("/__c3_fixture/seed")
+def c3_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """The chat model drafts the demo's skill; an earlier run's skill and drafts are cleared."""
+    predecessor._authorize(x_fixture_token)
+    import shutil
+
+    from row_bot import evolution, skills
+    from row_bot.data_paths import get_row_bot_data_dir
+    from row_bot.providers import background
+
+    if get_row_bot_data_dir(create=False).resolve() != predecessor.DATA.resolve():
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    original = _c3_fixture.setdefault("invoke", background.invoke_background)
+
+    def invoke_background(purpose, messages, *, answer=None, thread_id="", **how):
+        if purpose == "skill_draft" and "Sites:" in str(messages[-1].content):
+            return json.dumps(_C3_DRAFT)
+        return original(purpose, messages, answer=answer, thread_id=thread_id, **how)
+
+    background.invoke_background = invoke_background
+    for folder in skills.USER_SKILLS_DIR.glob(f"{_C3_DRAFT['name']}*"):
+        shutil.rmtree(folder, ignore_errors=True)
+    evolution.remove_unapplied_proposals({
+        str(item.get("id")) for item in evolution.list_proposals(proposal_type="create_skill")})
+    skills.load_skills()
+    return {"ready": True}
+
+
+@app.post("/__c3_fixture/steps")
+def c3_steps(body: dict, x_fixture_token: str = Header(default="")) -> dict:
+    """Steps the person took in the pane, as the recorder describes them (it can't watch a picture)."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.browser import demo
+
+    chat = str(body["conversation_id"])
+    recorded = demo.observer(chat)
+    if recorded is None:
+        raise HTTPException(status_code=409, detail="No demo is recording")
+    for item in body.get("steps") or []:
+        facts = {key: item.get(key, "") for key in ("role", "name", "context", "title", "tag", "type",
+                                                     "autocomplete", "words")}
+        step = demo._step_from(str(item["kind"]), facts, str(item.get("url") or ""))
+        step.secret = str(item.get("secret") or step.secret)
+        step.value = "" if step.secret else str(item.get("value") or "")
+        demo._add(recorded, step)
+    _browser_tool.get_session_manager().get_session()._publish(chat)
+    return {"steps": len(recorded.steps)}
+
+
 # ── #140: the backup model ──────────────────────────────────────────────────
 # A local main model (one of S8's) with a cloud backup, and a chat the backup
 # finished. Synthetic settings and messages only; nothing calls a model.

@@ -113,6 +113,8 @@ BROWSER_SMOKE_SPECS = (
     "conversation-fork",
     # Save as a skill (C1): the offer by name, the review sheet, edit, approve, Settings' "From".
     "skill-offers",
+    # Show Row-Bot how (C3): record in the Browser pane, the steps, the draft with "What you showed", Try it.
+    "browser-demo",
     "live-updates",
     # The activity log (D1): every action and who decided, its filters, CSV and Clear; Monitor's line.
     "activity-log",
