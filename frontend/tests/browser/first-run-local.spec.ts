@@ -177,3 +177,42 @@ test('Ollama running with models shows under Found, beside the other ways', asyn
     page.getByRole('list', { name: 'Ways to run models on this computer' }),
   ).toContainText('Ollama is running');
 });
+
+test('Settings › Models › Local lists Row-Bot’s download among the local runtimes; Remove asks first and says what it freed', async ({
+  page,
+}, testInfo) => {
+  await fixture(page, '/__e1_fixture/local-runtime/installed');
+  await page.goto('/app-v2/settings/models');
+  const group = page.locator('[data-setting-anchor="local-models"]');
+  await expect(group).toContainText('Download with Row-Bot (llama.cpp)');
+  await expect(group).toContainText('Ready · 1 model');
+  await expect(
+    group.getByRole('list', { name: 'Models Row-Bot downloaded' }),
+  ).toContainText('Qwen3.8 27B · 2-bit');
+  await group.scrollIntoViewIfNeeded();
+  await screenshot(page, testInfo, 'settings');
+  await assertNoOverflow(page);
+  await reviewShots(page, '6-settings-local', group);
+
+  await group
+    .getByRole('button', { name: 'Add a way to run models locally' })
+    .click();
+  await expect(
+    group.getByRole('list', { name: 'Ways to run models on this computer' }),
+  ).toBeVisible();
+  await reviewShots(page, '6b-settings-local-add', group);
+  await group
+    .getByRole('button', { name: 'Add a way to run models locally' })
+    .click();
+
+  await group
+    .getByRole('button', { name: 'Remove Row-Bot’s download and its models' })
+    .click();
+  const dialog = page.getByRole('alertdialog', {
+    name: 'Remove Row-Bot’s download and its models?',
+  });
+  await expect(dialog).toContainText('Other local runtimes aren’t touched');
+  await reviewShots(page, '6c-settings-remove-confirm');
+  await dialog.getByRole('button', { name: 'Remove' }).click();
+  await expect(group).toContainText(/Removed\. .* freed\./);
+});
