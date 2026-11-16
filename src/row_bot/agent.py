@@ -1419,10 +1419,9 @@ def _code_folder() -> str:
 
 def _workspace_line() -> str:
     """Where the file tools and the shell start, ``~/…`` under the home folder so the account name isn't sent."""
-    from row_bot.data_paths import default_workspace_root, display_path
+    from row_bot.data_paths import display_path, workspace_folder
 
-    configured = str(tool_registry.get_tool_config("filesystem", "workspace_root", "") or "")
-    workspace = display_path(configured if configured and os.path.isdir(configured) else default_workspace_root())
+    workspace = display_path(workspace_folder(create=False))
     code_folder = _code_folder()
     if code_folder:
         return (f"Code folder: {display_path(code_folder)} (the shell and Developer tools start here). "

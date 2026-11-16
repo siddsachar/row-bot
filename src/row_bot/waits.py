@@ -241,11 +241,11 @@ def _check_process(spec: dict[str, Any]) -> Outcome:
 
 
 def _check_command(conversation_id: str, spec: dict[str, Any]) -> Outcome:
-    from row_bot.data_paths import default_workspace_root
+    from row_bot.data_paths import workspace_folder
     from row_bot.tools.shell_tool import shell_argv
 
     command = str(spec.get("command") or "")
-    folder = str(spec.get("folder") or "") or str(default_workspace_root())
+    folder = str(spec.get("folder") or "") or str(workspace_folder())
     try:
         done = subprocess.run(shell_argv(command, report_cwd=False), cwd=folder, capture_output=True,  # noqa: S603
                               text=True, encoding="utf-8", errors="replace", timeout=CHECK_SECONDS)
@@ -557,7 +557,7 @@ def _look(record: dict[str, Any]) -> _Seen:
     approval = dict(spec.get("approval") or {})
     conversation = record["conversation_id"]
     why = goal_checks.recheck(conversation, command, str(approval.get("workspace_id") or ""),
-                              approval.get("classification"))
+                              approval.get("classification"), runs_in=str(approval.get("runs_in") or ""))
     if why:
         return _Seen(None, why, refused=True)
     run = goal_checks.execute_check(

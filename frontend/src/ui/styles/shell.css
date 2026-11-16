@@ -2864,6 +2864,10 @@ button.agent-row-main:focus-visible {
 .context-goal-blockers {
   color: var(--status-warning-text);
 }
+/* "Runs in Row-Bot's workspace (~/Work)": a long folder path wraps. */
+.context-goal-meta {
+  overflow-wrap: anywhere;
+}
 /* The verifier's latest reason ("Two sections are still empty."). */
 .context-goal-reason {
   margin: 0;

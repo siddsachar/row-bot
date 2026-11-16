@@ -70,12 +70,12 @@ def _when(at: str, in_minutes: float) -> datetime | None:
 
 def _check_approval(command: str, every_minutes: float, label: str) -> str | None:
     """A check's command is classified as run_command classifies it, once, when the wait is set; the refusal or None."""
-    from row_bot.data_paths import default_workspace_root
+    from row_bot.data_paths import workspace_folder
     from row_bot.tools import approval_gate
     from row_bot.tools.shell_tool import classify_command
 
-    # A check runs in the default workspace (waits.py): a relative path counts from there (F5).
-    kind = classify_command(command, cwd=default_workspace_root())
+    # A check runs in the person's workspace folder (waits.py): a relative path counts from there (F5).
+    kind = classify_command(command, cwd=workspace_folder())
     if kind == "blocked":
         return f"BLOCKED: that command can't run: {command}"
     if kind == "private_data":
@@ -110,7 +110,8 @@ def _watch_approval(here: str, command: str, every_minutes: float, hours: float)
     every = f"every {every_minutes:g} min" if every_minutes else "every 5–60 min"
     refusal, _line = approval_gate.approval_check(
         {"tool": "wait_for", "label": "Watch with a command",
-         "description": f"Run `{command}` {every} while it watches (up to {hours or waits.WATCH_HOURS:g} h)",
+         "description": (f"Run `{command}` {every} in {approval['runs_in']} while it watches "
+                         f"(up to {hours or waits.WATCH_HOURS:g} h)"),
          "args": {"command": command, "every_minutes": every_minutes}},
         risks=("runs a command again and again while it watches",),
         blocked_message=f"BLOCKED: watching with a command needs approval, and this chat is on Block: {command}",
@@ -161,9 +162,9 @@ def _wait_for(kind: str, label: str, then: str = "", process_id: str = "", comma
                 refusal = _check_approval(command, every_minutes or 5, label)
                 if refusal:
                     return refusal
-                from row_bot.data_paths import default_workspace_root
+                from row_bot.data_paths import workspace_folder
 
-                spec.update(command=command, text=text, folder=str(default_workspace_root()))
+                spec.update(command=command, text=text, folder=str(workspace_folder()))
             else:
                 spec.update(url=url, text=text)
         elif kind == "time":
