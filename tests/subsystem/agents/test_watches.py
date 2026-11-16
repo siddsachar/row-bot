@@ -8,6 +8,7 @@ allowing only commands that just read, the caps) stay here, in the pull request 
 from __future__ import annotations
 
 import os
+from datetime import datetime
 
 import pytest
 
@@ -110,6 +111,9 @@ def test_a_command_watch_is_silent_until_its_output_changes_then_says_what_chang
     record = waits.get(record["id"])
     assert record["status"] == "waiting" and record["next_at"] == first + 1200 + 600
     assert waits.view(record)["watch"]["changes"] == 1
+    # The card's "Checked …": UTC with its offset, which the client writes in the viewer's zone (M5).
+    checked = waits.view(record)["watch"]["checked_at"]
+    assert checked.endswith("+00:00") and abs(datetime.fromisoformat(checked).timestamp() - (first + 1200)) < 1
 
     # The baseline moved: the same output again is silent.
     assert _tick(waits, platform, first + 1800) == 0 and len(fake.prompts) == 1

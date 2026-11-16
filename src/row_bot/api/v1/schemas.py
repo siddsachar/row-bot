@@ -167,6 +167,8 @@ class SubmitPayload(WireModel):
     page_id: str | None = Field(default=None, pattern=r"^page-[0-9a-f]{8}$")
     # A reply button's tap (F3): the reply that offered it. The text is the button's words, the person's own.
     tapped_choice: TappedChoice | None = None
+    # The sending device's IANA zone ("Europe/London"): "local time" in this turn means it (M10).
+    time_zone: str | None = Field(default=None, max_length=64)
 
 
 class RenamePayload(WireModel):
@@ -6362,7 +6364,7 @@ class WatchView(WireModel):
     checks: int = Field(ge=0)
     changes: int = Field(ge=0)
     max_changes: int = Field(ge=1)
-    # The last check's local time (ISO), "" before the first.
+    # The last check's time (ISO 8601 in UTC with its offset), "" before the first.
     checked_at: str = Field(max_length=32)
     # The last check's result in a line: "No change", "Couldn't check: …", or a judged check's own line.
     result: str = Field(max_length=200)
@@ -6384,8 +6386,11 @@ class WaitView(WireModel):
     conversation_title: str = Field(max_length=160)
     kind: Literal["process", "check", "time", "conversation", "watch"]
     label: str = Field(min_length=1, max_length=120)
-    # "checks every 5 min", "at 14:00" or "watching"; a watch's "every 10 min" or "every 5–60 min".
+    # "checks every 5 min" or "watching"; a watch's "every 10 min" or "every 5–60 min"; "" for a time wait.
     how: str = Field(max_length=40)
+    # When a time wait carries on, "" for the others; and until when any wait waits. ISO 8601 in UTC with its
+    # offset: the client writes them in the viewer's own zone (M5, M11).
+    at: str = Field(default="", max_length=32)
     until: str = Field(max_length=32)
     # "paused" is only ever a watch; "ended", a watch that ran out or reached its change cap and keeps its card
     # (with "Make this a workflow") until the person puts it away.
