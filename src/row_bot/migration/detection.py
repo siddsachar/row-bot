@@ -169,17 +169,13 @@ def hermes_homes() -> list[tuple[Path, str]]:
 
     The folder ``HERMES_HOME`` names, when set: Hermes uses it in place of its usual folder. Then
     ``~/.hermes`` everywhere; on Windows Hermes may use ``%LOCALAPPDATA%\\hermes`` instead. A place is
-    shown in words (home-relative, or the variable's name), never as the full path.
+    shown in words, never as a path: the usual folders by their short names, and the folder
+    ``HERMES_HOME`` names by the variable's name, however long or private that path is.
     """
     homes: list[tuple[Path, str]] = []
     named = os.environ.get("HERMES_HOME", "").strip()
     if named and Path(named).expanduser().is_absolute():
-        folder = Path(named).expanduser()
-        try:
-            place = "~/" + folder.relative_to(Path.home()).as_posix()
-        except ValueError:
-            place = "%HERMES_HOME%" if os.name == "nt" else "$HERMES_HOME"
-        homes.append((folder, place))
+        homes.append((Path(named).expanduser(), "%HERMES_HOME%" if os.name == "nt" else "$HERMES_HOME"))
     homes.append((Path.home() / ".hermes", "~/.hermes"))
     local = os.environ.get("LOCALAPPDATA", "").strip()
     if local:

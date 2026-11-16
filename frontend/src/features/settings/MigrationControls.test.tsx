@@ -313,6 +313,7 @@ it('the memories brought over wait for the person to review them in Import memor
       character_limit: 0,
       model: null,
       recent: [],
+      waiting: [],
     })),
     begin: vi.fn(),
     batch: vi.fn(async () => ({

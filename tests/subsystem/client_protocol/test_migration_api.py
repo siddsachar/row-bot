@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from uuid import uuid4
@@ -264,6 +265,25 @@ def test_migration_sources_name_the_usual_folders_on_the_computer_row_bot_runs_o
     assert result.json() == elsewhere.json()
     assert result.json()["sources"][0] == {"provider": "hermes", "label": "Hermes Agent",
                                            "found": True, "place": "~/.hermes"}
+
+
+@pytest.mark.platform
+def test_a_long_hermes_home_is_found_and_named_by_its_variable(tmp_path, monkeypatch):
+    """W7: a HERMES_HOME deep under the home folder is detected; its path never reaches the page."""
+    home = tmp_path / "home"
+    deep = home / "Documents" / "assistants" / "hermes-agent-profiles" / "work-laptop-profile-2026" / "hermes"
+    create_realistic_hermes_home(deep)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setenv("HERMES_HOME", str(deep))
+    local, _, _ = client_app()
+    with local:
+        _, headers = bootstrap(local)
+        result = local.get("/api/v1/system/migration/sources", headers=headers)
+    assert result.status_code == 200, result.text
+    variable = "%HERMES_HOME%" if os.name == "nt" else "$HERMES_HOME"
+    assert result.json()["sources"][0] == {"provider": "hermes", "label": "Hermes Agent",
+                                           "found": True, "place": variable}
+    assert "hermes-agent-profiles" not in result.text
 
 
 def test_browse_picks_the_folder_once_and_a_rescan_reuses_that_preview(tmp_path, monkeypatch):
