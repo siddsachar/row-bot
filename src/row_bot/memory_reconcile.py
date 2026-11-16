@@ -78,6 +78,11 @@ def _is_user(subject: str) -> bool:
     return _norm(subject) in _USER_SUBJECTS
 
 
+def _is_lesson(category: str) -> bool:
+    """A self_knowledge memory: Learning's lessons point at these, and only Learning changes one."""
+    return _norm(category) == "self_knowledge"
+
+
 def candidates_for(memory: NewMemory) -> list[dict]:
     """The saved memories a new fact is compared with: the one with its name, then the closest in meaning.
 
@@ -269,7 +274,8 @@ def _near_duplicate(memory: NewMemory, candidates: list[dict]) -> tuple[str, dic
     saved) when the fact says all the saved one does and more; None otherwise. A saved memory longer than
     the model is shown is never rewritten here."""
     for entity in candidates:
-        if str(entity.get("entity_type") or "") != memory.category or _is_user(entity.get("subject", "")):
+        if (str(entity.get("entity_type") or "") != memory.category or _is_user(entity.get("subject", ""))
+                or _is_lesson(memory.category) or _is_lesson(entity.get("entity_type", ""))):
             continue
         if not _same_entity(memory.subject, entity.get("subject", "")):
             continue
@@ -286,10 +292,11 @@ def _without_batch_duplicates(memories: list[NewMemory]) -> list[NewMemory]:
     (the fuller one is kept; of two that say the same, the first)."""
     kept: list[NewMemory] = []
     for memory in memories:
-        if _is_user(memory.subject):
+        if _is_user(memory.subject) or _is_lesson(memory.category):
             kept.append(memory)
             continue
         twin = next((other for other in kept if other.category == memory.category and not _is_user(other.subject)
+                     and not _is_lesson(other.category)
                      and _same_entity(other.subject, memory.subject)
                      and (covers(other.content, memory.content) or covers(memory.content, other.content))), None)
         if twin is None:
@@ -322,6 +329,11 @@ def plan(memories: list[NewMemory], *, invoke: Callable[[str], str] | None = Non
     planned: list[tuple[str, NewMemory, dict | None, str]] = []
     pending: list[tuple[NewMemory, list[dict]]] = []
     for memory in _without_batch_duplicates(memories):
+        if _is_lesson(memory.category):
+            # A self_knowledge memory (Learning's lessons point at them) is never merged into another, so it is
+            # added as it is; only Learning changes one. Nothing is merged into one either (candidates_for).
+            planned.append(("add", memory, None, memory.subject.strip()))
+            continue
         candidates = candidates_for(memory)
         same = _contained(memory, candidates)
         fuller = _fuller(memory, candidates)

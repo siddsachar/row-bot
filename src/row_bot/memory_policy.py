@@ -336,15 +336,19 @@ def _prefer_newer_and_more_specific(scored: list[tuple[float, dict, dict]],
 
     Two memories of one kind are near-duplicates when one says everything the other says
     (``memory_reconcile.covers``, strict: distinct facts never match). Of the two, the more specific one is
-    kept, or the newer when they say the same, in the better place of the two.
+    kept, or the newer when they say the same, in the better place of the two. ``self_knowledge`` memories
+    (Learning's lessons) are never folded, either way.
     """
     from row_bot.memory_reconcile import covers
 
     kept: list[tuple[float, dict, dict]] = []
     for item in scored:
         candidate, text = item[1], _memory_text(item[1])
+        if _memory_kind(candidate) == "self_knowledge":  # Learning's: never folded into another, nor one into it
+            kept.append(item)
+            continue
         twin = next((index for index, (_rank, other, _debug) in enumerate(kept)
-                     if _memory_kind(other) == _memory_kind(candidate)
+                     if _memory_kind(other) == _memory_kind(candidate) and _memory_kind(other) != "self_knowledge"
                      and (covers(_memory_text(other), text) or covers(text, _memory_text(other)))), None)
         if twin is None:
             kept.append(item)

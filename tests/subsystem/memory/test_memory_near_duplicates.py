@@ -134,6 +134,48 @@ def test_a_short_fact_is_too_short_to_call_a_duplicate(stack) -> None:
     assert reconcile.covers("Melanie paints sunsets over the lake.", "Melanie painted a sunset.")
 
 
+# ── Learning's lessons (self_knowledge) are never merged, either way ─────────
+
+LESSON = "Before a long report, hand the reading to a helper and summarise its notes."
+LESSON_FULLER = "Before a long report, hand the reading to a helper, then summarise its notes in five bullets."
+
+
+def test_two_near_duplicate_lessons_both_survive_unchanged(stack) -> None:
+    kg, reconcile, close = stack
+    saved = kg.save_entity("self_knowledge", "Long reports", LESSON)
+    close[saved["id"]] = 0.95
+
+    outcomes = reconcile.reconcile([
+        reconcile.NewMemory("self_knowledge", "Long reports", LESSON_FULLER),
+        reconcile.NewMemory("self_knowledge", "Long report reading", LESSON),
+    ], invoke=_never)
+
+    assert [outcome.action for outcome in outcomes] == ["add", "add"]
+    assert kg.get_entity(saved["id"])["description"] == LESSON
+    lessons = sorted(entity["description"] for entity in kg.list_entities("self_knowledge", limit=10))
+    assert lessons == sorted([LESSON, LESSON, LESSON_FULLER])
+
+
+def test_an_ordinary_near_duplicate_never_absorbs_a_lesson_nor_is_absorbed_by_one(stack) -> None:
+    kg, reconcile, close = stack
+    lesson = kg.save_entity("self_knowledge", "Long reports", LESSON)
+    note = kg.save_entity("concept", "Long reports", LESSON_FULLER)
+    close.update({lesson["id"]: 0.95, note["id"]: 0.95})
+
+    # An ordinary fact fuller than the lesson: the lesson is not rewritten (it is no candidate at all).
+    [ordinary] = reconcile.reconcile(
+        [reconcile.NewMemory("concept", "Long reports", LESSON_FULLER + " Keep each note short.")],
+        invoke=_add_everything)
+    # A lesson that an ordinary memory already says: it is still saved as its own lesson.
+    [new_lesson] = reconcile.reconcile([reconcile.NewMemory("self_knowledge", "Long reports", LESSON)],
+                                       invoke=_never)
+
+    assert ordinary.entity_id != lesson["id"]
+    assert kg.get_entity(lesson["id"])["description"] == LESSON
+    assert new_lesson.action == "add" and new_lesson.entity_id not in {lesson["id"], note["id"]}
+    assert kg.get_entity(note["id"])["description"] != LESSON
+
+
 # ── Recall prefers the newer, more specific ──────────────────────────────────
 
 
@@ -174,6 +216,15 @@ def test_recall_keeps_the_newer_of_two_memories_that_say_the_same(monkeypatch) -
     ])
 
     assert [memory["id"] for memory in decision.selected] == ["newer"]
+
+
+def test_recall_never_folds_two_near_duplicate_lessons(monkeypatch) -> None:
+    decision = _recall(monkeypatch, [
+        _candidate("lesson-a", "Long reports", LESSON, "2026-11-01", 0.80, kind="self_knowledge"),
+        _candidate("lesson-b", "Long reports, fuller", LESSON_FULLER, "2026-11-10", 0.79, kind="self_knowledge"),
+    ], query="How should I handle a long report?")
+
+    assert {memory["id"] for memory in decision.selected} == {"lesson-a", "lesson-b"}
 
 
 def test_recall_keeps_both_of_two_distinct_paintings(monkeypatch) -> None:
