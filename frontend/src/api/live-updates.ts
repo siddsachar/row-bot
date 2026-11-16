@@ -11,8 +11,12 @@ import type { LiveFrame } from './types';
  * again at once through its normal API.
  *
  * Topics (the server's `row_bot.application.live_updates` lists who publishes):
- * - `conversations`: the conversation list (created, renamed, pinned,
- *   deleted; a conversation starting, waiting on the person or settling).
+ * - `conversations`: the conversation list, only for what its rows show
+ *   (created, renamed, pinned, deleted, moved up; a conversation starting,
+ *   waiting on the person or settling). The controller gathers a burst of
+ *   them into one read of the list (`LIST_SIGNAL_WINDOW_MS`).
+ * - `waits`: what conversations wait for (a wait or watch made, checked or
+ *   ended): the sidebar's "Waiting for" and the waits' cards.
  * - `runs`: workflow runs started, finished, failed, stopped or waiting.
  * - `approvals`: approvals and questions raised, answered or expired.
  * - `helpers`: helper (agent) runs started, changing state or ended.
@@ -49,7 +53,8 @@ export type LiveTopic =
   | 'notices'
   | 'learning'
   | 'proactive'
-  | 'skill_offers';
+  | 'skill_offers'
+  | 'waits';
 
 /** How often a screen re-reads anyway, for when the live stream is unavailable. */
 export const LIVE_FALLBACK_MS = 60_000;

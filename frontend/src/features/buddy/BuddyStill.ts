@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRuntime } from '../../runtime';
-import { useShellSettled } from '../../shell-settled';
+import { useBackgroundReady } from '../../shell-settled';
 import { rememberBuddyMedia, revokeLater } from './BuddyAvatar';
 import { usePageUnloading } from './media';
 import type { BuddyPanelSession } from './BuddyPanel';
@@ -18,8 +18,8 @@ const noSession = {
  */
 export function useBuddyStill(conversation: string | null): string {
   const { controller, buddyOwner } = useRuntime();
-  // Buddy's reads wait until the open conversation is confirmed (B29).
-  const settled = useShellSettled();
+  // Buddy's reads wait until the first screen is up (B29).
+  const settled = useBackgroundReady();
   let session: BuddyPanelSession | null;
   try {
     session = conversation

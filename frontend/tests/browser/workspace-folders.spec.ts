@@ -298,8 +298,14 @@ async function notesViews(
     await page.setViewportSize(size);
     if (await popover.isVisible()) await page.keyboard.press('Escape');
     await expect(popover).toBeHidden();
-    const card = await detailsCard(page);
-    await card.getByText(/^Project notes:/).scrollIntoViewIfNeeded();
+    // As in notesPopover: the code folder's panel can take the card's place
+    // just after it was found on a phone, so find it again and retry.
+    await expect(async () => {
+      const card = await detailsCard(page);
+      await card
+        .getByText(/^Project notes:/)
+        .scrollIntoViewIfNeeded({ timeout: 5_000 });
+    }).toPass({ timeout: 60_000 });
     await views(page, info, `${name}-card${suffix}`);
     await expect(async () => check(await notesPopover(page))).toPass();
     await views(page, info, `${name}${suffix}`);
