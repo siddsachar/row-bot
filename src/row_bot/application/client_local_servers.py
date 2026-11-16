@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 PROBE_SECONDS = 0.8
 MAX_MODELS = 64
+# Models a server lists that never chat: embedding and reranking models (LM Studio types them
+# "embeddings" in some versions; their names say so in every runtime).
+_NOT_CHAT_TYPES = frozenset({"embedding", "embeddings", "rerank", "reranker"})
+_NOT_CHAT_MARKERS = ("embed", "rerank")
 
 
 @dataclass(frozen=True)
@@ -55,22 +59,29 @@ def _own_port() -> int:
     return get_app_port()
 
 
+def _chats(item: dict[str, Any], name: str) -> bool:
+    """Whether a listed model takes chat requests (not an embedding or reranking model)."""
+
+    kind = str(item.get("type") or "").lower()
+    return kind not in _NOT_CHAT_TYPES and not any(marker in name.lower() for marker in _NOT_CHAT_MARKERS)
+
+
 def _models(kind: str, payload: Any) -> list[str] | None:
-    """The model names a server lists, or None when the answer isn't a model list."""
+    """The chat models a server lists, or None when the answer isn't a model list."""
 
     if not isinstance(payload, dict):
         return None
-    if kind == "ollama":
-        items = payload.get("models")
-        if not isinstance(items, list):
-            return None
-        names = [str(item.get("name") or item.get("model") or "") for item in items if isinstance(item, dict)]
-    else:
-        items = payload.get("data")
-        if not isinstance(items, list):
-            return None
-        names = [str(item.get("id") or "") for item in items if isinstance(item, dict)]
-    return [name for name in names if name and len(name) <= 256][:MAX_MODELS]
+    items = payload.get("models" if kind == "ollama" else "data")
+    if not isinstance(items, list):
+        return None
+    names = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str((item.get("name") or item.get("model") if kind == "ollama" else item.get("id")) or "")
+        if name and len(name) <= 256 and _chats(item, name):
+            names.append(name)
+    return names[:MAX_MODELS]
 
 
 def _probe(target: Known) -> dict[str, Any] | None:
@@ -158,8 +169,10 @@ def connect(kind: str, port: int) -> dict[str, Any]:
         }, manage_secret=False)
         provider_id = custom.custom_provider_id(endpoint_id)
     infos = custom.refresh_custom_endpoint_models(provider_id)
+    chat = set(server["models"])
     return {"schema_version": 1, "provider_id": provider_id,
-            "model_refs": [f"model:{provider_id}:{info.model_id}" for info in infos][:MAX_MODELS]}
+            "model_refs": [f"model:{provider_id}:{info.model_id}" for info in infos
+                           if info.model_id in chat][:MAX_MODELS]}
 
 
 __all__ = ["KNOWN", "Known", "connect", "detect", "known"]

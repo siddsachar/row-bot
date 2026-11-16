@@ -3932,6 +3932,15 @@ def _reset_all_local_dbs() -> int:
     return 0
 
 
+def _size_words(size: int) -> str:
+    """A file's size in the unit that fits it (W9): "20.0 GB", "3.4 MB", "512 KB"."""
+
+    for unit, scale in (("GB", 1024 ** 3), ("MB", 1024 ** 2)):
+        if size >= scale:
+            return f"{size / scale:.1f} {unit}"
+    return f"{max(1, round(size / 1024))} KB"
+
+
 def _compact_chats() -> int:
     """``--compact-chats``: threads.db made small again, the old file kept beside it (R13)."""
     import sqlite3
@@ -3949,9 +3958,10 @@ def _compact_chats() -> int:
     except (RuntimeError, sqlite3.Error) as exc:
         print(f"The chat database wasn't compacted: {exc}")
         return 1
-    gb = 1024 ** 3
-    print(f"Chat database: {result['before'] / gb:.1f} GB -> {result['after'] / gb:.1f} GB "
-          f"({result['checkpoints']:,} old saved states removed).")
+    # The space can come back with no saved state removed: the copy leaves out unused pages (M13).
+    removed = result["checkpoints"]
+    what = f"{removed:,} old saved states removed" if removed else "unused space given back"
+    print(f"Chat database: {_size_words(result['before'])} -> {_size_words(result['after'])} ({what}).")
     print(f"The old file is kept as threads.db{chat_compact.KEPT_SUFFIX} beside it: delete it once Row-Bot "
           "opens your chats as before.")
     return 0

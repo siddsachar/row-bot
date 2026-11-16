@@ -488,3 +488,22 @@ def test_the_local_runtime_model_counts_as_local_everywhere_row_bot_asks(tmp_pat
     assert backup.is_local(ref)
     assert _is_local(ref)  # a thread's background call never swaps this model mid-turn
     assert not _is_cloud_model_ref(ref)  # prepared compaction (B6) treats it as local
+
+
+def test_the_local_runtime_models_show_by_name_under_a_provider_that_says_who_runs_them(
+        tmp_path, monkeypatch) -> None:
+    """llama.cpp lists only ids ("qwen3.5-4b"); pickers show the names Setup used (W12)."""
+    from row_bot import local_runtime
+    from row_bot.providers import custom
+
+    endpoint = _local_runtime_endpoint(tmp_path, monkeypatch, installed=False)
+    listed = {"object": "list", "data": [{"id": "qwen3.5-4b"}, {"id": "qwen3.8-27b-q3"}, {"id": "other"}]}
+
+    infos = custom.model_infos_from_openai_compatible_catalog(endpoint, listed)
+
+    assert [info.display_name for info in infos] == ["Qwen3.5 4B", "Qwen3.8 27B · 3-bit", "other"]
+    names = {item.id: item.display_name for item in custom.list_custom_provider_definitions()}
+    assert names[local_runtime.PROVIDER_ID] == "Row-Bot (llama.cpp)"
+    # Another llama.cpp server keeps the names its own list gives.
+    other = {**endpoint, "managed": None}
+    assert custom.model_infos_from_openai_compatible_catalog(other, listed)[0].display_name == "qwen3.5-4b"

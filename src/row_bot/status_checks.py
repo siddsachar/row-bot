@@ -201,18 +201,25 @@ def check_active_model() -> CheckResult:
             return CheckResult("Model", "warn", "No model selected", settings_tab="Models")
         from row_bot.providers.resolution import resolve_provider_config
 
+        from row_bot.providers.backup import model_name
+
+        # The model by its name, and why it can't run in the words the composer uses (W3): never its ref.
+        name = model_name(model)
         resolved = resolve_provider_config(model, allow_legacy_local=True)
         if resolved.provider_id in {"ollama", "local"}:
-            return CheckResult("Model", "ok", model, settings_tab="Models")
+            return CheckResult("Model", "ok", name, settings_tab="Models")
         from row_bot.providers.readiness import evaluate_runtime_readiness
 
         readiness = evaluate_runtime_readiness(resolved, refresh_provider_status=False)
         if readiness.selected_mode == "agent":
-            return CheckResult("Model", "ok", model, settings_tab="Models")
+            return CheckResult("Model", "ok", name, settings_tab="Models")
         if readiness.selected_mode == "chat_only":
-            return CheckResult("Model", "warn", f"{model} can chat, but tools and actions are off.",
+            return CheckResult("Model", "warn", f"{name} can chat, but tools and actions are off.",
                                settings_tab="Models")
-        return CheckResult("Model", "error", f"{model} can't run: {readiness.selection_reason}", settings_tab="Models")
+        from row_bot.application.workspace_setup import unavailable_reason
+
+        reason, _fix = unavailable_reason(model, resolved.provider_id, readiness, "agent")
+        return CheckResult("Model", "error", f"{name} can't run: {reason}.", settings_tab="Models")
     except Exception as exc:
         return CheckResult("Model", "error", str(exc), settings_tab="Models")
 
