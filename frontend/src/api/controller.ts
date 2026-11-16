@@ -3693,6 +3693,62 @@ export class ClientController {
     this.query(() =>
       this.transport.browserAction?.(conversation, action, signal),
     );
+  /** Show Row-Bot how (C3): the demo in this chat's pane, its controls and its narration. */
+  browserDemo = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.browserDemo?.(conversation, signal));
+  startBrowserDemo = (conversation: string) =>
+    this.query(() => this.transport.startBrowserDemo?.(conversation));
+  controlBrowserDemo = (
+    conversation: string,
+    demo: string,
+    action: 'stop' | 'undo' | 'discard',
+  ) =>
+    this.query(() =>
+      this.transport.controlBrowserDemo?.(conversation, demo, action),
+    );
+  setBrowserDemoAlways = (
+    conversation: string,
+    demo: string,
+    step: number,
+    always: boolean,
+  ) =>
+    this.query(() =>
+      this.transport.setBrowserDemoAlways?.(conversation, demo, step, always),
+    );
+  sendBrowserDemoNarration = (
+    conversation: string,
+    demo: string,
+    offset: number,
+    audio: Blob,
+  ) =>
+    this.query(() =>
+      this.transport.sendBrowserDemoNarration?.(
+        conversation,
+        demo,
+        offset,
+        audio,
+      ),
+    );
+  /** Draft a skill from the steps the person showed. */
+  draftDemoSkill = (
+    conversation: string,
+    demo: string,
+    purpose: string,
+    cancel?: AbortSignal,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.draftDemoSkill)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.draftDemoSkill(
+        conversation,
+        demo,
+        { purpose },
+        signal,
+      );
+    }, cancel);
+  /** Try it: a new chat with the skill pinned and its request in the composer, unsent. */
+  trySkill = (name: string) =>
+    this.query(() => this.transport.trySkill?.(name));
   browserSites = (signal?: AbortSignal) =>
     this.query(() => this.transport.browserSites?.(signal));
   clearBrowserSites = (site: string | null, signal?: AbortSignal) =>
