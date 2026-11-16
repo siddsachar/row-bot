@@ -2723,6 +2723,37 @@ class LocalModelRuntimeView(WireModel):
     on_this_computer: bool
 
 
+LocalServerKind = Literal["ollama", "lmstudio", "vllm", "llama_cpp"]
+
+
+class LocalServerFound(WireModel):
+    """A local model server that answered on its usual loopback port when "On this computer" opened."""
+
+    kind: LocalServerKind
+    label: str = Field(max_length=64)
+    port: int = Field(ge=1, le=65535)
+    base_url: str = Field(max_length=128)
+    models: list[str] = Field(max_length=64)
+    # The provider its models are under when it is already connected (Ollama always), else None.
+    provider_id: str | None = Field(default=None, max_length=160)
+
+
+class LocalServersSnapshot(WireModel):
+    schema_version: Literal[1]
+    servers: list[LocalServerFound] = Field(max_length=8)
+
+
+class LocalServerConnectRequest(WireModel):
+    kind: LocalServerKind
+    port: int = Field(ge=1, le=65535)
+
+
+class LocalServerConnection(WireModel):
+    schema_version: Literal[1]
+    provider_id: str = Field(max_length=160)
+    model_refs: list[str] = Field(max_length=64)
+
+
 class LocalModelInstallRequest(WireModel):
     model_id: LocalModelId
     # The size the Download button showed; the download starts only while it still holds.

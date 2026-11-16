@@ -872,6 +872,38 @@ export class HttpTransport implements ClientTransport {
   localRuntime(signal?: AbortSignal) {
     return wire.getLocalRuntime(this.base, this.session(), signal);
   }
+  localServers(signal?: AbortSignal) {
+    return wire.getLocalServers(this.base, this.session(), signal);
+  }
+  connectLocalServer(
+    body: wire.LocalServerConnectRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.connectLocalServer(this.base, this.session(), body, signal);
+  }
+  localModelRuntime(signal?: AbortSignal) {
+    return wire.getLocalModelRuntime(this.base, this.session(), signal);
+  }
+  installLocalModel(body: wire.LocalModelInstallRequest, signal?: AbortSignal) {
+    return wire.installLocalModel(this.base, this.session(), body, signal);
+  }
+  stopLocalModelRuntime(signal?: AbortSignal) {
+    return wire.stopLocalModelRuntime(this.base, this.session(), signal);
+  }
+  removeLocalModelRuntime(
+    body: wire.LocalModelRemoveRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.removeLocalModelRuntime(
+      this.base,
+      this.session(),
+      body,
+      signal,
+    );
+  }
+  repairLocalModelRuntime(signal?: AbortSignal) {
+    return wire.repairLocalModelRuntime(this.base, this.session(), signal);
+  }
   testChosenModel(signal?: AbortSignal) {
     return wire.testChosenModel(this.base, this.session(), signal);
   }

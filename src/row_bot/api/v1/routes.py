@@ -6945,6 +6945,22 @@ def create_router(
             request, dto.LocalRuntimeSnapshot, {**snapshot, "on_this_computer": on_machine}
         )
 
+    @router.get("/setup/local-servers")
+    async def setup_local_servers(request: Request) -> JSONResponse:
+        # Asked only when "On this computer" opens: 127.0.0.1 on each runtime's usual port, nowhere else.
+        await session(request)
+        from row_bot.application.client_local_servers import detect
+
+        return await respond(request, dto.LocalServersSnapshot, await call(detect))
+
+    @router.post("/setup/local-servers/connect")
+    async def setup_local_server_connect(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.LocalServerConnectRequest, 1024)
+        from row_bot.application.client_local_servers import connect
+
+        return await respond(request, dto.LocalServerConnection, await call(connect, body.kind, body.port))
+
     # Run on this computer (E1): the pinned llama.cpp build and models Row-Bot downloads and runs.
     async def local_model_runtime(request: Request, result: dict) -> JSONResponse:
         on_machine = on_this_computer(await _context(request))

@@ -135,6 +135,14 @@ def snapshot() -> dict[str, Any]:
     }
 
 
+def model_ready(model_id: str) -> bool:
+    """Whether ``model_id`` is downloaded with a build to run it (Setup's pick may become the default)."""
+
+    view = snapshot()
+    return view["state"] in ("installed", "running") and any(
+        row["id"] == model_id and row["installed"] for row in view["models"])
+
+
 def _fail(reason: str, **facts: Any) -> None:
     global _failure
     _failure = {"reason": reason, **facts}
@@ -206,4 +214,4 @@ def repair() -> dict[str, Any]:
     return snapshot()
 
 
-__all__ = ["install_model", "installer", "remove", "repair", "snapshot", "stop"]
+__all__ = ["install_model", "installer", "model_ready", "remove", "repair", "snapshot", "stop"]
