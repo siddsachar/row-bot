@@ -290,6 +290,9 @@ class ReleaseCheck:
 
     def write_report(self) -> dict[str, Any]:
         results = self.results()
+        if self.args.practice or self.args.jobs:
+            for result in results:
+                result["l4"] = l4_summary(self.data_dir(str(result.get("tier")), str(result.get("person"))))
         if results:
             self.run.setdefault("model", results[0].get("model"))
         built = report_module.build(results, run=self.run, tiers=self.run.get("tiers"),
@@ -306,6 +309,32 @@ def _build() -> str:
                               timeout=20).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
+
+
+def l4_summary(data: Path) -> dict[str, Any]:
+    """What practice and the quick question (L4b) and Learning's own jobs (L4c) did in a person's profile, read
+    after the run through the product's own readers (they read the profile's Learning store only)."""
+
+    from row_bot.learning import practice, question
+    from row_bot.learning.improver import jobs
+    from row_bot.learning.store import LearningStore
+
+    store = LearningStore(data)
+    if not store.exists():
+        return {}
+    night = practice.last_night(store) or {}
+    held = jobs.state(store)
+    return {
+        "practice": {"runs": len(practice.runs(store)), "tasks": len(practice.pool(store)),
+                     "training_turns": len(practice.turns(store)),
+                     "last_night": {key: night.get(key) for key in ("night", "made", "ran", "passed", "tokens")
+                                    if key in night}},
+        "questions_answered": sum(len(items) for items in question.answers_for(store).values()),
+        "jobs": {str(job): {"by": (item or {}).get("by") or "main",
+                            **{key: ((item or {}).get("last") or {}).get(key)
+                               for key in ("verdict", "items", "personal_passed", "main_passed")}}
+                 for job, item in sorted(held.items()) if isinstance(item, dict)},
+    }
 
 
 def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:

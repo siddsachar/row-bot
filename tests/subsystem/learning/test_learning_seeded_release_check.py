@@ -269,6 +269,41 @@ def test_practice_and_jobs_reach_every_persons_build_only_when_asked(tmp_path, h
     assert (run["practice"], run["jobs"]) == (True, True)
 
 
+def test_the_report_says_what_practice_and_learnings_own_jobs_did_and_when_they_were_off(tmp_path, home):
+    # O179: practice and jobs ship on only if the release check passes with them on, so it says what they did.
+    from row_bot.learning import practice
+    from row_bot.learning.improver import jobs
+    from row_bot.learning.store import LearningStore
+
+    (tmp_path / "eval-profile").mkdir()
+    plain = release_check.ReleaseCheck(_args(tmp_path, people="mara"), runner=FakePerson(), say=lambda _text: None)
+    plain.execute()
+    report = (tmp_path / "out" / "report.md").read_text(encoding="utf-8")
+    assert "Practice and the quick question (L4b): off in this run." in report
+    assert "Learning's own jobs (L4c): off in this run." in report and "not built yet** (L4b)" not in report
+
+    args = release_check.parse(["--out", str(tmp_path / "out-l4"), "--scratch", str(tmp_path / "scratch-l4"),
+                                "--eval-profile", str(tmp_path / "eval-profile"), "--days", "2", "--people", "mara",
+                                "--practice", "--jobs"])
+    check = release_check.ReleaseCheck(args, runner=FakePerson(), say=lambda _text: None)
+    check.execute()
+    store = LearningStore(check.data_dir("16gb", "mara"))
+    store.create()
+    store.set_meta_values({
+        practice.NIGHT_KEY: json.dumps({"night": "2026-12-27", "made": 3, "ran": 3, "passed": 2, "tokens": 41_000}),
+        jobs.STATE_KEY: json.dumps({"drafting": {"by": "personal", "last": {
+            "verdict": "matched", "items": 12, "personal_passed": 11, "main_passed": 12}}}),
+    })
+
+    check.write_report()
+
+    report = (tmp_path / "out-l4" / "report.md").read_text(encoding="utf-8")
+    assert ("- Practice (L4b): 0 tasks in use from 0 runs, 0 passing turns in the training data; last night "
+            "(2026-12-27): made 3, ran 3, passed 2, 41,000 tokens; quick questions answered 0.") in report
+    assert ("- Learning's own jobs (L4c): drafting by the personal model (latest test: matched, personal 11 and "
+            "main 12 of 12).") in report
+
+
 def test_a_planned_crash_starts_the_person_again_and_a_full_cap_stops_cleanly(tmp_path, home):
     (tmp_path / "eval-profile").mkdir()
     fake = FakePerson(exits={"idris": [release_check.EXIT_PLANNED_CRASH, 0], "mara": [release_check.EXIT_TOKEN_CAP]},
