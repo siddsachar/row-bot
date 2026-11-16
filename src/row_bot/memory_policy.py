@@ -322,6 +322,45 @@ def _is_weak_description_match(candidate: dict, score: float, min_score: float) 
     return lexical_score < 0.55 or score < max(0.55, min_score + 0.08)
 
 
+def _memory_text(candidate: dict) -> str:
+    return str(candidate.get("content", candidate.get("description", "")) or "")
+
+
+def _memory_kind(candidate: dict) -> str:
+    return str(candidate.get("entity_type") or candidate.get("category") or "")
+
+
+def _prefer_newer_and_more_specific(scored: list[tuple[float, dict, dict]],
+                                    rejected: list[dict]) -> list[tuple[float, dict, dict]]:
+    """*scored* (best first) with near-duplicates folded (P2: a near neighbour outranked the right memory).
+
+    Two memories of one kind are near-duplicates when one says everything the other says
+    (``memory_reconcile.covers``, strict: distinct facts never match). Of the two, the more specific one is
+    kept, or the newer when they say the same, in the better place of the two.
+    """
+    from row_bot.memory_reconcile import covers
+
+    kept: list[tuple[float, dict, dict]] = []
+    for item in scored:
+        candidate, text = item[1], _memory_text(item[1])
+        twin = next((index for index, (_rank, other, _debug) in enumerate(kept)
+                     if _memory_kind(other) == _memory_kind(candidate)
+                     and (covers(_memory_text(other), text) or covers(text, _memory_text(other)))), None)
+        if twin is None:
+            kept.append(item)
+            continue
+        other, other_text = kept[twin][1], _memory_text(kept[twin][1])
+        more_specific = covers(text, other_text) and not covers(other_text, text)
+        less_specific = covers(other_text, text) and not covers(text, other_text)
+        newer = str(candidate.get("updated_at") or "") > str(other.get("updated_at") or "")
+        if more_specific or (not less_specific and newer):
+            rejected.append({**kept[twin][2], "reason": "near_duplicate"})
+            kept[twin] = item
+        else:
+            rejected.append({**item[2], "reason": "near_duplicate"})
+    return kept
+
+
 def _build_query(latest_user_text: str, recent_user_texts: list[str]) -> str:
     """The latest message; a short follow-up ("try now") is read with the message before it.
 
@@ -486,6 +525,7 @@ def build_auto_recall(
         scored.append((rank, candidate, debug))
 
     scored.sort(key=lambda item: item[0], reverse=True)
+    scored = _prefer_newer_and_more_specific(scored, rejected)
     if scored:
         best = max(debug["relevance"] for _rank, _cand, debug in scored)
         for _rank, _cand, debug in scored:
