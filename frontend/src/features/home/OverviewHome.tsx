@@ -77,7 +77,7 @@ import {
 import { usePendingApprovals } from '../shell/pending-approvals';
 import FixAction, { RunAgain } from './FixAction';
 import MemoryNoticeActions from './MemoryNotice';
-import { useWaits } from '../shell/Waits';
+import { useWaits, waitHow } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
 import { useProactive, useProactiveOn } from '../proactive/proactive-state';
 import { forYouLead } from '../proactive/words';
@@ -188,7 +188,7 @@ const titleOf = (row: ConversationView) => row.title || 'Untitled conversation';
 
 /** "Today, 1:00 PM" or "Thu 30 Oct, 9:30 AM": when a scheduled post goes out. */
 function slotWords(at: string, now: Date) {
-  const when = new Date(at);
+  const when = parseTimestamp(at) ?? new Date(Number.NaN);
   const time = when.toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
@@ -920,7 +920,7 @@ export default function OverviewHome({
     icon: <Hourglass size={15} aria-hidden />,
     tone: '3',
     title: wait.label,
-    meta: `${wait.conversation_title || 'A conversation'} · ${wait.how}`,
+    meta: `${wait.conversation_title || 'A conversation'} · ${waitHow(wait)}`,
     label: `Open ${wait.conversation_title || 'the conversation'}`,
     onOpen: () => onOpenConversation(wait.conversation_id),
     actions: (

@@ -20,6 +20,7 @@ from uuid import UUID, uuid5
 
 from row_bot import agent_profiles, goal_checks, goals
 from row_bot.runtime import admissions
+from row_bot.utils.times import utc_text
 
 
 _PROFILE_SLUG = re.compile(r"[a-z][a-z0-9_-]{1,63}")
@@ -167,9 +168,9 @@ def _goal_public(goal: Mapping[str, Any], conversation_id: str) -> dict[str, Any
         "max_turns": max(0, int(goal.get("max_turns") or 0)),
         "token_budget": max(0, int(goal.get("token_budget") or 0)),
         "tokens_used": max(0, int(goal.get("tokens_used") or 0)),
-        # Time running and the optional time limit (B244).
-        "started_at": str(goal.get("created_at") or "")[:64],
-        "window_started_at": str(goal.get("window_started_at") or goal.get("created_at") or "")[:64],
+        # Time running and the optional time limit (B244), in UTC with the offset (M11).
+        "started_at": utc_text(goal.get("created_at")),
+        "window_started_at": utc_text(goal.get("window_started_at") or goal.get("created_at")),
         "max_minutes": min(_MAX_GOAL_MINUTES, max(0, int(goal.get("max_minutes") or 0))),
         "last_progress": _public_text(goal.get("last_progress"), 2048),
         "last_reason": _public_text(goal.get("last_reason"), 2048),
@@ -208,8 +209,8 @@ def _check_public(goal: Mapping[str, Any]) -> dict[str, Any] | None:
         "state": state if state in _CHECK_STATES else "",
         "result": {
             "exit_code": exit_code if type(exit_code) is int else None,
-            "started_at": str(result.get("started_at") or "")[:64],
-            "finished_at": str(result.get("finished_at") or "")[:64],
+            "started_at": utc_text(result.get("started_at")),
+            "finished_at": utc_text(result.get("finished_at")),
             "duration_seconds": max(0, int(result.get("duration_seconds") or 0)),
             # The command's own output can name local paths and secrets: redacted like every goal field.
             "output_tail": _public_text(str(result.get("output_tail") or ""), 8192),

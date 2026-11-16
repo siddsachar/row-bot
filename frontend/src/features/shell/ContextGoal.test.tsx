@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { GoalPage, GoalSummary } from '../../api/types';
+import { setServerUtcOffset } from '../../ui/format';
 import ContextGoal, {
   goalState,
   goalTurn,
@@ -363,6 +364,26 @@ it('shows the time running and the tokens used, with the time limit (B244)', asy
   expect(
     goalUsage({ ...running, status: 'paused', tokens_used: 950 }, now),
   ).toEqual(['950 tokens']);
+  // M11: a goal started a minute ago on a server eight hours behind is a minute old, not "7 h 59 min",
+  // whether its time says its offset or is the server's own clock.
+  const minuteOld = new Date('2026-11-16T17:03:00Z');
+  const fresh = {
+    ...running,
+    tokens_used: 0,
+    started_at: '2026-11-16T17:01:58+00:00',
+  };
+  expect(goalUsage(fresh, minuteOld)).toEqual(['1 min']);
+  setServerUtcOffset(-480);
+  try {
+    expect(
+      goalUsage(
+        { ...fresh, started_at: '2026-11-16T09:01:58.325300' },
+        minuteOld,
+      ),
+    ).toEqual(['1 min']);
+  } finally {
+    setServerUtcOffset(null);
+  }
   render(
     <ContextGoal
       conversationId="conversation-a"

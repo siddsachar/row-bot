@@ -1673,10 +1673,15 @@ class ClientPlatformService:
         # conversation, under every approval level (N9).
         if rules := person_rules(conversation_id):
             config["configurable"]["person_rules"] = rules
+        from row_bot.schedule_zones import is_zone
+        # The person's device zone: "local time" in this turn means it, and a new schedule keeps it (M10).
+        if is_zone(device_zone := payload.get("time_zone")):
+            config["configurable"]["device_time_zone"] = device_zone
         from copy import deepcopy
         from row_bot.application.profile_controls import freeze_profile
         if frozen_context is not None:
-            for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot"):
+            for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot",
+                          "device_time_zone"):
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
