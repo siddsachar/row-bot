@@ -3443,6 +3443,30 @@ def create_router(
         )
         return await respond(request, dto.SkillOfferPage, result)
 
+    @router.post("/conversations/{conversation_id}/browser/demo/{demo_id}/draft")
+    async def skill_demo_draft(conversation_id: str, demo_id: str, request: Request) -> JSONResponse:
+        """Show Row-Bot how (C3): draft a skill from the steps the person showed, for their review."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.SkillDemoDraftRequest, 4096)
+        if len(demo_id or "") != 32 or any(char not in "0123456789abcdef" for char in demo_id):
+            raise ProtocolError("demo_missing", 404)
+        from row_bot.application.skill_offer_views import draft_demo_skill
+
+        result = await call(
+            draft_demo_skill, service, conversation_id, demo_id, body.model_dump(mode="json"),
+            dispatch_validation(request, current),
+        )
+        return await respond(request, dto.SkillOfferPage, result)
+
+    @router.post("/skills/{name}/try")
+    async def skill_try(name: str, request: Request) -> JSONResponse:
+        """Try it: a new chat with the saved skill pinned and its request in the composer, not sent."""
+        current = await session(request, lane="mutation")
+        from row_bot.application.skill_offer_views import try_skill
+
+        result = await call(try_skill, service, name, dispatch_validation(request, current))
+        return await respond(request, dto.SkillTryResult, result)
+
     @router.post("/conversations/{conversation_id}/skill-offers/{offer_id}/dismiss")
     async def skill_offer_dismiss(conversation_id: str, offer_id: str, request: Request) -> JSONResponse:
         """"Not now": the offer closes; its task isn't offered again for 30 days."""
