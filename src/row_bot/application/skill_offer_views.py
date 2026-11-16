@@ -62,9 +62,14 @@ def draft_demo_skill(service: Any, conversation_id: str, demo_id: str, body: dic
         validate()
     _readable(service, conversation_id)
     try:
-        return skill_offers.draft_from_demo(conversation_id, demo_id, str(body.get("purpose") or ""))
+        page = skill_offers.draft_from_demo(conversation_id, demo_id, str(body.get("purpose") or ""))
     except skill_offers.SkillOfferError as error:
         raise ClientPlatformError(error.code) from None
+    # Drafted, the steps are forgotten: the Browser pane's line says so at once.
+    from row_bot.application import client_browser
+
+    client_browser._changed(client_browser._engine(start=False), conversation_id)  # noqa: SLF001
+    return page
 
 
 def try_skill(service: Any, name: str, validate: Callable[[], None] | None = None) -> dict[str, Any]:
