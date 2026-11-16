@@ -193,14 +193,16 @@ def test_pack_pages_continue_and_revision_invalidates_old_cursor(owner):
 
 
 def test_looks_are_listed_by_the_name_the_person_sees(owner):
-    """W20: a generated look ("hatch-…") sorted by its folder sat between "Glyph" and "Hover"."""
-    pack(owner, "hover", name="Hover", folder="builtins")
-    pack(owner, "brew", name="Brew", folder="builtins")
-    pack(owner, "hatch-7f3a", name="Small cheerful heron")
+    """W20: a generated look sorted by its folder, then by the hidden "Buddy …" of the built-ins' names."""
+    pack(owner, "hover", name="Buddy Hover", folder="builtins")
+    pack(owner, "brew", name="Buddy Brew", folder="builtins")
+    pack(owner, "hatch-7f3a", name="cheerful heron")
+    pack(owner, "hatch-91c2", name="Small mystical fox")
 
     names = [item.name for item in service.list_buddy_packs(validate=lambda: None).packs]
 
-    assert names == ["Brew", "Hover", "Small cheerful heron"]
+    # Shown as Brew, cheerful heron, Hover, Small mystical fox: case does not count.
+    assert names == ["Buddy Brew", "cheerful heron", "Buddy Hover", "Small mystical fox"]
 
 
 def test_pack_media_and_selection_are_exact_contained_and_private(owner):

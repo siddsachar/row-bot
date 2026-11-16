@@ -238,6 +238,29 @@ it('Add offers every way to run models locally, Row-Bot’s download among them;
   ).toBeVisible();
 });
 
+it('on a Mac, Repair checks this Mac’s memory, not a graphics card (M2)', async () => {
+  const mac = view(['qwen3.8-27b-q2'], {
+    computer: 'Apple M4 (16 GB memory)',
+    acceleration: 'metal',
+    acceleration_label: 'Apple silicon (Metal)',
+  });
+  mock.controller.localModelRuntime.mockResolvedValue(mac);
+  mock.controller.repairLocalModelRuntime.mockResolvedValue(mac);
+  show();
+
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: 'Repair: check this Mac’s memory again',
+    }),
+  );
+  expect(screen.queryByRole('button', { name: /graphics card/ })).toBeNull();
+  expect(
+    await screen.findByText(
+      'Checked: Apple M4 (16 GB memory) · Apple silicon (Metal).',
+    ),
+  ).toBeVisible();
+});
+
 it('an outdated build keeps working and offers its update with the size', async () => {
   const outdated = view(['qwen3.8-27b-q2'], { update_bytes: 0.6 * GB });
   outdated.models[0] = { ...outdated.models[0], download_bytes: 0.6 * GB };
