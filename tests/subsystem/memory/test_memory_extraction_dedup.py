@@ -54,9 +54,11 @@ def test_extract_from_conversation_handles_response_shapes_and_invalid_payloads(
     monkeypatch.setattr("row_bot.models.get_current_model", lambda: "fake")
     monkeypatch.setattr("row_bot.models.get_llm_for", lambda _model, **_kwargs: FakeLLM(next(responses)))
 
+    # With only the person's lines, every fact is theirs (the attribution guard).
+    mine = {"said_by": "user", "evidence_role": "user"}
     assert memory_extraction._extract_from_conversation("User: Ada likes tests.") == [
-        {"category": "person", "subject": "Ada", "content": "Ada likes tests."},
-        {"relation_type": "works_on", "source_subject": "Ada", "target_subject": "Row-Bot"},
+        {"category": "person", "subject": "Ada", "content": "Ada likes tests.", **mine},
+        {"relation_type": "works_on", "source_subject": "Ada", "target_subject": "Row-Bot", **mine},
     ]
     assert memory_extraction._extract_from_conversation("User: nothing") == []
     assert memory_extraction._extract_from_conversation("User: invalid") == []
@@ -102,16 +104,18 @@ def test_extraction_runs_on_the_default_model_and_reads_a_schema_reply(tmp_path,
 
     extracted = contextvars.copy_context().run(during_a_local_turn)
 
+    mine = {"said_by": "user", "evidence_role": "user"}
     assert extracted == [
-        {"category": "person", "subject": "Ada", "content": "Ada maintains the test suite."},
-        {"relation_type": "works_on", "source_subject": "Ada", "target_subject": "Row-Bot", "confidence": 0.9},
+        {"category": "person", "subject": "Ada", "content": "Ada maintains the test suite.", **mine},
+        {"relation_type": "works_on", "source_subject": "Ada", "target_subject": "Row-Bot", "confidence": 0.9,
+         **mine},
     ]
     [(ref, bound)] = calls
     assert ref == "model:openai:gpt-5"
     assert bound["max_tokens"] == background.ANSWER_TOKENS["extraction"] + background.REASONING_HEADROOM_TOKENS
     schema = bound["response_format"]["json_schema"]["schema"]
     assert schema["properties"]["memories"]["items"]["anyOf"][1]["required"] == [
-        "relation_type", "source_subject", "target_subject", "confidence"]
+        "relation_type", "source_subject", "target_subject", "confidence", "said_by"]
 
 
 def test_entry_properties_preserve_source_context_evidence_confidence_and_method(tmp_path, monkeypatch, reload_for_data_dir) -> None:

@@ -242,9 +242,10 @@ def test_extract_from_conversation_parses_json_filters_invalid_and_handles_failu
 
     extracted = memory_extraction._extract_from_conversation("User: Ada likes tests.")
 
+    mine = {"said_by": "user", "evidence_role": "user"}
     assert extracted == [
-        {"category": "person", "subject": "Ada", "content": "Ada likes tests"},
-        {"relation_type": "works_on", "source_subject": "Ada", "target_subject": "Row-Bot"},
+        {"category": "person", "subject": "Ada", "content": "Ada likes tests", **mine},
+        {"relation_type": "works_on", "source_subject": "Ada", "target_subject": "Row-Bot", **mine},
     ]
 
     class BrokenLLM:
