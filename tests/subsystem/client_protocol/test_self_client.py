@@ -88,14 +88,33 @@ def test_a_guide_page_reads_from_the_installed_guides(service, tmp_path, monkeyp
 
 
 def test_status_is_written_for_the_person_without_ids_or_paths(service, monkeypatch):
-    """G6: /status showed the model's overview, with a line meant for the model and the task database's path."""
-    from row_bot import self_health
-    from row_bot.self_health import Problem
+    """G6: /status showed the model's overview, with a line meant for the model and the task database's path.
+    W3: the model by its name and why it can't run in plain words; Needs you counts what the sidebar counts
+    (the attention list and the approvals waiting), and Monitor's warnings follow on their own line."""
+    from types import SimpleNamespace
 
-    monkeypatch.setattr(self_health, "problems", lambda: [Problem(
-        "health:sign-in:codex", "ChatGPT sign-in needs attention", "Your ChatGPT sign-in has expired.", "error",
-        {"kind": "reconnect_account", "href": "/settings/models?provider=codex", "target": "codex",
-         "name": "ChatGPT"})])
+    from row_bot import models
+    from row_bot.application import client_diagnosis, client_monitor
+    from row_bot.providers import backup, readiness
+
+    sign_in = {"kind": "reconnect_account", "href": "/settings/models?provider=codex", "target": "codex",
+               "name": "ChatGPT"}
+    monkeypatch.setattr(client_monitor, "read_attention", lambda include_update: {"problems": [{
+        "id": "health:model", "title": "Model needs attention", "place": "health",
+        "detail": "GPT-6.1 Sol can't run: ChatGPT / Codex isn't connected.",
+        "fix": {"kind": "choose_model", "href": "/settings/models#default-model"}}], "update": None})
+    monkeypatch.setattr(client_monitor, "read_pending_approvals", lambda: {"items": [{}], "total": 1})
+    monkeypatch.setattr(client_diagnosis, "read_system_health", lambda: {"checks": [
+        {"id": "sign-in:codex", "name": "ChatGPT sign-in", "status": "warn",
+         "detail": "Row-Bot couldn't read your ChatGPT sign-in.", "fix": sign_in},
+        {"id": "model", "name": "Model", "status": "error", "detail": "counted under Needs you", "fix": None},
+        {"id": "disk", "name": "Disk", "status": "ok", "detail": "Plenty free", "fix": None}]})
+    unready = SimpleNamespace(ready=False, credential_status="missing", errors=["credentials missing"])
+    monkeypatch.setattr(models, "get_current_model", lambda: "model:codex:gpt-6.1-sol")
+    monkeypatch.setattr(backup, "model_name", lambda ref: "GPT-6.1 Sol")
+    monkeypatch.setattr(readiness, "evaluate_runtime_readiness", lambda *args, **kwargs: SimpleNamespace(
+        selected_mode="blocked", agent=unready, chat=unready,
+        selection_reason="gpt-6.1-sol via codex is not chat-ready: provider credentials or runtime are not configured"))
     monkeypatch.setattr("row_bot.updater.summary_for_status", lambda: {"update_available": False})
     from row_bot import threads
 
@@ -109,9 +128,20 @@ def test_status_is_written_for_the_person_without_ids_or_paths(service, monkeypa
     text = response.json()["text"]
     assert response.json()["title"] == "Status"
     assert text.startswith("**Row-Bot ") and "· up to date" in text
+    assert "- **Model:** GPT-6.1 Sol, can't run: ChatGPT / Codex isn't connected" in text
     assert "- **Approvals in this chat:** Auto" in text  # A new conversation starts at Auto.
-    assert ("  - ChatGPT sign-in needs attention: [Reconnect ChatGPT](/settings/models?provider=codex)") in text
-    for model_only in ("Canonical ref", "provider_id", "Task DB", "row_bot_status"):
+    assert text.split("- **Needs you:** ", 1)[1].splitlines()[:3] == [
+        "2",
+        "  - 1 approval is waiting",
+        "  - Model needs attention · GPT-6.1 Sol can't run: ChatGPT / Codex isn't connected: "
+        "[Choose a model](/settings/models#default-model)",
+    ]
+    assert text.split("- **Monitor:** ", 1)[1].splitlines() == [
+        "1 warning",
+        "  - ChatGPT sign-in · Row-Bot couldn't read your ChatGPT sign-in: "
+        "[Reconnect ChatGPT](/settings/models?provider=codex)",
+    ]
+    for model_only in ("Canonical ref", "provider_id", "Task DB", "row_bot_status", "model:codex", "chat-ready"):
         assert model_only not in text
     assert not re.search(r"(?i)\b[A-Z]:\\|/(?:Users|home)/", text)
 

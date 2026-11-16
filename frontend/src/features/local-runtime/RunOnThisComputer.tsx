@@ -15,6 +15,7 @@ import { Button, IconButton } from '../../ui/primitives';
 import { useOptionalController } from './useLocalModelRuntime';
 import {
   OLDER_NOTE,
+  choiceModels,
   factLine,
   failureWords,
   fitWords,
@@ -141,12 +142,17 @@ export default function RunOnThisComputer({
     );
   }
 
-  // The chosen model; without a choice, a downloaded one, else the recommendation.
+  // The chosen model; without a choice, the one whose download was stopped (it
+  // resumes), a downloaded one, else the recommendation.
+  const stopped =
+    view.download?.phase === 'stopped' ? view.download.model_id : null;
   const model = chosen
     ? pickedModel(view, chosen)
-    : (downloaded.find((item) => item.id === view.recommended) ??
-      downloaded[0] ??
-      pickedModel(view, null));
+    : stopped
+      ? pickedModel(view, stopped)
+      : (downloaded.find((item) => item.id === view.recommended) ??
+        downloaded[0] ??
+        pickedModel(view, null));
   const ready = Boolean(model?.installed && view.build_installed);
   const failure = failureWords(view);
 
@@ -228,7 +234,7 @@ function ModelChoices({
 }) {
   return (
     <ul className="local-model-choices" aria-label="Models for this computer">
-      {view.models.map((model: LocalModelOption) => (
+      {choiceModels(view).map((model: LocalModelOption) => (
         <li key={model.id}>
           <button
             type="button"
@@ -242,9 +248,15 @@ function ModelChoices({
               {model.id === view.recommended && <small>Recommended</small>}
             </span>
             <span className="local-model-choice-facts">
-              {model.installed ? 'Downloaded' : sizeWords(model.size_bytes)} ·{' '}
-              {fitWords(model.fit)}
-              {model.older ? ' · smaller, older generation' : ''}
+              <span className="local-model-fit" data-fit={model.fit}>
+                {fitWords(model.fit, view.acceleration === 'metal')}
+              </span>
+              <span>
+                {model.installed
+                  ? 'Downloaded'
+                  : `${sizeWords(model.download_bytes || model.size_bytes)} download`}
+                {model.older ? ' · smaller, older generation' : ''}
+              </span>
             </span>
           </button>
         </li>

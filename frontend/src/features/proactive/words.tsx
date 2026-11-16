@@ -223,6 +223,29 @@ export function groupMoments(
   return groups.filter((group) => group.moments.length > 0);
 }
 
+/** Whole local days from *now*'s day to *at*'s: 0 today, 1 tomorrow. */
+export function daysAhead(at: Date, now: Date): number {
+  const day = (date: Date) =>
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return Math.round((day(at) - day(now)) / 86_400_000);
+}
+
+/**
+ * The heading for something on a later day than today: "Tomorrow", the
+ * weekday within the week ("Thursday"), else the date ("Mon 24 Nov").
+ */
+export function dayTitle(at: Date, now: Date): string {
+  const days = daysAhead(at, now);
+  if (days <= 1) return 'Tomorrow';
+  if (days < 7)
+    return new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(at);
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).format(at);
+}
+
 /** The newest live morning brief, if any. */
 export function currentBrief(
   moments: readonly ProactiveMomentView[],

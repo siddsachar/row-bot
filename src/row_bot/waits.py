@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
+from row_bot.utils.times import utc_text
+
 _LOG = logging.getLogger(__name__)
 
 Kind = Literal["process", "check", "time", "conversation", "watch"]
@@ -394,11 +396,11 @@ def view(record: dict[str, Any], now: float | None = None) -> dict[str, Any]:
     if record["kind"] == "watch":
         return _watch_view(record, now)
     every = record["every"]
-    how = (f"checks every {every / 60:g} min" if every else
-           f"at {datetime.fromtimestamp(record['next_at']):%H:%M}" if record["kind"] == "time" else "watching")
+    # A time wait says when in `at`; the client writes it in the viewer's own zone and clock style (M5).
+    at = utc_text(record["next_at"]) if record["kind"] == "time" and not every else ""
+    how = f"checks every {every / 60:g} min" if every else "" if at else "watching"
     return {"wait_id": record["id"], "conversation_id": record["conversation_id"], "kind": record["kind"],
-            "label": record["label"], "how": how,
-            "until": datetime.fromtimestamp(record["until"]).isoformat(timespec="minutes"),
+            "label": record["label"], "how": how, "at": at, "until": utc_text(record["until"]),
             "status": record["status"]}
 
 
@@ -985,11 +987,11 @@ def _watch_view(record: dict[str, Any], now: float) -> dict[str, Any]:
     return {
         "wait_id": record["id"], "conversation_id": record["conversation_id"], "kind": "watch",
         "label": record["label"], "how": how[:40],
-        "until": datetime.fromtimestamp(record["until"]).isoformat(timespec="minutes"), "status": status,
+        "until": utc_text(record["until"]), "status": status, "at": "",
         "watch": {
             "mode": spec["mode"], "target": target[:500], "checks": int(state.get("checks") or 0),
             "changes": int(state.get("changes") or 0), "max_changes": MAX_CHANGES,
-            "checked_at": datetime.fromtimestamp(checked).isoformat(timespec="seconds") if checked else "",
+            "checked_at": utc_text(checked) if checked else "",
             "result": str(state.get("result") or "")[:_RESULT_CHARS], "trouble": bool(state.get("trouble")),
             "checking": float(state.get("running") or 0) > now - JUDGED_CHECK_SECONDS,
             "tokens": tokens, "cost_usd": cost,

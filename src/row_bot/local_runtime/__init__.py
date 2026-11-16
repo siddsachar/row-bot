@@ -19,11 +19,21 @@ from typing import Any
 ENDPOINT_ID = "llamacpp"
 PROVIDER_ID = f"custom_openai_{ENDPOINT_ID}"
 OWNER = "local"
-DISPLAY_NAME = "This computer"
+# The provider's name in model pickers and Settings › Models (W12): who runs it, beside Ollama or LM Studio.
+DISPLAY_NAME = "Row-Bot (llama.cpp)"
 
 
 def model_ref(model_id: str) -> str:
     return f"model:{PROVIDER_ID}:{model_id}"
+
+
+def model_label(model_id: str) -> str | None:
+    """A pinned model's name where people see it ("Qwen3.5 4B"), or None for an id that isn't one."""
+
+    from row_bot.local_runtime import models
+
+    found = models.get(model_id)
+    return found.label if found is not None else None
 
 
 def is_local_runtime_provider(provider_id: str | None) -> bool:
@@ -60,5 +70,6 @@ __all__ = [
     "PROVIDER_ID",
     "catalog_view",
     "is_local_runtime_provider",
+    "model_label",
     "model_ref",
 ]

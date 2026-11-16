@@ -63,8 +63,12 @@ def servers(tmp_path, monkeypatch):
 
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    ollama = _Fake({"/api/tags": {"models": [{"name": "qwen3.8:27b"}, {"name": "llava:7b"}]}})
-    studio = _Fake({"/v1/models": {"object": "list", "data": [{"id": "qwen3.8-27b"}, {"id": "gemma-4"}]}})
+    # Each also lists an embedding model, which never chats (W1).
+    ollama = _Fake({"/api/tags": {"models": [{"name": "qwen3.8:27b"}, {"name": "nomic-embed-text:latest"},
+                                             {"name": "llava:7b"}]}})
+    studio = _Fake({"/v1/models": {"object": "list", "data": [
+        {"id": "qwen3.8-27b"}, {"id": "text-embedding-nomic-embed-text-v1.5"}, {"id": "gemma-4"},
+        {"id": "bge-m3", "type": "embeddings"}]}})
     page = _Fake({"/v1/models": b"<html>not a model server</html>"})
     dead = _free_port()
     monkeypatch.setattr(found, "known", lambda: (
@@ -76,7 +80,7 @@ def servers(tmp_path, monkeypatch):
         fake.close()
 
 
-def test_running_servers_are_found_with_their_models_and_nothing_else_is_listed(servers):
+def test_running_servers_are_found_with_their_chat_models_and_nothing_else_is_listed(servers):
     view = found.detect()
 
     assert [(server["kind"], server["models"]) for server in view["servers"]] == [

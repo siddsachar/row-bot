@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import datetime
 from typing import Literal
 
@@ -96,6 +97,12 @@ class _TaskUpdateInput(NullMeansUnset):
 
 # ── Tool functions ───────────────────────────────────────────────────────────
 
+def _device_zone() -> str:
+    """The zone of the device the person sent this turn from; "" when none said (a channel, a workflow)."""
+    agent = sys.modules.get("row_bot.agent")  # a turn runs in it; nothing else has a device
+    return agent.current_device_zone() if agent is not None else ""
+
+
 def _local_run_at(value: str) -> str:
     """A one-off time as the scheduler stores it: local, to the minute, in the future (B291)."""
     try:
@@ -156,7 +163,8 @@ def _task_create(
             safety_mode=effective_approval_mode,
             agent_profile_id=agent_profile or tasks_db.DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
             apply_default_skills=False,
-            timezone=timezone or None,
+            # A schedule keeps the person's own time: their device's zone unless they named one (M10).
+            timezone=timezone or (_device_zone() if schedule else "") or None,
         )
 
         task = tasks_db.get_task(task_id)

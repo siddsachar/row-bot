@@ -1431,6 +1431,20 @@ def _workspace_line() -> str:
             "and a file tool asks the person before it uses a full path elsewhere.")
 
 
+def _device_zone_line() -> str:
+    """The person's device zone when it isn't this computer's (M10): their "local time" is its time."""
+    from zoneinfo import ZoneInfo
+
+    from row_bot.schedule_zones import local_zone_name
+
+    zone = _current_device_zone_var.get("")
+    if not zone or zone == local_zone_name():
+        return ""
+    offset = _datetime.now(ZoneInfo(zone)).isoformat(timespec="minutes")[-6:]
+    return (f"The person's device is in {zone} (UTC{offset}), not this computer's time zone: their \"local "
+            "time\" is that zone's, and a new workflow schedule keeps it.")
+
+
 def _runtime_turn_fields(tool_names: list[str]) -> list:
     """The runtime-mode values of the turn context: approval mode, workspace folder, tool groups, what is off."""
     from row_bot.turn_context import ContextField
@@ -1472,6 +1486,7 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
         ContextField("workspace", _workspace_line()),
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
+        ContextField("device_zone", _device_zone_line(), "The person's device is in this computer's time zone."),
     ]
     off: list[str] = []
     switched_off: list[str] = []
@@ -5214,6 +5229,16 @@ def current_person_rules() -> dict | None:
     return dict(rules) if rules else None
 
 
+# The IANA zone of the device that sent this turn's message (M10): "local time" means it. "" when no
+# device said (a channel, a workflow run): the computer's own zone.
+_current_device_zone_var: _contextvars.ContextVar[str] = _contextvars.ContextVar("current_device_zone", default="")
+
+
+def current_device_zone() -> str:
+    """The zone of the device the person sent this turn from, or "" when no device said."""
+    return _current_device_zone_var.get("")
+
+
 # ── Learning (preview) seams ────────────────────────────────────────────────────────────────────
 # Each seam checks learning.is_enabled() first: while Learning is off it does nothing else and
 # imports nothing else of Learning. On, it hands cheap references to learning.capture, which
@@ -5488,6 +5513,7 @@ def _set_active_runtime_context(
     external_discovery_active: bool = False,
     app_scope: dict | None = None,
     person_rules: dict | None = None,
+    device_zone: str = "",
 ) -> None:
     _current_thread_id_var.set(thread_id or "")
     _current_runtime_surface_var.set(runtime_surface or "")
@@ -5512,6 +5538,7 @@ def _set_active_runtime_context(
     _current_external_discovery_active_var.set(bool(external_discovery_active))
     _current_app_scope_var.set(dict(app_scope) if isinstance(app_scope, dict) else None)
     _current_person_rules_var.set(dict(person_rules) if isinstance(person_rules, dict) else None)
+    _current_device_zone_var.set(str(device_zone or ""))
     _current_authorized_skill_records_var.set(None)
     _current_effective_tool_parent_names_var.set(())
     _current_bound_tool_schema_tokens_var.set(0)
@@ -7230,6 +7257,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     _log_runtime_decision(
@@ -8121,6 +8149,7 @@ def _stream_chat_only_events(
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(model_label)
     _current_prompt_cache_ttl_var.set(_prompt_cache_ttl_for(configurable))
@@ -8574,6 +8603,7 @@ def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     # A chat on another of the owner's devices runs like one on this computer.
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "remote_client", "channel"}
@@ -8679,6 +8709,7 @@ def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     _graph_build_started = time.perf_counter()
@@ -8890,6 +8921,7 @@ def _resume_stream_agent_turn(enabled_tool_names: list[str], config: dict, appro
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     try:
@@ -8987,6 +9019,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     try:

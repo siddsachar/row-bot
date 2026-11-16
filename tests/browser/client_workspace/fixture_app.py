@@ -4882,8 +4882,9 @@ _E1_MODELS = (
 )
 _E1_PICK = "qwen3.8-27b-q2"
 _E1_BUILD = 179_546_112 + 426_314_199
+# A long model name (as LM Studio's own catalogue names some) must truncate in its row on a phone (W2).
 _E1_STUDIO = {"kind": "lmstudio", "label": "LM Studio", "port": 1234, "base_url": "http://127.0.0.1:1234/v1",
-              "models": ["qwen3.8-27b", "gemma-4"]}
+              "models": ["qwen3.8-27b", "gemma-4", "mistral-small-3.3-24b-instruct-2603-gguf-q4_k_m-imatrix"]}
 
 
 def _e1_view() -> dict:
@@ -4983,12 +4984,13 @@ def _e1_save_endpoint() -> None:
     from row_bot.providers import custom
 
     custom.save_custom_endpoint({
-        "id": "llamacpp", "name": "This computer", "base_url": "http://127.0.0.1:9931/v1", "profile": "llama_cpp",
+        "id": "llamacpp", "name": "Row-Bot (llama.cpp)", "base_url": "http://127.0.0.1:9931/v1", "profile": "llama_cpp",
         "execution_location": "local", "auth_required": False, "managed": "local",
         "manual_capabilities": {"context_window": 32768},
     }, manage_secret=False)
     custom.store_managed_endpoint_models("llamacpp", [
-        (row[0], row[1], 32768) for row in _E1_MODELS if row[0] in _e1_state["installed"]])
+        (row[0], row[1] if row[3] else f"{row[1]} · {row[2]}", 32768)
+        for row in _E1_MODELS if row[0] in _e1_state["installed"]])
 
 
 @app.post("/__e1_fixture/local-runtime/{state}")

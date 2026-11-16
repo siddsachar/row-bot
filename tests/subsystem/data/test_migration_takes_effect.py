@@ -149,9 +149,10 @@ def test_memories_wait_in_the_import_review_queue_until_the_person_checks_them(t
         assert "User prefers local-first tools unless cloud is explicitly faster." in texts
         assert "Uses a Windows desktop and a local Ollama fallback." in texts
         assert {item["source"] for item in found} == {"hermes"}
-        # Another window's session can't read them.
-        with pytest.raises(Exception, match="not_found"):
-            memory_import.status("someone-else", review["batch_id"])
+        # They wait in Import memories after the app restarts, for any of the owner's windows (W13).
+        memory_import.close_batches()
+        assert [item["batch_id"] for item in memory_import.sources()["waiting"]] == [review["batch_id"]]
+        assert memory_import.status("another-window", review["batch_id"])["found"] == 6
     finally:
         memory_import.discard("owner", review["batch_id"])
     assert not (profile / "memory").exists()
@@ -264,18 +265,19 @@ def test_the_folder_hermes_home_names_is_the_one_found(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
     create_realistic_hermes_home(home / ".hermes")
 
-    # Hermes uses the folder HERMES_HOME names in place of its usual one; the place is shown, never the path.
+    # Hermes uses the folder HERMES_HOME names in place of its usual one; it is shown by the variable's
+    # name, never by its path, under the home folder or not.
+    variable = "%HERMES_HOME%" if os.name == "nt" else "$HERMES_HOME"
     chosen = create_realistic_hermes_home(home / "agents" / "hermes-work")
     monkeypatch.setenv("HERMES_HOME", str(chosen))
     assert client_migration.detect_sources()["sources"][0] == {
-        "provider": "hermes", "label": "Hermes Agent", "found": True, "place": "~/agents/hermes-work"}
+        "provider": "hermes", "label": "Hermes Agent", "found": True, "place": variable}
     assert detect_hermes_source().source.root == chosen
     assert {"id": "hermes", "label": "Hermes Agent"} in client_first_run.import_sources()
 
     elsewhere = create_realistic_hermes_home(tmp_path / "srv" / "hermes")
     monkeypatch.setenv("HERMES_HOME", str(elsewhere))
-    assert client_migration.detect_sources()["sources"][0]["place"] == (
-        "%HERMES_HOME%" if os.name == "nt" else "$HERMES_HOME")
+    assert client_migration.detect_sources()["sources"][0]["place"] == variable
 
     # A link, or an OpenClaw folder, is refused as in the usual places; the usual folder is found instead.
     from row_bot.migration.fixtures import create_realistic_openclaw_home

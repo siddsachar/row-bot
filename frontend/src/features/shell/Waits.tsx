@@ -18,6 +18,7 @@ import type {
 import { clientError } from '../../api/errors';
 import { useLiveUpdate } from '../../live';
 import { useRuntime } from '../../runtime';
+import { clockTime } from '../../ui/format';
 import { IconButton } from '../../ui/primitives';
 
 /**
@@ -78,7 +79,13 @@ export function useWaits(): {
   };
 }
 
-const clock = (iso: string) => (iso ? iso.slice(11, 16) : '');
+/**
+ * How a wait looks: "checks every 5 min", "every 10 min", or a time wait's
+ * "at 4:25 PM", written in this device's zone and clock style (M5).
+ */
+export function waitHow(wait: WaitView) {
+  return wait.at ? `at ${clockTime(wait.at)}` : wait.how;
+}
 
 function tokens(count: number) {
   if (count < 1000) return `${count} tokens`;
@@ -108,7 +115,7 @@ function watchResult(wait: WaitView) {
     } A workflow can keep checking.`;
   if (watch.checking) return 'Checking now…';
   if (!watch.checked_at) return 'First check soon.';
-  return `Checked ${clock(watch.checked_at)}: ${watch.result || 'No change'}`;
+  return `Checked ${clockTime(watch.checked_at)}: ${watch.result || 'No change'}`;
 }
 
 /** The workflow editor's fields for "Make this a workflow". */
@@ -271,7 +278,7 @@ export function WaitsStrip({ conversationId }: { conversationId: string }) {
               <span className="waits-label">
                 Waiting for <strong>{wait.label}</strong>
               </span>
-              <span className="waits-how">{wait.how}</span>
+              <span className="waits-how">{waitHow(wait)}</span>
               <IconButton
                 size="sm"
                 label="Stop waiting"

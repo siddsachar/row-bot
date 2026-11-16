@@ -78,10 +78,10 @@ import { usePendingApprovals } from '../shell/pending-approvals';
 import FixAction, { RunAgain } from './FixAction';
 import MemoryNoticeActions from './MemoryNotice';
 import { setHomeDraft } from '../shell/new-chat';
-import { useWaits } from '../shell/Waits';
+import { useWaits, waitHow } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
 import { useProactive, useProactiveOn } from '../proactive/proactive-state';
-import { forYouLead } from '../proactive/words';
+import { daysAhead, forYouLead } from '../proactive/words';
 
 export type OverviewHomeProps = {
   conversations: readonly ConversationView[];
@@ -111,10 +111,15 @@ export type OverviewHomeProps = {
   buddy?: ReactNode;
   /**
    * Proactive's For you, in place of Today while Proactive is on: it gets
-   * Today's fact rows (for Later today) and its memories line (its footer),
-   * and renders its own section. Off, Today shows as it always has.
+   * Today's fact rows (for Later today), those on a later day (`ahead`, under
+   * that day's heading) and its memories line (its footer), and renders its
+   * own section. Off, Today shows as it always has.
    */
-  forYou?: (today: { rows: ReactNode[]; footer?: string }) => ReactNode;
+  forYou?: (today: {
+    rows: ReactNode[];
+    ahead: { at: Date; row: ReactNode }[];
+    footer?: string;
+  }) => ReactNode;
   /**
    * Start a new chat with this text as its first message, or only waiting in
    * its composer (`send: false`) to add files and more there.
@@ -189,7 +194,7 @@ const titleOf = (row: ConversationView) => row.title || 'Untitled conversation';
 
 /** "Today, 1:00 PM" or "Thu 30 Oct, 9:30 AM": when a scheduled post goes out. */
 function slotWords(at: string, now: Date) {
-  const when = new Date(at);
+  const when = parseTimestamp(at) ?? new Date(Number.NaN);
   const time = when.toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
@@ -907,6 +912,28 @@ export default function OverviewHome({
       label: 'Open Knowledge',
       onOpen: () => onOpenTab('knowledge'),
     });
+  // For you groups by the real day (W23): a next run on a later day goes under
+  // that day's heading ("Tomorrow"), at its time, not under Later today.
+  const nextAt = next ? parseTimestamp(next.next_run) : null;
+  const nextItem = today.find((item) => item.key === 'next');
+  const nextDay =
+    next && nextAt && nextItem && daysAhead(nextAt, now) > 0
+      ? {
+          at: nextAt,
+          row: (
+            <Row
+              key="next"
+              item={{
+                ...nextItem,
+                title: `${next.name} runs at ${nextAt.toLocaleTimeString(
+                  undefined,
+                  { hour: 'numeric', minute: '2-digit' },
+                )}`,
+              }}
+            />
+          ),
+        }
+      : null;
   // Proactive on: For you takes Today's place (and its rows).
   const proactiveOn = useProactiveOn();
   const { view: proactive } = useProactive();
@@ -927,7 +954,7 @@ export default function OverviewHome({
     icon: <Hourglass size={15} aria-hidden />,
     tone: '3',
     title: wait.label,
-    meta: `${wait.conversation_title || 'A conversation'} · ${wait.how}`,
+    meta: `${wait.conversation_title || 'A conversation'} · ${waitHow(wait)}`,
     label: `Open ${wait.conversation_title || 'the conversation'}`,
     onOpen: () => onOpenConversation(wait.conversation_id),
     actions: (
@@ -1307,8 +1334,12 @@ export default function OverviewHome({
         proactiveOn &&
         forYou?.({
           rows: today
-            .filter((item) => item.key !== 'memory')
+            .filter(
+              (item) =>
+                item.key !== 'memory' && !(item.key === 'next' && nextDay),
+            )
             .map((item) => <Row key={item.key} item={item} />),
+          ahead: nextDay ? [nextDay] : [],
           footer: today.find((item) => item.key === 'memory')?.title,
         })}
 

@@ -93,6 +93,16 @@ export function absoluteTime(
   }).format(date);
 }
 
+/** "4:25 PM" or "16:25", in this device's zone and clock style; '' for no time. */
+export function clockTime(
+  value: string | number | Date | null | undefined,
+  locale?: string,
+): string {
+  const date = value instanceof Date ? value : parseTimestamp(value);
+  if (!date) return '';
+  return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(date);
+}
+
 const TOKEN_LABELS: Record<string, string> = {
   api_key: 'API key',
   oauth: 'OAuth',

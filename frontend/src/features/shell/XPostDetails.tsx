@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Clock, Film, ImageIcon, VolumeX, X } from 'lucide-react';
 import type { XPostApproval, XPostEdit } from '../../api/types';
+import { parseTimestamp } from '../../ui/format';
 import { Button, IconButton } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import { formatBytes, openMediaViewer } from './MediaPreview';
@@ -52,8 +53,9 @@ export default function XPostDetails({ post }: { post: XPost }) {
 
 /** "Goes out at 1:00 PM on Wed 29 Oct": approving schedules it for then (G3). */
 export function Slot({ at }: { at: string }) {
-  const when = new Date(at);
-  if (Number.isNaN(when.getTime())) return null;
+  // The Row-Bot computer's wall clock: read in its zone, shown in this device's (M11).
+  const when = parseTimestamp(at);
+  if (!when) return null;
   return (
     <p className="x-post-slot">
       <Clock size={14} aria-hidden />
