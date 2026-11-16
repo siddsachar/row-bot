@@ -59,6 +59,7 @@ from row_bot.brand import (
     DEFAULT_DATA_DIR_NAME,
     LAUNCHER_APP_LOG_FILENAME,
 )
+from row_bot.data_folder_lock import IN_USE_MESSAGE, RESET_IN_USE_MESSAGE, FolderInUse, alone
 from row_bot.data_paths import (
     describe_data_paths,
     get_access_db_path,
@@ -280,12 +281,11 @@ def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
     quit and this one holds the lock. Never starts a second server.
     """
     wants_server = bool(args.server or args.no_open)
-    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None
-                        or getattr(args, "compact_chats", False))
-    if changes_data:
-        doing = ("compacting chats" if getattr(args, "compact_chats", False)
-                 else "restoring data" if args.restore_data is not None else "resetting data")
-        logger.error("%s is running on this data folder; quit it before %s.", APP_DISPLAY_NAME, doing)
+    if getattr(args, "compact_chats", False):
+        print(IN_USE_MESSAGE)
+        return 1
+    if args.reset_tasks_db or args.reset_db or args.restore_data is not None:
+        print(RESET_IN_USE_MESSAGE)
         return 1
     _launch_event("instance_already_running", mode="server" if wants_server else "desktop")
     deadline = time.monotonic() + _INSTANCE_WAIT_SECONDS
@@ -3864,14 +3864,24 @@ def _backup_family(path: Path, backup_dir: Path) -> list[tuple[Path, Path]]:
     return moved
 
 
+def _data_folder_alone(databases: list[Path]):
+    """``--reset-db``, ``--reset-tasks-db`` and ``--restore-data`` replace databases: never under a server (W6)."""
+    return alone(_row_bot_data_dir(), databases, message=RESET_IN_USE_MESSAGE)
+
+
 def _reset_tasks_db() -> int:
     data_dir = _row_bot_data_dir()
     tasks_db = get_tasks_db_path()
     backup_dir = data_dir / "recovery" / f"tasks-db-reset-{_timestamp()}"
-    moved = _backup_family(tasks_db, backup_dir)
-    from row_bot.tasks import ensure_task_schema
+    try:
+        with _data_folder_alone([tasks_db]):
+            moved = _backup_family(tasks_db, backup_dir)
+            from row_bot.tasks import ensure_task_schema
 
-    result = ensure_task_schema(repair=True, force=True)
+            result = ensure_task_schema(repair=True, force=True)
+    except FolderInUse as exc:
+        print(exc)
+        return 1
     logger.info("Data dir: %s", data_dir)
     logger.info("Tasks DB: %s", tasks_db)
     if moved:
@@ -3897,11 +3907,16 @@ def _reset_all_local_dbs() -> int:
         get_access_db_path(),
     ]
     moved: list[tuple[Path, Path]] = []
-    for db_path in dbs:
-        moved.extend(_backup_family(db_path, backup_dir))
-    from row_bot.tasks import ensure_task_schema
+    try:
+        with _data_folder_alone(dbs):
+            for db_path in dbs:
+                moved.extend(_backup_family(db_path, backup_dir))
+            from row_bot.tasks import ensure_task_schema
 
-    result = ensure_task_schema(repair=True, force=True)
+            result = ensure_task_schema(repair=True, force=True)
+    except FolderInUse as exc:
+        print(exc)
+        return 1
     logger.info("Data paths: %s", describe_data_paths())
     if moved:
         for src, dst in moved:
@@ -3925,7 +3940,13 @@ def _compact_chats() -> int:
 
     try:
         result = chat_compact.compact(get_threads_db_path())
-    except (RuntimeError, OSError, sqlite3.Error) as exc:
+    except FolderInUse as exc:
+        print(exc)
+        return 1
+    except OSError as exc:
+        print(f"The chat database wasn't compacted: {exc.strerror or exc}")
+        return 1
+    except (RuntimeError, sqlite3.Error) as exc:
         print(f"The chat database wasn't compacted: {exc}")
         return 1
     gb = 1024 ** 3
@@ -3956,24 +3977,36 @@ def _restore_data(selector: str | None = None) -> int:
         return 1
 
     pre_restore = recovery_root / f"pre-restore-{_timestamp()}"
+    try:
+        with _data_folder_alone([data_dir / name for name in _RESTORED_FILES if name.endswith(".db")]):
+            return _restore_from(source_dir, data_dir, pre_restore)
+    except FolderInUse as exc:
+        print(exc)
+        return 1
+
+
+_RESTORED_FILES = (
+    "tasks.db",
+    "tasks.db-wal",
+    "tasks.db-shm",
+    "memory.db",
+    "memory.db-wal",
+    "memory.db-shm",
+    "threads.db",
+    "threads.db-wal",
+    "threads.db-shm",
+    "mobile.db",
+    "mobile.db-wal",
+    "mobile.db-shm",
+    "usage.db",
+    "usage.db-wal",
+    "usage.db-shm",
+)
+
+
+def _restore_from(source_dir: Path, data_dir: Path, pre_restore: Path) -> int:
     restored: list[tuple[Path, Path]] = []
-    for name in (
-        "tasks.db",
-        "tasks.db-wal",
-        "tasks.db-shm",
-        "memory.db",
-        "memory.db-wal",
-        "memory.db-shm",
-        "threads.db",
-        "threads.db-wal",
-        "threads.db-shm",
-        "mobile.db",
-        "mobile.db-wal",
-        "mobile.db-shm",
-        "usage.db",
-        "usage.db-wal",
-        "usage.db-shm",
-    ):
+    for name in _RESTORED_FILES:
         src = source_dir / name
         if not src.exists():
             continue

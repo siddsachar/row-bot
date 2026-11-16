@@ -198,7 +198,8 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   every step, and threads.db could reach tens of gigabytes. Each chat now keeps its
   newest saved states only. To give the space back once, quit Row-Bot and run
   `row-bot --compact-chats`: the old file stays beside it as `threads.db.pre-compact`
-  until you delete it. A start beside a long write no longer fails with "database is
+  until you delete it. It changes nothing while Row-Bot or a server still has the
+  data folder open. A start beside a long write no longer fails with "database is
   locked".
 - **Try it free sends nothing until you sign in** - choosing it only shows what
   happens. Signing in gives Row-Bot a key of your own, saved like a pasted one; then
@@ -216,7 +217,11 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   link there.
 - `row-bot --compact-chats` gives a large `threads.db` back to the disk; run it with
   the server stopped, on the data volume, with room for a copy of the live data. It's
-  optional: from 5.3.4 the file stops growing.
+  optional: from 5.3.4 the file stops growing. While a server runs on the volume (in
+  this container or another), it refuses and changes nothing: every server holds a new
+  `data-folder.lock` there while it runs, and a server doesn't start while chats are
+  being compacted. `--reset-db`, `--reset-tasks-db` and `--restore-data` refuse the
+  same way.
 - New core dependency: `py-vapid`, which signs the push wake-ups. Push works only on an HTTPS origin. Only after a device turns notifications on does the server make outbound HTTPS requests to the browsers' push services (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com): egress-restricted hosts that want push should allow those. Two files can appear in the data volume, `push_vapid_key.pem` and `push_subscriptions.json`; back them up with the rest.
 - Try it free signs in to OpenRouter through the server's public HTTPS address
   (`/api/v1/settings/providers/openrouter/sign-in/callback`, which needs no session
