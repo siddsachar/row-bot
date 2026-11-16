@@ -16,6 +16,11 @@ State lives in the data folder under ``memory_import/<batch_id>/``: the uploaded
 the candidates and the preview. Uploaded files and pasted text are deleted once the batch is applied,
 discarded or abandoned (idle for a day), and when the server stops. An applied batch keeps only its
 receipt, so Undo works for 7 days; then it is removed too.
+
+An import brought over from another app on this computer (Settings › Data) is *kept* instead: it waits
+in Import memories for any of the owner's windows to review, across closing the panel and restarts,
+for 7 days or until it is applied or let go. Its ``kept.json`` holds what the scan found, beside the
+copies of that app's files.
 """
 from __future__ import annotations
 
@@ -93,9 +98,14 @@ class _Batch:
     conversations: dict = field(default_factory=lambda: {"ran": False, "read": 0, "characters": 0, "found": 0})
     preview: dict | None = None
     receipt: dict | None = None
+    # When an import from another app on this computer was staged: it is kept to review later.
+    kept: float | None = None
 
 
 _BATCHES: dict[str, _Batch] = {}
+_KEPT = "kept.json"
+# What a batch holds until it is applied; only the receipt outlives that.
+_STAGED = ("files", "texts", "candidates.json", "preview.json", _KEPT)
 
 
 # Places ---------------------------------------------------------------------
@@ -143,7 +153,7 @@ def _drop_staged(batch: _Batch) -> None:
     batch.files.clear()
     batch.texts.clear()
     batch.scans.clear()
-    for name in ("files", "texts", "candidates.json", "preview.json"):
+    for name in _STAGED:
         _remove(batch.folder / name)
 
 
@@ -158,14 +168,65 @@ def _retire(batch: _Batch) -> None:
         _drop_staged(batch)
 
 
+def _waiting(batch: _Batch) -> bool:
+    return batch.kept is not None and batch.receipt is None
+
+
+def _keep(batch: _Batch) -> None:
+    """Write down what a kept batch found, so it can be reviewed after a restart. Holds _LOCK."""
+    if not _waiting(batch):
+        return
+    _write_json(batch.folder / _KEPT, {
+        "staged_ts": batch.kept,
+        "files": [{"file_id": item.id, "name": item.name} for item in batch.files.values()],
+        "counts": list(batch.counts.values()), "warnings": batch.warnings, "skipped": batch.skipped,
+        "conversations": batch.conversations,
+    })
+
+
+def _restore(folder: Path) -> _Batch | None:
+    """A kept batch an earlier run of the server left waiting, or None. Holds _LOCK."""
+    kept = _read_json(folder / _KEPT)
+    candidates = _read_json(folder / "candidates.json")
+    if not isinstance(kept, dict) or not isinstance(candidates, list):
+        return None
+    try:
+        staged = float(kept["staged_ts"])
+        files: dict[str, _File] = {}
+        for entry in kept["files"]:
+            file_id, name = str(entry["file_id"]), str(entry["name"])
+            path = folder / "files" / file_id / _safe_name(name)
+            if not _BATCH_ID.fullmatch(file_id) or path.is_symlink() or not path.is_file():
+                return None
+            size = path.stat().st_size
+            files[file_id] = _File(file_id, name, size, path, received=size)
+        batch = _Batch(
+            folder.name, "", folder, _now(), files=files, scanned=True, kept=staged,
+            candidates={str(item["candidate_id"]): item for item in candidates},
+            counts={str(count["source"]): dict(count) for count in kept["counts"]},
+            warnings=[str(line) for line in kept["warnings"]], skipped=list(kept["skipped"]),
+            conversations=dict(kept["conversations"]),
+        )
+    except (KeyError, TypeError, ValueError, OSError):
+        return None
+    if _now() - staged > KEEP_SECONDS:
+        return None
+    _BATCHES[batch.id] = batch
+    return batch
+
+
 def sweep() -> None:
-    """Abandoned batches, an earlier run's leftovers, and receipts past their 7 days."""
+    """Abandoned batches, an earlier run's leftovers, receipts past their 7 days, and the kept batches
+    an earlier run left waiting (taken up again)."""
     try:
         with _LOCK:
             now = _now()
             for batch in list(_BATCHES.values()):
                 running = batch.job is not None and batch.job.get("status") == "running"
-                if batch.receipt is None and not running and now - batch.touched > IDLE_SECONDS:
+                if _waiting(batch):
+                    if now - float(batch.kept or 0) > KEEP_SECONDS:
+                        _retire(batch)
+                elif batch.receipt is None and not running and now - batch.touched > IDLE_SECONDS:
                     _retire(batch)
             root = _root()
             for entry in root.iterdir():
@@ -175,9 +236,10 @@ def sweep() -> None:
                     continue
                 receipt = _read_json(entry / "receipt.json")
                 if not isinstance(receipt, dict):
-                    _remove(entry)  # never applied, and its session is gone
+                    if _restore(entry) is None:
+                        _remove(entry)  # never applied, and its session is gone
                     continue
-                for name in ("files", "texts", "candidates.json", "preview.json"):
+                for name in _STAGED:
                     _remove(entry / name)
                 if now - float(receipt.get("applied_ts") or 0) > KEEP_SECONDS:
                     _remove(entry)
@@ -186,10 +248,16 @@ def sweep() -> None:
 
 
 def close_batches() -> None:
-    """At shutdown: unapplied batches never outlive the server, and neither do their files."""
+    """At shutdown: unapplied batches never outlive the server, and neither do their files, except the
+    kept ones, which wait on disk for the next run."""
     with _LOCK:
         for batch in list(_BATCHES.values()):
-            _retire(batch)
+            if _waiting(batch):
+                if batch.cancel is not None:
+                    batch.cancel.set()
+                _BATCHES.pop(batch.id, None)
+            else:
+                _retire(batch)
 
 
 # Views ----------------------------------------------------------------------
@@ -226,6 +294,7 @@ def sources() -> dict:
         "character_limit": CHARACTER_LIMIT,
         "model": _model(),
         "recent": recent(),
+        "waiting": waiting(),
     }
 
 
@@ -258,30 +327,38 @@ def _view(batch: _Batch) -> dict:
 
 def _batch(session_id: str, batch_id: str) -> _Batch:
     batch = _BATCHES.get(batch_id)
+    if batch is None and _BATCH_ID.fullmatch(batch_id):
+        folder = _root() / batch_id
+        if folder.is_dir() and not folder.is_symlink() and not (folder / "receipt.json").exists():
+            batch = _restore(folder)
     if batch is None:
         raise ClientPlatformError("import_expired")
-    if batch.session_id != session_id:
+    # A kept batch is the owner's, as an applied import is: any of their windows may review it.
+    if batch.session_id != session_id and batch.kept is None:
         raise ClientPlatformError("not_found")
     batch.touched = _now()
     return batch
 
 
-def _idle(batch: _Batch) -> None:
+def _idle(batch: _Batch, *, files: bool = False) -> None:
     if batch.job is not None and batch.job.get("status") == "running":
         raise ClientPlatformError("import_busy")
     if batch.receipt is not None:
         raise ClientPlatformError("import_applied")
+    if files and batch.kept is not None:
+        raise ClientPlatformError("invalid_command")  # a kept batch's files are the other app's, as found
 
 
 # Batches and files ------------------------------------------------------------
 
 def begin(session_id: str) -> dict:
-    """A new import. A window has one at a time: starting again lets its earlier one go."""
+    """A new import. A window has one at a time: starting again lets its earlier one go (a kept one
+    stays waiting)."""
     with _LOCK:
-        for batch in [item for item in _BATCHES.values() if item.session_id == session_id]:
+        for batch in [item for item in _BATCHES.values() if item.session_id == session_id and item.kept is None]:
             _retire(batch)
         sweep()
-        if sum(1 for item in _BATCHES.values() if item.receipt is None) >= BATCHES_HELD:
+        if sum(1 for item in _BATCHES.values() if item.receipt is None and item.kept is None) >= BATCHES_HELD:
             raise ClientPlatformError("rate_limited")
         batch_id = uuid4().hex
         folder = _root() / batch_id
@@ -316,7 +393,7 @@ def add_file(session_id: str, batch_id: str, *, name: str, size_bytes: int) -> d
         raise ClientPlatformError("import_file_too_large")
     with _LOCK:
         batch = _batch(session_id, batch_id)
-        _idle(batch)
+        _idle(batch, files=True)
         if len(batch.files) >= FILES_PER_BATCH:
             raise ClientPlatformError("import_too_many_files")
         waiting = sum(item.size - item.received for held in _BATCHES.values() for item in held.files.values())
@@ -350,7 +427,7 @@ def write_chunk(session_id: str, batch_id: str, file_id: str, offset: int, data:
     digest = hashlib.sha256(data).hexdigest()
     with _LOCK:
         batch = _batch(session_id, batch_id)
-        _idle(batch)
+        _idle(batch, files=True)
         item = _file(batch, file_id)
         if item.last is not None and item.last[0] == offset and offset + len(data) == item.received:
             if item.last[1] != digest:
@@ -369,7 +446,7 @@ def write_chunk(session_id: str, batch_id: str, file_id: str, offset: int, data:
 def remove_file(session_id: str, batch_id: str, file_id: str) -> None:
     with _LOCK:
         batch = _batch(session_id, batch_id)
-        _idle(batch)
+        _idle(batch, files=True)
         item = batch.files.pop(file_id, None)
         if item is None:
             raise ClientPlatformError("not_found")
@@ -383,7 +460,7 @@ def add_text(session_id: str, batch_id: str, text: str) -> dict:
         raise ClientPlatformError("invalid_command")
     with _LOCK:
         batch = _batch(session_id, batch_id)
-        _idle(batch)
+        _idle(batch, files=True)
         if len(batch.texts) >= TEXTS_PER_BATCH:
             raise ClientPlatformError("import_too_many_files")
         folder = batch.folder / "texts"
@@ -425,7 +502,8 @@ def stage_local(session_id: str, paths: list[Path]) -> dict:
     export.
 
     Nothing is saved to memory before Apply, and the batch keeps its own copies: the other app's
-    folder is only read.
+    folder is only read. The batch is kept: it waits in Import memories until it is reviewed, let go
+    or 7 days pass, and bringing the same app's memories over again replaces it.
     """
     from row_bot.memory_import.agents import MAX_MEMORY_FILE_BYTES
 
@@ -463,6 +541,11 @@ def stage_local(session_id: str, paths: list[Path]) -> dict:
             batch.scans = scans
             batch.scanned = True
             _write_json(batch.folder / "candidates.json", list(batch.candidates.values()))
+            for earlier in [item for item in _BATCHES.values() if item is not batch and _waiting(item)]:
+                if set(earlier.counts) == set(batch.counts):
+                    _retire(earlier)
+            batch.kept = _now()
+            _keep(batch)
         except BaseException:
             _retire(batch)
             raise
@@ -586,7 +669,7 @@ def scan(session_id: str, batch_id: str) -> dict:
     """Find what the files and pasted text hold, in the background."""
     with _LOCK:
         batch = _batch(session_id, batch_id)
-        _idle(batch)
+        _idle(batch, files=True)
         if not batch.files and not batch.texts:
             raise ClientPlatformError("invalid_command")
         if any(item.received != item.size for item in batch.files.values()):
@@ -727,6 +810,7 @@ def find_in_conversations(session_id: str, batch_id: str) -> dict:
                 batch.conversations = {"ran": True, "read": read, "characters": used, "found": added}
                 batch.preview = None
                 _write_json(batch.folder / "candidates.json", list(batch.candidates.values()))
+                _keep(batch)
 
         _start(batch, "conversations", work, None)
         return _view(batch)
@@ -1016,3 +1100,19 @@ def recent() -> list[dict]:
                     found.append(receipt)
         found.sort(key=lambda receipt: float(receipt.get("applied_ts") or 0), reverse=True)
         return [_receipt_view(receipt) for receipt in found[:10]]
+
+
+def waiting() -> list[dict]:
+    """Imports brought over from another app on this computer, still to review, newest first."""
+    with _LOCK:
+        sweep()
+        kept = sorted((batch for batch in _BATCHES.values() if _waiting(batch)),
+                      key=lambda batch: float(batch.kept or 0), reverse=True)
+        return [{
+            "batch_id": batch.id,
+            "sources": sorted({_source_words(source) for source in batch.counts})[:20],
+            "found": len(batch.candidates),
+            "conversations": sum(int(count.get("conversations") or 0) for count in batch.counts.values()),
+            "staged_at": datetime.fromtimestamp(float(batch.kept or 0)).isoformat(timespec="seconds"),
+            "keep_until": datetime.fromtimestamp(float(batch.kept or 0) + KEEP_SECONDS).isoformat(timespec="seconds"),
+        } for batch in kept[:BATCHES_HELD]]

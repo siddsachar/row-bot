@@ -4506,6 +4506,16 @@ class MemoryImportReceipt(WireModel):
     failed: int = Field(ge=0)
 
 
+class MemoryImportWaiting(WireModel):
+    """Memories brought over from another app on this computer (Settings › Data), still to review."""
+    batch_id: MemoryImportBatchId
+    sources: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=20)
+    found: int = Field(ge=0)
+    conversations: int = Field(ge=0)
+    staged_at: str = Field(max_length=40)
+    keep_until: str = Field(max_length=40)
+
+
 class MemoryImportSources(WireModel):
     sources: list[MemoryImportSource] = Field(max_length=40)
     prompt: str = Field(max_length=8000)
@@ -4515,6 +4525,7 @@ class MemoryImportSources(WireModel):
     character_limit: int = Field(ge=1)
     model: MemoryImportModel | None = None
     recent: list[MemoryImportReceipt] = Field(max_length=10)
+    waiting: list[MemoryImportWaiting] = Field(max_length=4)
 
 
 class MemoryImportRequest(WireModel):
