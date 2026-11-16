@@ -3054,9 +3054,25 @@
 .markdown-table[data-tools] th:last-child .table-sort {
   padding-inline-end: 40px;
 }
-@media (hover: none), (pointer: coarse) {
+/* Where nothing hovers (a phone, a touch screen) or the table scrolls
+   sideways, Copy as CSV sits on its own line above the table, so it never
+   covers a header or its sort arrow (M14). */
+@media (hover: none), (pointer: coarse), (max-width: 767px) {
+  .markdown-table[data-tools] {
+    display: flex;
+    flex-direction: column;
+  }
   .markdown-table-tools {
+    position: static;
+    order: -1;
+    align-self: flex-end;
+    margin-bottom: 4px;
+    background: none;
+    box-shadow: none;
     opacity: 1;
+  }
+  .markdown-table[data-tools] th:last-child .table-sort {
+    padding-inline-end: 12px;
   }
 }
 /* A phone scrolls a wide table sideways with its first column kept in view. */
@@ -3082,6 +3098,9 @@
    inside a reply, drawn from validated data with the app's own pieces. */
 .answer-component {
   display: grid;
+  /* One column that may shrink: a wide table scrolls in its own box instead
+     of widening the transcript (W16). */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   max-width: 100%;
   margin: 12px 0;

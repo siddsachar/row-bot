@@ -227,6 +227,8 @@ def list_buddy_packs(*, cursor: str | None = None, validate: Callable[[], None])
         catalog_bytes += len(json.dumps(asdict(packs[-1]), ensure_ascii=False).encode("utf-8"))
         if catalog_bytes > 8 * 1024 * 1024:
             raise BuddyClientError("buddy_pack_limit")
+    # By the name the person sees, not the folder's: a generated look sits with the others (W20).
+    packs.sort(key=lambda pack: (pack.name.casefold(), pack.id))
     revision = hashlib.sha256(json.dumps([asdict(pack) for pack in packs], sort_keys=True).encode()).hexdigest()
     offset = 0
     if cursor is not None:

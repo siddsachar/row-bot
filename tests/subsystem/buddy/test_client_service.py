@@ -22,11 +22,11 @@ def owner(tmp_path, monkeypatch):
     return tmp_path
 
 
-def pack(root, pack_id="hatch-one", *, preview=None):
-    path = root / "packs" / pack_id
+def pack(root, pack_id="hatch-one", *, preview=None, name="Synthetic Buddy", folder="packs"):
+    path = root / folder / pack_id
     path.mkdir(parents=True)
     (path / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\nsynthetic")
-    (path / "manifest.json").write_text(json.dumps({"id": pack_id, "name": "Synthetic Buddy",
+    (path / "manifest.json").write_text(json.dumps({"id": pack_id, "name": name,
         "runtime": "generated_still", "preview": preview or "preview.png"}), encoding="utf-8")
     return path
 
@@ -190,6 +190,17 @@ def test_pack_pages_continue_and_revision_invalidates_old_cursor(owner):
     pack(owner, "hatch-added")
     with pytest.raises(service.BuddyClientError, match="buddy_cursor_changed"):
         service.list_buddy_packs(cursor=first.next_cursor, validate=lambda: None)
+
+
+def test_looks_are_listed_by_the_name_the_person_sees(owner):
+    """W20: a generated look ("hatch-…") sorted by its folder sat between "Glyph" and "Hover"."""
+    pack(owner, "hover", name="Hover", folder="builtins")
+    pack(owner, "brew", name="Brew", folder="builtins")
+    pack(owner, "hatch-7f3a", name="Small cheerful heron")
+
+    names = [item.name for item in service.list_buddy_packs(validate=lambda: None).packs]
+
+    assert names == ["Brew", "Hover", "Small cheerful heron"]
 
 
 def test_pack_media_and_selection_are_exact_contained_and_private(owner):
