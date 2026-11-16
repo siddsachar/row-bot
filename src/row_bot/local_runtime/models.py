@@ -30,6 +30,10 @@ CPU_RECOMMEND_RAM = 16 * GIB
 CPU_LARGER_RAM = 32 * GIB
 # Below this size a model is good for everyday chat; long tasks need a larger one.
 EVERYDAY_BILLIONS = 8.0
+# On a Mac the model shares memory with macOS and every app, so a 27B build is recommended only with this much
+# memory (M1, the owner's table): 24 GB the 2-bit, 32 GB the 3-bit, 48 GB or more the 4-bit. A 16 GB Mac gets
+# Qwen3.5 9B and stays responsive; a 27B build that fits can still be chosen.
+MAC_RECOMMEND_RAM = {"qwen3.8-27b-q2": 24 * GIB, "qwen3.8-27b-q3": 32 * GIB, "qwen3.8-27b-q4": 48 * GIB}
 
 QWEN38_REPO = "unsloth/Qwen3.8-27B-GGUF"
 QWEN38_REVISION = "4af51b3542f775b0a8e4b310bfb3f17e01c306c9"
@@ -77,6 +81,13 @@ class Model:
     @property
     def everyday(self) -> bool:
         return self.billions < EVERYDAY_BILLIONS
+
+    @property
+    def label(self) -> str:
+        """Its name where people see it: "Qwen3.8 27B · 3-bit" for a build of the default model, "Qwen3.5 4B"
+        for a smaller older one (as Setup names them)."""
+
+        return self.name if self.older or not self.quantization else f"{self.name} · {self.quantization}"
 
 
 def _qwen38(quant: str, label: str, file: str, size: int, sha256: str) -> Model:
@@ -128,10 +139,16 @@ def fit(model: Model, hardware: Hardware) -> Fit:
 
 def recommend(hardware: Hardware) -> Model | None:
     """The best model that fits the graphics card (Qwen3.8 27B at the largest quantization that fits,
-    else a smaller model of the generation before); without one, a small model the processor runs well
-    on a computer with enough memory; else None."""
+    else a smaller model of the generation before; on a Mac, a 27B build only with the memory
+    :data:`MAC_RECOMMEND_RAM` names); without one, a small model the processor runs well on a computer
+    with enough memory; else None."""
 
-    on_card = next((model for model in CATALOG if fit(model, hardware) == "gpu"), None)
+    def suits(model: Model) -> bool:
+        if hardware.acceleration != builds.METAL or model.older:
+            return True
+        return hardware.ram_bytes >= MAC_RECOMMEND_RAM.get(model.id, 0)
+
+    on_card = next((model for model in CATALOG if fit(model, hardware) == "gpu" and suits(model)), None)
     if on_card is not None:
         return on_card
     if hardware.ram_bytes < CPU_RECOMMEND_RAM:

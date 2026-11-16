@@ -571,8 +571,9 @@ def _sees_images(model_ref: str) -> bool | None:
     return None
 
 
-def _unavailable_reason(model_ref: str, provider_id: str, result: Any, runtime_mode: str) -> tuple[str, str]:
-    """A short reason in words and the one fix that helps (decision 10)."""
+def unavailable_reason(model_ref: str, provider_id: str, result: Any, runtime_mode: str) -> tuple[str, str]:
+    """A short reason in words and the one fix that helps (decision 10). Monitor's model check and
+    /status say the same (W3)."""
     from row_bot.providers.selection import provider_display_label
 
     chosen = result.chat if runtime_mode == "chat_only" else result.agent
@@ -636,7 +637,7 @@ def model_status(service: Any, controls: dict, conversation_id: str = "") -> dic
         elif (result.chat if runtime_mode == "chat_only" else result.agent).ready:
             return {**base, "state": "ready", "reason": "", "fix": None}
         else:
-            reason, fix = _unavailable_reason(model_ref, provider_id, result, runtime_mode)
+            reason, fix = unavailable_reason(model_ref, provider_id, result, runtime_mode)
             status = {**base, "state": "unavailable", "reason": reason, "fix": fix}
     if status["state"] == "unavailable":
         backup_ref = answering_backup(service, model_ref, conversation_id)

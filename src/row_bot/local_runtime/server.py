@@ -580,7 +580,7 @@ def save_endpoint(root: Path | None = None, *, port: int | None = None) -> None:
         return
     custom.save_custom_endpoint(wanted, manage_secret=False)
     custom.store_managed_endpoint_models(local_runtime.ENDPOINT_ID, [
-        (model.id, model.name, model.context) for model in installed])
+        (model.id, model.label, model.context) for model in installed])
 
 
 # ── The app's server ────────────────────────────────────────────────────────

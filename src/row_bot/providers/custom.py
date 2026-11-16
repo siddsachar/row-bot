@@ -1447,13 +1447,23 @@ def model_infos_from_openai_compatible_catalog(
             str(normalized["provider_id"]),
             model_id,
             metadata,
-            display_name=str(item.get("name") or item.get("id") or model_id),
+            display_name=str(item.get("name") or _managed_model_name(normalized, model_id) or model_id),
             context_window=context_window,
             transport=transport,
             risk_label=str(normalized.get("risk_label") or "custom_endpoint"),
             source="custom_openai_catalog",
         ))
     return results
+
+
+def _managed_model_name(endpoint: dict[str, Any], model_id: str) -> str | None:
+    """The name Run on this computer gives its model (W12): llama.cpp lists only the id ("qwen3.5-4b")."""
+
+    if endpoint.get("managed") != "local":
+        return None
+    from row_bot import local_runtime
+
+    return local_runtime.model_label(model_id)
 
 
 def _catalog_model_items(payload: dict[str, Any]) -> list[Any]:

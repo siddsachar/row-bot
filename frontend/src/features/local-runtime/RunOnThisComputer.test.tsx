@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { LocalModelRuntimeView } from '../../api/types';
 import RunOnThisComputer from './RunOnThisComputer';
@@ -111,26 +117,100 @@ it('offers Qwen3.8 27B at the build that fits, names the size and downloads noth
   await waitFor(() => expect(update).toHaveBeenCalled());
 });
 
-it('lists every model with how it would run here; a smaller model says it is the older generation', () => {
+function choices() {
+  fireEvent.click(screen.getByRole('button', { name: 'Choose another model' }));
+  const list = screen.getByRole('list', { name: 'Models for this computer' });
+  return within(list).getAllByRole('button');
+}
+
+function names(rows: HTMLElement[]) {
+  return rows.map((row) => row.querySelector('strong')?.textContent);
+}
+
+it('the sliders offer Qwen3.8 27B at the build sized to the card and the smaller models, each with how it would run here', () => {
   show(localView());
 
-  fireEvent.click(screen.getByRole('button', { name: 'Choose another model' }));
+  const rows = choices();
 
-  const list = screen.getByRole('list', { name: 'Models for this computer' });
-  expect(list).toHaveTextContent('Qwen3.8 27B · 2-bit');
-  expect(list).toHaveTextContent('Recommended');
-  expect(list).toHaveTextContent(
-    'Qwen3.5 9B5.7 GB · Fits your graphics card · smaller, older generation',
+  expect(names(rows)).toEqual([
+    'Qwen3.8 27B · 2-bit',
+    'Qwen3.5 9B',
+    'Qwen3.5 4B',
+  ]);
+  expect(rows[0]).toHaveTextContent('Recommended');
+  expect(within(rows[1]).getByText('Fits your graphics card')).toHaveAttribute(
+    'data-fit',
+    'gpu',
   );
-  expect(
-    screen.getByRole('button', { name: /Qwen3.8 27B · 4-bit/ }),
-  ).toBeDisabled();
+  expect(rows[1]).toHaveTextContent(
+    '6.3 GB download · smaller, older generation',
+  );
 
-  fireEvent.click(screen.getByRole('button', { name: /Qwen3.5 4B/ }));
+  fireEvent.click(rows[2]);
   expect(screen.getByRole('button', { name: 'Download 3.3 GB' })).toBeVisible();
   expect(
     screen.getByText(/A smaller model for this computer \(older generation\)/),
   ).toBeVisible();
+});
+
+it('on a Mac, a model that fits says it fits the Mac’s memory, not a graphics card (M2)', () => {
+  show(
+    localView({
+      computer: 'Apple M4 (16 GB memory)',
+      acceleration: 'metal',
+      acceleration_label: 'Apple silicon (Metal)',
+      recommended: 'qwen3.5-9b',
+    }),
+  );
+
+  const rows = choices();
+
+  expect(within(rows[1]).getByText('Fits this Mac’s memory')).toBeVisible();
+  expect(screen.queryByText('Fits your graphics card')).toBeNull();
+});
+
+it('on a card no 27B build fits, the smallest build is offered as slower, beside the smaller models', () => {
+  const small = localView({ recommended: 'qwen3.5-9b' });
+  small.models = small.models.map((model) =>
+    model.older
+      ? model
+      : { ...model, fit: model.id.endsWith('q2') ? 'partial' : 'too_big' },
+  );
+  show(small);
+
+  const rows = choices();
+
+  expect(names(rows)).toEqual([
+    'Qwen3.8 27B · 2-bit',
+    'Qwen3.5 9B',
+    'Qwen3.5 4B',
+  ]);
+  expect(
+    within(rows[0]).getByText('Partly on the graphics card (slower)'),
+  ).toBeVisible();
+  expect(rows[0]).toBeEnabled();
+});
+
+it('a build already downloaded stays in the list, and a stopped download is what Download resumes', () => {
+  const view = localView({
+    download: {
+      model_id: 'qwen3.5-4b',
+      acceleration: 'cuda-13',
+      total_bytes: 3.3 * GB,
+      done_bytes: 0.2 * GB,
+      phase: 'stopped',
+    },
+  });
+  view.models[1] = { ...view.models[1], installed: true, download_bytes: 0 };
+  show(view);
+
+  expect(screen.getByRole('button', { name: 'Download 3.3 GB' })).toBeVisible();
+  expect(names(choices())).toEqual([
+    'Qwen3.8 27B · 3-bit',
+    'Qwen3.8 27B · 2-bit',
+    'Qwen3.5 9B',
+    'Qwen3.5 4B',
+  ]);
 });
 
 it('shows the download with its progress, and Stop keeps what arrived', async () => {

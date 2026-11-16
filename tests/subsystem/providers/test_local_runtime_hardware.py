@@ -57,14 +57,24 @@ def test_the_driver_decides_between_cuda_13_cuda_12_and_vulkan():
     assert _pick(old) == "qwen3.8-27b-q2"
 
 
-@pytest.mark.parametrize(("gb", "expected"), [(8, "qwen3.5-4b"), (16, "qwen3.8-27b-q2"), (24, "qwen3.8-27b-q3"),
-                                              (36, "qwen3.8-27b-q4")])
+@pytest.mark.parametrize(("gb", "expected"), [
+    (8, "qwen3.5-4b"), (16, "qwen3.5-9b"), (24, "qwen3.8-27b-q2"), (32, "qwen3.8-27b-q3"), (36, "qwen3.8-27b-q3"),
+    (48, "qwen3.8-27b-q4"), (64, "qwen3.8-27b-q4")])
 def test_apple_silicon_shares_its_memory_with_metal(gb, expected):
+    """M1: a Mac keeps room for macOS and its apps: 16 GB gets Qwen3.5 9B, 24 GB the 27B 2-bit, 32 GB the
+    3-bit, 48 GB or more the 4-bit."""
     hardware = classify(builds.MACOS_ARM64, gb * GIB, apple_silicon=True)
 
     assert hardware.acceleration == builds.METAL
     assert hardware.usable_gpu_bytes == int(gb * GIB * 0.70)
     assert _pick(hardware) == expected
+
+
+def test_a_16_gb_mac_can_still_choose_the_27b_that_fits_its_memory():
+    hardware = classify(builds.MACOS_ARM64, 16 * GIB, apple_silicon=True)
+
+    assert models.fit(models.get("qwen3.8-27b-q2"), hardware) == "gpu"
+    assert catalog_view(hardware)["recommended"] == "qwen3.5-9b"
 
 
 def test_an_amd_card_runs_the_vulkan_build_and_an_integrated_one_doesnt_count():
