@@ -59,7 +59,7 @@ def status() -> dict[str, Any]:
         return {"ready": False, "code": "narration_unavailable"}
     if not model.ready or not model.local:
         return {"ready": False, "code": "narration_no_model"}
-    if not (service._ffmpeg_path or shutil.which("ffmpeg")):  # noqa: SLF001 - the decoder Dictate uses
+    if not (getattr(service, "_ffmpeg_path", None) or shutil.which("ffmpeg")):  # the decoder Dictate uses
         return {"ready": False, "code": "narration_no_ffmpeg"}
     return {"ready": True, "code": ""}
 
