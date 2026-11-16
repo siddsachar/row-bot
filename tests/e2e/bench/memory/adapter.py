@@ -47,7 +47,10 @@ def session_messages(task_id: str, session: Session) -> list[Any]:
     messages = []
     for index, turn in enumerate(session.turns):
         kind = HumanMessage if turn.role == "user" else AIMessage
-        messages.append(kind(id=f"{task_id}-{session.session_id}-{index}", content=turn.text))
+        # A named speaker (LoCoMo's two people) rides on the message's name, so extraction reads
+        # "User (Melanie): ..." and "Assistant (Caroline): ..." and keeps who said what (#954).
+        named = {"name": turn.speaker} if turn.speaker else {}
+        messages.append(kind(id=f"{task_id}-{session.session_id}-{index}", content=turn.text, **named))
     return messages
 
 

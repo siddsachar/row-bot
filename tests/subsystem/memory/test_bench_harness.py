@@ -1109,8 +1109,9 @@ def test_sessions_are_ingested_through_extraction_on_their_own_dates(tmp_path, m
     # Extraction dates each conversation by its own day (the thread's updated_at, which ingestion sets).
     assert "This conversation is dated Monday, 8 May 2023." in extraction_prompts[0]
     assert "This conversation is dated Sunday, 22 October 2023." in extraction_prompts[1]
-    assert "User: I joined a pottery class yesterday." in extraction_prompts[0]
-    assert "Assistant: Nice! I adopted a dog. [shared an image: a puppy]" in extraction_prompts[0]
+    # Each line names who said it (#954): the person here is Ana; Ben's dog is Ben's, not the user's.
+    assert "User (Ana): I joined a pottery class yesterday." in extraction_prompts[0]
+    assert "Assistant (Ben): Nice! I adopted a dog. [shared an image: a puppy]" in extraction_prompts[0]
     assert [step.kind for step in steps] == ["ingest", "ingest"]
     assert steps[0].metrics["turns"] == 2 and steps[0].metrics["extraction_runs"] == 1
     saved = memory.find_by_subject(None, "Pottery class")
