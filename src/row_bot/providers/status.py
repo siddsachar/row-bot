@@ -220,8 +220,9 @@ def sign_in_problems() -> list[dict[str, str]]:
             problems.append(_sign_in_problem(definition.id, name, "error",
                                              f"Your {name} sign-in has expired. Sign in again to use its models."))
         elif health == "error":
+            # The model check's words for the same state (W3): one wording wherever it shows.
             problems.append(_sign_in_problem(definition.id, name, "warn",
-                                             f"Row-Bot couldn't read your {name} sign-in. Open it to check."))
+                                             f"{name} isn't connected. Reconnect it to use its models."))
     return problems
 
 
