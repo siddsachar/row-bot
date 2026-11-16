@@ -32,6 +32,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ConversationActionReview", "ConversationActionCommand", "ConversationActionReceipt",
     "BrowserTab", "BrowserPaneState", "BrowserFrame", "BrowserInputEvent", "BrowserInput", "BrowserInputResult",
     "BrowserPaneAction", "BrowserSite", "BrowserSitePage", "BrowserSitesClear", "BrowserSitesCleared",
+    "BrowserDemoSummary", "BrowserDemoStep", "BrowserDemoView", "BrowserDemoPage", "BrowserDemoAlways",
     "ComputerUseSnapshot", "ComputerUsePreview", "ComputerUseCommand", "ComputerUseReceipt",
     "Snapshot", "TranscriptPage", "SubscriptionView",
     "EventPage", "Choices", "HandshakeView", "ApprovalView", "ResourceView", "Acknowledgement",
@@ -158,6 +159,13 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/browser/live", None, "BrowserPaneState"),
     ("post", "/conversations/{conversation_id}/browser/input", "BrowserInput", "BrowserInputResult"),
     ("post", "/conversations/{conversation_id}/browser/actions", "BrowserPaneAction", "BrowserPaneState"),
+    ("get", "/conversations/{conversation_id}/browser/demo", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/stop", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/undo", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/discard", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/steps/{step_id}/always", "BrowserDemoAlways",
+     "BrowserDemoPage"),
     ("get", "/browser/sites", None, "BrowserSitePage"),
     ("post", "/browser/sites/clear", "BrowserSitesClear", "BrowserSitesCleared"),
     ("get", "/conversations/{conversation_id}/browser/local-addresses", None, "LocalAddressPage"),
@@ -1485,8 +1493,17 @@ export const sendBrowserInput = (base: string, proof: SessionProof, conversation
 /** The pane's controls: address bar, Back, Forward, Reload, tabs, Take control / Give back, Restart. */
 export const sendBrowserAction = (base: string, proof: SessionProof, conversation: string, body: BrowserPaneAction, signal?: AbortSignal): Promise<BrowserPaneState> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser/actions`, 'BrowserPaneState', proof, 'POST', validateWire('BrowserPaneAction', body), undefined, signal);
+/** Show Row-Bot how (C3): the person's steps in the pane, recorded in memory; Done, Undo, Discard, "always this". */
+export const getBrowserDemo = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<BrowserDemoPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo`, 'BrowserDemoPage', proof, 'GET', undefined, undefined, signal);
+export const startBrowserDemo = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<BrowserDemoPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo`, 'BrowserDemoPage', proof, 'POST', undefined, undefined, signal);
+export const controlBrowserDemo = (base: string, proof: SessionProof, conversation: string, demo: string, action: 'stop' | 'undo' | 'discard', signal?: AbortSignal): Promise<BrowserDemoPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo/${id(demo)}/${action}`, 'BrowserDemoPage', proof, 'POST', undefined, undefined, signal);
+export const setBrowserDemoAlways = (base: string, proof: SessionProof, conversation: string, demo: string, step: number, body: BrowserDemoAlways, signal?: AbortSignal): Promise<BrowserDemoPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo/${id(demo)}/steps/${step}/always`, 'BrowserDemoPage', proof, 'POST', validateWire('BrowserDemoAlways', body), undefined, signal);
 /** Sites with saved sign-ins in Row-Bot's browser. */
-export const getBrowserSites = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<BrowserSitePage> =>
+export const getBrowserSites =(base: string, proof: SessionProof, signal?: AbortSignal): Promise<BrowserSitePage> =>
   jsonRequest(base, '/browser/sites', 'BrowserSitePage', proof, 'GET', undefined, undefined, signal);
 /** Sign out of one site, or every site. */
 export const clearBrowserSites = (base: string, proof: SessionProof, body: BrowserSitesClear, signal?: AbortSignal): Promise<BrowserSitesCleared> =>

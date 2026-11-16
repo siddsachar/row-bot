@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "description": "Show Row-Bot how (C3) in the pane's line: whether the person's steps are being recorded.",
+  "properties": {
+    "elapsed_seconds": {
+      "maximum": 100000,
+      "minimum": 0,
+      "title": "Elapsed Seconds",
+      "type": "number"
+    },
+    "ended": {
+      "enum": [
+        "",
+        "done",
+        "step_limit",
+        "time_limit"
+      ],
+      "title": "Ended",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "recording",
+        "stopped"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "steps": {
+      "maximum": 200,
+      "minimum": 0,
+      "title": "Steps",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "status",
+    "ended",
+    "steps",
+    "elapsed_seconds"
+  ],
+  "title": "BrowserDemoSummary",
+  "type": "object"
+}

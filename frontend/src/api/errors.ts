@@ -2281,6 +2281,26 @@ const CATALOG: Record<string, Entry> = {
     "That web address isn't valid. Check it and try again.",
     'review',
   ],
+  // Show Row-Bot how (C3)
+  demo_private: [
+    "This chat is or was incognito, so Row-Bot doesn't keep steps from it.",
+    'none',
+  ],
+  demo_no_page: ['Open a page first, then show Row-Bot how.', 'none'],
+  demo_browser_busy: [
+    'Wait for Row-Bot to finish in the browser, then show it how.',
+    'retry',
+    RETRY,
+  ],
+  demo_recording: ['Row-Bot is already recording your steps here.', 'none'],
+  demo_missing: ['These steps are no longer here.', 'none'],
+  demo_changed: [
+    'These steps changed in another window. Look at them again.',
+    'retry',
+    RETRY,
+  ],
+  demo_no_steps: ['There are no steps yet.', 'none'],
+  demo_step_missing: ['That step is no longer here.', 'none'],
 
   // Computer use (the step in the conversation)
   computer_use_local_only: [
