@@ -410,6 +410,27 @@ def take(conversation_id: str, demo_id: str) -> Demo:
         return demo
 
 
+NARRATION_CHARS = 2000
+
+
+def add_narration(conversation_id: str, demo_id: str, said: dict[int, str]) -> Demo:
+    """What the person said around each step (transcribed on this computer), cleaned like page text but
+    never dropped: their own words. Nothing is kept for a step whose typing was secret."""
+
+    from row_bot.evolution import redact_text
+
+    with _LOCK:
+        demo = _require(conversation_id, demo_id)
+        for step in demo.steps:
+            words = " ".join(str(said.get(step.id) or "").split())
+            if not words or step.secret:
+                continue
+            words = redact_text(_LONG_NUMBER.sub("[number]", _FENCE.sub(" ", _TAG.sub(" ", words))))
+            step.narration = " ".join(f"{step.narration} {words}".split())[:NARRATION_CHARS]
+        demo.narrated = True
+        return demo
+
+
 def _add(demo: Demo, step: DemoStep) -> None:
     step.id = demo.next_id
     demo.next_id += 1

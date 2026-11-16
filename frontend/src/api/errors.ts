@@ -2301,6 +2301,19 @@ const CATALOG: Record<string, Entry> = {
   ],
   demo_no_steps: ['There are no steps yet.', 'none'],
   demo_step_missing: ['That step is no longer here.', 'none'],
+  narration_no_model: [
+    'Install a speech model in Settings › Voice to narrate.',
+    'none',
+    VOICE,
+  ],
+  narration_no_ffmpeg: [
+    "Narration needs Row-Bot's audio support (ffmpeg). Your steps are still kept.",
+    'none',
+  ],
+  narration_unavailable: [
+    "Narration isn't available right now. Your steps are still kept.",
+    'none',
+  ],
 
   // Computer use (the step in the conversation)
   computer_use_local_only: [

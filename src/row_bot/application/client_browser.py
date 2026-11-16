@@ -75,13 +75,42 @@ def _demo_call(conversation_id: str, work: Any) -> dict[str, Any]:
         work()
     except demo.DemoError as error:
         raise ClientBrowserError(error.code) from None
-    return demo.page(conversation_id)
+    return demo_page(conversation_id)
 
 
 def demo_page(conversation_id: str) -> dict[str, Any]:
-    from row_bot.browser import demo
+    """The demo and whether narration can be transcribed on this computer."""
 
-    return demo.page(conversation_id)
+    from row_bot.browser import demo
+    from row_bot.voice import narration
+
+    result = demo.page(conversation_id)
+    return {**result, "narration": narration.status() if result["demo"] else None}
+
+
+# A voice refusal the client has no words for, as the nearest one it has.
+_NARRATION_CODES = {"audio_decode_unavailable": "ffmpeg_unavailable", "voice_rate_limited": "voice_service_busy",
+                    "voice_session_required": "voice_operation_failed"}
+
+
+def demo_narration(conversation_id: str, demo_id: str, audio: bytes, content_type: str, offset: float,
+                   *, session_key: str) -> dict[str, Any]:
+    """One narration clip, transcribed on this computer into the steps it was said around."""
+
+    from row_bot.browser import demo
+    from row_bot.voice import narration
+    from row_bot.voice.browser_local import BrowserVoiceError
+
+    try:
+        narration.transcribe(conversation_id, demo_id, audio, content_type, offset, session_key=session_key)
+    except demo.DemoError as error:
+        raise ClientBrowserError(error.code) from None
+    except BrowserVoiceError as error:
+        raise ClientBrowserError(_NARRATION_CODES.get(error.code, error.code)) from None
+    except Exception:
+        logger.info("A narration clip couldn't be transcribed", exc_info=True)
+        raise ClientBrowserError("voice_operation_failed") from None
+    return demo_page(conversation_id)
 
 
 def demo_start(conversation_id: str) -> dict[str, Any]:

@@ -161,7 +161,7 @@ class BrowserLocalVoiceService:
         with self._job(session_key):
             self.tts_service.download_model(progress)
 
-    def _decode(self, audio_bytes: bytes) -> bytes:
+    def _decode(self, audio_bytes: bytes, *, max_seconds: int = MAX_UTTERANCE_SECONDS) -> bytes:
         executable = self._ffmpeg_path or shutil.which("ffmpeg")
         if not executable:
             raise BrowserVoiceError("ffmpeg_unavailable", status_code=503)
@@ -174,7 +174,7 @@ class BrowserLocalVoiceService:
             "-i",
             "pipe:0",
             "-t",
-            str(MAX_UTTERANCE_SECONDS),
+            str(max_seconds),
             "-vn",
             "-ac",
             "1",
@@ -200,7 +200,7 @@ class BrowserLocalVoiceService:
         if int(getattr(completed, "returncode", 1)) != 0:
             raise BrowserVoiceError("malformed_audio")
         pcm = bytes(getattr(completed, "stdout", b"") or b"")
-        max_decoded = SAMPLE_RATE * 2 * MAX_UTTERANCE_SECONDS
+        max_decoded = SAMPLE_RATE * 2 * max_seconds
         if len(pcm) < SAMPLE_RATE // 10 or len(pcm) > max_decoded:
             raise BrowserVoiceError("audio_duration_invalid")
         return pcm
