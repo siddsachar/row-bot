@@ -36,6 +36,9 @@ describe('Home › For you', () => {
             moment_id: '0000000000000001',
             kind: 'meeting_prep',
             title: 'Design review with Priya and Tom',
+            // Made on this test's morning, never the real clock's: on 16 November
+            // itself a real "an hour ago" came after the moment was due.
+            created_at: at(8, 30),
             due_at: at(9, 40),
             actions: [{ id: 'open_brief', label: 'Open brief' }],
           }),
@@ -43,6 +46,7 @@ describe('Home › For you', () => {
             moment_id: '0000000000000002',
             kind: 'change',
             title: '1:1 with Ana moved to 15:30',
+            created_at: at(8, 30),
             due_at: at(15, 30),
             actions: [],
             prepared_ref: '',
