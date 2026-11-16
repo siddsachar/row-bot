@@ -150,6 +150,84 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  browserDemo(conversation: string, signal?: AbortSignal) {
+    return wire.getBrowserDemo(this.base, this.session(), conversation, signal);
+  }
+  startBrowserDemo(conversation: string, signal?: AbortSignal) {
+    return wire.startBrowserDemo(
+      this.base,
+      this.session(),
+      conversation,
+      signal,
+    );
+  }
+  controlBrowserDemo(
+    conversation: string,
+    demo: string,
+    action: 'stop' | 'undo' | 'discard',
+    signal?: AbortSignal,
+  ) {
+    return wire.controlBrowserDemo(
+      this.base,
+      this.session(),
+      conversation,
+      demo,
+      action,
+      signal,
+    );
+  }
+  setBrowserDemoAlways(
+    conversation: string,
+    demo: string,
+    step: number,
+    always: boolean,
+    signal?: AbortSignal,
+  ) {
+    return wire.setBrowserDemoAlways(
+      this.base,
+      this.session(),
+      conversation,
+      demo,
+      step,
+      { always },
+      signal,
+    );
+  }
+  sendBrowserDemoNarration(
+    conversation: string,
+    demo: string,
+    offset: number,
+    audio: Blob,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendBrowserDemoNarration(
+      this.base,
+      this.session(),
+      conversation,
+      demo,
+      offset,
+      audio,
+      signal,
+    );
+  }
+  draftDemoSkill(
+    conversation: string,
+    demo: string,
+    body: wire.SkillDemoDraftRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.draftDemoSkill(
+      this.base,
+      this.session(),
+      conversation,
+      demo,
+      body,
+      signal,
+    );
+  }
+  trySkill(name: string, signal?: AbortSignal) {
+    return wire.trySkill(this.base, this.session(), name, signal);
+  }
   browserSites(signal?: AbortSignal) {
     return wire.getBrowserSites(this.base, this.session(), signal);
   }

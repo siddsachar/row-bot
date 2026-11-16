@@ -101,7 +101,8 @@ def _update(wait_id: str, **values: Any) -> None:
 def _publish() -> None:
     try:
         from row_bot.application.live_updates import live_updates
-        live_updates.publish("conversations")
+        # The sidebar's "Waiting for" and the waits' cards read them again; no conversation row shows a wait.
+        live_updates.publish("waits")
     except Exception:
         _LOG.debug("Live update for waits skipped", exc_info=True)
 

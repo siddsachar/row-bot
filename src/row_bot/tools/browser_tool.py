@@ -276,8 +276,11 @@ def _local_address_refusal(session: BrowserSession, thread_id: str, url: str, to
 def _wait_for_person(session: BrowserSession, thread_id: str) -> str | None:
     """Wait while the person is using the shared page, so Row-Bot never acts under their hand."""
 
+    from row_bot.browser import demo
     from row_bot.browser.service import PERSON_STILL_SECONDS
 
+    if demo.recording(thread_id):
+        return demo.HOLD  # Show Row-Bot how (C3): the person is driving the page.
     if session.person_still_for(thread_id) >= PERSON_STILL_SECONDS:
         return None
     scope = current_cancellation_scope()
@@ -463,6 +466,10 @@ def browser_navigate(url: str) -> str:
 
     thread_id = _get_thread_id()
     session = _session_manager.get_session(thread_id)
+    from row_bot.browser import demo
+
+    if demo.recording(thread_id):
+        return demo.HOLD
     word = str(url or "").strip().casefold()
     if word in {"back", "forward", "reload"}:
         async def history_step(tab: Any) -> str:
@@ -883,6 +890,10 @@ def browser_screenshot(full_page: bool = False) -> str:
 
     thread_id = _get_thread_id()
     session = _session_manager.get_session(thread_id)
+    from row_bot.browser import demo
+
+    if demo.recording(thread_id):
+        return demo.HOLD
     try:
         image, words = session.capture_page(thread_id, full_page=full_page)
     except BaseException as exc:

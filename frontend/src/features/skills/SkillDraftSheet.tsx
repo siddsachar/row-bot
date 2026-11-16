@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LoaderCircle, RotateCcw, TriangleAlert } from 'lucide-react';
+import {
+  CircleCheck,
+  LoaderCircle,
+  Play,
+  RotateCcw,
+  TriangleAlert,
+  Undo2,
+} from 'lucide-react';
 import type { SkillOfferPage } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
@@ -28,7 +35,8 @@ type Phase =
   | { kind: 'failed'; message: string }
   | { kind: 'review' }
   | { kind: 'editing'; fields: Fields; problem: string }
-  | { kind: 'rejecting' };
+  | { kind: 'rejecting' }
+  | { kind: 'saved'; name: string; title: string };
 
 const REASONS = ['Not useful', 'Wrong steps', 'I’ll write it myself'];
 
@@ -79,6 +87,9 @@ export default function SkillDraftSheet({
   messageId,
   offer,
   onChanged,
+  write,
+  draftingText = 'Drafting a skill from this chat…',
+  onTry,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,6 +99,11 @@ export default function SkillDraftSheet({
   offer: SkillOffer | undefined;
   /** The chat's offers after a change here. */
   onChanged: (page: SkillOfferPage) => void;
+  /** How the draft is written, when not from a reply (Show Row-Bot how, C3). */
+  write?: (signal: AbortSignal) => Promise<SkillOfferPage>;
+  draftingText?: string;
+  /** Try it after Approve: the sheet stays open on the saved skill. */
+  onTry?: (name: string) => Promise<void>;
 }) {
   const { controller, platform } = useRuntime();
   const notify = useNotify();
@@ -97,6 +113,7 @@ export default function SkillDraftSheet({
   const drafting = useRef<AbortController | null>(null);
   const draft = offer?.draft ?? null;
   const pending = draft && offer?.status === 'drafted';
+  const shown = draft?.shown ?? [];
 
   async function writeDraft() {
     drafting.current?.abort();
@@ -104,12 +121,14 @@ export default function SkillDraftSheet({
     drafting.current = abort;
     setPhase({ kind: 'drafting' });
     try {
-      const page = await controller.draftSkill(
-        conversationId,
-        messageId,
-        offer?.status === 'offered' ? offer.id : undefined,
-        abort.signal,
-      );
+      const page = write
+        ? await write(abort.signal)
+        : await controller.draftSkill(
+            conversationId,
+            messageId,
+            offer?.status === 'offered' ? offer.id : undefined,
+            abort.signal,
+          );
       if (abort.signal.aborted) return;
       onChanged(page);
       setPhase({ kind: 'review' });
@@ -181,6 +200,11 @@ export default function SkillDraftSheet({
       });
       await refresh();
       const name = receipt.skill_id ?? draft.name;
+      if (onTry) {
+        // Show Row-Bot how: the sheet stays on the saved skill, with Try it and Undo.
+        setPhase({ kind: 'saved', name, title: draft.display_name });
+        return;
+      }
       // The reply now shows it saved; the notice can take it back.
       onOpenChange(false);
       notify(`Saved “${draft.display_name}” as a skill.`, undefined, {
@@ -232,10 +256,20 @@ export default function SkillDraftSheet({
       );
     });
 
+  const trying = () =>
+    step(async () => {
+      if (phase.kind !== 'saved' || !onTry) return;
+      await onTry(phase.name);
+      onOpenChange(false);
+    });
+
+  const demo = offer?.origin === 'demo' || Boolean(write);
   const title =
     draft && phase.kind !== 'drafting' && phase.kind !== 'failed'
       ? `${draft.icon} ${draft.display_name}`.trim()
-      : 'Save as a skill';
+      : demo
+        ? 'Show Row-Bot how'
+        : 'Save as a skill';
   const source = draft?.source_title || chatTitle;
   const dated = offer ? when(offer.created_at) : '';
   return (
@@ -260,7 +294,7 @@ export default function SkillDraftSheet({
         {phase.kind === 'drafting' && (
           <div className="skill-draft-state" role="status">
             <LoaderCircle className="spin" size={18} aria-hidden />
-            <p>Drafting a skill from this chat…</p>
+            <p>{draftingText}</p>
             <div className="skill-draft-skeleton" aria-hidden>
               <span />
               <span />
@@ -274,11 +308,32 @@ export default function SkillDraftSheet({
             <p>{phase.message}</p>
           </div>
         )}
+        {phase.kind === 'saved' && (
+          <div className="skill-draft-saved" role="status">
+            <CircleCheck size={20} aria-hidden />
+            <div>
+              <strong>Saved “{phase.title}” as a skill.</strong>
+              <p>
+                Try it once to see it work: a new chat opens with the request
+                ready for you to fill in and send. Every step asks as usual.
+              </p>
+              {draft && draft.inputs.length > 0 && (
+                <p>It will ask for {draft.inputs.join(', ')}.</p>
+              )}
+            </div>
+          </div>
+        )}
         {draft && (phase.kind === 'review' || phase.kind === 'rejecting') && (
           <>
             {draft.why && (
-              <section aria-label="Why Row-Bot offered this">
-                <h3>Why Row-Bot offered this</h3>
+              <section
+                aria-label={
+                  demo ? 'Where it came from' : 'Why Row-Bot offered this'
+                }
+              >
+                <h3>
+                  {demo ? 'Where it came from' : 'Why Row-Bot offered this'}
+                </h3>
                 <p>{draft.why}</p>
               </section>
             )}
@@ -311,6 +366,18 @@ export default function SkillDraftSheet({
                 <TriangleAlert size={15} aria-hidden />
                 <span>{draft.errors.join(' ')}</span>
               </p>
+            )}
+            {shown.length > 0 && (
+              <Disclosure
+                summary={`What you showed (${shown.length} step${shown.length === 1 ? '' : 's'})`}
+                className="skill-draft-shown"
+              >
+                <ol className="skill-draft-shown-list">
+                  {shown.map((line, index) => (
+                    <li key={index}>{line}</li>
+                  ))}
+                </ol>
+              </Disclosure>
             )}
             <Disclosure summary="SKILL.md" className="skill-draft-file">
               <div className="skill-draft-file-body">
@@ -525,6 +592,35 @@ export default function SkillDraftSheet({
           >
             Back
           </Button>
+        )}
+        {phase.kind === 'saved' && (
+          <>
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => void trying()}
+            >
+              <Play size={15} aria-hidden />
+              {busy ? 'Opening…' : 'Try it'}
+            </Button>
+            <IconButton
+              label="Undo: delete the skill"
+              disabled={busy}
+              onClick={() => {
+                onOpenChange(false);
+                void undo(phase.name, phase.title);
+              }}
+            >
+              <Undo2 size={16} aria-hidden />
+            </IconButton>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => onOpenChange(false)}
+            >
+              Done
+            </Button>
+          </>
         )}
       </div>
       {phase.kind === 'review' && pending && (

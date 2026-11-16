@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fallbackDue, LIVE_FALLBACK_MS, LiveUpdates } from './live-updates';
-import { ClientController } from './controller';
+import { ClientController, LIST_SIGNAL_WINDOW_MS } from './controller';
 import { FixtureTransport } from './fixtures';
-import type { ConversationPage, LiveFrame, NoticePage } from './types';
+import type { LiveFrame, NoticePage } from './types';
 
 const frame = (
   revision: number,
@@ -179,7 +179,9 @@ describe('live updates (B407)', () => {
     expect(fallbackDue({ connected: true }, 0, LIVE_FALLBACK_MS)).toBe(true);
   });
 
-  it('shows a conversation a background run started in the sidebar at once', async () => {
+  /** A started window with its live stream open, and the list's reads counted. */
+  async function sidebar() {
+    vi.useFakeTimers();
     const live = stream();
     const transport = Object.assign(
       new FixtureTransport({ scenario: 'normal' }),
@@ -187,31 +189,92 @@ describe('live updates (B407)', () => {
     );
     const controller = new ClientController(transport);
     await controller.start();
-    await vi.waitFor(() =>
-      expect(controller.getSnapshot().conversations.length).toBeGreaterThan(0),
-    );
     live.send(frame(1));
-    await flush();
-    await flush();
-    const listed = controller.getSnapshot().conversations;
-    const started = {
-      ...listed[0],
+    await vi.advanceTimersByTimeAsync(0);
+    expect(controller.getSnapshot().conversations.length).toBeGreaterThan(0);
+    const rows = [...controller.getSnapshot().conversations];
+    const listing = vi
+      .spyOn(transport, 'listConversations')
+      .mockImplementation(async () => ({
+        items: [...rows],
+        has_more: false,
+        next_cursor: null,
+      }));
+    let revision = 1;
+    let conversations = 0;
+    /** The server publishes on `conversations` (one frame per stream tick). */
+    const signal = async () => {
+      live.send(frame(++revision, { conversations: ++conversations }));
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    return { controller, rows, listing, signal };
+  }
+
+  it('shows a conversation a background run started in the sidebar within a second', async () => {
+    const { controller, rows, listing, signal } = await sidebar();
+    rows.unshift({
+      ...rows[0],
       id: 'run-morning-digest',
       title: 'Morning digest',
-    };
-    const listing = vi.spyOn(transport, 'listConversations').mockResolvedValue({
-      items: [started, ...listed],
-      has_more: false,
-      next_cursor: null,
-    } satisfies ConversationPage);
-    live.send(frame(2, { conversations: 1, runs: 1 }));
-    await vi.waitFor(() =>
-      expect(controller.getSnapshot().conversations[0]?.title).toBe(
-        'Morning digest',
-      ),
+    });
+    await signal();
+    await vi.advanceTimersByTimeAsync(LIST_SIGNAL_WINDOW_MS);
+    expect(listing).toHaveBeenCalledTimes(1);
+    expect(controller.getSnapshot().conversations[0]?.title).toBe(
+      'Morning digest',
     );
-    expect(listing).toHaveBeenCalled();
     expect(controller.getSnapshot().loadingConversations).toBe(false);
+    controller.dispose();
+  });
+
+  it('reads the list once for a burst of changes, at the end of its window', async () => {
+    const { controller, listing, signal } = await sidebar();
+    // A turn starting: its name, its state and the chat moving up, in ticks.
+    await signal();
+    await vi.advanceTimersByTimeAsync(250);
+    await signal();
+    await vi.advanceTimersByTimeAsync(250);
+    await signal();
+    expect(listing).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(LIST_SIGNAL_WINDOW_MS - 500 - 1);
+    expect(listing).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(listing).toHaveBeenCalledTimes(1);
+    // Steady changes read at most once a window, never later than it.
+    for (let tick = 0; tick < 8; tick++) {
+      await signal();
+      await vi.advanceTimersByTimeAsync(250);
+    }
+    expect(listing).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(LIST_SIGNAL_WINDOW_MS);
+    expect(listing).toHaveBeenCalledTimes(3);
+    controller.dispose();
+  });
+
+  it('reads once more after a read in flight when the list changed meanwhile', async () => {
+    const { controller, rows, listing, signal } = await sidebar();
+    let answer!: () => void;
+    listing.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = () =>
+            resolve({ items: [...rows], has_more: false, next_cursor: null });
+        }),
+    );
+    await signal();
+    await vi.advanceTimersByTimeAsync(LIST_SIGNAL_WINDOW_MS);
+    expect(listing).toHaveBeenCalledTimes(1);
+    // Renamed while the first read is still out: its window ends first.
+    rows[0] = { ...rows[0], title: 'Quarterly numbers' };
+    await signal();
+    await vi.advanceTimersByTimeAsync(LIST_SIGNAL_WINDOW_MS);
+    expect(listing).toHaveBeenCalledTimes(1);
+    answer();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listing).toHaveBeenCalledTimes(2);
+    expect(controller.getSnapshot().conversations[0]?.title).toBe(
+      'Quarterly numbers',
+    );
     controller.dispose();
   });
 

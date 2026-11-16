@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight } from 'lucide-react';
 import type { PendingApproval } from '../../api/types';
 import { useRuntime } from '../../runtime';
+import { useBackgroundReady } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Hint, InlineEmpty } from '../../ui/primitives';
 import ApprovalCard from './ApprovalCard';
@@ -190,7 +191,11 @@ export function useApprovalNotices(
   useEffect(() => {
     latest.current = { overlay, openConversationId, homeListsThem };
   });
-  const { page } = usePendingApprovals(controller.pendingApprovals);
+  // Announced once the first screen is up.
+  const ready = useBackgroundReady();
+  const { page } = usePendingApprovals(
+    ready ? controller.pendingApprovals : undefined,
+  );
   useEffect(() => {
     if (!page) return;
     const { overlay, openConversationId, homeListsThem } = latest.current;
