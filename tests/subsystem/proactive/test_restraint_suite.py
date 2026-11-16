@@ -272,6 +272,33 @@ def test_triage_that_stays_silent_makes_no_moment_but_the_pass_is_logged(proacti
     assert len(proactive.model.prompts) == 1, "a change triage silenced isn't asked about again"
 
 
+@pytest.mark.parametrize("answer", [
+    json.dumps({"decisions": [{"id": "c1", "keep": False, "title": "", "body": ""}]}), RuntimeError("down")])
+def test_a_meeting_ten_minutes_away_surfaces_at_quiet_whatever_triage_says(proactive, answer):
+    # Found in the 5.3.4 Windows test (W22): a real meeting 10 minutes out was judged "0 worth a mention".
+    calendar = FakeCalendar()
+    proactive.watchers.register(CalendarWatcher([calendar]))
+    start_day(proactive)
+    calendar.add(meeting("ev1", at("2026-11-16 16:55"), title="Autumn launch sync"))
+
+    def silent(case: dict) -> str:
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    proactive.model.answer = silent
+    result = proactive.engine.tick(at("2026-11-16 16:45"), desktop=AT_DESK)
+
+    assert proactive.settings.load()["level"] == "quiet"
+    [moment] = proactive.store.list_moments()
+    assert moment["kind"] == "meeting_prep" and moment["title"] == "Autumn launch sync in 10 minutes"
+    assert result["sent"] == [moment["id"]] and proactive.sent == [("buddy", moment["id"])]
+    assert [moment_id for moment_id, _untrusted in proactive.prepared] == [moment["id"]], "its brief is prepared"
+    assert proactive.model.prompts == [], "triage never judged it"
+    assert "Checked calendar: 1 change, 1 worth a mention." in [
+        entry["summary"] for entry in proactive.store.activity()]
+
+
 @pytest.mark.parametrize("answer", ["not json at all", json.dumps({"decisions": "yes"}), RuntimeError("down")])
 def test_an_unclear_or_failed_triage_is_silence(proactive, answer):
     mail = FakeMail(sent=[thread("t1", at("2026-11-12 09:00"))])

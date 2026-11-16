@@ -362,6 +362,45 @@ def test_claude_is_checked_once_it_was_used_here(monkeypatch, state, status, det
     assert result.metadata == {"provider_id": "claude_subscription"}
 
 
+def test_a_sign_in_problem_clears_once_the_sign_in_works_again(profile, monkeypatch):
+    """W18: "couldn't read your ChatGPT sign-in" stayed in For you after the person signed in again."""
+    health = {"codex": "error"}
+    _subscriptions(monkeypatch, health)
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_sign_ins,))
+    client_diagnosis.run_local_checks()
+    kept = _by_id(client_diagnosis.read_system_health())["sign-in:codex"]
+    assert (kept["status"], kept["detail"]) == ("warn", "Row-Bot couldn't read your ChatGPT sign-in. Open it to check.")
+
+    health["codex"] = "valid"  # Signed in again: the sign-in is saved, which asks for the sign-ins' check now.
+    scheduler = FakeScheduler()
+    monkeypatch.setattr(client_diagnosis, "_scheduler", scheduler)
+    client_diagnosis.recheck_sign_ins()
+    scheduler.jobs[client_diagnosis.SIGN_INS_JOB].func()
+    assert "sign-in:codex" not in _by_id(client_diagnosis.read_system_health())
+
+    health["codex"] = "expired"  # The scheduled run settles it too, both ways.
+    client_diagnosis.run_local_checks()
+    assert _by_id(client_diagnosis.read_system_health())["sign-in:codex"]["status"] == "error"
+    health["codex"] = "valid"
+    client_diagnosis.run_local_checks()
+    assert "sign-in:codex" not in _by_id(client_diagnosis.read_system_health())
+
+
+def test_a_sign_in_check_that_fails_keeps_the_problems_it_last_saw(profile, monkeypatch):
+    from row_bot.providers import status as provider_status
+
+    _subscriptions(monkeypatch, {"codex": "expired"})
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_sign_ins,))
+    client_diagnosis.run_local_checks()
+
+    def broken():
+        raise OSError("keychain locked")
+
+    monkeypatch.setattr(provider_status, "sign_in_problems", broken)
+    client_diagnosis.run_local_checks()
+    assert _by_id(client_diagnosis.read_system_health())["sign-in:codex"]["status"] == "error"
+
+
 def test_working_sign_ins_say_nothing(monkeypatch):
     _subscriptions(monkeypatch, {"codex": "valid", "xai_oauth": "refresh_due"}, claude_used=True)
 

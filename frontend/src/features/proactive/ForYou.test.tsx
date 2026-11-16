@@ -75,6 +75,42 @@ describe('Home › For you', () => {
     expect(screen.getByText('12 memories saved this week')).toBeVisible();
   });
 
+  it('puts fact rows on a later day under that day, between Later today and Ready when you are', async () => {
+    render(
+      <MemoryRouter>
+        <ForYou
+          io={fakeIO({ moments: [moment({ moment_id: '0000000000000003' })] })}
+          now={now}
+          today={[<li key="run">Weekly report runs at 17:00</li>]}
+          ahead={[
+            {
+              at: new Date(2026, 10, 19, 9, 0),
+              row: <li key="thu">Invoices run at 09:00</li>,
+            },
+            {
+              at: new Date(2026, 10, 17, 8, 0),
+              row: <li key="tue">Weekday plan runs at 08:00</li>,
+            },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    const tomorrow = await screen.findByRole('group', { name: 'Tomorrow' });
+    expect(
+      within(tomorrow).getByText('Weekday plan runs at 08:00'),
+    ).toBeVisible();
+    const thursday = screen.getByRole('group', { name: 'Thursday' });
+    expect(within(thursday).getByText('Invoices run at 09:00')).toBeVisible();
+    const later = screen.getByRole('group', { name: 'Later today' });
+    expect(within(later).queryByText(/Weekday plan/)).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole('group')
+        .map((group) => group.getAttribute('aria-labelledby'))
+        .map((id) => document.getElementById(id ?? '')?.textContent),
+    ).toEqual(['Later today', 'Tomorrow', 'Thursday', 'Ready when you are']);
+  });
+
   it('lets expired moments leave quietly, and renders nothing on a day with nothing', async () => {
     const io = fakeIO({
       moments: [moment({ expires_at: at(9, 0) })],
