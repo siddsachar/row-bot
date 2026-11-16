@@ -3794,13 +3794,15 @@ class SkillDraftView(WireModel):
     overlaps: list[SkillDraftOverlap] = Field(max_length=3)
     errors: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
     warnings: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
+    # Show Row-Bot how (C3): the steps the person showed, for "What you showed" (empty otherwise).
+    shown: list[Annotated[str, StringConstraints(max_length=400)]] = Field(default_factory=list, max_length=200)
 
 
 class SkillOfferView(WireModel):
     """"Save as a skill" under one reply (C1): offered, drafted, saved, rejected or dismissed."""
     id: OpaqueId
     message_id: str = Field(max_length=256)
-    origin: Literal["offered", "manual"]
+    origin: Literal["offered", "manual", "demo"]
     status: Literal["offered", "drafted", "saved", "rejected", "dismissed"]
     task_name: str = Field(max_length=80)
     why: str = Field(max_length=400)
@@ -3814,6 +3816,17 @@ class SkillOfferPage(WireModel):
     conversation_id: OpaqueId
     revision: str = Field(min_length=1, max_length=128)
     items: list[SkillOfferView] = Field(max_length=50)
+
+
+class SkillDemoDraftRequest(WireModel):
+    """Draft a skill from the steps the person showed (C3), with their optional "What is this for?"."""
+    purpose: str = Field(default="", max_length=200)
+
+
+class SkillTryResult(WireModel):
+    """Try it: a new chat with the skill pinned and its request in the composer, not sent."""
+    conversation_id: OpaqueId
+    text: str = Field(max_length=2000)
 
 
 class SkillDraftRequest(WireModel):

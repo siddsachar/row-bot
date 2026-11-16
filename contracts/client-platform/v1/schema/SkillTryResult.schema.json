@@ -1,0 +1,24 @@
+{
+  "additionalProperties": false,
+  "description": "Try it: a new chat with the skill pinned and its request in the composer, not sent.",
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 2000,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "text"
+  ],
+  "title": "SkillTryResult",
+  "type": "object"
+}
