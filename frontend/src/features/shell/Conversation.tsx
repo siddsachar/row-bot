@@ -29,7 +29,7 @@ import { usePlace } from '../../api/place';
 import { unbindWithUndo } from './resource-unbind';
 import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
-import { useSettledIdentity } from '../../shell-settled';
+import { useBackgroundReady, useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
@@ -388,12 +388,13 @@ export default function Conversation({
     dictateReason: 'Voice capability is unavailable.',
     talkReason: 'Voice capability is unavailable.',
   });
-  // Read once per settled server identity, after the conversation snapshot
-  // is confirmed, so it never competes with open or subscribe (B29).
+  // Read once per settled server identity, once the first screen is up, so
+  // it never competes with open, subscribe or the conversation's reads (B29).
   const settledIdentity = useSettledIdentity();
+  const backgroundReady = useBackgroundReady();
   useEffect(() => {
     const handshake = controller.getSnapshot().handshake;
-    if (!settledIdentity || !handshake) return;
+    if (!settledIdentity || !backgroundReady || !handshake) return;
     const voiceHostKey = `${handshake.client_session_id}:${handshake.server_epoch}`;
     const abort = new AbortController();
     void controller
@@ -427,7 +428,7 @@ export default function Conversation({
           });
       });
     return () => abort.abort();
-  }, [controller, settledIdentity]);
+  }, [controller, settledIdentity, backgroundReady]);
   const [busy, setBusy] = useState(false);
   // A message answering Row-Bot's waiting question is on its way.
   const answeringQuestion = useRef(false);
@@ -819,8 +820,10 @@ export default function Conversation({
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   // A helper this chat started waits on an approval: its card shows here
   // even when no notice reached the transcript, so no helper waits on an
-  // approval nobody can see (B348).
-  const approvalsFeed = usePendingApprovals(controller.pendingApprovals);
+  // approval nobody can see (B348). Read once the first screen is up.
+  const approvalsFeed = usePendingApprovals(
+    backgroundReady ? controller.pendingApprovals : undefined,
+  );
   const helperApprovals = useMemo(
     () =>
       (approvalsFeed.page?.items ?? []).filter(

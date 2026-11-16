@@ -11,6 +11,7 @@ import type { ComponentProps } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ClientController } from '../../api/controller';
 import { FixtureTransport } from '../../api/fixtures';
+import type { AttentionSnapshot, PendingApprovalPage } from '../../api/types';
 import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
 import { OverlayProvider } from '../../ui/overlays';
@@ -129,6 +130,59 @@ function rows() {
     ),
   );
 }
+
+it('reads what needs the person once the first screen is up, then shows it (request budget)', async () => {
+  const transport = Object.assign(
+    new FixtureTransport({ conversationCount: 1 }),
+    {
+      attention: vi.fn(async (): Promise<AttentionSnapshot> => ({
+        schema_version: 1,
+        problems: [],
+        update: null,
+      })),
+      pendingApprovals: vi.fn(async (): Promise<PendingApprovalPage> => ({
+        schema_version: 1,
+        items: [
+          {
+            id: 'approval-1',
+            source: 'conversation',
+            title: 'Send the weekly report?',
+            what: 'Email the weekly report to the team.',
+            requested_at: '2026-11-15T09:00:00Z',
+            expires_at: null,
+            conversation_id: 'conversation-a',
+            task_id: null,
+          },
+        ],
+        total: 1,
+      })),
+    },
+  );
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  render(
+    <MemoryRouter>
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Navigation showBuddy={false} />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  // The list is the first screen; what it doesn't show isn't read yet.
+  await waitFor(() => expect(rows()).toHaveLength(1));
+  expect(transport.attention).not.toHaveBeenCalled();
+  expect(transport.pendingApprovals).not.toHaveBeenCalled();
+  await act(() => controller.afterFirstScreen());
+  expect(
+    await screen.findByRole('button', { name: /1 approval is waiting/ }),
+  ).toBeVisible();
+  expect(transport.attention).toHaveBeenCalledTimes(1);
+  expect(transport.pendingApprovals).toHaveBeenCalledTimes(1);
+});
 
 it('opens the grouped profile panel with counts and starts the selected profile chat', async () => {
   const transport = new FixtureTransport({ conversationCount: 1 });
@@ -267,6 +321,8 @@ async function setupAgents(
   const controller = new ClientController(transport, () => 1);
   clients.push(controller);
   await controller.start();
+  // The profiles are read once the first screen is up: it is.
+  controller.firstScreenSettled = true;
   controller.profiles = vi.fn().mockResolvedValue({
     schema_version: 1,
     scope: 'global',

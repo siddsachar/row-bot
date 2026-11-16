@@ -58,6 +58,8 @@ const surface = vi.hoisted(() => {
     buddyPlacement,
     platform: { buddyPlacement },
     controller: {
+      // The first screen is up: Buddy reads at once.
+      firstScreenSettled: true,
       globalBuddy,
       globalBuddyPack,
       globalBuddyMedia,

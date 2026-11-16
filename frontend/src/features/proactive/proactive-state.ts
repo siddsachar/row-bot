@@ -104,9 +104,12 @@ export function proactiveIO(controller: ClientController): ProactiveIO {
 
 /**
  * This window has opened: the server may count it as a break (the first one
- * of the day brings the morning brief). Sent once, after the handshake.
+ * of the day brings the morning brief). Sent once, after the handshake, once
+ * the first screen is up (it shows nothing on it).
  */
 export function noteAppOpen(controller: ClientController): () => void {
+  let stopped = false;
+  let unsubscribe = () => {};
   const send = () => {
     if (!controller.getSnapshot().handshake) return false;
     void controller
@@ -114,11 +117,16 @@ export function noteAppOpen(controller: ClientController): () => void {
       .catch(() => undefined);
     return true;
   };
-  if (send()) return () => {};
-  const unsubscribe = controller.subscribe(() => {
-    if (send()) unsubscribe();
+  void controller.afterFirstScreen().then(() => {
+    if (stopped || send()) return;
+    unsubscribe = controller.subscribe(() => {
+      if (send()) unsubscribe();
+    });
   });
-  return unsubscribe;
+  return () => {
+    stopped = true;
+    unsubscribe();
+  };
 }
 
 export type ProactiveView = {
@@ -342,8 +350,8 @@ export function useProactive(given?: ProactiveIO | null): {
  * shows For you in place of Today. Off, or before settings are read, Today
  * stays exactly as it was.
  */
-export function useProactiveOn(): boolean {
-  const { view } = useProactive();
+export function useProactiveOn(given?: ProactiveIO | null): boolean {
+  const { view } = useProactive(given);
   return Boolean(
     !view.unavailable && view.settings && view.settings.level !== 'off',
   );

@@ -58,6 +58,7 @@ import {
 } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import { useClientSelector, useRuntime } from '../../runtime';
+import { useBackgroundReady } from '../../shell-settled';
 import {
   closeAllPanels,
   closePanel,
@@ -378,8 +379,11 @@ export default function Workspace() {
   };
   const { controller, goalProfileOwner } = useRuntime();
   const overlay = useOverlay();
-  const proactiveOn = useProactiveOn();
-  const { store: proactive } = useProactive();
+  // Proactive's palette commands and moments are read once the first screen
+  // is up (Home's For you reads at once).
+  const backgroundReady = useBackgroundReady();
+  const proactiveOn = useProactiveOn(backgroundReady ? undefined : null);
+  const { store: proactive } = useProactive(backgroundReady ? undefined : null);
   const paletteSequence = useRef(0);
   const agentProfiles = useRef(new Map<string, ProfileSummary>());
   const location = useLocation();
@@ -2248,8 +2252,9 @@ export default function Workspace() {
             {sideVisible && dock(sidePanels, 'side')}
           </Panel>
         </Group>
-        {/* Proactive below 1024px: a moment Buddy delivers, above the tab bar. */}
-        <MomentStrip hidden={Boolean(conversationId)} />
+        {/* Proactive below 1024px: a moment Buddy delivers, above the tab bar,
+            once the first screen is up. */}
+        {backgroundReady && <MomentStrip hidden={Boolean(conversationId)} />}
         {phoneTab && <PhoneTabBar current={phoneTab} />}
         {conversationId &&
           railPanels.length > 0 &&

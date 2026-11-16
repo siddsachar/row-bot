@@ -16,9 +16,14 @@ revision. Revisions live in memory; a new server process starts a new
 
 Topics (add one here, then publish it where its state changes):
 
-- ``conversations``: the conversation list: one created (a workflow run's or a
-  helper's included), renamed, pinned, deleted or restored, and a conversation
-  starting, waiting on the person or settling.
+- ``conversations``: the conversation list, and only what its rows show: one
+  created (a workflow run's or a helper's included), renamed, pinned, its type
+  set, deleted or restored, moved up the list, and a conversation starting,
+  waiting on the person or settling (its helpers' runs changing state count).
+  Every client reads the list again on it, so a change inside a turn that no
+  row shows (a step, a helper's progress line) never publishes it.
+- ``waits``: what conversations wait for (the sidebar's "Waiting for" and the
+  waits' cards): a wait or watch made, checked, paused, ended or put away.
 - ``runs``: workflow runs started, finished, failed, stopped or waiting.
 - ``approvals``: an approval or question raised, answered, cancelled or expired,
   anywhere.
@@ -52,7 +57,7 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 Topic = Literal["conversations", "runs", "approvals", "helpers", "processes", "monitor", "models", "notices",
-                "learning", "proactive", "skill_offers"]
+                "learning", "proactive", "skill_offers", "waits"]
 TOPICS: tuple[str, ...] = get_args(Topic)
 
 
