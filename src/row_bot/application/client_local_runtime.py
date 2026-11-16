@@ -41,15 +41,27 @@ def installer() -> install.Installer:
 
 
 def _ready(model: models.Model) -> None:
-    """A model finished installing (its endpoint is saved once the server exists, WP3)."""
+    """A model finished installing: the runtime's endpoint lists it, and the model is checked once on
+    this computer with the probe Row-Bot runs for any endpoint (a reply, a tool call and a tool-result
+    round trip), so its readiness is evidence, not a guess. That loads it once, now."""
+
+    from row_bot.local_runtime import server
+
+    server.save_endpoint()
+    try:
+        from row_bot.providers.custom import probe_custom_endpoint
+
+        if server.get().connection(start=True) is not None:
+            probe_custom_endpoint(local_runtime.PROVIDER_ID, model.id)
+    except Exception:  # noqa: BLE001 - the model is installed; the probe can run again from Settings
+        logger.warning("The first check of the model on this computer didn't finish", exc_info=True)
 
 
 def _server_state() -> str | None:
-    import sys
+    from row_bot.local_runtime import server
 
-    server = sys.modules.get("row_bot.local_runtime.server")
     try:
-        return server.state() if server is not None else None
+        return server.state()
     except Exception:  # noqa: BLE001
         return None
 
@@ -154,11 +166,9 @@ def stop() -> dict[str, Any]:
     """Stop a download (it resumes later) and the running model server."""
 
     installer().stop()
-    import sys
+    from row_bot.local_runtime import server
 
-    server = sys.modules.get("row_bot.local_runtime.server")
-    if server is not None:
-        server.stop("you")
+    server.stop("you")
     return snapshot()
 
 
@@ -171,12 +181,14 @@ def remove(model_id: str | None = None) -> dict[str, Any]:
     if model_id is not None and models.get(model_id) is None:
         raise ClientPlatformError("invalid_command")
     installer().stop()
-    import sys
+    from row_bot.local_runtime import server
 
-    server = sys.modules.get("row_bot.local_runtime.server")
-    if server is not None:
-        server.stop("removed")
+    server.stop("removed")
     freed = install.remove(model_id=model_id)
+    try:
+        server.save_endpoint()
+    except Exception:  # noqa: BLE001
+        logger.warning("The local endpoint wasn't updated after a removal", exc_info=True)
     _failure = None
     installer().progress = None
     return {**snapshot(), "freed_bytes": int(freed)}

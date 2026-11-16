@@ -480,12 +480,13 @@ class Installer:
                 fetcher.fetch(item, folder, progress=advance_model, check=self._check)
                 publish_model(model, self.root)
             progress.done = progress.total
-            progress.phase = "finished"
             if self.on_ready is not None:
+                progress.phase = "checking"
                 try:
                     self.on_ready(model)
                 except Exception:  # noqa: BLE001 - the files are installed; the endpoint is saved again later
                     logger.warning("The local model was installed but its endpoint wasn't saved", exc_info=True)
+            progress.phase = "finished"
             logger.info("Row-Bot installed %s to run on this computer", model.id)
         except Stopped:
             progress.phase = "stopped"
