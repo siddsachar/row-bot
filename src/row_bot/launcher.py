@@ -280,11 +280,13 @@ def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
     quit and this one holds the lock. Never starts a second server.
     """
     wants_server = bool(args.server or args.no_open)
-    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None
-                        or getattr(args, "compact_chats", False))
-    if changes_data:
-        doing = ("compacting chats" if getattr(args, "compact_chats", False)
-                 else "restoring data" if args.restore_data is not None else "resetting data")
+    if getattr(args, "compact_chats", False):
+        from row_bot.data_folder_lock import IN_USE_MESSAGE
+
+        print(IN_USE_MESSAGE)
+        return 1
+    if args.reset_tasks_db or args.reset_db or args.restore_data is not None:
+        doing = "restoring data" if args.restore_data is not None else "resetting data"
         logger.error("%s is running on this data folder; quit it before %s.", APP_DISPLAY_NAME, doing)
         return 1
     _launch_event("instance_already_running", mode="server" if wants_server else "desktop")
@@ -3925,7 +3927,13 @@ def _compact_chats() -> int:
 
     try:
         result = chat_compact.compact(get_threads_db_path())
-    except (RuntimeError, OSError, sqlite3.Error) as exc:
+    except chat_compact.ChatsInUse as exc:
+        print(exc)
+        return 1
+    except OSError as exc:
+        print(f"The chat database wasn't compacted: {exc.strerror or exc}")
+        return 1
+    except (RuntimeError, sqlite3.Error) as exc:
         print(f"The chat database wasn't compacted: {exc}")
         return 1
     gb = 1024 ** 3

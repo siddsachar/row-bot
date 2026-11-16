@@ -44,9 +44,15 @@ for _discord_noisy in _DISCORD_BENIGN_VOICE_LOGGERS:
     logging.getLogger(_discord_noisy).setLevel(logging.ERROR)
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
-# A confirmed restore from a backup applies here, before anything below opens
-# the profile's databases; the current profile is kept aside (decision 21).
 if __name__ == "__main__":
+    # Every way a server starts runs this (`python app.py`, the launcher's server for the app, `row-bot serve`
+    # and the container, a sandbox's `-m row_bot.app`): it holds the data folder's lock while it runs, so chats
+    # can't be compacted under it, and it doesn't start while they are (W6). First, before anything opens the folder.
+    from row_bot.data_folder_lock import hold_for_server
+
+    hold_for_server()
+    # A confirmed restore from a backup applies here, before anything below opens
+    # the profile's databases; the current profile is kept aside (decision 21).
     from row_bot.profile_restore import apply_on_start
 
     apply_on_start()

@@ -155,6 +155,7 @@ def test_compacting_the_chats_is_refused_while_row_bot_runs_on_the_folder(tmp_pa
     args = launcher._build_arg_parser().parse_args(["--compact-chats"])
     assert args.compact_chats is True
     assert launcher._hand_off_to_running_instance(args) == 1, "another launcher holds the folder: nothing runs"
+    assert capsys.readouterr().out.strip() == "Quit Row-Bot (or stop the server) before compacting chats."
 
     monkeypatch.setattr(chat_compact, "compact",
                         lambda path: {"before": 20 * 1024 ** 3, "after": 1024 ** 3, "checkpoints": 12_345})
