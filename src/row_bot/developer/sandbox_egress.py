@@ -17,9 +17,11 @@ with its network on ("ask" or "on") never joins it. Instead, per code folder:
   goes direct. A program that ignores those has no way out at all, SSH git remotes included. The sandbox also loses ``NET_RAW`` and the gate never forwards packets, so raw
   frames sent to the gate don't get routed onwards.
 
-The gate runs from the default sandbox image when it is on this computer (it has Python 3), else
-from the code folder's own image, with every capability dropped, a read-only file system and an
-unprivileged user. Prepare sandbox's install container uses the same gate.
+The gate always runs from the default sandbox image (it has Python 3), never from a code folder's
+own image, since the gate is the one container with a real network; it drops every capability, has
+a read-only file system and an unprivileged user. Prepare sandbox's install container uses the same
+gate. When the gate can't start (that image isn't here, a Docker error), ``ensure_gate`` raises
+``GateUnavailable`` and the caller runs without a network: never with Docker's default one.
 """
 from __future__ import annotations
 
@@ -49,6 +51,10 @@ _DOCKER_NETWORK_OPTIONS = (
     "com.docker.network.bridge.gateway_mode_ipv4=isolated",
     "com.docker.network.bridge.inhibit_ipv4=true",
 )
+
+
+class GateUnavailable(RuntimeError):
+    """The gate couldn't start; its message says why, in words for the person."""
 
 
 def _digest(workspace_id: str) -> str:
@@ -107,7 +113,7 @@ def _is_podman(binary: str) -> bool:
 
 
 def _problem(proc: subprocess.CompletedProcess) -> str:
-    return (proc.stderr or proc.stdout or "").strip()[:500]
+    return (proc.stderr or proc.stdout or "no details").strip()[:300]
 
 
 def _ensure_network(docker: Docker, workspace_id: str, *, podman: bool) -> None:
@@ -124,40 +130,43 @@ def _ensure_network(docker: Docker, workspace_id: str, *, podman: bool) -> None:
             args.extend(["-o", option])
     made = docker(*args, name, timeout=30)
     if made.returncode != 0:
-        raise RuntimeError(f"Row-Bot couldn't create the sandbox's private network: {_problem(made)}")
+        raise GateUnavailable(f"Row-Bot couldn't create the sandbox's private network: {_problem(made)}")
 
 
-def gate_image(docker: Docker, workspace_image: str) -> str:
-    """The default sandbox image (it has Python 3) when it is here, else the code folder's own."""
-    if workspace_image != DEFAULT_SANDBOX_IMAGE:
-        present = docker("image", "inspect", DEFAULT_SANDBOX_IMAGE, timeout=15)
-        if present.returncode == 0:
-            return DEFAULT_SANDBOX_IMAGE
-    return workspace_image
+def _call(docker: Docker, *args: str, timeout: float) -> subprocess.CompletedProcess:
+    try:
+        return docker(*args, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("docker %s failed for the sandbox's network gate", args[0], exc_info=True)
+        raise GateUnavailable("Docker didn't answer while Row-Bot started the sandbox's network gate.") from exc
 
 
-def ensure_gate(docker: Docker, workspace_id: str, *, workspace_image: str, binary: str = "docker") -> None:
-    """The code folder's private network and its running gate; raises RuntimeError when they can't be made."""
+def ensure_gate(docker: Docker, workspace_id: str, *, binary: str = "docker") -> None:
+    """The code folder's private network and its running gate; raises GateUnavailable when they can't be made."""
     name = gate_name(workspace_id)
-    state = docker("inspect", "-f", "{{.State.Running}}", name, timeout=10)
+    state = _call(docker, "inspect", "-f", "{{.State.Running}}", name, timeout=10)
     if state.returncode == 0:
         if (state.stdout or "").strip().lower() == "true":
             return
-        if docker("start", name, timeout=30).returncode == 0:
+        if _call(docker, "start", name, timeout=30).returncode == 0:
             return
-        docker("rm", "-f", name, timeout=30)
-    _ensure_network(docker, workspace_id, podman=_is_podman(binary))
-    image = gate_image(docker, workspace_image)
-    started = docker(*gate_run_args(workspace_id, image), timeout=60)
-    if started.returncode != 0:
-        raise RuntimeError(
-            f"Row-Bot couldn't start the sandbox's network gate from {image} (it needs python3): "
-            f"{_problem(started)}. Turn the sandbox network off, or use an image with Python 3."
+        _call(docker, "rm", "-f", name, timeout=30)
+    if _call(docker, "image", "inspect", DEFAULT_SANDBOX_IMAGE, timeout=15).returncode != 0:
+        raise GateUnavailable(
+            "The network gate needs the default sandbox image, which isn't on this computer: "
+            f"download it with `docker pull {DEFAULT_SANDBOX_IMAGE}`."
         )
-    joined = docker("network", "connect", network_name(workspace_id), name, timeout=30)
+    try:
+        _ensure_network(docker, workspace_id, podman=_is_podman(binary))
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GateUnavailable("Docker didn't answer while Row-Bot made the sandbox's private network.") from exc
+    started = _call(docker, *gate_run_args(workspace_id, DEFAULT_SANDBOX_IMAGE), timeout=60)
+    if started.returncode != 0:
+        raise GateUnavailable(f"Row-Bot couldn't start the sandbox's network gate: {_problem(started)}")
+    joined = _call(docker, "network", "connect", network_name(workspace_id), name, timeout=30)
     if joined.returncode != 0:
-        docker("rm", "-f", name, timeout=30)
-        raise RuntimeError(f"Row-Bot couldn't connect the sandbox's network gate: {_problem(joined)}")
+        _call(docker, "rm", "-f", name, timeout=30)
+        raise GateUnavailable(f"Row-Bot couldn't connect the sandbox's network gate: {_problem(joined)}")
     logger.info("Developer sandbox network gate started for workspace %s", workspace_id)
 
 

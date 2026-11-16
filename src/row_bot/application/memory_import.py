@@ -692,7 +692,8 @@ def find_in_conversations(session_id: str, batch_id: str) -> dict:
                     if cancel.is_set():
                         raise _Cancelled
                     calls += 1
-                    entries = extraction._extract_from_conversation(window)
+                    # Its relative dates ("last Friday") are the imported conversation's, not today's.
+                    entries = extraction._extract_from_conversation(window, dated=when.date() if when else None)
                     if isinstance(entries, extraction._NoReply):
                         failed += 1
                         if failed == calls and calls >= 2:

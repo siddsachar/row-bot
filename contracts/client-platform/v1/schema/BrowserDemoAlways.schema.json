@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "description": "\"Always this\": keep one typed value as it is in the skill, instead of making it an input.",
+  "properties": {
+    "always": {
+      "title": "Always",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "always"
+  ],
+  "title": "BrowserDemoAlways",
+  "type": "object"
+}

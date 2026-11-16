@@ -29,7 +29,7 @@ import { usePlace } from '../../api/place';
 import { unbindWithUndo } from './resource-unbind';
 import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
-import { useSettledIdentity } from '../../shell-settled';
+import { useBackgroundReady, useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
@@ -89,6 +89,7 @@ import {
   type PendingCommand,
 } from './command-receipts';
 import SafeMarkdown from './chat-parity-markdown';
+import { SkillOfferContext, useChatSkillOffers } from '../skills/skill-offers';
 import TranscriptTrace from './TranscriptTrace';
 import { writingLabel } from './tool-activity';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
@@ -387,12 +388,13 @@ export default function Conversation({
     dictateReason: 'Voice capability is unavailable.',
     talkReason: 'Voice capability is unavailable.',
   });
-  // Read once per settled server identity, after the conversation snapshot
-  // is confirmed, so it never competes with open or subscribe (B29).
+  // Read once per settled server identity, once the first screen is up, so
+  // it never competes with open, subscribe or the conversation's reads (B29).
   const settledIdentity = useSettledIdentity();
+  const backgroundReady = useBackgroundReady();
   useEffect(() => {
     const handshake = controller.getSnapshot().handshake;
-    if (!settledIdentity || !handshake) return;
+    if (!settledIdentity || !backgroundReady || !handshake) return;
     const voiceHostKey = `${handshake.client_session_id}:${handshake.server_epoch}`;
     const abort = new AbortController();
     void controller
@@ -426,7 +428,7 @@ export default function Conversation({
           });
       });
     return () => abort.abort();
-  }, [controller, settledIdentity]);
+  }, [controller, settledIdentity, backgroundReady]);
   const [busy, setBusy] = useState(false);
   // A message answering Row-Bot's waiting question is on its way.
   const answeringQuestion = useRef(false);
@@ -818,8 +820,10 @@ export default function Conversation({
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   // A helper this chat started waits on an approval: its card shows here
   // even when no notice reached the transcript, so no helper waits on an
-  // approval nobody can see (B348).
-  const approvalsFeed = usePendingApprovals(controller.pendingApprovals);
+  // approval nobody can see (B348). Read once the first screen is up.
+  const approvalsFeed = usePendingApprovals(
+    backgroundReady ? controller.pendingApprovals : undefined,
+  );
   const helperApprovals = useMemo(
     () =>
       (approvalsFeed.page?.items ?? []).filter(
@@ -2677,6 +2681,16 @@ export default function Conversation({
   // The latest turn is still in flight while it waits for an approval, even
   // though the worker is parked: no actions until it settles.
   const turnInFlight = isRunning || generation?.status === 'waiting_approval';
+  // Save as a skill (C1): this chat's offers, read again as each turn settles.
+  const skillOffers = useChatSkillOffers(id, {
+    refreshKey: [
+      generation?.generation_id ?? '',
+      generation?.status ?? '',
+      String(Boolean(generation?.quiesced)),
+    ].join(':'),
+    incognito,
+    title: state.conversation?.id === id ? state.conversation.title : '',
+  });
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   // Elapsed time for the live activity row, as this client observed it.
   const [runStartedAt, setRunStartedAt] = useState<number | undefined>();
@@ -2859,12 +2873,21 @@ export default function Conversation({
     const starts = turnStarts(items);
     const ends: boolean[] = [];
     const texts: (string | undefined)[] = [];
+    // An assistant turn's last row, when the turn used tools: it can be saved as a skill.
+    const tools: boolean[] = [];
     let start = 0;
     items.forEach((item, index) => {
       const next = items[index + 1];
       const end =
         item.row.role !== 'assistant' || next?.row.role !== 'assistant';
       ends.push(end);
+      tools.push(
+        end &&
+          item.row.role === 'assistant' &&
+          items
+            .slice(start, index + 1)
+            .some((part) => Boolean(part.traces?.length)),
+      );
       if (item.row.role !== 'assistant') {
         texts.push(undefined);
         start = index + 1;
@@ -2887,6 +2910,7 @@ export default function Conversation({
       starts,
       ends,
       texts,
+      tools,
       browser: browserOffers(items),
       lastUser: items.map((item) => item.row.role).lastIndexOf('user'),
     };
@@ -3667,77 +3691,83 @@ export default function Conversation({
                 <Skeleton label="Opening conversation" />
               ) : items.length || pending?.conversation === id ? (
                 <TeachContext.Provider value={learningChat.teach}>
-                  {earlierIds.size > 0 && (
-                    // Loaded history is not announced as new conversation.
-                    <div className="transcript-earlier" aria-live="off">
-                      {shown.items.map((item, index) =>
-                        earlierIds.has(item.row.id) ? (
-                          <TranscriptMessage
-                            key={`${id}:${item.row.id}`}
-                            row={item.row}
-                            conversationId={id}
-                            traces={item.traces}
-                            embeds={item.embeds}
-                            media={item.media}
-                            cards={item.cards}
-                            earlierCards={item.earlier}
-                            agents={item.agents}
-                            turnStart={turns.starts[index]}
-                            offerBrowser={turns.browser[index]}
-                            toolbar={turns.ends[index]}
-                            copyText={turns.texts[index]}
-                            onRecover={recoverTurn}
-                            onEditResend={
-                              turnInFlight ? undefined : editAndResend
-                            }
-                            onFork={turnInFlight ? undefined : forkFromHere}
-                          />
-                        ) : null,
-                      )}
-                    </div>
-                  )}
-                  {shown.items.map((item, index) =>
-                    earlierIds.has(item.row.id) ? null : (
-                      <TranscriptMessage
-                        key={`${id}:${item.row.id}`}
-                        row={item.row}
-                        conversationId={id}
-                        traces={item.traces}
-                        embeds={item.embeds}
-                        media={item.media}
-                        cards={item.cards}
-                        earlierCards={item.earlier}
-                        agents={item.agents}
-                        turnStart={turns.starts[index]}
-                        latest={index === lastAssistant && !turnInFlight}
-                        computer={computerLine}
-                        // The live browser step stands in for it while this turn runs.
-                        offerBrowser={
-                          turns.browser[index] &&
-                          !(browserLive && index > turns.lastUser)
-                        }
-                        toolbar={turns.ends[index]}
-                        copyText={turns.texts[index]}
-                        onRecover={recoverTurn}
-                        streaming={
-                          turnInFlight &&
-                          index === items.length - 1 &&
-                          item.row.role === 'assistant'
-                        }
-                        onRetry={
-                          index === lastAssistant &&
-                          !turnInFlight &&
-                          !state.history &&
-                          lastUserText &&
-                          sendActionReady
-                            ? retryLast
-                            : undefined
-                        }
-                        onEditResend={turnInFlight ? undefined : editAndResend}
-                        onFork={turnInFlight ? undefined : forkFromHere}
-                      />
-                    ),
-                  )}
+                  <SkillOfferContext.Provider value={skillOffers.value}>
+                    {earlierIds.size > 0 && (
+                      // Loaded history is not announced as new conversation.
+                      <div className="transcript-earlier" aria-live="off">
+                        {shown.items.map((item, index) =>
+                          earlierIds.has(item.row.id) ? (
+                            <TranscriptMessage
+                              key={`${id}:${item.row.id}`}
+                              row={item.row}
+                              conversationId={id}
+                              traces={item.traces}
+                              embeds={item.embeds}
+                              media={item.media}
+                              cards={item.cards}
+                              earlierCards={item.earlier}
+                              agents={item.agents}
+                              turnStart={turns.starts[index]}
+                              offerBrowser={turns.browser[index]}
+                              toolbar={turns.ends[index]}
+                              usedTools={turns.tools[index]}
+                              copyText={turns.texts[index]}
+                              onRecover={recoverTurn}
+                              onEditResend={
+                                turnInFlight ? undefined : editAndResend
+                              }
+                              onFork={turnInFlight ? undefined : forkFromHere}
+                            />
+                          ) : null,
+                        )}
+                      </div>
+                    )}
+                    {shown.items.map((item, index) =>
+                      earlierIds.has(item.row.id) ? null : (
+                        <TranscriptMessage
+                          key={`${id}:${item.row.id}`}
+                          row={item.row}
+                          conversationId={id}
+                          traces={item.traces}
+                          embeds={item.embeds}
+                          media={item.media}
+                          cards={item.cards}
+                          earlierCards={item.earlier}
+                          agents={item.agents}
+                          turnStart={turns.starts[index]}
+                          latest={index === lastAssistant && !turnInFlight}
+                          computer={computerLine}
+                          // The live browser step stands in for it while this turn runs.
+                          offerBrowser={
+                            turns.browser[index] &&
+                            !(browserLive && index > turns.lastUser)
+                          }
+                          toolbar={turns.ends[index]}
+                          usedTools={turns.tools[index]}
+                          copyText={turns.texts[index]}
+                          onRecover={recoverTurn}
+                          streaming={
+                            turnInFlight &&
+                            index === items.length - 1 &&
+                            item.row.role === 'assistant'
+                          }
+                          onRetry={
+                            index === lastAssistant &&
+                            !turnInFlight &&
+                            !state.history &&
+                            lastUserText &&
+                            sendActionReady
+                              ? retryLast
+                              : undefined
+                          }
+                          onEditResend={
+                            turnInFlight ? undefined : editAndResend
+                          }
+                          onFork={turnInFlight ? undefined : forkFromHere}
+                        />
+                      ),
+                    )}
+                  </SkillOfferContext.Provider>
                 </TeachContext.Provider>
               ) : (
                 <ChatEmpty
@@ -4062,6 +4092,7 @@ export default function Conversation({
             </div>
           </div>
           {learningChat.sheet}
+          {skillOffers.sheet}
           {(state.history || showLatest) && (
             <button
               type="button"

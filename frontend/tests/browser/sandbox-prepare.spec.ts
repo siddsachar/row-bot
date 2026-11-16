@@ -44,7 +44,7 @@ async function everywhere(
 }
 
 /** A new chat with a new draft code folder, made a Docker-sandbox Python project by the fixture. */
-async function sandboxChat(page: Page, imagePresent = true) {
+async function sandboxChat(page: Page, imagePresent = true, gateFails = false) {
   const conversation = await newConversation(page);
   await openAddResource(page);
   const dialog = page.getByRole('dialog', {
@@ -65,7 +65,11 @@ async function sandboxChat(page: Page, imagePresent = true) {
   await page.keyboard.press('Escape');
   const prepared = await page.request.post('/__s6_fixture/sandbox', {
     headers: fixtureHeaders(),
-    data: { conversation_id: conversation, image_present: imagePresent },
+    data: {
+      conversation_id: conversation,
+      image_present: imagePresent,
+      gate_fails: gateFails,
+    },
   });
   expect(prepared.ok()).toBe(true);
   // The fixture changed the code folder's settings: read them again.
@@ -246,4 +250,29 @@ test('Docker mode offers to download the image, and Safety boundaries explains t
   await views(page, info, 'safety-boundaries-phone');
   await page.keyboard.press('Escape');
   await page.setViewportSize(DESKTOP);
+});
+
+test('a networked sandbox whose network gate cannot start says its network is off, and why', async ({
+  page,
+}, info) => {
+  test.setTimeout(180_000);
+  // The sandbox network is On, but the gate's image isn't on this computer.
+  await sandboxChat(page, true, true);
+  const note = page.locator('.dev-network-note');
+  const settle = async () => {
+    const inspector = page.getByRole('region', { name: / inspector$/ });
+    await expect(inspector).toBeVisible();
+    await expect(inspector).toContainText(
+      'Docker sandbox · network off for now',
+    );
+    await expect(note).toHaveAttribute('role', 'status');
+    await expect(note).toContainText(
+      "The sandbox's network is off for now. The network gate needs the default sandbox image, which isn't on this computer",
+    );
+    await expect(note).toContainText('docker pull');
+    await expect(note).toContainText(
+      'Row-Bot tries again with the next command.',
+    );
+  };
+  await everywhere(page, info, 'network-off-for-now', settle);
 });

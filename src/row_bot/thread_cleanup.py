@@ -416,6 +416,19 @@ def _purge_owned_state(thread_id: str) -> tuple[int, tuple[str, ...]]:
     except Exception:
         logger.debug("Skill activation cleanup failed for %s", thread_id, exc_info=True)
     try:
+        from row_bot.skill_offers import forget_conversation
+
+        changed += forget_conversation(thread_id)
+    except Exception:
+        warnings.append("Some skill offers from this chat could not be removed.")
+        logger.warning("Skill offer cleanup failed for thread %s", thread_id, exc_info=True)
+    try:
+        from row_bot.browser.demo import forget as forget_demo
+
+        changed += int(forget_demo(thread_id))
+    except Exception:
+        logger.debug("Demo cleanup failed for %s", thread_id, exc_info=True)
+    try:
         from row_bot.providers.usage_ledger import delete_thread_usage
 
         delete_thread_usage(thread_id)

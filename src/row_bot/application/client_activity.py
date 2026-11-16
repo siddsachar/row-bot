@@ -23,7 +23,7 @@ CSV_COLUMNS = ("Time", "Chat", "Where", "Tool", "App", "What", "Level", "Outcome
 
 OUTCOME_WORDS = {
     "ran": "Ran", "asked": "Waiting for you", "approved_by_you": "You approved",
-    "approved_by_reviewer": "Reviewer approved", "hands_off": "Hands-off", "allowed_by_rule": "Your rule",
+    "approved_by_reviewer": "Reviewer approved", "hands_off": "Hands-off", "allowed_by_rule": "Allowed by your rule",
     "allowed_in_chat": "Allowed in this chat", "denied": "You said no",
     "changed": "Changed after you approved — didn't run", "blocked": "Blocked", "failed": "Didn't work",
 }
@@ -78,6 +78,7 @@ def _entry(row: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
         "reason": str(row["reason"] or "")[:activity_log.REASON_MAX],
         "risk": row["risk"] if row["risk"] in activity_log.RISKS else "unknown",
         "pending": row["status"] == "pending",
+        "rule_id": str(row.get("rule_id") or "")[:32],
     }
 
 

@@ -44,6 +44,7 @@ _ACTIONS = {
     "skill.delete",
     "skill.proposal.apply",
     "skill.proposal.reject",
+    "skill.proposal.edit",
 }
 _NAME = re.compile(r"[a-z][a-z0-9_]{1,63}")
 _FIELDS = {
@@ -104,6 +105,16 @@ def _refresh_runtime_library() -> None:
         skills.load_skills()
     except Exception:
         logger.warning("Skill library reload after a completed change failed", exc_info=True)
+
+
+def _skill_offers_changed() -> None:
+    """A draft from a chat was edited, saved or rejected: its reply's "Save as a skill" reads again."""
+    try:
+        from row_bot.application.live_updates import publish
+
+        publish("skill_offers")
+    except Exception:
+        logger.debug("Skill offer live update unavailable", exc_info=True)
 
 
 def _name(value: object) -> str:
@@ -598,6 +609,45 @@ def _review(action: str, payload: dict) -> tuple[dict, dict]:
         ):
             raise _error("skill_revision_conflict")
         normalized.update(name=name, skill_revision=target["revision"])
+    elif action == "skill.proposal.edit":
+        # The person's edit of a draft from a chat (C1): its words, checked again on save.
+        if set(payload) != {"revision", "proposal_id", "fields"} or not isinstance(
+            payload["fields"], dict
+        ):
+            raise _error("invalid_skill_command")
+        proposal_id = _text(payload["proposal_id"], 128, required=True)
+        edit = payload["fields"]
+        if not set(edit) <= {
+            "display_name",
+            "description",
+            "when_to_use",
+            "inputs",
+            "steps",
+            "checks",
+        }:
+            raise _error("invalid_skill_fields")
+        fields = {
+            "display_name": _text(edit.get("display_name", ""), 128, required=True),
+            "description": _text(edit.get("description", ""), 1024),
+            "when_to_use": _text(edit.get("when_to_use", ""), 1200),
+            "inputs": _string_list(edit.get("inputs", []), count=8, length=200),
+            "steps": _string_list(edit.get("steps", []), count=12, length=600),
+            "checks": _string_list(edit.get("checks", []), count=6, length=400),
+        }
+        if not fields["steps"]:
+            raise _error("invalid_skill_fields")
+        proposals, proposal_revision = _proposal_store()
+        proposal = next((item for item in proposals if item["id"] == proposal_id), None)
+        if (
+            proposal is None
+            or proposal["status"] in {"applied", "verified", "rejected"}
+            or proposal["preview"].get("origin") != "skill_offer"
+        ):
+            raise _error("skill_proposal_changed")
+        normalized.update(
+            proposal_id=proposal_id, fields=fields, proposal_revision=proposal_revision
+        )
+        after = fields
     else:
         expected = {"revision", "proposal_id", "reason"}
         if set(payload) != expected:
@@ -883,6 +933,16 @@ def execute_skill_command(
                         require_approval=False,
                         approved_by_user=True,
                     )
+                elif action == "skill.proposal.edit":
+                    from row_bot import skill_offers
+
+                    try:
+                        skill_offers.edit_draft(
+                            normalized["proposal_id"], normalized["fields"]
+                        )
+                    except skill_offers.SkillOfferError as error:
+                        raise _error(error.code) from None
+                    outcome = {"ok": True}
                 else:
                     outcome = evolution.reject_proposal(
                         normalized["proposal_id"], normalized["reason"]
@@ -891,7 +951,17 @@ def execute_skill_command(
                 if not outcome.get("ok"):
                     raise _error("skill_proposal_changed")
                 revision = _proposal_store()[1]
-                result["skill_id"] = None
+                # An applied new skill is named, so the client can open it or undo it.
+                created = (
+                    action == "skill.proposal.apply"
+                    and review["after"].get("type") == "create_skill"
+                )
+                result["skill_id"] = (
+                    str(review["after"]["preview"].get("skill_name") or "") or None
+                    if created
+                    else None
+                )
+                _skill_offers_changed()
             authority()
             result.update(status="completed", revision=revision, code=None)
             progress["status"] = "completed"

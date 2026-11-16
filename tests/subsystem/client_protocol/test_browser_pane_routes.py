@@ -88,7 +88,7 @@ def test_reading_the_pane_never_starts_the_browser(service, browser):  # noqa: F
     assert state.json() | {"revision": 0} == {
         "schema_version": 1, "conversation_id": chat, "status": "stopped", "acting": "",
         "waiting": "", "url": "", "title": "", "site": "", "loading": False, "sign_in": "", "recording": False,
-        "tabs": [], "revision": 0}
+        "tabs": [], "revision": 0, "demo": None}
     assert not browser.has_active_session()
 
 
@@ -169,6 +169,65 @@ def test_the_persons_input_is_checked_and_played_on_the_page(service, browser): 
             assert client.post(url, json={"events": bad}, headers=headers).status_code == 422
     assert len(engine.played) == 3 and engine.played[0][2]["text"] == "Leak under the sink"
     assert engine.played[2][0]["type"] == "paste" and len(engine.played[2][0]["text"]) == 20_000
+
+
+def test_show_row_bot_how_records_in_memory_and_is_refused_in_an_incognito_chat(
+        service, browser, monkeypatch):  # noqa: F811
+    from row_bot import threads
+    from row_bot.browser import demo
+
+    monkeypatch.setattr(demo, "_DEMOS", {})
+    chat = _chat(service)
+    private = threads.create_thread("Private", seed_default_skills=False, incognito=True)
+    engine = _Engine()
+    engine._status = "running"
+    for conversation in (chat, private):
+        tab = _Tab("t1", SimpleNamespace(url="https://www.example.org/orders?ref=abc"))
+        engine._chat(conversation).tabs = [tab]
+        engine._chat(conversation).active = tab
+    browser._engine = engine
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        base = f"/api/v1/conversations/{chat}/browser/demo"
+        started = client.post(base, headers=headers)
+        assert started.status_code == 200, started.text
+        recorded = started.json()["demo"]
+        assert recorded["status"] == "recording"
+        assert [step["text"] for step in recorded["steps"]] == ["Opened example.org/orders"]
+        pane = client.get(f"/api/v1/conversations/{chat}/browser", headers=headers).json()
+        assert pane["demo"]["status"] == "recording" and pane["demo"]["steps"] == 1
+        stopped = client.post(f"{base}/{recorded['id']}/stop", headers=headers).json()["demo"]
+        assert (stopped["status"], stopped["ended"]) == ("stopped", "done")
+        assert client.get(base, headers=headers).json()["demo"]["id"] == recorded["id"]
+        assert client.post(f"{base}/{'0' * 32}/undo", headers=headers).status_code == 409
+        assert client.post(f"{base}/not-an-id/undo", headers=headers).status_code == 404
+        assert client.post(f"{base}/{recorded['id']}/discard", headers=headers).json()["demo"] is None
+        refused = client.post(f"/api/v1/conversations/{private}/browser/demo", headers=headers)
+        assert refused.status_code == 409 and refused.json()["code"] == "demo_private"
+    assert demo.current(private) is None
+
+
+def test_a_narration_clip_reaches_the_local_transcriber_with_its_offset(service, browser, monkeypatch):  # noqa: F811
+    from row_bot.browser import demo
+    from row_bot.voice import narration
+
+    monkeypatch.setattr(demo, "_DEMOS", {})
+    monkeypatch.setattr(narration, "status", lambda: {"ready": True, "code": ""})
+    heard: list[tuple] = []
+    monkeypatch.setattr(narration, "transcribe", lambda chat, demo_id, audio, kind, offset, **_kw: heard.append(
+        (chat, demo_id, audio, kind, offset)))
+    chat = _chat(service)
+    recorded = demo.start(chat, url="https://example.org/")
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        url = f"/api/v1/conversations/{chat}/browser/demo/{recorded.id}/narration"
+        sent = client.post(url + "?offset=12.5", content=b"webm-audio",
+                           headers={**headers, "Content-Type": "audio/webm;codecs=opus"})
+        assert sent.status_code == 200, sent.text
+        assert sent.json()["narration"] == {"ready": True, "code": ""}
+        assert client.post(url + "?offset=-1", content=b"x", headers={**headers, "Content-Type": "audio/webm"}
+                           ).status_code == 422
+    assert heard == [(chat, recorded.id, b"webm-audio", "audio/webm;codecs=opus", 12.5)]
 
 
 def test_the_address_bar_refuses_what_never_opens_and_allows_what_the_person_typed(service, browser):  # noqa: F811

@@ -386,6 +386,61 @@ class BrowserTab(WireModel):
     active: bool
 
 
+class BrowserDemoSummary(WireModel):
+    """Show Row-Bot how (C3) in the pane's line: whether the person's steps are being recorded."""
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["recording", "stopped"]
+    ended: Literal["", "done", "step_limit", "time_limit"]
+    steps: int = Field(ge=0, le=200)
+    elapsed_seconds: float = Field(ge=0, le=100_000)
+
+
+class BrowserDemoStep(WireModel):
+    """One recorded step: the page, the control and, for typing, an example value (never a secret's)."""
+    id: int = Field(ge=1, le=1_000_000)
+    at: float = Field(ge=0, le=100_000)
+    kind: Literal["open", "click", "type", "key", "back", "forward", "reload", "tab"]
+    text: str = Field(max_length=600)
+    site: str = Field(max_length=253)
+    path: str = Field(max_length=200)
+    title: str = Field(max_length=200)
+    value: str = Field(max_length=300)
+    secret: Literal["", "password", "code", "card", "sensitive", "sign_in", "hidden"]
+    secret_text: str = Field(max_length=120)
+    always: bool
+    input: bool
+    unsafe: bool
+    narration: str = Field(max_length=2000)
+
+
+class BrowserDemoView(WireModel):
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["recording", "stopped"]
+    ended: Literal["", "done", "step_limit", "time_limit"]
+    elapsed_seconds: float = Field(ge=0, le=100_000)
+    max_steps: int = Field(ge=1, le=1000)
+    max_seconds: int = Field(ge=1, le=100_000)
+    narrated: bool
+    steps: list[BrowserDemoStep] = Field(max_length=200)
+
+
+class BrowserDemoNarration(WireModel):
+    """Whether narration can be transcribed on this computer (a local speech model and ffmpeg)."""
+    ready: bool
+    code: Literal["", "narration_no_model", "narration_no_ffmpeg", "narration_unavailable"]
+
+
+class BrowserDemoPage(WireModel):
+    conversation_id: OpaqueId
+    demo: BrowserDemoView | None
+    narration: BrowserDemoNarration | None = None
+
+
+class BrowserDemoAlways(WireModel):
+    """"Always this": keep one typed value as it is in the skill, instead of making it an input."""
+    always: bool
+
+
 class BrowserPaneState(WireModel):
     """What the Browser pane shows for one conversation: never page content or field values."""
     schema_version: Literal[1]
@@ -403,6 +458,7 @@ class BrowserPaneState(WireModel):
     recording: bool
     tabs: list[BrowserTab] = Field(max_length=32)
     revision: int = Field(ge=0)
+    demo: BrowserDemoSummary | None = None
 
 
 class BrowserFrame(WireModel):
@@ -2602,6 +2658,113 @@ class LocalRuntimeSnapshot(WireModel):
     on_this_computer: bool
 
 
+LocalModelFit = Literal["gpu", "partial", "cpu", "too_big"]
+LocalModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9.-]+$")]
+
+
+class LocalModelOption(WireModel):
+    """One pinned model "Run on this computer" can download, and how it would run here."""
+
+    id: LocalModelId
+    name: str = Field(max_length=128)
+    model_ref: str = Field(min_length=1, max_length=256)
+    size_bytes: int = Field(ge=0)
+    fit: LocalModelFit
+    # Good for everyday chat; long tasks want a larger model or a provider.
+    everyday: bool
+    # "4-bit", "3-bit", "2-bit": the build of the model that fits.
+    quantization: str = Field(max_length=32)
+    # A smaller model of the generation before the default, offered where the default doesn't fit.
+    older: bool
+    installed: bool
+    # What pressing Download would fetch now (the build too when it isn't installed); 0 when ready.
+    download_bytes: int = Field(ge=0)
+
+
+class LocalModelDownload(WireModel):
+    model_id: LocalModelId
+    acceleration: str = Field(max_length=32)
+    total_bytes: int = Field(ge=0)
+    done_bytes: int = Field(ge=0)
+    phase: Literal["downloading", "checking", "finished", "stopped", "failed"]
+    reason: str | None = Field(default=None, max_length=64)
+    facts: dict[str, int] | None = None
+
+
+class LocalModelFailure(WireModel):
+    reason: str = Field(max_length=64)
+    needed_bytes: int | None = Field(default=None, ge=0)
+    free_bytes: int | None = Field(default=None, ge=0)
+    download_bytes: int | None = Field(default=None, ge=0)
+
+
+class LocalModelRuntimeView(WireModel):
+    """Run on this computer (E1): this computer, the pinned models and what is installed."""
+
+    schema_version: Literal[1]
+    state: Literal["unavailable", "not_installed", "downloading", "installed", "running", "failed"]
+    computer: str = Field(max_length=256)
+    acceleration: str = Field(max_length=32)
+    acceleration_label: str = Field(max_length=64)
+    note: str | None = Field(default=None, max_length=64)
+    release: str = Field(max_length=32)
+    build_installed: bool
+    # The size of the current build when an older one is installed (it keeps working until updated).
+    update_bytes: int = Field(ge=0)
+    recommended: LocalModelId | None = None
+    models: list[LocalModelOption] = Field(max_length=16)
+    download: LocalModelDownload | None = None
+    failure: LocalModelFailure | None = None
+    disk_bytes: int = Field(ge=0)
+    free_bytes: int = Field(ge=0)
+    # After Remove: the space it gave back.
+    freed_bytes: int | None = Field(default=None, ge=0)
+    # False on another device (a phone): downloads are a desktop action.
+    on_this_computer: bool
+
+
+LocalServerKind = Literal["ollama", "lmstudio", "vllm", "llama_cpp"]
+
+
+class LocalServerFound(WireModel):
+    """A local model server that answered on its usual loopback port when "On this computer" opened."""
+
+    kind: LocalServerKind
+    label: str = Field(max_length=64)
+    port: int = Field(ge=1, le=65535)
+    base_url: str = Field(max_length=128)
+    models: list[str] = Field(max_length=64)
+    # The provider its models are under when it is already connected (Ollama always), else None.
+    provider_id: str | None = Field(default=None, max_length=160)
+
+
+class LocalServersSnapshot(WireModel):
+    schema_version: Literal[1]
+    servers: list[LocalServerFound] = Field(max_length=8)
+
+
+class LocalServerConnectRequest(WireModel):
+    kind: LocalServerKind
+    port: int = Field(ge=1, le=65535)
+
+
+class LocalServerConnection(WireModel):
+    schema_version: Literal[1]
+    provider_id: str = Field(max_length=160)
+    model_refs: list[str] = Field(max_length=64)
+
+
+class LocalModelInstallRequest(WireModel):
+    model_id: LocalModelId
+    # The size the Download button showed; the download starts only while it still holds.
+    download_bytes: int = Field(ge=0)
+
+
+class LocalModelRemoveRequest(WireModel):
+    # One model; absent: the runtime and every model.
+    model_id: LocalModelId | None = None
+
+
 class ModelTestResult(WireModel):
     schema_version: Literal[1]
     ok: bool
@@ -2662,6 +2825,8 @@ class ActivityEntry(WireModel):
     risk: Literal["low", "medium", "high", "critical", "unknown"]
     # Still waiting for the person's answer (an "asked" row that isn't pending was never answered).
     pending: bool
+    # The Always allow rule that allowed it ("" when none did).
+    rule_id: str = Field(default="", max_length=32)
 
 
 class ActivityPage(WireModel):
@@ -2691,6 +2856,91 @@ class ActivityExportRequest(WireModel):
 class ActivityCleared(WireModel):
     schema_version: Literal[1]
     removed: int = Field(ge=0, le=2**31 - 1)
+
+
+ApprovalRuleKind = Literal["app", "command", "move"]
+RuleId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")]
+
+
+class ApprovalRuleDraft(WireModel):
+    """What one "Always allow" rule covers, in words and in its parts (each shown by name, never a path)."""
+
+    kind: ApprovalRuleKind
+    # "Always allow Notion › Create a page", "Always allow `npm test` in row-bot", "Always allow moving and …".
+    words: str = Field(max_length=800)
+    app_name: str = Field(max_length=128)
+    tool_title: str = Field(max_length=96)
+    command: str = Field(max_length=500)
+    folder_name: str = Field(max_length=260)
+
+
+class ApprovalRuleView(ApprovalRuleDraft):
+    rule_id: RuleId
+    enabled: bool
+    created_at: str = Field(max_length=40)
+    last_used_at: str | None = Field(max_length=40)
+    uses: int = Field(ge=0, le=2**31 - 1)
+
+
+class ApprovalRulePage(WireModel):
+    """Settings › System › Activity › Always allow: every rule, newest first."""
+
+    schema_version: Literal[1]
+    items: list[ApprovalRuleView] = Field(max_length=100)
+    max_rules: int = Field(ge=1, le=100)
+
+
+class ApprovalRuleCreate(WireModel):
+    """Always allow… on a card: only the approval, as the person saw it (its nonce). The server makes the rule
+    from the stored approval; the same command id then approves the card."""
+
+    approval_id: OpaqueId
+    nonce: Annotated[str, StringConstraints(min_length=32, max_length=256)]
+    command_id: UUID
+
+
+class ApprovalRuleUpdate(WireModel):
+    """Switch a rule on or off, or change a command rule's exact command (checked again)."""
+
+    enabled: bool | None = None
+    command: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class ApprovalRuleDryRunRequest(WireModel):
+    """The draft from a card (``approval_id``), or a rule with an edited command (``rule_id``, ``command``)."""
+
+    approval_id: OpaqueId | None = None
+    rule_id: RuleId | None = None
+    command: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class ApprovalRuleCounts(WireModel):
+    approved_by_you: int = Field(ge=0, le=2**31 - 1)
+    denied: int = Field(ge=0, le=2**31 - 1)
+    approved_by_reviewer: int = Field(ge=0, le=2**31 - 1)
+    allowed_in_chat: int = Field(ge=0, le=2**31 - 1)
+    changed: int = Field(ge=0, le=2**31 - 1)
+    asked: int = Field(ge=0, le=2**31 - 1)
+
+
+class ApprovalRuleExample(WireModel):
+    at: str = Field(max_length=40)
+    conversation_title: str = Field(max_length=160)
+    title: str = Field(max_length=160)
+    summary: str = Field(max_length=300)
+    outcome: Literal["approved_by_you", "denied", "approved_by_reviewer", "allowed_in_chat", "changed", "asked"]
+
+
+class ApprovalRuleDryRun(WireModel):
+    """Would this have asked? What the draft rule would have allowed in the last 30 days (the activity log)."""
+
+    schema_version: Literal[1]
+    rule: ApprovalRuleDraft
+    days: int = Field(ge=1, le=90)
+    total: int = Field(ge=0, le=2**31 - 1)
+    counts: ApprovalRuleCounts
+    # Newest first, with any the person said no to first; at most 5.
+    examples: list[ApprovalRuleExample] = Field(max_length=5)
 
 
 class DreamRunRequest(WireModel):
@@ -3491,6 +3741,7 @@ SkillAction = Literal[
     "skill.delete",
     "skill.proposal.apply",
     "skill.proposal.reject",
+    "skill.proposal.edit",
 ]
 
 
@@ -3613,6 +3864,82 @@ class SkillProposalPayload(WireModel):
     proposal_id: str = Field(min_length=1, max_length=128)
     reason: str = Field(max_length=1024)
     review_id: str = Field(min_length=1, max_length=128)
+
+
+class SkillProposalEditPayload(WireModel):
+    """The person's edit of a skill drafted from a chat (C1): its words only; the name stays."""
+    revision: str = Field(min_length=1, max_length=128)
+    proposal_id: str = Field(min_length=1, max_length=128)
+    fields: dict[str, Any]
+    review_id: str = Field(min_length=1, max_length=128)
+
+
+SkillDraftLine = Annotated[str, StringConstraints(max_length=600)]
+
+
+class SkillDraftOverlap(WireModel):
+    name: str = Field(max_length=128)
+    display_name: str = Field(max_length=128)
+    score: float = Field(ge=0, le=1)
+
+
+class SkillDraftView(WireModel):
+    """A skill drafted from a chat, for the review sheet: its fields and the SKILL.md they make."""
+    proposal_id: str = Field(min_length=1, max_length=128)
+    proposal_status: str = Field(max_length=64)
+    name: str = Field(max_length=64)
+    display_name: str = Field(max_length=128)
+    icon: str = Field(max_length=32)
+    description: str = Field(max_length=1024)
+    when_to_use: str = Field(max_length=1200)
+    inputs: list[SkillDraftLine] = Field(max_length=12)
+    steps: list[SkillDraftLine] = Field(max_length=12)
+    checks: list[SkillDraftLine] = Field(max_length=12)
+    instructions: str = Field(max_length=16_400)
+    why: str = Field(max_length=400)
+    source_title: str = Field(max_length=200)
+    overlaps: list[SkillDraftOverlap] = Field(max_length=3)
+    errors: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
+    warnings: list[Annotated[str, StringConstraints(max_length=240)]] = Field(max_length=6)
+    # Show Row-Bot how (C3): the steps the person showed, for "What you showed" (empty otherwise).
+    shown: list[Annotated[str, StringConstraints(max_length=400)]] = Field(default_factory=list, max_length=200)
+
+
+class SkillOfferView(WireModel):
+    """"Save as a skill" under one reply (C1): offered, drafted, saved, rejected or dismissed."""
+    id: OpaqueId
+    message_id: str = Field(max_length=256)
+    origin: Literal["offered", "manual", "demo"]
+    status: Literal["offered", "drafted", "saved", "rejected", "dismissed"]
+    task_name: str = Field(max_length=80)
+    why: str = Field(max_length=400)
+    created_at: str = Field(max_length=64)
+    proposal_id: str | None = Field(max_length=128)
+    skill_id: str | None = Field(max_length=128)
+    draft: SkillDraftView | None
+
+
+class SkillOfferPage(WireModel):
+    conversation_id: OpaqueId
+    revision: str = Field(min_length=1, max_length=128)
+    items: list[SkillOfferView] = Field(max_length=50)
+
+
+class SkillDemoDraftRequest(WireModel):
+    """Draft a skill from the steps the person showed (C3), with their optional "What is this for?"."""
+    purpose: str = Field(default="", max_length=200)
+
+
+class SkillTryResult(WireModel):
+    """Try it: a new chat with the skill pinned and its request in the composer, not sent."""
+    conversation_id: OpaqueId
+    text: str = Field(max_length=2000)
+
+
+class SkillDraftRequest(WireModel):
+    """Draft a skill from the turn that ends with ``message_id``: an offer taken up, or "Save as skill"."""
+    message_id: str = Field(min_length=1, max_length=256)
+    offer_id: OpaqueId | None = None
 
 
 class SkillReceipt(WireModel):
@@ -8500,6 +8827,7 @@ class Command(WireModel):
         "skill.delete",
         "skill.proposal.apply",
         "skill.proposal.reject",
+        "skill.proposal.edit",
         "goal.control",
         "profile.mutate",
         "developer.repository.branch.create",
@@ -8687,6 +9015,7 @@ COMMAND_PAYLOADS = {
     "skill.delete": SkillDeletePayload,
     "skill.proposal.apply": SkillProposalPayload,
     "skill.proposal.reject": SkillProposalPayload,
+    "skill.proposal.edit": SkillProposalEditPayload,
     "goal.control": GoalCommandWirePayload,
     "profile.mutate": ProfileCommandWirePayload,
     "developer.repository.branch.create": DeveloperRepositoryBranchPayload,
@@ -9094,6 +9423,8 @@ class ContextUpdated(WireModel):
     conversation_usage: ConversationTokenUsage | None = None
     # Only on a settled measurement; a live per-call event carries none.
     breakdown: ContextBreakdown | None = None
+    # A summary of older messages is prepared ahead, so reaching the compaction point won't pause (B6).
+    summary_ready: bool = False
 
 
 EVENT_PAYLOADS = {
@@ -10202,6 +10533,8 @@ class ApprovalView(WireModel):
     app: TraceAppRef | None = None
     # Whether "Allow in this chat" is offered for this action (F21, 5.3.1 B2).
     repeatable: bool = False
+    # Whether "Always allow…" is offered: one action a standing rule may cover (D1); the server makes the rule.
+    rule_eligible: bool = False
     # Under Auto: why the reviewer asked the person rather than approving ("The reviewer asked you: …").
     reviewer_reason: str = Field(default="", max_length=240)
     # The card's question in Row-Bot's own words, when the action has one.
@@ -10698,6 +11031,7 @@ class WorkspaceInspector(WireModel):
     todos: list[WorkspaceTodo] = Field(max_length=200)
     error: str = Field(default="", max_length=128)
     project_notes: list[WorkspaceProjectNote] = Field(default_factory=list, max_length=8)
+    sandbox_network_note: str = Field(default="", max_length=1024)
 
 
 class WorkspaceChangedFile(WireModel):

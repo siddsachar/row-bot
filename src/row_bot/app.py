@@ -909,6 +909,14 @@ async def _run_startup_sequence():
             await asyncio.to_thread(owned_processes.cleanup, _server_ledger, tree=True)
     except Exception as exc:
         logger.warning("Learning model server cleanup skipped (non-fatal): %s", exc)
+    # Run on this computer's model server (E1) a crashed run left running: only when its record exists.
+    try:
+        from row_bot import owned_processes
+        _local_ledger = owned_processes.ledger_path("local-runtime-server.json")
+        if _local_ledger.is_file():
+            await asyncio.to_thread(owned_processes.cleanup, _local_ledger, tree=True)
+    except Exception as exc:
+        logger.warning("Local model server cleanup skipped (non-fatal): %s", exc)
     try:
         from row_bot.mcp_client.runtime import discover_enabled_servers
         with _startup_phase("mcp_discovery"):
@@ -1310,6 +1318,13 @@ async def _cleanup_runtime(reason: str = "shutdown") -> bool:
         _shutdown_cleanup_started = False
         return False
     stop_performance_monitor()
+    # Run on this computer's model server (E1), only if it ran: it ends with the models it loaded.
+    _local_server = sys.modules.get("row_bot.local_runtime.server")
+    if _local_server is not None:
+        try:
+            await asyncio.to_thread(_local_server.shutdown, 5.0)
+        except Exception:
+            logger.debug("Stopping the local model server failed", exc_info=True)
     # Learning (preview), only if it ran: the past-chat import stops, training stops with its
     # whole process tree (it continues from its newest checkpoint next time), the model server
     # stops with the models it loaded, a download stops

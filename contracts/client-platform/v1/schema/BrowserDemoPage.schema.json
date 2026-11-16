@@ -1,0 +1,247 @@
+{
+  "$defs": {
+    "BrowserDemoNarration": {
+      "additionalProperties": false,
+      "description": "Whether narration can be transcribed on this computer (a local speech model and ffmpeg).",
+      "properties": {
+        "code": {
+          "enum": [
+            "",
+            "narration_no_model",
+            "narration_no_ffmpeg",
+            "narration_unavailable"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ready",
+        "code"
+      ],
+      "title": "BrowserDemoNarration",
+      "type": "object"
+    },
+    "BrowserDemoStep": {
+      "additionalProperties": false,
+      "description": "One recorded step: the page, the control and, for typing, an example value (never a secret's).",
+      "properties": {
+        "always": {
+          "title": "Always",
+          "type": "boolean"
+        },
+        "at": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "At",
+          "type": "number"
+        },
+        "id": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Id",
+          "type": "integer"
+        },
+        "input": {
+          "title": "Input",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "open",
+            "click",
+            "type",
+            "key",
+            "back",
+            "forward",
+            "reload",
+            "tab"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "narration": {
+          "maxLength": 2000,
+          "title": "Narration",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 200,
+          "title": "Path",
+          "type": "string"
+        },
+        "secret": {
+          "enum": [
+            "",
+            "password",
+            "code",
+            "card",
+            "sensitive",
+            "sign_in",
+            "hidden"
+          ],
+          "title": "Secret",
+          "type": "string"
+        },
+        "secret_text": {
+          "maxLength": 120,
+          "title": "Secret Text",
+          "type": "string"
+        },
+        "site": {
+          "maxLength": 253,
+          "title": "Site",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 600,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        },
+        "unsafe": {
+          "title": "Unsafe",
+          "type": "boolean"
+        },
+        "value": {
+          "maxLength": 300,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "at",
+        "kind",
+        "text",
+        "site",
+        "path",
+        "title",
+        "value",
+        "secret",
+        "secret_text",
+        "always",
+        "input",
+        "unsafe",
+        "narration"
+      ],
+      "title": "BrowserDemoStep",
+      "type": "object"
+    },
+    "BrowserDemoView": {
+      "additionalProperties": false,
+      "properties": {
+        "elapsed_seconds": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Elapsed Seconds",
+          "type": "number"
+        },
+        "ended": {
+          "enum": [
+            "",
+            "done",
+            "step_limit",
+            "time_limit"
+          ],
+          "title": "Ended",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "max_seconds": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Max Seconds",
+          "type": "integer"
+        },
+        "max_steps": {
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "narrated": {
+          "title": "Narrated",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "recording",
+            "stopped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/BrowserDemoStep"
+          },
+          "maxItems": 200,
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "ended",
+        "elapsed_seconds",
+        "max_steps",
+        "max_seconds",
+        "narrated",
+        "steps"
+      ],
+      "title": "BrowserDemoView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "demo": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BrowserDemoView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "narration": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BrowserDemoNarration"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "conversation_id",
+    "demo"
+  ],
+  "title": "BrowserDemoPage",
+  "type": "object"
+}

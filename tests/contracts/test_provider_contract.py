@@ -435,3 +435,56 @@ def test_every_shipped_media_price_is_a_dated_positive_price_for_a_billed_provid
         key = (row["provider"], row["model"], row["unit"], *(row.get(name) for name in CHOICE_KEYS))
         assert key not in seen, row  # One price per tier, never two to choose from.
         seen.add(key)
+
+
+def _local_runtime_endpoint(tmp_path, monkeypatch, *, installed: bool):
+    """Run on this computer's endpoint (E1) saved in a scratch provider config."""
+    import row_bot.providers.config as provider_config
+    from row_bot import local_runtime
+    from row_bot.local_runtime import models
+    from row_bot.providers import custom
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    custom.save_custom_endpoint({
+        "id": local_runtime.ENDPOINT_ID, "name": local_runtime.DISPLAY_NAME, "base_url": "http://127.0.0.1:9931/v1",
+        "profile": "llama_cpp", "execution_location": "local", "auth_required": False,
+        "managed": local_runtime.OWNER, "manual_capabilities": {"context_window": 32768},
+    }, manage_secret=False)
+    if installed:
+        monkeypatch.setattr("row_bot.local_runtime.install.installed_models",
+                            lambda root=None: [models.get("qwen3.5-9b")])
+        monkeypatch.setattr("row_bot.local_runtime.install.installed_build", lambda root=None: object())
+    return custom.get_custom_endpoint(local_runtime.PROVIDER_ID)
+
+
+def test_the_local_runtime_endpoint_resolves_through_its_owner_and_starts_nothing_while_not_installed(
+        tmp_path, monkeypatch) -> None:
+    from row_bot.providers import custom
+
+    endpoint = _local_runtime_endpoint(tmp_path, monkeypatch, installed=False)
+    monkeypatch.setattr("row_bot.local_runtime.server._servers", {})
+
+    assert endpoint["managed"] == "local"
+    assert custom.managed_connection(endpoint, start=False) is None
+    # Nothing is installed: a request finds no server, and no probe or start is attempted.
+    assert custom.managed_connection(endpoint) is None
+    with pytest.raises(ValueError, match="isn't available"):
+        custom._custom_endpoint_headers(endpoint)  # noqa: SLF001 - what a probe would send
+
+
+def test_the_local_runtime_model_counts_as_local_everywhere_row_bot_asks(tmp_path, monkeypatch) -> None:
+    from row_bot import local_runtime
+    from row_bot.agent import _is_cloud_model_ref
+    from row_bot.providers import backup
+    from row_bot.providers.background import _is_local
+    from row_bot.providers.catalog import provider_billing
+
+    _local_runtime_endpoint(tmp_path, monkeypatch, installed=True)
+    ref = local_runtime.model_ref("qwen3.5-9b")
+
+    assert ref == "model:custom_openai_llamacpp:qwen3.5-9b"
+    assert provider_billing(local_runtime.PROVIDER_ID) == "local"
+    assert backup.is_local(ref)
+    assert _is_local(ref)  # a thread's background call never swaps this model mid-turn
+    assert not _is_cloud_model_ref(ref)  # prepared compaction (B6) treats it as local

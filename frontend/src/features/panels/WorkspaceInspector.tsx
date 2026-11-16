@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Rows2,
   Sparkles,
+  WifiOff,
 } from 'lucide-react';
 import type {
   WorkspaceInspector as Inspector,
@@ -818,6 +819,12 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
       (complete || !Object.values(setPaths).flat().includes(item.path)),
   );
   const policy = current.policy;
+  // A sandbox with its network on runs without it while its network gate can't start.
+  const networkNote =
+    policy.execution_mode === 'docker' ? current.sandbox_network_note : '';
+  const sandboxNetwork = networkNote
+    ? 'off for now'
+    : humanizeToken(policy.sandbox_network).toLowerCase();
   const stale =
     errors.summary ||
     current.status !== 'ready' ||
@@ -1757,11 +1764,11 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         )}
         <span
           className="dev-strip-item"
-          title={`Network in the sandbox: ${humanizeToken(policy.sandbox_network)}`}
+          title={`Network in the sandbox: ${humanizeToken(policy.sandbox_network)}${networkNote ? ', off for now' : ''}`}
         >
           {policy.execution_mode === 'docker' ? 'Docker sandbox' : 'Local'}
           {policy.execution_mode === 'docker'
-            ? ` · network ${humanizeToken(policy.sandbox_network).toLowerCase()}`
+            ? ` · network ${sandboxNetwork}`
             : ''}
         </span>
         <span className="dev-strip-actions">
@@ -1840,6 +1847,12 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
           </Popover.Root>
         </span>
       </div>
+      {networkNote && (
+        <p className="dev-network-note" role="status">
+          <WifiOff size={14} aria-hidden />
+          <span>{networkNote}</span>
+        </p>
+      )}
       {stale && (
         <div className="dev-stale" role="status">
           <span>

@@ -12,7 +12,14 @@ export function fixtureHeaders(): Record<string, string> {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
   const base = process.env.ROW_BOT_BROWSER_BASE_URL;
   if (!token || !base) throw new Error('Use the isolated browser runner');
-  return { 'X-Fixture-Token': token, Origin: new URL(base).origin };
+  return {
+    'X-Fixture-Token': token,
+    Origin: new URL(base).origin,
+    // A fresh connection each time: a kept-alive socket the server closes
+    // after its idle timeout (5 s) can be reused at that moment, and the
+    // fixture call then fails with ECONNRESET.
+    Connection: 'close',
+  };
 }
 
 /**

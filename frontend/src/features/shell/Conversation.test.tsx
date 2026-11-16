@@ -121,6 +121,8 @@ vi.mock('react-router-dom', () => ({
 vi.mock('../../runtime', () => {
   const runtime = {
     controller: {
+      // The first screen is up: its background reads go at once.
+      firstScreenSettled: true,
       getSnapshot: () => mock.state,
       getSelectionVersion: () => mock.version,
       dictationScope: () => null,
@@ -153,6 +155,11 @@ vi.mock('../../runtime', () => {
       approval: mock.approval,
       pendingApprovals: mock.pendingApprovals,
       waits: async () => ({ schema_version: 1, items: [] }),
+      skillOffers: async (conversation: string) => ({
+        conversation_id: conversation,
+        revision: 'none',
+        items: [],
+      }),
       receipt: mock.receipt,
       showHistory: mock.showHistory,
       showLatest: mock.showLatest,

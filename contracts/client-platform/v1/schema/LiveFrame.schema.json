@@ -33,7 +33,9 @@
           "models",
           "notices",
           "learning",
-          "proactive"
+          "proactive",
+          "skill_offers",
+          "waits"
         ]
       },
       "title": "Topics",

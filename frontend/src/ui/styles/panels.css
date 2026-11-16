@@ -1554,6 +1554,26 @@ button.design-tile-main:focus-visible {
 .dev-worktree-note {
   padding: 4px 10px;
 }
+.dev-network-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--status-warning-border);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.dev-network-note svg {
+  flex: none;
+  margin-top: 1px;
+}
+.dev-network-note span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 
 /* ---------------------------------------------------------------- tabs */
 

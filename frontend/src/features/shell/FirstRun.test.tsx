@@ -15,6 +15,9 @@ import FirstRun, { SETUP_LATER_KEY } from './FirstRun';
 const mock = vi.hoisted(() => ({
   controller: {
     localRuntime: vi.fn(),
+    localModelRuntime: vi.fn(),
+    localServers: vi.fn(),
+    connectLocalServer: vi.fn(),
     liveProviderStatus: vi.fn(),
     testChosenModel: vi.fn(),
     refreshChoices: vi.fn(),
@@ -148,6 +151,7 @@ it('on a phone reaching Row-Bot, local models are on the computer Row-Bot runs o
   fireEvent.click(
     within(choices).getByRole('button', { name: /On your Row-Bot server/ }),
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Set up Ollama' }));
   expect(
     screen.getByText(/^Ollama runs models on the computer Row-Bot runs on:/),
   ).toBeVisible();
@@ -175,6 +179,7 @@ it('from a phone, says to install Ollama on the computer Row-Bot runs on instead
   fireEvent.click(
     await within(choices).findByRole('button', { name: /On this computer/ }),
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Set up Ollama' }));
   expect(screen.getByRole('heading', { name: 'Install Ollama' })).toBeVisible();
   expect(
     screen.getByText('Install it on that computer, not on this device.'),
@@ -206,6 +211,7 @@ it('asks one question and detects Ollama without a refresh button', async () => 
   fireEvent.click(
     within(choices).getByRole('button', { name: /On this computer/ }),
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Set up Ollama' }));
   expect(screen.getByRole('heading', { name: 'Install Ollama' })).toBeVisible();
   expect(screen.getByRole('link', { name: 'Download Ollama' })).toHaveAttribute(
     'href',
@@ -309,6 +315,7 @@ it('explains a stopped Ollama and keeps watching', async () => {
   mock.controller.localRuntime.mockResolvedValue(runtime('installed'));
   show();
   fireEvent.click(screen.getByRole('button', { name: /On this computer/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Set up Ollama' }));
   expect(
     await screen.findByRole('heading', { name: 'Start Ollama' }),
   ).toBeVisible();
@@ -640,4 +647,155 @@ it('lists every local model when there are no favourites or picks', async () => 
   });
   expect(within(list).getAllByRole('button')).toHaveLength(2);
   expect(screen.queryByText(/Show all models/)).toBeNull();
+});
+
+/** Row-Bot's own download (E1): a 12 GB NVIDIA card, nothing downloaded yet. */
+const localModels = (installed = false) => ({
+  schema_version: 1 as const,
+  state: installed ? ('installed' as const) : ('not_installed' as const),
+  computer: 'NVIDIA GeForce RTX 4070 (12 GB)',
+  acceleration: 'cuda-13',
+  acceleration_label: 'NVIDIA (CUDA 13)',
+  note: null,
+  release: 'b12359',
+  build_installed: installed,
+  update_bytes: 0,
+  recommended: 'qwen3.8-27b-q2',
+  models: [
+    {
+      id: 'qwen3.8-27b-q2',
+      name: 'Qwen3.8 27B',
+      model_ref: 'model:custom_openai_llamacpp:qwen3.8-27b-q2',
+      size_bytes: 9_900_000_000,
+      fit: 'gpu' as const,
+      everyday: false,
+      quantization: '2-bit',
+      older: false,
+      installed,
+      download_bytes: installed ? 0 : 10_500_000_000,
+    },
+  ],
+  download: null,
+  failure: null,
+  disk_bytes: 0,
+  free_bytes: 200_000_000_000,
+  on_this_computer: true,
+});
+
+/** LM Studio answering on its usual port, found when the page opened. */
+const studio = {
+  schema_version: 1 as const,
+  servers: [
+    {
+      kind: 'lmstudio' as const,
+      label: 'LM Studio',
+      port: 1234,
+      base_url: 'http://127.0.0.1:1234/v1',
+      models: ['qwen3.8-27b', 'gemma-4'],
+      provider_id: null,
+    },
+  ],
+};
+
+it('On this computer shows what is running first, then every way to run models as equal rows', async () => {
+  mock.controller.localModelRuntime.mockResolvedValue(localModels());
+  mock.controller.localServers.mockResolvedValue(studio);
+  show();
+  fireEvent.click(screen.getByRole('button', { name: /On this computer/ }));
+
+  const found = await screen.findByRole('region', {
+    name: 'Found on this computer',
+  });
+  expect(found).toHaveTextContent('LM Studio');
+  expect(
+    within(found).getByRole('list', { name: 'LM Studio models' }),
+  ).toHaveTextContent('qwen3.8-27b');
+  expect(mock.controller.localServers).toHaveBeenCalledTimes(1); // asked once, when the page opened
+
+  const ways = screen.getByRole('list', {
+    name: 'Ways to run models on this computer',
+  });
+  expect(
+    within(ways)
+      .getAllByRole('listitem')
+      .map((row) => row.querySelector('strong')?.textContent),
+  ).toEqual([
+    'Ollama',
+    'LM Studio',
+    'vLLM',
+    'llama.cpp server (your own)',
+    'Download with Row-Bot (llama.cpp)',
+  ]);
+  expect(ways.querySelector('.primary')).toBeNull(); // none is the primary way
+  expect(
+    within(ways).getByRole('link', { name: 'Set up LM Studio' }),
+  ).toHaveAttribute(
+    'href',
+    '/settings/models?add=custom-endpoint&type=lmstudio&from=setup',
+  );
+
+  fireEvent.click(
+    within(ways).getByRole('button', {
+      name: 'Set up Download with Row-Bot (llama.cpp)',
+    }),
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Download 10.5 GB' }),
+  ).toBeVisible();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+  await waitFor(() =>
+    expect(mock.controller.localServers).toHaveBeenCalledTimes(2),
+  );
+});
+
+it('Use on a model of a found server connects it and makes the model the default', async () => {
+  mock.controller.localServers.mockResolvedValue(studio);
+  mock.controller.connectLocalServer.mockResolvedValue({
+    schema_version: 1,
+    provider_id: 'custom_openai_lmstudio-1234',
+    model_refs: [
+      'model:custom_openai_lmstudio-1234:qwen3.8-27b',
+      'model:custom_openai_lmstudio-1234:gemma-4',
+    ],
+  });
+  const actions = show();
+  fireEvent.click(screen.getByRole('button', { name: /On this computer/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /qwen3\.8-27b/ }));
+
+  await waitFor(() =>
+    expect(actions.choose).toHaveBeenCalledWith(
+      'model:custom_openai_lmstudio-1234:qwen3.8-27b',
+    ),
+  );
+  expect(mock.controller.connectLocalServer).toHaveBeenCalledWith(
+    'lmstudio',
+    1234,
+  );
+});
+
+it('a model Row-Bot downloaded is picked like any other and becomes the default', async () => {
+  mock.controller.localModelRuntime.mockResolvedValue(localModels(true));
+  const actions = show();
+  const choices = screen.getByRole('group', {
+    name: 'How should Row-Bot think?',
+  });
+  await within(choices).findByText('Qwen3.8 27B · 2-bit is ready');
+  fireEvent.click(
+    within(choices).getByRole('button', { name: /On this computer/ }),
+  );
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: 'Set up Download with Row-Bot (llama.cpp)',
+    }),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Use Qwen3.8 27B · 2-bit' }),
+  );
+
+  await waitFor(() =>
+    expect(actions.choose).toHaveBeenCalledWith(
+      'model:custom_openai_llamacpp:qwen3.8-27b-q2',
+    ),
+  );
 });

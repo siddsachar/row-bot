@@ -15,7 +15,15 @@ const pendingApprovals = vi.fn();
 const notify = vi.fn();
 const open = vi.fn();
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: { approval, intent, pendingApprovals } }),
+  useRuntime: () => ({
+    // The first screen is up: waiting approvals are announced at once.
+    controller: {
+      firstScreenSettled: true,
+      approval,
+      intent,
+      pendingApprovals,
+    },
+  }),
 }));
 vi.mock('../../ui/overlays', () => ({
   useOverlay: () => ({ open, notify, close: vi.fn() }),
