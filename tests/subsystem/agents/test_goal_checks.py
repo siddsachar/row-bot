@@ -43,11 +43,9 @@ def owners(tmp_path, monkeypatch, reload_for_data_dir):
 
 def _runs_in() -> str:
     """Where a check runs in this chat: Row-Bot's workspace, named by its folder (R10)."""
-    import os
+    from row_bot.data_paths import display_path, workspace_folder
 
-    from row_bot.data_paths import display_path
-
-    return f"Row-Bot's workspace ({display_path(os.environ['ROW_BOT_WORKSPACE'])})"
+    return f"Row-Bot's workspace ({display_path(workspace_folder(create=False))})"
 
 
 def _request(commands, goals, operation="start", **overrides):

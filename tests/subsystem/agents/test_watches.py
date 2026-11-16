@@ -476,10 +476,10 @@ def test_a_watch_command_is_approved_once_when_set_and_runs_without_asking_again
 
     said = _set(kind="watch", label="the tests", command="npm test", every_minutes=10)
     assert said.startswith("Watching")
-    from row_bot.data_paths import display_path
+    from row_bot.data_paths import display_path, workspace_folder
 
     assert asked[0]["description"] == (f"Run `npm test` every 10 min in Row-Bot's workspace "
-                                       f"({display_path(os.environ['ROW_BOT_WORKSPACE'])}) while it watches "
+                                       f"({display_path(workspace_folder(create=False))}) while it watches "
                                        "(up to 24 h)")
     record = _only(waits)
     assert record["spec"]["approval"]["approved_by"] == "approval"

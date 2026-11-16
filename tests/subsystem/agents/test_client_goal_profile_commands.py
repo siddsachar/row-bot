@@ -352,9 +352,10 @@ def test_goal_review_discloses_the_check_and_the_goal_shows_its_states(tmp_path,
     monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
     request = _goal_request("conversation-a", "start", done_means="  Every link works  ",
                             check_command="npm test")
-    from row_bot.data_paths import display_path
+    from row_bot.data_paths import display_path, workspace_folder
 
-    runs_in = f"Row-Bot's workspace ({display_path(tmp_path)})"
+    # The workspace folder the file tools and the shell use (R10): chosen in Settings, else the default one.
+    runs_in = f"Row-Bot's workspace ({display_path(workspace_folder())})"
     review = commands.review_goal_command(request, validate=_valid)
     assert (review["done_means"], review["check_command"]) == ("Every link works", "npm test")
     assert review["check"]["runs_in"] == runs_in
