@@ -104,7 +104,7 @@ jobs:
   #  Release only a commit CI has already passed, from its tag (no re-testing)
   # ---------------------------------------------------------------------------
   release-gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -166,7 +166,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-parts:
     needs: release-gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -371,7 +371,7 @@ jobs:
   build-linux:
     if: ${{ always() && needs.release-gate.result == 'success' && (needs.nightly.result == 'success' || needs.nightly.result == 'skipped') && needs.build-parts.result == 'success' && inputs.build_linux }}
     needs: [release-gate, nightly, build-parts]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:
@@ -610,7 +610,7 @@ jobs:
   checksums-and-manifest:
     if: ${{ always() && !cancelled() && needs.build-parts.result == 'success' }}
     needs: [build-parts, build-windows, build-linux, build-macos]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -695,7 +695,7 @@ jobs:
   draft-release:
     if: ${{ always() && !cancelled() && !inputs.dry_run && needs.checksums-and-manifest.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-macos.result == 'success' }}
     needs: [checksums-and-manifest, build-windows, build-linux, build-macos]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write
