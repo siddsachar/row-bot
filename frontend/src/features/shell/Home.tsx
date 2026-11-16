@@ -592,8 +592,8 @@ export default function Home({
                 onRetryScheduledPost={controller.retryScheduledPost}
                 onEditScheduledPost={controller.editScheduledPost}
                 buddy={<BuddyPortrait />}
-                forYou={({ rows, footer }) => (
-                  <ForYou today={rows} footer={footer} />
+                forYou={({ rows, ahead, footer }) => (
+                  <ForYou today={rows} ahead={ahead} footer={footer} />
                 )}
                 onAsk={onAsk}
                 asking={asking}
