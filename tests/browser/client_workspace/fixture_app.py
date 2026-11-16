@@ -5593,7 +5593,9 @@ def main() -> None:
         return VoiceProviderStatus("fixture", "Fixture speech", True)
     synthetic_speech = SimpleNamespace(voice_service=voice, transcribe=transcribe_fixture,
                                        synthesize=synthesize_fixture,
-                                       speech_input_status=speech_input_status_fixture)
+                                       speech_input_status=speech_input_status_fixture,
+                                       # No ffmpeg: Show Row-Bot how's narration says why it can't run.
+                                       ffmpeg_command=lambda: None)
     browser_local.get_browser_local_voice_service = lambda: synthetic_speech
     from row_bot.application import client_voice
     def fixture_credentials(**kwargs):
