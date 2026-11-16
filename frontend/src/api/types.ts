@@ -1331,6 +1331,26 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.OnboardingReceipt>;
   localRuntime?(signal?: AbortSignal): Promise<Wire.LocalRuntimeSnapshot>;
+  localServers?(signal?: AbortSignal): Promise<Wire.LocalServersSnapshot>;
+  connectLocalServer?(
+    body: Wire.LocalServerConnectRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalServerConnection>;
+  localModelRuntime?(signal?: AbortSignal): Promise<Wire.LocalModelRuntimeView>;
+  installLocalModel?(
+    body: Wire.LocalModelInstallRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  stopLocalModelRuntime?(
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  removeLocalModelRuntime?(
+    body: Wire.LocalModelRemoveRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  repairLocalModelRuntime?(
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
   testChosenModel?(signal?: AbortSignal): Promise<Wire.ModelTestResult>;
   checkProviderKey?(
     body: Wire.ProviderKeyCheckRequest,

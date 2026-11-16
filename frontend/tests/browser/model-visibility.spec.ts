@@ -190,7 +190,7 @@ test('Setup lists your models, then Row-Bot’s picks, then every model', async 
   await expect(page.getByText('Show all models (16)')).toBeVisible();
   if (phone(info))
     await page
-      .getByRole('heading', { name: 'Pick a model' })
+      .getByRole('heading', { name: 'Found on this computer' })
       .evaluate((element) => element.scrollIntoView({ block: 'start' }));
   await shoot(page, info, 'models-first-run');
 });

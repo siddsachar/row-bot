@@ -20,6 +20,7 @@ import {
   KeyRound,
   Loader2,
   LogIn,
+  RefreshCw,
   Server,
   Sparkles,
   type LucideIcon,
@@ -28,6 +29,7 @@ import type {
   CachedModelRow,
   LocalRuntimeModel,
   LocalRuntimeSnapshot,
+  LocalServersSnapshot,
   OnboardingSnapshot,
   ProviderLiveCard,
   SubscriptionFlowSnapshot,
@@ -39,6 +41,7 @@ import { copyTextLater, writeClipboardText } from '../../platform/clipboard';
 import {
   Button,
   Disclosure,
+  IconButton,
   Input,
   Segmented,
   StatusDot,
@@ -56,6 +59,10 @@ import { markFirstChat } from './first-chat';
 import { DESKTOP_APP_URL, OWN_MODEL_SERVER_GUIDE } from './hosted-links';
 import HostTrialNote from './HostTrialNote';
 import TryFreePanel, { freeFirst } from './TryFree';
+import LocalWays from '../local-runtime/LocalWays';
+import RunOnThisComputer from '../local-runtime/RunOnThisComputer';
+import { useLocalModelRuntime } from '../local-runtime/useLocalModelRuntime';
+import { modelLabel, sizeWords } from '../local-runtime/words';
 
 /** "Set up later" for this window: Home stops opening Setup until next time. */
 export const SETUP_LATER_KEY = 'row-bot:setup-later:v1';
@@ -258,13 +265,177 @@ function CopyCommand({ command }: { command: string }) {
   );
 }
 
+type LocalModel = ReturnType<typeof useLocalModelRuntime>;
+type FoundServer = LocalServersSnapshot['servers'][number];
+
+/** The local model servers answering on this computer: asked once when the page opens, and on Check again. */
+function useLocalServers() {
+  const { controller } = useRuntime();
+  const [servers, setServers] = useState<FoundServer[] | null>(null);
+  const read = useCallback(async () => {
+    setServers(null);
+    try {
+      const found = await controller.localServers?.();
+      setServers(found?.servers ?? []);
+    } catch {
+      setServers([]);
+    }
+  }, [controller]);
+  useEffect(() => {
+    void read();
+  }, [read]);
+  return { servers, read };
+}
+
+/**
+ * The local choice: what is already running on this computer first, then
+ * every way to run models here as equal rows (Ollama, LM Studio, vLLM, a
+ * llama.cpp server of your own, Row-Bot's own download).
+ */
 function LocalPanel({
   runtime,
+  local,
   onPick,
 }: {
   runtime: LocalRuntimeSnapshot | null;
+  local: LocalModel;
   onPick: (modelRef: string, label: string) => void;
 }) {
+  const place = usePlace();
+  const found = useLocalServers();
+  return (
+    <div className="first-run-panel-body">
+      <FoundServers
+        servers={found.servers}
+        runtime={runtime}
+        onPick={onPick}
+        onCheck={() => void found.read()}
+        where={place.name}
+      />
+      <h3 className="local-ways-title">Or set one up</h3>
+      <LocalWays
+        from="setup"
+        ollama={<OllamaPanel runtime={runtime} />}
+        ollamaStatus={ollamaWords(runtime)}
+        download={
+          <RunOnThisComputer
+            view={local.view}
+            speed={local.speed}
+            update={local.update}
+            onPick={onPick}
+          />
+        }
+        downloadStatus={downloadWords(local.view)}
+      />
+    </div>
+  );
+}
+
+/** "Found on this computer": each running server with its models and Use. */
+function FoundServers({
+  servers,
+  runtime,
+  onPick,
+  onCheck,
+  where,
+}: {
+  servers: FoundServer[] | null;
+  runtime: LocalRuntimeSnapshot | null;
+  onPick: (modelRef: string, label: string) => void;
+  onCheck: () => void;
+  where: string;
+}) {
+  const { controller } = useRuntime();
+  const [error, setError] = useState<string | null>(null);
+  // Ollama follows Setup's own Ollama watch; the other servers were asked when the page opened.
+  const ollama: FoundServer | null =
+    runtime?.state === 'running'
+      ? {
+          kind: 'ollama',
+          label: 'Ollama',
+          port: 11434,
+          base_url: 'http://127.0.0.1:11434',
+          models: runtime.models.map((model) => model.name),
+          provider_id: 'ollama',
+        }
+      : null;
+  const shown = [
+    ...(ollama ? [ollama] : []),
+    ...(servers ?? []).filter((server) => server.kind !== 'ollama'),
+  ];
+  async function use(server: FoundServer, name: string) {
+    setError(null);
+    try {
+      const connected = await controller.connectLocalServer(
+        server.kind,
+        server.port,
+      );
+      const ref = connected?.model_refs.find((item) =>
+        item.endsWith(`:${name}`),
+      );
+      if (!ref) throw new Error(`${server.label} no longer lists ${name}.`);
+      onPick(ref, name);
+    } catch (cause) {
+      setError(clientError(cause).message);
+    }
+  }
+  return (
+    <section className="local-found" aria-label={`Found on ${where}`}>
+      <div className="local-found-head">
+        <h3>Found on {where}</h3>
+        <IconButton
+          label="Check again"
+          disabled={servers === null}
+          onClick={onCheck}
+        >
+          <RefreshCw size={14} aria-hidden />
+        </IconButton>
+      </div>
+      {servers === null && !ollama ? (
+        <p className="first-run-waiting" role="status">
+          <Loader2 size={14} className="spin" aria-hidden /> Looking for model
+          servers on {where}…
+        </p>
+      ) : !shown.length ? (
+        <p className="local-found-none" role="status">
+          No model server is running on {where} right now.
+        </p>
+      ) : (
+        shown.map((server) => (
+          <div
+            key={`${server.kind}:${server.port}`}
+            className="local-found-server"
+          >
+            <p className="local-found-name">
+              <StatusDot tone="success" label="Running" />
+              <strong>{server.label}</strong>
+              <small>port {server.port}</small>
+            </p>
+            {server.kind === 'ollama' && runtime?.models.length ? (
+              <LocalModels models={runtime.models} onPick={onPick} />
+            ) : server.models.length ? (
+              <ModelOptions
+                label={`${server.label} models`}
+                options={server.models.map((name) => ({
+                  ref: `found:${server.kind}:${server.port}:${name}`,
+                  name,
+                  chatOnly: false,
+                }))}
+                onPick={(_ref, name) => void use(server, name)}
+              />
+            ) : (
+              <p>It is running but lists no models yet.</p>
+            )}
+          </div>
+        ))
+      )}
+      {error && <p role="alert">{error}</p>}
+    </section>
+  );
+}
+
+/** Ollama's own steps, under its row: install it, start it, pull a model. Its models show under Found. */
+function OllamaPanel({ runtime }: { runtime: LocalRuntimeSnapshot | null }) {
   const place = usePlace();
   if (!runtime)
     return (
@@ -358,15 +529,44 @@ function LocalPanel({
     );
   return (
     <div className="first-run-panel-body">
-      <h3>Pick a model</h3>
       <p>
         Ollama is running with {runtime.models.length} model
-        {runtime.models.length === 1 ? '' : 's'}. The one you pick becomes the
-        default; you can change it any time.
+        {runtime.models.length === 1 ? '' : 's'}: pick one above, under Found.
+        To add one, run <CopyCommand command="ollama pull qwen3.8:27b" />
       </p>
-      <LocalModels models={runtime.models} onPick={onPick} />
     </div>
   );
+}
+
+/** Ollama's state in a few words, for its row and the local card. */
+function ollamaWords(runtime: LocalRuntimeSnapshot | null): string {
+  return !runtime
+    ? 'Looking for Ollama…'
+    : runtime.state === 'running'
+      ? `Ollama is running · ${runtime.models.length} model${runtime.models.length === 1 ? '' : 's'}`
+      : runtime.state === 'installed'
+        ? 'Ollama is installed · not running'
+        : "Ollama isn't installed yet";
+}
+
+/** Row-Bot's download in a few words, for its row: the model that fits, downloading, or ready. */
+function downloadWords(
+  view: ReturnType<typeof useLocalModelRuntime>['view'],
+): string | undefined {
+  if (!view || !view.on_this_computer || view.state === 'unavailable')
+    return undefined;
+  if (view.state === 'downloading' && view.download) {
+    const share = view.download.total_bytes
+      ? Math.floor((view.download.done_bytes / view.download.total_bytes) * 100)
+      : 0;
+    return `Downloading a model · ${share}%`;
+  }
+  const ready = view.models.find((model) => model.installed);
+  if (ready && view.build_installed) return `${modelLabel(ready)} is ready`;
+  const pick = view.models.find((model) => model.id === view.recommended);
+  return pick
+    ? `${modelLabel(pick)} fits this computer · ${sizeWords(pick.download_bytes)} download`
+    : undefined;
 }
 
 type Option = {
@@ -1073,6 +1273,7 @@ export default function FirstRun({
   // A known host runs this Row-Bot (U3): two big buttons, and no local runtime.
   const host = snapshot.host_name ?? null;
   const runtime = useLocalRuntime(!host);
+  const local = useLocalModelRuntime(!host, 5000);
   const backgroundUpdates = useBackgroundUpdates();
   const { cards, reload } = useProviderCards();
   const [path, setPath] = useState<Path | null>(null);
@@ -1095,13 +1296,14 @@ export default function FirstRun({
   const endpoints = cards.filter(
     (card) => card.group === 'custom' && card.configured,
   );
-  const localStatus = !runtime
-    ? 'Looking for Ollama…'
-    : runtime.state === 'running'
-      ? `Ollama is running · ${runtime.models.length} model${runtime.models.length === 1 ? '' : 's'}`
-      : runtime.state === 'installed'
-        ? 'Ollama is installed · not running'
-        : "Ollama isn't installed yet";
+  // Ollama running with models says so; a model Row-Bot downloaded says it is ready or downloading.
+  const ownStatus = downloadWords(local.view);
+  const localStatus =
+    runtime?.state === 'running' && runtime.models.length > 0
+      ? ollamaWords(runtime)
+      : ownStatus && !ownStatus.includes('fits')
+        ? ownStatus
+        : ollamaWords(runtime);
 
   /** A refusal, not the model: a window that isn't signed in can only look. */
   function refused(label: string, cause: unknown) {
@@ -1338,8 +1540,8 @@ export default function FirstRun({
           title={`On ${place.name}`}
           detail={
             place.kind === 'this_computer'
-              ? 'Private and free, with Ollama.'
-              : 'Free, with Ollama.'
+              ? 'Private and free. No account needed.'
+              : 'Free, and your chats go to no AI provider.'
           }
           status={localStatus}
           pressed={path === 'local'}
@@ -1380,7 +1582,9 @@ export default function FirstRun({
                   : 'With an API key'
           }
         >
-          {path === 'local' && <LocalPanel runtime={runtime} onPick={pick} />}
+          {path === 'local' && (
+            <LocalPanel runtime={runtime} local={local} onPick={pick} />
+          )}
           {path === 'subscription' && (
             <div className="first-run-panel-body">
               <Segmented

@@ -135,3 +135,28 @@ def test_reading_the_state_loads_nothing_of_learning(computer):
     client_local_runtime.snapshot()
 
     assert {name for name in sys.modules if name.startswith("row_bot.learning")} == before
+
+
+def test_setup_can_choose_a_downloaded_model_and_never_one_that_isnt(computer, tmp_path, monkeypatch):
+    import json
+
+    from row_bot import models as runtime_models
+    from row_bot.application import client_first_run
+    from row_bot.application.client_platform import ClientPlatformError
+
+    monkeypatch.setattr(runtime_models, "_current_model", "")
+    monkeypatch.setattr("row_bot.application.client_diagnosis.recheck_default_model", lambda: None)
+    with pytest.raises(ClientPlatformError, match="model_configuration_unavailable"):
+        client_first_run.choose_model("model:custom_openai_llamacpp:qwen3.5-9b")
+
+    nine = models.get("qwen3.5-9b")
+    monkeypatch.setattr(install, "installed_models", lambda root=None: [nine])
+    monkeypatch.setattr(install, "installed_build", lambda root=None: install.InstalledBuild(
+        tmp_path, builds.RELEASE, builds.CUDA_13, tmp_path / "llama-server.exe"))
+    chosen = client_first_run.choose_model("model:custom_openai_llamacpp:qwen3.5-9b")
+
+    assert chosen == "model:custom_openai_llamacpp:qwen3.5-9b"
+    saved = json.loads((tmp_path / "model_settings.json").read_text(encoding="utf-8"))
+    assert saved["model"] == chosen
+    with pytest.raises(ClientPlatformError, match="model_configuration_unavailable"):
+        client_first_run.choose_model("model:custom_openai_llamacpp:qwen3.5-27b")  # not downloaded

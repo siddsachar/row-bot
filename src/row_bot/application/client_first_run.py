@@ -221,13 +221,27 @@ def suggested_model(provider_id: str) -> str | None:
     return ready[0].selection_ref
 
 
+def _local_endpoint_lists(provider_id: str, model_id: str) -> bool:
+    """Whether ``provider_id`` is a custom endpoint on this computer whose saved model list has ``model_id``."""
+    from row_bot.providers.custom import get_custom_endpoint, is_custom_openai_provider
+
+    if not is_custom_openai_provider(provider_id):
+        return False
+    endpoint = get_custom_endpoint(provider_id) or {}
+    if endpoint.get("execution_location") != "local" or not endpoint.get("enabled", True):
+        return False
+    return any(str(item.get("model_id") or item.get("id") or "") == model_id for item in endpoint.get("models") or ())
+
+
 def choose_model(model_ref: str) -> str:
     """Save the person's pick as the default and star it, so every picker lists it.
 
     Only a model that is available right now can be chosen: an installed local
-    model the runtime serves, or a connected provider's chat model.
+    model the runtime serves, a model Row-Bot downloaded to run on this computer
+    itself (E1), or a connected provider's chat model.
     """
     from row_bot.application.client_platform import ClientPlatformError
+    from row_bot.local_runtime import is_local_runtime_provider
     from row_bot.providers import saved_model_settings as settings
     from row_bot.providers.model_visibility import star_model
     from row_bot.providers.selection import model_ref as build_ref, parse_model_ref
@@ -244,6 +258,15 @@ def choose_model(model_ref: str) -> str:
         from row_bot.providers.model_catalog_cache import refresh_model_catalog_cache
 
         refresh_model_catalog_cache(reason="first_run", force=True, provider_id="ollama")
+    elif is_local_runtime_provider(provider_id):
+        from row_bot.application.client_local_runtime import model_ready
+
+        if not model_ready(model_id):
+            raise ClientPlatformError("model_configuration_unavailable")
+    elif _local_endpoint_lists(provider_id, model_id):
+        # A model server found on this computer and connected with Use: its own list names the model.
+        # The test message that follows says whether it answers.
+        pass
     else:
         row = _chat_row(reference)
         if row is None or not (row.configured and row.runtime_ready and row.installed):
