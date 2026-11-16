@@ -6945,6 +6945,56 @@ def create_router(
             request, dto.LocalRuntimeSnapshot, {**snapshot, "on_this_computer": on_machine}
         )
 
+    # Run on this computer (E1): the pinned llama.cpp build and models Row-Bot downloads and runs.
+    async def local_model_runtime(request: Request, result: dict) -> JSONResponse:
+        on_machine = on_this_computer(await _context(request))
+        return await respond(
+            request, dto.LocalModelRuntimeView, {**result, "on_this_computer": on_machine}
+        )
+
+    @router.get("/local-runtime")
+    async def local_runtime_view(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_local_runtime import snapshot
+
+        return await local_model_runtime(request, await call(snapshot))
+
+    @router.post("/local-runtime/install")
+    async def local_runtime_install(request: Request) -> JSONResponse:
+        # The person pressed Download (the button named the size). A download lands on the computer
+        # Row-Bot runs on, so only its own desktop app starts one.
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        body = await _body(request, dto.LocalModelInstallRequest, 1024)
+        from row_bot.application.client_local_runtime import install_model
+
+        return await local_model_runtime(
+            request, await call(install_model, body.model_id, body.download_bytes)
+        )
+
+    @router.post("/local-runtime/stop")
+    async def local_runtime_stop(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_local_runtime import stop
+
+        return await local_model_runtime(request, await call(stop))
+
+    @router.post("/local-runtime/remove")
+    async def local_runtime_remove(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        body = await _body(request, dto.LocalModelRemoveRequest, 1024)
+        from row_bot.application.client_local_runtime import remove
+
+        return await local_model_runtime(request, await call(remove, body.model_id))
+
+    @router.post("/local-runtime/repair")
+    async def local_runtime_repair(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_local_runtime import repair
+
+        return await local_model_runtime(request, await call(repair))
+
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:
         # One short message to the model the person just chose (its provider is
