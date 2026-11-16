@@ -73,8 +73,12 @@ def _text(value: object, maximum: int, *, required: bool = False) -> str:
     return result
 
 
-def _public_text(value: object, maximum: int) -> str:
-    """Return bounded text with common local paths and secrets redacted."""
+def _public_text(value: object, maximum: int, *, paths: bool = True) -> str:
+    """Return bounded text with common local paths and secrets redacted.
+
+    ``paths=False`` keeps paths: where a check runs names the person's own workspace folder, ``~/…`` under the
+    home folder (``data_paths.display_path``), as the review they confirm names it.
+    """
 
     if not isinstance(value, str):
         return ""
@@ -89,12 +93,13 @@ def _public_text(value: object, maximum: int) -> str:
         "secret=[redacted]",
         value,
     )
-    value = re.sub(
-        r"(?i)\b[A-Z]:[\\/](?:Users[\\/][^\\/\s]+|[^\s<>\"|?*]+)(?:[\\/][^\s<>\"|?*]+)*",
-        "[local path]",
-        value,
-    )
-    value = re.sub(r"(?<!\w)/(?:Users|home)/[^\s]+", "[local path]", value)
+    if paths:
+        value = re.sub(
+            r"(?i)\b[A-Z]:[\\/](?:Users[\\/][^\\/\s]+|[^\s<>\"|?*]+)(?:[\\/][^\s<>\"|?*]+)*",
+            "[local path]",
+            value,
+        )
+        value = re.sub(r"(?<!\w)/(?:Users|home)/[^\s]+", "[local path]", value)
     encoded = value.encode("utf-8", errors="ignore")
     if len(encoded) <= maximum:
         return value
@@ -205,7 +210,7 @@ def _check_public(goal: Mapping[str, Any]) -> dict[str, Any] | None:
     exit_code = result.get("exit_code")
     return {
         "command": _public_text(command, 2048),
-        "runs_in": _public_text(goals.check_approval(goal).get("runs_in"), 256),
+        "runs_in": _public_text(goals.check_approval(goal).get("runs_in"), 256, paths=False),
         "state": state if state in _CHECK_STATES else "",
         "result": {
             "exit_code": exit_code if type(exit_code) is int else None,
@@ -225,7 +230,7 @@ def check_place(conversation_id: str) -> dict[str, Any]:
     place = goal_checks.place_for(conversation_id)
     return {
         "available": True,
-        "runs_in": _public_text(place.runs_in, 256),
+        "runs_in": _public_text(place.runs_in, 256, paths=False),
         "suggestions": [_public_text(command, 512) for command in goal_checks.suggestions(place)],
     }
 

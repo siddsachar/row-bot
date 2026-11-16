@@ -352,18 +352,22 @@ def test_goal_review_discloses_the_check_and_the_goal_shows_its_states(tmp_path,
     monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
     request = _goal_request("conversation-a", "start", done_means="  Every link works  ",
                             check_command="npm test")
+    from row_bot.data_paths import display_path, workspace_folder
+
+    # The workspace folder the file tools and the shell use (R10): chosen in Settings, else the default one.
+    runs_in = f"Row-Bot's workspace ({display_path(workspace_folder())})"
     review = commands.review_goal_command(request, validate=_valid)
     assert (review["done_means"], review["check_command"]) == ("Every link works", "npm test")
-    assert review["check"]["runs_in"] == "Row-Bot's workspace"
+    assert review["check"]["runs_in"] == runs_in
     assert review["disclosures"] == [
-        "Each time Row-Bot thinks the goal is done, it runs `npm test` in Row-Bot's workspace. "
+        f"Each time Row-Bot thinks the goal is done, it runs `npm test` in {runs_in}. "
         "The goal counts as done only when it exits 0."]
     page = commands.read_goals("conversation-a", validate=_valid)
-    assert page["check_place"] == {"available": True, "runs_in": "Row-Bot's workspace", "suggestions": []}
+    assert page["check_place"] == {"available": True, "runs_in": runs_in, "suggestions": []}
 
     started = _execute_goal(request)["goal"]
     assert started["done_means"] == "Every link works"
-    assert started["check"] == {"command": "npm test", "runs_in": "Row-Bot's workspace", "state": "",
+    assert started["check"] == {"command": "npm test", "runs_in": runs_in, "state": "",
                                 "result": None}
 
     def state():
