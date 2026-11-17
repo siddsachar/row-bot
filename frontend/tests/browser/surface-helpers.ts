@@ -135,8 +135,9 @@ export function watchReads(page: Page): { settled(): Promise<void> } {
     inFlight.add(request);
     lastStart = Date.now();
   });
-  for (const ended of ['requestfinished', 'requestfailed'] as const)
-    page.on(ended, (request) => inFlight.delete(request));
+  const end = (request: Request) => inFlight.delete(request);
+  page.on('requestfinished', end);
+  page.on('requestfailed', end);
   return {
     async settled() {
       // Unsettled, it names the reads still in flight.
