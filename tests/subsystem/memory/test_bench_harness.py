@@ -984,6 +984,78 @@ def test_a_turn_declines_what_stops_for_a_person_on_the_pinned_date(tmp_path, mo
         runtime.turn("thread-1", "again?")
 
 
+def test_a_benchmark_turn_reaches_only_the_pinned_tools_and_never_the_web(tmp_path) -> None:
+    import langgraph.prebuilt as prebuilt
+    from langchain_core.tools import StructuredTool
+
+    from row_bot.providers import deferred_tools
+    from row_bot.tools import discovery
+    from tests.e2e.bench.runtime import install_tool_fence, network_policy, pinned_tool_names
+
+    def tool(name: str) -> StructuredTool:
+        return StructuredTool.from_function(lambda query="": f"{name} ran", name=name, description=f"The {name} tool.")
+
+    assert {"search_memory", "list_memories", "search_conversations", "list_conversations"} <= pinned_tool_names(
+        ("memory", "conversation_search"))
+    withheld: set[str] = set()
+    original = prebuilt.ToolNode
+    undo = install_tool_fence(frozenset({"search_memory", "list_memories"}), withheld)
+    try:
+        bound = prebuilt.ToolNode([tool("search_memory"), tool("tool_search"), tool("ask_person"), tool("web_search")])
+        assert set(bound.tools_by_name) == {"search_memory", "tool_search"}
+        records = [discovery.ExternalToolRecord.from_tool(tool(name), source="core", parent="memory")
+                   for name in ("list_memories", "shell")]
+        search, invoke = discovery.build_tool_discovery_tools(records, context_tokens=200_000)
+        assert "list_memories" in search.invoke({"query": "list memories"})
+        assert json.loads(search.invoke({"query": "shell"}))["results"] == []
+        assert "unknown_tool" in invoke.invoke({"name": "shell", "arguments": {}})
+        assert "list_memories ran" in invoke.invoke({"name": "list_memories", "arguments": {}})
+        deferred_tools.offer(["list_memories", "shell"])
+        assert deferred_tools.offered() == frozenset({"list_memories"})
+    finally:
+        undo()
+        deferred_tools.offer(())
+    assert prebuilt.ToolNode is original
+    assert withheld == {"ask_person", "web_search", "shell"}
+
+    policy = network_policy(BenchConfig("codex", "gpt-6.1-sol", blocked_hosts=("huggingface.co",)))
+    for host in ("api.tavily.com", "html.duckduckgo.com", "www.bing.com", "en.wikipedia.org", "huggingface.co"):
+        assert policy.host_reason(host)
+    assert not policy.host_reason("chatgpt.com")
+
+
+def test_the_agent_a_benchmark_builds_keeps_b1s_deferral_but_binds_no_question_tool(monkeypatch) -> None:
+    from row_bot.plugins import registry as plugin_registry
+    from tests.e2e.bench.runtime import install_tool_fence, pinned_tool_names
+
+    agent.clear_agent_cache()
+    monkeypatch.setattr(agent, "_build_runtime_skill_snapshot", lambda: ((), (), False, "test-skills"))
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:test")
+    monkeypatch.setattr(agent, "get_llm", lambda: object())
+    monkeypatch.setattr(agent, "get_context_size", lambda model_name=None: 400_000)
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model_name=None: True)
+    monkeypatch.setattr(agent, "get_agent_system_prompt", lambda: "system")
+    monkeypatch.setattr(agent, "_ensure_agent_mode_ready", lambda model_name: SimpleNamespace(
+        provider_id="test", runtime_model="test", capability_source="test", confidence="high"))
+    monkeypatch.setattr(agent, "create_react_agent", lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(plugin_registry, "get_langchain_tools", lambda allow_names=None: [])
+    monkeypatch.setattr(plugin_registry, "get_destructive_names", lambda allow_names=None: set())
+    groups = ("memory", "conversation_search")
+    withheld: set[str] = set()
+    undo = install_tool_fence(pinned_tool_names(groups), withheld)
+    try:
+        bound = agent.get_agent_graph(list(groups)).tools.tools_by_name
+    finally:
+        undo()
+        agent.clear_agent_cache()
+    assert {"search_memory", "search_conversations", "tool_search", "tool_invoke"} <= set(bound)
+    assert "ask_person" not in bound and "ask_person" in withheld
+    assert set(bound) <= pinned_tool_names(groups) | {"tool_search", "tool_invoke", "skill_search", "skill_load",
+                                                     "read_tool_output"}
+    found = json.loads(bound["tool_search"].invoke({"query": "list conversations"}))["results"]
+    assert "list_conversations" in {item["name"] for item in found}  # deferred by B1, still reachable
+
+
 def test_the_clock_pin_skips_a_module_that_no_longer_reads_the_clock(monkeypatch) -> None:
     import row_bot.memory_reconcile as reconcile
 

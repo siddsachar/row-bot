@@ -340,6 +340,74 @@ def install_call_gate(ledger: CostLedger) -> Callable[[], None]:
     return undo
 
 
+#: Hosts web search and the web knowledge tools answer from (Tavily, the keyless search engines, Wikipedia,
+#: arXiv). Every benchmark blocks them (H5): a benchmark turn answers from memory, never from the web.
+WEB_SEARCH_HOSTS = ("api.tavily.com", "duckduckgo.com", "bing.com", "www.google.com", "search.brave.com",
+                    "search.yahoo.com", "mojeek.com", "yandex.com", "wikipedia.org", "arxiv.org")
+#: Bound beside the pinned tools: B1's discovery bridge, skill discovery and the reader of shortened results.
+BENCH_BRIDGE_TOOLS = frozenset({"tool_search", "tool_invoke", "skill_search", "skill_load", "read_tool_output"})
+
+
+def network_policy(config: BenchConfig) -> netguard.NetworkPolicy:
+    """The task's network policy: its benchmark's blocked hosts and canaries, and the web search hosts."""
+    blocked = tuple(dict.fromkeys((*config.blocked_hosts, *WEB_SEARCH_HOSTS)))
+    return netguard.NetworkPolicy(blocked_hosts=blocked, canaries=config.canaries)
+
+
+def pinned_tool_names(groups: tuple[str, ...]) -> frozenset[str]:
+    """The model-facing tool names the pinned tool groups bring (``memory`` brings ``search_memory``,
+    ``list_memories`` and the rest)."""
+    from row_bot.tools import registry
+
+    names: set[str] = set()
+    for group in groups:
+        tool = registry.get_tool(group)
+        if tool is not None:
+            names.update(str(getattr(item, "name", "") or "") for item in tool.as_langchain_tools())
+    return frozenset(name for name in names if name)
+
+
+def install_tool_fence(allowed: frozenset[str], withheld: set[str]) -> Callable[[], None]:
+    """Keep every benchmark turn to the pinned tools (H5), with B1's deferral itself left on.
+
+    Three places, all looked up when an agent is built: the tool node (what is bound and can run: nothing
+    outside the pinned tools and the bridges, so no ``ask_person``), the discovery bridge's records (what
+    ``tool_search`` finds and ``tool_invoke`` can call) and the deferred names a local transport may bind.
+    Names left out are added to *withheld*."""
+    import langgraph.prebuilt as prebuilt
+    from row_bot.providers import deferred_tools
+    from row_bot.tools import discovery
+
+    bound_ok = allowed | BENCH_BRIDGE_TOOLS
+    original_node, original_bridge, original_offer = prebuilt.ToolNode, discovery.build_tool_discovery_tools, \
+        deferred_tools.offer
+
+    class FencedToolNode(original_node):  # type: ignore[misc, valid-type]
+        def __init__(self, tools: Any, *args: Any, **kwargs: Any) -> None:
+            kept = []
+            for tool in tools:
+                name = str(getattr(tool, "name", "") or "")
+                (kept.append(tool) if name in bound_ok else withheld.add(name))
+            super().__init__(kept, *args, **kwargs)
+
+    def bridge(records: Any, *args: Any, **kwargs: Any) -> Any:
+        kept = []
+        for record in records:
+            (kept.append(record) if record.name in allowed else withheld.add(str(record.name)))
+        return original_bridge(kept, *args, **kwargs)
+
+    def offer(names: Any) -> None:
+        original_offer([name for name in names if str(name) in allowed])
+
+    prebuilt.ToolNode, discovery.build_tool_discovery_tools, deferred_tools.offer = FencedToolNode, bridge, offer
+
+    def undo() -> None:
+        prebuilt.ToolNode, discovery.build_tool_discovery_tools, deferred_tools.offer = \
+            original_node, original_bridge, original_offer
+
+    return undo
+
+
 class _PinnedDatetime(datetime):
     moment: datetime = datetime(2000, 1, 1)
 
@@ -406,6 +474,7 @@ class BenchRuntime:
     local_model: dict[str, Any] = field(default_factory=dict)
     limits: LimitWatch = field(default_factory=LimitWatch)
     recall_log: dict[str, dict[str, Any]] = field(default_factory=dict)
+    withheld_tools: set[str] = field(default_factory=set)
     _undo: list[Callable[[], None]] = field(default_factory=list)
     _seen_row: int = 0
 
@@ -426,7 +495,7 @@ class BenchRuntime:
         import row_bot.agent  # noqa: F401 - binds the runtime before the patches
         from row_bot import models
 
-        self.policy = netguard.NetworkPolicy(blocked_hosts=self.config.blocked_hosts, canaries=self.config.canaries)
+        self.policy = network_policy(self.config)
         self._undo.append(netguard.install(self.policy))
         watched = logging.getLogger("row_bot")
         watched.addHandler(self.limits)
@@ -457,6 +526,7 @@ class BenchRuntime:
                 self.notes.append(f"catalog refresh failed: {type(exc).__name__}")
         models.adopt_saved_default(self.config.model_ref)
         self._pin_tools()
+        self._undo.append(install_tool_fence(pinned_tool_names(self.config.tools), self.withheld_tools))
         self._undo.append(install_call_gate(self.ledger))
         self._undo.append(install_recall_recorder(self.recall_log))
         self._seen_row = usage_rows.max_id(self.usage_db())
@@ -568,7 +638,8 @@ class BenchRuntime:
         step.tool_calls = thread_tool_calls(thread_id) or [
             {"name": call.name, "args": {key: str(value)[:_TOOL_ARGS] for key, value in (call.args or {}).items()}}
             for call in result.tool_calls]
-        step.metrics = {"interrupts_declined": result.interrupts, "tool_results": len(result.tool_results)}
+        step.metrics = {"interrupts_declined": result.interrupts, "tool_results": len(result.tool_results),
+                        "tools_withheld": sorted(self.withheld_tools)}
         if thread_id in self.recall_log:
             step.metrics["recall"] = self.recall_log.pop(thread_id)
         self.drain_calls(step)
