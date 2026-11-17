@@ -829,7 +829,10 @@ def check_mcp() -> CheckResult:
         from row_bot.mcp_client.runtime import get_status_summary
         status = get_status_summary()
         if not status.get("sdk_available"):
-            return CheckResult("MCP", "warn", "SDK missing", settings_tab="Apps")
+            # "Missing" only when the package isn't installed; one that failed to load says so (RM4).
+            failed = status.get("sdk_state") == "failed"
+            return CheckResult("MCP", "warn", "SDK didn't load · restart Row-Bot" if failed else "SDK missing",
+                               settings_tab="Apps")
         server_count = int(status.get("server_count") or 0)
         enabled_servers = int(status.get("enabled_server_count") or 0)
         connected = int(status.get("connected_server_count") or 0)
