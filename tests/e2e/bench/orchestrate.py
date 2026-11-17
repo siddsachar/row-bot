@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import statistics
 import subprocess
 import sys
@@ -217,6 +218,19 @@ def _git_commit() -> str:
         return ""
 
 
+def built_memory(build_run: Path, task_id: str) -> Path:
+    """The data folder a build run (``--stage build``) left for *task_id*: its last attempt, which is the one
+    that finished (a finished task is never attempted again). Refuses a task the build did not finish."""
+    built = json.loads((build_run / "run.json").read_text(encoding="utf-8")) if (build_run / "run.json").is_file() else {}
+    if built.get("stage") != "build":
+        raise FileNotFoundError(f"{build_run} is not a memory build (--stage build): its memory has seen questions")
+    if task_id not in done_tasks(build_run):
+        raise FileNotFoundError(f"{build_run} has no finished memory build of {task_id}")
+    stem = task_id.replace(":", "_").replace("/", "_")
+    attempts = [item for item in (build_run / "data").glob(f"{stem}-*") if item.name[len(stem) + 1:].isdigit()]
+    return max(attempts, key=lambda item: int(item.name[len(stem) + 1:]))
+
+
 def run_worker(run_dir: Path, spec: dict[str, Any], *, timeout_min: float = TASK_TIMEOUT_MIN) -> int:
     """One task in a worker process; returns its exit code. Every attempt gets a new, empty scratch
     folder: a task resumed after a stop or a crash starts its memory from nothing, never on top of a
@@ -225,8 +239,11 @@ def run_worker(run_dir: Path, spec: dict[str, Any], *, timeout_min: float = TASK
     attempt = 1 + sum(1 for _item in (run_dir / "data").glob(f"{task_stem}-*")) if (run_dir / "data").is_dir() else 1
     stem = f"{task_stem}-{attempt}"
     data_dir, workspace = run_dir / "data" / stem, run_dir / "workspace" / stem
-    for folder in (data_dir, workspace, run_dir / "specs", run_dir / "logs"):
+    for folder in (workspace, run_dir / "specs", run_dir / "logs"):
         folder.mkdir(parents=True, exist_ok=True)
+    if spec.get("memory_from"):
+        shutil.copytree(built_memory(Path(spec["memory_from"]), spec["task_id"]), data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
     spec = {**spec, "run_dir": str(run_dir), "log": str(run_dir / "logs" / f"{stem}.log")}
     spec_path = run_dir / "specs" / f"{stem}.json"
     spec_path.write_text(json.dumps(spec, indent=1, default=str), encoding="utf-8")
@@ -355,7 +372,18 @@ def run(args: argparse.Namespace) -> int:
                       "key": Path(args.key).name if args.key else "", "dream": bool(args.dream),
                       "perspectives": args.perspectives if args.benchmark == LOCOMO and args.mode == MEMORY else "",
                       "tier": args.tier if args.benchmark == LONGMEMEVAL_V2 else "",
-                      "question_template": args.question_template, "git_commit": _git_commit(), "label": "self-run"}}
+                      "question_template": args.question_template, "git_commit": _git_commit(), "label": "self-run",
+                      "stage": args.stage, "memory_from": str(args.memory_from or "")}}
+    if args.memory_from:
+        if args.mode != MEMORY or args.stage == "build":
+            print("not running: --memory-from is for a memory run that asks")
+            return 2
+        try:
+            for task in tasks:
+                built_memory(Path(args.memory_from), task.task_id)
+        except FileNotFoundError as exc:
+            print(f"not running: {exc}")
+            return 2
     (run_dir / "run.json").write_text(json.dumps({**record["run"], "config": config.to_dict(), "caps": asdict(caps),
                                                   "protocol": protocol.describe()}, indent=1), encoding="utf-8")
     finished = done_tasks(run_dir)
@@ -377,7 +405,8 @@ def run(args: argparse.Namespace) -> int:
         spec = {"kind": "memory", "mode": args.mode, "task_id": task.task_id, "benchmark": task.benchmark,
                 "task": task.to_dict(), "config": asdict(config), "caps": asdict(caps),
                 "usage_book": str(usage_book_path()), "dream": bool(args.dream), "context_tokens": args.context_tokens,
-                "question_template": args.question_template, "record": record}
+                "question_template": args.question_template, "record": record, "stage": args.stage,
+                "memory_from": str(args.memory_from or "")}
         expect = f"{max(10, figures['windows'] + figures['questions'])} min"
         if args.parallel > 1:  # the whole run holds one booking (below): one START and one END for every task
             task_code = 77 if (run_dir / "STOP").exists() else run_worker(run_dir, spec)
@@ -423,6 +452,9 @@ def run(args: argparse.Namespace) -> int:
                 print({75: "a cap stopped the run", 77: "stopped on request"}[code]
                       + (" (the harness stopped the tasks beside it)" if stopped_by_us else ""))
             return code
+    if args.stage == "build":
+        print(f"memory built; ask with: bench.py run ... --memory-from {run_dir}")
+        return 0
     if args.judge and deadline is not None and time.time() + 60 * max(args.task_minutes, 10) > deadline.timestamp():
         print(f"judging left for later: it would not finish by {deadline:%H:%M} (bench.py judge --run-dir {run_dir})")
         write_report(run_dir)
@@ -726,6 +758,10 @@ def build_parser() -> argparse.ArgumentParser:
                             help="full-context: the reader's window (default: Row-Bot's catalog)")
     run_parser.add_argument("--question-template", default="{question}")
     run_parser.add_argument("--run-dir", default="", help="resume this run folder")
+    run_parser.add_argument("--stage", default="all", choices=("all", "build"),
+                            help="build: ingest (and Dream) only, so arms can ask on the same memory")
+    run_parser.add_argument("--memory-from", default="",
+                            help="a --stage build run folder: each task starts from a copy of its memory, no ingestion")
     run_parser.add_argument("--parallel", type=int, default=1,
                             help="plan lane only: tasks run side by side, each in its own worker and folder")
     run_parser.add_argument("--deadline", default="",

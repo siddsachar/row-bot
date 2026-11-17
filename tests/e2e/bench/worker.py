@@ -189,6 +189,7 @@ def _memory(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, 
     from .memory import adapter
     from .memory.datasets import MemoryTask
     from .memory.judge import Answer
+    from .trajectory import Step
 
     task = MemoryTask.from_dict(spec["task"])
     stop = adapter.stop_file(run_dir)
@@ -211,9 +212,17 @@ def _memory(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, 
             full_context.ask(runtime, task, _prompt_call(runtime.config.model_ref, "full_context"),
                              context_tokens=context, stop=stop, on_step=answered)
             return 0
-        adapter.ingest(runtime, task, stop=stop, on_step=trajectory.steps.append)
-        if spec.get("dream"):
-            trajectory.steps.append(adapter.dream(runtime, task))
+        if spec.get("memory_from"):
+            # The memory a build run made, copied into this attempt's folder before the worker started: no
+            # ingestion, so arms that differ only in the reader read the very same memory.
+            trajectory.steps.append(Step(kind="reused", name="memory", metrics={
+                "memory_from": spec["memory_from"], "memories_total": adapter.memory_count()}))
+        else:
+            adapter.ingest(runtime, task, stop=stop, on_step=trajectory.steps.append)
+            if spec.get("dream"):
+                trajectory.steps.append(adapter.dream(runtime, task))
+        if spec.get("stage") == "build":
+            return 0
         adapter.ask(runtime, task, template=spec.get("question_template") or adapter.QUESTION_TEMPLATE,
                     stop=stop, on_step=answered)
     except adapter.StopRequested as exc:

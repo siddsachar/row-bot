@@ -926,6 +926,44 @@ def test_each_attempt_at_a_task_gets_a_fresh_scratch_folder(tmp_path, monkeypatc
     assert json.loads((tmp_path / "specs" / "locomo_0_a-2.json").read_text(encoding="utf-8"))["run_dir"] == str(tmp_path)
 
 
+def test_arms_ask_on_a_copy_of_one_memory_build_and_never_on_a_memory_that_saw_questions(
+        tmp_path, monkeypatch) -> None:
+    from tests.e2e.bench import worker
+    from tests.e2e.bench.memory import adapter
+
+    build, ask = tmp_path / "build", tmp_path / "ask"
+    for attempt, text in ((1, "half"), (2, "built")):
+        (build / "data" / f"locomo_0_a-{attempt}").mkdir(parents=True)
+        (build / "data" / f"locomo_0_a-{attempt}" / "memory.db").write_text(text, encoding="utf-8")
+    finished = Trajectory(task_id="locomo_0_a", benchmark="locomo")
+    finished.status = "done"
+    append_jsonl(build / "trajectories.jsonl", finished)
+    (build / "run.json").write_text(json.dumps({"stage": "all"}), encoding="utf-8")
+    with pytest.raises(FileNotFoundError, match="seen questions"):
+        orchestrate.built_memory(build, "locomo_0_a")
+    (build / "run.json").write_text(json.dumps({"stage": "build"}), encoding="utf-8")
+    with pytest.raises(FileNotFoundError, match="no finished memory build"):
+        orchestrate.built_memory(build, "locomo_1_a")
+
+    started: list[str] = []
+    monkeypatch.setattr(orchestrate.subprocess, "run",
+                        lambda argv, *, env, **_kw: started.append(env["ROW_BOT_DATA_DIR"]) or SimpleNamespace(returncode=0))
+    for arm in ("a", "b"):
+        assert orchestrate.run_worker(ask / arm, {"task_id": "locomo_0_a", "memory_from": str(build)}) == 0
+    assert [(Path(folder) / "memory.db").read_text(encoding="utf-8") for folder in started] == ["built", "built"]
+
+    asked: list[str] = []
+    monkeypatch.setattr(adapter, "ingest", lambda *_a, **_kw: pytest.fail("a reused memory is not ingested again"))
+    monkeypatch.setattr(adapter, "memory_count", lambda: 7)
+    monkeypatch.setattr(adapter, "ask", lambda runtime, task, **_kw: asked.append(task.task_id))
+    task = MemoryTask(task_id="locomo_0_a", benchmark="locomo", sessions=[], questions=[], ask_at=datetime(2023, 1, 1))
+    trajectory = Trajectory(task_id=task.task_id, benchmark="locomo")
+    spec = {"task": task.to_dict(), "memory_from": str(build)}
+    assert worker._memory(spec, None, trajectory, ask / "a", lambda value: value) == 0
+    assert asked == ["locomo_0_a"]
+    assert (trajectory.steps[0].kind, trajectory.steps[0].metrics["memories_total"]) == ("reused", 7)
+
+
 # ── The call gate and turns ─────────────────────────────────────────────────
 
 
