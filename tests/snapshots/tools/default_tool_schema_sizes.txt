@@ -97,7 +97,7 @@ row_bot_verify_proposal: 459
 run_command: 642
 sandbox: 1204
 save_memory: 646
-search_conversations: 486
+search_conversations: 768
 search_memory: 506
 send_file: 885
 speak: 875
@@ -132,4 +132,4 @@ workspace_read_file: 620
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (134 tools): 87611
+TOTAL (134 tools): 87893

@@ -30,8 +30,16 @@ logger = logging.getLogger(__name__)
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
 
 class _SearchConversationsInput(BaseModel):
-    query: str = Field(description="Keywords; all must be in a message, or in it and the one next to it.")
-    max_results: int = Field(default=15, description="Most messages to return.")
+    query: str = Field(
+        description=(
+            "Keywords or phrase to search for in past conversations. "
+            "All words must appear in a message, or in a message and the one next to it, for it to match."
+        )
+    )
+    max_results: int = Field(
+        default=15,
+        description="Maximum number of matching messages to return (default 15).",
+    )
 
 
 class _ListConversationsInput(BaseModel):
@@ -326,8 +334,11 @@ class ConversationSearchTool(BaseTool):
                 func=_search_conversations,
                 name="search_conversations",
                 description=(
-                    "Search past conversations by keyword, when the person refers to something said before "
-                    "('What did I ask about taxes?')."
+                    "Search past conversations by keyword. Use when the user "
+                    "references something discussed previously, e.g. 'What did "
+                    "I ask about taxes?', 'When did we talk about Python?', "
+                    "'Find where I mentioned that recipe'. All keywords must "
+                    "appear in a message, or in a message and the one next to it."
                 ),
                 args_schema=_SearchConversationsInput,
             ),
