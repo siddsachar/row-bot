@@ -304,6 +304,21 @@ def test_the_report_says_what_practice_and_learnings_own_jobs_did_and_when_they_
             "main 12 of 12).") in report
 
 
+def test_a_seeded_persons_main_model_is_their_saved_default_so_learnings_night_work_uses_it(tmp_path,
+                                                                                           monkeypatch):
+    # Learning's change tests, practice and jobs find the main model as the person's saved default; the
+    # rehearsal of 15-17 Nov had it only in memory, so they ran in-process and practice kept no turns.
+    from row_bot.learning import routing
+    from tests.e2e.learning.seeded import live
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    assert routing.main_model_ref() == ""
+
+    live.use_main_model(tmp_path, "model:codex:gpt-6.1-sol")
+
+    assert routing.main_model_ref() == "model:codex:gpt-6.1-sol"
+
+
 def test_a_planned_crash_starts_the_person_again_and_a_full_cap_stops_cleanly(tmp_path, home):
     (tmp_path / "eval-profile").mkdir()
     fake = FakePerson(exits={"idris": [release_check.EXIT_PLANNED_CRASH, 0], "mara": [release_check.EXIT_TOKEN_CAP]},
