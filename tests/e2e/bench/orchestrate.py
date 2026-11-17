@@ -56,6 +56,7 @@ from .trajectory import read_jsonl
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENABLE_ENV = "ROW_BOT_BENCH"
 BOOKING_ENV = "ROW_BOT_BENCH_BOOKING_FILE"
+HELD_ENV = "ROW_BOT_BENCH_BOOKED"
 OUT_ENV = "ROW_BOT_BENCH_OUT"
 BENCHMARKS = (LOCOMO, LONGMEMEVAL_S, BEAM_1M, LONGMEMEVAL_V2)
 MEMORY, FULL_CONTEXT = "memory", "full-context"
@@ -191,8 +192,13 @@ def lane_problem(provider: str, caps: LedgerCaps, env: Mapping[str, str] | None 
 
 
 def booking_kind(provider: str) -> str | None:
+    """What a run on *provider* books, or None. ``ROW_BOT_BENCH_BOOKED=eval-profile`` says the caller holds the
+    eval profile's booking itself (one START and END around runs that share it, such as two arms side by side);
+    the card is always booked by the run."""
     billing = billing_for(provider)
-    return booking_module.EVAL_PROFILE if billing == PLAN else booking_module.GPU if billing == LOCAL else None
+    kind = booking_module.EVAL_PROFILE if billing == PLAN else booking_module.GPU if billing == LOCAL else None
+    held = os.environ.get(HELD_ENV, "").strip().lower()
+    return None if kind == booking_module.EVAL_PROFILE and held == booking_module.EVAL_PROFILE else kind
 
 
 # ── Running ────────────────────────────────────────────────────────────────
@@ -785,6 +791,10 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("protocol", help="load a judge protocol and print its SHA-256 and templates' keys")
     verify.add_argument("--benchmark", required=True, choices=BENCHMARKS)
     verify.add_argument("--protocol", required=True)
+    book = sub.add_parser("book", help=f"hold the eval profile for runs started with {HELD_ENV}=eval-profile")
+    book.add_argument("event", choices=("start", "end"))
+    book.add_argument("--what", required=True)
+    book.add_argument("--expect", default="")
     return parser
 
 
@@ -799,6 +809,15 @@ def main(argv: list[str] | None = None) -> int:
         return judge(args)
     if args.command == "report":
         print(render_report(write_report(Path(args.run_dir))))
+        return 0
+    if args.command == "book":
+        held = booking_module.BookingFile(Path(os.environ[BOOKING_ENV]))
+        if args.event == "end":
+            held.end(booking_module.EVAL_PROFILE, args.what)
+            return 0
+        if not held.wait_for(booking_module.EVAL_PROFILE, stop=lambda: False):
+            return 77
+        held.start(booking_module.EVAL_PROFILE, args.what, args.expect or "60 min")
         return 0
     protocol: JudgeProtocol = load_protocol(args.benchmark, args.protocol)
     print(json.dumps({**protocol.describe(), "templates": sorted(protocol.templates)}, indent=1))

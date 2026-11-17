@@ -926,6 +926,21 @@ def test_each_attempt_at_a_task_gets_a_fresh_scratch_folder(tmp_path, monkeypatc
     assert json.loads((tmp_path / "specs" / "locomo_0_a-2.json").read_text(encoding="utf-8"))["run_dir"] == str(tmp_path)
 
 
+def test_runs_side_by_side_share_one_eval_profile_booking_and_never_the_card(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "booking.txt"
+    monkeypatch.setenv(orchestrate.BOOKING_ENV, str(path))
+    monkeypatch.setenv(orchestrate.HELD_ENV, "eval-profile")
+    assert orchestrate.booking_kind("codex") is None
+    assert orchestrate.booking_kind("ollama") == booking.GPU
+    assert orchestrate.main(["book", "start", "--what", "A/B arms", "--expect", "90 min"]) == 0
+    assert [item.kind for item in booking.open_bookings(path.read_text(encoding="utf-8"))] == [booking.EVAL_PROFILE]
+    assert orchestrate.main(["book", "end", "--what", "A/B arms"]) == 0
+    assert booking.open_bookings(path.read_text(encoding="utf-8")) == []
+    assert b"\r" not in path.read_bytes()
+    monkeypatch.delenv(orchestrate.HELD_ENV)
+    assert orchestrate.booking_kind("codex") == booking.EVAL_PROFILE
+
+
 def test_arms_ask_on_a_copy_of_one_memory_build_and_never_on_a_memory_that_saw_questions(
         tmp_path, monkeypatch) -> None:
     from tests.e2e.bench import worker
