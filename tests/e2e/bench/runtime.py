@@ -18,6 +18,7 @@ environment :func:`child_env` builds, before anything from Row-Bot is imported.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import re
@@ -367,6 +368,23 @@ def pinned_tool_names(groups: tuple[str, ...]) -> frozenset[str]:
     return frozenset(name for name in names if name)
 
 
+def tool_text_hashes(groups: tuple[str, ...]) -> dict[str, str]:
+    """A short SHA-256 of each pinned tool's description and argument schema: which tool text a run's model read
+    (the A/B of a description shows here)."""
+    import hashlib
+
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+    from row_bot.tools import registry
+
+    found: dict[str, str] = {}
+    for group in groups:
+        tool = registry.get_tool(group)
+        for item in tool.as_langchain_tools() if tool is not None else []:
+            text = json.dumps(convert_to_openai_tool(item), sort_keys=True)
+            found[str(item.name)] = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    return dict(sorted(found.items()))
+
+
 def install_tool_fence(allowed: frozenset[str], withheld: set[str]) -> Callable[[], None]:
     """Keep every benchmark turn to the pinned tools (H5), with B1's deferral itself left on.
 
@@ -526,6 +544,7 @@ class BenchRuntime:
                 self.notes.append(f"catalog refresh failed: {type(exc).__name__}")
         models.adopt_saved_default(self.config.model_ref)
         self._pin_tools()
+        self.notes.append(f"tool text: {tool_text_hashes(self.config.tools)}")
         self._undo.append(install_tool_fence(pinned_tool_names(self.config.tools), self.withheld_tools))
         self._undo.append(install_call_gate(self.ledger))
         self._undo.append(install_recall_recorder(self.recall_log))
