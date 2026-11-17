@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from itertools import islice
@@ -205,6 +206,11 @@ def _derived(pack_id: str, revision: str, still: bytes) -> tuple[bytes, bytes]:
     return _DERIVED[key]
 
 
+def _shown_name(name: str) -> str:
+    """A look's name as the picker shows it: built-ins are named "Buddy Brew" and shown as "Brew"."""
+    return re.sub(r"^Buddy\s+", "", name, flags=re.IGNORECASE).strip() or name
+
+
 def list_buddy_packs(*, cursor: str | None = None, validate: Callable[[], None]) -> BuddyPackPage:
     validate()
     ids = set()
@@ -227,8 +233,8 @@ def list_buddy_packs(*, cursor: str | None = None, validate: Callable[[], None])
         catalog_bytes += len(json.dumps(asdict(packs[-1]), ensure_ascii=False).encode("utf-8"))
         if catalog_bytes > 8 * 1024 * 1024:
             raise BuddyClientError("buddy_pack_limit")
-    # By the name the person sees, not the folder's: a generated look sits with the others (W20).
-    packs.sort(key=lambda pack: (pack.name.casefold(), pack.id))
+    # By the name the person sees ("Brew", not "Buddy Brew" or the folder): a generated look sits with the others (W20).
+    packs.sort(key=lambda pack: (_shown_name(pack.name).casefold(), pack.id))
     revision = hashlib.sha256(json.dumps([asdict(pack) for pack in packs], sort_keys=True).encode()).hexdigest()
     offset = 0
     if cursor is not None:

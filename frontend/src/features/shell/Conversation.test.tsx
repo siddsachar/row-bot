@@ -49,6 +49,7 @@ const mock = vi.hoisted(() => ({
     status: 'ready',
     handshake: {
       instance_id: '',
+      may_act: true,
       models: [] as ModelChoice[],
       application_capabilities: [] as string[],
     },
@@ -227,6 +228,7 @@ beforeEach(() => {
   mock.state.search = null;
   mock.state.activity = [];
   mock.state.handshake.instance_id = crypto.randomUUID();
+  mock.state.handshake.may_act = true;
   mock.state.handshake.models = [];
   mock.state.handshake.application_capabilities = [];
   mock.platformDiscover.mockResolvedValue({
@@ -640,6 +642,59 @@ it('a message sent while Row-Bot waits on one question answers it in those words
     ),
   );
   expect(mock.drafts.get('conversation-a')?.text).toBe('');
+});
+
+it('a waiting question card reads as a question in the step line and the status, never an approval (R7)', async () => {
+  activeConversation();
+  mock.state.projection = {
+    ...mock.state.projection!,
+    generation: {
+      generation_id: 'run-a',
+      quiesced: true,
+      can_stop: true,
+      status: 'waiting_approval',
+      approval_id: 'approval-q',
+    },
+  } as unknown as Snapshot;
+  mock.state.activity = [
+    {
+      cursor: '4',
+      event: {
+        event_id: 'event-question',
+        type: 'approval.required',
+        conversation_id: 'conversation-a',
+        projection_revision: '4',
+        protocol_version: '1.0',
+        server_epoch: 'epoch',
+        source: 'runtime',
+        source_epoch: 'epoch',
+        source_stream_id: 'conversation-a',
+        source_sequence_start: '4',
+        source_sequence_end: '4',
+        payload: {
+          status: 'waiting_approval',
+          approval_id: 'approval-q',
+          questions: [
+            {
+              header: 'Drink',
+              question: 'Do you prefer tea or coffee?',
+              options: [{ label: 'Tea' }, { label: 'Coffee' }],
+            },
+          ],
+        },
+      },
+    },
+  ] as never[];
+  mock.approval.mockReturnValue(new Promise(() => undefined));
+  await act(async () => conversation());
+  const statuses = screen
+    .getAllByRole('status')
+    .map((element) => element.textContent ?? '');
+  expect(statuses).toContain('Waiting for your answer.');
+  expect(statuses.join(' ')).not.toMatch(/approval/i);
+  expect(screen.getByRole('group', { name: 'Activity' })).toHaveTextContent(
+    'Waiting for your answer',
+  );
 });
 
 function computerAsking() {
@@ -1867,6 +1922,75 @@ it('takes what was sent out of the composer as soon as Row-Bot has it, before th
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
 });
 
+it('sends a message Entered while the chat is still opening once it has opened, never dropping it (R2)', async () => {
+  idleConversation();
+  const opened = mock.state.workspace;
+  // Still opening: the chat's controls have not been read yet.
+  mock.state.workspace = null;
+  mock.state.loadingConversation = true;
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+  let view!: ReturnType<typeof conversation>;
+  await act(async () => {
+    view = conversation();
+  });
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  await act(async () => {
+    fireEvent.keyDown(box, { key: 'Enter' });
+  });
+  expect(mock.intent).not.toHaveBeenCalled();
+  mock.state.workspace = opened;
+  mock.state.loadingConversation = false;
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.objectContaining({ text: 'Original queued draft' }),
+    expect.any(String),
+    expect.any(String),
+    { onReceipt: expect.any(Function) },
+  );
+  // Opening again later never sends it a second time.
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+});
+
+it('drops a message Entered while the chat was opening if it is edited before it opens (R2)', async () => {
+  idleConversation();
+  const opened = mock.state.workspace;
+  mock.state.workspace = null;
+  mock.state.loadingConversation = true;
+  let view!: ReturnType<typeof conversation>;
+  await act(async () => {
+    view = conversation();
+  });
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  await act(async () => {
+    fireEvent.keyDown(box, { key: 'Enter' });
+  });
+  fireEvent.change(box, {
+    target: { value: 'Original queued draft, and more' },
+  });
+  mock.state.workspace = opened;
+  mock.state.loadingConversation = false;
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(box).toHaveValue('Original queued draft, and more');
+});
+
 it('sends the files again with Send again, not their names as text (B136)', async () => {
   idleConversation();
   mock.download.mockResolvedValue(new Blob(['notes'], { type: 'text/plain' }));
@@ -2687,6 +2811,73 @@ it('checks an absent New chat receipt without replay and requires explicit revie
   });
   expect(mock.intent).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument();
+});
+
+it('makes the chat after signing in when New chat was refused while signed out (RM2)', async () => {
+  const key = `row-bot.new-chat.${mock.state.handshake.instance_id}`;
+  mock.intent.mockRejectedValueOnce({ code: 'sign_in_required' });
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    "This window isn't signed in, so it can only look.",
+  );
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Check new chat' })).toBeNull();
+  // Signing in loads the page again in the same tab.
+  rendered.unmount();
+  mock.intent.mockImplementation(async (...args: unknown[]) => ({
+    command_id: args[4],
+    status: 'completed',
+    conversation_id: 'created-conversation',
+  }));
+  await act(async () => {
+    conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  });
+  expect(mock.receipt).not.toHaveBeenCalled();
+  expect(mock.navigate).toHaveBeenCalledWith(
+    '/conversations/created-conversation',
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps nothing to check from a window that can only look, even when its answer is lost (RM2)', async () => {
+  const key = `row-bot.new-chat.${mock.state.handshake.instance_id}`;
+  mock.state.handshake.may_act = false;
+  mock.intent.mockRejectedValueOnce(new TypeError('Fixture lost response'));
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  });
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Check new chat' })).toBeNull();
+  rendered.unmount();
+  mock.state.handshake.may_act = true;
+  mock.intent.mockImplementation(async (...args: unknown[]) => ({
+    command_id: args[4],
+    status: 'completed',
+    conversation_id: 'created-conversation',
+  }));
+  await act(async () => {
+    conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  });
+  expect(mock.receipt).not.toHaveBeenCalled();
+  expect(mock.navigate).toHaveBeenCalledWith(
+    '/conversations/created-conversation',
+  );
 });
 
 it('fails closed before queue dispatch if its recovery identity cannot be saved', async () => {

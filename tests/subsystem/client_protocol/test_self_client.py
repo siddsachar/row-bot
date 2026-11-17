@@ -90,7 +90,8 @@ def test_a_guide_page_reads_from_the_installed_guides(service, tmp_path, monkeyp
 def test_status_is_written_for_the_person_without_ids_or_paths(service, monkeypatch):
     """G6: /status showed the model's overview, with a line meant for the model and the task database's path.
     W3: the model by its name and why it can't run in plain words; Needs you counts what the sidebar counts
-    (the attention list and the approvals waiting), and Monitor's warnings follow on their own line."""
+    (the attention list, the approvals waiting and the chats waiting that no approval counts, such as a goal's
+    question), and Monitor's warnings follow on their own line."""
     from types import SimpleNamespace
 
     from row_bot import models
@@ -106,7 +107,7 @@ def test_status_is_written_for_the_person_without_ids_or_paths(service, monkeypa
     monkeypatch.setattr(client_monitor, "read_pending_approvals", lambda: {"items": [{}], "total": 1})
     monkeypatch.setattr(client_diagnosis, "read_system_health", lambda: {"checks": [
         {"id": "sign-in:codex", "name": "ChatGPT sign-in", "status": "warn",
-         "detail": "Row-Bot couldn't read your ChatGPT sign-in.", "fix": sign_in},
+         "detail": "ChatGPT isn't connected. Reconnect it to use its models.", "fix": sign_in},
         {"id": "model", "name": "Model", "status": "error", "detail": "counted under Needs you", "fix": None},
         {"id": "disk", "name": "Disk", "status": "ok", "detail": "Plenty free", "fix": None}]})
     unready = SimpleNamespace(ready=False, credential_status="missing", errors=["credentials missing"])
@@ -119,6 +120,14 @@ def test_status_is_written_for_the_person_without_ids_or_paths(service, monkeypa
     from row_bot import threads
 
     conversation = threads.create_thread("Status", seed_default_skills=False)
+    # A goal waiting for an answer counts in the sidebar, so it counts here too (W3).
+    heron = threads.create_thread("Blue heron notes", seed_default_skills=False)
+    monkeypatch.setattr(service, "_goals_waiting", lambda ids: {heron} & set(ids))
+    # A chat whose approval is the one waiting counts once, as that approval.
+    asking = threads.create_thread("Calendar invite", seed_default_skills=False)
+    monkeypatch.setattr(service, "_awaiting_approval", lambda ids: {asking} & set(ids))
+    monkeypatch.setattr(client_monitor, "read_pending_approvals",
+                        lambda: {"items": [{"conversation_id": asking}], "total": 1})
     with _client(service) as client:
         _, headers = bootstrap(client)
         response = client.post(f"/api/v1/conversations/{conversation}/composer/command", headers=headers,
@@ -130,15 +139,16 @@ def test_status_is_written_for_the_person_without_ids_or_paths(service, monkeypa
     assert text.startswith("**Row-Bot ") and "· up to date" in text
     assert "- **Model:** GPT-6.1 Sol, can't run: ChatGPT / Codex isn't connected" in text
     assert "- **Approvals in this chat:** Auto" in text  # A new conversation starts at Auto.
-    assert text.split("- **Needs you:** ", 1)[1].splitlines()[:3] == [
-        "2",
+    assert text.split("- **Needs you:** ", 1)[1].splitlines()[:4] == [
+        "3",
         "  - 1 approval is waiting",
+        "  - Blue heron notes · a goal is waiting for your answer",
         "  - Model needs attention · GPT-6.1 Sol can't run: ChatGPT / Codex isn't connected: "
         "[Choose a model](/settings/models#default-model)",
     ]
     assert text.split("- **Monitor:** ", 1)[1].splitlines() == [
         "1 warning",
-        "  - ChatGPT sign-in · Row-Bot couldn't read your ChatGPT sign-in: "
+        "  - ChatGPT sign-in · ChatGPT isn't connected. Reconnect it to use its models: "
         "[Reconnect ChatGPT](/settings/models?provider=codex)",
     ]
     for model_only in ("Canonical ref", "provider_id", "Task DB", "row_bot_status", "model:codex", "chat-ready"):

@@ -363,13 +363,14 @@ def test_claude_is_checked_once_it_was_used_here(monkeypatch, state, status, det
 
 
 def test_a_sign_in_problem_clears_once_the_sign_in_works_again(profile, monkeypatch):
-    """W18: "couldn't read your ChatGPT sign-in" stayed in For you after the person signed in again."""
+    """W18: "couldn't read your ChatGPT sign-in" stayed in For you after the person signed in again.
+    W3: an unreadable sign-in reads as the model check says it, "isn't connected", wherever it shows."""
     health = {"codex": "error"}
     _subscriptions(monkeypatch, health)
     monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_sign_ins,))
     client_diagnosis.run_local_checks()
     kept = _by_id(client_diagnosis.read_system_health())["sign-in:codex"]
-    assert (kept["status"], kept["detail"]) == ("warn", "Row-Bot couldn't read your ChatGPT sign-in. Open it to check.")
+    assert (kept["status"], kept["detail"]) == ("warn", "ChatGPT isn't connected. Reconnect it to use its models.")
 
     health["codex"] = "valid"  # Signed in again: the sign-in is saved, which asks for the sign-ins' check now.
     scheduler = FakeScheduler()

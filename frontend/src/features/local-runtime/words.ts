@@ -34,6 +34,13 @@ export function fitWords(fit: LocalModelOption['fit'], mac = false): string {
   }
 }
 
+/** What Repair checks again: a Mac's memory (it has no separate graphics card), else the card. */
+export function repairWords(mac = false): string {
+  return mac
+    ? 'Repair: check this Mac’s memory again'
+    : 'Repair: check this computer’s graphics card again';
+}
+
 /** The fact line under the title: "Qwen3.5 9B · fits your RTX 4070 (12 GB) · 7.3 GB download". */
 export function factLine(
   view: LocalModelRuntimeView,

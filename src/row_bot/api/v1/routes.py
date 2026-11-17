@@ -3333,7 +3333,9 @@ def create_router(
             # For the person: never the model's overview, its ids or paths (G6).
             from row_bot.application.client_self import person_status
 
-            title, text = "Status", await call(person_status, conversation_id)
+            # Needs you counts the sidebar's listed conversations too (W3).
+            listed = await call(service.list_conversations)
+            title, text = "Status", await call(person_status, conversation_id, listed["items"])
         elif body.command_id == "tools":
             from row_bot.tools.row_bot_status_tool import _row_bot_status
 

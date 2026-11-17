@@ -207,9 +207,11 @@ test('real host on this computer stays connected when the browser goes offline (
   let realEventRequests = 0;
   let acceptedSubscriptions = 0;
   let acknowledgements = 0;
+  let lastRead = Date.now();
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname === '/api/v1/events')
-      realEventRequests += 1;
+    const pathname = new URL(request.url()).pathname;
+    if (pathname === '/api/v1/events') realEventRequests += 1;
+    else if (pathname.startsWith('/api/')) lastRead = Date.now();
   });
   page.on('response', (response) => {
     if (response.status() !== 200) return;
@@ -241,6 +243,11 @@ test('real host on this computer stays connected when the browser goes offline (
   expect(await page.evaluate(() => '__ROW_BOT_FIXTURE__' in window)).toBe(
     false,
   );
+  // The page has opened: the reads after its first screen (Buddy's look,
+  // Proactive) have gone, so the outage below catches only what it makes.
+  await expect
+    .poll(() => Date.now() - lastRead, { timeout: 15_000, intervals: [100] })
+    .toBeGreaterThanOrEqual(1_000);
   // A read the page happens to make during the outage (the composer, the
   // queue) fails as any request would offline.
   testInfo.annotations.push({
