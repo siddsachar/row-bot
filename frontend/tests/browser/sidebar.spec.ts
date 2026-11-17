@@ -68,15 +68,24 @@ test('the sidebar leads with New chat, keeps Home in its header and Agents under
       expect(Math.abs(box.y - homeBox.y)).toBeLessThanOrEqual(1);
     }
   // Agents follow the conversations, Show all and the library link, still
-  // in the scrolling list above Buddy's footer.
+  // in the scrolling list above Buddy's footer. The agents and Buddy are
+  // read a moment after the first screen (960008ea4), so the list is
+  // scrolled once both show: scrolled before, a long list leaves the agents
+  // under the footer.
   const agents = nav.getByRole('region', { name: 'Agents', exact: true });
-  await agents.scrollIntoViewIfNeeded();
+  const buddy = nav.getByRole('complementary', {
+    name: 'Buddy companion',
+    exact: true,
+  });
+  const avatar = buddy.getByRole('button', { name: /^Open / });
+  await expect(avatar).toBeVisible();
   await expect(
     agents.getByRole('group', { name: 'Favourite agents', exact: true }),
   ).toBeVisible();
   await expect(
     agents.getByRole('button', { name: /^All agents \(\d+\)/ }),
   ).toBeVisible();
+  await agents.scrollIntoViewIfNeeded();
   const libraryBox = (await nav
     .getByRole('link', { name: 'Conversation library', exact: true })
     .boundingBox())!;
@@ -84,17 +93,11 @@ test('the sidebar leads with New chat, keeps Home in its header and Agents under
   expect(agentsBox.y).toBeGreaterThanOrEqual(
     libraryBox.y + libraryBox.height - 1,
   );
-  const buddy = nav.getByRole('complementary', {
-    name: 'Buddy companion',
-    exact: true,
-  });
   expect(agentsBox.y + agentsBox.height).toBeLessThanOrEqual(
     (await buddy.boundingBox())!.y + 1,
   );
   // Buddy: a large avatar with its status beside it, its name in the tooltip
   // and peek, Settings below.
-  const avatar = buddy.getByRole('button', { name: /^Open / });
-  await expect(avatar).toBeVisible();
   const avatarBox = (await avatar.boundingBox())!;
   expect(avatarBox.width).toBeGreaterThanOrEqual(112);
   const name = buddy.locator('.buddy-companion-name');
