@@ -16,11 +16,13 @@
 Row-Bot is a local-first desktop AI assistant for doing real work with models,
 memory and tools. You talk to it in conversations; it remembers what matters in
 a local knowledge graph, works in the files, code folders, designs, workflows
-and channels you give it, delegates to focused agents, and asks before anything
-risky. It runs local models through [Ollama](https://ollama.com/), provider API
-keys, ChatGPT, Claude or Grok subscriptions, or any OpenAI-compatible endpoint,
-and keeps your data on your machine. One React app serves the desktop window,
-browsers, phones and server mode.
+and channels you give it, delegates to focused agents, tells you at a good
+moment what needs you, and asks before anything risky. It thinks with your
+ChatGPT, Claude or Grok plan, a provider API key, OpenRouter's free models, or
+models on your own computer ([Ollama](https://ollama.com/), LM Studio, vLLM or
+llama.cpp, or one Row-Bot downloads for you), and keeps your data on your
+machine. One React app serves the desktop window, browsers, phones and server
+mode.
 
 <p align="center">
   <img src="docs-site/static/img/screenshots/real-ui/app-shell-overview.png" alt="Row-Bot on Home › Overview" width="900">
@@ -30,15 +32,26 @@ browsers, phones and server mode.
 
 - **Conversations that do the work** - ask for a deck, an app or a report and
   Row-Bot creates the design or code folder and keeps working in it; setup
-  cards turn on a missing tool or connect an app in place.
-- **Goals and agents** - goals that keep going until done and pause when they
-  stop making progress; delegated agents with their own conversations, Stop
-  and Message; reusable agent profiles.
+  cards turn on a missing tool or connect an app in place. Answers can hold
+  sortable tables, charts, checklists and reply buttons; edit and resend a
+  message, or fork a chat from any reply.
+- **Proactive Row-Bot** - notices what needs you (a reply you're waiting on, a
+  promise you made, a meeting in 10 minutes with a brief ready, a workflow
+  that failed) and tells you at a natural break, quiet by default and never
+  during quiet hours; an editable morning brief; `/watch` keeps an eye on a
+  command, a page or a question and speaks up only when it changes.
+- **Goals and agents** - goals that keep going until done, can name a check
+  that proves it, and pause when they stop making progress; delegated agents
+  with their own conversations, Stop and Message; reusable agent profiles.
 - **Approvals wherever you are** - risky actions wait for Approve or Deny in
-  the conversation, on Home, in the attention indicator, in Buddy or on a
-  connected channel.
-- **Memory and knowledge** - a personal knowledge graph with recall, review,
-  Dream Cycle refinement, documents, and an Obsidian-compatible wiki vault.
+  the conversation, on Home, in the attention indicator, in Buddy, on your
+  phone or on a connected channel; Always allow saves a rule for a routine
+  action, and the Activity log lists every action and who allowed it.
+- **Memory and knowledge** - a personal knowledge graph that brings up only
+  what your message is about and keeps facts current; import what ChatGPT,
+  Claude, Gemini and other assistants remember about you; Review memory
+  suggests what to keep, merge or remove, with undo; Dream Cycle refinement,
+  documents, and an Obsidian-compatible wiki vault.
 - **Design and code panels** - decks, documents and mockups with Present,
   Review, export (PDF, HTML, PNG, PPTX) and publish; code folders with
   changes, files, Git, pull requests, checks, an interactive terminal and an
@@ -49,28 +62,35 @@ browsers, phones and server mode.
   Stripe from one catalog in about a minute (sign in, paste a key, or run a
   program on this computer), choose what each may do, and switch apps per chat
   with + › Apps or an @mention; add skills from featured catalogs and use them
-  with their /name.
-- **Tools** - web search, files, shell, managed browser, opt-in Computer Use
-  on Windows and macOS, Gmail and Calendar, image and video generation, and
-  custom tools.
+  with their /name, show Row-Bot a task in its browser and it drafts a skill
+  from your steps, or save a job it just did as one.
+- **Tools** - web search, files, shell, Row-Bot's own browser, opt-in Computer
+  Use on Windows and macOS, Gmail, Calendar, Outlook and X, image and video
+  generation and editing, and custom tools.
 - **Channels and voice** - Telegram, WhatsApp, Discord, Slack and SMS;
   dictation, Talk and read-aloud with local Whisper or SenseVoice and Kokoro.
-- **Monitor with fixes** - health checks that run by themselves, with one
-  fix per problem, and Insights that suggest improvements.
+- **Help and health checks** - ask Row-Bot how to do something and it answers
+  from its own guides for your version, offline, with each setting linked;
+  Monitor runs health checks by itself, with one fix per problem, and
+  Insights suggest improvements.
 - **Devices and remote access** - connect a phone or another computer with a
-  QR code over Tailscale, your Wi-Fi or a public link; a living Buddy desktop
-  pet on Windows and macOS; backup and restore of your profile.
+  QR code over Tailscale, your Wi-Fi or a public link; on a phone, a tab bar,
+  sheets and opt-in notifications when Row-Bot waits for you; a living
+  Buddy desktop pet on Windows and macOS, from 20 built-in Buddies or one
+  painted from your description; backup and restore of your profile.
 
 ## Platforms
 
 | Platform | Package | Notes |
 |----------|---------|-------|
-| Windows 10/11, 64-bit | Installer, about 420 MB | Native window, tray, desktop Buddy, Computer Use. |
-| macOS 14 (Sonoma) or newer, Apple silicon | DMG, about 930 MB | Native window, tray, desktop Buddy, Computer Use. |
-| Linux x86_64 (glibc) | Tarball and one-line installer, about 790 MB | Opens in your browser; a native window and tray need GTK or Qt and AppIndicator. |
+| Windows 10/11, 64-bit | Installer, about 400 MB | Native window, tray, desktop Buddy, Computer Use. |
+| macOS 14 (Sonoma) or newer, Apple silicon | DMG, about 600 MB | Native window, tray, desktop Buddy, Computer Use. |
+| Linux x86_64 (glibc) | Tarball and one-line installer, about 760 MB | Opens in your browser; a native window and tray need GTK or Qt and AppIndicator. |
+| Your browser | Your own Row-Bot on Railway or another host | Nothing to install; keeps running while your devices are off. |
 | Docker, amd64 and arm64 | `ghcr.io/siddsachar/row-bot` | Authenticated single-owner server. |
 
-Ollama is optional, for local models only. System requirements are in the
+A local model server is optional, for local models only. System requirements
+are in the
 [installation guide](https://row-bot.ai/docs/getting-started/installation).
 
 ## Install
@@ -106,9 +126,17 @@ docker compose -f deploy/docker/compose.yaml exec row-bot \
 Read [Docker and VPS operations](https://row-bot.ai/docs/operations/docker)
 before exposing it beyond loopback.
 
-Want to run Row-Bot without installing anything?
-[Upvote it on PikaPods](https://feedback.pikapods.com/posts/1267/row-bot-open-source-ai-assistant-thats-always-on-workflows-memory-browser)
-to help get it listed there.
+### In your browser
+
+To run Row-Bot without installing anything, **Continue with Railway** at
+[row-bot.ai/railway](https://row-bot.ai/railway/) creates your own Row-Bot in
+your own Railway account in a few minutes and opens it signed in. Railway bills
+you directly, usually $5-10 a month. Any host that runs the container image
+works too; see
+[Row-Bot in your browser](https://row-bot.ai/docs/getting-started/in-your-browser).
+Rather have it on PikaPods?
+[Upvote it there](https://feedback.pikapods.com/posts/1267/row-bot-open-source-ai-assistant-thats-always-on-workflows-memory-browser)
+to help get it listed.
 
 ### Updates
 
@@ -165,14 +193,17 @@ Dependency changes go through `pyproject.toml` and `uv.lock`; never edit
 ## Quick start
 
 1. On first launch Row-Bot asks **How should Row-Bot think?**: on this
-   computer (Ollama), with your subscription (ChatGPT, Claude or Grok), with
-   an API key, or with a custom endpoint. Your pick becomes the default model,
-   a short test runs, and Home opens.
+   computer (a model server already running here, such as Ollama, LM Studio,
+   vLLM or llama.cpp, or a model Row-Bot downloads to fit your graphics card),
+   with your subscription (ChatGPT, Claude or Grok), with an API key or your
+   own endpoint, or **Try it free** with OpenRouter's free models. Your pick
+   becomes the default model, a short test runs, and Home opens.
 2. Start a conversation and ask for what you need, for example
    `Create a six-slide pitch deck for my startup`,
    `Review this repo and suggest the highest-risk issues`,
-   `Remember that my mom's birthday is March 15` or
-   `Remind me to call the dentist tomorrow at 9am`.
+   `Remember that my mom's birthday is March 15`,
+   `Remind me to call the dentist tomorrow at 9am` or
+   `/watch this page and tell me when the price drops`.
 3. Press **Ctrl+K** (**⌘K** on macOS) to find conversations, commands and
    settings by plain words, such as "connect telegram" or "dark mode".
 4. **Setup Center** (Continue setup on Overview, or search for it with
@@ -272,7 +303,10 @@ by default: once a day, a random ID, the Row-Bot version and the system,
 nothing else, so its maker can see how many installations are in use. Turn
 **Share install stats** off in one click in Settings › System › Privacy, or set
 `ROW_BOT_INSTALL_COUNT=0` on a server or in Docker. The opt-in Computer Use beta relies on Cua
-Driver, whose upstream telemetry is disclosed and must be accepted first; see
+Driver, whose upstream telemetry is disclosed and must be accepted first.
+Proactive Row-Bot watches for changes on your computer and sends short
+summaries only to your main model; phone notifications are off until you turn
+them on for a device and are end-to-end encrypted. See
 [privacy and safety](https://row-bot.ai/docs/privacy-safety).
 
 ## Contributing and security
