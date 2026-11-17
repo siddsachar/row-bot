@@ -252,6 +252,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'preferences',
     'appearance',
     'buddy',
+    'proactive',
     'models',
     'voice',
     'knowledge',
@@ -261,6 +262,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'skills',
     'apps',
     'system',
+    'activity',
     'access',
     'updates',
     'data',
@@ -1417,7 +1419,9 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     name: 'Buddy looks',
     exact: true,
   });
-  await expect(looks.locator('img[src^="blob:"]')).toHaveCount(6);
+  // Every built-in look shows its picture: twenty since fourteen joined the
+  // first six (ed7f34c48).
+  await expect(looks.locator('img[src^="blob:"]')).toHaveCount(20);
   await expect
     .poll(() =>
       looks
