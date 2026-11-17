@@ -63,7 +63,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.2.0
         with:
-          version: ">=0.7,<1.0"
+          version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
           python-version: ${{ steps.python.outputs.python-path }}
 
       - name: Install Linux runtime libraries
@@ -109,7 +109,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.2.0
         with:
-          version: ">=0.7,<1.0"
+          version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
           python-version: ${{ steps.python.outputs.python-path }}
 
       - name: Install Linux runtime libraries
@@ -188,7 +188,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.2.0
         with:
-          version: ">=0.7,<1.0"
+          version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
           python-version: ${{ steps.python.outputs.python-path }}
 
       - name: Install Linux runtime libraries
