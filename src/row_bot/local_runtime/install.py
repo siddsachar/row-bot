@@ -22,6 +22,7 @@ import stat
 import subprocess
 import tarfile
 import threading
+import time
 import zipfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -509,14 +510,33 @@ def remove(root: Path | None = None, *, model_id: str | None = None) -> int:
         model = models.get(model_id)
         if model is None:
             raise InstallError("unknown_model")
-        folder = model_dir(model, root)
-        freed = folder_bytes(folder)
-        shutil.rmtree(folder, ignore_errors=True)
-        return freed
-    freed = disk_bytes(root)
-    for folder in (runtime_dir(root), models_dir(root)):
-        shutil.rmtree(folder, ignore_errors=True)
-    return freed
+        return _delete(model_dir(model, root))
+    return sum(_delete(folder) for folder in (runtime_dir(root), models_dir(root)))
+
+
+# Windows can hold a just-stopped server's executable and DLLs for a moment after it exits.
+_DELETE_TRIES = 20
+_DELETE_WAIT_SECONDS = 0.25
+_pause = time.sleep
+
+
+def _delete(folder: Path) -> int:
+    """Delete ``folder``, trying again while files are still in use; returns the bytes actually freed."""
+
+    before = folder_bytes(folder)
+    for attempt in range(_DELETE_TRIES):
+        try:
+            shutil.rmtree(folder)
+            break
+        except FileNotFoundError:
+            break
+        except OSError:
+            if attempt == _DELETE_TRIES - 1:
+                logger.warning("Some local runtime files are still in use and weren't removed: %s", folder,
+                               exc_info=True)
+            else:
+                _pause(_DELETE_WAIT_SECONDS)
+    return max(0, before - folder_bytes(folder))
 
 
 __all__ = [
