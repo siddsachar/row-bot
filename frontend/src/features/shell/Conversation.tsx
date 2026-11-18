@@ -824,17 +824,27 @@ export default function Conversation({
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   // A helper this chat started waits on an approval: its card shows here
   // even when no notice reached the transcript, so no helper waits on an
-  // approval nobody can see (B348). Read once the first screen is up.
+  // approval nobody can see (B348). So does this chat's own agent work
+  // waiting in the background: no notice is written on its paused turn
+  // (R15). Read once the first screen is up.
   const approvalsFeed = usePendingApprovals(
     backgroundReady ? controller.pendingApprovals : undefined,
   );
   const helperApprovals = useMemo(
     () =>
-      (approvalsFeed.page?.items ?? []).filter(
-        (item) =>
-          item.parent_conversation_id === id &&
-          !rows.some((row) => row.approval_id === item.id),
-      ),
+      (approvalsFeed.page?.items ?? [])
+        .filter(
+          (item) =>
+            (item.parent_conversation_id === id ||
+              (item.source === 'agent' &&
+                !item.parent_conversation_id &&
+                item.conversation_id === id)) &&
+            !rows.some((row) => row.approval_id === item.id),
+        )
+        // A helper asks by its name; this chat's own work asks as Row-Bot.
+        .map((item) =>
+          item.parent_conversation_id ? item : { ...item, title: 'Row-Bot' },
+        ),
     [approvalsFeed.page, id, rows],
   );
   const lastAgentActivity =

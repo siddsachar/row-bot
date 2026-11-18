@@ -475,6 +475,58 @@ it('shows a helper’s approval in the chat that started it, with the helper’s
   view.unmount();
 });
 
+it('shows this chat’s own background agent approval in the chat, as Row-Bot (R15)', async () => {
+  activeConversation();
+  const waiting = {
+    id: 'approval-parent',
+    source: 'agent' as const,
+    title: 'NYC 311 benchmark',
+    what: 'Run shell command: python score.py',
+    requested_at: '2030-01-01T00:00:00Z',
+    expires_at: null,
+    conversation_id: 'conversation-a',
+    parent_conversation_id: null,
+    task_id: null,
+  };
+  mock.pendingApprovals.mockResolvedValue({
+    schema_version: 1,
+    items: [
+      waiting,
+      // Another chat's own agent work stays in that chat.
+      { ...waiting, id: 'elsewhere', conversation_id: 'other' },
+    ],
+    total: 2,
+  });
+  mock.approval.mockResolvedValue({
+    id: 'approval-parent',
+    status: 'pending',
+    revision: '0',
+    expires_at: '2030-01-01T00:00:00Z',
+    summary: 'Run shell command: python score.py.',
+    action_label: 'Run shell command',
+    reason: 'Score the forecasts against the test week.',
+    risk_class: 'medium',
+    scope: 'One command.',
+    safe_argument_summary: '{"command":"python score.py"}',
+    requesting_trace_id: 'call-p',
+    policy_revision: '1',
+    nonce: 'n'.repeat(32),
+  } satisfies ApprovalView);
+
+  const view = conversation();
+  const card = await screen.findByRole('group', {
+    name: 'Row-Bot needs your approval',
+  });
+  expect(
+    within(card).getByText('Row-Bot is waiting for your approval.'),
+  ).toBeVisible();
+  expect(
+    await within(card).findByText('Score the forecasts against the test week.'),
+  ).toBeVisible();
+  expect(screen.getAllByText(/is waiting for your approval/)).toHaveLength(1);
+  view.unmount();
+});
+
 it('anchors bounded approval context inline with canonical resolve controls', async () => {
   activeConversation();
   mock.state.projection = {
