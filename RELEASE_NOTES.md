@@ -196,11 +196,14 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   else gets a friendly answer, and nothing about you or the people you know.
 - **A chat database that stays small** - a workflow chat saved its whole history at
   every step, and threads.db could reach tens of gigabytes. Each chat now keeps its
-  newest saved states only. To give the space back once, quit Row-Bot and run
-  `row-bot --compact-chats`: the old file stays beside it as `threads.db.pre-compact`
-  until you delete it. It changes nothing while Row-Bot or a server still has the
-  data folder open. A start beside a long write no longer fails with "database is
-  locked".
+  newest saved states only, and the first start of 5.3.4 gives the space back by
+  itself: a chat database of 1 GB or more that's mostly unused space is made small
+  before Row-Bot opens it ("Making your chat history smaller (one time)…" in the
+  start-up window; about a minute for a 20 GB file), and the old file is removed once
+  the copy has passed its check. `row-bot --compact-chats` still does it by hand, with
+  Row-Bot quit, keeping the old file beside it as `threads.db.pre-compact`. Neither
+  changes anything while Row-Bot or a server still has the data folder open. A start
+  beside a long write no longer fails with "database is locked".
 - **Try it free sends nothing until you sign in** - choosing it only shows what
   happens. Signing in gives Row-Bot a key of your own, saved like a pasted one; then
   your messages go to OpenRouter and the free model's host, and some free hosts may
@@ -215,9 +218,11 @@ Everything here applies on a phone (below 768 px) or a touch screen; the desktop
   exists only in the Windows and macOS apps. Buddy's data folder is no longer served
   as static files under `/_buddy` (looks are read through the API), so nothing should
   link there.
-- `row-bot --compact-chats` gives a large `threads.db` back to the disk; run it with
-  the server stopped, on the data volume, with room for a copy of the live data. It's
-  optional: from 5.3.4 the file stops growing. While a server runs on the volume (in
+- A large, mostly unused `threads.db` (1 GB or more, at least half free pages) is
+  compacted once when the server starts, before it opens the file, if the volume has
+  room for twice the live data; the first start after the update can take a minute or
+  two longer. `row-bot --compact-chats` does the same by hand with the server stopped.
+  From 5.3.4 the file stops growing. While a server runs on the volume (in
   this container or another), it refuses and changes nothing: every server holds a new
   `data-folder.lock` there while it runs, and a server doesn't start while chats are
   being compacted. `--reset-db`, `--reset-tasks-db` and `--restore-data` refuse the

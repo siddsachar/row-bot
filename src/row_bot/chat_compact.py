@@ -16,15 +16,24 @@ process holds the file when it is moved (Windows won't move an open file).
 """
 from __future__ import annotations
 
+import logging
 import os
+import shutil
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 
 from row_bot.data_folder_lock import IN_USE_MESSAGE, FolderInUse, alone
 
+logger = logging.getLogger(__name__)
+
 KEPT = 3  # Saved states each chat keeps, as threads.CHECKPOINTS_KEPT.
 KEPT_SUFFIX = ".pre-compact"
+# At start, a file this large and at least this empty gives its space back by itself (S9): people who ran
+# workflows on 5.3.0-5.3.3 have the same file the owner had (22 GB, 96% free), and nobody runs a command for it.
+AT_START_MIN_BYTES = 1024 ** 3
+AT_START_MIN_FREE = 0.5
 
 
 def compact(database: Path) -> dict[str, int]:
@@ -41,6 +50,45 @@ def compact(database: Path) -> dict[str, int]:
         raise RuntimeError(f"There's no chat database at {database}.")
     with alone(database.parent, [database], message=IN_USE_MESSAGE):
         return _compact_alone(database, kept)
+
+
+def compact_at_start(database: Path, *, on_start: Callable[[], None] = lambda: None) -> dict[str, int] | None:
+    """Give a large, mostly empty chat database's space back once, before Row-Bot opens it (S9).
+
+    Only a file of at least ``AT_START_MIN_BYTES`` whose pages are at least ``AT_START_MIN_FREE`` unused, with
+    room on the disk for the copy. *on_start* runs just before the work starts (the start-up window says so).
+    The old file is removed once the copy has passed its check and taken its place. Returns the sizes, or None
+    when there was nothing to do or it couldn't be done now (logged; the next start tries again).
+    """
+    database = Path(database)
+    try:
+        if not database.is_file() or database.stat().st_size < AT_START_MIN_BYTES:
+            return None
+        with closing(sqlite3.connect(database, timeout=1)) as conn:
+            pages, free, page_size = (conn.execute(f"PRAGMA {name}").fetchone()[0]
+                                      for name in ("page_count", "freelist_count", "page_size"))
+    except (OSError, sqlite3.Error):
+        logger.info("The chat database's size couldn't be read at start", exc_info=True)
+        return None
+    if not pages or free / pages < AT_START_MIN_FREE:
+        return None
+    in_use = (pages - free) * page_size
+    if shutil.disk_usage(database.parent).free < in_use * 2 + 256 * 1024 * 1024:
+        logger.info("Not enough free disk to compact the chat database at start (%d bytes in use)", in_use)
+        return None
+    on_start()
+    try:
+        result = compact(database)
+    except (FolderInUse, RuntimeError, OSError, sqlite3.Error) as exc:
+        logger.info("The chat database wasn't compacted at start: %s", exc)
+        return None
+    try:
+        database.with_name(database.name + KEPT_SUFFIX).unlink()
+    except OSError:
+        logger.warning("The old chat database couldn't be removed after compacting", exc_info=True)
+    logger.info("Chat database compacted at start: %d -> %d bytes, %d old saved states removed",
+                result["before"], result["after"], result["checkpoints"])
+    return result
 
 
 def _compact_alone(database: Path, kept: Path) -> dict[str, int]:
