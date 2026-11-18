@@ -1523,7 +1523,10 @@ class _RowBotProcess:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 status = getattr(response, "status", 200)
                 return 200 <= status < 300
-        except (OSError, urllib.error.URLError, TimeoutError):
+        except (OSError, urllib.error.URLError, TimeoutError) as exc:
+            # Only the kind of failure and its status, never the request or its secret.
+            logger.info("%s shutdown request failed: %s %s", APP_DISPLAY_NAME, type(exc).__name__,
+                        getattr(exc, "code", "") or "")
             return False
 
     @staticmethod
@@ -1573,9 +1576,15 @@ class _RowBotProcess:
         server_tree = _process_tree(proc.pid)
         stopped_gracefully = False
         shutdown_started = time.monotonic()
+        # Outside Windows terminate() is SIGTERM, the server's own graceful stop: it first waits up to 5 s for
+        # open browser connections (uvicorn's timeout_graceful_shutdown), then cleans up. Killing it at 5 s cut
+        # that clean-up off whenever a browser tab was connected (RM6).
+        terminate_wait = 5.0
         try:
             if proc.poll() is None:
                 graceful = self._request_graceful_shutdown()
+                if not graceful and sys.platform != "win32":
+                    terminate_wait = _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT
                 if graceful:
                     try:
                         proc.wait(timeout=_GRACEFUL_SHUTDOWN_EXIT_TIMEOUT)
@@ -1600,7 +1609,7 @@ class _RowBotProcess:
                 self._terminate_process(
                     proc,
                     label=f"{APP_DISPLAY_NAME} server",
-                    timeout=5,
+                    timeout=terminate_wait,
                     kill_tree=True,
                 )
         finally:
