@@ -218,7 +218,7 @@ def _still_working(conversation_id: str, reply: str, model_ref: str) -> bool:
 
         model = with_usage_purpose(
             get_llm_for(resolve_provider_config(model_ref, allow_legacy_local=True).selection_ref),
-            "main", thread_id=conversation_id)
+            "verifier", thread_id=conversation_id)
         answer = model.invoke([SystemMessage(content=_STOP_CHECK), HumanMessage(content=f"The reply:\n{reply}")])
         return not str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper().startswith("NO")
     except Exception as exc:
