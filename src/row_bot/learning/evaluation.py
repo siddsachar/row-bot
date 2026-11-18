@@ -2359,8 +2359,7 @@ def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts:
              if allowed is None or task.verifier.kind in allowed]
     everything = [ReplayCase.from_content(item) for item in vault.replay_tasks(asked_by=who)]
     lower = None if since is None else float(since)
-    replay = [case for case in everything
-              if case.created_at <= float(as_of) and (lower is None or case.created_at > lower)]
+    replay = _in_window(everything, as_of, lower)
     total = (len(tasks) + len(replay)) * len(arms) * max(1, int(repeats))
     done = [0]
 
@@ -2423,6 +2422,22 @@ def freeze_check(arms: Sequence[Arm], *, as_of: float, asked_by: str, contrasts:
             "repeats": comparison.repeats, "seed": int(seed),
             "resamples": RESAMPLES, "permutations": PERMUTATIONS, "stopped": bool(comparison.stopped),
             "budget": budget.to_dict(), "problems": problems, **found}
+
+
+def _in_window(cases: Iterable[ReplayCase], as_of: float, since: float | None) -> list[ReplayCase]:
+    return [case for case in cases if case.created_at <= float(as_of) and (since is None or case.created_at > since)]
+
+
+def freeze_size(*, as_of: float, asked_by: str, store: Any | None = None, since: float | None = None) -> dict[str, int]:
+    """How many hidden real-work problems a :func:`freeze_check` with the same window would run, by split
+    (``real_uncorrected``, ``real_corrected``): counts only."""
+
+    vault = _vault(store)
+    who = f"{_caller()}: {asked_by}".strip(": ")
+    window = _in_window([ReplayCase.from_content(item) for item in vault.replay_tasks(asked_by=who)], as_of,
+                        None if since is None else float(since))
+    corrected = sum(1 for case in window if case.reference_source == "corrected")
+    return {"real_uncorrected": len(window) - corrected, "real_corrected": corrected}
 
 
 # ── Strategy trials (L4a, pre-registration §3.3, §6.1, §7): only aggregates leave ──

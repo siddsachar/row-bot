@@ -1536,3 +1536,166 @@ def test_the_exploratory_mode_needs_the_run_and_its_repository(profile, folders,
     with pytest.raises(SystemExit):
         report.main(["--freeze", "--as-of", "2030-01-01", "--output-repo", "ada/row-bot-personal-0123",
                      "--profile", str(profile), "--scratch", str(scratch), "--out", str(out)])
+
+
+# ── --h4: retention (§5 H4, §6.1.3, A13) ────────────────────────────────────
+
+H4_LESSON = "Answer from the current rota and say which one."
+
+
+def _at(day: int, hour: int = 12, month: int = 11) -> float:
+    from datetime import datetime
+
+    return datetime(2026, month, day, hour).timestamp()
+
+
+def _used(kind: str, title: str, text: str, used_at: float, *, undone_at: float | None = None) -> str:
+    """A change Learning drafted, tested and put into use at ``used_at`` (and undone at ``undone_at``)."""
+
+    from row_bot import evolution
+
+    payload = {"text": text, "kind_of_work": "document_lookups",
+               "learning": {"kind_of_work": "document_lookups", "state": "tested"}}
+    if kind == "behaviour":
+        payload["slot"] = "tool_guidance"
+    change = str(evolution.create_proposal(insight_ids=[], proposal_type=kind, title=title, rationale="found",
+                                           payload=payload, status="draft", dedupe=False)["id"])
+    values: dict[str, Any] = {"used_at": used_at, "used_by": "person"}
+    if undone_at is not None:
+        values.update({"state": "undone", "undone_at": undone_at})
+    evolution.update_learning(change, values, status="rejected" if undone_at is not None else "applied")
+    return change
+
+
+def _h4_world(monkeypatch, count: int = 40) -> None:
+    """``count`` hidden problems arriving every 5 hours from 3 Nov 00:00; the reference is "right"."""
+
+    found = []
+    for number in range(count):
+        question = f"Problem {number}: {CANARY}"
+        case = ReplayCase(f"dec_{number}", f"chat-{number}", f"chat-{number}", _at(3, 0) + number * 5 * 3600,
+                          "Document lookups", "exact", False, ({"type": "human", "data": {"content": question}},),
+                          None, "model:x:y", Action(text="right"), "captured", "exact_action", question)
+        found.append({"id": case.decision_id, "kind_of_work": "Document lookups", "thread_id": case.thread_id,
+                      "conversation_id": case.thread_id, "created_at": case.created_at, **case.to_content()})
+
+    class Vault:
+        def hidden_tasks(self, *, asked_by, packs=None):
+            return [task for task in visible_tasks() if task.pack == "document_lookups"][:4]
+
+        def replay_tasks(self, *, asked_by):
+            return found
+
+    monkeypatch.setattr(evaluation, "_vault", lambda _store=None: Vault())
+    # The vault already holds them: its refresh takes nothing new.
+    monkeypatch.setattr(evaluation, "refresh_audit", lambda **_options: {"considered": 0, "added": 0, "retired": 0,
+                                                                          "held": count})
+
+
+def _h4_hooks(seen: list[Any], bridge: Any) -> report.Hooks:
+    def respond(messages, _tools, _model):
+        # Right only when the first lesson's words are given.
+        return AIMessage(content="right" if any(H4_LESSON in str(item.content) for item in messages) else "wrong")
+
+    def runner(arms):
+        seen.append(arms)
+        return MainPacks()
+
+    return report.Hooks(runner=runner, client=ScriptedClient(respond, local=True), container=lambda: False,
+                        main_ref=lambda: "model:codex:gpt-5.6-sol", bridge=bridge, ask=_never_asked,
+                        installed=lambda: False)
+
+
+def _h4_report(hooks: report.Hooks, eval_dir: Path, **options: Any) -> dict[str, Any]:
+    from row_bot import learning
+
+    built = report.h4_report(learning.data_dir(), date(2026, 11, 12), hooks=hooks, eval_profile=eval_dir, **options)
+    built["run"] = {"on": "2026-11-19", "build": None, "build_clean": True, "script_sha256": "0" * 64,
+                    "code_sha256": "1" * 64, "code_files": 1, "copy": {"files": 1, "bytes": 1, "links_skipped": 0},
+                    "minutes": 1.0}
+    report.validate(built, report.H4_REPORT)
+    return built
+
+
+def test_h4_measures_each_change_in_use_by_the_freeze_without_and_with_it_on_work_from_a_week_after(
+        learning_on, tmp_path, monkeypatch):
+    _h4_world(monkeypatch)
+    eval_dir, bridge = _eval_profile(tmp_path, monkeypatch)
+    way = _used("behaviour", f"{CANARY} way", "Check the calendar before booking.", _at(28, 7, month=10) + 1800,
+                undone_at=_at(1))
+    first = _used("lesson", f"{CANARY} rota", H4_LESSON, _at(28, 12, month=10) + 1800)
+    _used("lesson", f"{CANARY} late", "Say which document you used.", _at(8))
+    _used("lesson", f"{CANARY} after", "Name the file.", _at(14))  # after the freeze: not one of H4's changes
+    seen: list[Any] = []
+
+    built = _h4_report(_h4_hooks(seen, bridge), eval_dir, cap_tokens=10**9)
+
+    assert CANARY not in report.render(built) and first not in report.render(built) and way not in report.render(built)
+    one, two, three = built["changes"]
+    # Oldest first. The way of working was undone before the freeze; it is still one of the accepted changes.
+    assert (one["kind"], one["accepted_on"], one["in_use_at_freeze"]) == ("way_of_working", "2026-10-28", False)
+    assert (two["kind"], two["in_use_at_freeze"], three["kind"]) == ("lesson", True, "lesson")
+    # Only the work that arrived 7 days or more after each went into use counts.
+    assert one["window"] == {"since": "2026-11-04", "real_uncorrected": 33, "real_corrected": 0}
+    assert two["window"]["real_uncorrected"] == 32 and three["window"]["real_uncorrected"] == 0
+    assert (one["state"], one["retained"], one["real_work"]["difference"]) == ("measured", False, 0.0)
+    assert (two["state"], two["retained"], two["real_work"]["difference"]) == ("measured", True, 1.0)
+    assert two["real_work"]["problems"] == 32 and two["packs_not_worse"] and one["packs_not_worse"]
+    assert (three["state"], three["real_work"], three["arms"]) == ("too_few_problems", None, None)
+    # Both arms carry the other changes in use at the freeze (not the undone one); only the change differs.
+    (way_without, way_with), (lesson_without, lesson_with) = seen
+    assert [title for title, _text in way_without.lessons] == [f"{CANARY} rota", f"{CANARY} late"]
+    assert way_without.ways == () and way_with.ways == (("tool_guidance", "Check the calendar before booking."),)
+    assert lesson_without.lessons == ((f"{CANARY} late", "Say which document you used."),) and not lesson_without.ways
+    assert lesson_with.lessons == (*lesson_without.lessons, (f"{CANARY} rota", H4_LESSON))
+    assert lesson_with.guidance == (H4_LESSON,) and not lesson_without.guidance
+    assert built["h4"] == {"state": "tested", "reason": None, "accepted": 3, "measured": 2, "retained": 1,
+                           "share": 0.5, "half_retained": True, "packs_not_worse": True, "met": True}
+    assert built["design"]["most_tokens"] == (33 + 4 + 32 + 4) * 2 * 3 * 150_000
+
+
+def test_h4_stops_before_spending_anything_on_a_kept_personal_model_version_or_a_cap_too_small(
+        learning_on, tmp_path, monkeypatch):
+    from row_bot.learning import use
+
+    _h4_world(monkeypatch)
+    eval_dir, bridge = _eval_profile(tmp_path, monkeypatch)
+    _used("lesson", "Rota", H4_LESSON, _at(28, 12, month=10) + 1800)
+    seen: list[Any] = []
+    hooks = _h4_hooks(seen, bridge)
+
+    with pytest.raises(report._ModeFailed, match="too small for H4"):
+        _h4_report(hooks, eval_dir, cap_tokens=(32 + 4) * 2 * 3 * 150_000 - 1)
+    use.start_trial(3, "document_lookups", "model:ollama:row-bot-personal-v3", clock=lambda: _at(5))
+    use.keep("document_lookups", clock=lambda: _at(9))
+    with pytest.raises(report._ModeFailed, match="doesn't measure versions"):
+        _h4_report(hooks, eval_dir, cap_tokens=10**9)
+    assert seen == [] and hooks.client.calls == []
+
+
+def test_h4_runs_from_the_cli_on_a_checked_copy_and_writes_only_aggregates(profile, folders, tmp_path, capsys,
+                                                                          monkeypatch):
+    scratch, out = folders
+    eval_dir, bridge = _eval_profile(tmp_path, monkeypatch)
+    _used("lesson", f"{CANARY} lesson", f"Always open {CANARY}.pdf first.", _at(1))
+    before = _hashes(profile)
+    ids = _ids(profile)
+
+    code = report.main(["--h4", "--as-of", "2030-01-01", "--eval-profile", str(eval_dir), "--cloud-cap", "1",
+                        "--profile", str(profile), "--scratch", str(scratch), "--out", str(out), "--yes"],
+                       hooks=_h4_hooks([], bridge))
+
+    printed = capsys.readouterr()
+    assert code == 0, printed.out
+    files = list(out.glob("paper-h4-asof-20300101-run-*.json"))
+    assert len(files) == 1
+    written = json.loads(files[0].read_text(encoding="utf-8"))
+    _assert_private(printed.out + printed.err + json.dumps(written), profile, scratch, ids)
+    report.validate(written, report.H4_REPORT)
+    assert [row["state"] for row in written["changes"]] == ["too_few_problems"]
+    assert (written["h4"]["state"], written["h4"]["reason"]) == ("not_tested", "too_few_problems")
+    assert _hashes(profile) == before
+    for argv in (["--h4", "--as-of", "2026-11-12"], ["--h4", "--eval-profile", str(eval_dir)],
+                 ["--h4", "--as-of", "2026-11-12", "--eval-profile", str(eval_dir), "--h2"]):
+        with pytest.raises(SystemExit):
+            report.main([*argv, "--profile", str(profile), "--scratch", str(scratch), "--out", str(out)])

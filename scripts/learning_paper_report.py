@@ -15,6 +15,8 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
         --eval-profile <eval profile> --combine-with <v1 freeze report> --judge-long-answers `
         --local-reference qwen3.8:27b --profile ... --scratch ... --out ...
     uv run python scripts/learning_paper_report.py --thinking --profile ... --scratch ... --out ...
+    uv run python scripts/learning_paper_report.py --h4 --as-of 2026-11-12 --eval-profile <eval profile> `
+        --cloud-cap <tokens> --profile ... --scratch ... --out ...
 
 - ``--health`` (any time between freezes, §10): counts and errors only, never a pass rate or a comparison.
 - ``--freeze --as-of <date>`` (§7): the pre-registered freeze evaluation on every hidden problem up to the
@@ -41,6 +43,16 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
   (``teacher_agreement`` with the main reference, ``right_tool``, and with ``--judge-long-answers``
   ``judged_long_answers``, its calibration in ``judged_long_answers``); with ``--local-reference <Ollama tag>``, one
   more reference arm (``local_large``) served as the personal arms are, the arms then run model by model.
+- ``--h4 --as-of <date>`` (§5 H4, §6.1.3, A13): retention, unadjusted and labelled. Each change Learning put into
+  use by the end of that day (a lesson, a way of working or a skill edit, oldest first) is measured as the
+  product tests a change: the main model with and without it, both carrying the other changes in use at the
+  freeze, on the hidden real work that arrived 7 days or more after it went into use and up to the freeze, and
+  on the packs. Only a change with at least 30 such problems is measured. It is retained when its difference is
+  above 0 and its interval's lower bound above -10 points; H4 holds when at least half of the measured changes
+  are retained and none is worse on the packs by more than 10 points (its interval's lower bound at -10 points
+  or below). A personal-model version
+  kept for a kind of work stops the run before anything is spent (H4 doesn't measure versions). Needs
+  ``--eval-profile`` and a ``--cloud-cap`` at least the most its runs could spend, which it checks first.
 
 Every mode:
 
@@ -103,6 +115,8 @@ V1_FREEZE = date(2026, 11, 2)
 #: model the amendment names is reported by name, any other as "other".
 LOCAL_ARM = "local_large"
 LOCAL_REFERENCE_MODELS = ("qwen3.8:27b",)
+#: H4 (§6.1.3): a change is measured on the hidden real work that arrived at least this long after it went into use.
+H4_WAIT_DAYS = 7
 #: How often the run on Hugging Face is read while the confirmatory evaluation and then the wait go on.
 POLL_SECONDS = 60.0
 #: The product code whose SHA-256 is printed before every run (with this script).
@@ -691,7 +705,35 @@ EXPLORATORY_REPORT = Obj({
                   optional=frozenset({"since"})),
     "exploratory_27b": EXPLORATORY_SECTION,
 })
-SCHEMAS = {"health": HEALTH, "freeze": FREEZE, "thinking": THINKING, "exploratory": EXPLORATORY_REPORT}
+# H4 (``--h4``, A13): retention, its own report; per change only its kind and day, never its words or id.
+H4_ARM = Obj({"tokens": COUNT, "cloud_tokens": COUNT, "seconds": HOURS, "ran": COUNT, "cached": COUNT,
+              "identical": Obj({"problems": COUNT, "identical": COUNT}), "splits": Map(SPLITS, ARM_SPLIT)})
+H4_CHANGE = Obj({
+    "change": COUNT, "kind": enum("lesson", "way_of_working", "skill"), "accepted_on": Text(pattern=DAY),
+    "in_use_at_freeze": BOOL,
+    # The hidden real work in its window: arrived from ``since`` (7 days after it went into use) up to the freeze.
+    "window": Obj({"since": Text(pattern=DAY), "real_uncorrected": COUNT, "real_corrected": COUNT}),
+    "state": enum("measured", "too_few_problems", "stopped"),
+    "real_work": Maybe(ANALYSIS), "real_corrected": Maybe(ANALYSIS), "packs": Maybe(ANALYSIS),
+    "retained": Maybe(BOOL), "packs_not_worse": Maybe(BOOL),
+    "arms": Maybe(Map(enum("without", "with"), H4_ARM)),
+})
+H4_REPORT = Obj({
+    "format": enum(FORMAT), "schema_version": Num(integer=True, low=SCHEMA_VERSION, high=SCHEMA_VERSION),
+    "mode": enum("h4"), "run": RUN,
+    "design": Obj({"as_of": Text(pattern=DAY), "wait_days": COUNT, "minimum": COUNT, "margin": SIGNED,
+                   "metric_version": COUNT, "repeats": COUNT, "seed": COUNT, "resamples": COUNT,
+                   "permutations": COUNT, "task_tokens": COUNT, "container": BOOL, "stopped": BOOL, "hours": HOURS,
+                   "cloud_tokens": COUNT, "cloud_cap": COUNT, "most_tokens": COUNT,
+                   "vault_refresh": Obj({"considered": COUNT, "added": COUNT, "retired": COUNT, "held": COUNT})}),
+    "changes": Seq(H4_CHANGE, 500),
+    "h4": Obj({"state": enum("tested", "not_tested"),
+               "reason": Maybe(enum("no_accepted_changes", "too_few_problems", "stopped")),
+               "accepted": COUNT, "measured": COUNT, "retained": COUNT, "share": Maybe(SHARE),
+               "half_retained": Maybe(BOOL), "packs_not_worse": Maybe(BOOL), "met": Maybe(BOOL)}),
+})
+SCHEMAS = {"health": HEALTH, "freeze": FREEZE, "thinking": THINKING, "exploratory": EXPLORATORY_REPORT,
+           "h4": H4_REPORT}
 
 
 # ── 4. Small helpers over the copy (it is the only data folder Row-Bot sees) ──
@@ -1915,12 +1957,7 @@ def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: 
     if "H3" in family and p_h3 is not None:
         h3["p_holm"] = adjusted["H3"]
         h3["met"] = adjusted["H3"] < ALPHA and (h3.get("low") or 0) > 0
-    arms = {}
-    for name, row in (result.get("arms") or {}).items():
-        arms[name] = {key: row[key] for key in ("tokens", "cloud_tokens", "seconds", "ran", "cached", "identical")}
-        arms[name]["splits"] = {split: {**part, "runs": _counts(Counter(part["runs"]).elements(), RUN_STATUS),
-                                        "causes": _counts(Counter(part["causes"]).elements(), CAUSES)}
-                                for split, part in row["splits"].items()}
+    arms = _arm_rows(result)
     contrasts = {name: {split: _split(part) for split, part in value.items()}
                  for name, value in (result.get("contrasts") or {}).items()}
     problems = result.get("problems") or {}
@@ -1973,6 +2010,18 @@ def assemble_freeze(result: Mapping[str, Any] | None, *, as_of: date, versions: 
         judged = dict(result["judged_long_answers"])
         built["judged_long_answers"] = {**judged, "runs": {name: dict(row) for name, row in judged["runs"].items()}}
     return built
+
+
+def _arm_rows(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Each arm's tokens, time and runs, and per split its counts, run statuses and causes (fixed words only)."""
+
+    arms = {}
+    for name, row in (result.get("arms") or {}).items():
+        arms[name] = {key: row[key] for key in ("tokens", "cloud_tokens", "seconds", "ran", "cached", "identical")}
+        arms[name]["splits"] = {split: {**part, "runs": _counts(Counter(part["runs"]).elements(), RUN_STATUS),
+                                        "causes": _counts(Counter(part["causes"]).elements(), CAUSES)}
+                                for split, part in row["splits"].items()}
+    return arms
 
 
 def h3_report_empty() -> dict[str, Any]:
@@ -2048,6 +2097,189 @@ def _split(part: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+# ── --h4: retention (§5 H4, §6.1.3, A13) ───────────────────────────────────
+
+H4_ASKED_BY = "the paper's H4 (retention)"
+
+
+def _moment(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def accepted_changes(cutoff: float) -> list[dict[str, Any]]:
+    """H4's accepted changes: every lesson, way of working and skill edit Learning put into use by ``cutoff`` (Use
+    this change, or automatic mode), oldest first, with its kind, when it went into use and whether it was still in
+    use then (not undone by then)."""
+
+    from row_bot.learning import changes
+
+    found = []
+    for proposal in changes.learning_changes():
+        meta = changes.block(proposal)
+        used, undone = _moment(meta.get("used_at")), _moment(meta.get("undone_at"))
+        if used is None or used > cutoff:
+            continue
+        found.append({"proposal": proposal, "kind": changes.change_kind(proposal), "used_at": used,
+                      "in_use": undone is None or undone > cutoff})
+    return sorted(found, key=lambda item: item["used_at"])
+
+
+def kept_versions(cutoff: float) -> int:
+    """How many personal-model versions the person kept for a kind of work by ``cutoff`` (Keep, ``use.json``)."""
+
+    from row_bot.learning import use
+
+    state = use.read()
+    kept = {int(item["version"]) for item in state.history
+            if item.get("event") == "kept" and _moment(item.get("version")) is not None
+            and (_moment(item.get("at")) or 0.0) <= cutoff}
+    kept |= {item.version for item in state.assignments.values()
+             if item.state == "in_use" and item.kept_at is not None and item.kept_at <= cutoff}
+    return len(kept)
+
+
+def _h4_arms(change: Mapping[str, Any], others: Sequence[Mapping[str, Any]], main: str) -> list[Any]:
+    """The product's own test of a change (``changes.Tester.arms``) as it stood at the freeze: the main model without
+    and with it, both carrying the other lessons and ways of working in use then (the real runtime's recall and
+    overlay); a replayed problem gets only the change's words, as guidance."""
+
+    from row_bot.learning import changes, evaluation
+
+    def text(item: Mapping[str, Any]) -> str:
+        return str((item["proposal"].get("payload") or {}).get("text") or "")
+
+    lessons = tuple((str(item["proposal"].get("title") or "Lesson"), text(item)) for item in others
+                    if item["kind"] == "lesson")
+    ways = tuple((str((item["proposal"].get("payload") or {}).get("slot") or "guidance"), text(item))
+                 for item in others if item["kind"] == "way_of_working")
+    proposal = change["proposal"]
+    words = changes.guidance_of(proposal)
+    with_lessons, with_ways = lessons, ways
+    if change["kind"] == "lesson":
+        with_lessons = (*lessons, (str(proposal.get("title") or "Lesson"), words))
+    elif change["kind"] == "way_of_working":
+        with_ways = (*ways, (str((proposal.get("payload") or {}).get("slot") or "guidance"), words))
+    else:  # a skill edit, as its instructions in the turn's overlay
+        with_ways = (*ways, ("guidance", words))
+    return [evaluation.Arm("without", model_ref=main, cache=True, lessons=lessons, ways=ways, sees_images=True),
+            evaluation.Arm("with", model_ref=main, guidance=(words,), lessons=with_lessons, ways=with_ways,
+                           sees_images=True)]
+
+
+def h4_report(copy: Path, as_of: date, *, hooks: Hooks, eval_profile: Path, cap_tokens: int = CLOUD_CAP,
+              repeats: int = 3) -> dict[str, Any]:
+    """``--h4``: retention, unadjusted and labelled (§7). Each accepted change with at least 30 hidden real-work
+    problems that arrived 7 days or more after it went into use (up to the freeze) is measured against the same
+    assistant without it, on those problems and on the packs, at the freeze's budget and repeats. Retained: a
+    difference above 0 and a lower bound above -10 points. H4 holds when at least half the measured changes are
+    retained and none is worse on the packs by more than 10 points (its lower bound at -10 points or below)."""
+
+    from row_bot.learning import evaluation
+    from row_bot.learning.packs import PACKS
+    from row_bot.learning.spending import TokenMeter
+    from row_bot.learning.store import LearningStore
+
+    started = time.monotonic()
+    cutoff = _end_of_day(as_of)
+    if kept_versions(cutoff):
+        raise _ModeFailed("a personal-model version was kept for a kind of work by the freeze, and H4 doesn't "
+                          "measure versions; nothing was run")
+    store = LearningStore(copy)
+    refreshed = evaluation.refresh_audit(store=store, asked_by=H4_ASKED_BY)
+    container = bool((hooks.container or _container)())
+    packs = [pack for pack in PACKS if container or pack != "small_coding"]
+    verifiers = None if container else ["answer", "json_answer", "file", "app_state"]
+    budget = evaluation.Budget(task_tokens=150_000)
+    wait = H4_WAIT_DAYS * 86_400
+    accepted = accepted_changes(cutoff)
+    windows = [evaluation.freeze_size(as_of=cutoff, since=item["used_at"] + wait, asked_by=H4_ASKED_BY, store=store)
+               for item in accepted]
+    chosen = {index for index, window in enumerate(windows) if window["real_uncorrected"] >= evaluation.MIN_PROBLEMS}
+    pack_tasks = (evaluation.audit_size(asked_by=H4_ASKED_BY, store=store, packs=packs, verifiers=verifiers,
+                                        include_replay=False) if chosen else 0)
+    # Every run of both arms at its whole budget: a cap below this could stop the run part way.
+    most = sum(windows[index]["real_uncorrected"] + windows[index]["real_corrected"] + pack_tasks
+               for index in chosen) * 2 * int(repeats) * budget.task_tokens
+    if most > int(cap_tokens):
+        raise _ModeFailed(f"--cloud-cap is too small for H4: its runs could spend up to {most:,} cloud tokens")
+    main = ""
+    if chosen:
+        from row_bot.learning import routing
+
+        main = (hooks.main_ref or routing.main_model_ref)()
+        if not main:
+            raise _ModeFailed("the profile has no main model")
+        _sign_in(eval_profile, hooks)
+    meter = TokenMeter(int(cap_tokens))
+    in_use = [item for item in accepted if item["in_use"]]
+    rows: list[dict[str, Any]] = []
+    stopped = False
+    for index, (item, window) in enumerate(zip(accepted, windows)):
+        row: dict[str, Any] = {
+            "change": index + 1, "kind": item["kind"], "accepted_on": _day(item["used_at"]),
+            "in_use_at_freeze": item["in_use"], "window": {"since": _day(item["used_at"] + wait), **window},
+            "state": "too_few_problems", "real_work": None, "real_corrected": None, "packs": None, "retained": None,
+            "packs_not_worse": None, "arms": None}
+        rows.append(row)
+        if index not in chosen:
+            continue
+        if stopped:
+            row["state"] = "stopped"
+            continue
+        say(f"Measuring change {index + 1} of {len(accepted)} ({item['kind']}) ...")
+        arms = _h4_arms(item, [other for other in in_use if other is not item], main)
+        with (contextlib.nullcontext(hooks.runner(arms)) if hooks.runner is not None
+              else _worker_runner(arms, copy)) as runner:
+            result = evaluation.freeze_check(
+                arms, as_of=cutoff, since=item["used_at"] + wait, asked_by=H4_ASKED_BY, contrasts=[("without", "with")],
+                client=hooks.client, budget=budget, meter=meter, store=store, runner=runner,
+                cache=evaluation.ArmCache(copy), packs=packs, verifiers=verifiers, repeats=repeats,
+                on_progress=_Progress(time.monotonic()))
+        stopped = bool(result.get("stopped"))
+        contrast = result["contrasts"]["with vs without"]
+        real, on_packs = contrast["real_uncorrected"]["primary"], contrast["packs"]["primary"]
+        row.update({"real_work": _summary(real), "real_corrected": _summary(contrast["real_corrected"]["primary"]),
+                    "packs": _summary(on_packs), "arms": _arm_rows(result)})
+        if stopped:
+            row["state"] = "stopped"
+        elif real["problems"] >= evaluation.MIN_PROBLEMS:  # counted pairs: a problem no arm could decide leaves
+            row["state"] = "measured"
+            row["retained"] = bool(real["difference"] is not None and real["difference"] > 0
+                                   and real["low"] is not None and real["low"] > -MARGIN)
+            row["packs_not_worse"] = (None if not on_packs["problems"] or on_packs["low"] is None
+                                      else on_packs["low"] > -MARGIN)
+    measured = [row for row in rows if row["state"] == "measured"]
+    retained = sum(1 for row in measured if row["retained"])
+    h4: dict[str, Any] = {"state": "not_tested", "accepted": len(accepted), "measured": len(measured),
+                          "retained": retained, "share": None, "half_retained": None, "packs_not_worse": None,
+                          "met": None}
+    if stopped:
+        h4["reason"] = "stopped"
+    elif not accepted:
+        h4["reason"] = "no_accepted_changes"
+    elif not measured:
+        h4["reason"] = "too_few_problems"
+    else:
+        packs_ok = [row["packs_not_worse"] for row in measured]
+        h4.update({"state": "tested", "reason": None, "share": round(retained / len(measured), 6),
+                   "half_retained": retained * 2 >= len(measured),
+                   "packs_not_worse": None if None in packs_ok else all(packs_ok)})
+        h4["met"] = None if h4["packs_not_worse"] is None else bool(h4["half_retained"] and h4["packs_not_worse"])
+    return {
+        "format": FORMAT, "schema_version": SCHEMA_VERSION, "mode": "h4",
+        "design": {"as_of": as_of.isoformat(), "wait_days": H4_WAIT_DAYS, "minimum": evaluation.MIN_PROBLEMS,
+                   "margin": -MARGIN, "metric_version": evaluation.METRIC_VERSION, "repeats": int(repeats),
+                   "seed": evaluation.ANALYSIS_SEED, "resamples": evaluation.RESAMPLES,
+                   "permutations": evaluation.PERMUTATIONS, "task_tokens": budget.task_tokens, "container": container,
+                   "stopped": stopped, "hours": round((time.monotonic() - started) / 3600, 3),
+                   "cloud_tokens": sum(arm["cloud_tokens"] for row in rows for arm in (row["arms"] or {}).values()),
+                   "cloud_cap": int(cap_tokens), "most_tokens": most,
+                   "vault_refresh": {key: int(refreshed.get(key, 0)) for key in ("considered", "added", "retired",
+                                                                                  "held")}},
+        "changes": rows, "h4": h4,
+    }
+
+
 # ── 7. --thinking: O97's recheck through the L2w ablation script ────────────
 
 
@@ -2121,8 +2353,8 @@ def render(report: Mapping[str, Any]) -> str:
 
 def output_name(report: Mapping[str, Any]) -> str:
     stamp = report["run"]["on"].replace("-", "")
-    if report["mode"] == "freeze":
-        return f"paper-freeze-asof-{report['design']['as_of'].replace('-', '')}-run-{stamp}.json"
+    if report["mode"] in ("freeze", "h4"):
+        return f"paper-{report['mode']}-asof-{report['design']['as_of'].replace('-', '')}-run-{stamp}.json"
     return f"paper-{report['mode']}-{stamp}.json"
 
 
@@ -2169,7 +2401,11 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     mode.add_argument("--exploratory-27b", action="store_true",
                       help="A10 alone, from a 27B run already finished on Hugging Face (--hugging-face-run, "
                            "--output-repo): downloaded, measured on the freeze's problems, then deleted there")
-    parser.add_argument("--as-of", help="--freeze: the freeze date, YYYY-MM-DD (problems up to the end of that day)")
+    mode.add_argument("--h4", action="store_true",
+                      help="H4 (retention, A13): the main model with and without each change in use by --as-of, on "
+                           "the real work that arrived 7 days or more after it, and on the packs (cloud tokens)")
+    parser.add_argument("--as-of", help="--freeze, --exploratory-27b, --h4: the freeze date, YYYY-MM-DD (problems up "
+                                        "to the end of that day)")
     parser.add_argument("--hugging-face-run", metavar="JOB_ID",
                         help="--exploratory-27b: the finished run's Hugging Face job id (from its page)")
     parser.add_argument("--output-repo", metavar="ACCOUNT/row-bot-personal-...",
@@ -2185,7 +2421,7 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                         help="--freeze: also the exploratory 27B on Hugging Face (A10; you sign in there and type "
                              "'upload' to agree to the upload first)")
     parser.add_argument("--eval-profile",
-                        help="--main-reference, --h2, --h3-final, --judge-long-answers: the eval profile whose "
+                        help="--main-reference, --h2, --h3-final, --judge-long-answers, --h4: the eval profile whose "
                              "ChatGPT sign-in the main model uses (never the profile's own)")
     parser.add_argument("--paper", choices=("v1", "v2"), default="v1",
                         help="--freeze: the paper version (its confirmatory family: v1 H1 and H2, v2 adds H3); v2 "
@@ -2208,21 +2444,23 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                              "at the same budget on the problems no trial used; cloud tokens)")
     parser.add_argument("--cloud-cap", type=int, default=CLOUD_CAP,
                         help="--freeze: most cloud tokens each cloud part may use (the main model's arms, H3's final "
-                             "set)")
+                             "set); --h4: most cloud tokens its runs may use")
     args = parser.parse_args(argv)
     cloud = args.main_reference or args.h2 or args.h3_final or args.judge_long_answers
-    if cloud and not args.eval_profile:
-        parser.error("--main-reference, --h2, --h3-final and --judge-long-answers need --eval-profile (the eval "
-                     "profile's ChatGPT sign-in, never yours)")
-    if args.eval_profile and not cloud:
-        parser.error("--eval-profile goes with --main-reference, --h2, --h3-final or --judge-long-answers")
-    if args.freeze or args.exploratory_27b:
+    if args.h4 and cloud:
+        parser.error("--h4 runs only H4's arms: leave out --main-reference, --h2, --h3-final and --judge-long-answers")
+    if (cloud or args.h4) and not args.eval_profile:
+        parser.error("--main-reference, --h2, --h3-final, --judge-long-answers and --h4 need --eval-profile (the "
+                     "eval profile's ChatGPT sign-in, never yours)")
+    if args.eval_profile and not (cloud or args.h4):
+        parser.error("--eval-profile goes with --main-reference, --h2, --h3-final, --judge-long-answers or --h4")
+    if args.freeze or args.exploratory_27b or args.h4:
         try:
             args.as_of_date = date.fromisoformat(str(args.as_of or ""))
         except ValueError:
-            parser.error("--freeze and --exploratory-27b need --as-of YYYY-MM-DD")
+            parser.error("--freeze, --exploratory-27b and --h4 need --as-of YYYY-MM-DD")
     elif args.as_of:
-        parser.error("--as-of goes with --freeze or --exploratory-27b")
+        parser.error("--as-of goes with --freeze, --exploratory-27b or --h4")
     if args.exploratory_27b:
         if not HF_JOB_ID.match(str(args.hugging_face_run or "")):
             parser.error("--exploratory-27b needs --hugging-face-run JOB_ID (the finished run's job id)")
@@ -2250,7 +2488,7 @@ def main(argv: Sequence[str] | None = None, *, hooks: Hooks | None = None) -> in
     args = parse(argv)
     hooks = hooks or Hooks()
     mode = ("health" if args.health else "freeze" if args.freeze else "exploratory" if args.exploratory_27b
-            else "thinking")
+            else "h4" if args.h4 else "thinking")
     profile, scratch, out = Path(args.profile).resolve(), Path(args.scratch).resolve(), Path(args.out).resolve()
     started = time.monotonic()
     say("Row-Bot Learning: the paper's report")
@@ -2376,6 +2614,10 @@ def _run_mode(mode: str, copy: Path, target: Path, args: argparse.Namespace, hoo
         return exploratory_report(copy, args.as_of_date, hooks=hooks, remote_id=str(args.hugging_face_run),
                                   output_repo=str(args.output_repo), paper=str(args.paper),
                                   cap_tokens=int(args.cloud_cap))
+    if mode == "h4":
+        say(f"Running H4 (retention) on the changes in use by {args.as_of_date.isoformat()} ...")
+        return h4_report(copy, args.as_of_date, hooks=hooks, eval_profile=Path(args.eval_profile).resolve(),
+                         cap_tokens=int(args.cloud_cap))
     window = (f"after {V1_FREEZE.isoformat()} (the v1 freeze) and up to {args.as_of_date.isoformat()}"
               if args.paper == "v2" else f"up to {args.as_of_date.isoformat()}")
     say(f"Running the freeze evaluation on every hidden problem {window} ...")
