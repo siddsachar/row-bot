@@ -1614,6 +1614,13 @@ class _RowBotProcess:
                     cleanup_owned_agents(dead_owner=server_tree)
                 except Exception:
                     logger.debug("Owned tunnel cleanup after a forced stop failed", exc_info=True)
+                # Its sandboxes too: each is a second Row-Bot it started, recorded with its process.
+                try:
+                    from row_bot import sandboxes
+
+                    sandboxes.end_left_overs()
+                except Exception:
+                    logger.debug("Sandbox cleanup after a forced stop failed", exc_info=True)
         logger.info(
             "%s stopped%s",
             APP_DISPLAY_NAME,
