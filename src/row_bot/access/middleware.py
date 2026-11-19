@@ -56,9 +56,9 @@ class _OAuthCallbackLogFilter(logging.Filter):
 
 _REJECTION_CACHE_MAX = 128
 _REJECTION_WINDOW_SECONDS = 30.0
-# How long one request reuses its session check (each opens the access store on the event loop). An open
-# event stream re-checks at most this often, so revocation ends it within about this (P9).
-_REVALIDATION_REUSE_SECONDS = 0.5
+# How long a request's session check may be reused where reuse is asked for (each check opens the access
+# store on the event loop): an open live stream re-checks this often, so revocation ends it within it (P9).
+_REVALIDATION_REUSE_SECONDS = 1.0
 
 
 class SupportsSessionAuthentication(Protocol):
@@ -370,14 +370,14 @@ class AccessMiddleware:
         # The last answer this request got, and when: admission's to start with (P9).
         checked: list = [time.monotonic(), context if context.authenticated else None]
 
-        async def revalidate_access(*, fresh: bool = False) -> AccessContext | None:
+        async def revalidate_access(*, reuse: bool = False) -> AccessContext | None:
             """Reuse current access policy for long-lived authenticated delivery.
 
-            A request's later checks (its route, its reply, an open stream's every tick) reuse an answer
-            younger than ``_REVALIDATION_REUSE_SECONDS`` instead of reading the access store each time, so
-            a signed-out device is cut off within that. ``fresh`` always reads it (before an effect).
+            Every check reads the access store, unless ``reuse``: a check that delivers nothing (a route's
+            first, an open live stream's every tick) takes this request's last answer while it is younger
+            than ``_REVALIDATION_REUSE_SECONDS``, so a signed-out device is cut off within that.
             """
-            if not fresh and checked[1] is not None and time.monotonic() - checked[0] < _REVALIDATION_REUSE_SECONDS:
+            if reuse and checked[1] is not None and time.monotonic() - checked[0] < _REVALIDATION_REUSE_SECONDS:
                 return checked[1]
             checked[1] = None  # Until this check says so, nothing earlier is reused.
             try:

@@ -415,6 +415,16 @@ def _fresh_builtin_ways():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_provider_catalog_reads():
+    # The Models catalog's rows are built once per change of the files and secrets they're read from;
+    # tests share a folder and fake those readers differently, so each one builds from them again.
+    forget = getattr(sys.modules.get("row_bot.providers.client_status"), "forget_saved_reads", None)
+    if callable(forget):
+        forget()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _package_attributes_follow_sys_modules():
     # Older tests evict row_bot modules from sys.modules by hand and never
     # re-import them, so the package keeps the evicted module as an attribute.
