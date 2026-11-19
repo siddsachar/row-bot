@@ -512,3 +512,20 @@ def test_failures_are_bucketed_by_what_the_grader_found_and_what_the_agent_did()
     assert not diagnose.progress_stop("Next I'll cancel it. Please confirm?")  # it asks: a hand-over, not a stop
     assert diagnose.unwrap('{"message": "Hello"}') == ("Hello", True)
     assert "| 4 | not communicated |" in diagnose.render(found, title="t")
+
+
+def test_a_bench_variant_changes_one_thing_in_the_worker_and_is_undone() -> None:
+    import row_bot.agent as agent
+    from tests.e2e.bench.agent_evals import variants
+
+    shipped = (agent.SILENT_ROUNDS, agent.PROGRESS_NOTE)
+    undo = variants.apply("no-progress-note")
+    assert agent.SILENT_ROUNDS > 10 ** 6 and agent.PROGRESS_NOTE == shipped[1]
+    undo()
+    undo = variants.apply("progress-note-with-call")
+    assert agent.PROGRESS_NOTE == variants.NOTE_WITH_CALL and agent.SILENT_ROUNDS == shipped[0]
+    undo()
+    assert (agent.SILENT_ROUNDS, agent.PROGRESS_NOTE) == shipped
+    variants.apply("")()
+    with pytest.raises(ValueError):
+        variants.apply("something-else")

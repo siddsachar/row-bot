@@ -88,6 +88,9 @@ def main(argv: list[str] | None = None) -> int:
 
         registry.register(bridge.external_tool_group(specs, router))
         runtime.setup()
+        from .variants import apply as apply_variant
+
+        runtime._undo.append(apply_variant(str(spec.get("variant") or "")))  # noqa: SLF001 - undone at close
         summary.config = {**config.to_dict(), "kind": "bridge", "caps": asdict(caps),
                           "network": runtime.policy.to_dict(), "setup_notes": runtime.notes,
                           **({"local_model": runtime.local_model} if runtime.local_model else {}),

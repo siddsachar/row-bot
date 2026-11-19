@@ -29,6 +29,7 @@ from ..ledger import API, LedgerCaps, billing_for, usage_book_path
 from ..runtime import BenchConfig, child_env
 from . import keys
 from .tau2 import scoring
+from .variants import VARIANTS
 
 TAU2_DIR_ENV = "ROW_BOT_BENCH_TAU2_DIR"
 LANE_ENV = "ROW_BOT_BENCH_LANE"
@@ -165,7 +166,8 @@ def run(args: argparse.Namespace) -> int:
                       "trials": args.trials, "seed": args.seed,
                       "user_model": args.user_model, "user_effort": args.user_effort,
                       "nl_judge": args.nl_judge or "", "git_commit": orchestrate._git_commit(),  # noqa: SLF001
-                      "label": "self-run", "matched": matched_label(args), "followups": args.followups}}
+                      "label": "self-run", "matched": matched_label(args), "followups": args.followups,
+                      "variant": args.variant or "as shipped"}}
     (run_dir / "run.json").write_text(json.dumps({**record["run"], "config": config.to_dict(), "caps": asdict(caps)},
                                                  indent=1), encoding="utf-8")
     argv = [str(tau2_python(root)), str(TAU2_SIDE), "run", "--domain", args.domain, "--split", args.split,
@@ -179,7 +181,7 @@ def run(args: argparse.Namespace) -> int:
     spec = {"task_id": f"tau2-{args.domain}-{args.split}", "benchmark": "tau2-bench", "config": asdict(config),
             "caps": asdict(caps), "usage_book": str(usage_book_path()), "external_tools": tool_schemas(root, args.domain),
             "runner": {"argv": argv, "cwd": str(root)}, "record": record, "keys": key_names,
-            "followups": args.followups}
+            "followups": args.followups, "variant": args.variant}
     kind = orchestrate.booking_kind(provider)
     what = f"tau2 {args.domain} {args.split} ({len(tasks)} tasks x {args.trials})"
     book = booking_module.BookingFile(Path(os.environ[orchestrate.BOOKING_ENV]), lane=lane()) if kind else None
@@ -284,6 +286,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--max-steps", type=int, default=200)
     run_parser.add_argument("--followups", default="none", choices=("none", "app"),
                             help="app: a reply that stops on its next step gets the app's one carry-on turn")
+    run_parser.add_argument("--variant", default="", choices=VARIANTS,
+                            help="a bench-only arm of a paired A/B (agent_evals.variants); '' is Row-Bot as shipped")
     run_parser.add_argument("--run-dir", default="")
     run_parser.add_argument("--published", default="", help="a published run's results.json (gzip or plain)")
     report = tau2_sub.add_parser("report")
