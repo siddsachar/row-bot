@@ -4115,6 +4115,39 @@ def p4_provider_credentials(x_fixture_token: str = Header(default="")) -> dict:
     return {"ready": True}
 
 
+_p4_catalog_before_refusal: list[bytes | None] = []
+
+
+@app.post("/__p4_fixture/provider-key-refused/{state}")
+def p4_provider_key_refused(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """on: OpenAI's saved synthetic key, refused (401) at its last model-list read, as a refresh records it.
+    off: the saved catalog as it was before."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import secret_store
+    from row_bot.providers import model_catalog_cache as cache
+    path = cache.CATALOG_CACHE_PATH
+    if not path.resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    if state == "off":
+        before = _p4_catalog_before_refusal.pop() if _p4_catalog_before_refusal else None
+        if before is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(before)
+        return {"ready": True}
+    if state != "on":
+        raise HTTPException(status_code=422, detail="Unknown synthetic state")
+    p4_provider_credentials(x_fixture_token)
+    _p4_catalog_before_refusal.append(path.read_bytes() if path.exists() else None)
+    refused = secret_store.fingerprint('synthetic-browser-old-credential')
+    cloud = {"model:openai:synthetic-chat": {"provider": "openai", "model_id": "synthetic-chat", "label": "Synthetic chat",
+             "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]}}}
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+        1, 1000.0, cloud, [], {"openai": {"status": "cached", "count": 1, "refused_key": refused}}, (), "synthetic-browser",
+    ))
+    return {"ready": True}
+
+
 @app.get("/__p4_fixture/document-upload/{batch_id}")
 def p4_document_upload_state(batch_id: str, x_fixture_token: str = Header(default="")) -> dict:
     predecessor._authorize(x_fixture_token)

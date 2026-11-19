@@ -225,7 +225,8 @@ def check_active_model() -> CheckResult:
 
 
 def check_sign_ins() -> list[CheckResult]:
-    """Subscription sign-ins (ChatGPT, Claude, Grok) that were set up and can't be used now (G24).
+    """Subscription sign-ins (ChatGPT, Claude, Grok) that were set up and can't be used now (G24), and
+    API keys a provider refused (T10).
 
     Local reads only, so it runs with the local checks: an expired sign-in shows in Needs you
     before a chat fails on it. Providers that are fine or never connected say nothing.
@@ -233,7 +234,7 @@ def check_sign_ins() -> list[CheckResult]:
     from row_bot.providers.status import sign_in_problems
 
     return [
-        CheckResult(f"{problem['name']} sign-in", problem["status"], problem["detail"], settings_tab="Models",
+        CheckResult(problem["title"], problem["status"], problem["detail"], settings_tab="Models",
                     metadata={"provider_id": problem["provider_id"]})
         for problem in sign_in_problems()
     ]

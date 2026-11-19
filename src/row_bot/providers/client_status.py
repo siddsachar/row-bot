@@ -178,6 +178,7 @@ class _Built:
     providers: tuple[ProviderStatusRow, ...]
     models: tuple[CachedModelRow, ...]
     catalog_empty: bool
+    refused_keys: dict[str, str]
 
 
 # What _read built, per readiness, with what it was built from (P10). The handshake and every Models read
@@ -237,6 +238,14 @@ def _built_for(include_readiness: bool) -> _Built:
         built = _build(include_readiness)
         _built[include_readiness] = (sources, time.monotonic(), built)
         return built
+
+
+def refused_keys() -> dict[str, str]:
+    """Providers whose last model-list read refused their key: provider id -> that key's fingerprint (T10).
+
+    A later read that the provider answers clears it, and a key saved since is not the refused one.
+    """
+    return dict(_built_for(False).refused_keys)
 
 
 def catalog_is_stale() -> bool:
@@ -325,7 +334,9 @@ def _build(include_readiness: bool) -> _Built:
     generated = saved.generated_at if math.isfinite(saved.generated_at) and saved.generated_at > 0 else None
     public = {"generated_at": generated, "providers": [asdict(row) for row in providers], "models": [asdict(row) for row in models]}
     revision = hashlib.sha256(json.dumps(public, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
-    return _Built(revision, generated, tuple(providers), models, saved.is_empty)
+    refused = {key: str(status["refused_key"]) for key, status in saved.provider_status.items()
+               if isinstance(status.get("refused_key"), str) and status["refused_key"]}
+    return _Built(revision, generated, tuple(providers), models, saved.is_empty, refused)
 
 
 def read_provider_snapshot(*, now: float | None = None) -> ProviderStatusSnapshot:

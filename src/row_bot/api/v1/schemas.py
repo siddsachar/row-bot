@@ -7275,6 +7275,8 @@ class ProviderLiveCard(WireModel):
     oauth_client_id_configured: bool
     external_reference_exists: bool
     reconnect_required: bool = False
+    # The provider refused the saved API key when its model list was last read.
+    key_refused: bool = False
     risk_label: str = Field(max_length=80)
     last_runtime_probe_ok: bool | None = None
     billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None
