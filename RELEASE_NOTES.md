@@ -19,7 +19,8 @@ rebuilt: it brings up only what you ask about, keeps facts current, imports what
 assistants know about you, and helps you tidy what it remembers. Long jobs carry on
 instead of stopping on "Next I'll…", and a chat database that grew to tens of
 gigabytes gives its space back. New to Row-Bot with no plan or key? Try it free with
-OpenRouter's free models. And a ChatGPT plan now makes pictures too. It arrives
+OpenRouter's free models. And a ChatGPT plan now makes pictures too. Row-Bot is also
+quicker, and pauses far less over a long day. It arrives
 through background updates.
 
 ### Proactive Row-Bot
@@ -140,7 +141,7 @@ through background updates.
   when the page opens (or on Check again), only at this computer's own address.
 - **One download, sized to your computer** - Download with Row-Bot fetches the
   official llama.cpp build for your graphics card (NVIDIA, Vulkan, Apple silicon or
-  CPU) and the Qwen model that fits it: Qwen3.8 27B at 4, 3 or 2 bits (a 10–17 GB
+  CPU) and the Qwen model that fits it: Qwen3.8 27B at 4, 3 or 2 bits (about a 10–18 GB
   download), or the smaller, older Qwen3.5 9B or 4B. A 12 GB card gets the 27B at 2
   bits and a 20 GB card at 4 bits; on a Mac the 27B is offered first from 24 GB of
   memory. **Choose another model** lists the others with fit badges.
@@ -344,7 +345,9 @@ unchanged.
   Notifications on this device in Settings › Devices & remote access. When an approval
   or a question waits, the notification says what it's about ("Approval needed" and
   the action, or "Row-Bot asked you a question" and the question), and a tap opens that
-  chat. On iPhone, add Row-Bot to the Home Screen first.
+  chat. On iPhone, add Row-Bot to the Home Screen first. The first time you open
+  Row-Bot on a phone, Home asks once whether to turn them on (Turn on or Not now); on
+  an iPhone it first explains how to add Row-Bot to the Home Screen.
 - **A proper home-screen icon** - the installed app's icon is no longer cropped on
   Android, a long-press on it offers New chat and Home, and the install prompt shows
   what Row-Bot looks like.
@@ -569,7 +572,30 @@ unchanged.
 - **One live line** - a step that's running no longer shows "Thinking…" beside it
   after the chat re-reads the turn.
 
+### Faster Over A Long Day
+
+- **Opening a chat never holds the others up** - checking whether a chat's model can
+  run no longer makes every other chat wait, so opening a chat on an Ollama model
+  that isn't running is quick and the rest of Row-Bot stays responsive.
+- **Fewer pauses** - Row-Bot no longer stalls for seconds at a time after running
+  for hours: the memory it sets up at start is no longer re-scanned by every clean-up,
+  and its log no longer gets a line for every background check.
+- **Long answers, light** - streaming a long answer in a long chat uses a fraction of
+  the CPU and memory it did, and Row-Bot keeps far less of each stream in memory.
+- **Quicker to open** - opening Row-Bot and Settings › Models reads the model list
+  again only when something changed, Home fetches Buddy's picture once instead of
+  three times, and a picture attached to a chat shows as a small preview, loading in
+  full only when you open it.
+
 ### Smaller Fixes
+
+- **Notifications in one place** - Settings › Preferences has a Notifications group:
+  **Desktop notifications** gets a switch for the first time (a notice and a sound
+  when a workflow finishes, a timer goes off or something needs you), and the group
+  links to phone notifications and to what Proactive brings up.
+- **A refused key says so** - when a provider refuses your API key, Settings › Models
+  says **Check key** instead of Connected, and Needs you lists it until the provider
+  takes a key again.
 
 - **The Mac app stays in Applications** - moving Row-Bot into Applications copies,
   checks and swaps it in before anything goes to the Trash, and an app that's already
