@@ -128,6 +128,7 @@ def _safe_console_print(message: object) -> None:
         builtins.print(text.encode(encoding, errors="replace").decode(encoding, errors="replace"))
 
 from row_bot.stability import (
+    freeze_start_up_heap,
     install_asyncio_exception_handler,
     mark_shutdown,
     setup_stability_monitoring,
@@ -1222,6 +1223,8 @@ async def _run_startup_sequence():
     _schedule_auto_start_channels(auto_start_channels)
     _app_boot_event("startup_sequence_complete")
     logger.info("%s startup complete", APP_DISPLAY_NAME)
+    # Full garbage collections stop every thread while they walk the heap: start-up's objects leave it (P2).
+    freeze_start_up_heap()
 
 
 # ── Webhook API Route ────────────────────────────────────────────────────────

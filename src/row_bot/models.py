@@ -212,6 +212,8 @@ class ProviderCatalogRefreshResult:
     preserved_count: int = 0
     source: str = ""
     message: str = ""
+    # The fingerprint of the key the provider refused (401/403) for its model list; "" when it took it.
+    refused_key: str = ""
 
     def status_payload(self) -> dict[str, object]:
         return {
@@ -221,7 +223,21 @@ class ProviderCatalogRefreshResult:
             "preserved_count": self.preserved_count,
             "source": self.source,
             "message": self.message,
+            **({"refused_key": self.refused_key} if self.refused_key else {}),
         }
+
+
+# The provider being refreshed answered its model-list request with 401 or 403: its key was refused (T10).
+_key_refused: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar("catalog_key_refused", default=None)
+
+
+def _raise_for_key_status(resp) -> None:
+    """``resp.raise_for_status()`` for a provider's model list, noting first a refused key."""
+    status_code = int(getattr(resp, "status_code", 0) or 0)
+    refused = _key_refused.get()
+    if status_code in (401, 403) and refused is not None:
+        refused.append(status_code)
+    resp.raise_for_status()
 
 
 def _provider_cloud_cache_entries(provider_id: str) -> dict[str, dict]:
@@ -2128,7 +2144,7 @@ def _fetch_ollama_cloud_models(api_key: str) -> int:
             headers={"Authorization": f"Bearer {clean_key}"} if clean_key else {},
             timeout=15,
         )
-        resp.raise_for_status()
+        _raise_for_key_status(resp)
         models = resp.json().get("models", [])
         if not isinstance(models, list):
             logger.warning("Ollama Cloud model fetch returned invalid models payload")
@@ -2254,7 +2270,7 @@ def _fetch_cloud_models(provider: str) -> int:
 
     try:
         resp = httpx.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
+        _raise_for_key_status(resp)
         data = resp.json().get("data", [])
     except Exception as exc:
         logger.warning("Failed to fetch %s models: %s", provider, exc)
@@ -2368,7 +2384,7 @@ def _fetch_anthropic_models(api_key: str) -> int:
                 f"{ANTHROPIC_BASE_URL}/models",
                 headers=headers, params=params, timeout=15,
             )
-            resp.raise_for_status()
+            _raise_for_key_status(resp)
             body = resp.json()
             models = body.get("data", [])
             if not isinstance(models, list):
@@ -2436,7 +2452,7 @@ def _fetch_google_models(api_key: str) -> int:
                 f"{GOOGLE_GENAI_BASE_URL}/models",
                 params=params, timeout=15,
             )
-            resp.raise_for_status()
+            _raise_for_key_status(resp)
             body = resp.json()
             models = body.get("models", [])
             if not isinstance(models, list):
@@ -2664,7 +2680,7 @@ def _fetch_xai_models(api_key: str) -> int:
             )
             if int(getattr(resp, "status_code", 0) or 0) == 404:
                 continue
-            resp.raise_for_status()
+            _raise_for_key_status(resp)
             body = resp.json()
             entries = body.get("data") or body.get("models")
             if isinstance(entries, list):
@@ -2756,7 +2772,7 @@ def _fetch_requesty_models(api_key: str) -> int:
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=15,
         )
-        resp.raise_for_status()
+        _raise_for_key_status(resp)
         raw_data = resp.json().get("data", [])
         if not isinstance(raw_data, list):
             logger.warning("Requesty model fetch returned malformed data payload")
@@ -2893,7 +2909,7 @@ def _fetch_preset_models(provider_id: str, api_key: str) -> int:
     preset = PRESETS[provider_id]
     try:
         resp = httpx.get(models_url(preset), headers={"Authorization": f"Bearer {api_key}"}, timeout=15)
-        resp.raise_for_status()
+        _raise_for_key_status(resp)
         payload = resp.json()
     except Exception as exc:
         logger.warning("Failed to fetch %s models: %s; keeping the saved list", preset.name, exc)
@@ -2968,7 +2984,7 @@ def _fetch_atlascloud_models(api_key: str) -> int:
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=15,
         )
-        resp.raise_for_status()
+        _raise_for_key_status(resp)
         raw_data = resp.json().get("data", [])
         if not isinstance(raw_data, list):
             logger.warning("Atlas Cloud model fetch returned malformed data payload")
@@ -3055,7 +3071,7 @@ def _fetch_minimax_models(api_key: str) -> int:
                 params=params,
                 timeout=15,
             )
-            resp.raise_for_status()
+            _raise_for_key_status(resp)
             body = resp.json()
             page = body.get("data")
             if not isinstance(page, list):
@@ -3181,7 +3197,7 @@ def _fetch_opencode_models(
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
         resp = httpx.get(opencode_models_url(provider_id), headers=headers, timeout=15)
-        resp.raise_for_status()
+        _raise_for_key_status(resp)
         payload = resp.json()
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, list):
@@ -3334,11 +3350,22 @@ def refresh_cloud_provider_models(provider_id: str) -> ProviderCatalogRefreshRes
     before_stamp = _provider_catalog_cache_stamp(provider)
     # What models.dev says fills gaps in lists that only name their models (at most hourly).
     capability_catalog.refresh()
+    refused: list[int] = []
+    refusals = _key_refused.set(refused)
     try:
         update_count = _fetch_cloud_models(provider)
     except Exception as exc:
         logger.warning("Failed to refresh %s model catalog: %s", provider, exc)
         update_count = 0
+    finally:
+        _key_refused.reset(refusals)
+    refused_key = ""
+    if refused:
+        from row_bot.providers.auth_store import provider_secret_status
+
+        # Which key: Settings says so only while that key is still the one saved (T10).
+        refused_key = str(provider_secret_status(provider, "api_key").get("fingerprint") or "")
+        logger.warning("%s refused its API key (HTTP %d) for its model list", provider, refused[-1])
     after_entries = _provider_cloud_cache_entries(provider)
     after_stamp = _provider_catalog_cache_stamp(provider)
 
@@ -3387,6 +3414,7 @@ def refresh_cloud_provider_models(provider_id: str) -> ProviderCatalogRefreshRes
         preserved_count=preserved_count,
         source=source,
         message=message,
+        refused_key=refused_key,
     )
 
 

@@ -10,6 +10,7 @@ import threading
 import time
 import re
 import uuid
+from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Iterator
 
@@ -5086,8 +5087,11 @@ class _AgentModelCall:
         return RunnableLambda(call, name="row_bot_model_call")
 
 
-# Cache compiled agent graphs keyed by frozenset of enabled tool names
-_agent_cache: dict[frozenset[str], object] = {}
+# Compiled agent graphs by their cache key (tools, model, context, approval mode, fingerprints...), the
+# most recently used last. Each holds its tools and their schemas, a few MB; every workflow configuration
+# and fingerprint change added one for good (P5), so only the newest few stay.
+AGENT_CACHE_SIZE = 8
+_agent_cache: OrderedDict[frozenset[str], object] = OrderedDict()
 _agent_cache_metadata: dict[frozenset[str], dict[str, Any]] = {}
 
 # Thread-local storage for misc flags; background flag uses ContextVar
@@ -5100,6 +5104,32 @@ _tlocal = _threading.local()
 # threads racing during warm-up share one compilation instead of
 # duplicating the work.
 _agent_cache_lock = _threading.Lock()
+# Guards the two dicts above together: a hit reorders them, a build may evict.
+_agent_cache_entries_lock = _threading.Lock()
+
+
+def _cached_agent(cache_key: frozenset[str]) -> tuple[object, dict[str, Any]] | None:
+    with _agent_cache_entries_lock:
+        agent = _agent_cache.get(cache_key)
+        if agent is None:
+            return None
+        _agent_cache.move_to_end(cache_key)
+        return agent, _agent_cache_metadata.get(cache_key, {})
+
+
+def _remember_agent(cache_key: frozenset[str], agent: object, metadata: dict[str, Any]) -> None:
+    with _agent_cache_entries_lock:
+        _agent_cache[cache_key] = agent
+        _agent_cache.move_to_end(cache_key)
+        _agent_cache_metadata[cache_key] = metadata
+        while len(_agent_cache) > AGENT_CACHE_SIZE:
+            evicted, _graph = _agent_cache.popitem(last=False)
+            _agent_cache_metadata.pop(evicted, None)
+
+
+def agent_graph_cache_size() -> int:
+    """How many compiled agent graphs are kept (the hourly perf line reports it)."""
+    return len(_agent_cache)
 
 # ContextVar for background workflow flag — MUST be ContextVar (not
 # threading.local) because LangGraph runs tools in executor threads
@@ -5917,8 +5947,9 @@ def _gate_changes(lc_tools: list, destructive_names: set[str], approval_mode: st
 
 def clear_agent_cache():
     """Clear the cached agent graphs so tools are rebuilt on next call."""
-    _agent_cache.clear()
-    _agent_cache_metadata.clear()
+    with _agent_cache_entries_lock:
+        _agent_cache.clear()
+        _agent_cache_metadata.clear()
     _TOOL_DISPLAY_NAMES.clear()
 
 
@@ -6260,7 +6291,10 @@ def _has_code_folder() -> bool:
 
 
 def _activate_agent_cache_metadata(cache_key: frozenset[str]) -> None:
-    metadata = _agent_cache_metadata.get(cache_key, {})
+    _activate_cached_metadata(_agent_cache_metadata.get(cache_key, {}))
+
+
+def _activate_cached_metadata(metadata: dict[str, Any]) -> None:
     _current_on_demand_tools_var.set(dict(metadata.get("on_demand_tools") or {}))
     deferred_tools.offer(metadata.get("deferred_tool_names") or ())
     _current_effective_tool_parent_names_var.set(tuple(metadata.get("tool_parents") or ()))
@@ -6835,11 +6869,13 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             f"tool_allow:{name}" for name in sorted(normalized_allowlist)
         )
 
-    if cache_key not in _agent_cache:
+    cached = _cached_agent(cache_key)
+    if cached is None:
         with _agent_cache_lock:
-            if cache_key in _agent_cache:
-                _activate_agent_cache_metadata(cache_key)
-                return _agent_cache[cache_key]
+            cached = _cached_agent(cache_key)
+            if cached is not None:
+                _activate_cached_metadata(cached[1])
+                return cached[0]
             # Collect LangChain tool wrappers for enabled tools.
             eager_core_tools = [entry["tool"] for entry in eager_core_entries]
             external_tools = [entry["tool"] for entry in external_entries]
@@ -7073,9 +7109,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 state_schema=RowBotAgentState,
                 version="v2",
             )
-            _agent_cache[cache_key] = agent
             bound_names = {str(getattr(tool, "name", "") or "") for tool in lc_tools}
-            _agent_cache_metadata[cache_key] = {
+            metadata = {
                 "on_demand_tools": {
                     str(getattr(entry["tool"], "name", "") or ""): (str(entry["parent"]), entry["tool"])
                     for entry in on_demand_entries
@@ -7092,9 +7127,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 ),
                 "skill_records": tuple(authorized_skill_records),
             }
+            _remember_agent(cache_key, agent, metadata)
+            cached = agent, metadata
 
-    _activate_agent_cache_metadata(cache_key)
-    return _agent_cache[cache_key]
+    _activate_cached_metadata(cached[1])
+    return cached[0]
 
 
 def _paused_at_a_question(state: Any) -> bool:

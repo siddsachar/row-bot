@@ -52,36 +52,42 @@ def compact(database: Path) -> dict[str, int]:
         return _compact_alone(database, kept)
 
 
-def compact_at_start(database: Path, *, on_start: Callable[[], None] = lambda: None) -> dict[str, int] | None:
+def compact_at_start(database: Path, *, on_start: Callable[[], None] = lambda: None) -> dict[str, int | str]:
     """Give a large, mostly empty chat database's space back once, before Row-Bot opens it (S9).
 
     Only a file of at least ``AT_START_MIN_BYTES`` whose pages are at least ``AT_START_MIN_FREE`` unused, with
     room on the disk for the copy. *on_start* runs just before the work starts (the start-up window says so).
-    The old file is removed once the copy has passed its check and taken its place. Returns the sizes, or None
-    when there was nothing to do or it couldn't be done now (logged; the next start tries again).
+    The old file is removed once the copy has passed its check and taken its place. Returns the sizes
+    ({"before", "after", "checkpoints"}), or {"skipped": why} when there was nothing to do or it couldn't be
+    done now (the next start tries again): no_database, small, unreadable, mostly_in_use, low_disk, in_use
+    or failed.
     """
     database = Path(database)
     try:
-        if not database.is_file() or database.stat().st_size < AT_START_MIN_BYTES:
-            return None
+        if not database.is_file():
+            return {"skipped": "no_database"}
+        if database.stat().st_size < AT_START_MIN_BYTES:
+            return {"skipped": "small"}
         with closing(sqlite3.connect(database, timeout=1)) as conn:
             pages, free, page_size = (conn.execute(f"PRAGMA {name}").fetchone()[0]
                                       for name in ("page_count", "freelist_count", "page_size"))
     except (OSError, sqlite3.Error):
         logger.info("The chat database's size couldn't be read at start", exc_info=True)
-        return None
+        return {"skipped": "unreadable"}
     if not pages or free / pages < AT_START_MIN_FREE:
-        return None
+        return {"skipped": "mostly_in_use"}
     in_use = (pages - free) * page_size
     if shutil.disk_usage(database.parent).free < in_use * 2 + 256 * 1024 * 1024:
         logger.info("Not enough free disk to compact the chat database at start (%d bytes in use)", in_use)
-        return None
+        return {"skipped": "low_disk"}
     on_start()
     try:
         result = compact(database)
-    except (FolderInUse, RuntimeError, OSError, sqlite3.Error) as exc:
+    except FolderInUse:
+        return {"skipped": "in_use"}
+    except (RuntimeError, OSError, sqlite3.Error) as exc:
         logger.info("The chat database wasn't compacted at start: %s", exc)
-        return None
+        return {"skipped": "failed"}
     try:
         database.with_name(database.name + KEPT_SUFFIX).unlink()
     except OSError:

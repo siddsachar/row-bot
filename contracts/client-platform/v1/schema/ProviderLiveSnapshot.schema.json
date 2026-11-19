@@ -131,6 +131,11 @@
           "title": "Icon",
           "type": "string"
         },
+        "key_refused": {
+          "default": false,
+          "title": "Key Refused",
+          "type": "boolean"
+        },
         "last_runtime_probe_ok": {
           "anyOf": [
             {
