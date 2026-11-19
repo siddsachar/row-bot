@@ -1871,10 +1871,18 @@ try:
             fh.write(f"ready pid={os.getpid()} time={time.time()}\n")
 except Exception:
     pass
-_start, _d = time.monotonic(), [0]
+STATUS = READY_MARKER[:-len("ready")] + "status" if READY_MARKER.endswith(".ready") else ""
+def _status():
+    try:
+        with open(STATUS, encoding="utf-8") as fh: return fh.read().strip()[:80]
+    except OSError: return ""
+_start, _d = [time.monotonic()], [0]
 def _check():
-    _d[0] = (_d[0] % 3) + 1; lbl.configure(text="Loading" + "." * _d[0])
-    if time.monotonic() - _start > TIMEOUT or port_ready(): root.destroy(); return
+    _d[0] = (_d[0] % 3) + 1
+    note = _status() if STATUS else ""
+    if note: _start[0] = time.monotonic()  # Work the launcher names (S9) keeps the window open.
+    lbl.configure(text=note or "Loading" + "." * _d[0])
+    if time.monotonic() - _start[0] > TIMEOUT or port_ready(): root.destroy(); return
     root.after(500, _check)
 root.after(500, _check); root.mainloop()
 """
@@ -3957,6 +3965,25 @@ def _size_words(size: int) -> str:
     return f"{max(1, round(size / 1024))} KB"
 
 
+def _compact_chats_at_start() -> None:
+    """A chat database left large by an older version gives its space back once, before the server opens it
+    (S9); the start-up window says what it's doing."""
+    from row_bot import chat_compact
+
+    status = _helper_artifact_path("splash", "status")
+
+    def say() -> None:
+        try:
+            status.write_text("Making your chat history smaller (one time)…", encoding="utf-8")
+        except OSError:
+            pass
+
+    try:
+        chat_compact.compact_at_start(get_threads_db_path(), on_start=say)
+    finally:
+        _delete_if_exists(status)
+
+
 def _compact_chats() -> int:
     """``--compact-chats``: threads.db made small again, the old file kept beside it (R13)."""
     import sqlite3
@@ -4353,6 +4380,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_restore_data(args.restore_data))
     if args.compact_chats:
         raise SystemExit(_compact_chats())
+    _compact_chats_at_start()
 
     # Until the app is up, a second start leaves opening the window to this one.
     _write_launcher_state(
