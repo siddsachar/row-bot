@@ -3456,7 +3456,12 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                         raise TimeoutError("Timed expiry observers were not prepared")
                 chunks = [f"Tick {index:04d}. " for index in range(5000)]
                 call["emitted_tokens"] = 0
-                for chunk in chunks:
+                for index, chunk in enumerate(chunks):
+                    # The projection keeps a run of one row's text as one journal entry, so the ticks alone
+                    # fit; a thinking step between every few ticks ends each run, and the 2,500 entries this
+                    # makes exhaust the retained history (1,024 entries per conversation).
+                    if index and index % 4 == 0:
+                        yield "thinking", None
                     yield "token", chunk
                     call["emitted_tokens"] += 1
                 partial = "".join(chunks)
