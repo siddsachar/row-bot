@@ -222,6 +222,10 @@ def test_the_persons_message_replaces_a_pending_carry_on(chat):
     "same brief sent as one message in each run. The replacement film isn't finished yet.",
     "That approval only blocked one run, not the retakes. I should have kept going. I've saved the fix.",
     "I've updated the studio plan beside the chat. The real-data video hasn't been rendered yet.",
+    # Stops from the τ²-bench traces (19 Nov): the reply ends announcing work, and no tool call follows.
+    "Your reservation has travel insurance. I'm checking the flight statuses before determining the next steps.",
+    "I found four more reservations; I've checked two and will review the remaining two before totaling them.",
+    "One booking is basic economy. I still need to verify the flight statuses before deciding what can change.",
 ])
 def test_a_reply_that_stops_mid_work_in_other_words_carries_on_when_the_model_agrees(chat, stop_check, reply):
     """S1 (18 Nov): the owner's real stops, which the narrower rule never caught; the chat's own model is asked
