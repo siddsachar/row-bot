@@ -7,6 +7,7 @@ import json
 import threading
 import uuid
 import logging
+from array import array
 from collections.abc import Callable
 from collections import deque
 from dataclasses import dataclass, field
@@ -20,6 +21,9 @@ _LISTED_CHANGES = {
     "generation.state": ("conversations",),
     "approval.required": ("conversations", "approvals"),
 }
+
+# A streamed delta's payload, exactly: only these deltas share one journal entry with the row's deltas before them.
+_DELTA_KEYS = frozenset({"pass_id", "segment_id", "row_id", "render_revision", "public_text_delta"})
 
 
 def public_message(message: Any) -> dict | None:
@@ -91,17 +95,21 @@ class _Conversation:
     # Live rows dropped to stay within the content bound while their turn still runs: reads recreate these
     # from their live text (``ClientPlatformService.snapshot``), and only these.
     evicted_live: set[str] = field(default_factory=set)
+    # The journal: (event, bytes, journal sequence, cuts). A run of one live row's streamed deltas shares one
+    # entry: its event is the first delta, carrying the run's whole text, and *cuts* says where each delta's text
+    # ends (delta k has revision first + k). Replay gives each delta back as its own event, exactly as published.
     events: deque = field(default_factory=deque)
     event_bytes: int = 0
+    # The JSON size of rows and live rows together (``_content_size``), kept as rows change.
     content_bytes: int = 0
 
 
 class ConversationProjection:
-    MAX_EVENTS = 4096
-    MAX_HISTORY_BYTES = 4 * 1024 * 1024
+    MAX_EVENTS = 1024
+    MAX_HISTORY_BYTES = 1024 * 1024
     MAX_EVENT_BYTES = 64 * 1024
     MAX_CONTENT_BYTES = 2 * 1024 * 1024
-    MAX_GLOBAL_HISTORY_BYTES = 64 * 1024 * 1024
+    MAX_GLOBAL_HISTORY_BYTES = 16 * 1024 * 1024
     MAX_GLOBAL_CONTENT_BYTES = 64 * 1024 * 1024
 
     def __init__(self, server_epoch: str) -> None:
@@ -110,12 +118,65 @@ class ConversationProjection:
         self._states: dict[str, _Conversation] = {}
         self._listeners: dict[str, dict[str, Callable[[str, str], None]]] = {}
         self._pending_notifications: list[tuple[str, str]] = []
+        # A streamed delta's event id follows from its conversation and revision, so a run of deltas
+        # kept in one journal entry replays with the ids it was published with.
+        self._delta_ids = uuid.uuid4()
 
     @staticmethod
     def _content_size(rows: list[dict], live_rows: dict[str, dict]) -> int:
         if not rows and not live_rows:
             return 0
         return len(json.dumps([*rows, *live_rows.values()], ensure_ascii=False).encode("utf-8"))
+
+    @staticmethod
+    def _row_bytes(row: dict) -> int:
+        """One row's share of ``_content_size``: its JSON and the separator after it."""
+        return len(json.dumps(row, ensure_ascii=False).encode("utf-8")) + 2
+
+    def _delta_id(self, conversation_id: str, revision: str) -> str:
+        return str(uuid.uuid5(self._delta_ids, f"{conversation_id}:{revision}"))
+
+    def _coalesce_locked(self, state: _Conversation, event: dict) -> bool:
+        """Add a streamed delta to the journal entry of the same row's delta just before it."""
+        if not state.events:
+            return False
+        last, size, sequence, cuts = state.events[-1]
+        payload, previous = event["payload"], last["payload"]
+        if cuts is None or any(payload[key] != previous[key] for key in ("pass_id", "segment_id", "row_id")):
+            return False
+        if int(last["projection_revision"]) + len(cuts) != int(event["projection_revision"]):
+            return False
+        text = payload["public_text_delta"]
+        added = len(json.dumps(text, ensure_ascii=False).encode("utf-8")) - 2 + cuts.itemsize
+        if size + added > self.MAX_EVENT_BYTES:
+            return False
+        previous["public_text_delta"] += text
+        cuts.append(len(previous["public_text_delta"]))
+        state.events[-1] = (last, size + added, sequence, cuts)
+        state.event_bytes += added
+        return True
+
+    def _replay(self, entry: tuple, after: int) -> list[dict]:
+        """A journal entry's events after revision *after*, each a copy, as it was published."""
+        event, _, _, cuts = entry
+        if cuts is None:
+            return [copy.deepcopy(event)] if int(event["projection_revision"]) > after else []
+        first, text = int(event["projection_revision"]), event["payload"]["public_text_delta"]
+        events = []
+        for index in range(max(0, after + 1 - first), len(cuts)):
+            revision = str(first + index)
+            events.append({**event, "event_id": self._delta_id(event["conversation_id"], revision),
+                           "projection_revision": revision,
+                           "source_sequence_start": revision, "source_sequence_end": revision,
+                           "payload": {**event["payload"], "render_revision": revision,
+                                       "public_text_delta": text[cuts[index - 1] if index else 0:cuts[index]]}})
+        return events
+
+    def revision(self, conversation_id: str) -> int:
+        """The conversation's projection revision, without copying its rows."""
+        with self._lock:
+            state = self._states.get(conversation_id)
+            return state.revision if state is not None else 0
 
     def _trim_global(self, current_id: str) -> None:
         history_size = sum(state.event_bytes for state in self._states.values())
@@ -124,7 +185,7 @@ class ConversationProjection:
             if not candidates:
                 break
             oldest = min(candidates, key=lambda state: state.events[0][2])
-            _, size, _ = oldest.events.popleft()
+            size = oldest.events.popleft()[1]
             oldest.event_bytes -= size
             history_size -= size
         content_size = sum(state.content_bytes for state in self._states.values())
@@ -200,15 +261,21 @@ class ConversationProjection:
             state = self._states.setdefault(conversation_id, _Conversation())
             next_live = state.live_rows
             next_rows = state.rows
+            next_size = state.content_bytes
             if event_type == "transcript.delta":
                 row_id = str(payload["row_id"])
-                next_live = copy.deepcopy(state.live_rows)
-                live = next_live.setdefault(row_id, {"id": row_id, "role": "assistant", "blocks": [{"type": "text", "text": ""}]})
+                # Only the edited row is copied (a failed publication changes nothing), and only its size is
+                # counted again: a token never serialises the whole transcript.
+                previous = state.live_rows.get(row_id)
+                previous_size = self._row_bytes(previous) if previous is not None else 0
+                live = copy.deepcopy(previous) if previous is not None else {
+                    "id": row_id, "role": "assistant", "blocks": [{"type": "text", "text": ""}]}
                 if live.get("content_status") != "lazy":
                     current = live["blocks"][0]["text"]
                     live["blocks"][0]["text"] = current + str(payload["public_text_delta"])
                 live["render_revision"] = str(state.revision + 1)
-                next_size = self._content_size(state.rows, next_live)
+                next_live = {**state.live_rows, row_id: live}
+                next_size = state.content_bytes - previous_size + self._row_bytes(live)
                 active_size = sum(s.content_bytes for key, s in self._states.items()
                                   if key != conversation_id and (s.live_rows or (s.generation and not s.generation.get("quiesced"))))
                 budget = min(self.MAX_CONTENT_BYTES, max(2, self.MAX_GLOBAL_CONTENT_BYTES - active_size))
@@ -218,35 +285,44 @@ class ConversationProjection:
                     next_rows = list(state.rows)
                     while next_rows and self._content_size(next_rows, next_live) > budget:
                         next_rows.pop(0)
+                    next_size = self._content_size(next_rows, next_live)
                 elif _row_text(live) in self._saved_answers_locked(state):
                     # The answer was read in before it streamed: its live row would be a twin from the
                     # start, and a client applying the delta would show it twice until it re-read. It is
                     # retired instead, and the settle sends clients to re-read.
                     next_live.pop(row_id)
+                    next_size = state.content_bytes - previous_size
                     event_type, payload = "transcript.settled", {"row_id": row_id, "adoption": "no_adoption"}
             # A failed publication cannot allocate a source sequence or revision.
             if len(json.dumps(payload, ensure_ascii=False).encode()) > self.MAX_EVENT_BYTES - 2048:
                 raise ValueError("projection_event_limit")
             state.revision += 1
-            event = {"event_id": str(uuid.uuid4()), "type": event_type,
+            revision = str(state.revision)
+            streamed = (event_type == "transcript.delta" and payload.keys() == _DELTA_KEYS
+                        and payload["render_revision"] == revision and isinstance(payload["public_text_delta"], str))
+            event = {"event_id": self._delta_id(conversation_id, revision) if streamed else str(uuid.uuid4()),
+                     "type": event_type,
                      "conversation_id": conversation_id, "server_epoch": self.server_epoch,
-                     "projection_revision": str(state.revision), "payload": copy.deepcopy(payload)}
+                     "projection_revision": revision, "payload": copy.deepcopy(payload)}
             event.update({"protocol_version": "1.0", "source": "runtime", "source_epoch": self.server_epoch,
                           "source_stream_id": conversation_id,
-                          "source_sequence_start": str(state.revision), "source_sequence_end": str(state.revision)})
-            encoded = len(json.dumps(event, ensure_ascii=False).encode("utf-8"))
+                          "source_sequence_start": revision, "source_sequence_end": revision})
             if event_type == "generation.state":
                 state.generation = copy.deepcopy(payload)
             if next_live is not state.live_rows:  # a delta, or its twin retired in its place
                 state.rows = next_rows
                 state.live_rows = next_live
-                state.content_bytes = self._content_size(state.rows, next_live)
+                state.content_bytes = next_size
             self._journal_sequence = getattr(self, "_journal_sequence", 0) + 1
-            state.events.append((event, encoded, self._journal_sequence))
-            state.event_bytes += encoded
+            # A streamed delta joins the entry of its row's delta just before it, so the journal keeps one
+            # entry per run of a row's text instead of one event per token.
+            if not (streamed and self._coalesce_locked(state, event)):
+                encoded = len(json.dumps(event, ensure_ascii=False).encode("utf-8"))
+                cuts = array("q", [len(payload["public_text_delta"])]) if streamed else None
+                state.events.append((event, encoded, self._journal_sequence, cuts))
+                state.event_bytes += encoded
             while len(state.events) > self.MAX_EVENTS or state.event_bytes > self.MAX_HISTORY_BYTES:
-                _, size, _ = state.events.popleft()
-                state.event_bytes -= size
+                state.event_bytes -= state.events.popleft()[1]
             self._trim_global(conversation_id)
             result = copy.deepcopy(event)
         if event_type in _LISTED_CHANGES:
@@ -368,8 +444,7 @@ class ConversationProjection:
                 after = -1
             first = int(state.events[0][0]["projection_revision"]) if state.events else state.revision + 1
             reset = after < first - 1 or after > state.revision
-            return {"events": [] if reset else copy.deepcopy([
-                        event for event, _, _ in state.events if int(event["projection_revision"]) > after]),
+            return {"events": [] if reset else [event for entry in state.events for event in self._replay(entry, after)],
                     "snapshot_required": reset, "cursor": str(state.revision),
                     "server_epoch": self.server_epoch}
 
