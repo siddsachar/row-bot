@@ -165,7 +165,10 @@ def run(args: argparse.Namespace) -> int:
         print(f"not running: {len(judged)} task(s) need tau2's NL-assertion judge ({', '.join(judged[:8])}...); "
               "pass --nl-judge (openai:gpt-4.1-2025-04-14 is the matched judge, a paid API) or choose other tasks")
         return 2
-    run_dir = Path(args.run_dir) if args.run_dir else orchestrate.new_run_dir(f"tau2-{args.domain}-{args.split}")
+    # Arms started side by side in the same second must never share a folder: the variant and a short random
+    # suffix are in the name.
+    label = f"tau2-{args.domain}-{args.split}{'-' + args.variant if args.variant else ''}-{os.urandom(2).hex()}"
+    run_dir = Path(args.run_dir) if args.run_dir else orchestrate.new_run_dir(label)
     run_dir.mkdir(parents=True, exist_ok=True)
     if (run_dir / "tau2" / "results.json").exists():
         print(f"not running: {run_dir} already has tau2 results (start a new run folder)")
