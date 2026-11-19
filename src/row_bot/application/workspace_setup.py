@@ -5,12 +5,20 @@ coordinator never launches generation; an explicit later submit owns that act.
 """
 from __future__ import annotations
 
+import threading
+import time
 import uuid
 from dataclasses import asdict
 from typing import Any
 
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
+
+# How long a read (the model pill on open and /workspace) reuses a model's readiness. Checking an Ollama model
+# connects to Ollama, a second or more each time when it isn't running; a send always checks afresh.
+_READINESS_TTL_SECONDS = 10.0
+_READINESS_LOCK = threading.Lock()
+_READINESS: dict[str, tuple[float, int, Any]] = {}
 
 
 def _empty_workspace(command: dict, target: str, *, owner_id: str, key: str,
@@ -626,9 +634,8 @@ def model_status(service: Any, controls: dict, conversation_id: str = "") -> dic
         status = {**base, "state": "ready" if ready else "unavailable",
                   "reason": "" if ready else "It isn't ready right now", "fix": None if ready else "choose"}
     else:
-        from row_bot.providers.readiness import evaluate_runtime_readiness
         try:
-            result = evaluate_runtime_readiness(model_ref, refresh_provider_status=False, probe_ollama_tools=False)
+            result = model_readiness(model_ref)
         except (ValueError, RuntimeError):
             result = None
         runtime_mode = str(controls.get("runtime_mode") or "agent")
@@ -647,7 +654,7 @@ def model_status(service: Any, controls: dict, conversation_id: str = "") -> dic
     return status
 
 
-def answering_backup(service: Any, model_ref: str, conversation_id: str = "") -> str:
+def answering_backup(service: Any, model_ref: str, conversation_id: str = "", *, fresh: bool = False) -> str:
     """The backup model that answers this chat's turns while ``model_ref`` can't (#140), or "".
 
     The turn's own rule (``backup.plan``: switched on and chosen, another model, never a cloud backup for
@@ -661,26 +668,54 @@ def answering_backup(service: Any, model_ref: str, conversation_id: str = "") ->
     if not parsed:
         return ""
     controls = {"model_selection": {"provider_id": parsed[0], "model_ref": chosen.backup_ref}, "runtime_mode": "agent"}
-    return chosen.backup_ref if _model_ready(service, controls) else ""
+    return chosen.backup_ref if _model_ready(service, controls, fresh=fresh) else ""
 
 
 def generation_readiness(service: Any, controls: dict, conversation_id: str = "") -> bool:
-    """Whether a turn can start: its model is ready, or the backup model answers for it (#140)."""
-    if _model_ready(service, controls):
+    """Whether a turn can start: its model is ready, or the backup model answers for it (#140). Checked afresh."""
+    if _model_ready(service, controls, fresh=True):
         return True
     selection = controls.get("model_selection") or {}
-    return bool(selection) and bool(answering_backup(service, str(selection.get("model_ref") or ""), conversation_id))
+    return bool(selection) and bool(answering_backup(service, str(selection.get("model_ref") or ""), conversation_id,
+                                                     fresh=True))
 
 
-def _model_ready(service: Any, controls: dict) -> bool:
+def model_readiness(model_ref: str, *, fresh: bool = False) -> Any:
+    """A model's runtime readiness, without refreshing provider tokens or probing its tools.
+
+    A read reuses the answer from the last few seconds, while the saved model catalog is unchanged, so opening
+    chats never waits on Ollama again and again; *fresh* (a send) checks again, and reads then reuse its answer.
+    """
+    from row_bot.application.live_updates import live_updates
+    from row_bot.providers.readiness import evaluate_runtime_readiness
+
+    catalog = live_updates.frame()["topics"]["models"]
+    if not fresh:
+        with _READINESS_LOCK:
+            saved = _READINESS.get(model_ref)
+        if saved is not None and saved[1] == catalog and time.monotonic() - saved[0] < _READINESS_TTL_SECONDS:
+            return saved[2]
+    result = evaluate_runtime_readiness(model_ref, refresh_provider_status=False, probe_ollama_tools=False)
+    with _READINESS_LOCK:
+        if len(_READINESS) >= 64:
+            _READINESS.clear()
+        _READINESS[model_ref] = (time.monotonic(), catalog, result)
+    return result
+
+
+def forget_model_readiness() -> None:
+    """Drop the readiness reads reuse, so the next read checks every model again."""
+    with _READINESS_LOCK:
+        _READINESS.clear()
+
+
+def _model_ready(service: Any, controls: dict, *, fresh: bool = False) -> bool:
     if service.readiness_factory is not None:
         return bool(service.readiness_factory(controls))
     if not controls.get("model_selection"):
         return False
-    from row_bot.providers.readiness import evaluate_runtime_readiness
     try:
-        result = evaluate_runtime_readiness(controls["model_selection"]["model_ref"],
-                                           refresh_provider_status=False, probe_ollama_tools=False)
+        result = model_readiness(controls["model_selection"]["model_ref"], fresh=fresh)
         return bool(result.chat.ready if controls["runtime_mode"] == "chat_only" else result.agent.ready)
     except (ValueError, RuntimeError):
         return False
