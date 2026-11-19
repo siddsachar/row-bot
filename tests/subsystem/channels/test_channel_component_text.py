@@ -42,6 +42,12 @@ def test_a_fence_that_does_not_fit_is_sent_as_written():
     assert assemble_agent_answer(f"Look:\n\n{broken}", []) == f"Look:\n\n{broken}"
 
 
+def test_a_component_fenced_as_json_reaches_a_chat_app_as_words_too():
+    body = {"title": "Today", "items": [{"text": "Call Sam", "done": True}, {"text": "Shop"}]}
+    answer = assemble_agent_answer(f"Your list:\n\n```json\n{json.dumps(body)}\n```", [])
+    assert answer == "Your list:\n\nToday\n- [x] Call Sam\n- [ ] Shop"
+
+
 def test_a_visual_reaches_a_chat_app_as_a_pointer_never_its_code():
     answer = assemble_agent_answer("See:\n\n```rowbot-visual\n<svg><title>Orbit</title><script>x()</script></svg>\n```", [])
     assert answer == "See:\n\n[Visual: Orbit: open the chat in Row-Bot to see it]"

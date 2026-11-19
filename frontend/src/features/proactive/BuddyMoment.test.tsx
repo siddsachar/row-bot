@@ -135,6 +135,28 @@ describe('Buddy’s proactive states', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('says how soon a meeting starts as the bubble shows, never as the moment was made (R3)', async () => {
+    provideProactive(
+      fakeIO({
+        moments: [
+          delivered({
+            kind: 'meeting_prep',
+            title: 'Menu tasting call',
+            urgency: 'urgent',
+            starts_at: new Date(Date.now() + 7 * 60_000 + 10_000).toISOString(),
+            actions: [{ id: 'open_brief', label: 'Open brief' }],
+          }),
+        ],
+      }),
+    );
+    renderBuddy();
+    expect(
+      await screen.findByRole('dialog', {
+        name: 'Menu tasting call in 7 minutes',
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('Less like this asks one question in place and writes the rule', async () => {
     const io = fakeIO({ moments: [delivered()] });
     provideProactive(io);

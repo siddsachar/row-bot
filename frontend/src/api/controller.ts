@@ -148,6 +148,11 @@ function withKeptBreakdown(
   return { ...next, breakdown: previous.breakdown };
 }
 
+/** This device's IANA zone ("Europe/London"), or undefined when the browser won't say. */
+function deviceTimeZone(): string | undefined {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+}
+
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
@@ -5913,7 +5918,11 @@ export class ClientController {
       command_id: identity,
       client_session_id: session,
       type,
-      payload,
+      // A message says which zone its device is in: "local time" means this device's (M10).
+      payload:
+        type === 'conversation.submit'
+          ? { ...payload, time_zone: deviceTimeZone() }
+          : payload,
       expected_revision: revision,
     } as Command;
     const receipt = await this.command(target, command, identity);

@@ -130,7 +130,7 @@ function mathToken(part: string): { tex: string; display: boolean } | null {
   return null;
 }
 
-function inline(text: string): ReactNode[] {
+function inline(text: string, links = true): ReactNode[] {
   return text.split(INLINE).map((part, index) => {
     if (!part) return null;
     if (part.startsWith('`') && part.endsWith('`'))
@@ -138,6 +138,7 @@ function inline(text: string): ReactNode[] {
     const math = mathToken(part);
     if (math?.tex) return <MathTex key={index} {...math} />;
     const link = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(part);
+    if (link && !links) return <Fragment key={index}>{link[1]}</Fragment>;
     if (link) {
       const place = inAppLink(link[1], link[2], index);
       if (place) return place;
@@ -159,7 +160,7 @@ function inline(text: string): ReactNode[] {
         <Fragment key={index}>{part}</Fragment>
       );
     }
-    if (/^https?:\/\//i.test(part)) {
+    if (links && /^https?:\/\//i.test(part)) {
       // A bare URL is a source: a compact chip, the full address on hover.
       const href = safeHref(part);
       return href ? (
@@ -182,14 +183,14 @@ function inline(text: string): ReactNode[] {
       (part.startsWith('**') && part.endsWith('**')) ||
       (part.startsWith('__') && part.endsWith('__'))
     )
-      return <strong key={index}>{inline(part.slice(2, -2))}</strong>;
+      return <strong key={index}>{inline(part.slice(2, -2), links)}</strong>;
     if (part.startsWith('~~') && part.endsWith('~~'))
-      return <del key={index}>{inline(part.slice(2, -2))}</del>;
+      return <del key={index}>{inline(part.slice(2, -2), links)}</del>;
     if (
       (part.startsWith('*') && part.endsWith('*')) ||
       (part.startsWith('_') && part.endsWith('_'))
     )
-      return <em key={index}>{inline(part.slice(1, -1))}</em>;
+      return <em key={index}>{inline(part.slice(1, -1), links)}</em>;
     return <Fragment key={index}>{part}</Fragment>;
   });
 }
@@ -360,6 +361,14 @@ function quoteLines(lines: string[]) {
   while (start < end && !shown[start]) start++;
   while (end > start && !shown[end - 1]) end--;
   return shown.slice(start, end);
+}
+
+/**
+ * One line's inline Markdown (bold, italics, code, maths) and nothing else:
+ * no blocks, and a link shows as its words, so the line stays in its card.
+ */
+export function SafeInlineMarkdown({ text }: { text: string }) {
+  return <>{inline(text, false)}</>;
 }
 
 /**

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from tests.contracts.client_platform.test_headless_lifecycle import platform  # noqa: F401
 from tests.fixtures.tasks import fresh_tasks_module
 
 pytestmark = pytest.mark.subsystem
@@ -81,3 +82,60 @@ def test_a_null_for_an_optional_field_is_the_same_as_leaving_it_out(tools):
         "Water the plants", task["icon"], task["at"], "Every other day")
     reminder = by_name["task_create"].invoke({"name": "Plain", "delay_minutes": None, "prompts": ["Say hi."]})
     assert not _created(tasks, reminder).get("at")  # a null delay is no delay
+
+
+def test_a_schedule_set_from_a_chat_keeps_the_persons_device_zone(tools, monkeypatch):
+    """M10: "Your local time" from a London browser made a Los Angeles workflow, the Mac's zone. A schedule the
+    model sets without a zone keeps the zone of the device the person sent from; a zone they name wins, and
+    with no device (a chat app, a workflow run) it is the computer's."""
+    from row_bot import agent, schedule_zones
+
+    tasks, by_name = tools
+    create = by_name["task_create"]
+    monkeypatch.setattr(schedule_zones, "local_zone_name", lambda: "America/Los_Angeles")
+    weather = {"name": "Sydney weather", "schedule": "weekdays:08:00", "prompts": ["Sydney's weather today."]}
+
+    token = agent._current_device_zone_var.set("Europe/London")
+    try:
+        from_device = _created(tasks, create.invoke(weather))
+        named = _created(tasks, create.invoke({**weather, "timezone": "Australia/Sydney"}))
+    finally:
+        agent._current_device_zone_var.reset(token)
+    no_device = _created(tasks, create.invoke(weather))
+
+    assert (from_device["timezone"], named["timezone"], no_device["timezone"]) == (
+        "Europe/London", "Australia/Sydney", "America/Los_Angeles")
+
+
+def test_a_message_carries_its_devices_zone_into_its_turn(platform):  # noqa: F811
+    """M10: the client sends its own zone with each message; the turn runs with it, and a zone that isn't one is
+    left out (the computer's zone then)."""
+    from langchain_core.messages import AIMessage
+
+    from tests.contracts.client_platform.test_headless_lifecycle import command
+    from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, fixture_id
+
+    zones: list[str | None] = []
+
+    class Recording(ScriptedAgentStream):
+        def stream(self, text, enabled_tools, config, *, stop_event=None):
+            zones.append(config["configurable"].get("device_time_zone"))
+            yield from super().stream(text, enabled_tools, config, stop_event=stop_event)
+
+    def turn(label: str) -> tuple:
+        reply = fixture_id(label + ":reply")
+        return (("token", "Noted."), CheckpointCommit((AIMessage(content="Noted.", id=reply),), reply),
+                ("done", "Noted."))
+
+    fake = Recording(turn("london"), turn("nowhere"))
+    platform.stream_factory = fake.stream
+    for label, zone in (("london", "Europe/London"), ("nowhere", "Not/A_Zone")):
+        receipt = platform.execute(
+            owner_id="fixture-owner", idempotency_key=fixture_id(label + ":key"), target="conversation-a",
+            command=command("conversation.submit", label, {
+                "submission_id": fixture_id(label), "text": "Every weekday at 8, tell me Sydney's weather.",
+                "attachment_refs": [], "time_zone": zone,
+                "model_selection": {"provider_id": "fixture", "model_ref": "fixture/model"}}))
+        assert platform.registry.get(receipt["execution_id"]).producer_done.wait(10)
+
+    assert zones == ["Europe/London", None]

@@ -12,6 +12,7 @@ import {
   CheckCheck,
   FileUp,
   GitMerge,
+  ListChecks,
   Pencil,
   Plus,
   Undo2,
@@ -22,6 +23,7 @@ import type {
   MemoryImportPreviewItem,
   MemoryImportReceipt,
   MemoryImportSource,
+  MemoryImportWaiting,
 } from '../../api/types';
 import { copyText } from '../../platform/clipboard';
 import {
@@ -36,6 +38,7 @@ import {
   CATEGORIES,
   categoryWords,
   formatSize,
+  plural,
   receiptWords,
   shortDate,
   type Category,
@@ -542,6 +545,63 @@ export function PreviewRow({
       </div>
     </div>
   );
+}
+
+/**
+ * Memories brought over from another app on this computer (Settings › Data)
+ * that wait to be checked: each opens to review, or can be let go.
+ */
+export function WaitingImports({
+  items,
+  busy,
+  onReview,
+  onLetGo,
+}: {
+  items: readonly MemoryImportWaiting[];
+  busy: string | null;
+  onReview: (item: MemoryImportWaiting) => void;
+  onLetGo: (item: MemoryImportWaiting) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <ul
+      className="memory-import-recent memory-import-waiting"
+      aria-label="Waiting for you to check"
+    >
+      {items.map((item) => {
+        const from = item.sources.join(', ') || 'another assistant';
+        return (
+          <li key={item.batch_id}>
+            <span>
+              <strong>From {from}</strong> · {shortDate(item.staged_at)} ·{' '}
+              {waitingWords(item)}
+            </span>
+            <IconButton
+              size="sm"
+              label={`Review the memories from ${from}`}
+              disabled={busy !== null}
+              onClick={() => onReview(item)}
+            >
+              <ListChecks size={14} aria-hidden />
+            </IconButton>
+            <IconButton
+              size="sm"
+              label={`Let go of the memories from ${from}`}
+              disabled={busy !== null}
+              onClick={() => onLetGo(item)}
+            >
+              <X size={14} aria-hidden />
+            </IconButton>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function waitingWords(item: MemoryImportWaiting) {
+  if (item.found) return `${plural(item.found, 'memory', 'memories')} waiting`;
+  return `${plural(item.conversations, 'past chat')} to look through`;
 }
 
 /** Imports from the last 7 days, each with Undo. */

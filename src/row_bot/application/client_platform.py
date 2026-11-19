@@ -366,8 +366,9 @@ def _accepted_app_scope(conversation_id: str) -> dict | None:
 
 
 @_publishes_live("approvals", "conversations")
-def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "") -> list[str]:
-    """Withdraw the conversation's waiting approvals (only one turn's, with ``generation_id``)."""
+def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "", *,
+                             only: set[str] | None = None) -> list[str]:
+    """Withdraw the conversation's waiting approvals (only one turn's, with ``generation_id``; only these, with ``only``)."""
     from row_bot.tasks import _get_conn
     withdrawn = []
     with closing(_get_conn()) as conn:
@@ -376,6 +377,8 @@ def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "") -> l
             "WHERE source_thread_id=? AND resume_kind='conversation' AND status='pending'",
             (conversation_id,)).fetchall()
         for row in rows:
+            if only is not None and str(row["id"]) not in only:
+                continue
             try:
                 context = json.loads(row["approval_payload_json"] or "{}")
             except ValueError:
@@ -576,7 +579,7 @@ class ClientPlatformService:
     def _publish_queue(self, conversation_id: str, *, finishing: str = "") -> None:
         self.projection.publish(conversation_id, "queue.updated", {
             "submission_ids": admissions.queued_submission_ids(conversation_id, excluding_pass=finishing),
-            "revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1)})
+            "revision": str(self.projection.revision(conversation_id) + 1)})
 
     def finish_execution(self, handle: Any, status: str) -> None:
         # Admission cannot overtake terminal publication. The actual worker's
@@ -1426,15 +1429,20 @@ class ClientPlatformService:
             self.projection.publish(target, "resource.changed", {"revision": str(resources.revision)})
             return {"conversation_id": target, "revision": str(resources.revision), "status": "completed"}
         if kind in {"conversation.submit", "conversation.resume"}:
-            if kind == "conversation.resume":
-                from row_bot.tasks import _get_conn
-                with _get_conn() as conn:
-                    pending = conn.execute("SELECT 1 FROM approval_requests WHERE source_thread_id=? AND resume_kind='conversation' AND status='pending'", (target,)).fetchone()
-                if pending:
-                    raise ClientPlatformError("approval_required")
-            return self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]),
-                               runtime_surface=runtime_surface,
-                               **({"frozen_context": frozen_context} if frozen_context is not None else {}))
+            from row_bot.tasks import _get_conn
+            with _get_conn() as conn:
+                waiting = {str(row[0]) for row in conn.execute(
+                    "SELECT id FROM approval_requests WHERE source_thread_id=? AND resume_kind='conversation' "
+                    "AND status='pending'", (target,))}
+            if kind == "conversation.resume" and waiting:
+                raise ClientPlatformError("approval_required")
+            started = self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]),
+                                  runtime_surface=runtime_surface,
+                                  **({"frozen_context": frozen_context} if frozen_context is not None else {}))
+            if waiting:
+                # A new message replaces the turn that was waiting: its card goes, since nothing can go on with it.
+                _withdraw_turn_approvals(target, only=waiting)
+            return started
         if kind == "conversation.stop":
             return self.stop_conversation(target, str(payload.get("generation_id") or ""))
         if kind == "conversation.steer":
@@ -1673,10 +1681,15 @@ class ClientPlatformService:
         # conversation, under every approval level (N9).
         if rules := person_rules(conversation_id):
             config["configurable"]["person_rules"] = rules
+        from row_bot.schedule_zones import is_zone
+        # The person's device zone: "local time" in this turn means it, and a new schedule keeps it (M10).
+        if is_zone(device_zone := payload.get("time_zone")):
+            config["configurable"]["device_time_zone"] = device_zone
         from copy import deepcopy
         from row_bot.application.profile_controls import freeze_profile
         if frozen_context is not None:
-            for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot"):
+            for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot",
+                          "device_time_zone"):
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
@@ -1967,7 +1980,7 @@ class ClientPlatformService:
             for offset in range(0, len(text), 8192):
                 self.projection.publish(conversation_id, "transcript.delta", {
                     "pass_id": handle.pass_id, "segment_id": handle.segment_id, "row_id": row_id,
-                    "render_revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1),
+                    "render_revision": str(self.projection.revision(conversation_id) + 1),
                     "public_text_delta": text[offset:offset + 8192]})
         elif kind == "output_binding":
             from row_bot.projection.canonical import exact_assistant_equal
@@ -2207,8 +2220,15 @@ class ClientPlatformService:
                 raise ClientPlatformError("generation_active")
             from row_bot.application.reasoning_controls import restore_resume_reasoning
             context = json.loads(row["approval_payload_json"])
-            restore_resume_reasoning({"model_override": context["model_selection"]["model_ref"]},
-                                     conversation_id, pass_id=str(context.get("pass_id") or ""))
+            try:
+                restore_resume_reasoning({"model_override": context["model_selection"]["model_ref"]},
+                                         conversation_id, pass_id=str(context.get("pass_id") or ""))
+            except ClientPlatformError as exc:
+                if exc.code != "reasoning_snapshot_unavailable":
+                    raise
+                # A later turn replaced the one that waits on this card: it can never go on, so the card goes.
+                _withdraw_turn_approvals(conversation_id, only={approval_id})
+                raise ClientPlatformError("approval_expired") from None
             claimed = claim_conversation_approval(approval_id, approved,
                 expected_payload=row["approval_payload_json"], expected_timeout=row["timeout_at"])
             if not claimed:

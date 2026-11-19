@@ -1775,7 +1775,9 @@ export default function Workspace() {
         ]
       : []),
   ];
-  const openPanelMenu = (
+  // Shown only when there is something to open: no empty menu (W10).
+  const openable = panelActions((title) => title);
+  const openPanelMenu = openable.length > 0 && (
     <Menu
       label="Open panel"
       triggerRef={openPanelRef}
@@ -1783,7 +1785,7 @@ export default function Workspace() {
       variant="ghost"
       className="open-panel-menu"
       hint="Open panel"
-      actions={panelActions((title) => title)}
+      actions={openable}
     >
       <Columns3 size={16} aria-hidden />
     </Menu>

@@ -68,7 +68,10 @@ def _entry(row: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
         "surface": row["surface"] if row["surface"] in activity_log.SURFACES else "chat",
         "source_id": str(row["source_id"] or "")[:256],
         "tool": str(row["tool"] or "")[:180],
-        "title": str(row["title"] or "")[:160],
+        # A title that is only the tool's own name is left to the client, which says it the way chat steps
+        # do ("Read page", not "Read url") (W19).
+        "title": "" if str(row["title"] or "") == activity_log.tool_words(str(row["tool"] or ""))
+        else str(row["title"] or "")[:160],
         "app_id": str(row["app_id"] or "")[:256],
         "app_name": str(row["app_name"] or "")[:128],
         "summary": str(row["summary"] or "")[:activity_log.SUMMARY_MAX],
@@ -148,7 +151,8 @@ def export_csv(**filters: Any) -> bytes:
             if entry["outcome"] == "asked" and not entry["pending"]:
                 outcome = _UNANSWERED
             writer.writerow([_cell(item) for item in (
-                entry["at"], entry["conversation_title"], SURFACE_WORDS[entry["surface"]], entry["title"],
+                entry["at"], entry["conversation_title"], SURFACE_WORDS[entry["surface"]],
+                entry["title"] or activity_log.tool_words(entry["tool"]),
                 entry["app_name"], entry["summary"], LEVEL_WORDS.get(entry["level"], ""), outcome,
                 DECIDER_WORDS[entry["decided_by"]], entry["reason"],
             )])

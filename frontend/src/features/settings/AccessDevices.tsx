@@ -13,6 +13,7 @@ import {
   EntityList,
   EntityRow,
   ErrorState,
+  IconButton,
   InlineEmpty,
   Input,
   Skeleton,
@@ -207,17 +208,19 @@ export default function AccessDevices({
                   )
                 }
                 action={
-                  <Button
-                    variant="secondary"
+                  // An icon with its tooltip leaves the row's words room on a
+                  // phone (W11).
+                  <IconButton
+                    label={
+                      busy === `sign-out:${device.id}`
+                        ? `Signing out ${device.display_name}…`
+                        : `Sign out ${device.display_name}`
+                    }
                     disabled={Boolean(busy)}
-                    aria-label={`Sign out ${device.display_name}`}
                     onClick={(event) => signOut(device, event.currentTarget)}
                   >
                     <LogOut size={16} aria-hidden />
-                    {busy === `sign-out:${device.id}`
-                      ? 'Signing out…'
-                      : 'Sign out'}
-                  </Button>
+                  </IconButton>
                 }
                 menu={[
                   {

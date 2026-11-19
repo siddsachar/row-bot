@@ -197,6 +197,58 @@ def test_the_block_bound_still_holds_with_many_components():
     assert {block["type"] for block in blocks} == {"progress"}
 
 
+CHECKLIST = {"title": "Weekend in Leeds", "items": [{"text": "Waterproof jacket"}, {"text": "Power bank", "done": True}]}
+CHOICES = {"prompt": "What's next?", "options": [{"label": "More cities", "reply": "More cities"},
+                                                  {"label": "Thanks", "reply": "Thanks"}]}
+
+
+def test_a_component_body_fenced_as_json_or_with_no_language_still_becomes_its_component():
+    # What a local model wrote in the 5.3.4 Windows test (W14): the right shapes, in ```json fences.
+    text = "\n\n".join([
+        "Here are the five largest cities.",
+        "```json\n" + json.dumps(TABLE, indent=2) + "\n```",
+        "```\n" + json.dumps(CHECKLIST) + "\n```",
+        "```JSON\n" + json.dumps(CHOICES) + "\n```",
+        "Tap one whenever you're ready.",
+    ])
+    blocks = _project(text)
+    assert [block["type"] for block in blocks] == ["markdown", "table", "checklist", "choices", "markdown"]
+    assert blocks[1]["rows"] == [["Air", "£999", "1.24"], ["Pro", "£1,599", "1,600"]]
+    assert blocks[2]["text"] == "Weekend in Leeds\n- [ ] Waterproof jacket\n- [x] Power bank"
+    assert blocks[3]["options"][1] == {"label": "Thanks", "reply": "Thanks"}
+    assert "```" not in json.dumps(blocks)
+
+
+def test_a_reply_that_is_only_a_component_object_becomes_that_component():
+    blocks = _project("\n" + json.dumps(CHOICES) + "\n")
+    assert [block["type"] for block in blocks] == ["choices"]
+    assert blocks[0]["prompt"] == "What's next?"
+
+
+@pytest.mark.parametrize("text", [
+    "```json\n{\"name\": \"Air\", \"price\": 999}\n```",  # Ordinary JSON: no component's shape.
+    "```json\n" + json.dumps({**CHECKLIST, "colour": "red"}) + "\n```",  # A key no component has.
+    "```json\n" + json.dumps([CHECKLIST]) + "\n```",  # Not one object.
+    "```python\n" + json.dumps(CHECKLIST) + "\n```",  # Another language is that language's code.
+    "```json\n" + json.dumps({"options": [{"label": "Clear", "reply": "/clear"},
+                                           {"label": "Keep", "reply": "Keep"}]}) + "\n```",  # Still refused.
+    "Here it is: " + json.dumps(CHECKLIST),  # An object inside prose is prose.
+])
+def test_untagged_json_that_is_not_exactly_one_component_stays_as_written(text):
+    blocks = _project(text)
+    assert [block["type"] for block in blocks] == ["markdown"]
+    assert blocks[0]["text"] == text
+
+
+def test_a_visual_is_never_inferred_and_a_person_or_tool_keeps_untagged_json():
+    html = "```json\n{\"html\": \"<svg><circle r='4'/></svg>\"}\n```"
+    assert [block["type"] for block in _project(html)] == ["markdown"]
+    fenced = "```json\n" + json.dumps(CHOICES) + "\n```"
+    for role in ("tool", "user"):
+        row = {**_row(fenced, role), "tool_call_id": "call-1"} if role == "tool" else _row(fenced, role)
+        assert [block["type"] for block in canonical_transcript_blocks(row)["blocks"]] == ["markdown"]
+
+
 def test_a_visual_keeps_its_html_for_the_sandboxed_frame_and_names_itself():
     svg = '<svg viewBox="0 0 10 10"><title>Water <b>cycle</b></title><circle r="4"/></svg>'
     blocks = _project("A diagram:\n\n```rowbot-visual\n" + svg + "\n```")

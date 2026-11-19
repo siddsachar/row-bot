@@ -143,3 +143,38 @@ def test_after_a_no_the_reply_says_what_the_turn_already_found(platform, monkeyp
     assert "North 120, South 80" in prompts[0][1].content and "winget install ffmpeg" in prompts[0][1].content
     last = platform.transcript("conversation-a")["rows"][-1]
     assert "Revenue by region: North 120, South 80." in json.dumps(last)
+
+
+def test_a_new_message_withdraws_the_approval_its_turn_was_waiting_on(platform):
+    """R14: a message sent while a card waited left that card pending for good: approving it later failed."""
+    from row_bot.application.client_platform import ClientPlatformError
+
+    fake = ScriptedAgentStream((("interrupt", APPROVAL),), (("token", "On to the new message"), ("done", "On to the new message")))
+    first = _waiting(platform, fake, "replaced")
+
+    accepted = submit(platform, fake, "new-message")
+    assert platform.registry.get(accepted["execution_id"]).producer_done.wait(10)
+
+    assert platform.get_approval(first.approval_id)["status"] == "cancelled"
+    with pytest.raises(ClientPlatformError, match="approval_already_resolved|revision_conflict"):
+        _resolve(platform, first.approval_id, "approve", "late-approve")
+    assert fake.calls[-1].get("approved") is None, "the replaced turn never resumed"
+
+
+def test_a_card_whose_turn_a_later_message_replaced_goes_when_answered(platform):
+    """R14: such a card, already left pending, is withdrawn when answered instead of failing again and again."""
+    from row_bot.application.client_platform import ClientPlatformError
+
+    fake = ScriptedAgentStream((("interrupt", APPROVAL),), (("done", "Newer turn"),), (("done", "Should never run"),))
+    first = _waiting(platform, fake, "orphaned")
+    # As before the fix: a newer turn started and the card stayed.
+    newer = platform._start("conversation-a", {"submission_id": "newer", "text": "Something else",
+                                                "model_selection": {"provider_id": "fixture", "model_ref": "fixture/model"}},
+                            resume=False, command_id="newer")
+    assert platform.registry.get(newer["execution_id"]).producer_done.wait(10)
+    assert platform.get_approval(first.approval_id)["status"] == "pending"
+
+    with pytest.raises(ClientPlatformError, match="approval_expired"):
+        _resolve(platform, first.approval_id, "approve", "approve-orphan")
+    assert platform.get_approval(first.approval_id)["status"] == "cancelled"
+    assert len(fake.calls) == 2, "nothing resumed"

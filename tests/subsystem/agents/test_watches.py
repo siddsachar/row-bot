@@ -8,6 +8,7 @@ allowing only commands that just read, the caps) stay here, in the pull request 
 from __future__ import annotations
 
 import os
+from datetime import datetime
 
 import pytest
 
@@ -110,6 +111,9 @@ def test_a_command_watch_is_silent_until_its_output_changes_then_says_what_chang
     record = waits.get(record["id"])
     assert record["status"] == "waiting" and record["next_at"] == first + 1200 + 600
     assert waits.view(record)["watch"]["changes"] == 1
+    # The card's "Checked …": UTC with its offset, which the client writes in the viewer's zone (M5).
+    checked = waits.view(record)["watch"]["checked_at"]
+    assert checked.endswith("+00:00") and abs(datetime.fromisoformat(checked).timestamp() - (first + 1200)) < 1
 
     # The baseline moved: the same output again is silent.
     assert _tick(waits, platform, first + 1800) == 0 and len(fake.prompts) == 1
@@ -472,7 +476,11 @@ def test_a_watch_command_is_approved_once_when_set_and_runs_without_asking_again
 
     said = _set(kind="watch", label="the tests", command="npm test", every_minutes=10)
     assert said.startswith("Watching")
-    assert asked[0]["description"] == "Run `npm test` every 10 min while it watches (up to 24 h)"
+    from row_bot.data_paths import display_path, workspace_folder
+
+    assert asked[0]["description"] == (f"Run `npm test` every 10 min in Row-Bot's workspace "
+                                       f"({display_path(workspace_folder(create=False))}) while it watches "
+                                       "(up to 24 h)")
     record = _only(waits)
     assert record["spec"]["approval"]["approved_by"] == "approval"
     assert record["spec"]["approval"]["classification"]["read_only"] is False

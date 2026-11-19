@@ -21,6 +21,7 @@ PLATFORM_SENSITIVE = frozenset({
     "row_bot.background_processes",
     "row_bot.computer_use.control_bar",
     "row_bot.computer_use.display",
+    "row_bot.data_folder_lock",
     "row_bot.developer.client_processes",
     "row_bot.developer.process_worker",
     "row_bot.developer.workspace_folders",

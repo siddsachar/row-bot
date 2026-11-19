@@ -186,7 +186,7 @@ def test_without_a_local_speech_model_or_ffmpeg_there_is_no_narration(setup, mon
 
     setup.model.ready = True
     setup.service._ffmpeg_path = None
-    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setenv("PATH", "")  # and none in the data folder: no ffmpeg anywhere
     assert narration.status() == {"ready": False, "code": "narration_no_ffmpeg"}
 
 

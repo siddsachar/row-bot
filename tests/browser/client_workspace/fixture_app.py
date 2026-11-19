@@ -3456,7 +3456,12 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                         raise TimeoutError("Timed expiry observers were not prepared")
                 chunks = [f"Tick {index:04d}. " for index in range(5000)]
                 call["emitted_tokens"] = 0
-                for chunk in chunks:
+                for index, chunk in enumerate(chunks):
+                    # The projection keeps a run of one row's text as one journal entry, so the ticks alone
+                    # fit; a thinking step between every few ticks ends each run, and the 2,500 entries this
+                    # makes exhaust the retained history (1,024 entries per conversation).
+                    if index and index % 4 == 0:
+                        yield "thinking", None
                     yield "token", chunk
                     call["emitted_tokens"] += 1
                 partial = "".join(chunks)
@@ -4112,6 +4117,39 @@ def p4_provider_credentials(x_fixture_token: str = Header(default="")) -> dict:
         os.environ.pop(name, None)
     auth_store._session_provider_secrets.clear()
     auth_store.set_provider_secret('openai', 'api_key', 'synthetic-browser-old-credential')
+    return {"ready": True}
+
+
+_p4_catalog_before_refusal: list[bytes | None] = []
+
+
+@app.post("/__p4_fixture/provider-key-refused/{state}")
+def p4_provider_key_refused(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """on: OpenAI's saved synthetic key, refused (401) at its last model-list read, as a refresh records it.
+    off: the saved catalog as it was before."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import secret_store
+    from row_bot.providers import model_catalog_cache as cache
+    path = cache.CATALOG_CACHE_PATH
+    if not path.resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    if state == "off":
+        before = _p4_catalog_before_refusal.pop() if _p4_catalog_before_refusal else None
+        if before is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(before)
+        return {"ready": True}
+    if state != "on":
+        raise HTTPException(status_code=422, detail="Unknown synthetic state")
+    p4_provider_credentials(x_fixture_token)
+    _p4_catalog_before_refusal.append(path.read_bytes() if path.exists() else None)
+    refused = secret_store.fingerprint('synthetic-browser-old-credential')
+    cloud = {"model:openai:synthetic-chat": {"provider": "openai", "model_id": "synthetic-chat", "label": "Synthetic chat",
+             "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]}}}
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+        1, 1000.0, cloud, [], {"openai": {"status": "cached", "count": 1, "refused_key": refused}}, (), "synthetic-browser",
+    ))
     return {"ready": True}
 
 
@@ -4882,8 +4920,9 @@ _E1_MODELS = (
 )
 _E1_PICK = "qwen3.8-27b-q2"
 _E1_BUILD = 179_546_112 + 426_314_199
+# A long model name (as LM Studio's own catalogue names some) must truncate in its row on a phone (W2).
 _E1_STUDIO = {"kind": "lmstudio", "label": "LM Studio", "port": 1234, "base_url": "http://127.0.0.1:1234/v1",
-              "models": ["qwen3.8-27b", "gemma-4"]}
+              "models": ["qwen3.8-27b", "gemma-4", "mistral-small-3.3-24b-instruct-2603-gguf-q4_k_m-imatrix"]}
 
 
 def _e1_view() -> dict:
@@ -4983,12 +5022,13 @@ def _e1_save_endpoint() -> None:
     from row_bot.providers import custom
 
     custom.save_custom_endpoint({
-        "id": "llamacpp", "name": "This computer", "base_url": "http://127.0.0.1:9931/v1", "profile": "llama_cpp",
+        "id": "llamacpp", "name": "Row-Bot (llama.cpp)", "base_url": "http://127.0.0.1:9931/v1", "profile": "llama_cpp",
         "execution_location": "local", "auth_required": False, "managed": "local",
         "manual_capabilities": {"context_window": 32768},
     }, manage_secret=False)
     custom.store_managed_endpoint_models("llamacpp", [
-        (row[0], row[1], 32768) for row in _E1_MODELS if row[0] in _e1_state["installed"]])
+        (row[0], row[1] if row[3] else f"{row[1]} · {row[2]}", 32768)
+        for row in _E1_MODELS if row[0] in _e1_state["installed"]])
 
 
 @app.post("/__e1_fixture/local-runtime/{state}")
@@ -5593,7 +5633,9 @@ def main() -> None:
         return VoiceProviderStatus("fixture", "Fixture speech", True)
     synthetic_speech = SimpleNamespace(voice_service=voice, transcribe=transcribe_fixture,
                                        synthesize=synthesize_fixture,
-                                       speech_input_status=speech_input_status_fixture)
+                                       speech_input_status=speech_input_status_fixture,
+                                       # No ffmpeg: Show Row-Bot how's narration says why it can't run.
+                                       ffmpeg_command=lambda: None)
     browser_local.get_browser_local_voice_service = lambda: synthetic_speech
     from row_bot.application import client_voice
     def fixture_credentials(**kwargs):
@@ -8030,7 +8072,7 @@ def _n10_stream(text: str, config: dict):
         append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
             tool_calls=[{"id": tool_id, "name": name, "args": args}])])
         yield "tool_call", {"tool_call_id": tool_id, "name": name, "args": args}
-        question, description = outlook_tool.approval_card(name, args)
+        question, description, _tells_attendees = outlook_tool.approval_card(name, args)
         yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), "tool": name,
                              "label": outlook_tool.TITLES[name], "question": question, "description": description,
                              "args": args}]

@@ -66,11 +66,28 @@ CARRY_ON_PROMPT = (
     "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
     "nothing ran. Carry on with it now. If you need the person for something, ask them; if the work is "
     "done, say so in a line.")
+# A word rule finds a likely stop; the chat's own model then decides (S1, 18 Nov): "I'll reshoot …", "the film
+# isn't finished yet" and "I should have kept going" ended turns the narrower rule missed, 7 of 7 since 5.3.3.
 _NEXT_STEP = re.compile(
+    r"\bI(?:'|’)ll\s+(?!be\b|wait\b|need\b|let you know\b|keep an eye\b|check back\b|report back\b)[a-z]+"
+    r"|\b(?:isn(?:'|’)t|is not|aren(?:'|’)t|hasn(?:'|’)t been|haven(?:'|’)t been|not)\s+(?:\w+\s+)?"
+    r"(?:finished|done|rendered|complete|built|made|ready)\s+yet\b"
+    r"|\bI should have (?:kept going|continued|carried on)\b"
+    r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
+    r"|\b(?:carrying on|moving on) (?:now|with)\b",
+    re.IGNORECASE)
+# The narrower R1 rule: what carries on when the check can't be asked (no model, a provider error), as before.
+_SURE_NEXT_STEP = re.compile(
     r"\b(?:next|now|then),?\s+I(?:'|’)ll\b|\bI(?:'|’)ll\s+(?:now|next|then)\b"
     r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
     r"|\b(?:carrying on|moving on) (?:now|with)\b",
     re.IGNORECASE)
+_STOP_CHECK = (
+    "You check one reply from an assistant that works with tools. Its turn has ended, so it does nothing more "
+    "unless it is woken. Answer YES if the reply says it will do more of the work now, or that the work isn't "
+    "finished, and it needs nothing from the person. Answer NO if the work is done, or the reply asks the "
+    "person something, waits for them or for something else (a sign-in, an approval, a set time), or only "
+    "offers more. Answer with one word: YES or NO.")
 # The reply hands over to the person: their answer, OK or choice is what comes next.
 _HANDS_OVER = re.compile(
     r"\?|\b(?:let me know|once you|when you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
@@ -117,7 +134,9 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
             record["kind"] != "watch" for record in waits.waiting(conversation_id)):
         return
     if next_step:
-        followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE)
+        reply = str(assistant_text or "").strip()
+        followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE, check_reply=reply[-1500:],
+                            unchecked=bool(_SURE_NEXT_STEP.search(reply[-_TAIL_CHARS:])))
     else:
         missing = _missing_files(conversation_id, assistant_text)
         if not missing:
@@ -191,6 +210,29 @@ class Followup:
     shown: str = ""
     # A workflow run's first turn: the messages other conversations left for it ({id, title, text}).
     held: tuple[dict, ...] = ()
+    # A carry-on the word rule found: the reply's end, which the chat's model checks before it starts (S1).
+    check_reply: str = ""
+    # Whether it carries on when the check can't be asked: only on the narrower rule's words, as before S1.
+    unchecked: bool = False
+
+
+def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecked: bool) -> bool:
+    """The chat's own model says whether *reply* stopped with work it means to do; *unchecked* when it can't."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    try:
+        from row_bot.models import get_llm_for
+        from row_bot.providers.resolution import resolve_provider_config
+        from row_bot.providers.usage_ledger import with_usage_purpose
+
+        model = with_usage_purpose(
+            get_llm_for(resolve_provider_config(model_ref, allow_legacy_local=True).selection_ref),
+            "verifier", thread_id=conversation_id)
+        answer = model.invoke([SystemMessage(content=_STOP_CHECK), HumanMessage(content=f"The reply:\n{reply}")])
+        return not str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper().startswith("NO")
+    except Exception as exc:
+        _LOG.info("The stop check for %s couldn't run (%s)", conversation_id, type(exc).__name__)
+        return unchecked
 
 
 _PENDING: dict[str, Followup] = {}
@@ -309,8 +351,26 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
         # waits and runs after their answer turn, once the goal is active again.
         schedule(conversation_id, followup)
         return
+    if followup.check_reply:
+        # The check asks a model, so it runs on its own thread: this one holds the command lock (S1).
+        _schedule(0, lambda: _carry_on_if_still_working(service, handle, followup))
+        return
     start(service, conversation_id, followup, model_ref=handle.model_ref,
           runtime_surface=handle.runtime_surface)
+
+
+def _carry_on_if_still_working(service: Any, handle: Any, followup: Followup) -> None:
+    """Start the carry-on turn the word rule found, if the chat's model agrees the reply stopped mid-work."""
+    conversation_id = handle.conversation_id
+    if not _still_working(conversation_id, followup.check_reply, handle.model_ref, unchecked=followup.unchecked):
+        return  # Done, or handing over to the person: nothing to carry on.
+    from row_bot.application.client_platform import _COMMAND_LOCK
+
+    with _COMMAND_LOCK:
+        if service.registry.active(conversation_id) or pending(conversation_id) is not None:
+            return  # The person wrote in the meantime: their message goes first.
+        start(service, conversation_id, followup, model_ref=handle.model_ref,
+              runtime_surface=handle.runtime_surface)
 
 
 # ------------------------------------------------------------------ goals

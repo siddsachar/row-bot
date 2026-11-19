@@ -139,6 +139,12 @@
   "additionalProperties": false,
   "description": "Something a conversation waits for (5.3.1): it carries on there when it happens.",
   "properties": {
+    "at": {
+      "default": "",
+      "maxLength": 32,
+      "title": "At",
+      "type": "string"
+    },
     "conversation_id": {
       "maxLength": 128,
       "minLength": 1,

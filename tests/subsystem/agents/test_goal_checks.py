@@ -41,6 +41,13 @@ def owners(tmp_path, monkeypatch, reload_for_data_dir):
     return goals, threads, commands, goal_checks
 
 
+def _runs_in() -> str:
+    """Where a check runs in this chat: Row-Bot's workspace, named by its folder (R10)."""
+    from row_bot.data_paths import display_path, workspace_folder
+
+    return f"Row-Bot's workspace ({display_path(workspace_folder(create=False))})"
+
+
 def _request(commands, goals, operation="start", **overrides):
     current = goals.get_current_goal(CONVERSATION, include_terminal=True)
     value = {
@@ -124,7 +131,7 @@ def test_goal_update_done_waits_for_the_check_and_exit_0_completes_it(owners):
     assert (done["status"], done["check_state"]) == ("completed", "passed")
     assert done["last_reason"] == "Verified by `npm test`."
     assert any(item.startswith("Verified by `npm test` (exit 0") for item in done["evidence_json"])
-    assert runner.calls == [("npm test", "Row-Bot's workspace", "approve")]
+    assert runner.calls == [("npm test", _runs_in(), "approve")]
     assert runner.timeout == 600, "a check gets a fixed ten minutes"
     assert decision.should_continue is False
 
@@ -299,7 +306,7 @@ def test_the_persons_confirm_approves_the_check_at_every_level(owners):
         review = commands.review_goal_command(_request(commands, goals, check_command="npm test"),
                                               validate=_valid)
         assert review["check"]["level"] == level
-        assert ("Each time Row-Bot thinks the goal is done, it runs `npm test` in Row-Bot's workspace. "
+        assert (f"Each time Row-Bot thinks the goal is done, it runs `npm test` in {_runs_in()}. "
                 "The goal counts as done only when it exits 0.") in review["disclosures"]
     goal = _start(owners)
     approval = goals.check_approval(goal)

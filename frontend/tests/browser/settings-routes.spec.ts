@@ -15,6 +15,7 @@ const settingsRoutes = [
   ['preferences', 'Preferences'],
   ['appearance', 'Appearance'],
   ['buddy', 'Buddy'],
+  ['proactive', 'Proactive'],
   ['models', 'Models'],
   ['voice', 'Voice'],
   ['knowledge', 'Memory'],
@@ -24,6 +25,7 @@ const settingsRoutes = [
   ['skills', 'Skills'],
   ['apps', 'Apps'],
   ['system', 'System'],
+  ['activity', 'Activity'],
   ['access', 'Devices & remote access'],
   ['updates', 'Updates'],
   ['data', 'Data'],
@@ -106,22 +108,43 @@ async function waitForSettings(page: Page, label: string): Promise<void> {
     .toBe(0);
 }
 
+/**
+ * Opening any window, on any page, sends two writes that belong to the app,
+ * not to the page it opens on: the session handshake, and once after the
+ * first screen the Proactive app-open note (`{kind: 'app_open'}`: "you opened
+ * Row-Bot" is a break where batched moments may show). Every other write is
+ * a consequential request.
+ */
 function observeConsequentialRequests(page: Page): {
   requests: { method: string; path: string }[];
+  appOpenNotes: () => number;
   stop: () => void;
 } {
   const requests: { method: string; path: string }[] = [];
+  let appOpenNotes = 0;
   const observe = (request: Request) => {
     const url = new URL(request.url());
+    const method = request.method();
     if (
-      url.pathname.startsWith('/api/v1/') &&
-      !['GET', 'HEAD', 'OPTIONS'].includes(request.method()) &&
-      !(request.method() === 'POST' && url.pathname === '/api/v1/handshake')
+      !url.pathname.startsWith('/api/v1/') ||
+      ['GET', 'HEAD', 'OPTIONS'].includes(method) ||
+      (method === 'POST' && url.pathname === '/api/v1/handshake')
     )
-      requests.push({ method: request.method(), path: url.pathname });
+      return;
+    if (
+      method === 'POST' &&
+      url.pathname === '/api/v1/proactive/boundaries' &&
+      JSON.stringify(request.postDataJSON()) === '{"kind":"app_open"}'
+    )
+      appOpenNotes += 1;
+    else requests.push({ method, path: url.pathname });
   };
   page.on('request', observe);
-  return { requests, stop: () => page.off('request', observe) };
+  return {
+    requests,
+    appOpenNotes: () => appOpenNotes,
+    stop: () => page.off('request', observe),
+  };
 }
 
 async function expectCoarseTargets(page: Page, info: TestInfo): Promise<void> {
@@ -413,13 +436,19 @@ for (const [id, label] of settingsRoutes) {
       observation.stop();
       await writeEvidence(info, `settings-${id}-request-boundary`, {
         consequential_requests: observation.requests,
-        allowed_render_requests: 'GET/HEAD/OPTIONS and session handshake only',
+        app_open_notes: observation.appOpenNotes(),
+        allowed_render_requests:
+          'GET/HEAD/OPTIONS, the session handshake and one app-open note',
       });
     }
     expect(
       observation.requests,
       `${label} must not issue a consequential API request while rendering`,
     ).toEqual([]);
+    expect(
+      observation.appOpenNotes(),
+      'A window notes that it opened once',
+    ).toBeLessThanOrEqual(1);
   });
 }
 
@@ -578,7 +607,7 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
     name: 'Settings sections',
     exact: true,
   });
-  for (const name of ['Preferences', 'Appearance', 'Buddy']) {
+  for (const name of ['Preferences', 'Appearance', 'Buddy', 'Proactive']) {
     await page.keyboard.press('Tab');
     await expect(nav.getByRole('link', { name, exact: true })).toBeFocused();
   }

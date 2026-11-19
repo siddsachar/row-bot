@@ -17,12 +17,20 @@ def read_open(service: Any, conversation_id: str, *, limit: int = 100) -> dict:
 
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ClientPlatformError("invalid_command")
+    if admissions.deletion_state(conversation_id) != "active":
+        raise ClientPlatformError("conversation_deleting")
+    # The workspace is read before the locks: its model check may wait on a provider (Ollama), and every other
+    # chat's reads and turns wait on the command lock.
+    workspace = conversation_workspace(service, conversation_id)
     with _COMMAND_LOCK, threads.checkpoint_mutation(conversation_id):
         if admissions.deletion_state(conversation_id) != "active":
             raise ClientPlatformError("conversation_deleting")
         conversation = service.get_conversation(conversation_id)
         history = history_window(service, conversation_id, limit=limit)
-        workspace = conversation_workspace(service, conversation_id)
+        if workspace["revision"] != conversation["revision"]:
+            # The chat changed meanwhile: read its workspace again at this revision. Its model's readiness was
+            # just checked, so this read reuses it.
+            workspace = conversation_workspace(service, conversation_id)
         draft = read_draft(service, conversation_id)
         current = service._metadata(conversation_id)
         if admissions.deletion_state(conversation_id) != "active":

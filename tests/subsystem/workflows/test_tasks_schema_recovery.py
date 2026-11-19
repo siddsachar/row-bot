@@ -155,9 +155,17 @@ def test_compacting_the_chats_is_refused_while_row_bot_runs_on_the_folder(tmp_pa
     args = launcher._build_arg_parser().parse_args(["--compact-chats"])
     assert args.compact_chats is True
     assert launcher._hand_off_to_running_instance(args) == 1, "another launcher holds the folder: nothing runs"
+    assert capsys.readouterr().out.strip() == "Quit Row-Bot (or stop the server) before compacting chats."
 
     monkeypatch.setattr(chat_compact, "compact",
                         lambda path: {"before": 20 * 1024 ** 3, "after": 1024 ** 3, "checkpoints": 12_345})
     assert launcher._compact_chats() == 0
     said = capsys.readouterr().out
     assert "20.0 GB -> 1.0 GB (12,345 old saved states removed)" in said and "threads.db.pre-compact" in said
+
+    # A small database says its size in MB or KB, not "0.0 GB -> 0.0 GB" (W9), and space that came back with
+    # no saved state removed isn't "0 removed" (M13).
+    monkeypatch.setattr(chat_compact, "compact",
+                        lambda path: {"before": int(9.7 * 1024 ** 2), "after": 512 * 1024, "checkpoints": 0})
+    assert launcher._compact_chats() == 0
+    assert "Chat database: 9.7 MB -> 512 KB (unused space given back)." in capsys.readouterr().out

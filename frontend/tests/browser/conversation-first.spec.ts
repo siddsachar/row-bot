@@ -199,3 +199,32 @@ test('what you send leaves the composer at once, even when the reply is instant'
   await screenshot(page, testInfo, 'composer-after-instant-reply');
   await page.unroute('**/api/v1/conversations/*/workspace');
 });
+
+test('Enter while a new chat is still opening sends the message once (R2)', async ({
+  page,
+}) => {
+  await page.goto('/app-v2/');
+  await expect(page.locator('.connection-status.connected')).toHaveText(
+    'Connected',
+  );
+  // The new chat's controls arrive late: Enter pressed meanwhile is kept and
+  // sent once it has opened, never dropped with the text left behind.
+  let opening = 0;
+  let opened = 0;
+  await page.route('**/api/v1/conversations/*/open', async (route) => {
+    opening += 1;
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await route.continue();
+    opened += 1;
+  });
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await expect.poll(() => opening).toBe(1);
+  await composer(page).fill('Answer this instant reply fixture');
+  await composer(page).press('Enter');
+  expect(opened).toBe(0);
+  const sent = page.getByRole('article', { name: 'You message' });
+  await expect(sent).toHaveCount(1);
+  await expect(sent).toContainText('Answer this instant reply fixture');
+  await expect(composer(page)).toHaveValue('');
+  await page.unroute('**/api/v1/conversations/*/open');
+});

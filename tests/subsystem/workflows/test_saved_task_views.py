@@ -187,7 +187,7 @@ def test_summary_reports_saved_run_history_active_progress_and_next_run(
     assert first.active_run == task_views.TaskActiveRun(
         "run-live", "running", "2026-09-13T09:00:00", 2, 4
     )
-    assert first.next_run is not None and first.next_run.endswith("T09:00:00")
+    assert first.next_run is not None and first.next_run[10:19] == "T09:00:00"  # with its offset after
     assert second.recent_runs == () and second.active_run is None
     assert second.next_run is None
 
@@ -236,7 +236,13 @@ NOW = datetime(2026, 9, 26, 18, 30)  # a Saturday
 )
 def test_next_run_is_estimated_from_the_saved_schedule(saved, task, expected):
     tasks, _ = saved
-    assert tasks.estimate_next_run(task, NOW) == expected
+    estimated = tasks.estimate_next_run(task, NOW)
+    if expected is None:
+        assert estimated is None
+    else:
+        # This computer's wall-clock time, with its offset (RM3).
+        moment = datetime.fromisoformat(estimated)
+        assert moment.utcoffset() is not None and moment.replace(tzinfo=None).isoformat() == expected
 
 
 def test_summary_counts_advanced_steps_without_returning_step_contents(saved):
