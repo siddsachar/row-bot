@@ -76,6 +76,12 @@ _NEXT_STEP = re.compile(
     r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
     r"|\b(?:carrying on|moving on) (?:now|with)\b",
     re.IGNORECASE)
+# The narrower R1 rule: what carries on when the check can't be asked (no model, a provider error), as before.
+_SURE_NEXT_STEP = re.compile(
+    r"\b(?:next|now|then),?\s+I(?:'|’)ll\b|\bI(?:'|’)ll\s+(?:now|next|then)\b"
+    r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
+    r"|\b(?:carrying on|moving on) (?:now|with)\b",
+    re.IGNORECASE)
 _STOP_CHECK = (
     "You check one reply from an assistant that works with tools. Its turn has ended, so it does nothing more "
     "unless it is woken. Answer YES if the reply says it will do more of the work now, or that the work isn't "
@@ -128,8 +134,9 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
             record["kind"] != "watch" for record in waits.waiting(conversation_id)):
         return
     if next_step:
-        followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE,
-                            check_reply=str(assistant_text or "").strip()[-1500:])
+        reply = str(assistant_text or "").strip()
+        followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE, check_reply=reply[-1500:],
+                            unchecked=bool(_SURE_NEXT_STEP.search(reply[-_TAIL_CHARS:])))
     else:
         missing = _missing_files(conversation_id, assistant_text)
         if not missing:
@@ -205,10 +212,12 @@ class Followup:
     held: tuple[dict, ...] = ()
     # A carry-on the word rule found: the reply's end, which the chat's model checks before it starts (S1).
     check_reply: str = ""
+    # Whether it carries on when the check can't be asked: only on the narrower rule's words, as before S1.
+    unchecked: bool = False
 
 
-def _still_working(conversation_id: str, reply: str, model_ref: str) -> bool:
-    """The chat's own model says whether *reply* stopped with work it means to do; a failed check carries on."""
+def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecked: bool) -> bool:
+    """The chat's own model says whether *reply* stopped with work it means to do; *unchecked* when it can't."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
     try:
@@ -222,8 +231,8 @@ def _still_working(conversation_id: str, reply: str, model_ref: str) -> bool:
         answer = model.invoke([SystemMessage(content=_STOP_CHECK), HumanMessage(content=f"The reply:\n{reply}")])
         return not str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper().startswith("NO")
     except Exception as exc:
-        _LOG.info("The stop check for %s failed (%s); carrying on", conversation_id, type(exc).__name__)
-        return True
+        _LOG.info("The stop check for %s couldn't run (%s)", conversation_id, type(exc).__name__)
+        return unchecked
 
 
 _PENDING: dict[str, Followup] = {}
@@ -353,7 +362,7 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
 def _carry_on_if_still_working(service: Any, handle: Any, followup: Followup) -> None:
     """Start the carry-on turn the word rule found, if the chat's model agrees the reply stopped mid-work."""
     conversation_id = handle.conversation_id
-    if not _still_working(conversation_id, followup.check_reply, handle.model_ref):
+    if not _still_working(conversation_id, followup.check_reply, handle.model_ref, unchecked=followup.unchecked):
         return  # Done, or handing over to the person: nothing to carry on.
     from row_bot.application.client_platform import _COMMAND_LOCK
 

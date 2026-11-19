@@ -249,3 +249,29 @@ def test_no_carry_on_when_the_chats_model_reads_the_reply_as_done(chat, stop_che
     assert stop_check.asked, "the word rule found it and the model was asked"
     assert len(fake.calls) == 1
     assert notes(chat) == []
+
+
+@pytest.mark.parametrize("reply, carries_on", [
+    ("The landscape cut is saved. Next I'll render the vertical version.", True),
+    ("Recording Row-Bot's browser now. I'll stop it once the sign-up flow is done.", False),
+])
+def test_when_the_check_cannot_be_asked_only_the_narrower_rules_words_carry_on(chat, monkeypatch, reply, carries_on):
+    """With no model to ask (a provider error, an endpoint that is down), the broader rule alone fired on
+    replies that were waiting, not stopping; the narrower R1 rule decides then, as before."""
+    asked: list[str] = []
+
+    def unavailable(*_args, **_kwargs):
+        asked.append("asked")
+        raise RuntimeError("the provider is down")
+
+    monkeypatch.setattr("row_bot.models.get_llm_for", unavailable)
+    fake = Recording(replied(reply, "first"), replied("Done.", "second"), replied("unused", "third"))
+    send(chat, fake, "Film the sign-up flow", "film")
+    for _ in range(100):
+        if asked:
+            break
+        threading.Event().wait(0.05)
+    settle(chat, fake, 2 if carries_on else 1)
+    assert asked, "the check was tried"
+    assert len(fake.calls) == (2 if carries_on else 1)
+
