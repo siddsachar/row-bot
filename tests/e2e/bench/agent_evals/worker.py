@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     from . import keys
 
     # The paid keys this run needs, from the owner's keys file into this process only (never the spec).
-    keys.load_into(os.environ, spec.get("keys") or [], keys.keys_file())
+    key_sources = keys.load_into(os.environ, spec.get("keys") or [], keys.keys_file(), keys.profile_folder())
     from ..worker import _log_to
 
     if spec.get("log"):
@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         summary.config = {**config.to_dict(), "kind": "bridge", "caps": asdict(caps),
                           "network": runtime.policy.to_dict(), "setup_notes": runtime.notes,
                           **({"local_model": runtime.local_model} if runtime.local_model else {}),
-                          **spec.get("record", {})}
+                          "paid_keys": key_sources, **spec.get("record", {})}
         host = RuntimeHost(runtime, spec["benchmark"], run_dir / "trajectories.jsonl", redact=redact,
                            record=spec.get("record", {}))
         server = bridge.BridgeServer(host, router, bridge.tool_names(specs))

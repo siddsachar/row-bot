@@ -142,7 +142,7 @@ def run(args: argparse.Namespace) -> int:
     except keys.KeysError as exc:
         print(f"not running: {exc}")
         return 2
-    why = keys.problem(key_names, keys.keys_file())
+    why = keys.problem(key_names, keys.keys_file(), keys.profile_folder())
     if why:
         print(f"not running: {why}")
         return 2
@@ -285,11 +285,18 @@ def build_parser() -> argparse.ArgumentParser:
     report = tau2_sub.add_parser("report")
     report.add_argument("--run-dir", required=True)
     report.add_argument("--published", default="")
+    key_parser = sub.add_parser("keys", help="whether each paid provider's key is found (never a value)")
+    key_parser.add_argument("--providers", default="openai,anthropic")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.eval == "keys":
+        names = keys.names_for(item for item in args.providers.split(",") if item.strip())
+        for name, state in keys.status(names, keys.keys_file(), keys.profile_folder()).items():
+            print(f"{name}: {state}")
+        return 0
     if args.command == "plan":
         return plan(args)
     if args.command == "run":

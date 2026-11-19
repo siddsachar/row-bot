@@ -397,8 +397,41 @@ def test_paid_keys_come_only_from_the_owners_file_and_their_values_are_never_rep
     why = keys.problem(["OPENAI_API_KEY", "ANTHROPIC_API_KEY"], path)
     assert why == "the keys file has no value for ANTHROPIC_API_KEY" and "not-a-real" not in why
     environ: dict[str, str] = {}
-    assert keys.load_into(environ, ["OPENAI_API_KEY"], path) == ["OPENAI_API_KEY"]
+    assert keys.load_into(environ, ["OPENAI_API_KEY"], path) == {"OPENAI_API_KEY": "keys file"}
     assert environ == {"OPENAI_API_KEY": "not-a-real-key-0123456789"}
     with pytest.raises(keys.KeysError):
         keys.load_into({}, ["ANTHROPIC_API_KEY"], path)
     assert "OPENAI_API_KEY" not in runner_env(environ, "1:x")  # the benchmark's runner never gets it
+
+
+def test_a_key_saved_in_the_eval_profile_is_read_from_its_one_record_and_wins_over_the_file(tmp_path,
+                                                                                             monkeypatch) -> None:
+    from row_bot import secret_store
+    from tests.e2e.bench.agent_evals import keys
+
+    profile = tmp_path / "eval-profile"
+    # The record's place and identity are secret_store's own (a Row-Bot bound to that folder would read it there).
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(profile))
+    expected = secret_store._persistent_server_secret_identity(secret_store.service_name_for(profile),
+                                                               "api_keys:ANTHROPIC_API_KEY")
+    assert keys.record_path(profile, "ANTHROPIC_API_KEY") == expected
+    path, identity = expected
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"ROWBOT-DPAPI-V1\x00" + b"sealed")
+
+    def unprotect(data: bytes, entropy: bytes) -> bytes:  # stands in for the Windows user's DPAPI key
+        assert (data, entropy) == (b"sealed", identity)
+        return b"profile-key-0123456789"
+
+    keys_file = tmp_path / "bench-keys.env"
+    keys_file.write_text("ANTHROPIC_API_KEY=file-key-0123456789\nOPENAI_API_KEY=file-openai-0123456789\n",
+                         encoding="utf-8")
+    assert keys.status(["ANTHROPIC_API_KEY", "OPENAI_API_KEY"], keys_file, profile) == {
+        "ANTHROPIC_API_KEY": "found (eval profile)", "OPENAI_API_KEY": "found (keys file)"}
+    environ: dict[str, str] = {}
+    sources = keys.load_into(environ, ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"], keys_file, profile,
+                             unprotect=unprotect)
+    assert sources == {"ANTHROPIC_API_KEY": "eval profile", "OPENAI_API_KEY": "keys file"}
+    assert environ["ANTHROPIC_API_KEY"] == "profile-key-0123456789"
+    assert keys.problem(["ANTHROPIC_API_KEY"], None, profile) == ""
+    assert "eval profile has no saved key" in keys.problem(["OPENAI_API_KEY"], None, profile)

@@ -1,0 +1,39 @@
+# Row-Bot as a PawBench harness (lane E). Build from the root of a Row-Bot checkout:
+#
+#   docker build -f tests/e2e/bench/agent_evals/pawbench/docker/Dockerfile.pawbench-rowbot -t rowbot-pawbench:latest .
+#
+# The task container's tools match PawBench's other harness images (docker/Dockerfile.pawbench-hermes):
+# Python, Node, git, a headless Chromium, office and data libraries. Row-Bot itself is installed from the
+# checkout's lock file into /opt/rowbot/.venv (the same locked set as the installers, without a desktop
+# shell); the bench harness under tests/e2e/bench is copied with it. No key, sign-in or profile is baked
+# in: the local model is reached on the host at host.docker.internal:11434.
+FROM node:22-slim
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv git curl wget ca-certificates build-essential jq sqlite3 ripgrep \
+        chromium libnss3 libgbm1 libasound2 fonts-liberation fonts-wqy-zenhei xvfb \
+    && rm -rf /var/lib/apt/lists/*
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    COPAW_RUNNING_IN_CONTAINER=1 \
+    ROW_BOT_INSTALL_COUNT=0 \
+    HF_HUB_OFFLINE=1
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | env HOME=/root sh && ln -sf /root/.local/bin/uv /usr/local/bin/uv
+
+# The same task libraries the other harness images install, so a task's Python works the same.
+RUN pip install --no-cache-dir --break-system-packages requests pyyaml pandas numpy matplotlib Pillow \
+    scikit-learn python-docx openpyxl python-pptx
+
+WORKDIR /opt/rowbot
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+COPY tests/__init__.py ./tests/__init__.py
+COPY tests/e2e/__init__.py ./tests/e2e/__init__.py
+COPY tests/e2e/live_eval ./tests/e2e/live_eval
+COPY tests/e2e/bench ./tests/e2e/bench
+RUN uv sync --locked --no-dev --extra browser --extra designer --extra media --python 3.13
+
+RUN mkdir -p /app/working/workspaces/default/output /app/working/workspaces/default/sessions
+WORKDIR /app/working/workspaces/default
