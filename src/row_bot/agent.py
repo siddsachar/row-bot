@@ -6290,7 +6290,11 @@ def _has_code_folder() -> bool:
         return False
 
 
-def _activate_agent_cache_metadata(metadata: dict[str, Any]) -> None:
+def _activate_agent_cache_metadata(cache_key: frozenset[str]) -> None:
+    _activate_cached_metadata(_agent_cache_metadata.get(cache_key, {}))
+
+
+def _activate_cached_metadata(metadata: dict[str, Any]) -> None:
     _current_on_demand_tools_var.set(dict(metadata.get("on_demand_tools") or {}))
     deferred_tools.offer(metadata.get("deferred_tool_names") or ())
     _current_effective_tool_parent_names_var.set(tuple(metadata.get("tool_parents") or ()))
@@ -6870,7 +6874,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         with _agent_cache_lock:
             cached = _cached_agent(cache_key)
             if cached is not None:
-                _activate_agent_cache_metadata(cached[1])
+                _activate_cached_metadata(cached[1])
                 return cached[0]
             # Collect LangChain tool wrappers for enabled tools.
             eager_core_tools = [entry["tool"] for entry in eager_core_entries]
@@ -7126,7 +7130,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             _remember_agent(cache_key, agent, metadata)
             cached = agent, metadata
 
-    _activate_agent_cache_metadata(cached[1])
+    _activate_cached_metadata(cached[1])
     return cached[0]
 
 

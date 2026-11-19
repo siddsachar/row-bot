@@ -183,8 +183,8 @@ class _Built:
 
 # What _read built, per readiness, with what it was built from (P10). The handshake and every Models read
 # parsed the whole saved catalog and read every provider's key; now only a change does: the catalog or
-# provider settings file, a saved or removed secret, a provider key in the environment, or the models
-# topic (a disconnect). Sign-ins kept outside Row-Bot (Codex's, Claude Code's) and a token's expiry
+# provider settings file, a saved or removed secret, a provider key in the environment, the models
+# topic (a disconnect), or the personal-model versions Learning offers. Sign-ins kept outside Row-Bot (Codex's, Claude Code's) and a token's expiry
 # change none of these, so nothing built is older than _BUILT_MAX_AGE_SECONDS.
 _built: dict[bool, tuple[tuple, float, _Built]] = {}
 _built_lock = threading.Lock()
@@ -200,7 +200,7 @@ def _file_stamp(path: pathlib.Path) -> tuple[int, int, int] | None:
 
 
 def _sources() -> tuple:
-    from row_bot import secret_store
+    from row_bot import learning, secret_store
     from row_bot.application.live_updates import live_updates
     from row_bot.providers import config, model_catalog_cache
     from row_bot.providers.auth_store import PROVIDER_API_KEY_ENV
@@ -211,6 +211,8 @@ def _sources() -> tuple:
         secret_store.change_count(),
         live_updates.frame()["topics"]["models"],
         tuple(bool(os.environ.get(name)) for name in PROVIDER_API_KEY_ENV.values()),
+        # The personal-model versions Learning offers now (one path check while there are none).
+        tuple(sorted(learning.offered_personal_models().items())),
     )
 
 

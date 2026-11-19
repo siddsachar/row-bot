@@ -9,6 +9,8 @@ import pytest
 from row_bot.providers import client_status as status
 from row_bot.providers import config, model_catalog, model_catalog_cache as cache
 
+pytestmark = pytest.mark.platform  # a key saved through the secret store (P10)
+
 
 @pytest.fixture
 def saved(tmp_path, monkeypatch):
