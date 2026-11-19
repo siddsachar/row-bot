@@ -47,6 +47,9 @@ def install(monkeypatch, fake: FakeXApi, *users: tuple[str, str, str]) -> list:
     return [x_accounts.add(fake.sign_in(*user)) for user in users]
 
 
+INVALID_PARAMETERS = "One or more parameters to your request was invalid."
+
+
 @dataclass
 class FakeXApi:
     users: dict[str, dict[str, str]] = field(default_factory=dict)  # access token -> {id, username, name}
@@ -186,12 +189,22 @@ class FakeXApi:
                 data["includes"] = {"tweets": [{key: item[key] for key in ("id", "text", "author_id")}
                                                for item in self.posts if item["id"] in ids]}
             return httpx.Response(200, json=data)
+        if request.method == "GET" and parts[1:] == ["tweets", "search", "recent"]:
+            limit = int(request.url.params.get("max_results", "10"))
+            if not 10 <= limit <= 100:  # X's own range for a recent search.
+                return httpx.Response(400, json={"title": "Invalid Request", "detail": INVALID_PARAMETERS})
+            shown = [{key: value for key, value in item.items() if key != "media_ids"} for item in reversed(self.posts)]
+            return httpx.Response(200, json={"data": shown[:limit], "meta": {"result_count": len(shown)}}
+                                  if shown else {"meta": {}})
         if request.method == "GET" and parts[1] == "users" and len(parts) == 4 and parts[3] in {"tweets", "mentions"}:
             if self.fail_reads:
                 return httpx.Response(503, json={"title": "Service Unavailable"})
+            limit = int(request.url.params.get("max_results", "10"))
+            if not 5 <= limit <= 100:  # X's own range for a timeline or mentions.
+                return httpx.Response(400, json={"title": "Invalid Request", "detail": INVALID_PARAMETERS})
             mine = [item for item in reversed(self.posts) if item["author_id"] == parts[2]]
             shown = [{key: value for key, value in item.items() if key != "media_ids"} for item in mine]
-            return httpx.Response(200, json={"data": shown[:int(request.url.params.get("max_results", "10"))],
+            return httpx.Response(200, json={"data": shown[:limit],
                                              "meta": {"result_count": len(shown)}} if shown else {"meta": {}})
         if parts[1] == "users" and len(parts) >= 4 and parts[3] in {"likes", "retweets", "bookmarks"}:
             if parts[2] != user["id"]:
