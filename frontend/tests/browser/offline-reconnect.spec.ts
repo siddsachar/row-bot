@@ -3,6 +3,7 @@ import {
   captureSurface,
   fixtureHeaders,
   openSeedConversation,
+  watchReads,
 } from './surface-helpers';
 
 test('offline and reconnect keep the compact draft without replaying a command', async ({
@@ -14,6 +15,20 @@ test('offline and reconnect keep the compact draft without replaying a command',
     if (new URL(request.url()).pathname === '/api/v1/events')
       eventRequests += 1;
   });
+  const reads = watchReads(page);
+  // A page on this computer keeps its open conversation stream through a
+  // network drop (#568), and an emulated outage never breaks a stream already
+  // open. So the outage starts as the stream opens: its first request waits
+  // for it, and every run takes the reconnect path this spec is about.
+  let startOutage = () => {};
+  const outage = new Promise<void>((resolve) => (startOutage = resolve));
+  await page.route(
+    (url) => url.pathname === '/api/v1/events',
+    async (route) => {
+      await outage;
+      await route.continue();
+    },
+  );
   // Other specs on this fixture server may have sent messages already; only
   // a call made after this test starts would be a replay.
   const fixtureState = async () =>
@@ -29,10 +44,15 @@ test('offline and reconnect keep the compact draft without replaying a command',
     exact: true,
   });
   await composer.fill('Draft retained through deterministic network handoff');
+  // The draft is saved and the reads the first screen doesn't show have
+  // answered: only what the outage itself starts can fail in it.
+  await reads.settled();
   const initialEventRequests = eventRequests;
+  expect(initialEventRequests).toBeGreaterThan(0);
 
-  // A read or save the page happens to start during the outage (the draft,
-  // the queue, Buddy's picture) fails as any request would offline.
+  // A read or save the page happens to start during the outage (the
+  // conversation stream and its retries, the queue, Buddy's picture) fails as
+  // any request would offline.
   testInfo.annotations.push({
     type: 'expected-console-error',
     description: JSON.stringify({
@@ -44,6 +64,7 @@ test('offline and reconnect keep the compact draft without replaying a command',
     }),
   });
   await context.setOffline(true);
+  startOutage();
   try {
     await expect(page.getByTestId('pwa-status')).toHaveAttribute(
       'data-pwa-state',

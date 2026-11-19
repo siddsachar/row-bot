@@ -1907,10 +1907,12 @@ it('renders editable document, tool, and preference owners', async () => {
 
   mutation.page = 'preferences';
   const preferences = render(
-    <PreferencesSnapshotPanel
-      snapshot={snapshot.preferences}
-      mutation={mutation}
-    />,
+    <MemoryRouter>
+      <PreferencesSnapshotPanel
+        snapshot={snapshot.preferences}
+        mutation={mutation}
+      />
+    </MemoryRouter>,
   );
   expect(screen.getByLabelText('Name')).toHaveValue('Row-Bot');
   expect(screen.getByRole('textbox', { name: 'Personality' })).toBeVisible();
@@ -2334,12 +2336,14 @@ it('picks the model for documents next to the queue and saves at once (U45)', as
 it('saves Open in and the Dream Cycle hours at once, confirmed by the floating notice (B258)', async () => {
   mutation.page = 'preferences';
   render(
-    <OverlayProvider>
-      <PreferencesSnapshotPanel
-        snapshot={snapshot.preferences}
-        mutation={mutation}
-      />
-    </OverlayProvider>,
+    <MemoryRouter>
+      <OverlayProvider>
+        <PreferencesSnapshotPanel
+          snapshot={snapshot.preferences}
+          mutation={mutation}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
   );
   const openIn = screen.getByRole('radiogroup', { name: 'Open in' });
   fireEvent.click(within(openIn).getByRole('radio', { name: 'App window' }));

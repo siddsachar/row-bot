@@ -48,6 +48,7 @@ def read_live_provider_cards() -> dict:
             "oauth_client_id_configured": bool(card.get("oauth_client_id_configured")),
             "external_reference_exists": bool(card.get("external_reference_exists")),
             "reconnect_required": str(card.get("token_health") or "") in {"missing", "expired", "error", "revoked"},
+            "key_refused": bool(card.get("key_refused")),
             "risk_label": card.get("risk_label") or "api_key",
             "last_runtime_probe_ok": bool(probe.get("ok")) if probe else None,
             "billing": provider_billing(card["provider_id"]),

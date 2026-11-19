@@ -56,6 +56,9 @@ class _OAuthCallbackLogFilter(logging.Filter):
 
 _REJECTION_CACHE_MAX = 128
 _REJECTION_WINDOW_SECONDS = 30.0
+# How long a request's session check may be reused where reuse is asked for (each check opens the access
+# store on the event loop): an open live stream re-checks this often, so revocation ends it within it (P9).
+_REVALIDATION_REUSE_SECONDS = 1.0
 
 
 class SupportsSessionAuthentication(Protocol):
@@ -364,8 +367,19 @@ class AccessMiddleware:
         forwarded_scope[PROVENANCE_SCOPE_KEY] = provenance
         forwarded_scope[ACCESS_CONTEXT_SCOPE_KEY] = context
         forwarded_scope["row_bot_public_origins"] = resolver.config.public_origins
-        async def revalidate_access() -> AccessContext | None:
-            """Reuse current access policy for long-lived authenticated delivery."""
+        # The last answer this request got, and when: admission's to start with (P9).
+        checked: list = [time.monotonic(), context if context.authenticated else None]
+
+        async def revalidate_access(*, reuse: bool = False) -> AccessContext | None:
+            """Reuse current access policy for long-lived authenticated delivery.
+
+            Every check reads the access store, unless ``reuse``: a check that delivers nothing (a route's
+            first, an open live stream's every tick) takes this request's last answer while it is younger
+            than ``_REVALIDATION_REUSE_SECONDS``, so a signed-out device is cut off within that.
+            """
+            if reuse and checked[1] is not None and time.monotonic() - checked[0] < _REVALIDATION_REUSE_SECONDS:
+                return checked[1]
+            checked[1] = None  # Until this check says so, nothing earlier is reused.
             try:
                 current_snapshot = self.runtime_policy.snapshot() if self.runtime_policy is not None else None
                 current_resolver = (RequestContextResolver(current_snapshot.config_for_scope(scope))
@@ -377,6 +391,7 @@ class AccessMiddleware:
                         or current.authentication_kind != context.authentication_kind
                         or current.device_id != context.device_id or current.origin != context.origin):
                     return None
+                checked[:] = [time.monotonic(), current]
                 return current
             except Exception:
                 return None

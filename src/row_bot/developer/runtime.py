@@ -190,6 +190,19 @@ def _releases_on_exit(state: TrackedProcess) -> bool:
     return state.release_on_exit and not state.stop_requested and state.process.poll() is not None
 
 
+def _group_has_live_members(pgid: int) -> bool:
+    """Whether anything in process group *pgid* is still running (an ended, unreaped process is not)."""
+    import psutil
+
+    for process in psutil.process_iter():
+        try:
+            if os.getpgid(process.pid) == pgid and process.status() != psutil.STATUS_ZOMBIE:
+                return True
+        except (psutil.Error, OSError):
+            continue
+    return False
+
+
 def _close_process_containment(state: TrackedProcess) -> bool:
     with state.lifetime_lock:
         if state.containment_closed is not None:
@@ -217,6 +230,9 @@ def _close_process_containment(state: TrackedProcess) -> bool:
                 closed = True
             except ProcessLookupError:
                 closed = True
+            except PermissionError:
+                # macOS refuses to signal a group whose members have all ended but are not yet reaped.
+                closed = not _group_has_live_members(state.process.pid)
             except OSError:
                 closed = False
         else:

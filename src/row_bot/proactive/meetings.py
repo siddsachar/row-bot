@@ -27,6 +27,20 @@ def _clock(value: float, now: float) -> str:
     return moment.strftime("%H:%M") if same_day else moment.strftime("%a %H:%M")
 
 
+def shown_title(moment: dict[str, Any], now: float) -> str:
+    """A meeting prep moment's title as a surface shows it now: "Design review in 7 minutes", counted when it is
+    shown, never when the moment was made (R3). Any other moment's title as it is."""
+    title = str(moment.get("title") or "")
+    if moment.get("kind") != "meeting_prep":
+        return title
+    seen = next((str(item.get("seen") or "") for item in moment.get("evidence") or []
+                 if item.get("type") == "event"), "")
+    if not seen.isdigit() or float(seen) <= now:
+        return title
+    minutes = max(1, round((float(seen) - now) / 60))
+    return f"{title} in {minutes} minute{'' if minutes == 1 else 's'}"
+
+
 class CalendarWatcher(Watcher):
     name = "calendar"
     source = "calendar"
@@ -74,11 +88,12 @@ class CalendarWatcher(Watcher):
 
     @staticmethod
     def _prep(source: str, event: Any, now: float) -> Candidate:
-        minutes = max(1, round((event.start - now) / 60))
         people = len(event.attendees)
         return Candidate(
             kind="meeting_prep", key=f"meeting:{event.id}:{int(event.start)}",
-            title=f"{event.title or 'A meeting'} in {minutes} minutes",
+            # No "in 14 minutes" in the title: it would still say so when shown later (R3). Each surface says how
+            # soon when it shows the moment (``shown_title``; the client counts from ``starts_at``).
+            title=event.title or "A meeting",
             summary=(f"A meeting starts at {_clock(event.start, now)} with {people} other "
                      f"{'person' if people == 1 else 'people'}{' and files' if event.has_files else ''}."),
             evidence=(Evidence("event", event.id, event.title, source, seen=str(int(event.start))),),

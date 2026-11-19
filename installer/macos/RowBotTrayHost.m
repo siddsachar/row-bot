@@ -14,13 +14,17 @@
 // The same rules live in src/row_bot/install_layout.py, Row-Bot.exe and the
 // Linux row-bot wrapper (shared cases: contracts/install-layout/launch-cases.json).
 // Run from a download or a disk image, it first offers to move itself to
-// Applications.
+// Applications; already in an Applications folder (even translocated), never.
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
+#import <Security/Security.h>
 #import <dispatch/dispatch.h>
 #import <dlfcn.h>
+#import <errno.h>
 #import <glob.h>
 #import <signal.h>
+#import <stdio.h>
+#import <string.h>
 
 static NSString * const RowBotBundleIdentifier = @"ai.row-bot.assistant";
 static NSString * const RowBotAppName = @"Row-Bot";
@@ -272,6 +276,150 @@ static NSString *RowBotOriginalBundlePath(NSString *path) {
     return original ? [(__bridge_transfer NSURL *)original path] : path;
 }
 
+// -- Move to Applications: the decision and the copy ---------------------------
+// Pure of any UI, so `row-bot --move-plan` and `row-bot --install-copy` run them
+// as they are (tests/subsystem/installer/test_macos_move_to_applications.py).
+
+typedef NS_ENUM(NSInteger, RowBotMovePlan) {
+    RowBotMovePlanStay,             // nothing to offer: run where it is
+    RowBotMovePlanAlreadyInstalled, // in an Applications folder, perhaps translocated: never move
+    RowBotMovePlanOffer,            // from a download, a disk image, or translocated from elsewhere
+};
+
+static NSString *RowBotMovePlanName(RowBotMovePlan plan) {
+    switch (plan) {
+        case RowBotMovePlanAlreadyInstalled:
+            return @"already_installed";
+        case RowBotMovePlanOffer:
+            return @"offer";
+        default:
+            return @"stay";
+    }
+}
+
+static BOOL RowBotPathIsInside(NSString *path, NSString *folder) {
+    while ([folder hasSuffix:@"/"]) {
+        folder = [folder substringToIndex:folder.length - 1];
+    }
+    return folder.length > 0 && [path hasPrefix:[folder stringByAppendingString:@"/"]];
+}
+
+// bundlePath is where the app runs, originalPath where the person put it
+// (RowBotOriginalBundlePath: the same unless macOS translocated it). An app the
+// person already put in /Applications or ~/Applications is installed: macOS
+// translocates it while it keeps its quarantine (a copy not made by Finder), and
+// moving it would trash the very app it runs from (RM1). It runs as it is.
+static RowBotMovePlan RowBotPlanMove(NSString *bundlePath, NSString *originalPath, NSString *home, BOOL readOnlyVolume) {
+    for (NSString *applications in @[@"/Applications", [home stringByAppendingPathComponent:@"Applications"]]) {
+        if (RowBotPathIsInside(originalPath, applications)) {
+            return RowBotMovePlanAlreadyInstalled;
+        }
+    }
+    if ([bundlePath containsString:@"/AppTranslocation/"] || readOnlyVolume ||
+        RowBotPathIsInside(originalPath, [home stringByAppendingPathComponent:@"Downloads"])) {
+        return RowBotMovePlanOffer;
+    }
+    return RowBotMovePlanStay;
+}
+
+static NSString *RowBotBundleString(NSString *bundle, NSString *key) {
+    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[bundle stringByAppendingPathComponent:@"Contents/Info.plist"]];
+    id value = info[key];
+    return [value isKindOfClass:[NSString class]] ? value : nil;
+}
+
+// The code signature of a bundle checked in full, its sealed resources included.
+static OSStatus RowBotSignatureStatus(NSString *bundle) {
+    SecStaticCodeRef code = NULL;
+    OSStatus status = SecStaticCodeCreateWithPath((__bridge CFURLRef)[NSURL fileURLWithPath:bundle], kSecCSDefaultFlags, &code);
+    if (status != errSecSuccess) {
+        return status;
+    }
+    status = SecStaticCodeCheckValidity(code, kSecCSDefaultFlags, NULL);
+    CFRelease(code);
+    return status;
+}
+
+// Why a copy may not replace the installed app, or nil when it may: it must be
+// Row-Bot at the running version with a valid signature. An unsigned or ad hoc
+// build (a local or CI build) has none; its copy must check exactly as it does.
+static NSString *RowBotCopyProblem(NSString *copy, NSString *source, NSString *version) {
+    NSString *identifier = RowBotBundleString(copy, @"CFBundleIdentifier");
+    if (![identifier isEqualToString:RowBotBundleIdentifier]) {
+        return [NSString stringWithFormat:@"bundle id %@", identifier ?: @"missing"];
+    }
+    NSString *copied = RowBotBundleString(copy, @"CFBundleShortVersionString");
+    if (version.length == 0 || ![copied isEqualToString:version]) {
+        return [NSString stringWithFormat:@"version %@, expected %@", copied ?: @"missing", version ?: @"missing"];
+    }
+    OSStatus status = RowBotSignatureStatus(copy);
+    if (status == errSecSuccess) {
+        RowBotLog(nil, @"copy_verified signature=valid");
+        return nil;
+    }
+    OSStatus sourceStatus = RowBotSignatureStatus(source);
+    if (status == sourceStatus) {
+        RowBotLog(nil, @"copy_verified signature=as_source status=%d", (int)status);
+        return nil;
+    }
+    return [NSString stringWithFormat:@"signature status %d, the app it came from %d", (int)status, (int)sourceStatus];
+}
+
+static NSString *RowBotMoveFailed(NSString *step, NSString *reason, NSString **problem) {
+    RowBotLog(nil, @"move_failed step=%@ reason=%@", step, reason);
+    if (problem) {
+        *problem = [NSString stringWithFormat:@"%@: %@", step, reason];
+    }
+    return nil;
+}
+
+// Puts a copy of source in folder as Row-Bot.app: copied under a hidden name in
+// folder, verified, then swapped in with one rename (renamex_np RENAME_SWAP, or
+// RENAME_EXCL when there is none yet), so Row-Bot.app is at every moment either
+// the app that was there or the verified copy. Returns the installed path; on
+// failure nil with *problem set, and whatever was at Row-Bot.app is untouched.
+// On success *displaced is the app it replaced, now under the hidden name, for
+// the caller to trash, or nil.
+static NSString *RowBotInstallCopy(NSString *source, NSString *folder, NSString *version,
+                                   NSString **displaced, NSString **problem) {
+    if (displaced) {
+        *displaced = nil;
+    }
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *destination = [folder stringByAppendingPathComponent:@"Row-Bot.app"];
+    NSString *staging = [folder stringByAppendingPathComponent:
+                         [NSString stringWithFormat:@".Row-Bot-%@.app", [[NSUUID UUID] UUIDString]]];
+    NSError *error = nil;
+    if (![fm copyItemAtPath:source toPath:staging error:&error]) {
+        [fm removeItemAtPath:staging error:nil];
+        return RowBotMoveFailed(@"copy", error.localizedDescription ?: @"unknown error", problem);
+    }
+    RowBotLog(nil, @"copied from=%@ to=%@", source, staging);
+    // Moved by the person's choice: no new Gatekeeper check or translocation.
+    NSTask *xattr = [NSTask launchedTaskWithExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/xattr"]
+                                                arguments:@[@"-d", @"-r", @"com.apple.quarantine", staging]
+                                                    error:nil
+                                       terminationHandler:nil];
+    [xattr waitUntilExit];
+    NSString *invalid = RowBotCopyProblem(staging, source, version);
+    if (invalid) {
+        [fm removeItemAtPath:staging error:nil];
+        return RowBotMoveFailed(@"verify", invalid, problem);
+    }
+    BOOL replacing = [fm attributesOfItemAtPath:destination error:nil] != nil;
+    if (renamex_np(staging.fileSystemRepresentation, destination.fileSystemRepresentation,
+                   replacing ? RENAME_SWAP : RENAME_EXCL) != 0) {
+        NSString *reason = [NSString stringWithUTF8String:strerror(errno)];
+        [fm removeItemAtPath:staging error:nil];
+        return RowBotMoveFailed(@"swap", reason, problem);
+    }
+    if (displaced && replacing) {
+        *displaced = staging;
+    }
+    RowBotLog(nil, @"swapped to=%@ replaced=%@", destination, replacing ? @"yes" : @"no");
+    return destination;
+}
+
 @interface RowBotHost : NSObject <NSApplicationDelegate, NSMenuDelegate>
 @property(nonatomic, strong) NSStatusItem *statusItem;
 @property(nonatomic, strong) NSMenuItem *updateItem;
@@ -507,16 +655,14 @@ static NSString *RowBotOriginalBundlePath(NSString *path) {
         return NO;
     }
     NSString *path = [[NSBundle mainBundle] bundlePath];
-    if ([path containsString:@"/AppTranslocation/"]) {
-        return YES;
-    }
-    NSString *downloads = [NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory, NSUserDomainMask, YES) firstObject];
-    if (downloads.length > 0 && [path hasPrefix:[downloads stringByAppendingString:@"/"]]) {
-        return YES;
-    }
+    NSString *original = RowBotOriginalBundlePath(path);
     NSNumber *readOnly = nil;
     [[NSURL fileURLWithPath:path] getResourceValue:&readOnly forKey:NSURLVolumeIsReadOnlyKey error:nil];
-    return readOnly.boolValue;
+    RowBotMovePlan plan = RowBotPlanMove(path, original, NSHomeDirectory(), readOnly.boolValue);
+    if (plan == RowBotMovePlanAlreadyInstalled && ![original isEqualToString:path]) {
+        RowBotLog(self.dataDir, @"move_skipped_already_installed bundle=%@ original=%@", path, original);
+    }
+    return plan == RowBotMovePlanOffer;
 }
 
 - (void)showError:(NSString *)message {
@@ -531,6 +677,9 @@ static NSString *RowBotOriginalBundlePath(NSString *path) {
     if (![self shouldOfferMoveToApplications]) {
         return NO;
     }
+    NSString *source = [[NSBundle mainBundle] bundlePath];
+    NSString *original = RowBotOriginalBundlePath(source);
+    RowBotLog(self.dataDir, @"move_offered bundle=%@ original=%@", source, original);
     [NSApp activateIgnoringOtherApps:YES];
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"Move Row-Bot to your Applications folder?";
@@ -549,32 +698,24 @@ static NSString *RowBotOriginalBundlePath(NSString *path) {
     }
 
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *source = [[NSBundle mainBundle] bundlePath];
-    NSString *original = RowBotOriginalBundlePath(source);
     NSString *applications = @"/Applications";
     if (![fm isWritableFileAtPath:applications]) {
         applications = [NSHomeDirectory() stringByAppendingPathComponent:@"Applications"];
         RowBotEnsureDirectory(applications);
     }
-    NSString *destination = [applications stringByAppendingPathComponent:@"Row-Bot.app"];
-    NSError *error = nil;
-    if ([fm fileExistsAtPath:destination] &&
-        ![fm trashItemAtURL:[NSURL fileURLWithPath:destination] resultingItemURL:nil error:&error]) {
-        [self showError:[NSString stringWithFormat:@"Row-Bot could not replace %@: %@", destination,
-                         error.localizedDescription ?: @"unknown error"]];
+    // The app already in Applications is replaced only by a verified copy, and
+    // trashed only once that copy is in its place.
+    NSString *version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSString *displaced = nil;
+    NSString *destination = RowBotInstallCopy(source, applications, version, &displaced, NULL);
+    if (!destination) {
+        [self showError:[NSString stringWithFormat:@"Row-Bot couldn't move to %@, so it will keep running from "
+                         @"where it is. Nothing in %@ was changed.", applications, applications]];
         return NO;
     }
-    if (![fm copyItemAtPath:source toPath:destination error:&error]) {
-        [self showError:[NSString stringWithFormat:@"Row-Bot could not copy itself to %@: %@", applications,
-                         error.localizedDescription ?: @"unknown error"]];
-        return NO;
+    if (displaced && ![fm trashItemAtURL:[NSURL fileURLWithPath:displaced] resultingItemURL:nil error:nil]) {
+        RowBotLog(self.dataDir, @"replaced_copy_not_trashed path=%@", displaced);
     }
-    // Moved by the user's choice: no new Gatekeeper check or translocation.
-    NSTask *xattr = [NSTask launchedTaskWithExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/xattr"]
-                                                arguments:@[@"-d", @"-r", @"com.apple.quarantine", destination]
-                                                    error:nil
-                                       terminationHandler:nil];
-    [xattr waitUntilExit];
     NSNumber *readOnly = nil;
     [[NSURL fileURLWithPath:original] getResourceValue:&readOnly forKey:NSURLVolumeIsReadOnlyKey error:nil];
     if (!readOnly.boolValue && ![original isEqualToString:destination]) {
@@ -1068,10 +1209,53 @@ static int RowBotRunPython(int argc, const char *argv[]) {
     return bytesMain(argc - 2, arguments);
 }
 
+// row-bot --move-plan BUNDLE ORIGINAL HOME: what the host does about Applications
+// for an app running at BUNDLE that the person put at ORIGINAL.
+static int RowBotMovePlanCommand(int argc, const char *argv[]) {
+    if (argc != 5) {
+        fprintf(stderr, "usage: row-bot --move-plan BUNDLE ORIGINAL HOME\n");
+        return 2;
+    }
+    NSString *bundle = [NSString stringWithUTF8String:argv[2]];
+    NSNumber *readOnly = nil;
+    [[NSURL fileURLWithPath:bundle] getResourceValue:&readOnly forKey:NSURLVolumeIsReadOnlyKey error:nil];
+    RowBotMovePlan plan = RowBotPlanMove(bundle, [NSString stringWithUTF8String:argv[3]],
+                                         [NSString stringWithUTF8String:argv[4]], readOnly.boolValue);
+    printf("%s\n", [RowBotMovePlanName(plan) UTF8String]);
+    return 0;
+}
+
+// row-bot --install-copy SOURCE FOLDER VERSION: the copy behind "Move to
+// Applications", into FOLDER/Row-Bot.app. It trashes nothing: it prints the
+// app it replaced, which the host would trash.
+static int RowBotInstallCopyCommand(int argc, const char *argv[]) {
+    if (argc != 5) {
+        fprintf(stderr, "usage: row-bot --install-copy SOURCE FOLDER VERSION\n");
+        return 2;
+    }
+    NSString *displaced = nil;
+    NSString *problem = nil;
+    NSString *installed = RowBotInstallCopy([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]],
+                                            [NSString stringWithUTF8String:argv[4]], &displaced, &problem);
+    if (!installed) {
+        fprintf(stderr, "row-bot: %s\n", [problem UTF8String]);
+        return 1;
+    }
+    printf("installed=%s\ndisplaced=%s\n", installed.fileSystemRepresentation,
+           displaced ? displaced.fileSystemRepresentation : "");
+    return 0;
+}
+
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
         if (argc > 1 && strcmp(argv[1], "--run-python") == 0) {
             return RowBotRunPython(argc, argv);
+        }
+        if (argc > 1 && strcmp(argv[1], "--move-plan") == 0) {
+            return RowBotMovePlanCommand(argc, argv);
+        }
+        if (argc > 1 && strcmp(argv[1], "--install-copy") == 0) {
+            return RowBotInstallCopyCommand(argc, argv);
         }
         for (int index = 1; index < argc; index++) {
             if (strcmp(argv[index], "--") == 0) {

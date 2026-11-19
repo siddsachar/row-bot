@@ -73,6 +73,11 @@ _load_error_detail = ""
 _load_event = threading.Event()
 _load_thread: threading.Thread | None = None
 
+# A load whose installed packages failed to import (a start-up race on a slow disk, RM4) is tried again on
+# a use at least this long after it started.
+_IMPORT_FAILED = "local_runtime_import_failed"
+_IMPORT_RETRY_SECONDS = 30.0
+
 _BASE_LOCAL_PACKAGES = ("sentence_transformers", "langchain_huggingface")
 _LOCAL_MODEL_DOWNLOAD_IGNORE_PATTERNS = (
     "gguf/*",
@@ -290,6 +295,11 @@ def _classify_local_load_error(exc: Exception) -> tuple[str, str]:
             "local_model_missing",
             "The selected local embedding model is not available in the local cache.",
         )
+    if isinstance(exc, ImportError):  # Its packages are installed (checked first): they failed to load (RM4).
+        return (
+            _IMPORT_FAILED,
+            "The local embedding runtime didn't load. Row-Bot tries again shortly; restart it if this stays.",
+        )
     return (
         "local_model_failed",
         "The cached local embedding model could not be loaded.",
@@ -308,7 +318,9 @@ def _begin_local_load(key: tuple[Any, ...], *, force: bool = False) -> tuple[int
             _load_error_detail = ""
             _load_event.set()
             return _load_generation, False
-        if not force and _load_key == key and _load_status in {"loading", "missing", "failed"}:
+        retry_import = (_load_status == "failed" and _load_error_code == _IMPORT_FAILED
+                        and time.monotonic() - _load_started_at >= _IMPORT_RETRY_SECONDS)
+        if not force and _load_key == key and _load_status in {"loading", "missing", "failed"} and not retry_import:
             return _load_generation, False
         if not force and _load_key == key and _load_status == "ready":
             return _load_generation, False

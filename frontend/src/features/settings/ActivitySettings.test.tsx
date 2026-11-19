@@ -132,6 +132,78 @@ describe('Settings › System › Activity', () => {
     ).toBeVisible();
   });
 
+  it('says a call nobody was asked about in the words chat steps use, never its tool name (W19)', async () => {
+    setup([
+      page([
+        entry({
+          entry_id: 4,
+          tool: 'agent_wait',
+          title: '',
+          summary: '',
+          outcome: 'ran',
+          decided_by: 'none',
+        }),
+        entry({
+          entry_id: 5,
+          tool: 'read_url',
+          title: '',
+          summary: '',
+          outcome: 'ran',
+        }),
+        entry({
+          entry_id: 6,
+          tool: 'duckduckgo_search',
+          title: '',
+          summary: '',
+          outcome: 'ran',
+        }),
+      ]),
+    ]);
+
+    const list = within(await screen.findByRole('list'));
+    expect(list.getByText('Wait for a helper')).toBeVisible();
+    expect(list.getByText('Read page')).toBeVisible();
+    expect(list.getByText('Search the web')).toBeVisible();
+    expect(list.queryByText(/agent_wait|Agent wait|read_url/)).toBeNull();
+  });
+
+  it('names each calendar action for what it did, Google and Outlook alike (R1)', async () => {
+    const tools = {
+      search_events: 'Search the calendar',
+      create_calendar_event: 'Create an event',
+      create_calendar_events: 'Create events',
+      update_calendar_event: 'Change an event',
+      move_calendar_event: 'Move an event',
+      delete_calendar_event: 'Delete an event',
+      outlook_create_event: 'Add an event',
+      outlook_update_event: 'Change an event',
+      outlook_cancel_event: 'Cancel an event',
+      outlook_respond_event: 'Answer an invitation',
+    };
+    setup([
+      page(
+        Object.keys(tools).map((tool, index) =>
+          entry({
+            entry_id: 10 + index,
+            tool,
+            title: '',
+            app_name: tool.startsWith('outlook_') ? 'Outlook' : 'Google',
+          }),
+        ),
+      ),
+    ]);
+
+    const list = within(await screen.findByRole('list'));
+    const rows = list.getAllByRole('listitem');
+    expect(rows).toHaveLength(Object.keys(tools).length);
+    Object.entries(tools).forEach(([tool, words], index) =>
+      expect(rows[index]).toHaveTextContent(
+        `${tool.startsWith('outlook_') ? 'Outlook' : 'Google'} › ${words}`,
+      ),
+    );
+    expect(list.queryByText(/Check the calendar/)).toBeNull();
+  });
+
   it('filters by outcome, by where it ran and by words', async () => {
     const io = setup();
     await screen.findByText('Reviewer approved');

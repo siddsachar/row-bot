@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-import shutil
 import subprocess
 import threading
 import time
@@ -161,12 +160,22 @@ class BrowserLocalVoiceService:
         with self._job(session_key):
             self.tts_service.download_model(progress)
 
+    def ffmpeg_command(self) -> list[str] | None:
+        """How to start the ffmpeg that decodes browser audio: the one on PATH, else the one Row-Bot downloaded
+        into its data folder (a Mac app's PATH has no ffmpeg; M7). None when there is neither."""
+        if self._ffmpeg_path:
+            return [self._ffmpeg_path]
+        from row_bot import ffmpeg_runtime
+
+        found = ffmpeg_runtime.find()
+        return found.command() if found else None
+
     def _decode(self, audio_bytes: bytes, *, max_seconds: int = MAX_UTTERANCE_SECONDS) -> bytes:
-        executable = self._ffmpeg_path or shutil.which("ffmpeg")
-        if not executable:
+        ffmpeg = self.ffmpeg_command()
+        if not ffmpeg:
             raise BrowserVoiceError("ffmpeg_unavailable", status_code=503)
         command = [
-            executable,
+            *ffmpeg,
             "-nostdin",
             "-hide_banner",
             "-loglevel",

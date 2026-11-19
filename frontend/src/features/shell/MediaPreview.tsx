@@ -608,6 +608,118 @@ function FileOnDemand({
   );
 }
 
+/** An attached file shows as its server thumbnail rather than in full. */
+export function showsAsThumbnail(mime: string): boolean {
+  return previewKind(mime, '') === 'image';
+}
+
+/**
+ * An attached picture in the transcript: its small server thumbnail inline.
+ * The whole file is read only when it is opened in the media viewer (a
+ * 10 MB photo costs a few KB until then).
+ */
+export function AttachmentThumbnail({
+  reference,
+  mime,
+  name,
+  size,
+}: {
+  reference: string;
+  mime: string;
+  name: string;
+  size?: number;
+}) {
+  const { controller } = useRuntime();
+  const overlay = useOverlay();
+  const [thumbnail, setThumbnail] = useState<{
+    reference: string;
+    url: string;
+  } | null>(null);
+  const [failed, setFailed] = useState('');
+  useEffect(() => {
+    const abort = new AbortController();
+    let owned = '';
+    controller.attachmentThumbnail(reference, abort.signal).then(
+      (blob) => {
+        if (abort.signal.aborted) return;
+        if (!blob) {
+          setFailed(reference);
+          return;
+        }
+        owned = URL.createObjectURL(blob);
+        setThumbnail({ reference, url: owned });
+      },
+      () => {
+        if (!abort.signal.aborted) setFailed(reference);
+      },
+    );
+    return () => {
+      abort.abort();
+      if (owned) URL.revokeObjectURL(owned);
+    };
+  }, [controller, reference]);
+  const open = () => openMediaViewer(overlay, { reference, mime, name, size });
+  const view = (
+    <IconButton size="sm" label={`View ${name} full size`} onClick={open}>
+      <Maximize2 size={15} aria-hidden />
+    </IconButton>
+  );
+  const shown = thumbnail?.reference === reference ? thumbnail.url : '';
+  if (failed === reference)
+    return (
+      <div
+        className="media-preview"
+        role="group"
+        aria-label={name}
+        data-media-ref={reference}
+        data-kind="image"
+      >
+        <div className="media-file-card">
+          <span className="media-file-icon" aria-hidden>
+            <FileIcon />
+          </span>
+          <span className="media-file-text">
+            <strong>{name}</strong>
+            <small>No preview</small>
+          </span>
+          {view}
+        </div>
+      </div>
+    );
+  if (!shown)
+    return (
+      <p
+        role="status"
+        className="media-preview-status"
+        data-kind="image"
+        data-thumbnail="true"
+        data-media-ref={reference}
+      >
+        Loading {name}…
+      </p>
+    );
+  return (
+    <div
+      className="media-preview"
+      role="group"
+      aria-label={name}
+      data-media-ref={reference}
+      data-kind="image"
+    >
+      <div className="media-image-frame media-thumbnail">
+        <img
+          className="message-media"
+          src={shown}
+          alt={name}
+          onClick={open}
+          onError={() => setFailed(reference)}
+        />
+        <span className="media-image-tools">{view}</span>
+      </div>
+    </div>
+  );
+}
+
 /** A picture or video by its reference, opened in the media viewer: as large
  * as the window allows, with its player and download (a post's files are
  * checked there before they go out). */

@@ -419,6 +419,42 @@ def test_missing_cached_model_fails_fast_after_first_attempt(monkeypatch):
     embedding_providers.release_embedding_resources("test cleanup", collect=False)
 
 
+def test_an_installed_runtime_that_failed_to_import_loads_on_a_later_use(monkeypatch):
+    """A start-up race (RM4) doesn't leave local recall off for the session."""
+    import row_bot.embedding_providers as embedding_providers
+
+    embedding_providers.release_embedding_resources("test reset", collect=False)
+    cfg = {"provider": "local", "local_model": "mxbai-large-v1", "cloud_model": "openai:text-embedding-3-small",
+           "dimension": None}
+    monkeypatch.setattr(embedding_providers, "get_embedding_config", lambda: dict(cfg))
+    monkeypatch.setattr(embedding_providers, "ensure_embedding_runtime_available", lambda _cfg=None: None)
+    attempts = 0
+    provider = object()
+
+    def _build(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ImportError("cannot import name 'tournament' from partially initialized module",
+                              name="networkx.algorithms")
+        return provider
+
+    monkeypatch.setattr(embedding_providers, "_get_or_build_provider", _build)
+
+    with pytest.raises(embedding_providers.LocalEmbeddingUnavailable) as failed:
+        embedding_providers.get_embedding_provider_for_recall()
+    assert "didn't load" in failed.value.detail and "missing" not in failed.value.detail
+    with pytest.raises(embedding_providers.LocalEmbeddingUnavailable):
+        embedding_providers.get_embedding_provider_for_recall()  # Within the retry interval: no new try.
+    assert attempts == 1
+
+    monkeypatch.setattr(embedding_providers, "_IMPORT_RETRY_SECONDS", 0.0)
+    embedding_providers.start_local_embedding_load(config=dict(cfg))
+    assert embedding_providers._load_event.wait(5)
+    assert attempts == 2
+    embedding_providers.release_embedding_resources("test cleanup", collect=False)
+
+
 def test_recall_waits_one_shared_grace_then_recovers_when_load_finishes(monkeypatch):
     import row_bot.embedding_providers as embedding_providers
 

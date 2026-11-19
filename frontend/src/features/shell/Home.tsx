@@ -30,6 +30,7 @@ import MonitorHome from '../home/MonitorHome';
 import type { BackgroundProcessesIo } from '../home/BackgroundProcesses';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
+import PhoneNotificationsOffer from '../home/PhoneNotificationsOffer';
 import { BuddyPortrait } from '../buddy/BuddySurface';
 import ForYou from '../proactive/ForYou';
 import ResourceSetup from './ResourceSetup';
@@ -40,6 +41,7 @@ import { memoryImportIO } from '../knowledge/memory-import-io';
 import MemoryReviewDialog from '../knowledge/MemoryReviewDialog';
 import { memoryReviewIO } from '../knowledge/memory-review-io';
 import { neverUsed } from './new-chat';
+import { useAttention } from './needs';
 import LearningHome, {
   LEARNING_VIEWS,
   type LearningView,
@@ -53,6 +55,7 @@ const REUSE_MS = 20_000;
 // in well under a second) and "Show all" reads up to the server's 5,000 (B251).
 const GRAPH_DEFAULT_LIMIT = 2000;
 const GRAPH_ALL_LIMIT = 5000;
+const NO_PROBLEMS: AttentionProblem[] = [];
 
 export default function Home({
   onAsk,
@@ -120,7 +123,6 @@ export default function Home({
   const [monitorError, setMonitorError] = useState('');
   const [monitorReload, setMonitorReload] = useState(0);
   const [startupWarnings, setStartupWarnings] = useState<string[]>([]);
-  const [attention, setAttention] = useState<AttentionProblem[]>([]);
   const monitorRead = useRef({ at: 0, key: '' });
   // What Monitor lists as needing the person changed (a failed run, a
   // notice; B407): read it again at once, at most once a second, without the
@@ -157,6 +159,15 @@ export default function Home({
     state.status === 'ready' && state.handshake
       ? `${state.handshake.instance_id}:${state.handshake.client_session_id}`
       : null;
+  // What the sidebar's indicator counts, listed first in Monitor (rows 12,
+  // 13): the sidebar's own shared read, not a second one.
+  const loadAttention = identity ? controller.attention : undefined;
+  const { value: attention, refresh: refreshAttention } =
+    useAttention(loadAttention);
+  const reloadMonitor = () => {
+    setMonitorReload((value) => value + 1);
+    refreshAttention();
+  };
   const chooseTab = (next: string, extra: Record<string, string> = {}) =>
     setSearch({ tab: next, ...extra });
   async function dismissSetupReminder() {
@@ -236,13 +247,6 @@ export default function Home({
     controller.notices(abort.signal).then(
       (page) => {
         if (!abort.signal.aborted) setStartupWarnings(page.startup_warnings);
-      },
-      () => undefined,
-    );
-    // What the sidebar's indicator counts is listed first (rows 12, 13).
-    controller.attention(abort.signal).then(
-      (value) => {
-        if (!abort.signal.aborted) setAttention(value.problems);
       },
       () => undefined,
     );
@@ -584,7 +588,7 @@ export default function Home({
                 loadApprovals={
                   identity ? controller.pendingApprovals : undefined
                 }
-                loadAttention={identity ? controller.attention : undefined}
+                loadAttention={loadAttention}
                 loadScheduledPosts={
                   identity ? controller.scheduledPosts : undefined
                 }
@@ -592,8 +596,11 @@ export default function Home({
                 onRetryScheduledPost={controller.retryScheduledPost}
                 onEditScheduledPost={controller.editScheduledPost}
                 buddy={<BuddyPortrait />}
-                forYou={({ rows, footer }) => (
-                  <ForYou today={rows} footer={footer} />
+                notificationsOffer={
+                  identity ? <PhoneNotificationsOffer /> : null
+                }
+                forYou={({ rows, ahead, footer }) => (
+                  <ForYou today={rows} ahead={ahead} footer={footer} />
                 )}
                 onAsk={onAsk}
                 asking={asking}
@@ -701,15 +708,15 @@ export default function Home({
                 snapshot={monitor}
                 loading={monitorLoading}
                 error={monitorError}
-                onRefresh={() => setMonitorReload((value) => value + 1)}
+                onRefresh={reloadMonitor}
                 loadHealth={identity ? loadHealth : undefined}
                 onRunDiagnosis={() => controller.systemDiagnosis()}
                 onSetHourlyChecks={(enabled) =>
                   controller.setHourlyConnectionChecks(enabled)
                 }
                 startupWarnings={startupWarnings}
-                attention={attention}
-                onFixed={() => setMonitorReload((value) => value + 1)}
+                attention={attention?.problems ?? NO_PROBLEMS}
+                onFixed={reloadMonitor}
                 loadLogs={loadLogs}
                 loadTasks={identity ? loadTasks : undefined}
                 processes={identity ? processes : undefined}

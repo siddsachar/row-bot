@@ -105,13 +105,16 @@ export function proactiveIO(controller: ClientController): ProactiveIO {
 /**
  * This window has opened: the server may count it as a break (the first one
  * of the day brings the morning brief). Sent once, after the handshake, once
- * the first screen is up (it shows nothing on it).
+ * the first screen is up (it shows nothing on it). A view-only window
+ * (A0) may not act as the person, so it says nothing: the server would refuse.
  */
 export function noteAppOpen(controller: ClientController): () => void {
   let stopped = false;
   let unsubscribe = () => {};
   const send = () => {
-    if (!controller.getSnapshot().handshake) return false;
+    const handshake = controller.getSnapshot().handshake;
+    if (!handshake) return false;
+    if (handshake.may_act === false) return true;
     void controller
       .noteProactiveBoundary({ kind: 'app_open' })
       .catch(() => undefined);

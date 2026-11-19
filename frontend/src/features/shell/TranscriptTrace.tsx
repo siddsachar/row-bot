@@ -90,11 +90,15 @@ function finishedMoments(step: TranscriptTraceItem, now: number) {
 function stepDuration(step: TranscriptTraceItem) {
   return stepElapsed(timing.get(step.call_id));
 }
+/** Row-Bot's question card: answered, never approved (R7). */
+function asksPerson(step: TranscriptTraceItem) {
+  return step.canonical_name === 'ask_person';
+}
 /** "Waited 19.8s for approval · ran 0.2s", when this client saw the wait. */
 function approvalTiming(step: TranscriptTraceItem) {
   const value = timing.get(step.call_id);
   if (value?.waited === undefined) return { ran: null, text: '' };
-  const waited = `Waited ${formatElapsed(value.waited)} for approval`;
+  const waited = `Waited ${formatElapsed(value.waited)} for ${asksPerson(step) ? 'your answer' : 'approval'}`;
   if (value.end === undefined || step.status === 'cancelled')
     return { ran: null, text: waited };
   const ran = Math.max(0, value.end - value.start - value.waited);
@@ -384,7 +388,9 @@ function TraceItem({
           </p>
           {(approval.approval || wait.text) && (
             <p className="activity-step-approval">
-              <span className="activity-step-label">Approval</span>
+              <span className="activity-step-label">
+                {asksPerson(item) ? 'Answer' : 'Approval'}
+              </span>
               {approval.approval && <span>{approval.approval}</span>}
               {wait.text && (
                 <span className="activity-step-wait">{wait.text}</span>
@@ -451,6 +457,8 @@ export type LiveActivity = {
   writing?: string;
   /** An approval is holding the run. */
   waiting?: boolean;
+  /** What holds it is Row-Bot's question: it waits for an answer, not an approval (R7). */
+  asking?: boolean;
   /** The run is paused while the person uses the computer. */
   paused?: boolean;
   /** Stop was requested and the worker is finishing. */
@@ -609,6 +617,11 @@ export default function TranscriptTrace({
   // Between its steps, the live row of a turn using the computer still says so.
   const computerLine =
     computing || (live && running && !current) ? computer : '';
+  // A question card holds the turn for an answer, never an approval (R7).
+  const waitingWords =
+    live?.asking || (current && asksPerson(current))
+      ? 'Waiting for your answer'
+      : 'Waiting for your approval';
   const text = live?.stopping
     ? 'Stopping…'
     : computerLine
@@ -616,7 +629,7 @@ export default function TranscriptTrace({
       : live?.paused
         ? 'Paused while you use the computer'
         : live?.waiting
-          ? 'Waiting for your approval'
+          ? waitingWords
           : current
             ? [
                 current.app?.tool
@@ -644,7 +657,7 @@ export default function TranscriptTrace({
         : live.paused
           ? 'Paused while you use the computer'
           : live.waiting
-            ? 'Waiting for your approval'
+            ? waitingWords
             : current
               ? current.app?.tool
                 ? `${current.app.name} · ${current.app.tool}`

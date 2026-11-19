@@ -220,12 +220,12 @@ def test_a_crashed_server_is_noticed_and_starts_again_on_the_next_request(instal
 def test_a_server_a_crashed_row_bot_left_running_is_stopped_on_the_next_start(installed):
     ended = subprocess.Popen([sys.executable, "-c", "pass"])
     ended.wait(10)
-    left = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+    left = subprocess.Popen([sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(600)"],
+                            stdout=subprocess.PIPE, text=True)
     try:
-        for _ in range(100):
-            if psutil.pid_exists(left.pid):
-                break
-            time.sleep(0.01)
+        # Running its own code: macOS's framework Python has re-executed itself (python3.12 → Python) by
+        # now, so the name recorded is the one the server keeps, as for a real record.
+        assert left.stdout.readline().strip() == "ready"
         process = psutil.Process(left.pid)
         local = _server(installed)
         ledger = local.ledger()
@@ -242,6 +242,7 @@ def test_a_server_a_crashed_row_bot_left_running_is_stopped_on_the_next_start(in
     finally:
         if left.poll() is None:
             left.kill()
+        left.stdout.close()
 
 
 def test_nothing_starts_without_an_installed_build_and_model(tmp_path, monkeypatch):

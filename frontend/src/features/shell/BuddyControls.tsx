@@ -139,6 +139,20 @@ function displayPackName(name: string) {
   return name.replace(/^Buddy\s+/i, '').trim() || name;
 }
 
+const lookOrder = new Intl.Collator(undefined, {
+  sensitivity: 'base',
+  numeric: true,
+});
+
+/** Built-in and generated looks in one order: by the name the person sees, in their language (W20). */
+function byShownName(packs: readonly BuddyPack[]): BuddyPack[] {
+  return [...packs].sort(
+    (a, b) =>
+      lookOrder.compare(displayPackName(a.name), displayPackName(b.name)) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
+
 export default function BuddyControls(props: BuddyControlsProps) {
   const localEditor = useRef<ProviderSettingsSession | null>(null);
   if (!localEditor.current)
@@ -446,7 +460,7 @@ export default function BuddyControls(props: BuddyControlsProps) {
               role="group"
               aria-label="Buddy looks"
             >
-              {page?.packs.map((pack) => {
+              {byShownName(page?.packs ?? []).map((pack) => {
                 const chosen = draft.pack_id === pack.id;
                 return (
                   <Button

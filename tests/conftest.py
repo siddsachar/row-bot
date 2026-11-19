@@ -415,6 +415,16 @@ def _fresh_builtin_ways():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_provider_catalog_reads():
+    # The Models catalog's rows are built once per change of the files and secrets they're read from;
+    # tests share a folder and fake those readers differently, so each one builds from them again.
+    forget = getattr(sys.modules.get("row_bot.providers.client_status"), "forget_saved_reads", None)
+    if callable(forget):
+        forget()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _package_attributes_follow_sys_modules():
     # Older tests evict row_bot modules from sys.modules by hand and never
     # re-import them, so the package keeps the evicted module as an attribute.
@@ -468,6 +478,15 @@ def _fresh_context_calibration():
     # One test's fake usage (or a previous run's, in the reused worker folder) must not move
     # another test's estimates and compaction points.
     importlib.import_module("row_bot.context_calibration").reset_for_tests()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _fresh_model_readiness():
+    # Reads reuse a model's readiness for a few seconds; one test's faked readiness must not answer the next's.
+    forget = getattr(sys.modules.get("row_bot.application.workspace_setup"), "forget_model_readiness", None)
+    if callable(forget):
+        forget()
     yield
 
 

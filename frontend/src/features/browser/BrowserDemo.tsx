@@ -295,8 +295,10 @@ export default function BrowserDemo({
   const demo = page?.demo?.id === summary.id ? page.demo : null;
   // The time counts on here between the server's updates of the pane's line.
   const key = `${summary.id}:${summary.elapsed_seconds}:${summary.steps}:${summary.status}`;
-  const [mark, setMark] = useState({ key, at: now });
-  if (mark.key !== key) setMark({ key, at: now });
+  // Marked with the clock as it is now: `now` only moves once a second while recording, and from a
+  // bar opened earlier it held the time it opened, so a new recording began that far ahead (M6).
+  const [mark, setMark] = useState(() => ({ key, at: performance.now() }));
+  if (mark.key !== key) setMark({ key, at: performance.now() });
   useEffect(() => {
     if (!recording) return;
     const timer = setInterval(() => setNow(performance.now()), 1000);

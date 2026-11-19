@@ -115,7 +115,7 @@ beforeEach(() => {
     providers: [
       card('ollama', 'Ollama', 3),
       card('custom_openai_lmstudio-1234', 'LM Studio', 2),
-      card('custom_openai_llamacpp', 'This computer', 1),
+      card('custom_openai_llamacpp', 'Row-Bot (llama.cpp)', 1),
       { ...card('openai', 'OpenAI', 40), billing: 'pay_per_use' as const },
     ],
   });
@@ -234,6 +234,29 @@ it('Add offers every way to run models locally, Row-Bot’s download among them;
   expect(
     await screen.findByText(
       'Checked: NVIDIA GeForce RTX 4070 (12 GB) · NVIDIA (CUDA 13).',
+    ),
+  ).toBeVisible();
+});
+
+it('on a Mac, Repair checks this Mac’s memory, not a graphics card (M2)', async () => {
+  const mac = view(['qwen3.8-27b-q2'], {
+    computer: 'Apple M4 (16 GB memory)',
+    acceleration: 'metal',
+    acceleration_label: 'Apple silicon (Metal)',
+  });
+  mock.controller.localModelRuntime.mockResolvedValue(mac);
+  mock.controller.repairLocalModelRuntime.mockResolvedValue(mac);
+  show();
+
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: 'Repair: check this Mac’s memory again',
+    }),
+  );
+  expect(screen.queryByRole('button', { name: /graphics card/ })).toBeNull();
+  expect(
+    await screen.findByText(
+      'Checked: Apple M4 (16 GB memory) · Apple silicon (Metal).',
     ),
   ).toBeVisible();
 });

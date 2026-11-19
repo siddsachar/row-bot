@@ -542,6 +542,21 @@
   padding: 0;
   list-style: none;
 }
+/*
+ * A grid's implicit column is as wide as its widest row, so a long model name
+ * (nowrap) would widen the whole first-run page on a phone (W2). One column that
+ * may shrink keeps every row inside the screen; the name truncates instead.
+ */
+.first-run,
+.first-run-panel-body,
+.first-run-models,
+.first-run-models ul,
+.first-run-model-groups,
+.first-run-providers,
+.local-found,
+.local-found-server {
+  grid-template-columns: minmax(0, 1fr);
+}
 .first-run-models {
   display: grid;
   gap: 8px;
@@ -1030,8 +1045,30 @@
   font-weight: var(--weight-medium);
 }
 .local-model-choice-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
   color: var(--text-muted);
   font-size: var(--text-13);
+}
+/* How the model would run here, as a badge: green on the card, amber slower. */
+.local-model-fit {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+.local-model-fit[data-fit='gpu'] {
+  background: var(--status-success-background);
+  color: var(--status-success-text);
+}
+.local-model-fit[data-fit='partial'],
+.local-model-fit[data-fit='cpu'] {
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
 }
 .first-run-secondary .disclosure-body {
   padding-top: 10px;

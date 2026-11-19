@@ -222,6 +222,50 @@ def test_remove_frees_one_model_or_everything(tmp_path):
     assert install.disk_bytes(tmp_path) == 0
 
 
+def test_remove_waits_for_files_still_in_use_and_counts_what_it_freed(tmp_path, monkeypatch):
+    with FakeFiles() as files:
+        build, model = fake_build(files), fake_model(files)
+        worker = _installer(tmp_path, files)
+        worker.start(build, model)
+        _finish(worker)
+    on_disk = install.disk_bytes(tmp_path)
+    real_rmtree, refusals = install.shutil.rmtree, []
+
+    def in_use_twice(folder, *args, **kwargs):
+        if len(refusals) < 2:
+            refusals.append(folder)
+            raise PermissionError(32, "The process cannot access the file because it is being used")
+        return real_rmtree(folder, *args, **kwargs)
+
+    monkeypatch.setattr(install.shutil, "rmtree", in_use_twice)
+    monkeypatch.setattr(install, "_pause", lambda seconds: None)
+    assert install.remove(tmp_path) == on_disk
+    assert len(refusals) == 2 and install.disk_bytes(tmp_path) == 0
+    assert not install.runtime_dir(tmp_path).exists()
+
+
+def test_remove_counts_only_what_left_when_files_stay_in_use(tmp_path, monkeypatch):
+    with FakeFiles() as files:
+        build, model = fake_build(files), fake_model(files)
+        worker = _installer(tmp_path, files)
+        worker.start(build, model)
+        _finish(worker)
+    on_disk = install.disk_bytes(tmp_path)
+    runtime_bytes = install.folder_bytes(install.runtime_dir(tmp_path))
+    real_rmtree = install.shutil.rmtree
+
+    def runtime_held(folder, *args, **kwargs):
+        if Path(folder) == install.runtime_dir(tmp_path):
+            raise PermissionError(32, "in use")
+        return real_rmtree(folder, *args, **kwargs)
+
+    monkeypatch.setattr(install.shutil, "rmtree", runtime_held)
+    monkeypatch.setattr(install, "_pause", lambda seconds: None)
+    freed = install.remove(tmp_path)
+    assert install.disk_bytes(tmp_path) == runtime_bytes
+    assert runtime_bytes > 0 and freed == on_disk - runtime_bytes
+
+
 def test_backups_leave_out_the_build_and_the_model_files():
     from row_bot.profile_restore import kept_in_place
 

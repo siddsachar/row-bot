@@ -107,8 +107,9 @@ computer's memory, which the card shares), in this order: Qwen3.8 27B 4-bit, 3-b
 Qwen3.5 9B, 4B. A model needs its file, its context's cache (32K tokens; the 27B builds keep it in
 8-bit, which halves it to about 1.1 GB) and about 0.7 GB of working memory. So a 20 GB or larger card
 gets the 4-bit build (about 18.4 GB loaded), 16 GB the 3-bit (15.0 GB), 12 GB the 2-bit (11.8 GB),
-8 GB Qwen3.5 9B and 6 GB Qwen3.5 4B; a 16 GB Mac gets the 2-bit, a 24 GB Mac the 3-bit, 32 GB or more
-the 4-bit. Without a card that fits one, a computer with 32 GB of memory is offered Qwen3.5 9B on the
+8 GB Qwen3.5 9B and 6 GB Qwen3.5 4B. A Mac shares that memory with macOS and its apps, so a 27B build
+is recommended only on a Mac with room to spare: 24 GB gets the 2-bit, 32 GB the 3-bit, 48 GB or more the
+4-bit, and a 16 GB Mac Qwen3.5 9B (a 27B build that fits can still be chosen). Without a card that fits one, a computer with 32 GB of memory is offered Qwen3.5 9B on the
 processor and one with 16 GB Qwen3.5 4B; with less, none is recommended, but every model that fits
 can still be chosen.
 

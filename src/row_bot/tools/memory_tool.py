@@ -388,6 +388,19 @@ def _resolve_entity(name_or_id: str) -> dict | None:
     return None
 
 
+# Names for the person themselves. Linking to one links to the canonical "User" entity, made the first
+# time it is needed, as document and chat extraction make it (M15).
+_USER_NAMES = frozenset({"user", "the user", "me", "myself"})
+
+
+def _resolve_end(name_or_id: str) -> dict | None:
+    """One end of a link: an entity by name or ID, or the person's own entity for "User" or "me"."""
+    entity = _resolve_entity(name_or_id)
+    if entity is None and kg._normalize_subject(str(name_or_id)) in _USER_NAMES:  # noqa: SLF001
+        entity = kg.get_entity(kg._ensure_user_entity())  # noqa: SLF001
+    return entity
+
+
 def _link_memories(source_id: str, target_id: str, relation_type: str) -> str:
     """Create a relationship between two memories in the knowledge graph."""
     import time
@@ -399,20 +412,20 @@ def _link_memories(source_id: str, target_id: str, relation_type: str) -> str:
         return held
     try:
         # Resolve by name or ID
-        source_entity = _resolve_entity(source_id)
-        target_entity = _resolve_entity(target_id)
+        source_entity = _resolve_end(source_id)
+        target_entity = _resolve_end(target_id)
         if not source_entity:
             # Retry once after a short delay — the entity may have been
             # created by a parallel tool call in the same batch.
             time.sleep(0.5)
-            source_entity = _resolve_entity(source_id)
+            source_entity = _resolve_end(source_id)
         if not source_entity:
             return f"Error: source entity '{source_id}' not found. Use search_memory or list_memories to find the correct name or ID."
         if not target_entity:
             # Retry once after a short delay — the entity may have been
             # created by a parallel tool call in the same batch.
             time.sleep(0.5)
-            target_entity = _resolve_entity(target_id)
+            target_entity = _resolve_end(target_id)
         if not target_entity:
             return f"Error: target entity '{target_id}' not found. Use search_memory or list_memories to find the correct name or ID."
 

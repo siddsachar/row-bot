@@ -241,6 +241,28 @@ it('names the folder a command runs in and what one approval covers (U7)', async
   expect(screen.queryByText('Affects')).toBeNull();
 });
 
+it('names a calendar change as what it does, never "Check the calendar" (R1)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'create_calendar_event',
+    question:
+      'Create “RUT guest test” tomorrow 14:00–14:30 and send an invitation to guest@example.com?',
+    reason:
+      'Event: RUT guest test\nWhen: tomorrow 14:00–14:30 (Europe/London)\nGuests: guest@example.com',
+    risk_class: 'high',
+    safe_argument_summary: '',
+    app: { item_id: 'google', name: 'Google', icon: 'letter:G' },
+  });
+  await renderCard();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  render(open.mock.calls[0][0].content);
+  const action = [...document.querySelectorAll('.approval-detail dt')].find(
+    (term) => term.textContent === 'Action',
+  );
+  expect(action?.nextElementSibling?.textContent).toBe('Create an event');
+  expect(screen.queryByText(/Check the calendar/)).toBeNull();
+});
+
 const picture = {
   ...view,
   action_label: 'generate_image',

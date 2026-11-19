@@ -626,10 +626,65 @@ def outline(facts: TurnFacts, *, with_answer: bool = False) -> str:
         lines.append("Earlier in this chat the person said:")
         lines.extend(f"- {redact_text(' '.join(text.split()), max_chars=240)}" for text in steering)
     lines.append("Steps:")
-    lines.extend(f"{index}. {step_summary(step)}" for index, step in enumerate(facts.counted[:24], start=1))
+    lines.extend(f"{index}. {_LINK.sub(SOURCE_WORDS, step_summary(step))}"
+                 for index, step in enumerate(facts.counted[:24], start=1))
     if with_answer and facts.answer.strip() and not scan_injection_categories(facts.answer):
-        lines.append(f"Final answer (start): {redact_text(' '.join(facts.answer.split()), max_chars=600)}")
+        answer = _LINK.sub(SOURCE_WORDS, " ".join(facts.answer.split()))
+        lines.append(f"Final answer (start): {redact_text(answer, max_chars=600)}")
     return "\n".join(lines)
+
+
+# A link in a turn's steps or answer: a research turn's sources. The outline names each "a source page",
+# so a draft has no link to copy, and a source the draft names anyway becomes "the source" (M8). A
+# skill never holds links: this only keeps a research chat's first draft from being refused for them.
+_LINK = re.compile(r"\b(?:https?|ftp)://[^\s<>()\[\]\"'`]+", re.IGNORECASE)
+SOURCE_WORDS = "a source page"
+
+
+def _strings(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _strings(item)
+
+
+def source_hosts(facts: TurnFacts) -> list[str]:
+    """The sites the turn's links point to ("abs.gov.au"), longest first."""
+
+    from urllib.parse import urlsplit
+
+    hosts = set()
+    for text in [facts.answer, *(item for step in facts.steps for item in _strings(step.args))]:
+        for link in _LINK.findall(text):
+            try:
+                host = (urlsplit(link).hostname or "").lower()
+            except ValueError:
+                continue
+            host = host.removeprefix("www.")
+            if "." in host:
+                hosts.add(host)
+    return sorted(hosts, key=len, reverse=True)
+
+
+def without_sources(fields: dict[str, Any], hosts: Iterable[str]) -> dict[str, Any]:
+    """``fields`` with each mention of the turn's own sources (a link or the bare site) as "the source"."""
+
+    patterns = [re.compile(rf"(?<![\w.-])(?:(?:https?|ftp)://)?(?:www\.)?{re.escape(host)}"
+                           rf"(?:[/?#][^\s<>()\[\]\"'`]*)?(?![\w-])", re.IGNORECASE) for host in hosts]
+    if not patterns:
+        return fields
+
+    def tidy(text: str) -> str:
+        for pattern in patterns:
+            text = pattern.sub("the source", text)
+        return text
+
+    return {key: [tidy(item) for item in value] if isinstance(value, list) else
+            tidy(value) if isinstance(value, str) else value for key, value in fields.items()}
 
 
 JUDGE_PROMPT = (
@@ -1192,12 +1247,16 @@ def draft(
 
 
 def _drafted_fields(facts: TurnFacts, thread_id: str, call: Callable[..., str]) -> dict[str, Any]:
-    return _write_fields(outline(facts, with_answer=True), DRAFT_PROMPT, thread_id, call, draft_problems)
+    hosts = source_hosts(facts)
+    return _write_fields(outline(facts, with_answer=True), DRAFT_PROMPT, thread_id, call, draft_problems,
+                         tidy=lambda fields: without_sources(fields, hosts))
 
 
 def _write_fields(body: str, prompt: str, thread_id: str, call: Callable[..., str],
-                  check: Callable[[dict[str, Any]], list[str]]) -> dict[str, Any]:
-    """One draft on the chat's model, and one more when ``check`` refuses the first."""
+                  check: Callable[[dict[str, Any]], list[str]],
+                  tidy: Callable[[dict[str, Any]], dict[str, Any]] = lambda fields: fields) -> dict[str, Any]:
+    """One draft on the chat's model, and one more when ``check`` refuses the first. ``tidy`` runs before
+    the check, and every check applies to what it leaves."""
 
     from row_bot.evolution import redact_text
     from row_bot.providers.background import parse_json_object
@@ -1220,7 +1279,7 @@ def _write_fields(body: str, prompt: str, thread_id: str, call: Callable[..., st
         if parsed is None:
             problems = ["steps"]
             continue
-        fields = _clean_fields(parsed)
+        fields = tidy(_clean_fields(parsed))
         problems = check(fields)
         if not problems:
             fields["icon"] = str(parsed.get("icon") or "").strip()[:8] or "✨"

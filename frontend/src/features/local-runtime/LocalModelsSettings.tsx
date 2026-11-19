@@ -18,7 +18,7 @@ import { SettingsGroup, SettingsItem, StatusLine } from '../settings/anatomy';
 import LocalWays from './LocalWays';
 import RunOnThisComputer from './RunOnThisComputer';
 import { useLocalModelRuntime } from './useLocalModelRuntime';
-import { modelLabel, sizeWords } from './words';
+import { modelLabel, repairWords, sizeWords } from './words';
 
 const MANAGED = 'custom_openai_llamacpp';
 
@@ -175,7 +175,7 @@ export default function LocalModelsSettings({
               </IconButton>
             )}
             <IconButton
-              label="Repair: check this computer’s graphics card again"
+              label={repairWords(view.acceleration === 'metal')}
               disabled={busy || view.state === 'downloading'}
               onClick={() =>
                 void act(

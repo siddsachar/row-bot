@@ -324,6 +324,12 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'preferences',
+    anchor: 'desktop_notifications',
+    label: 'Desktop notifications',
+    keywords: 'notify alerts sound toast workflow finished timer approval',
+  },
+  {
+    leaf: 'preferences',
     anchor: 'dream-cycle',
     label: 'Dream Cycle',
     keywords: 'overnight tidy-up background consolidation hours',
@@ -737,6 +743,12 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'devices',
     label: 'Your devices',
     keywords: 'sessions signed in sign out phones computers',
+  },
+  {
+    leaf: 'access',
+    anchor: 'notifications',
+    label: 'Notifications on this device',
+    keywords: 'phone push notifications tablet iphone android',
   },
   {
     leaf: 'access',

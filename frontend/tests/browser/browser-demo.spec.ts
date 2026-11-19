@@ -34,6 +34,38 @@ const RUNNING = {
   tabs: [{ id: 't1', title: 'Your account', url: ACCOUNT, active: true }],
 };
 
+// The person clicks Statements, types the month, then signs in on a sign-in page.
+const STEPS = [
+  {
+    kind: 'click',
+    role: 'link',
+    name: 'Statements',
+    context: 'Account',
+    url: ACCOUNT,
+  },
+  {
+    kind: 'type',
+    role: 'textbox',
+    name: 'Month',
+    value: 'October 2026',
+    url: 'https://homecover.example/statements',
+  },
+  {
+    kind: 'type',
+    role: 'textbox',
+    name: 'Password',
+    type: 'password',
+    url: 'https://homecover.example/sign-in?next=/statements',
+    secret: 'password',
+  },
+  {
+    kind: 'click',
+    role: 'button',
+    name: 'Download statement',
+    url: 'https://homecover.example/statements',
+  },
+];
+
 async function post(page: Page, path: string, data: unknown = {}) {
   const response = await page.request.post(path, {
     headers: fixtureHeaders(),
@@ -126,39 +158,9 @@ for (const size of ['desktop', 'phone'] as const) {
       const bar = pane(page).getByRole('status', { name: 'Show Row-Bot how' });
       await expect(bar).toContainText('Showing Row-Bot how 1 step');
 
-      // The person clicks Statements, types the month, then signs in on a sign-in page.
       await post(page, '/__c3_fixture/steps', {
         conversation_id: conversation,
-        steps: [
-          {
-            kind: 'click',
-            role: 'link',
-            name: 'Statements',
-            context: 'Account',
-            url: ACCOUNT,
-          },
-          {
-            kind: 'type',
-            role: 'textbox',
-            name: 'Month',
-            value: 'October 2026',
-            url: 'https://homecover.example/statements',
-          },
-          {
-            kind: 'type',
-            role: 'textbox',
-            name: 'Password',
-            type: 'password',
-            url: 'https://homecover.example/sign-in?next=/statements',
-            secret: 'password',
-          },
-          {
-            kind: 'click',
-            role: 'button',
-            name: 'Download statement',
-            url: 'https://homecover.example/statements',
-          },
-        ],
+        steps: STEPS,
       });
       await expect(bar).toContainText('5 steps');
       await expect(
@@ -209,3 +211,61 @@ for (const size of ['desktop', 'phone'] as const) {
     });
   }
 }
+
+test('a skill drafted by Show Row-Bot how offers Try it when approved later from Settings › Skills (W17)', async ({
+  page,
+}, info) => {
+  await page.setViewportSize(SIZES.desktop);
+  await post(page, '/__c3_fixture/seed');
+  const conversation = await newConversation(page);
+  const context = await revealContext(page);
+  await context.getByRole('button', { name: 'Conversation actions' }).click();
+  await page.getByRole('menuitem', { name: 'Open browser' }).click();
+  await post(page, '/__n12_fixture/browser', {
+    conversation_id: conversation,
+    state: RUNNING,
+    frame: await picture(page),
+    width: 1280,
+    height: 800,
+  });
+  await pane(page)
+    .getByRole('button', { name: /^Show Row-Bot how/ })
+    .click();
+  const bar = pane(page).getByRole('status', { name: 'Show Row-Bot how' });
+  await expect(bar).toContainText('Showing Row-Bot how 1 step');
+  await post(page, '/__c3_fixture/steps', {
+    conversation_id: conversation,
+    steps: STEPS,
+  });
+  await expect(bar).toContainText('5 steps');
+  await bar.getByRole('button', { name: 'Done' }).click();
+  const finish = page.getByRole('dialog', { name: 'What is this for?' });
+  await finish
+    .getByRole('textbox', { name: /What is this for/ })
+    .fill('Download my monthly statement');
+  await finish.getByRole('button', { name: 'Draft skill' }).click();
+  const review = page.getByRole('dialog', { name: '🏦 Download a statement' });
+  await expect(review).toBeVisible();
+  // Closed without deciding: the draft waits in Settings › Skills.
+  await review.getByRole('button', { name: 'Close skill draft' }).click();
+  await expect(review).toHaveCount(0);
+
+  await page.goto('/app-v2/settings/skills');
+  const waiting = page.getByRole('region', { name: 'Waiting for your review' });
+  await waiting
+    .getByRole('button', { name: 'Review Download a statement' })
+    .click();
+  await review.getByRole('button', { name: 'Approve' }).click();
+  const tryIt = review.getByRole('button', { name: /Try it/ });
+  await expect(tryIt).toBeVisible();
+  for (const appearance of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: appearance });
+    await views(page, info, `try-it-from-settings-desktop-${appearance}`);
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+
+  await tryIt.click();
+  await expect(composer(page)).toHaveValue(
+    'Do “Download a statement” with:\n- the month: ',
+  );
+});

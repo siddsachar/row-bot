@@ -146,6 +146,7 @@ export function ChatSkillReview({
   onChanged: () => void;
 }) {
   const { controller } = useRuntime();
+  const navigate = useNavigate();
   const [page, setPage] = useState<SkillOfferPage | null>(null);
   const [failed, setFailed] = useState('');
   useEffect(() => {
@@ -179,6 +180,18 @@ export function ChatSkillReview({
         setPage(next);
         onChanged();
       }}
+      // A skill drafted by Show Row-Bot how offers Try it after Approve here
+      // too, not only in the sheet that opened after Done (W17).
+      onTry={
+        offer.origin === 'demo'
+          ? async (name) => {
+              const tried = await controller.trySkill(name);
+              navigate(
+                `/conversations/${encodeURIComponent(tried.conversation_id)}`,
+              );
+            }
+          : undefined
+      }
       onOpenChange={(next) => {
         if (!next) onClose();
       }}

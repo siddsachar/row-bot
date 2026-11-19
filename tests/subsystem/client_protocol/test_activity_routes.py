@@ -112,3 +112,27 @@ def test_only_a_signed_in_session_clears_the_log(service, log):
         assert cleared.status_code == 200, cleared.text
         assert cleared.json()["removed"] == 5
         assert client.get("/api/v1/activity", headers=headers).json()["items"] == []
+
+
+def test_a_call_nobody_was_asked_about_shows_no_tool_name_or_arguments(service, tmp_path, monkeypatch):
+    """W19: "Agent wait · run id: ; timeout seconds: 60". The client says such a call in its chat steps' words;
+    an approval's own label and description stay, and the CSV keeps a readable title."""
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    (tmp_path / "data").mkdir()
+    activity_log.record(activity_log.ToolCall(call_id="w1", tool="agent_wait", thread_id="chat-w", at=time.time() - 9,
+                                              args={"run_id": "", "timeout_seconds": 60, "include_events": True}))
+    activity_log.record(activity_log.ToolCall(call_id="w2", tool="delete_file", thread_id="chat-w", at=time.time(),
+                                              args={"name": "old.txt"}, decisions=(
+                                                  _ASKED, _decided("allow", label="Delete a file",
+                                                                   description="Delete old.txt"))))
+    assert activity_log.flush()
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        items = client.get("/api/v1/activity", headers=headers).json()["items"]
+        offer = client.post("/api/v1/activity/export", headers=headers, json={})
+        saved = client.get(f"/api/v1/attachments/{offer.json()['reference']}", headers=headers)
+
+    assert [(item["tool"], item["title"], item["summary"]) for item in items] == [
+        ("delete_file", "Delete a file", "Delete old.txt"), ("agent_wait", "", "")]
+    rows = list(csv.reader(io.StringIO(saved.content.decode("utf-8-sig"))))
+    assert [(row[3], row[5]) for row in rows[1:]] == [("Delete a file", "Delete old.txt"), ("Agent wait", "")]
