@@ -39,11 +39,23 @@ class RowBotAgent(BaseInstalledAgent):
     def version(self) -> str | None:
         return "checkout"
 
-    def _rowbot_model(self) -> str:
+    def _rowbot_model(self) -> tuple[str, dict[str, str], str]:
+        """Row-Bot's model ref, the environment its process needs, and extra container_task flags.
+
+        ``-m ollama/<tag>``: the host's Ollama. ``-m openrouter/<author>/<model>``: OpenRouter through the host's
+        bench relay (``ROW_BOT_BENCH_RELAY_URL`` and ``ROW_BOT_BENCH_RELAY_TOKEN`` in Harbor's environment, set by
+        the relay's launcher); the container gets the relay's token, never the OpenRouter key."""
+        import os
+
         provider, _, model = str(self.model_name or "").partition("/")
-        if provider != "ollama" or not model:
-            raise ValueError("Row-Bot's Harbor agent runs local models only here: -m ollama/<tag>")
-        return f"ollama:{model}"
+        if provider == "ollama" and model:
+            return f"ollama:{model}", {"OLLAMA_HOST": _OLLAMA}, ""
+        if provider == "openrouter" and model:
+            url, token = os.environ.get("ROW_BOT_BENCH_RELAY_URL", ""), os.environ.get("ROW_BOT_BENCH_RELAY_TOKEN", "")
+            if not url or not token:
+                raise ValueError("an OpenRouter model needs the host's bench relay (ROW_BOT_BENCH_RELAY_URL/_TOKEN)")
+            return f"openrouter:{model}", {"OPENROUTER_API_KEY": token}, f"--openrouter-base-url {shlex.quote(url)}"
+        raise ValueError("Row-Bot's Harbor agent runs -m ollama/<tag> or -m openrouter/<author>/<model>")
 
     async def install(self, environment: Any) -> None:
         source = Path(str(self._kwargs.get("rowbot_source") or ""))  # type: ignore[attr-defined]
@@ -59,16 +71,16 @@ class RowBotAgent(BaseInstalledAgent):
             "uv sync --locked --no-dev --python 3.13"))
 
     async def run(self, instruction: str, environment: Any, context: Any) -> None:
-        model = self._rowbot_model()
+        model, env, flags = self._rowbot_model()
         cwd = str(getattr(environment, "working_dir", "") or "/app")
         await self.exec_as_agent(environment, command=f"mkdir -p {_OUT}", timeout_sec=30)
         await self._upload_config_text(environment, content=instruction, remote_path=f"{_OUT}/instruction.txt",
                                        filename="instruction.txt")
-        command = (f"cd {_ROOT} && OLLAMA_HOST={_OLLAMA} ROW_BOT_INSTALL_COUNT=0 {_ROOT}/.venv/bin/python -m "
+        command = (f"cd {_ROOT} && ROW_BOT_INSTALL_COUNT=0 {_ROOT}/.venv/bin/python -m "
                    "tests.e2e.bench.agent_evals.container_task --benchmark terminal-bench "
                    f"--instruction-file {_OUT}/instruction.txt --workspace {shlex.quote(cwd)} "
-                   f"--model {shlex.quote(model)} --out {_OUT} > {_OUT}/stdout.txt 2>&1 || true")
-        await self.exec_as_agent(environment, command=command)
+                   f"--model {shlex.quote(model)} --out {_OUT} {flags} > {_OUT}/stdout.txt 2>&1 || true")
+        await self.exec_as_agent(environment, command=command, env=env)
         raw = await environment.exec(f"cat {_OUT}/atif.json")
         try:
             atif = json.loads(getattr(raw, "stdout", "") or "{}")

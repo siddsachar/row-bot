@@ -332,12 +332,63 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--run-dir", required=True)
     report.add_argument("--published", default="")
     key_parser = sub.add_parser("keys", help="whether each paid provider's key is found (never a value)")
-    key_parser.add_argument("--providers", default="openai,anthropic")
+    key_parser.add_argument("--providers", default="openrouter")
+    relay_parser = sub.add_parser("relay", help="run a container benchmark's command with the host's OpenRouter "
+                                                "relay (the key stays on the host): relay ... -- harbor run ...")
+    relay_parser.add_argument("--model", action="append", required=True, help="an OpenRouter slug to allow")
+    relay_parser.add_argument("--openrouter-quant", default="")
+    relay_parser.add_argument("--openrouter-host", default="")
+    relay_parser.add_argument("--max-usd", type=float, default=0.0, help="the relay's spend cap (0: free models only)")
+    relay_parser.add_argument("--per-minute", type=int, default=18, help="pace under OpenRouter's free-tier limit")
+    relay_parser.add_argument("--per-day", type=int, default=950)
+    relay_parser.add_argument("command", nargs=argparse.REMAINDER)
     return parser
+
+
+def relay(args: argparse.Namespace) -> int:
+    """Start the relay, run *command* with ``ROW_BOT_BENCH_RELAY_URL``/``_TOKEN`` (never the key), stop the relay."""
+    from . import relay as relay_module
+
+    if not orchestrate.enabled():
+        print(f"set {orchestrate.ENABLE_ENV}=1 to run (it spends from the OpenRouter balance up to --max-usd)")
+        return 2
+    command = [item for item in args.command if item != "--"]
+    if not command:
+        print("not running: give the benchmark's command after --")
+        return 2
+    try:
+        pins = openrouter_pins(list(args.model), args.openrouter_quant, args.openrouter_host)
+    except openrouter.RoutingError as exc:
+        print(f"not running: {exc}")
+        return 2
+    paid = [model for model, (_, endpoint) in pins.items() if any(
+        float((endpoint.get("pricing") or {}).get(key) or 0) for key in ("prompt", "completion"))]
+    if paid and args.max_usd <= 0:
+        print(f"not running: {paid} cost money and --max-usd is 0")
+        return 2
+    held: dict[str, str] = {}
+    try:
+        keys.load_into(held, ["OPENROUTER_API_KEY"], keys.keys_file(), keys.profile_folder())
+    except keys.KeysError as exc:
+        print(f"not running: {exc}")
+        return 2
+    policy = relay_module.RelayPolicy(pins={model: pin for model, (pin, _) in pins.items()}, max_usd=args.max_usd,
+                                      per_minute=args.per_minute, per_day=args.per_day)
+    server = relay_module.RelayServer(policy, held.pop("OPENROUTER_API_KEY"))
+    env = {**os.environ, "ROW_BOT_BENCH_RELAY_URL": server.base_url("host.docker.internal"),
+           "ROW_BOT_BENCH_RELAY_TOKEN": server.token}
+    try:
+        code = subprocess.run(command, env=env, check=False).returncode  # noqa: S603 - the owner's own command
+    finally:
+        server.close()
+    print(f"relay: {policy.requests} request(s), ${policy.spent_usd:.4f} spent, {len(policy.refused)} refused")
+    return code
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.eval == "relay":
+        return relay(args)
     if args.eval == "keys":
         names = keys.names_for(item for item in args.providers.split(",") if item.strip())
         for name, state in keys.status(names, keys.keys_file(), keys.profile_folder()).items():

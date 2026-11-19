@@ -103,6 +103,80 @@ def test_after_the_task_the_app_s_one_follow_up_runs_and_never_chains(tmp_path, 
     assert [step.name for step in done.turn_with_followups("t1", "Make the report", [tmp_path])] == ["task"]
 
 
+def test_the_relay_keeps_the_key_on_the_host_pins_the_route_and_holds_the_cap(monkeypatch) -> None:
+    import httpx
+
+    from row_bot.providers import catalog
+    from row_bot.providers.resolution import resolve_provider_config
+    from tests.e2e.bench.agent_evals import container_task, openrouter, relay
+
+    sent: list[tuple[dict, str]] = []
+
+    def upstream(body: bytes, key: str):
+        sent.append((json.loads(body), key))
+        stream = [b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+                  b'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"cost":0.4}}\n\n',
+                  b"data: [DONE]\n\n"]
+        return 200, [("Content-Type", "text/event-stream")], iter(stream)
+
+    clock = [1000.0]
+    policy = relay.RelayPolicy(pins={"recursive/flint-v1.0:free": openrouter.pin_for(
+        "recursive/flint-v1.0:free", quantization="bf16")}, max_usd=0.5, per_minute=3)
+    server = relay.RelayServer(policy, "the-real-key-0123456789", send=upstream, clock=lambda: clock[0])
+    try:
+        url = server.base_url() + "/chat/completions"
+
+        def post(model: str, token: str = server.token) -> httpx.Response:
+            return httpx.post(url, json={"model": model, "messages": [], "stream": True,
+                                         "provider": {"order": ["Elsewhere"]}},
+                              headers={"Authorization": f"Bearer {token}"}, timeout=10)
+
+        assert post("recursive/flint-v1.0:free", token="the-real-key-0123456789").status_code == 401
+        assert post("openai/gpt-4o").status_code == 403  # not pinned for this run
+        answer = post("recursive/flint-v1.0:free")
+        assert answer.status_code == 200 and b'"content":"ok"' in answer.content
+        body, key = sent[0]
+        assert key == "the-real-key-0123456789"  # only the relay ever holds it
+        assert body["provider"] == {"order": ["Recursive"], "only": ["Recursive"], "allow_fallbacks": False,
+                                    "quantizations": ["bf16"]}  # the caller's own routing is overwritten
+        assert policy.spent_usd == pytest.approx(0.4)
+        assert post("recursive/flint-v1.0:free").status_code == 200  # 0.8 spent now: over the cap
+        refused = post("recursive/flint-v1.0:free")
+        assert refused.status_code == 403 and "spend cap" in refused.json()["error"]["message"]
+        assert httpx.get(server.base_url() + "/models", timeout=10).status_code == 404
+    finally:
+        server.close()
+    paced = relay.RelayPolicy(pins={"m": {}}, per_minute=2)
+    assert [paced.admit("m", 0.0), paced.admit("m", 1.0)] == ["", ""]
+    assert paced.admit("m", 2.0).startswith("wait") and paced.admit("m", 61.5) == ""
+
+    original = catalog.PROVIDER_DEFINITIONS["openrouter"]
+    monkeypatch.setitem(catalog.PROVIDER_DEFINITIONS, "openrouter", original)
+    container_task.use_relay("http://host.docker.internal:50123/api/v1")
+    assert resolve_provider_config("model:openrouter:recursive/flint-v1.0:free").base_url == \
+        "http://host.docker.internal:50123/api/v1"
+
+
+def test_the_relay_command_needs_a_free_or_capped_model_and_the_key_before_it_runs_anything(tmp_path, monkeypatch,
+                                                                                           capsys) -> None:
+    from tests.e2e.bench.agent_evals import cli
+
+    monkeypatch.setenv("ROW_BOT_BENCH", "1")
+    monkeypatch.setenv("ROW_BOT_BENCH_KEYS_FILE", str(tmp_path / "bench-keys.env"))
+    monkeypatch.delenv("ROW_BOT_LIVE_EVAL_CODEX_PROFILE", raising=False)
+    prices = {"recursive/flint-v1.0:free": "0", "openai/gpt-5.2": "0.00000175"}
+    hosts = {"recursive/flint-v1.0:free": "Recursive", "openai/gpt-5.2": "OpenAI"}
+    monkeypatch.setattr(cli.openrouter, "fetch_endpoints", lambda model: [
+        {"provider_name": hosts[model], "quantization": "bf16", "pricing": {"prompt": prices[model], "completion": "0"}}])
+    ran: list[list[str]] = []
+    monkeypatch.setattr(cli.subprocess, "run", lambda command, **kwargs: ran.append(command))
+    assert cli.main(["relay", "--model", "openai/gpt-5.2", "--", "harbor", "run"]) == 2
+    assert "cost money and --max-usd is 0" in capsys.readouterr().out
+    assert cli.main(["relay", "--model", "recursive/flint-v1.0:free", "--", "harbor", "run"]) == 2
+    assert "OPENROUTER_API_KEY" in capsys.readouterr().out
+    assert ran == []  # nothing started without the key
+
+
 def test_a_benchmark_turn_binds_every_tool_but_the_ones_that_wait_for_a_person() -> None:
     import langgraph.prebuilt as prebuilt
     from langchain_core.tools import StructuredTool

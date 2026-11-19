@@ -44,6 +44,8 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--model", required=True, help="provider:model (ollama:qwen3.8:27b)")
     parser.add_argument("--reasoning-effort", default="")
     parser.add_argument("--out", required=True)
+    parser.add_argument("--openrouter-base-url", default="",
+                        help="the host's bench relay (relay.py); OPENROUTER_API_KEY then holds the relay's token")
     parser.add_argument(CHILD_FLAG, action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
@@ -76,6 +78,8 @@ def run(args: argparse.Namespace, out: Path) -> int:
     from .product import ProductRuntime
 
     provider, _, model = args.model.partition(":")
+    if args.openrouter_base_url:
+        use_relay(args.openrouter_base_url)
     config = BenchConfig(provider=provider, model=model, tools=(), reasoning_effort=args.reasoning_effort)
     ledger = CostLedger(LedgerCaps.from_env(), UsageBook(out / "usage-book.json"), rates=load_rates(),
                         path=out / "ledger.jsonl")
@@ -115,6 +119,17 @@ def run(args: argparse.Namespace, out: Path) -> int:
         (out / "result.json").write_text(redact(json.dumps({**result, "exit": code, "reason": trajectory.reason})),
                                          encoding="utf-8")
     return code
+
+
+def use_relay(base_url: str) -> None:
+    """Point Row-Bot's OpenRouter provider at the host's relay (this process only): the container never holds
+    the real key, and the relay pins the route and holds the spend cap."""
+    from dataclasses import replace
+
+    from row_bot.providers import catalog
+
+    catalog.PROVIDER_DEFINITIONS["openrouter"] = replace(catalog.PROVIDER_DEFINITIONS["openrouter"],
+                                                         base_url=base_url)
 
 
 def write_transcript(thread_id: str, workspace: Path, model: str, transcript: object) -> Path:
