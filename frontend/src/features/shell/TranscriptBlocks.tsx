@@ -35,10 +35,12 @@ import {
 import { AnswerVisual } from './answer-components/Visual';
 import { saveProblem, useSaveFile } from './save-file';
 import {
+  AttachmentThumbnail,
   fileKind,
   formatBytes,
   MediaPreview,
   showsAsFileCard,
+  showsAsThumbnail,
 } from './MediaPreview';
 
 type Block = TranscriptRow['blocks'][number];
@@ -463,13 +465,22 @@ function Attachment({
           </span>
         </figcaption>
       )}
-      <MediaPreview
-        reference={block.attachment_ref}
-        mime={block.mime_type}
-        label={block.name}
-        downloadName={block.name}
-        size={block.size_bytes}
-      />
+      {showsAsThumbnail(block.mime_type) ? (
+        <AttachmentThumbnail
+          reference={block.attachment_ref}
+          mime={block.mime_type}
+          name={block.name}
+          size={block.size_bytes}
+        />
+      ) : (
+        <MediaPreview
+          reference={block.attachment_ref}
+          mime={block.mime_type}
+          label={block.name}
+          downloadName={block.name}
+          size={block.size_bytes}
+        />
+      )}
     </figure>
   );
 }

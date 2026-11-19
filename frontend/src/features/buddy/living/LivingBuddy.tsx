@@ -100,6 +100,7 @@ export function LivingBuddy({
   cursor = null,
   shadow = 0.22,
   still,
+  onStill,
   handle,
 }: {
   conversation: string | null;
@@ -113,11 +114,14 @@ export function LivingBuddy({
   shadow?: number;
   /** Shown until the living Buddy draws, and instead of it when it can't. */
   still: React.ReactNode;
+  /** Whether the still is drawn instead of the living Buddy (it can't draw). */
+  onStill?: (shown: boolean) => void;
   handle?: React.RefObject<LivingBuddyHandle | null>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduced = useReducedMotion();
   const [state, setState] = useState<'loading' | 'live' | 'still'>('loading');
+  useEffect(() => onStill?.(state === 'still'), [onStill, state]);
   const controllerRef = useRef<MotionController | null>(null);
   // Read every frame without re-creating the renderer.
   const live = useRef({ snapshot, reduced, cursor, workSide, shadow, framing });

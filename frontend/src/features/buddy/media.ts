@@ -67,11 +67,25 @@ export type BuddyMediaLoader = (
 
 const MEDIA_LIMIT = 24;
 const rememberedMedia = new WeakMap<object, Map<string, Blob>>();
+const pendingMedia = new WeakMap<object, Map<string, Promise<Blob>>>();
+
+function abortable(pending: Promise<Blob>, signal: AbortSignal) {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<Blob>((resolve, reject) => {
+    const aborted = () => reject(signal.reason);
+    signal.addEventListener('abort', aborted, { once: true });
+    pending
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', aborted));
+  });
+}
 
 /**
  * Pack media are the same bytes in every conversation for one pack revision,
  * so switching conversations reuses them instead of downloading them again
  * (each download spends the session's view budget). Bounded per owner.
+ * Callers asking at once share one download; one caller giving up stops
+ * only its own wait, never the others' download.
  */
 export function rememberBuddyMedia(
   owner: object,
@@ -80,6 +94,8 @@ export function rememberBuddyMedia(
   return async (conversation, pack, asset, revision, signal) => {
     let media = rememberedMedia.get(owner);
     if (!media) rememberedMedia.set(owner, (media = new Map()));
+    let pending = pendingMedia.get(owner);
+    if (!pending) pendingMedia.set(owner, (pending = new Map()));
     const key = `${pack}\u0000${asset}\u0000${revision}`;
     const known = media.get(key);
     if (known) {
@@ -87,13 +103,34 @@ export function rememberBuddyMedia(
       media.set(key, known);
       return known;
     }
-    const blob = await load(conversation, pack, asset, revision, signal);
-    media.set(key, blob);
-    for (const oldest of media.keys()) {
-      if (media.size <= MEDIA_LIMIT) break;
-      media.delete(oldest);
+    let shared = pending.get(key);
+    if (!shared) {
+      const inFlight = pending;
+      const remembered = media;
+      shared = load(
+        conversation,
+        pack,
+        asset,
+        revision,
+        new AbortController().signal,
+      ).then(
+        (blob) => {
+          inFlight.delete(key);
+          remembered.set(key, blob);
+          for (const oldest of remembered.keys()) {
+            if (remembered.size <= MEDIA_LIMIT) break;
+            remembered.delete(oldest);
+          }
+          return blob;
+        },
+        (error: unknown) => {
+          inFlight.delete(key);
+          throw error;
+        },
+      );
+      pending.set(key, shared);
     }
-    return blob;
+    return abortable(shared, signal);
   };
 }
 
