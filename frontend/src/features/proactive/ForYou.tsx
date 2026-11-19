@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { ProactiveMomentView } from '../../api/types';
 import { relativeTime } from '../../ui/format';
+import { SafeInlineMarkdown } from '../shell/chat-parity-markdown';
 import {
   IconButton,
   Menu,
@@ -314,11 +315,12 @@ export default function ForYou({
           {lines.length > 0 && (
             <ul className="proactive-brief-lines">
               {lines.map((line, index) => (
-                <li key={index}>{line}</li>
+                <li key={index}>
+                  <SafeInlineMarkdown text={line} />
+                </li>
               ))}
             </ul>
           )}
-          <p className="proactive-brief-end">That’s everything for today.</p>
         </div>
       )}
       {ordered.map((group) => (
