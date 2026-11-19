@@ -46,10 +46,21 @@ def session_jsonl(session_id: str, messages: Iterable[dict[str, Any]], *, model:
     return "\n".join(json.dumps(line, ensure_ascii=False) for line in [header, *events(messages)]) + "\n"
 
 
+#: Row-Bot's per-turn context (date, approval level, workspace, tool groups) is saved as its own message
+#: beside the person's; it is Row-Bot's runtime context, like a system prompt, never something the person said.
+TURN_CONTEXT_TAG = "<row_bot_turn_context>"
+
+
 def from_langchain(messages: Iterable[Any]) -> list[dict[str, Any]]:
-    """A LangGraph checkpoint's messages (``threads.get_latest_checkpoint_messages``) as plain dicts."""
+    """A LangGraph checkpoint's messages (``threads.get_latest_checkpoint_messages``) as plain dicts; Row-Bot's
+    turn-context messages become system messages, which the transcript leaves out."""
     roles = {"human": "user", "ai": "assistant", "tool": "tool", "system": "system"}
-    return [{"role": roles.get(str(getattr(message, "type", "")), "other"), "content": getattr(message, "content", ""),
-             "tool_calls": [{"name": call.get("name"), "args": call.get("args")}
-                            for call in getattr(message, "tool_calls", None) or []]}
-            for message in messages]
+    found = []
+    for message in messages:
+        role = roles.get(str(getattr(message, "type", "")), "other")
+        content = getattr(message, "content", "")
+        if role == "user" and _text(content).lstrip().startswith(TURN_CONTEXT_TAG):
+            role = "system"
+        found.append({"role": role, "content": content, "tool_calls": [
+            {"name": call.get("name"), "args": call.get("args")} for call in getattr(message, "tool_calls", None) or []]})
+    return found

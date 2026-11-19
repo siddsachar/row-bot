@@ -24,6 +24,7 @@ def test_a_conversation_becomes_the_openclaw_session_pawbenchs_grader_reads() ->
     messages = transcript.from_langchain([
         SystemMessage(content="You are Row-Bot."),
         HumanMessage(content="Summarise sales.csv into report.md"),
+        HumanMessage(content="<row_bot_turn_context>\nApproval level for this chat: Hands-off.\n"),  # not the person
         AIMessage(content="", tool_calls=[{"name": "workspace_read_file", "args": {"path": "sales.csv"}, "id": "c1"}]),
         ToolMessage(content="region,total\nEU,10", tool_call_id="c1"),
         AIMessage(content=[{"type": "text", "text": "Saved report.md in the workspace."}]),
@@ -69,7 +70,8 @@ def test_only_pawbench_may_use_qwen36_and_never_a_personal_model() -> None:
 
 
 def _runtime(answers: list[str]) -> product.ProductRuntime:
-    runtime = product.ProductRuntime(SimpleNamespace(), SimpleNamespace())  # type: ignore[arg-type]
+    runtime = product.ProductRuntime(SimpleNamespace(model_ref="model:codex:gpt-6.1-sol"),  # type: ignore[arg-type]
+                                     SimpleNamespace())
     prompts: list[str] = []
 
     def turn(thread_id, prompt, name=""):
@@ -81,7 +83,11 @@ def _runtime(answers: list[str]) -> product.ProductRuntime:
     return runtime
 
 
-def test_after_the_task_the_app_s_one_follow_up_runs_and_never_chains(tmp_path) -> None:
+def test_after_the_task_the_app_s_one_follow_up_runs_and_never_chains(tmp_path, monkeypatch) -> None:
+    from row_bot.application import conversation_followups
+
+    # The chat's own model confirms a stop the word rule found (the app's S1 check); here it agrees.
+    monkeypatch.setattr(conversation_followups, "_still_working", lambda *args, **kwargs: True)
     (tmp_path / "chart.png").write_bytes(b"png")
     claimed = _runtime(["I saved `report.md` and `chart.png` in the workspace.", "Saved report.md now."])
     steps = claimed.turn_with_followups("t1", "Make the report", [tmp_path])

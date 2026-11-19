@@ -120,7 +120,10 @@ class ProductRuntime(BenchRuntime):
         models.adopt_saved_default(self.config.model_ref)
         from row_bot.tools import registry
 
-        self.notes.append(f"default tools: {sorted(tool.name for tool in registry.get_enabled_tools())}")
+        # A turn is sent with the tool groups that are on, as the app sends it (BenchRuntime.turn passes
+        # config.tools to agent.stream_agent): here, every group a fresh profile has on.
+        self.config.tools = tuple(sorted(tool.name for tool in registry.get_enabled_tools()))
+        self.notes.append(f"default tools: {list(self.config.tools)}")
         self._undo.append(withhold_person_tools(self.withheld_tools))
         self._undo.append(install_call_gate(self.ledger))
         self._undo.append(install_recall_recorder(self.recall_log))
@@ -129,24 +132,43 @@ class ProductRuntime(BenchRuntime):
         self._seen_row = usage_rows.max_id(self.usage_db())
 
     def turn_with_followups(self, thread_id: str, prompt: str, roots: list[Path]) -> list[Step]:
-        """One message, then the one follow-up the app makes after it, never chained: carry on when the reply
-        stops on its next step, else check the files it says it saved."""
+        """One message, then the one follow-up the app makes after it (:func:`app_followup`), never chained."""
         steps = [self.turn(thread_id, prompt, name="task")]
         if steps[0].status != "done":
             return steps
-        from row_bot.application.conversation_followups import (
-            CARRY_ON_PROMPT,
-            file_check_prompt,
-            stopped_on_next_step,
-        )
-        from row_bot.file_claims import claimed_missing
-
-        if stopped_on_next_step(steps[0].answer):
-            self.followups.append("carry on")
-            steps.append(self.turn(thread_id, CARRY_ON_PROMPT, name="carry on"))
-            return steps
-        missing = claimed_missing(steps[0].answer, roots)
-        if missing:
-            self.followups.append(f"file check: {missing}")
-            steps.append(self.turn(thread_id, file_check_prompt(missing), name="file check"))
+        seen = len(steps[0].tool_calls)  # the runtime lists the conversation's calls so far: keep each turn's own
+        found = app_followup(thread_id, steps[0].answer, self.config.model_ref, roots, record=self.followups)
+        if found is not None:
+            name, followup_prompt = found
+            steps.append(self.turn(thread_id, followup_prompt, name=name))
+            steps[-1].tool_calls = steps[-1].tool_calls[seen:]
         return steps
+
+
+def app_followup(thread_id: str, reply: str, model_ref: str, roots: list[Path], *,
+                 record: list[str] | None = None) -> tuple[str, str] | None:
+    """The follow-up the app would start after a completed turn with *reply*, as ``(name, prompt)``, or None.
+
+    The app's own steps (``conversation_followups._carry_on`` and ``_carry_on_if_still_working``): the word rule
+    finds a reply that stops on its next step, then the chat's own model confirms it stopped mid-work (the
+    narrower rule decides when that check can't run); otherwise a reply that names files it says it saved and
+    that aren't there gets the file check. *roots* are where those files are looked for (the task's workspace).
+    """
+    from row_bot.application import conversation_followups as followups
+    from row_bot.file_claims import claimed_missing, could_claim
+
+    notes = record if record is not None else []
+    text = str(reply or "").strip()
+    if followups.stopped_on_next_step(text):
+        unchecked = bool(followups._SURE_NEXT_STEP.search(text[-followups._TAIL_CHARS:]))  # noqa: SLF001
+        if followups._still_working(thread_id, text[-1500:], model_ref, unchecked=unchecked):  # noqa: SLF001
+            notes.append("carry on")
+            return "carry on", followups.CARRY_ON_PROMPT
+        notes.append("carry on: the stop check said the work was done")
+        return None
+    if could_claim(text):
+        missing = claimed_missing(text, roots)
+        if missing:
+            notes.append(f"file check: {missing}")
+            return "file check", followups.file_check_prompt(missing)
+    return None

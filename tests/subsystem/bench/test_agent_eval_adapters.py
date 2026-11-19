@@ -441,11 +441,21 @@ def test_a_key_saved_in_the_eval_profile_is_read_from_its_one_record_and_wins_ov
 
 
 def test_with_app_followups_a_reply_that_stops_on_its_next_step_carries_on_once_before_the_person_reads_it(
-        tmp_path) -> None:
+        tmp_path, monkeypatch) -> None:
+    from row_bot.application import conversation_followups
     from tests.e2e.bench.trajectory import Trajectory
+
+    checked: list[str] = []
+
+    def still_working(thread_id, reply, model_ref, *, unchecked):  # the chat's own model, as the app asks it
+        checked.append(reply)
+        return "refund rules" in reply
+
+    monkeypatch.setattr(conversation_followups, "_still_working", still_working)
 
     def host(answers: list[str], followups: str) -> tuple[RuntimeHost, _Runtime]:
         runtime = _Runtime([Step(kind="turn", answer=answer) for answer in answers])
+        runtime.config.model_ref = "model:codex:gpt-6.1-sol"
         made = RuntimeHost(runtime, "tau2-bench", tmp_path / f"{followups}.jsonl", followups=followups)  # type: ignore[arg-type]
         made.threads["s"], made.trajectories["s"] = "t", Trajectory(task_id="s", benchmark="tau2-bench")
         return made, runtime
@@ -460,6 +470,11 @@ def test_with_app_followups_a_reply_that_stops_on_its_next_step_carries_on_once_
     assert plain.turn("s", "Cancel my booking").answer == stopping[0] and len(runtime.steps) == 1
     asking, runtime = host(["Next I'll cancel it. Shall I go ahead?"], "app")
     assert asking.turn("s", "Cancel it").answer.endswith("Shall I go ahead?") and runtime.steps == []
+    # The word rule fires on a short "I'll read …, created report.md" reply; the model check says it's done.
+    done, runtime = host(["I'll read the file and total it. Created report.md with the totals.", "unused"], "app")
+    assert done.turn("s", "Make the report").answer.startswith("I'll read") and len(runtime.steps) == 1
+    assert done.trajectories["s"].config["followups"] == ["carry on: the stop check said the work was done"]
+    assert len(checked) == 2
 
 
 def test_failures_are_bucketed_by_what_the_grader_found_and_what_the_agent_did() -> None:

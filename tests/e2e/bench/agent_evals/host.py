@@ -95,11 +95,13 @@ class RuntimeHost:
         step = self._one_turn(session, prompt)
         if self.followups != "app" or step.status != "done":
             return step
-        from row_bot.application.conversation_followups import CARRY_ON_PROMPT, stopped_on_next_step
+        from .product import app_followup
 
-        if not stopped_on_next_step(step.answer):
+        notes = self.trajectories[session].config.setdefault("followups", [])
+        found = app_followup(self.threads[session], step.answer, self.runtime.config.model_ref, [], record=notes)
+        if found is None:
             return step
-        carried = self._one_turn(session, CARRY_ON_PROMPT, name="carry on")
+        carried = self._one_turn(session, found[1], name=found[0])
         if carried.status == "done" and carried.answer.strip():
             carried.answer = f"{step.answer.rstrip()}\n\n{carried.answer.strip()}"
             return carried
