@@ -104,6 +104,41 @@ def test_keywords_split_between_a_message_and_its_reply_are_found(chats) -> None
     assert search("companies patagonia") == result  # deterministic
 
 
+def test_with_no_message_holding_every_keyword_the_closest_messages_come_back_marked(chats) -> None:
+    threads, search, _current, _tool = chats
+    _chat(threads, "party", ["The date of my birthday is 3 May.", "Happy early birthday!"])
+    _chat(threads, "cooking", ["What date is it today? I want to bake bread.", "It is a good day for bread."])
+
+    result = search("birthday born date")
+
+    assert result.startswith("No message holds every keyword of 'birthday born date'")
+    assert _matches(result) == ["party"] and "The date of my birthday is 3 May." in result
+    assert "Has: birthday, date" in result  # "What date is it" holds 1 of 3: not shown
+
+
+def test_closest_matches_need_half_the_keywords_and_rank_rarer_words_first(chats) -> None:
+    threads, search, _current, _tool = chats
+    _chat(threads, "news", ["Caroline went to the shop.", "Caroline liked it."])
+    _chat(threads, "work", ["Caroline is reading up on adoption agencies for her research.", "Good luck with it!"])
+
+    assert _matches(search("caroline research agencies pottery")) == ["work"]  # 3 of 4 keywords
+    assert _matches(search("melanie research"))[0] == "work"  # 1 of 2: the rarer word first
+    assert search("alpha beta gamma research").startswith("No messages matching")  # 1 of 4 is too few
+
+
+def test_closest_matches_keep_incognito_hidden_and_others_chats_fenced(chats, monkeypatch) -> None:
+    threads, search, _current, tool = chats
+    _chat(threads, "secret", ["The date of my birthday is a secret."], incognito=True)
+    _chat(threads, "group", ["The date of her birthday is next week."])
+    _chat(threads, "today", ["Hello."])
+    monkeypatch.setattr(tool, "_others_may_have_written", lambda thread_id: thread_id == "group")
+
+    result = search("birthday born date")
+
+    assert _matches(result) == ["group"]
+    assert "<EXTERNAL_CONTENT" in result and "a secret" not in result
+
+
 def test_incognito_chats_stay_hidden_from_other_chats_even_across_neighbours(chats) -> None:
     threads, search, current, _tool = chats
     _chat(threads, "today", ["Plan a trip.", "Where to?"])
@@ -114,8 +149,10 @@ def test_incognito_chats_stay_hidden_from_other_chats_even_across_neighbours(cha
 
     found = search("passport drawer")
 
-    # Neither the incognito chat nor the incognito part of the other one is read, even as a neighbour.
-    assert "No messages matching" in found
+    # Neither the incognito chat nor the incognito part of the other one is read, even as a neighbour
+    # (or as a closest match: only the visible part's "drawer" messages come back).
+    assert not found.startswith("Found")
+    assert not any(text in found for text in ("Where is my passport?", "blue drawer", "renew the passport"))
     assert _matches(search("drawer hall")) == ["was-private"]  # its part since incognito was turned off
 
     current["thread_id"] = "private"
