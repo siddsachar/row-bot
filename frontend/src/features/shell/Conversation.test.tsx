@@ -1945,6 +1945,73 @@ it('keeps only what was typed after sending once the message is accepted', async
   );
 });
 
+function acceptSubmits() {
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+}
+
+it('a press on Send leaves the message field focused, and one click sends once', async () => {
+  // Found on a phone: the press took focus from the field, the keyboard
+  // closed and the composer moved before the click landed, so it missed.
+  idleConversation();
+  acceptSubmits();
+  await act(async () => conversation());
+  const field = screen.getByRole('textbox', { name: 'Message' });
+  const send = screen.getByRole('button', { name: 'Send' });
+  field.focus();
+  expect(fireEvent.pointerDown(send, { button: 0 })).toBe(false);
+  expect(fireEvent.mouseDown(send, { button: 0 })).toBe(false);
+  expect(field).toHaveFocus();
+  fireEvent.pointerUp(send, { button: 0 });
+  fireEvent.mouseUp(send, { button: 0 });
+  await act(async () => {
+    fireEvent.click(send);
+  });
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.objectContaining({ text: 'Original queued draft' }),
+    '1',
+    expect.any(String),
+    { onReceipt: expect.any(Function) },
+  );
+  // The keyboard stays up for the next message, as after Enter.
+  expect(field).toHaveFocus();
+});
+
+it('a tap on Send in a new chat sends what was typed and never adds a suggested prompt', async () => {
+  idleConversation();
+  acceptSubmits();
+  const user = userEvent.setup();
+  await act(async () => conversation());
+  expect(
+    within(screen.getByRole('group', { name: 'Example prompts' })).getAllByRole(
+      'button',
+    ),
+  ).toHaveLength(4);
+  const field = screen.getByRole('textbox', { name: 'Message' });
+  field.focus();
+  const keyboardClosed = vi.fn();
+  field.addEventListener('blur', keyboardClosed);
+  await user.click(screen.getByRole('button', { name: 'Send' }));
+  expect(keyboardClosed).not.toHaveBeenCalled();
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent.mock.calls[0][2]).toMatchObject({
+    text: 'Original queued draft',
+  });
+  expect(mock.setDraft).not.toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({ text: expect.stringContaining('\n\n') }),
+  );
+});
+
 it('takes what was sent out of the composer as soon as Row-Bot has it, before the chat refreshes', async () => {
   // Found live: an instant reply showed while the sent text still waited in
   // the composer, because it left only once the chat had refreshed after it.

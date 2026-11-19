@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -195,6 +196,29 @@ import {
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
+
+/**
+ * A press on one of the composer's buttons while the message field has focus
+ * leaves the focus there, as Enter does. On a phone, the field losing focus on
+ * the press closed the keyboard, and the composer dropped to the bottom of the
+ * screen before the tap's click landed: the click fell on whatever was then
+ * under the finger (a new chat's prompt suggestion, or nothing), so Send took
+ * two taps. A menu trigger still opens on its press; whatever a button opens
+ * takes focus itself.
+ */
+function keepFieldFocus(event: MouseEvent<HTMLElement>) {
+  const button =
+    event.target instanceof Element ? event.target.closest('button') : null;
+  const field = document.activeElement;
+  if (
+    !button ||
+    !(field instanceof HTMLTextAreaElement) ||
+    !event.currentTarget.contains(field) ||
+    (event.type === 'pointerdown' && button.hasAttribute('aria-haspopup'))
+  )
+    return;
+  event.preventDefault();
+}
 
 /** Below 740px Context floats; a floating chat docks it again from 780px. */
 /** Too narrow for the details rail beside a comfortable reading column (U3). */
@@ -4248,6 +4272,9 @@ export default function Conversation({
               className="composer-field"
               ref={composerFieldRef}
               data-dragging={dragging ? 'true' : undefined}
+              // Before the buttons' own handlers, which focus the button.
+              onPointerDownCapture={keepFieldFocus}
+              onMouseDownCapture={keepFieldFocus}
               onDragEnter={(event) => {
                 if (!hasFiles(event)) return;
                 event.preventDefault();
