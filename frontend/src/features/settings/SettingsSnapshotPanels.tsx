@@ -26,6 +26,7 @@ import {
   Code2,
   Hammer,
   Import,
+  Lightbulb,
   ListChecks,
   Mail,
   Mic,
@@ -38,6 +39,7 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
   SquarePen,
   SquareTerminal,
   Square,
@@ -92,6 +94,7 @@ import {
   EntityList,
   EntityRow,
   Field,
+  Hint,
   IconButton,
   Input,
   Segmented,
@@ -5945,6 +5948,84 @@ function HourSetting({
   );
 }
 
+/** A row that leads to where a notification setting lives, with its chevron. */
+function NotificationsLink({
+  icon,
+  label,
+  help,
+  to,
+  where,
+}: {
+  icon: ReactNode;
+  label: string;
+  help: string;
+  to: string;
+  where: string;
+}) {
+  return (
+    <SettingsItem
+      icon={icon}
+      tone="neutral"
+      label={label}
+      help={help}
+      layout="inline"
+      trailing={
+        <Hint label={`Open ${where}`}>
+          <Link
+            className="button ghost icon-button icon-action icon-action-md"
+            to={to}
+            aria-label={`Open ${where}`}
+          >
+            <ChevronRight size={16} aria-hidden />
+          </Link>
+        </Hint>
+      }
+    />
+  );
+}
+
+/**
+ * Every notification setting in one place: this computer's own switch, and
+ * rows to the phone and Proactive settings that live with their owners.
+ */
+function NotificationsGroup({
+  snapshot,
+  mutation,
+}: {
+  snapshot: SettingsSnapshot['preferences'];
+  mutation: SettingsMutationIO;
+}) {
+  const place = usePlace();
+  return (
+    <SettingsGroup title="Notifications" anchor="notifications">
+      {/* A hosted server has no desktop to show them on. */}
+      {place.kind !== 'hosted' && (
+        <SwitchSetting
+          mutation={mutation}
+          field="desktop_notifications"
+          label="Desktop notifications"
+          hint={`A notice and a sound ${place.on} when a workflow finishes, a timer goes off or something needs your approval.`}
+          value={snapshot.desktop_notifications !== false}
+        />
+      )}
+      <NotificationsLink
+        icon={<Smartphone size={16} aria-hidden />}
+        label="Phone notifications"
+        help="Turn them on for each phone, and choose whether they show details."
+        to="/settings/access#notifications"
+        where="Devices & remote access"
+      />
+      <NotificationsLink
+        icon={<Lightbulb size={16} aria-hidden />}
+        label="What Proactive brings up"
+        help="Follow-ups, meeting prep, the morning brief, and when they may reach you."
+        to="/settings/proactive"
+        where="Proactive settings"
+      />
+    </SettingsGroup>
+  );
+}
+
 function PreferencesPage({
   snapshot,
   mutation,
@@ -6049,6 +6130,7 @@ function PreferencesPage({
           ]}
         />
       </SettingsGroup>
+      <NotificationsGroup snapshot={snapshot} mutation={mutation} />
       <SettingsGroup title="Overnight tidy-up" anchor="dream-cycle">
         <SwitchSetting
           mutation={mutation}

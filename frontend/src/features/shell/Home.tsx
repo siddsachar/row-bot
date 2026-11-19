@@ -30,6 +30,7 @@ import MonitorHome from '../home/MonitorHome';
 import type { BackgroundProcessesIo } from '../home/BackgroundProcesses';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
+import PhoneNotificationsOffer from '../home/PhoneNotificationsOffer';
 import { BuddyPortrait } from '../buddy/BuddySurface';
 import ForYou from '../proactive/ForYou';
 import ResourceSetup from './ResourceSetup';
@@ -592,6 +593,9 @@ export default function Home({
                 onRetryScheduledPost={controller.retryScheduledPost}
                 onEditScheduledPost={controller.editScheduledPost}
                 buddy={<BuddyPortrait />}
+                notificationsOffer={
+                  identity ? <PhoneNotificationsOffer /> : null
+                }
                 forYou={({ rows, ahead, footer }) => (
                   <ForYou today={rows} ahead={ahead} footer={footer} />
                 )}
