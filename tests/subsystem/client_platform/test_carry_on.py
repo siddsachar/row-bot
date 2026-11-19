@@ -258,6 +258,9 @@ def test_no_carry_on_when_the_chats_model_reads_the_reply_as_done(chat, stop_che
 @pytest.mark.parametrize("reply, carries_on", [
     ("The landscape cut is saved. Next I'll render the vertical version.", True),
     ("Recording Row-Bot's browser now. I'll stop it once the sign-up flow is done.", False),
+    # The broader rule's newer phrasings (19 Nov) never carry on by themselves: only the model's check can.
+    ("Your reservation has travel insurance. I'm checking the flight statuses before determining the next steps.",
+     False),
 ])
 def test_when_the_check_cannot_be_asked_only_the_narrower_rules_words_carry_on(chat, monkeypatch, reply, carries_on):
     """With no model to ask (a provider error, an endpoint that is down), the broader rule alone fired on
