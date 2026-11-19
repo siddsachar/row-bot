@@ -512,6 +512,9 @@ def test_failures_are_bucketed_by_what_the_grader_found_and_what_the_agent_did()
     assert not diagnose.progress_stop("Next I'll cancel it. Please confirm?")  # it asks: a hand-over, not a stop
     assert diagnose.unwrap('{"message": "Hello"}') == ("Hello", True)
     assert "| 4 | not communicated |" in diagnose.render(found, title="t")
+    gave_up = simulation("8", 0.0, {"DB": 0.0}, actions=[write])
+    gave_up["messages"].append({"role": "user", "content": "###OUT-OF-SCOPE###"})
+    assert diagnose.bucket(gave_up) == "customer gave up"  # the simulated customer, not a wrong write
 
 
 def test_a_bench_variant_changes_one_thing_in_the_worker_and_is_undone() -> None:

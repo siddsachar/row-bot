@@ -5,7 +5,8 @@ Standard library only. For each simulation:
 - **outcome**: the reward and its parts (``DB``: the final database is the gold one; ``COMMUNICATE``: the
   required facts reached the customer; ``NL_ASSERTION``), and the termination reason;
 - **bucket** of a failure, first match wins: ``harness`` (an agent error or infrastructure error: ours, not
-  the model's), ``ran out`` (max steps or too many tool errors), ``wrong write`` (a gold write action the
+  the model's), ``ran out`` (max steps or too many tool errors), ``customer gave up`` (the simulated
+  customer ended with tau2's out-of-scope token: often the user simulator, not the agent), ``wrong write`` (a gold write action the
   agent never made with the same arguments: the database is wrong), ``extra write`` (every gold action made,
   yet the database is wrong: a write the policy didn't call for), ``not communicated`` (the database is
   right; a required fact never reached the customer), ``judged`` (the NL assertions failed);
@@ -21,6 +22,7 @@ from collections import Counter
 from typing import Any, Iterable
 
 WRITE = "write"
+OUT_OF_SCOPE = "###OUT-OF-SCOPE###"  # tau2's user-simulator token for "my instructions can't go on from here"
 _PROGRESS = re.compile(
     r"\b(?:next|now|then),?\s+I(?:'|’)ll\b|\bI(?:'|’)ll\s+(?:now|next|then|finish|review|check|look|verify|confirm"
     r"|proceed|continue|calculate|process)\b|\bI(?:'|’)m\s+(?:now\s+)?(?:checking|reviewing|looking|verifying|going to"
@@ -69,6 +71,10 @@ def bucket(simulation: dict[str, Any]) -> str:
         return "harness"
     if reason in {"max_steps", "too_many_errors"}:
         return "ran out"
+    last_user = next((str(m.get("content") or "") for m in reversed(simulation.get("messages") or [])
+                      if m.get("role") == "user"), "")
+    if OUT_OF_SCOPE in last_user:
+        return "customer gave up"  # the simulated customer found its scenario couldn't go on
     parts = info.get("reward_breakdown") or {}
     if float(parts.get("DB", 1.0)) < 1.0:
         missed = [check for check in info.get("action_checks") or []
