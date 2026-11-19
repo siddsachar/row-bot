@@ -90,6 +90,10 @@ class ReplicationRunner(StudyRunner):
             self.gpu.release()
             return
         if self.gpu.held is not None and gives_back(self.gpu):
+            # The card goes back empty: a lane that books only on a nearly free card (the graph lane checks 6,500
+            # MiB) would otherwise find this arm's model still loaded through the night. The server loads it again
+            # for the arm's next run, as it does after serve_arm's probe.
+            self.unload(arm)
             self.gpu.release()
         self.gpu.acquire(f"replication: {arm} runs",
                          expect="about 2 h, one arm's runs (the card goes back between runs when asked), up to 17 GB")

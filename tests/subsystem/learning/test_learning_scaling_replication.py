@@ -376,6 +376,37 @@ def test_between_runs_the_card_goes_back_to_another_lanes_exclusive_window(tmp_p
                                                        quiet=lambda: None)) is True
 
 
+def test_a_local_arm_gives_the_card_back_with_its_model_unloaded(tmp_path):
+    """19 Nov: the graph lane books its night only when the card holds at most 6,500 MiB. An arm that gave back its
+    booking for quiet hours with its model still loaded would cost that lane the night."""
+
+    booking = tmp_path / "gpu-booking.txt"
+    booking.write_text("09:00 lane-paper START replication: dagger-64k runs\n", encoding="utf-8")
+    events: list[str] = []
+
+    class Gate(scratch.GpuGate):
+        def release(self) -> None:
+            events.append("release")
+            super().release()
+
+        def acquire(self, what: str, expect: str = "") -> None:
+            events.append("acquire")
+
+    quiet = {"now": None}
+    gate = Gate(booking, "lane-paper", training=lambda: False, quiet=lambda: quiet["now"])
+    gate.held = "replication: dagger-64k runs"
+    runner_like = SimpleNamespace(_arm="dagger-64k", arms={"dagger-64k": runner.Spec("dagger-64k", "model:x", local=True)},
+                                  gpu=gate, unload=lambda arm: events.append(f"unload {arm}"))
+
+    replicate_worker.ReplicationRunner.card(runner_like, "dagger-64k")  # not giving back: the model stays
+    assert events == ["acquire"]
+
+    events.clear()
+    quiet["now"] = "quiet hours"
+    replicate_worker.ReplicationRunner.card(runner_like, "dagger-64k")
+    assert events == ["unload dagger-64k", "release", "acquire"]
+
+
 # ── SA2, R1, R2 and Holm ─────────────────────────────────────────────────────
 
 
