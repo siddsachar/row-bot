@@ -1389,6 +1389,56 @@ def test_the_27b_sign_in_finishes_when_the_participant_authorizes(data_dir, tmp_
     assert trainer is not None and not other_took_it.is_set()
 
 
+def test_a_lapsed_27b_sign_in_code_is_replaced_until_the_participant_signs_in(data_dir, tmp_path, monkeypatch,
+                                                                              capsys):
+    """19 Nov: the code appeared only after the copy and lapsed twice before the participant got to it, and each
+    time the run stopped and its copy was lost. A lapsed code is replaced with a new one; a denial still stops."""
+
+    import functools
+
+    import httpx
+
+    from row_bot import secret_store
+    from row_bot.learning.remote import auth
+
+    codes = iter(["FIRST-CODE", "SECOND-CODE"])
+    answers = iter([{"error": "expired_token"}, {"error": "authorization_pending"}, None])
+
+    def hugging_face(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/oauth/register":
+            return httpx.Response(201, json={"client_id": "client-123"})
+        if path == "/oauth/device":
+            return httpx.Response(200, json={"device_code": "device-xyz", "user_code": next(codes),
+                                             "verification_uri": "https://hf.co/oauth/device", "expires_in": 900})
+        if path == "/oauth/token":
+            answer = next(answers)
+            if answer is not None:
+                return httpx.Response(400, json=answer)
+            return httpx.Response(200, json={"access_token": "hf_oauth_marker", "expires_in": 3600})
+        if path == "/api/whoami-v2":
+            return httpx.Response(200, json={"name": "ada"})
+        return httpx.Response(404)
+
+    monkeypatch.setattr(auth, "HuggingFaceSignIn",
+                        functools.partial(auth.HuggingFaceSignIn, transport=httpx.MockTransport(hugging_face)))
+    monkeypatch.setattr(report.time, "sleep", lambda seconds: None)
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    try:
+        trainer = report._hugging_face_trainer(copy)  # noqa: SLF001 - the 27B's sign-in step
+        shown = capsys.readouterr().out
+        assert trainer is not None
+        assert "FIRST-CODE" in shown and "The new code is SECOND-CODE" in shown
+
+        codes = iter(["THIRD-CODE"])
+        answers = iter([{"error": "access_denied"}])
+        with pytest.raises(report._ModeFailed, match="sign-in didn't finish"):  # noqa: SLF001
+            report._hugging_face_trainer(copy)  # noqa: SLF001
+    finally:
+        secret_store._set_backend_for_tests(None)  # noqa: SLF001
+
+
 def test_an_arm_that_outlasts_its_first_readiness_check_is_served_on_the_second(data_dir, tmp_path, monkeypatch):
     """13 Nov: after an Ollama update the starting model's first load took 20.3 s against the readiness check's 20 s,
     so the v2 freeze served no starting model and evaluated nothing. A second load reads the cached file."""

@@ -1208,17 +1208,42 @@ def _hugging_face_trainer(copy: Path) -> Any:
     # This loop is the only poller: the sign-in's own background poll would race it for the one token answer
     # and leave this loop nothing pending (13 Nov: the participant authorized and the run stopped).
     sign_in = auth.HuggingFaceSignIn(start_threads=False)
-    state = sign_in.start()
-    say(f"Sign in to Hugging Face: open {state.code.verification_uri} and enter the code {state.code.user_code},")
-    say("then click Authorize. Waiting ...")
+    code = _new_code(sign_in)
+    say(f"\aSign in to Hugging Face: open {code.verification_uri} and enter the code {code.user_code},")
+    say(f"then click Authorize (this code works until {_clock(code.expires_at)}). Waiting ...")
     while True:
         outcome = sign_in.poll()
         if outcome == "signed_in":
             break
-        if outcome in ("expired", "denied", "refused", "none"):
+        if outcome == "expired":
+            # 19 Nov: a code lasts 15 minutes and appears only after the copy, so the participant missed two.
+            # A lapsed code is replaced until they sign in (Ctrl+C stops the run).
+            code = _new_code(sign_in)
+            say(f"\aThat code lapsed. The new code is {code.user_code} (until {_clock(code.expires_at)}), "
+                "on the same page. Waiting ...")
+            continue
+        if outcome in ("denied", "refused", "none"):
             raise _ModeFailed("the Hugging Face sign-in didn't finish")
-        time.sleep(state.code.interval)
+        time.sleep(code.interval)
     return remote_training.RemoteTrainer(copy, jobs=jobs_module.TrainingJobs(copy), sign_in=sign_in)
+
+
+def _new_code(sign_in: Any) -> Any:
+    """A new Hugging Face sign-in code; a network that doesn't answer is asked again a minute later."""
+
+    from row_bot.learning.remote import auth
+
+    while True:
+        try:
+            return sign_in.start().code
+        except auth.SignInError as error:
+            if error.code != "network":
+                raise _ModeFailed("the Hugging Face sign-in didn't finish") from None
+        time.sleep(60)
+
+
+def _clock(epoch: float) -> str:
+    return datetime.fromtimestamp(epoch).strftime("%H:%M")
 
 
 def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Hooks,
