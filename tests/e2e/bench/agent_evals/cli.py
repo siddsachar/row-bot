@@ -21,13 +21,13 @@ import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .. import booking as booking_module
 from .. import orchestrate
 from ..ledger import API, LedgerCaps, billing_for, usage_book_path
 from ..runtime import BenchConfig, child_env
-from . import keys
+from . import keys, openrouter
 from .tau2 import scoring
 from .variants import VARIANTS
 
@@ -136,8 +136,19 @@ def run(args: argparse.Namespace) -> int:
         if problem:
             print(f"not running: {ref}: {problem}")
             return 2
-    paid = [orchestrate.split_ref(ref)[0] for ref in filter(None, (args.model, args.user_model, args.nl_judge))
-            if billing_for(orchestrate.split_ref(ref)[0]) == API]
+    refs = [orchestrate.split_ref(ref) for ref in filter(None, (args.model, args.user_model, args.nl_judge))]
+    paid = [provider_id for provider_id, _ in refs if billing_for(provider_id) == API]
+    direct = sorted({provider_id for provider_id in paid if provider_id != "openrouter"})
+    if direct:
+        print(f"not running: paid models go through OpenRouter (one key, one balance), not {direct}; "
+              "name them openrouter:<model>")
+        return 2
+    try:
+        pins = openrouter_pins([model for provider_id, model in refs if provider_id == "openrouter"],
+                               args.openrouter_quant)
+    except openrouter.RoutingError as exc:
+        print(f"not running: {exc}")
+        return 2
     try:
         key_names = keys.names_for(paid)
     except keys.KeysError as exc:
@@ -181,7 +192,11 @@ def run(args: argparse.Namespace) -> int:
     spec = {"task_id": f"tau2-{args.domain}-{args.split}", "benchmark": "tau2-bench", "config": asdict(config),
             "caps": asdict(caps), "usage_book": str(usage_book_path()), "external_tools": tool_schemas(root, args.domain),
             "runner": {"argv": argv, "cwd": str(root)}, "record": record, "keys": key_names,
-            "followups": args.followups, "variant": args.variant}
+            "followups": args.followups, "variant": args.variant,
+            "openrouter_pins": {model: pin for model, (pin, _) in pins.items()},
+            "rates_file": str(openrouter.write_rates(run_dir / "openrouter-rates.json",
+                                                     {model: endpoint for model, (_, endpoint) in pins.items()}))
+            if pins else ""}
     kind = orchestrate.booking_kind(provider)
     what = f"tau2 {args.domain} {args.split} ({len(tasks)} tasks x {args.trials})"
     book = booking_module.BookingFile(Path(os.environ[orchestrate.BOOKING_ENV]), lane=lane()) if kind else None
@@ -203,6 +218,19 @@ def run(args: argparse.Namespace) -> int:
     if (run_dir / "tau2" / "results.json").exists():
         print(write_report(run_dir, published=Path(args.published) if args.published else None))
     return code
+
+
+def openrouter_pins(models: list[str], quant_text: str, *,
+                    fetch: Callable[[str], list[dict[str, Any]]] | None = None) -> dict[str, tuple[dict, dict]]:
+    """Each OpenRouter model's provider pin and the endpoint it lands on (first-party host, no fallbacks,
+    the precision ``--openrouter-quant model=bf16`` names); RoutingError when a model can't be pinned."""
+    quants = dict(item.split("=", 1) for item in quant_text.split(",") if "=" in item)
+    found = {}
+    for model in dict.fromkeys(models):
+        endpoints = (fetch or openrouter.fetch_endpoints)(model)
+        endpoint = openrouter.check_endpoints(model, endpoints, quantization=quants.get(model, ""))
+        found[model] = (openrouter.pin_for(model, quantization=quants.get(model, "")), endpoint)
+    return found
 
 
 def lane() -> str:
@@ -232,12 +260,14 @@ def throttle_check(run_dir: Path, provider: str, model: str, caps: LedgerCaps) -
 
 
 def matched_label(args: argparse.Namespace) -> str:
-    """Whether this run's setup is the published GPT-5.2-high row's (the model and efforts; the transport is
-    the ChatGPT plan's, which every plan row states)."""
-    same = (args.model == "codex:gpt-5.2" and args.reasoning_effort == "high" and args.user_model == "codex:gpt-5.2"
+    """Whether this run's setup is the published GPT-5.2-high row's: the same model and efforts for the agent
+    and the user simulator, tau2's own NL judge (gpt-4.1) for retail, 4 trials, seed 300, 200 steps; every
+    model through OpenRouter pinned to OpenAI's own endpoint (the ChatGPT plan no longer serves gpt-5.2)."""
+    gpt52 = "openrouter:openai/gpt-5.2"
+    same = (args.model == gpt52 and args.reasoning_effort == "high" and args.user_model == gpt52
             and args.user_effort == "low" and args.trials == 4 and args.seed == 300 and args.max_steps == 200
-            and (args.domain == "airline" or args.nl_judge == "openai:gpt-4.1-2025-04-14"))
-    return "matched to Sierra's GPT-5.2 high row (ChatGPT plan transport)" if same else "diagnostic, not matched"
+            and (args.domain == "airline" or args.nl_judge == "openrouter:openai/gpt-4.1"))
+    return "matched to Sierra's GPT-5.2 high row (OpenRouter, OpenAI host)" if same else "diagnostic, not matched"
 
 
 def write_report(run_dir: Path, *, published: Path | None = None) -> str:
@@ -286,6 +316,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--max-steps", type=int, default=200)
     run_parser.add_argument("--followups", default="none", choices=("none", "app"),
                             help="app: a reply that stops on its next step gets the app's one carry-on turn")
+    run_parser.add_argument("--openrouter-quant", default="",
+                            help="model=precision pins for OpenRouter models (recursive/flint-v1.0:free=bf16)")
     run_parser.add_argument("--variant", default="", choices=VARIANTS,
                             help="a bench-only arm of a paired A/B (agent_evals.variants); '' is Row-Bot as shipped")
     run_parser.add_argument("--run-dir", default="")

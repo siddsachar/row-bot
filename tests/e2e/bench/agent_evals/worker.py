@@ -72,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
     from . import bridge
     from .host import RuntimeHost
 
+    if spec.get("rates_file"):  # the pinned OpenRouter endpoints' prices: every paid call is held before it is sent
+        os.environ["ROW_BOT_LIVE_EVAL_RATES"] = str(spec["rates_file"])
     caps = LedgerCaps(**spec["caps"])
     ledger = CostLedger(caps, UsageBook(Path(spec["usage_book"])), rates=load_rates(), path=run_dir / "ledger.jsonl")
     config = BenchConfig(**{**spec["config"], "tools": (bridge.GROUP,),
@@ -83,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     specs = list(spec["external_tools"])
     host = None
     code, runner_code = 0, None
+    generation_ids: list[str] = []
     try:
         from row_bot.tools import registry
 
@@ -91,6 +94,11 @@ def main(argv: list[str] | None = None) -> int:
         from .variants import apply as apply_variant
 
         runtime._undo.append(apply_variant(str(spec.get("variant") or "")))  # noqa: SLF001 - undone at close
+        pins = dict(spec.get("openrouter_pins") or {})
+        if pins:
+            from . import openrouter
+
+            runtime._undo.append(openrouter.install(pins, generation_ids))  # noqa: SLF001
         summary.config = {**config.to_dict(), "kind": "bridge", "caps": asdict(caps),
                           "network": runtime.policy.to_dict(), "setup_notes": runtime.notes,
                           **({"local_model": runtime.local_model} if runtime.local_model else {}),
@@ -130,6 +138,12 @@ def main(argv: list[str] | None = None) -> int:
             host.flush()
         summary.finished_at = time.time()
         summary.config["ledger_refusals"] = len(ledger.refused)
+        if generation_ids and os.environ.get("OPENROUTER_API_KEY"):
+            from . import openrouter
+
+            summary.config["openrouter_pins"] = spec.get("openrouter_pins")
+            summary.config["openrouter_served"] = openrouter.served_providers(
+                generation_ids, os.environ["OPENROUTER_API_KEY"])
         if runtime.sign_in is not None:
             summary.config["credentials_write_backs"] = runtime.sign_in.write_backs
         runtime.close()

@@ -70,7 +70,7 @@ def read_profile_key(profile: Path, name: str, *, unprotect: object = None) -> s
 
 KEYS_FILE_ENV = "ROW_BOT_BENCH_KEYS_FILE"
 #: The environment variable Row-Bot reads for each paid provider the bench may use.
-PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+PROVIDER_KEYS = {"openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
 
 
 class KeysError(RuntimeError):

@@ -319,14 +319,16 @@ def test_our_run_is_compared_task_by_task_with_the_published_trials_on_the_same_
 
 
 def test_only_the_published_setup_is_labelled_matched() -> None:
-    args = SimpleNamespace(model="codex:gpt-5.2", reasoning_effort="high", user_model="codex:gpt-5.2",
+    gpt52 = "openrouter:openai/gpt-5.2"
+    args = SimpleNamespace(model=gpt52, reasoning_effort="high", user_model=gpt52,
                            user_effort="low", trials=4, seed=300, max_steps=200, domain="airline", nl_judge="")
     assert cli.matched_label(args).startswith("matched")
     for change in ({"model": "codex:gpt-6.1-sol"}, {"trials": 1}, {"user_effort": "high"},
-                   {"domain": "retail"}, {"domain": "retail", "nl_judge": "codex:gpt-5.2"}):
+                   {"user_model": "codex:gpt-5.6-sol"}, {"domain": "retail"},
+                   {"domain": "retail", "nl_judge": "codex:gpt-5.6-sol"}):
         assert cli.matched_label(SimpleNamespace(**{**vars(args), **change})) == "diagnostic, not matched"
     assert cli.matched_label(SimpleNamespace(**{**vars(args), "domain": "retail",
-                                                "nl_judge": "openai:gpt-4.1-2025-04-14"})).startswith("matched")
+                                                "nl_judge": "openrouter:openai/gpt-4.1"})).startswith("matched")
 
 
 def _tau2_checkout(tmp_path: Path) -> Path:
@@ -376,7 +378,61 @@ def test_a_run_needs_the_bench_switch_a_free_lane_and_a_judge_for_judged_tasks(t
     monkeypatch.setenv("ROW_BOT_BENCH_MAX_USD", "5")  # the owner's yes for a paid judge: it still needs its key
     monkeypatch.setenv("ROW_BOT_BENCH_KEYS_FILE", str(tmp_path / "bench-keys.env"))
     assert cli.main([*base, "--nl-judge", "openai:gpt-4.1-2025-04-14"]) == 2
-    assert "does not exist (it needs OPENAI_API_KEY)" in capsys.readouterr().out
+    assert "paid models go through OpenRouter" in capsys.readouterr().out  # one key, one balance
+    monkeypatch.setattr(cli.openrouter, "fetch_endpoints", lambda model: [
+        {"provider_name": "OpenAI", "quantization": "unknown", "pricing": {"prompt": "0.000002"}}])
+    assert cli.main([*base, "--nl-judge", "openrouter:openai/gpt-4.1"]) == 2
+    assert "does not exist (it needs OPENROUTER_API_KEY)" in capsys.readouterr().out
+
+
+# ── OpenRouter ──────────────────────────────────────────────────────────────
+
+
+def test_a_matched_openrouter_model_runs_only_on_its_first_party_host_at_the_named_precision() -> None:
+    from tests.e2e.bench.agent_evals import openrouter
+
+    assert openrouter.pin_for("openai/gpt-5.2") == {"order": ["OpenAI"], "only": ["OpenAI"], "allow_fallbacks": False}
+    assert openrouter.pin_for("recursive/flint-v1.0:free", quantization="bf16")["quantizations"] == ["bf16"]
+    endpoints = [{"provider_name": "Azure", "quantization": "unknown", "pricing": {"prompt": "0.000001"}},
+                 {"provider_name": "OpenAI", "quantization": "unknown",
+                  "pricing": {"prompt": "0.00000175", "completion": "0.000014", "input_cache_read": "0.000000175"}}]
+    chosen = openrouter.check_endpoints("openai/gpt-5.2", endpoints)
+    assert chosen["provider_name"] == "OpenAI"  # never the cheaper other host
+    assert openrouter.rates_document({"openai/gpt-5.2": chosen})["models"] == {
+        "openrouter:openai/gpt-5.2": {"input": 1.75, "output": 14.0, "cache_read": 0.175}}
+    deepseek = [{"provider_name": "Fireworks", "quantization": "fp8"}, {"provider_name": "Novita", "quantization": "fp8"}]
+    with pytest.raises(openrouter.RoutingError, match="no DeepSeek endpoint"):
+        openrouter.check_endpoints("deepseek/deepseek-v4.1-flash", deepseek)
+    with pytest.raises(openrouter.RoutingError, match="not at bf16"):
+        openrouter.check_endpoints("recursive/flint-v1.0:free", [{"provider_name": "Recursive", "quantization": "fp8"}],
+                                   quantization="bf16")
+    with pytest.raises(openrouter.RoutingError):
+        openrouter.pin_for("mystery/model")
+
+
+def test_every_openrouter_request_carries_its_pin_and_an_unpinned_model_is_refused() -> None:
+    from row_bot.providers.transports.openrouter_cancellable import CancellableChatOpenRouter
+    from tests.e2e.bench.agent_evals import openrouter
+
+    pinned = CancellableChatOpenRouter(model_name="openai/gpt-5.2", openrouter_api_key="not-a-key")
+    stray = CancellableChatOpenRouter(model_name="openai/gpt-4o", openrouter_api_key="not-a-key")
+    ids: list[str] = []
+    undo = openrouter.install({"openai/gpt-5.2": openrouter.pin_for("openai/gpt-5.2")}, ids)
+    try:
+        assert pinned._default_params["provider"] == {"order": ["OpenAI"], "only": ["OpenAI"],
+                                                      "allow_fallbacks": False}
+        with pytest.raises(openrouter.RoutingError, match="no provider pin"):
+            stray._default_params  # noqa: B018
+    finally:
+        undo()
+    assert "provider" not in pinned._default_params  # Row-Bot as it ships again
+
+    class Lookups:
+        def get(self, url, params=None, headers=None):
+            assert headers == {"Authorization": "Bearer not-a-key"}
+            return SimpleNamespace(json=lambda: {"data": {"provider_name": "OpenAI"}})
+
+    assert openrouter.served_providers(["gen-1", "gen-2"], "not-a-key", client=Lookups()) == {"OpenAI": 2}
 
 
 # ── Paid keys ───────────────────────────────────────────────────────────────
