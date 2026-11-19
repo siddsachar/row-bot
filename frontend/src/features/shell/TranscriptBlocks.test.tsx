@@ -1,17 +1,29 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../api/types';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 
-const download = vi.fn();
+const { download, attachmentThumbnail, overlayOpen, runtime } = vi.hoisted(
+  () => {
+    const download = vi.fn();
+    const attachmentThumbnail = vi.fn();
+    return {
+      download,
+      attachmentThumbnail,
+      overlayOpen: vi.fn(),
+      // One controller for the window, as the app has.
+      runtime: { controller: { download, attachmentThumbnail } },
+    };
+  },
+);
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: { download } }),
-  useOptionalRuntime: () => ({ controller: { download } }),
+  useRuntime: () => runtime,
+  useOptionalRuntime: () => runtime,
 }));
 vi.mock('../../ui/overlays', () => ({
   useNotify: () => () => {},
   useOverlay: () => ({
-    open: vi.fn(),
+    open: overlayOpen,
     close: vi.fn(),
     dismiss: vi.fn(),
     notify: vi.fn(),
@@ -20,6 +32,8 @@ vi.mock('../../ui/overlays', () => ({
 
 beforeEach(() => {
   download.mockReset();
+  attachmentThumbnail.mockReset();
+  overlayOpen.mockReset();
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(
     () => undefined,
   );
@@ -124,4 +138,52 @@ it('names a plain file once, on its card (B111)', async () => {
   expect(await screen.findByText('notes.bin')).toBeVisible();
   expect(screen.getAllByText('notes.bin')).toHaveLength(1);
   expect(container.querySelector('.rich-attachment-caption')).toBeNull();
+});
+
+it('shows an attached picture from its thumbnail and reads the whole file only when opened', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:thumbnail');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  attachmentThumbnail.mockResolvedValue(
+    new Blob(['small png'], { type: 'image/png' }),
+  );
+  download.mockResolvedValue(new Blob(['photo'], { type: 'image/jpeg' }));
+  const blocks: TranscriptRow['blocks'] = [
+    {
+      id: 'attachment:photo',
+      type: 'attachment',
+      attachment_ref: 'conversation-a:photo',
+      name: 'photo.jpg',
+      mime_type: 'image/jpeg',
+      size_bytes: 10 * 1024 * 1024,
+      revision: '1',
+    },
+  ];
+
+  render(<TranscriptBlocks blocks={blocks} />);
+
+  expect(await screen.findByRole('img', { name: 'photo.jpg' })).toHaveAttribute(
+    'src',
+    'blob:thumbnail',
+  );
+  expect(screen.getByText('10.0 MB · JPEG image')).toBeVisible();
+  expect(attachmentThumbnail).toHaveBeenCalledExactlyOnceWith(
+    'conversation-a:photo',
+    expect.any(AbortSignal),
+  );
+  expect(download).not.toHaveBeenCalled();
+
+  // Opened in the viewer: now the whole file is read.
+  fireEvent.click(
+    screen.getByRole('button', { name: 'View photo.jpg full size' }),
+  );
+  expect(overlayOpen).toHaveBeenCalledWith(
+    expect.objectContaining({ title: 'photo.jpg' }),
+  );
+  render(overlayOpen.mock.calls[0][0].content);
+  await vi.waitFor(() =>
+    expect(download).toHaveBeenCalledWith(
+      'conversation-a:photo',
+      expect.any(AbortSignal),
+    ),
+  );
 });

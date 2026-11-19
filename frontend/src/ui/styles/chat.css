@@ -2652,6 +2652,14 @@
   object-fit: contain;
   cursor: zoom-in;
 }
+/* An attached picture: its thumbnail at its own size (at most 160 px). */
+.media-thumbnail {
+  justify-self: start;
+}
+.media-image-frame.media-thumbnail img {
+  width: auto;
+  max-width: 100%;
+}
 .media-image-caption {
   position: absolute;
   inset: auto 0 0;
@@ -2797,6 +2805,10 @@
   min-height: 180px;
   border-radius: 12px;
   background: var(--surface-raised);
+}
+.media-preview-status[data-thumbnail] {
+  width: 160px;
+  min-height: 120px;
 }
 .media-preview-error {
   display: flex;

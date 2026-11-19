@@ -557,6 +557,7 @@ const SETTING_NAMES: Record<string, string> = {
   live_captions: 'Live captions',
   log_detail: 'Log detail',
   notification_details: 'Notification details',
+  desktop_notifications: 'Desktop notifications',
 };
 
 export function keyArgument(safeInput: string | undefined): string {

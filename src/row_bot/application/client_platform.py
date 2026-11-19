@@ -579,7 +579,7 @@ class ClientPlatformService:
     def _publish_queue(self, conversation_id: str, *, finishing: str = "") -> None:
         self.projection.publish(conversation_id, "queue.updated", {
             "submission_ids": admissions.queued_submission_ids(conversation_id, excluding_pass=finishing),
-            "revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1)})
+            "revision": str(self.projection.revision(conversation_id) + 1)})
 
     def finish_execution(self, handle: Any, status: str) -> None:
         # Admission cannot overtake terminal publication. The actual worker's
@@ -1980,7 +1980,7 @@ class ClientPlatformService:
             for offset in range(0, len(text), 8192):
                 self.projection.publish(conversation_id, "transcript.delta", {
                     "pass_id": handle.pass_id, "segment_id": handle.segment_id, "row_id": row_id,
-                    "render_revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1),
+                    "render_revision": str(self.projection.revision(conversation_id) + 1),
                     "public_text_delta": text[offset:offset + 8192]})
         elif kind == "output_binding":
             from row_bot.projection.canonical import exact_assistant_equal

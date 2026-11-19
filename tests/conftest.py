@@ -482,6 +482,15 @@ def _fresh_context_calibration():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_model_readiness():
+    # Reads reuse a model's readiness for a few seconds; one test's faked readiness must not answer the next's.
+    forget = getattr(sys.modules.get("row_bot.application.workspace_setup"), "forget_model_readiness", None)
+    if callable(forget):
+        forget()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_title_model(monkeypatch):
     # A conversation's first finished turn asks its model for a title on a background
     # thread. Tests that run turns script the agent, not that model: unscripted, the thread

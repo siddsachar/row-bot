@@ -123,7 +123,7 @@ describe('Home › For you', () => {
     expect(screen.queryByText(/No reply from Priya/)).not.toBeInTheDocument();
   });
 
-  it('shows the morning brief first, its lines and its end', async () => {
+  it('shows the morning brief first, its lines in plain words, and ends once', async () => {
     show(
       fakeIO({
         moments: [
@@ -131,7 +131,7 @@ describe('Home › For you', () => {
             moment_id: '0000000000000009',
             kind: 'brief',
             title: 'Good morning. 3 meetings, 2 follow-ups.',
-            body: '- 10:00 Design review\n- Priya hasn’t replied\nThat’s everything for today.',
+            body: '- **Calendar and deadlines:** 10:00 Design review\n- Priya hasn’t replied, see [the thread](https://mail.example.test/t/1)\nThat’s everything for today.',
             actions: [],
             prepared_ref: '',
           }),
@@ -141,10 +141,21 @@ describe('Home › For you', () => {
     const brief = await screen.findByRole('region', {
       name: 'Good morning. 3 meetings, 2 follow-ups.',
     });
-    expect(within(brief).getByText('10:00 Design review')).toBeVisible();
-    expect(
-      within(brief).getByText('That’s everything for today.'),
-    ).toBeVisible();
+    const [calendar, reply] = within(brief).getAllByRole('listitem');
+    // Bold reads as bold, never as asterisks.
+    expect(within(calendar).getByText('Calendar and deadlines:').tagName).toBe(
+      'STRONG',
+    );
+    expect(calendar).toHaveTextContent(
+      /^Calendar and deadlines: 10:00 Design review$/,
+    );
+    expect(brief).not.toHaveTextContent('*');
+    // A link stays words in the card: nothing here leaves Home.
+    expect(reply).toHaveTextContent('Priya hasn’t replied, see the thread');
+    expect(within(brief).queryByRole('link')).toBeNull();
+    // "That's everything for today." once, where For you ends.
+    expect(screen.getAllByText(/That’s everything for today/)).toHaveLength(1);
+    expect(within(brief).queryByText(/That’s everything for today/)).toBeNull();
   });
 
   it('the row does the primary action and reports it', async () => {
