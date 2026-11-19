@@ -7789,6 +7789,14 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         target = _current_on_demand_tools_var.get().get(str((request.tool_call or {}).get("name") or ""))
         if target is not None:
             request = request.override(tool=target[1])
+    if getattr(request, "tool", None) is not None:
+        # A "null" for an optional argument, or an object as JSON text, is what the model meant (S5, S6).
+        from row_bot.tools.argument_repair import repaired_arguments
+
+        call = dict(request.tool_call or {})
+        repaired = repaired_arguments(request.tool, call.get("args"))
+        if repaired != call.get("args"):
+            request = request.override(tool_call={**call, "args": repaired})
     if handle is not None:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
