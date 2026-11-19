@@ -180,6 +180,9 @@ class BenchConfig:
     runtime_mode: str = "agent"
     blocked_hosts: tuple[str, ...] = ()
     canaries: tuple[str, ...] = ()
+    #: "on" is Row-Bot's own (B1: rarely used tools offered through tool search); "off" binds every pinned
+    #: tool, for the A/B of B1's deferral on the same commit.
+    tool_deferral: str = "on"
 
     @property
     def model_ref(self) -> str:
@@ -426,6 +429,22 @@ def install_tool_fence(allowed: frozenset[str], withheld: set[str]) -> Callable[
     return undo
 
 
+def install_deferral_off() -> Callable[[], None]:
+    """Turn B1's rarely-used deferral off for this process: every pinned tool is bound, none is left to tool
+    search. The bench A/B's "off" arm; read when an agent is built, so it is set before the first turn."""
+    import row_bot.agent as agent_module
+
+    groups, names = agent_module.RARELY_USED_TOOL_GROUPS, agent_module.RARELY_USED_TOOLS
+    agent_module.RARELY_USED_TOOL_GROUPS, agent_module.RARELY_USED_TOOLS = frozenset(), frozenset()
+    agent_module.clear_agent_cache()
+
+    def undo() -> None:
+        agent_module.RARELY_USED_TOOL_GROUPS, agent_module.RARELY_USED_TOOLS = groups, names
+        agent_module.clear_agent_cache()
+
+    return undo
+
+
 class _PinnedDatetime(datetime):
     moment: datetime = datetime(2000, 1, 1)
 
@@ -543,6 +562,11 @@ class BenchRuntime:
             except Exception as exc:  # noqa: BLE001 - the first turn's readiness error says the rest
                 self.notes.append(f"catalog refresh failed: {type(exc).__name__}")
         models.adopt_saved_default(self.config.model_ref)
+        if self.config.tool_deferral not in {"on", "off"}:
+            raise BenchEnvironmentError(f"tool_deferral is on or off, not {self.config.tool_deferral!r}")
+        if self.config.tool_deferral == "off":
+            self._undo.append(install_deferral_off())
+            self.notes.append("tool deferral off: every pinned tool bound (B1 A/B)")
         self._pin_tools()
         self.notes.append(f"tool text: {tool_text_hashes(self.config.tools)}")
         self._undo.append(install_tool_fence(pinned_tool_names(self.config.tools), self.withheld_tools))

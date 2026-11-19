@@ -1109,6 +1109,39 @@ def test_the_agent_a_benchmark_builds_keeps_b1s_deferral_but_binds_no_question_t
     assert "list_conversations" in {item["name"] for item in found}  # deferred by B1, still reachable
 
 
+def test_with_tool_deferral_off_every_pinned_tool_is_bound_and_on_comes_back_after(monkeypatch) -> None:
+    from row_bot.plugins import registry as plugin_registry
+    from tests.e2e.bench.runtime import install_deferral_off, install_tool_fence, pinned_tool_names
+
+    agent.clear_agent_cache()
+    monkeypatch.setattr(agent, "_build_runtime_skill_snapshot", lambda: ((), (), False, "test-skills"))
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:test")
+    monkeypatch.setattr(agent, "get_llm", lambda: object())
+    monkeypatch.setattr(agent, "get_context_size", lambda model_name=None: 400_000)
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model_name=None: True)
+    monkeypatch.setattr(agent, "get_agent_system_prompt", lambda: "system")
+    monkeypatch.setattr(agent, "_ensure_agent_mode_ready", lambda model_name: SimpleNamespace(
+        provider_id="test", runtime_model="test", capability_source="test", confidence="high"))
+    monkeypatch.setattr(agent, "create_react_agent", lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(plugin_registry, "get_langchain_tools", lambda allow_names=None: [])
+    monkeypatch.setattr(plugin_registry, "get_destructive_names", lambda allow_names=None: set())
+    groups = ("memory", "conversation_search")
+    fence = install_tool_fence(pinned_tool_names(groups), set())
+    try:
+        undo = install_deferral_off()
+        try:
+            off = set(agent.get_agent_graph(list(groups)).tools.tools_by_name)
+        finally:
+            undo()
+        on = set(agent.get_agent_graph(list(groups)).tools.tools_by_name)
+    finally:
+        fence()
+        agent.clear_agent_cache()
+    assert {"list_conversations", "list_memories", "search_conversations", "search_memory"} <= off
+    assert not off & {"tool_search", "tool_invoke"}
+    assert "list_conversations" not in on and {"tool_search", "tool_invoke"} <= on
+
+
 def test_the_clock_pin_skips_a_module_that_no_longer_reads_the_clock(monkeypatch) -> None:
     import row_bot.memory_reconcile as reconcile
 

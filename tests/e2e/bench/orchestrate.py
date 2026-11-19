@@ -369,7 +369,7 @@ def run(args: argparse.Namespace) -> int:
         (run_dir / "audit-review.json").write_text(json.dumps(
             [row for row in review if row["question_id"] in asked], indent=1), encoding="utf-8")
     config = BenchConfig(provider=provider, model=model, tools=tuple(args.tools.split(",")) if args.tools else (),
-                         reasoning_effort=args.reasoning_effort or "")
+                         reasoning_effort=args.reasoning_effort or "", tool_deferral=args.tool_deferral)
     conversations = sorted({int(task.task_id.split("_")[-1]) for task in tasks}) if args.benchmark == BEAM_1M else []
     record = {"run": {"benchmark": args.benchmark, "mode": args.mode, "data": Path(args.data).name,
                       "conversations": conversations,
@@ -632,7 +632,8 @@ def build_scores(run_dir: Path) -> dict[str, Any]:
         "label": "self-run", "benchmark": run.get("benchmark"), "mode": run.get("mode", MEMORY),
         "git_commit": run.get("git_commit"),
         "reader": {"provider": config.get("provider"), "models": readers, "local_model": local,
-                   "reasoning_effort": config.get("reasoning_effort"), "tools": config.get("tools")},
+                   "reasoning_effort": config.get("reasoning_effort"), "tools": config.get("tools"),
+                   "tool_deferral": config.get("tool_deferral", "on")},
         "dream": run.get("dream"), "protocol": protocol, "judge_settings": judge_settings,
         "scores": scores, "judge_sensitivity": sensitivity, "paired_subset": paired,
         # LongMemEval-V2: answers whose box held LaTeX text wrappers, scored on their words (v2_metrics).
@@ -669,7 +670,8 @@ def render_report(scores: Mapping[str, Any]) -> str:
         f"Row-Bot memory, Dream Cycle {'on' if scores.get('dream') else 'off'}"
     lines = [f"# {scores.get('benchmark')}: {mode} (self-run, {model})", "",
              f"Reader: {reader.get('provider')} {model}; reasoning {reader.get('reasoning_effort')}; tools "
-             f"{reader.get('tools') if scores.get('mode') != FULL_CONTEXT else 'none'}; commit "
+             f"{reader.get('tools') if scores.get('mode') != FULL_CONTEXT else 'none'}; tool deferral "
+             f"{reader.get('tool_deferral') or 'on'}; commit "
              f"{str(scores.get('git_commit'))[:12]}.",
              f"Judge protocol: {scores['protocol'].get('name')} (source SHA-256 "
              f"{str(scores['protocol'].get('sha256'))[:16]}...); published judge "
@@ -759,6 +761,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--model", required=True, help=f"the reader, provider:model (codex:auto, ollama:{LOCAL_MODEL})")
     run_parser.add_argument("--tools", default="memory,conversation_search")
     run_parser.add_argument("--reasoning-effort", default="", help="'' is Row-Bot's own default (recorded)")
+    run_parser.add_argument("--tool-deferral", default="on", choices=("on", "off"),
+                            help="on: Row-Bot's own (B1); off: every pinned tool bound, for B1's A/B")
     run_parser.add_argument("--dream", action="store_true", help="one Dream Cycle pass after the last session")
     run_parser.add_argument("--context-tokens", type=int, default=0,
                             help="full-context: the reader's window (default: Row-Bot's catalog)")
