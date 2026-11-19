@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
                           **({"local_model": runtime.local_model} if runtime.local_model else {}),
                           "paid_keys": key_sources, **spec.get("record", {})}
         host = RuntimeHost(runtime, spec["benchmark"], run_dir / "trajectories.jsonl", redact=redact,
-                           record=spec.get("record", {}))
+                           record=spec.get("record", {}), followups=str(spec.get("followups") or "none"))
         server = bridge.BridgeServer(host, router, bridge.tool_names(specs))
         runner = spec["runner"]
         with open(run_dir / "logs" / f"{spec['task_id']}-runner.log", "ab") as log:

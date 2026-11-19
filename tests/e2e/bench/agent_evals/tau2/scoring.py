@@ -64,6 +64,8 @@ class Comparison:
     ours: dict[str, list[float]]
     theirs: dict[str, list[float]]
     k_max: int = 4
+    #: The whole split, for the published run's own number on it (default: the tasks we ran).
+    split_tasks: list[str] = field(default_factory=list)
     rows: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -79,7 +81,8 @@ class Comparison:
         return {
             "tasks": len(self.tasks), "tasks_run": sum(row["ours_rate"] is not None for row in self.rows),
             "ours": {f"pass^{k}": pass_hat_k(self.ours, k, self.tasks) for k in range(1, self.k_max + 1)},
-            "theirs": {f"pass^{k}": pass_hat_k(self.theirs, k, self.tasks) for k in range(1, self.k_max + 1)},
+            "theirs": {f"pass^{k}": pass_hat_k(self.theirs, k, self.split_tasks or self.tasks)
+                       for k in range(1, self.k_max + 1)},
             # On the tasks both ran: their pass^1 there, so a subset run is compared on its own subset.
             "theirs_on_ours": {f"pass^{k}": pass_hat_k(self.theirs, k, [row["task_id"] for row in both])
                                for k in range(1, self.k_max + 1)},

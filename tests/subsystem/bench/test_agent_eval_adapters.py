@@ -435,3 +435,65 @@ def test_a_key_saved_in_the_eval_profile_is_read_from_its_one_record_and_wins_ov
     assert environ["ANTHROPIC_API_KEY"] == "profile-key-0123456789"
     assert keys.problem(["ANTHROPIC_API_KEY"], None, profile) == ""
     assert "eval profile has no saved key" in keys.problem(["OPENAI_API_KEY"], None, profile)
+
+
+# ── The app's follow-up and the failure taxonomy ────────────────────────────
+
+
+def test_with_app_followups_a_reply_that_stops_on_its_next_step_carries_on_once_before_the_person_reads_it(
+        tmp_path) -> None:
+    from tests.e2e.bench.trajectory import Trajectory
+
+    def host(answers: list[str], followups: str) -> tuple[RuntimeHost, _Runtime]:
+        runtime = _Runtime([Step(kind="turn", answer=answer) for answer in answers])
+        made = RuntimeHost(runtime, "tau2-bench", tmp_path / f"{followups}.jsonl", followups=followups)  # type: ignore[arg-type]
+        made.threads["s"], made.trajectories["s"] = "t", Trajectory(task_id="s", benchmark="tau2-bench")
+        return made, runtime
+
+    stopping = ["I found your booking. Next I'll check the refund rules.", "It is refundable: $120 back to your card."]
+    carried, _ = host(list(stopping), "app")
+    step = carried.turn("s", "Cancel my booking")
+    assert step.answer == ("I found your booking. Next I'll check the refund rules.\n\n"
+                           "It is refundable: $120 back to your card.")
+    assert [item.name for item in carried.trajectories["s"].steps] == ["turn 1", "carry on"]
+    plain, runtime = host(list(stopping), "none")
+    assert plain.turn("s", "Cancel my booking").answer == stopping[0] and len(runtime.steps) == 1
+    asking, runtime = host(["Next I'll cancel it. Shall I go ahead?"], "app")
+    assert asking.turn("s", "Cancel it").answer.endswith("Shall I go ahead?") and runtime.steps == []
+
+
+def test_failures_are_bucketed_by_what_the_grader_found_and_what_the_agent_did() -> None:
+    from tests.e2e.bench.agent_evals.tau2 import diagnose
+
+    def simulation(task: str, reward: float, breakdown: dict[str, float], *, reason: str = "user_stop",
+                   actions: list[dict[str, Any]] | None = None, unsaid: list[str] | None = None) -> dict[str, Any]:
+        return {"task_id": task, "trial": 0, "termination_reason": reason, "reward_info": {
+            "reward": reward, "reward_breakdown": breakdown, "action_checks": actions or [],
+            "communicate_checks": [{"info": item, "met": False} for item in unsaid or []]}, "messages": [
+            {"role": "assistant", "content": "Hi! How can I help you today?"},
+            {"role": "user", "content": "Cancel ZFA04Y"},
+            {"role": "assistant", "content": '{"message":"I\'m checking the reservation before proceeding."}'},
+            {"role": "assistant", "content": None, "tool_calls": [{"name": "transfer_to_human_agents"}]},
+            {"role": "tool", "content": "Error: not allowed", "error": True},
+            {"role": "assistant", "content": "Done. Anything else?"}]}
+
+    write = {"action": {"name": "cancel_reservation", "arguments": {"reservation_id": "ZFA04Y"}},
+             "tool_type": "write", "action_match": False}
+    found = diagnose.taxonomy([
+        simulation("1", 1.0, {"DB": 1.0}),
+        simulation("2", 0.0, {"DB": 0.0}, actions=[write]),
+        simulation("3", 0.0, {"DB": 0.0}),
+        simulation("4", 0.0, {"DB": 1.0, "COMMUNICATE": 0.0}, unsaid=["1628"]),
+        simulation("5", 0.0, {}, reason="max_steps"),
+        simulation("6", 0.0, {}, reason="agent_error"),
+    ])
+    assert found["buckets"] == {"wrong write": 1, "extra write": 1, "not communicated": 1, "ran out": 1,
+                                "harness": 1}
+    rows = {row["task_id"]: row for row in found["rows"]}
+    assert rows["2"]["missed_actions"] == ['cancel_reservation({"reservation_id": "ZFA04Y"})']
+    assert rows["4"]["not_communicated"] == ["1628"]
+    assert found["behaviour"] == {"agent_messages": 18, "json_wrapped": 6, "progress_stops": 6, "tool_calls": 6,
+                                  "tool_errors": 6, "transfers": 6}
+    assert not diagnose.progress_stop("Next I'll cancel it. Please confirm?")  # it asks: a hand-over, not a stop
+    assert diagnose.unwrap('{"message": "Hello"}') == ("Hello", True)
+    assert "| 4 | not communicated |" in diagnose.render(found, title="t")

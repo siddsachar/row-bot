@@ -35,8 +35,10 @@ def model_ref(model: str) -> str:
 
 class RuntimeHost:
     def __init__(self, runtime: BenchRuntime, benchmark: str, out: Path, *,
-                 redact: Callable[[str], str] = lambda text: text, record: dict[str, Any] | None = None) -> None:
+                 redact: Callable[[str], str] = lambda text: text, record: dict[str, Any] | None = None,
+                 followups: str = "none") -> None:
         self.runtime = runtime
+        self.followups = followups
         self.benchmark = benchmark
         self.out = out
         self.redact = redact
@@ -87,10 +89,27 @@ class RuntimeHost:
             "local_model": self.runtime.local_model or None, "setup_notes": self.runtime.notes})
 
     def turn(self, session: str, prompt: str) -> Step:
+        """One message from the benchmark's person. With ``followups="app"``, a reply that stops on its next step
+        ("Next I'll...") gets the app's one carry-on turn before the person sees it, as the app runs it
+        (``conversation_followups``, never chained); the person then reads both parts, as in the app."""
+        step = self._one_turn(session, prompt)
+        if self.followups != "app" or step.status != "done":
+            return step
+        from row_bot.application.conversation_followups import CARRY_ON_PROMPT, stopped_on_next_step
+
+        if not stopped_on_next_step(step.answer):
+            return step
+        carried = self._one_turn(session, CARRY_ON_PROMPT, name="carry on")
+        if carried.status == "done" and carried.answer.strip():
+            carried.answer = f"{step.answer.rstrip()}\n\n{carried.answer.strip()}"
+            return carried
+        return step
+
+    def _one_turn(self, session: str, prompt: str, *, name: str = "") -> Step:
         trajectory = self.trajectories[session]
         number = sum(step.kind == "turn" for step in trajectory.steps) + 1
         try:
-            step = self.runtime.turn(self.threads[session], prompt, name=f"turn {number}")
+            step = self.runtime.turn(self.threads[session], prompt, name=name or f"turn {number}")
         except ProviderLimit as exc:
             trajectory.status, trajectory.reason = "provider_limit", str(exc)[:500]
             raise Stopped("limit", str(exc)) from exc

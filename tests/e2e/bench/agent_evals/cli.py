@@ -161,10 +161,11 @@ def run(args: argparse.Namespace) -> int:
     print(f"run folder: {run_dir}")
     config = BenchConfig(provider=provider, model=model, tools=(), reasoning_effort=args.reasoning_effort or "")
     record = {"run": {"benchmark": "tau2-bench", "tau2_version": TAU2_VERSION, "domain": args.domain,
-                      "split": args.split, "tasks": tasks, "trials": args.trials, "seed": args.seed,
+                      "split": args.split, "tasks": tasks, "split_tasks": split_tasks(root, args.domain, args.split),
+                      "trials": args.trials, "seed": args.seed,
                       "user_model": args.user_model, "user_effort": args.user_effort,
                       "nl_judge": args.nl_judge or "", "git_commit": orchestrate._git_commit(),  # noqa: SLF001
-                      "label": "self-run", "matched": matched_label(args)}}
+                      "label": "self-run", "matched": matched_label(args), "followups": args.followups}}
     (run_dir / "run.json").write_text(json.dumps({**record["run"], "config": config.to_dict(), "caps": asdict(caps)},
                                                  indent=1), encoding="utf-8")
     argv = [str(tau2_python(root)), str(TAU2_SIDE), "run", "--domain", args.domain, "--split", args.split,
@@ -177,7 +178,8 @@ def run(args: argparse.Namespace) -> int:
         argv += ["--nl-judge", args.nl_judge, "--nl-judge-effort", args.nl_judge_effort]
     spec = {"task_id": f"tau2-{args.domain}-{args.split}", "benchmark": "tau2-bench", "config": asdict(config),
             "caps": asdict(caps), "usage_book": str(usage_book_path()), "external_tools": tool_schemas(root, args.domain),
-            "runner": {"argv": argv, "cwd": str(root)}, "record": record, "keys": key_names}
+            "runner": {"argv": argv, "cwd": str(root)}, "record": record, "keys": key_names,
+            "followups": args.followups}
     kind = orchestrate.booking_kind(provider)
     what = f"tau2 {args.domain} {args.split} ({len(tasks)} tasks x {args.trials})"
     book = booking_module.BookingFile(Path(os.environ[orchestrate.BOOKING_ENV]), lane=lane()) if kind else None
@@ -244,7 +246,7 @@ def write_report(run_dir: Path, *, published: Path | None = None) -> str:
     infra = sum(len(values) for values in scoring.trial_rewards(results).values()) - sum(map(len, ours.values()))
     theirs = scoring.trial_rewards(scoring.load_results(published), exclude=scoring.NOT_SCORED) if published else {}
     comparison = scoring.Comparison(tasks=list(meta["tasks"]), ours=ours, theirs=theirs,
-                                    k_max=max(1, int(meta["trials"])))
+                                    k_max=max(1, int(meta["trials"])), split_tasks=list(meta.get("split_tasks") or []))
     text = scoring.render(comparison, title=f"tau2-bench {meta['tau2_version']} {meta['domain']} / {meta['split']}: "
                           f"Row-Bot ({meta['config']['provider']}:{meta['config']['model']}, reasoning "
                           f"{meta['config']['reasoning_effort']}), self-run, {meta['matched']}",
@@ -280,6 +282,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--nl-judge-effort", default="")
     run_parser.add_argument("--seed", type=int, default=300)
     run_parser.add_argument("--max-steps", type=int, default=200)
+    run_parser.add_argument("--followups", default="none", choices=("none", "app"),
+                            help="app: a reply that stops on its next step gets the app's one carry-on turn")
     run_parser.add_argument("--run-dir", default="")
     run_parser.add_argument("--published", default="", help="a published run's results.json (gzip or plain)")
     report = tau2_sub.add_parser("report")
