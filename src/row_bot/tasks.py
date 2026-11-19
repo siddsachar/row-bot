@@ -3732,6 +3732,9 @@ def _record_skipped_run(task: Mapping[str, Any], thread_id: str, message: str) -
 
 _scheduler: "BackgroundScheduler | None" = None
 _scheduler_lock = threading.Lock()
+# APScheduler logs two INFO lines for every run of every interval job: two thirds of row_bot.log (P2).
+# Its warnings and errors (a missed or failed run) still reach the log.
+_SCHEDULER_LOGGERS = ("apscheduler", "apscheduler.executors.default", "apscheduler.scheduler")
 
 
 def _get_scheduler():
@@ -3743,6 +3746,8 @@ def _get_scheduler():
         if _scheduler is not None:
             return _scheduler
         from apscheduler.schedulers.background import BackgroundScheduler
+        for name in _SCHEDULER_LOGGERS:
+            logging.getLogger(name).setLevel(logging.WARNING)
         _scheduler = BackgroundScheduler(
             job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 120},
         )

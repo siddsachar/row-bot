@@ -1375,11 +1375,13 @@ async def _body(request: Request, model, maximum: int = JSON_LIMIT):
         raise ProtocolError("invalid_command", 422) from None
 
 
-async def _context(request: Request) -> AccessContext:
+async def _context(request: Request, *, fresh: bool = False) -> AccessContext:
+    """The request's access, checked again; within one request a check under half a second old is reused,
+    unless ``fresh`` (before an effect)."""
     context = request.scope.get(ACCESS_CONTEXT_SCOPE_KEY)
     validate = request.scope.get("row_bot_revalidate_access")
     if validate is not None:
-        context = await validate()
+        context = await validate(fresh=fresh)
     if not isinstance(context, AccessContext) or not context.authenticated:
         raise ProtocolError("authentication_required", 401)
     if request.headers.get("origin") is not None and not request_origin_matches(
@@ -1625,7 +1627,7 @@ def create_router(
         def validate() -> None:
             if not loop.is_running():
                 raise ProtocolError("authentication_required", 401)
-            pending = _context(request)
+            pending = _context(request, fresh=True)
             try:
                 future = asyncio.run_coroutine_threadsafe(pending, loop)
             except BaseException:

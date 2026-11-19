@@ -10,7 +10,7 @@ import threading
 import time
 
 from fastapi import FastAPI, Request
-from starlette.responses import StreamingResponse
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.testclient import TestClient
 
 from row_bot.access.config import AccessConfig
@@ -23,11 +23,13 @@ from row_bot.api.v1.security import ProtocolError
 class FakeSessionAuthenticator:
     def __init__(self) -> None:
         self.active = {"owner-token": "owner-session"}
+        self.calls = 0
 
     def revoke(self, token: str) -> None:
         self.active.pop(token, None)
 
     def authenticate_scope(self, scope, provenance):  # noqa: ARG002
+        self.calls += 1
         headers = {
             bytes(name).lower(): bytes(value).decode("latin-1")
             for name, value in scope.get("headers", [])
@@ -78,6 +80,24 @@ def _build_app(authenticator: FakeSessionAuthenticator) -> TestClient:
                 return
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.get("/api/v1/read")
+    async def read(request: Request):
+        # As a query route does: the session check, the route's work, the check before its reply.
+        for _check in range(3):
+            await v1_routes._context(request)
+        return {"ok": True}
+
+    @app.post("/api/v1/effect")
+    async def effect(request: Request):
+        await v1_routes._context(request)
+        authenticator.revoke("owner-token")  # signed out while the request was under way
+        await v1_routes._context(request)
+        try:
+            await v1_routes._context(request, fresh=True)  # as every effect's check is
+        except ProtocolError as error:
+            return JSONResponse({"code": error.code}, status_code=401)
+        return {"done": True}
 
     middleware = AccessMiddleware(
         app,
@@ -130,6 +150,29 @@ def test_revocation_blocks_http_immediately_and_ends_an_open_stream_within_bound
     assert ": heartbeat" in stream.text  # it streamed while the session was valid
     assert revoked_at and ended_at - revoked_at[0] < 1.0
     assert client.get("/api/private", headers=cookie_header).status_code == 401
+
+
+def test_one_request_reads_its_session_once_however_often_its_route_checks() -> None:
+    authenticator = FakeSessionAuthenticator()
+    client = _build_app(authenticator)
+    cookie_header = {"cookie": "row_bot_test=owner-token"}
+
+    assert client.get("/api/v1/read", headers=cookie_header).status_code == 200
+    assert authenticator.calls == 1  # admission's check, reused by the route's three
+    assert client.get("/api/v1/read", headers=cookie_header).status_code == 200
+    assert authenticator.calls == 2  # the next request checks again
+
+
+def test_an_effect_checks_the_session_afresh_and_a_signed_out_device_is_refused() -> None:
+    authenticator = FakeSessionAuthenticator()
+    client = _build_app(authenticator)
+
+    response = client.post("/api/v1/effect", headers={
+        "cookie": "row_bot_test=owner-token", "origin": "http://localhost:8080"})
+
+    assert response.status_code == 401
+    assert response.json() == {"code": "authentication_required"}
+    assert client.get("/api/private", headers={"cookie": "row_bot_test=owner-token"}).status_code == 401
 
 
 def test_phone_session_can_use_owner_management_routes() -> None:
