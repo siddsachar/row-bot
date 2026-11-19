@@ -38,19 +38,20 @@ def first_party(model: str) -> str:
     return FIRST_PARTY[author]
 
 
-def pin_for(model: str, *, quantization: str = "") -> dict[str, Any]:
+def pin_for(model: str, *, quantization: str = "", host: str = "") -> dict[str, Any]:
     """OpenRouter's ``provider`` routing object for a matched run: the first-party host only, no fallbacks."""
-    host = first_party(model)
+    host = host or first_party(model)
     pin: dict[str, Any] = {"order": [host], "only": [host], "allow_fallbacks": False}
     if quantization:
         pin["quantizations"] = [quantization]
     return pin
 
 
-def check_endpoints(model: str, endpoints: list[dict[str, Any]], *, quantization: str = "") -> dict[str, Any]:
+def check_endpoints(model: str, endpoints: list[dict[str, Any]], *, quantization: str = "",
+                    host: str = "") -> dict[str, Any]:
     """The endpoint the pin will use, from OpenRouter's endpoint listing, or :class:`RoutingError` saying why
     the model can't be matched there (no first-party host, or not at the needed precision)."""
-    host = first_party(model)
+    host = host or first_party(model)
     hosted = [item for item in endpoints if str(item.get("provider_name")) == host]
     if not hosted:
         others = sorted({str(item.get("provider_name")) for item in endpoints})

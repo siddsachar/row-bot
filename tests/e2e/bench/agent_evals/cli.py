@@ -145,7 +145,7 @@ def run(args: argparse.Namespace) -> int:
         return 2
     try:
         pins = openrouter_pins([model for provider_id, model in refs if provider_id == "openrouter"],
-                               args.openrouter_quant)
+                               args.openrouter_quant, args.openrouter_host)
     except openrouter.RoutingError as exc:
         print(f"not running: {exc}")
         return 2
@@ -220,16 +220,19 @@ def run(args: argparse.Namespace) -> int:
     return code
 
 
-def openrouter_pins(models: list[str], quant_text: str, *,
+def openrouter_pins(models: list[str], quant_text: str, host_text: str = "", *,
                     fetch: Callable[[str], list[dict[str, Any]]] | None = None) -> dict[str, tuple[dict, dict]]:
-    """Each OpenRouter model's provider pin and the endpoint it lands on (first-party host, no fallbacks,
-    the precision ``--openrouter-quant model=bf16`` names); RoutingError when a model can't be pinned."""
+    """Each OpenRouter model's provider pin and the endpoint it lands on: the first-party host, or the host the
+    published row used (``--openrouter-host model=Novita``), no fallbacks, at the precision
+    ``--openrouter-quant model=bf16`` names. RoutingError when a model can't be pinned."""
     quants = dict(item.split("=", 1) for item in quant_text.split(",") if "=" in item)
+    hosts = dict(item.split("=", 1) for item in host_text.split(",") if "=" in item)
     found = {}
     for model in dict.fromkeys(models):
         endpoints = (fetch or openrouter.fetch_endpoints)(model)
-        endpoint = openrouter.check_endpoints(model, endpoints, quantization=quants.get(model, ""))
-        found[model] = (openrouter.pin_for(model, quantization=quants.get(model, "")), endpoint)
+        quant, host = quants.get(model, ""), hosts.get(model, "")
+        endpoint = openrouter.check_endpoints(model, endpoints, quantization=quant, host=host)
+        found[model] = (openrouter.pin_for(model, quantization=quant, host=host), endpoint)
     return found
 
 
@@ -318,6 +321,9 @@ def build_parser() -> argparse.ArgumentParser:
                             help="app: a reply that stops on its next step gets the app's one carry-on turn")
     run_parser.add_argument("--openrouter-quant", default="",
                             help="model=precision pins for OpenRouter models (recursive/flint-v1.0:free=bf16)")
+    run_parser.add_argument("--openrouter-host", default="",
+                            help="model=Host where the published row ran on another host than the model's maker "
+                                 "(the Harness Leaderboard's DeepSeek-V4.1-Flash: low on Novita, high on DeepInfra)")
     run_parser.add_argument("--variant", default="", choices=VARIANTS,
                             help="a bench-only arm of a paired A/B (agent_evals.variants); '' is Row-Bot as shipped")
     run_parser.add_argument("--run-dir", default="")

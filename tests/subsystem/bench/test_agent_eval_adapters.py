@@ -403,6 +403,12 @@ def test_a_matched_openrouter_model_runs_only_on_its_first_party_host_at_the_nam
     deepseek = [{"provider_name": "Fireworks", "quantization": "fp8"}, {"provider_name": "Novita", "quantization": "fp8"}]
     with pytest.raises(openrouter.RoutingError, match="no DeepSeek endpoint"):
         openrouter.check_endpoints("deepseek/deepseek-v4.1-flash", deepseek)
+    # The Harness Leaderboard ran it on Novita (low effort): that host can be named instead of the maker's.
+    assert openrouter.check_endpoints("deepseek/deepseek-v4.1-flash", deepseek, host="Novita")["provider_name"] \
+        == "Novita"
+    pins = cli.openrouter_pins(["deepseek/deepseek-v4.1-flash"], "", "deepseek/deepseek-v4.1-flash=Novita",
+                               fetch=lambda model: deepseek)
+    assert pins["deepseek/deepseek-v4.1-flash"][0]["only"] == ["Novita"]
     with pytest.raises(openrouter.RoutingError, match="not at bf16"):
         openrouter.check_endpoints("recursive/flint-v1.0:free", [{"provider_name": "Recursive", "quantization": "fp8"}],
                                    quantization="bf16")
