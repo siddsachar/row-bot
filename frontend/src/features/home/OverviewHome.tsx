@@ -109,6 +109,8 @@ export type OverviewHomeProps = {
   onEditScheduledPost?: (id: string, edit: XPostEdit) => Promise<unknown>;
   /** Buddy's live avatar beside the greeting. */
   buddy?: ReactNode;
+  /** A phone's one-time "Get a notification…?" offer, under the greeting. */
+  notificationsOffer?: ReactNode;
   /**
    * Proactive's For you, in place of Today while Proactive is on: it gets
    * Today's fact rows (for Later today), those on a later day (`ahead`, under
@@ -472,6 +474,7 @@ export default function OverviewHome({
   loadApprovals,
   loadAttention,
   buddy,
+  notificationsOffer,
   forYou,
   onAsk,
   asking = false,
@@ -1095,6 +1098,8 @@ export default function OverviewHome({
           </>
         )}
       </header>
+
+      {!needsModel && notificationsOffer}
 
       {!needsModel && needRows.length > 0 && (
         <Section

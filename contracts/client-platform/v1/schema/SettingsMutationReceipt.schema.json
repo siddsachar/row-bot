@@ -877,6 +877,11 @@
           "title": "Availability",
           "type": "string"
         },
+        "desktop_notifications": {
+          "default": true,
+          "title": "Desktop Notifications",
+          "type": "boolean"
+        },
         "dream_cycle": {
           "$ref": "#/$defs/DreamCycleSettingsSnapshot"
         },
