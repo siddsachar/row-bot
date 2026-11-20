@@ -53,6 +53,13 @@ import './learning.css';
 const TURN_OFF_WORDS =
   'Row-Bot stops recording, testing and training. Changes and models in use stay in use: to take one out, undo it in Learning first, or turn Learning on again later. Your learning data is kept until you delete it.';
 
+/** The status while a command is under way. */
+const PENDING = {
+  pause: 'Pausing Learning…',
+  resume: 'Resuming Learning…',
+  turn_off: 'Turning Learning off…',
+} as const;
+
 /** "Create skills while chatting": the same setting as Preferences' old "Learn new skills" (D29). */
 function SkillsWhileChatting({
   preferences,
@@ -273,6 +280,8 @@ export default function LearningSettings({
   const [modelOpen, setModelOpen] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
   const [busy, setBusy] = useState(false);
+  // On a large profile a command takes seconds: the status says what is under way.
+  const [pending, setPending] = useState<keyof typeof PENDING | null>(null);
   const [error, setError] = useState('');
   const deleteData = useDeleteLearningData(io, onSettingsChanged);
   const snapshot = io.snapshot;
@@ -311,8 +320,9 @@ export default function LearningSettings({
     }
   }
 
-  async function command(action: 'turn_off' | 'pause' | 'resume') {
+  async function command(action: keyof typeof PENDING) {
     setBusy(true);
+    setPending(action);
     setError('');
     try {
       const receipt = await io.run(action);
@@ -322,6 +332,7 @@ export default function LearningSettings({
       setError(clientError(cause).message);
     } finally {
       setBusy(false);
+      setPending(null);
     }
   }
 
@@ -473,10 +484,15 @@ export default function LearningSettings({
     <div className="stack settings-snapshot-page learning-settings">
       {sheets}
       <SettingsStatus
-        tone={paused ? 'neutral' : 'success'}
+        tone={paused || pending ? 'neutral' : 'success'}
+        pulse={pending !== null}
         more={[spendingWords(spending)]}
       >
-        {paused ? 'Learning paused' : 'Learning on'}
+        {pending
+          ? PENDING[pending]
+          : paused
+            ? 'Learning paused'
+            : 'Learning on'}
       </SettingsStatus>
       <SettingsPageMenu
         label="More for Learning"
@@ -485,10 +501,12 @@ export default function LearningSettings({
           paused
             ? {
                 label: 'Resume Learning',
+                disabled: busy,
                 onSelect: () => void command('resume'),
               }
             : {
                 label: 'Pause Learning',
+                disabled: busy,
                 onSelect: () => void command('pause'),
               },
         ]}
