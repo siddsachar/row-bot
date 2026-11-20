@@ -322,7 +322,7 @@ it('on: its settings, and turning Learning off asks with what stays', async () =
     name: 'Turn off Learning?',
   });
   expect(confirm).toHaveAccessibleDescription(
-    'Row-Bot stops recording, testing and training. Changes and models in use stay in use (undo them in Learning). Your learning data is kept until you delete it.',
+    'Row-Bot stops recording, testing and training. Changes and models in use stay in use: to take one out, undo it in Learning first, or turn Learning on again later. Your learning data is kept until you delete it.',
   );
   fireEvent.click(within(confirm).getByRole('button', { name: 'Turn off' }));
   await act(async () => undefined);

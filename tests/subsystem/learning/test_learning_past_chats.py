@@ -30,12 +30,14 @@ class FakeChats:
     def __init__(self) -> None:
         self.created: dict[str, float] = {}
         self.saved: dict[str, list] = {}
+        self.forked_from: dict[str, str] = {}
         self.checkpoints: dict[str, list[tuple[float, int]]] = {}
         self.reads: list[str] = []
         self.checkpoint_reads: list[int] = []
 
     def add(self, thread_id: str, created_at: float, messages: list,
-            checkpoints: list[tuple[float, int]] | None = None) -> None:
+            checkpoints: list[tuple[float, int]] | None = None, forked_from: str = "") -> None:
+        self.forked_from[thread_id] = forked_from
         self.created[thread_id] = created_at
         self.saved[thread_id] = list(messages)
         self.checkpoints[thread_id] = list(checkpoints or [(created_at, len(messages))])
@@ -47,7 +49,10 @@ class FakeChats:
 
     def messages(self, thread_id: str) -> list:
         self.reads.append(thread_id)
-        return list(self.saved[thread_id])
+        return list(self.saved.get(thread_id, []))  # a deleted conversation has none
+
+    def fork_source(self, thread_id: str) -> str:
+        return self.forked_from.get(thread_id, "")
 
     def window_start(self, thread_id: str, since: float, created_at: float) -> tuple[int, float]:
         if created_at >= since:
@@ -384,3 +389,55 @@ def test_a_paused_learning_reads_no_past_chats_and_pausing_stops_the_import(lear
     assert result == past_chats.ImportProgress(total=2, done=1, state="stopped")
     save_learning_settings(learning_on, paused=False)
     assert _run(store, source, chats, clock) == past_chats.ImportProgress(total=2, done=2, state="ready")
+
+
+def test_a_fork_s_copied_turns_are_read_once_with_its_source_and_its_own_turns_with_it(learning_on, clock, chats,
+                                                                                       source):
+    # Edit and resend / Fork from here copy the source's messages (same ids) into a new conversation.
+    store = LearningStore(learning_on, clock=clock)
+    chats.chat("original").chat("fork")
+    original = _chat()
+    source.add("original", clock() - 5 * DAY, original)
+    new_turn = [HumanMessage(content="And the third?", id="h3-fork"), AIMessage(content="Call Ana.", id="c3-fork")]
+    source.add("fork", clock() - 2 * DAY, [*original[:4], *new_turn], forked_from="original")
+
+    _run(store, source, chats, clock)
+
+    by_chat = {}
+    for item in store.find("episode"):
+        by_chat[item.thread_id] = by_chat.get(item.thread_id, 0) + 1
+    assert by_chat == {"original": 2, "fork": 1}  # the copied first turn isn't read twice
+
+
+def test_a_fork_whose_source_was_deleted_keeps_its_copied_turns(learning_on, clock, chats, source):
+    store = LearningStore(learning_on, clock=clock)
+    chats.chat("fork")
+    copied = _chat()
+    source.add("fork", clock() - 2 * DAY, copied, forked_from="gone")
+
+    _run(store, source, chats, clock)
+
+    assert len(store.find("episode")) == 2  # it holds the only copy
+
+
+def test_a_real_fork_names_its_source_and_its_copied_turns_are_read_once(learning_on, clock):
+    original = f"past-{uuid.uuid4().hex[:10]}"
+    threads.create_thread("A chat", thread_id=original, seed_default_skills=False)
+    assert threads.append_checkpoint_messages(original, [
+        HumanMessage(content="Plan my week", id=f"{original}-h"),
+        AIMessage(content="Here is a plan.", id=f"{original}-a"),
+        HumanMessage(content="Add a gym day", id=f"{original}-h2"),
+        AIMessage(content="Added Thursday.", id=f"{original}-a2"),
+    ])
+    forked = threads.fork_conversation(original, at_message_id=f"{original}-a", include_message=True)
+    source = past_chats.SavedChats()
+    assert (source.fork_source(forked.conversation_id), source.fork_source(original)) == (original, "")
+
+    class OnlyThese(past_chats.SavedChats):
+        def conversations(self, since):
+            return [item for item in super().conversations(since) if item[0] in (original, forked.conversation_id)]
+
+    store = LearningStore(learning_on)
+    past_chats.run_import(store=store, source=OnlyThese(), busy=lambda: False, wait=lambda s: None)
+    assert len(store.find("episode", thread_id=original)) == 2
+    assert store.find("episode", thread_id=forked.conversation_id) == []  # only copies so far
