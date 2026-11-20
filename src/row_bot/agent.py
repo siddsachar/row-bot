@@ -1273,18 +1273,10 @@ def _is_browser_tool_name(tool_name: str) -> bool:
     return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
 
 
-# How many browser actions one turn may take before it is stopped as a runaway loop; filming a demo (its browser
-# recording) is a long run of deliberate page actions, so it may take more.
-BROWSER_TOOL_LIMIT = 80
-RECORDING_BROWSER_TOOL_LIMIT = 400
-
-
-def _browser_tool_limit(thread_id: str) -> int:
-    """The browser actions this turn may take: more while this chat's browser is being recorded."""
-    from row_bot import recordings
-
-    recording = bool(thread_id) and recordings.active_for(thread_id, "browser") is not None
-    return RECORDING_BROWSER_TOOL_LIMIT if recording else BROWSER_TOOL_LIMIT
+# How many browser actions one turn may take before it is stopped as a runaway loop. A long task (a growth
+# workflow, filming a demo) takes a hundred or more deliberate page actions; a real loop is caught sooner by the
+# stuck check (only looking, many times in a row).
+BROWSER_TOOL_LIMIT = 400
 
 
 def _browser_action_name(tool_name: str) -> str:
@@ -8823,11 +8815,14 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
                                config: dict | None = None,
                                *, agent_graph=None,
                                orphan_message: str = "[Cancelled by user]",
-                               marker_message: str = "\u23f9\ufe0f *[Stopped]*") -> int | None:
+                               marker_message: str | None = "\u23f9\ufe0f *[Stopped]*",
+                               as_node: str | None = None) -> int | None:
     """Patch the checkpoint so every AIMessage tool_call has a ToolMessage.
 
     Called after stop-generation to prevent
-    ``INVALID_CHAT_HISTORY`` errors on the next query.
+    ``INVALID_CHAT_HISTORY`` errors on the next query. ``marker_message=None`` adds no stop marker, so the
+    conversation ends on the patched results; ``as_node`` saves them as that node's output (``"tools"``: the
+    model runs next, as after any tool step).
     """
     if config is None:
         return 0
@@ -8868,11 +8863,10 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
             logger.warning("Repairing %d orphaned tool_call(s): %s",
                            len(patches),
                            [p.tool_call_id for p in patches])
-            agent.update_state(config, {"messages": patches})
-            # Add a visible stop marker so the conversation reloads correctly
-            agent.update_state(config, {"messages": [
-                AIMessage(content=str(marker_message or "\u23f9\ufe0f *[Stopped]*"))
-            ]})
+            agent.update_state(config, {"messages": patches}, as_node=as_node)
+            if marker_message is not None:
+                # Add a visible stop marker so the conversation reloads correctly
+                agent.update_state(config, {"messages": [AIMessage(content=str(marker_message))]})
             logger.warning("repair_orphaned_tool_calls: checkpoint patched successfully")
         else:
             logger.debug("repair_orphaned_tool_calls: no orphaned tool_calls in %d messages", len(msgs))
@@ -8880,6 +8874,24 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
     except Exception:
         logger.warning("repair_orphaned_tool_calls failed", exc_info=True)
         return None
+
+
+def _save_stopped_browser_step(agent, config: dict, stream_iter) -> None:
+    """Save a turn stopped at its browser limit so the conversation ends on the stopped step's result.
+
+    The turn broke out of its stream as soon as the model asked for the step, before LangGraph saved that
+    model step: the request is only a pending write of the open run. Ending the run first lets its background
+    checkpoint writes land; settling keeps the finished request and drops the step that would run next; the
+    result is then saved as the tools' output, so Resume runs the model on a history every provider accepts.
+    """
+    from langgraph.graph import END
+
+    stream_iter.close()
+    agent.update_state(config, None, as_node=END)
+    # Its unfinished step says why it stopped: not the person.
+    repair_orphaned_tool_calls(config=config, agent_graph=agent,
+                               orphan_message="[Stopped: too many browser actions in one turn]",
+                               marker_message=None, as_node="tools")
 
 
 def _resume_value(approved: bool, interrupt_ids: list[str] | None,
@@ -9631,7 +9643,6 @@ def _stream_graph(agent, input_data, config: dict,
     # (a multi-step form) takes dozens of page actions; this only stops a
     # runaway loop.
     _loop_detected = False
-    _browser_thread = str((config.get("configurable") or {}).get("thread_id") or "")
     _browser_tool_count = 0
     _recent_browser_actions: list[str] = []
     _browser_budget_exceeded = False
@@ -9804,8 +9815,7 @@ def _stream_graph(agent, input_data, config: dict,
                                     action in {"snapshot", "take_screenshot", "screenshot"}
                                     for action in _recent_browser_actions[-8:]
                                 )
-                                if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
-                                                       >= _browser_tool_limit(_browser_thread)):
+                                if _snapshot_heavy or _browser_tool_count >= BROWSER_TOOL_LIMIT:
                                     _browser_budget_exceeded = True
 
                     # Tool result returned
@@ -10092,11 +10102,9 @@ def _stream_graph(agent, input_data, config: dict,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
-            # Its unfinished step says why it stopped: not the person.
-            repair_orphaned_tool_calls(config=config, agent_graph=agent,
-                                       orphan_message="[Stopped: too many browser actions in one turn]")
+            _save_stopped_browser_step(agent, config, stream_iter)
         except Exception:
-            pass
+            logger.warning("The stopped browser step was not saved", exc_info=True)
         _browser_msg = (
             "⚠️ I took a long run of browser steps in this turn without settling, so I stopped to check "
             "with you before going round again. Say carry on and I'll pick up from here, or tell me what to change."

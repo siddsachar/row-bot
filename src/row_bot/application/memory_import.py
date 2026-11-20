@@ -950,18 +950,13 @@ def _receipt_view(receipt: dict) -> dict:
         "superseded", "skipped", "failed", "undo_until")}
 
 
-def _source_words(source: str) -> str:
-    from row_bot.memory_import.sink import PROVIDER_NAMES
-
-    return "a pasted answer" if source == "pasted" else PROVIDER_NAMES.get(source, source)
-
-
 def apply(session_id: str, batch_id: str, *, command_id: str, revision: str, exclude: list[str],
           validate: Callable[[], None] | None = None) -> dict:
     """Write what was previewed. Applying a batch twice changes nothing the second time."""
     import row_bot.knowledge_graph as kg
     import row_bot.memory_evolution as memory_evo
     import row_bot.memory_reconcile as reconcile
+    from row_bot.memory_import.sink import source_words
 
     with _LOCK:
         batch = _batch(session_id, batch_id)
@@ -992,7 +987,7 @@ def apply(session_id: str, batch_id: str, *, command_id: str, revision: str, exc
             "applied_at": datetime.fromtimestamp(now).isoformat(timespec="seconds"), "applied_ts": now,
             "undo_until": datetime.fromtimestamp(now + KEEP_SECONDS).isoformat(timespec="seconds"),
             "undone_at": None,
-            "sources": sorted({_source_words(entry["source"]) for entry in planned}),
+            "sources": sorted({source_words(entry["source"]) for entry in planned}),
             "added": 0, "updated": 0, "superseded": 0, "skipped": 0, "failed": 0, "changes": [],
         }
         for entry in planned:
@@ -1104,13 +1099,15 @@ def recent() -> list[dict]:
 
 def waiting() -> list[dict]:
     """Imports brought over from another app on this computer, still to review, newest first."""
+    from row_bot.memory_import.sink import source_words
+
     with _LOCK:
         sweep()
         kept = sorted((batch for batch in _BATCHES.values() if _waiting(batch)),
                       key=lambda batch: float(batch.kept or 0), reverse=True)
         return [{
             "batch_id": batch.id,
-            "sources": sorted({_source_words(source) for source in batch.counts})[:20],
+            "sources": sorted({source_words(source) for source in batch.counts})[:20],
             "found": len(batch.candidates),
             "conversations": sum(int(count.get("conversations") or 0) for count in batch.counts.values()),
             "staged_at": datetime.fromtimestamp(float(batch.kept or 0)).isoformat(timespec="seconds"),

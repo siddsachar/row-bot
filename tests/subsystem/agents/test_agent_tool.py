@@ -187,7 +187,7 @@ def test_checkpoint_repair_closes_only_orphaned_tool_calls() -> None:
         def get_state(self, _config):
             return SimpleNamespace(values={"messages": messages})
 
-        def update_state(self, _config, values):
+        def update_state(self, _config, values, as_node=None):
             self.updates.append(values)
 
     graph = FakeGraph()
