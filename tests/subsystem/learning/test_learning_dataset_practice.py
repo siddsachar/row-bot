@@ -25,10 +25,10 @@ pytestmark = [pytest.mark.subsystem]
 
 HOUR = 3600.0
 NIGHT = "2027-01-16"
-#: This fixture's rows as ``main`` compiles them without L4b (``9cc6b0870``, the 16 GB recipe), captured and in
+#: This fixture's rows as ``main`` compiles them without L4b (``eee0e479c``, the 16 GB recipe), captured and in
 #: the serving shape.
 ROWS_BEFORE = {"captured": "431a67b52af853bcbff6ea2da990cecf7374adf59a8c49fc8aee3c9dceb42641",
-               "serving": "ccbfa8822b132bfb5d4bc3c7064ec408c76baf5130cd654f636ff5823c6ad35d"}
+               "serving": "8fb39019b24913531198091fb3bd4ee26d8bb46a287ad372b997c7e86dd15f1b"}
 MANIFEST_KEYS = {"format", "version", "id", "sha256", "recipe", "max_seq_length", "measured", "examples", "validation",
                  "historical", "rendering", "derived", "derived_ids", "left_out", "providers", "terms_note",
                  "corrections_waiting", "paths_made_relative", "first_at", "last_at", "conversations", "example_ids",
