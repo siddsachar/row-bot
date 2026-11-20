@@ -13,12 +13,12 @@ test('simplified shell keeps controls and Home reachable', async ({
   // A conversation is one header row at every width: no separate bar.
   await expect(page.locator('.compact-controls')).toHaveCount(0);
   if (phone) {
-    // Phones fold Search and the panels into the header's menu, and go Home
-    // by ‹ and the tab bar: no drawer (D1).
+    // Phones fold the panels into the header's menu (Search lives in the
+    // Chats tab, D15), and go Home by ‹ and the tab bar: no drawer (D1).
     await page
       .getByRole('button', { name: 'Conversation menu', exact: true })
       .click();
-    await expect(page.getByRole('menuitem', { name: 'Search' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Search' })).toHaveCount(0);
     await expect(
       page.getByRole('menuitem', { name: 'Open Workspace notes' }),
     ).toBeVisible();

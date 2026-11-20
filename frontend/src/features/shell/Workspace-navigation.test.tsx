@@ -241,7 +241,7 @@ it('closes the tablet navigation drawer when something in it changes the route',
   );
 });
 
-it('returns focus to the phone header menu after Search opened from it', async () => {
+it('keeps Search out of a phone chat menu', async () => {
   vi.stubGlobal('innerWidth', 390);
   vi.stubGlobal('innerHeight', 844);
   const user = userEvent.setup();
@@ -263,14 +263,10 @@ it('returns focus to the phone header menu after Search opened from it', async (
   );
   const menu = screen.getByRole('button', { name: 'Conversation menu' });
   await user.click(menu);
-  await user.click(await screen.findByRole('menuitem', { name: 'Search' }));
-  expect(await screen.findByRole('dialog', { name: 'Search' })).toBeVisible();
-  await user.keyboard('{Escape}');
-  await waitFor(() =>
-    expect(screen.queryByRole('dialog', { name: 'Search' })).toBeNull(),
-  );
-  // The menu item that opened it is gone; its trigger takes focus back.
-  await waitFor(() => expect(menu).toHaveFocus());
+  expect(
+    await screen.findByRole('menuitem', { name: 'Find in conversation' }),
+  ).toBeVisible();
+  expect(screen.queryByRole('menuitem', { name: 'Search' })).toBeNull();
 });
 
 it('goes Home and says so when the open conversation is deleted in another window', async () => {

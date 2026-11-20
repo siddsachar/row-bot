@@ -1891,17 +1891,12 @@ export default function Workspace() {
       <SquareTerminal size={16} aria-hidden />
     </IconButton>
   );
-  // The phone header's ⋯: Search first, then every panel this thread has.
-  const phoneMenu: MenuAction[] = [
-    {
-      label: 'Search',
-      icon: <Search size={16} />,
-      onSelect: (opener) => openCommands(opener),
-    },
-    ...panelActions((title) => `Open ${title}`).map((action, index) =>
+  // The phone header's ⋯: every panel this thread has. Search lives in the
+  // Chats tab (D15), not in a chat.
+  const phoneMenu: MenuAction[] = panelActions((title) => `Open ${title}`).map(
+    (action, index) =>
       index === 0 ? { ...action, separatorBefore: true } : action,
-    ),
-  ];
+  );
   const conversationVisible =
     Boolean(conversationId) && !homeOpen && !routeOpen && !compact;
   // A phone moves between its four places with a tab bar (D1); a
