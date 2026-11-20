@@ -33,6 +33,7 @@ import {
 import { DownloadAsk, LearningSetupSheet } from './LearningSetup';
 import { CancelDownload, downloadView } from './PersonalModelDownload';
 import { HuggingFaceSignIn } from './HuggingFace';
+import { OTHER_MODELS_WORDS, OtherModels } from './OtherModels';
 import { StartingModelSheet } from './StartingModelSheet';
 import { MonthlyLimitPicker } from './MonthlyLimit';
 import {
@@ -115,7 +116,9 @@ function HuggingFaceSettings({
   hugging: LearningHuggingFace;
 }) {
   const notify = useNotify();
+  const phone = usePhone();
   const [busy, setBusy] = useState(false);
+  const [othersOpen, setOthersOpen] = useState(false);
   const signedIn = hugging.sign_in.state === 'signed_in';
   const choices = hugging.cap_choices ?? [10, 20, 50, 100];
   const caps =
@@ -155,6 +158,16 @@ function HuggingFaceSettings({
           label="Model on Hugging Face"
           anchor="learning-hugging-face-model"
           help="Only models this computer can run afterwards are offered."
+          trailing={
+            <Button
+              className="small"
+              disabled={busy}
+              aria-label="Other models on Hugging Face"
+              onClick={() => setOthersOpen(true)}
+            >
+              Other models…
+            </Button>
+          }
           control={
             <Select
               aria-label="Model on Hugging Face"
@@ -167,7 +180,11 @@ function HuggingFaceSettings({
               {(hugging.models ?? []).map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
-                  {item.recommended ? ' (recommended)' : ''}
+                  {item.recommended
+                    ? ' (recommended)'
+                    : item.certified
+                      ? ''
+                      : ' (not certified)'}
                 </option>
               ))}
             </Select>
@@ -175,6 +192,23 @@ function HuggingFaceSettings({
           bind={false}
         />
       )}
+      <ModalTask
+        open={othersOpen}
+        onOpenChange={setOthersOpen}
+        title="Other models"
+        description={OTHER_MODELS_WORDS}
+        kind={phone ? 'sheet' : 'dialog'}
+        className="learning-starting-model"
+      >
+        <div className="learning-sheet">
+          <OtherModels io={io} titled={false} />
+          <div className="learning-sheet-actions">
+            <Button onClick={() => setOthersOpen(false)} data-initial-focus>
+              Done
+            </Button>
+          </div>
+        </div>
+      </ModalTask>
       {signedIn && (
         <SettingsItem
           label="Monthly spending cap"

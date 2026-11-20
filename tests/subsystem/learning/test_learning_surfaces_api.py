@@ -469,12 +469,21 @@ def test_only_delete_data_ever_deletes_learning_data(api, no_channels, chats, mo
     monkeypatch.setattr(remote_training, "_trainer", remote_training.RemoteTrainer(
         data, hub=hub, sign_in=FakeSignIn(signed_in=False), card_mib=lambda: 32_607, start_threads=False,
         flavors=lambda: []))
+    # Any open model (C1 Part 4): Hugging Face's card can't be read here, so a check stops at its own refusal.
+    from row_bot.learning.training import open_models
+
+    def unreadable(repo, **_kwargs):
+        raise open_models.HubError("not_found")
+
+    monkeypatch.setattr(open_models, "inspect", unreadable)
+    other = {"model": "hf:Qwen/Qwen3-14B"}
     extra = {"turn_on": {"setup": SETUP},
-             "save_advanced": {"advanced": {"rank": 16, "learning_rate": 0.0002, "epochs": 3, "context": 16384}}}
+             "save_advanced": {"advanced": {"rank": 16, "learning_rate": 0.0002, "epochs": 3, "context": 16384}},
+             "check_model": other, "stop_model_check": other, "forget_model": other}
 
     reached = 0
     for action in actions:
-        response = _command(client, headers, action, **fields, **extra.get(action, {}))
+        response = _command(client, headers, action, **{**fields, **extra.get(action, {})})
         reached += response.status_code != 422  # the API took it (it reached Learning's own checks)
 
     assert len(actions) >= 30 and reached == len(actions) and deleted == []

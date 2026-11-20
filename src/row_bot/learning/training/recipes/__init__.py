@@ -24,7 +24,7 @@ import json
 import math
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -259,6 +259,25 @@ def _remote(value: Any, source: str) -> dict[str, Any]:
     return dict(value)
 
 
+def for_starting_model(recipe: Recipe, model_id: str, *, title: str, evidence: str, quantization: str,
+                       remote: Mapping[str, Any] | None = None) -> Recipe:
+    """``recipe`` training another starting model (C1 Part 4, O138): a model the person found on Hugging Face and
+    Row-Bot checked on this computer. Its settings, passes and serving shape stay; it is never certified; a Hugging
+    Face recipe takes the card and the times that model's size needs (``remote``, checked like a file's). Its
+    identity (``sha256``) names the model, so a version's release says what it was trained with."""
+
+    if quantization not in QUANTIZATIONS or not model_id or len(model_id) > 128:
+        raise RecipeError("invalid_recipe", "starting model")
+    block = _remote(dict(remote), model_id) if remote is not None else (dict(recipe.remote) if recipe.remote else None)
+    if block is not None:
+        block["alternatives"] = [dict(item) for item in block.get("alternatives") or ()]
+    changed = {"model": model_id, "quantization": quantization, "remote": block}
+    digest = hashlib.sha256((recipe.sha256 + json.dumps(changed, sort_keys=True)).encode("utf-8")).hexdigest()
+    return replace(recipe, starting_model=model_id, certified=False, title=title[:512], evidence=evidence[:2048],
+                   quantization=quantization, remote=MappingProxyType(block) if block is not None else None,
+                   sha256=digest)
+
+
 @functools.cache
 def load(recipe_id: str) -> Recipe:
     """The recipe with this id, from its data file beside this module."""
@@ -352,6 +371,7 @@ __all__ = [
     "current",
     "fits",
     "for_model",
+    "for_starting_model",
     "MIN_TRAINING_CONTEXT",
     "ORDER",
     "Recipe",

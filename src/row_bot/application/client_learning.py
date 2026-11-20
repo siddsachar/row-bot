@@ -24,6 +24,7 @@ from typing import Any
 
 from row_bot import learning
 from row_bot.application import learning_hugging_face as _hugging_face
+from row_bot.application import learning_open_models as _open_models
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
@@ -64,7 +65,7 @@ _VERSION_NUMBER_ACTIONS = frozenset({"compare_version", "use_version", "export_v
 # The personal model's version (L2c): make it ready again (Try again, Check again), or choose where it runs.
 _VERSION_ACTIONS = frozenset({"make_ready", "choose_runtime"})
 # The personal model's download (L2b): the training engine and the starting model.
-_ACTIONS = _ACTIONS | _hugging_face.ACTIONS
+_ACTIONS = _ACTIONS | _hugging_face.ACTIONS | _open_models.ACTIONS
 # The Hugging Face commands for one run (the run the person saw).
 _HF_JOB_ACTIONS = frozenset({"hf_start", "hf_cancel", "hf_check_now"})
 _DOWNLOAD_ACTIONS = frozenset({"start_download", "stop_download", "cancel_download", "remove_engine",
@@ -671,10 +672,25 @@ def _downloads_view() -> Any:
         return None
 
 
+def _starting_model(settings: learning.LearningSettings) -> Any:
+    """The starting model the settings name: a certified one, or (C1 Part 4) a model the person checked here
+    whose check passed, under the id the settings keep (``hf:<repo>``)."""
+
+    from row_bot.learning.training import hardware, weights
+
+    found = hardware.STARTING_MODELS.get(settings.starting_model)
+    if found is not None or not settings.starting_model.startswith("hf:"):
+        return found or hardware.QWEN35_9B
+    pinned = weights.model_for(settings.starting_model)
+    if pinned is None:
+        return hardware.QWEN35_9B
+    return hardware.StartingModel(settings.starting_model, pinned.name, pinned.licence, pinned.download_bytes)
+
+
 def _personal_model(settings: learning.LearningSettings) -> dict[str, Any]:
     from row_bot.learning.training import hardware
 
-    model = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B)
+    model = _starting_model(settings)
     view = _downloads_view()
     engine = _ENGINE_STATES.get(view.engine_state, "not_downloaded") if view is not None else "not_downloaded"
     starting = view.model_state if view is not None else "not_downloaded"
@@ -710,6 +726,7 @@ def _personal_model(settings: learning.LearningSettings) -> dict[str, Any]:
         else None,
         "room": _room_view(settings),
         "stronger_model": _stronger_view(settings),
+        "other_models": _open_models.view() if settings.enabled else [],
         **_use_parts(),
     }
 
@@ -829,10 +846,19 @@ def _change_starting_model(model_id: str) -> str:
 
     settings = learning.read_settings()
     check = hardware.peek()
-    offered = {model.id for model in check.starting_models} if check is not None and check.can_train else set()
+    can_train = check is not None and check.can_train
+    offered = {model.id: model.name for model in check.starting_models} if can_train else {}
+    if model_id.startswith("hf:") and can_train:
+        # C1 Part 4: a model the person checked here trains here once its check passed (uncertified).
+        from row_bot.learning.training import open_models
+
+        record = open_models.read(open_models.repo_of(model_id) or "")
+        card = int(check.gpu.memory_mib) if check.gpu is not None else None
+        if record is not None and record.trains_here and open_models.as_choice(record, card) is not None:
+            offered[model_id] = record.name
     if model_id not in offered:
         raise ClientPlatformError("learning_training_changed")
-    name = hardware.STARTING_MODELS[model_id].name
+    name = offered[model_id]
     if model_id == settings.starting_model:
         return f"{name} is already the starting model."
     if _change_busy():
@@ -1324,6 +1350,15 @@ def read_learning_download(*, validate: Callable[[], None]) -> dict[str, Any]:
     result = _download_view(_downloads_view())
     validate()
     return result
+
+
+def read_learning_models(*, validate: Callable[[], None], query: str = "") -> dict[str, Any]:
+    """Hugging Face's public search for chat models (C1 Part 4): free, no sign-in, nothing of the person's sent but
+    the words searched for."""
+
+    _require_preview()
+    validate()
+    return _open_models.search(query)
 
 
 def read_learning_hardware(*, validate: Callable[[], None], refresh: bool = False) -> dict[str, Any]:
@@ -1965,12 +2000,12 @@ def _training_runs() -> bool:
 def _download(action: str) -> str:
     """The person's action on the personal model's download: what happened, in words."""
 
-    from row_bot.learning.training import downloads, engine, hardware, weights
+    from row_bot.learning.training import downloads, engine, weights
 
     task = downloads.get()
     settings = learning.read_settings()
-    model = weights.MODELS.get(settings.starting_model, weights.QWEN35_9B)
-    name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B).name
+    model = weights.model_for(settings.starting_model, default=weights.QWEN35_9B)
+    name = _starting_model(settings).name
     try:
         if action == "start_download":
             if _training_runs():
@@ -2012,10 +2047,10 @@ def _answer_download(answer: str) -> str:
     _save({"model_download": "waiting" if answer == "download" else "not_now"})
     if answer != "download":
         return "Not downloading for now."
-    from row_bot.learning.training import downloads, hardware
+    from row_bot.learning.training import downloads
 
     settings = learning.read_settings()
-    name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B).name
+    name = _starting_model(settings).name
     try:
         if _training_runs():
             raise downloads.DownloadError("busy")
@@ -2080,7 +2115,9 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
     if action == "answer_question" and not _text(command.get("answer"), 2000).strip():
         raise ClientPlatformError("invalid_learning_command")
     model_id = _text(command.get("model"), 128)
-    if action in ("use_smaller_model", "change_starting_model") and model_id not in learning.STARTING_MODELS:
+    checked = action == "change_starting_model" and learning._checked_model(model_id)  # noqa: SLF001
+    if action in ("use_smaller_model", "change_starting_model") and model_id not in learning.STARTING_MODELS \
+            and not checked:
         raise ClientPlatformError("invalid_learning_command")
     change_id = _text(command.get("change_id"), 128)
     if action in _CHANGE_ACTIONS and not change_id:
@@ -2116,6 +2153,7 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
         "cap_usd": cap if type(cap) is int else None,
         "quote_cost_cents": command.get("quote_cost_cents") if type(command.get("quote_cost_cents")) is int else None,
         "flavor": _text(command.get("flavor"), 64),
+        "licence_ok": command.get("licence_ok") is True,
     }
     existing = admissions.read_command_metadata(owner_id, command["command_id"])
     if existing is not None:
@@ -2253,6 +2291,8 @@ def _perform(
         summary = f"Back to learning method v{back.version}."
     elif action in _hugging_face.ACTIONS:
         summary = _hugging_face.perform(action, wire)
+    elif action in _open_models.ACTIONS:
+        summary = _open_models.perform(action, wire)
     elif action == "delete_data":
         from row_bot.learning.store import LearningStoreError
         from row_bot.learning.training import jobs as training_jobs
