@@ -137,6 +137,8 @@ BROWSER_SMOKE_SPECS = (
     "browser-demo",
     # A phone's Send and + with the keyboard open: one tap, never a misfire. Appended for the same reason.
     "phone-composer",
+    # The phone helpers (a paired phone's handshake, tap paths) the phone specs build on. Appended likewise.
+    "phone-foundations",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
