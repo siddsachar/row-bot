@@ -354,7 +354,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
     page.getByRole('status').filter({ hasText: /^Connected$/ }),
   ).toBeVisible();
   await assertControlTextUnclipped(send);
-  // At phone width a chat reaches Settings through Search in its menu (D15).
+  // At phone width a chat reaches Settings through Search (D15).
   const { field } = await openCommands(page);
   await field.fill('Models settings');
   await page.keyboard.press('Enter');

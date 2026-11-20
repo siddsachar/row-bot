@@ -893,6 +893,15 @@ export async function openCommands(
   page: Page,
 ): Promise<{ dialog: Locator; field: Locator; opener: Locator }> {
   const phone = page.viewportSize()!.width < 768;
+  const search = page.getByRole('button', { name: 'Search', exact: true });
+  if (phone && !(await search.isVisible())) {
+    // A phone chat has no Search entry (D15: Search lives in the tabs); the
+    // shortcut opens the same phone Search from the composer.
+    const opener = composer(page);
+    await opener.focus();
+    await page.keyboard.press('ControlOrMeta+k');
+    return { ...commandsDialog(page), opener };
+  }
   const opener = await headerAction(
     page,
     phone ? 'Search' : 'Workspace commands',
