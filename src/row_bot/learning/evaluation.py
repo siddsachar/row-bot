@@ -885,6 +885,9 @@ def _case_for(saved: Any, decision: Decision, correction: CorrectedAction | None
 
     if decision.status != "ok":
         return "not_ok"
+    if decision.quoted_thread_ids:
+        # It holds another chat's words: no task, held or visible, copies them out of the records.
+        return "quotes_another_chat"
     if decision.untrusted and not include_untrusted:
         return "untrusted"
     check: Check = "exact_action"

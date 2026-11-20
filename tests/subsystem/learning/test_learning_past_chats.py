@@ -125,6 +125,32 @@ def test_past_chats_in_the_window_become_partial_historical_episodes(learning_on
     assert store.find("signal") == []
 
 
+def test_an_imported_chat_that_quoted_another_goes_when_that_one_is_excluded(learning_on, clock, chats, source):
+    from row_bot.learning import scope
+    from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY
+    from tests.fixtures.learning import all_blob_text
+
+    store = LearningStore(learning_on, clock=clock)
+    secret = "the boat is moored at pier nine"
+    quoting = _chat("Where did I moor the boat?")
+    quoting[2] = ToolMessage(content=f'[Match 1] Thread: "Sailing" | Person: {secret}', tool_call_id="c1",
+                             name="search_conversations", id="t-quote",
+                             additional_kwargs={QUOTED_CONVERSATIONS_KEY: ["sailing"]})
+    chats.chat("asks").chat("plain")
+    source.add("asks", clock() - 5 * DAY, quoting)
+    source.add("plain", clock() - 4 * DAY, _chat())
+    _run(store, source, chats, clock)
+    # Each imported step names the whole stored conversation, so each holds the quoted chat's words.
+    asked = [item for item in store.find("decision") if item.thread_id == "asks"]
+    assert asked and {item.quoted_thread_ids for item in asked} == {("sailing",)}
+    assert secret in all_blob_text(learning_on)
+
+    scope.set_chat_opt_out("sailing", True, store=store)
+
+    assert {item.thread_id for item in store.find("decision")} == {"plain"}
+    assert secret not in all_blob_text(learning_on)
+
+
 def test_the_import_resumes_where_it_stopped_and_never_imports_a_conversation_twice(learning_on, clock, chats, source):
     store = LearningStore(learning_on, clock=clock)
     for name in ("a", "b", "c"):

@@ -54,6 +54,7 @@ from row_bot.learning.capture import (
     _SAVED_OUTPUT,
     _canonical,
     _is_untrusted,
+    _quoted,
     _message_dict,
     _Sink,
 )
@@ -280,6 +281,8 @@ def _conversation_records(
         untrusted_before.append(seen_untrusted)
         seen_untrusted = seen_untrusted or _is_untrusted(message)
     conversation_sha = sink.blob(_canonical({"format": CONVERSATION_FORMAT, "version": 1, "messages": hashes}))
+    # Every step names the whole stored conversation, so each holds the words any message of it quotes.
+    quoted = _quoted(messages, (thread_id, conversation))
     records: list[contracts.Record] = []
     previous_reply: str | None = None
     for number, (start, end) in enumerate(_turns(messages)):
@@ -319,6 +322,7 @@ def _conversation_records(
                     kind="model_call", created_at=turn_at, conversation_id=conversation,
                     fidelity="partial", untrusted=untrusted_before[index],
                     request_blob=request, repaired_output_blob=reply, executed="repaired",
+                    quoted_thread_ids=quoted,
                 ))
                 last_reply = decision_id
                 sequence += 1
@@ -341,6 +345,7 @@ def _conversation_records(
                     status="error" if getattr(message, "status", "success") == "error" else "ok",
                     tool_name=name[:256], tool_call_id=call_id[:256] or None, arguments_blob=arguments_sha,
                     result_blob=result_sha, result_handle=handle.group(1) if handle else None,
+                    quoted_thread_ids=quoted,
                 ))
                 sequence += 1
         records.append(Episode(

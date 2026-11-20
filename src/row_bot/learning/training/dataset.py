@@ -303,6 +303,9 @@ class Example:
     # A practice turn (L4b): ``id`` is its task's, and the chats its issue came from are ``sources``.
     practice: bool = False
     sources: tuple[str, ...] = ()
+    # Other conversations whose words the row holds (a past-conversation search's matches): forgetting one
+    # forgets the runs and kept rows built on it, like the row's own conversation.
+    quoted: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -331,7 +334,8 @@ class CompiledDataset:
 
     @property
     def conversations(self) -> tuple[str, ...]:
-        return tuple(sorted({item.conversation_id for item in (*self.train, *self.validation) if not item.practice}))
+        return tuple(sorted({thread for item in (*self.train, *self.validation) if not item.practice
+                             for thread in (item.conversation_id, *item.quoted)}))
 
     @property
     def practice_rows(self) -> tuple[Example, ...]:
@@ -759,6 +763,7 @@ def _example(episode: Episode, book: _Book, *, roots: Sequence[str],
         id=episode.id, conversation_id=episode.conversation_id, thread_id=episode.thread_id,
         started_at=float(episode.started_at), provider=_provider(model_ref), historical=episode.historical,
         row=row, estimated_tokens=estimate_tokens(row), derived=derived,
+        quoted=tuple(sorted({thread for item in decisions for thread in item.quoted_thread_ids})),
     ), "", changed
 
 
