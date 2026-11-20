@@ -3721,6 +3721,34 @@ def a2_seed(x_fixture_token: str = Header(default="")) -> dict:
     return _A2_SEEDED
 
 
+_B1_SEEDED: dict = {}
+
+
+@app.post("/__b1_fixture/seed")
+def b1_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """The phone's conversation header (B1), once per backend: a chat of three exchanges, so the newest answer
+    keeps its icons and the older ones open theirs with a long-press."""
+    predecessor._authorize(x_fixture_token)
+    if _B1_SEEDED:
+        return _B1_SEEDED
+    from row_bot import threads
+
+    chat = "b1-workshop-chat"
+    threads._save_thread_meta(chat, "Workshop planning", allow_recreate=True)
+    exchanges = (
+        ("Make a two-slide deck for the community workshop.", "The deck is ready: a title slide and an agenda."),
+        ("Add the date and the hall's address.", "Done. Slide 1 now says Community Hall, Thursday 18:30."),
+        ("Suggest a short welcome line.", "Welcome, neighbours: tonight we plan the summer fair together."),
+    )
+    for index, (asked, answered) in enumerate(exchanges):
+        threads.append_checkpoint_messages(chat, [
+            HumanMessage(id=fixture_id(f"b1:{index}:asked"), content=asked),
+            AIMessage(id=fixture_id(f"b1:{index}:answered"), content=answered),
+        ])
+    _B1_SEEDED.update(chat=chat)
+    return _B1_SEEDED
+
+
 @app.post("/__p3_fixture/large-library")
 def large_library(x_fixture_token: str = Header(default="")) -> dict:
     """Seed 1,001 ordinary conversations and 10,001 durable messages once."""

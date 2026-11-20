@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
@@ -61,44 +62,45 @@ it('does not rename when the title is unchanged or blank', () => {
   expect(screen.getByRole('heading', { name: 'Kept' })).toBeVisible();
 });
 
-it('is one phone row: back, title and a ⋯ that holds every action', async () => {
-  const onFind = vi.fn();
+it('is one phone row: back, title, New chat and a ⋯ with Find, Details, Export and Rename first', async () => {
   const onContext = vi.fn();
-  const onSearch = vi.fn();
+  const onNewChat = vi.fn();
   render(
     <ConversationHeader
       title="Trip ideas"
       canRename
       onRename={vi.fn(async () => {})}
       model="Local model"
-      onFind={onFind}
+      onFind={vi.fn()}
       onShare={vi.fn()}
       onContext={onContext}
-      leading={<button type="button">Toggle navigation</button>}
-      menuActions={[{ label: 'Workspace commands', onSelect: onSearch }]}
+      onNewChat={onNewChat}
+      leading={<button type="button">Back</button>}
+      menuActions={[{ label: 'Incognito', onSelect: vi.fn() }]}
+      trailingMenuActions={[{ label: 'Teach Row-Bot', onSelect: vi.fn() }]}
     />,
   );
   const header = screen.getByRole('banner');
   expect(header).toHaveAttribute('data-layout', 'phone');
-  expect(
-    screen.getByRole('button', { name: 'Toggle navigation' }),
-  ).toBeVisible();
-  // Icon actions and the model chip fold away; the title stays.
+  expect(screen.getByRole('button', { name: 'Back' })).toBeVisible();
+  // Find, Details and Export fold into ⋯; New chat stays one tap away.
   expect(screen.queryByRole('button', { name: 'Find' })).toBeNull();
   expect(
     screen.queryByRole('button', { name: 'Conversation details' }),
   ).toBeNull();
-  expect(screen.queryByText('Local model')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  expect(onNewChat).toHaveBeenCalledOnce();
   const more = screen.getByRole('button', { name: 'Conversation menu' });
   await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
   expect(
     screen.getAllByRole('menuitem').map((item) => item.textContent),
   ).toEqual([
-    'Workspace commands',
     'Find in conversation',
     'Conversation details',
     'Export conversation',
     'Rename conversation',
+    expect.stringContaining('Incognito'),
+    'Teach Row-Bot',
   ]);
   await act(async () =>
     fireEvent.click(
@@ -106,6 +108,89 @@ it('is one phone row: back, title and a ⋯ that holds every action', async () =
     ),
   );
   expect(onContext).toHaveBeenCalledTimes(1);
+});
+
+it('shows the model under a phone title as the button that opens the model sheet', () => {
+  const onModel = vi.fn();
+  const onRename = vi.fn(async () => {});
+  const { rerender } = render(
+    <ConversationHeader
+      title="Trip ideas"
+      canRename
+      onRename={onRename}
+      model="qwen3:8b"
+      onModel={onModel}
+      menuActions={[]}
+    />,
+  );
+  const model = screen.getByRole('button', { name: 'Model: qwen3:8b' });
+  expect(model).toHaveAttribute('aria-haspopup', 'dialog');
+  fireEvent.click(model);
+  expect(onModel).toHaveBeenCalledOnce();
+  // Rename lives in ⋯ on a phone: a tap on the title never starts it.
+  fireEvent.click(screen.getByRole('heading', { name: 'Trip ideas' }));
+  expect(
+    screen.queryByRole('textbox', { name: 'Conversation title' }),
+  ).toBeNull();
+
+  // While a reply runs the model can't change.
+  rerender(
+    <ConversationHeader
+      title="Trip ideas"
+      canRename
+      onRename={onRename}
+      model=""
+      onModel={onModel}
+      modelDisabled
+      menuActions={[]}
+    />,
+  );
+  const none = screen.getByRole('button', { name: 'Choose a model' });
+  expect(none).toBeDisabled();
+  fireEvent.click(none);
+  expect(onModel).toHaveBeenCalledOnce();
+});
+
+it('puts a phone chat’s Working on in a row under the header', () => {
+  render(
+    <ConversationHeader
+      title="Trip ideas"
+      canRename={false}
+      onRename={vi.fn(async () => {})}
+      menuActions={[]}
+      workingOn={<button type="button">Working on · Deck</button>}
+    />,
+  );
+  const work = screen.getByRole('button', { name: 'Working on · Deck' });
+  expect(
+    within(
+      screen.getByRole('group', { name: 'Conversation actions' }),
+    ).queryByRole('button', { name: 'Working on · Deck' }),
+  ).toBeNull();
+  expect(work.closest('.conversation-working-on')).not.toBeNull();
+});
+
+it('keeps the desktop header: model chip, icon actions, no New chat or model button', () => {
+  render(
+    <ConversationHeader
+      title="Trip ideas"
+      canRename
+      onRename={vi.fn(async () => {})}
+      model="qwen3:8b"
+      onModel={vi.fn()}
+      onNewChat={vi.fn()}
+      onFind={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('qwen3:8b')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Find' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Model:/ })).toBeNull();
+  // A click on the title still renames there.
+  fireEvent.click(screen.getByRole('heading', { name: 'Trip ideas' }));
+  expect(
+    screen.getByRole('textbox', { name: 'Conversation title' }),
+  ).toBeVisible();
 });
 
 it('keeps focus in the title field when Rename is chosen from the phone menu', async () => {
