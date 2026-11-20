@@ -241,11 +241,9 @@
   font-size: var(--text-13);
   line-height: var(--leading-13);
 }
-.proactive-brief-end {
-  margin: 0;
-  padding-left: 40px;
-  color: var(--text-muted);
-  font-size: var(--text-12);
+.proactive-brief-lines strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
 }
 .proactive-intro {
   display: grid;
@@ -534,12 +532,18 @@
   font-size: var(--text-12);
 }
 .proactive-draft-text {
-  margin: 0;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-.proactive-draft .proactive-brief-lines {
-  padding-left: 0;
+.proactive-draft-text > p,
+.proactive-draft-text > ul,
+.proactive-draft-text > ol {
+  margin: 0 0 var(--space-2);
+}
+.proactive-draft-text > :first-child {
+  margin-top: 0;
+}
+.proactive-draft-text > :last-child {
+  margin-bottom: 0;
 }
 
 /* -------------------------------------------------- Settings › Proactive */
@@ -577,7 +581,8 @@
 }
 .proactive-example li {
   display: grid;
-  grid-template-columns: 20px 48px minmax(0, 1fr) auto;
+  /* A time column that keeps "12:55 PM" on one line. */
+  grid-template-columns: 20px 4.75em minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   color: var(--text-secondary);
@@ -586,6 +591,7 @@
 .proactive-example-time {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .proactive-example-where {
   color: var(--text-muted);
@@ -593,7 +599,7 @@
 }
 @media (max-width: 767px) {
   .proactive-example li {
-    grid-template-columns: 20px 44px minmax(0, 1fr);
+    grid-template-columns: 20px 4.75em minmax(0, 1fr);
   }
   .proactive-example-where {
     grid-column: 3;
@@ -673,6 +679,11 @@
 .proactive-activity-time {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+.proactive-activity-count {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
 }
 .proactive-activity-text {
   color: var(--text-primary);

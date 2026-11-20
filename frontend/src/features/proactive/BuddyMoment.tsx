@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { LayoutList, MoreHorizontal } from 'lucide-react';
 import type { ProactiveMomentView } from '../../api/types';
-import { parseTimestamp } from '../../ui/format';
+import { parseTimestamp, relativeTime } from '../../ui/format';
 import { Button, IconButton, Menu, type MenuAction } from '../../ui/primitives';
 import { introduced } from './ProactiveIntro';
 import { lessOptions, lessProblem } from './WhyThis';
@@ -141,8 +141,16 @@ export type Bubble =
   | { kind: 'one'; moment: ProactiveMomentView }
   | { kind: 'batch'; moments: ProactiveMomentView[]; line: string };
 
-export function bubbleLine(bubble: Bubble): string {
-  return bubble.kind === 'one' ? bubble.moment.title : bubble.line;
+/** The bubble's words; a meeting says how soon it starts as the bubble shows ("… in 7 minutes"), never as
+ * the moment was made (R3). */
+export function bubbleLine(bubble: Bubble, now = new Date()): string {
+  if (bubble.kind !== 'one') return bubble.line;
+  const { moment } = bubble;
+  const start =
+    moment.kind === 'meeting_prep' ? parseTimestamp(moment.starts_at) : null;
+  return start && start.getTime() > now.getTime()
+    ? `${moment.title} ${relativeTime(start, now)}`
+    : moment.title;
 }
 
 /**

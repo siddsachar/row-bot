@@ -240,7 +240,36 @@ def test_goal_start_takes_an_optional_time_limit_and_reports_its_usage():
             _goal_request("conversation-c", "start", max_minutes=0), validate=_valid)
 
 
+def _server_in_los_angeles(monkeypatch) -> None:
+    """The Row-Bot computer's zone is Los Angeles, whatever this machine's is (M11)."""
+    from row_bot import schedule_zones
+
+    monkeypatch.setattr(schedule_zones, "local_zone_name", lambda: "America/Los_Angeles")
+
+
+def test_goal_times_go_out_in_utc_with_their_offset_whatever_the_servers_zone(tmp_path, monkeypatch):
+    """M11: a goal started a minute ago on a Mac in Los Angeles read "7 h 59 min" in a London browser, which took
+    the offset-less time for its own. Every goal time now says its offset."""
+    _server_in_los_angeles(monkeypatch)
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
+    monkeypatch.setattr(goals, "_now", lambda: "2026-11-16T09:01:58.325300")
+    request = _goal_request("conversation-a", "start", max_minutes=60, check_command="npm test")
+    started = _execute_goal(request)["goal"]
+    assert started["started_at"] == started["window_started_at"] == "2026-11-16T17:01:58+00:00"
+
+    goals.request_completion(goals.get_goal(started["id"]), source="goal_update", reason="Done.")
+    goals.mark_check_running(started["id"])
+    goals.finish_check(started["id"], state="failed", result={
+        "exit_code": 1, "started_at": "2026-11-16T09:03:00", "finished_at": "2026-11-16T09:03:05",
+        "duration_seconds": 5, "output_tail": ""})
+    [listed] = commands.read_goals("conversation-a", validate=_valid)["items"]
+    assert listed["started_at"] == "2026-11-16T17:01:58+00:00"
+    assert (listed["check"]["result"]["started_at"], listed["check"]["result"]["finished_at"]) == (
+        "2026-11-16T17:03:00+00:00", "2026-11-16T17:03:05+00:00")
+
+
 def test_resume_at_a_limit_gives_the_goal_another_window(monkeypatch):
+    _server_in_los_angeles(monkeypatch)
     clock = {"now": "2026-09-30T08:00:00"}
     monkeypatch.setattr(goals, "_now", lambda: clock["now"])
     goal = goals.start_goal("conversation-a", "Keep researching", max_turns=2, max_minutes=60)
@@ -248,13 +277,13 @@ def test_resume_at_a_limit_gives_the_goal_another_window(monkeypatch):
         goals.after_turn(thread_id="conversation-a", turn_id=f"turn-{turn}",
                          verifier=lambda _goal, _context: {"progress": "progress", "reason": "More."})
     assert goals.get_goal(goal["id"])["status"] == "paused"
-    later = clock["now"] = "2026-09-30T10:00:00"
+    clock["now"] = "2026-09-30T10:00:00"
 
     resumed = _execute_goal(_goal_request("conversation-a", "resume"), command_id=9)
 
     assert resumed["goal"]["status"] == "active"
     assert resumed["goal"]["max_turns"] == 4
-    assert resumed["goal"]["window_started_at"] == later
+    assert resumed["goal"]["window_started_at"] == "2026-09-30T17:00:00+00:00", "10:00 in Los Angeles (UTC-7)"
     assert not goals.time_limit_reached(goals.get_goal(goal["id"]))
 
 
@@ -291,6 +320,77 @@ def test_goal_revision_cas_rejects_a_change_after_review(monkeypatch):
                 current == review or pytest.fail("review changed")
             ),
         )
+
+
+@pytest.mark.parametrize(
+    ("fields", "code"),
+    [
+        ({"done_means": 7}, "invalid_fields"),
+        ({"done_means": "x" * 1001}, "invalid_fields"),
+        ({"check_command": "x" * 501}, "invalid_fields"),
+        ({"check_command": ["npm", "test"]}, "invalid_fields"),
+        ({"check_command": "npm test\nrm -rf build"}, "invalid_fields"),
+    ],
+)
+def test_goal_review_validates_done_means_and_the_check(tmp_path, monkeypatch, fields, code):
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
+    with pytest.raises(commands.GoalProfileCommandError, match=code):
+        commands.review_goal_command(_goal_request("conversation-a", "start", **fields), validate=_valid)
+
+
+def test_only_a_goal_start_takes_done_means_or_a_check(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
+    goals.start_goal("conversation-a", "Running")
+    for field in ("done_means", "check_command"):
+        with pytest.raises(commands.GoalProfileCommandError, match="invalid_command"):
+            commands.review_goal_command(_goal_request("conversation-a", "pause", **{field: "npm test"}),
+                                         validate=_valid)
+
+
+def test_goal_review_discloses_the_check_and_the_goal_shows_its_states(tmp_path, monkeypatch):
+    """B3: the review says where the check runs; the card reads every state and the redacted output."""
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(tmp_path))
+    request = _goal_request("conversation-a", "start", done_means="  Every link works  ",
+                            check_command="npm test")
+    from row_bot.data_paths import display_path, workspace_folder
+
+    # The workspace folder the file tools and the shell use (R10): chosen in Settings, else the default one.
+    runs_in = f"Row-Bot's workspace ({display_path(workspace_folder())})"
+    review = commands.review_goal_command(request, validate=_valid)
+    assert (review["done_means"], review["check_command"]) == ("Every link works", "npm test")
+    assert review["check"]["runs_in"] == runs_in
+    assert review["disclosures"] == [
+        f"Each time Row-Bot thinks the goal is done, it runs `npm test` in {runs_in}. "
+        "The goal counts as done only when it exits 0."]
+    page = commands.read_goals("conversation-a", validate=_valid)
+    assert page["check_place"] == {"available": True, "runs_in": runs_in, "suggestions": []}
+
+    started = _execute_goal(request)["goal"]
+    assert started["done_means"] == "Every link works"
+    assert started["check"] == {"command": "npm test", "runs_in": runs_in, "state": "",
+                                "result": None}
+
+    def state():
+        return commands.read_goal("conversation-a", started["id"], validate=_valid)["goal"]["check"]
+
+    goal = goals.get_goal(started["id"])
+    goals.request_completion(goal, source="goal_update", reason="Done.")
+    assert state()["state"] == "pending"
+    goals.mark_check_running(started["id"])
+    assert state()["state"] == "running"
+    goals.finish_check(started["id"], state="failed", result={
+        "exit_code": 1, "started_at": "2026-11-15T14:00:00", "finished_at": "2026-11-15T14:02:14",
+        "duration_seconds": 134, "output_tail": "FAIL C:/Users/alice/docs/index.md token=sk-secret123456789"})
+    failed = state()
+    assert failed["state"] == "failed" and failed["result"]["exit_code"] == 1
+    assert failed["result"]["duration_seconds"] == 134
+    assert "alice" not in failed["result"]["output_tail"]
+    assert "sk-secret123456789" not in failed["result"]["output_tail"]
+    goals.request_completion(goals.get_goal(started["id"]), source="goal_update", reason="Done.")
+    goals.mark_check_running(started["id"])
+    goals.finish_check(started["id"], state="passed", result={"exit_code": 0, "duration_seconds": 3})
+    passed = commands.read_goal("conversation-a", started["id"], validate=_valid)["goal"]
+    assert (passed["status"], passed["check"]["state"]) == ("completed", "passed")
 
 
 def test_profile_create_edit_preserves_instruction_and_uses_revision_cas():

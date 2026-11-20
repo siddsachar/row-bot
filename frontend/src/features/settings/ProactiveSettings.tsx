@@ -5,6 +5,7 @@ import {
   Bell,
   Clock,
   House,
+  MessageCircle,
   Pencil,
   Smartphone,
   Smile,
@@ -95,20 +96,27 @@ function TimeSelect({
   );
 }
 
-const WHERE: Record<
-  'bubble' | 'home' | 'phone',
-  { icon: ReactNode; words: string }
-> = {
+type Where = 'bubble' | 'notification' | 'phone' | 'chat_app' | 'home';
+
+const WHERE: Record<Where, { icon: ReactNode; words: string }> = {
   bubble: { icon: <Smile size={15} aria-hidden />, words: 'Buddy’s bubble' },
-  home: { icon: <House size={15} aria-hidden />, words: 'Home only' },
+  notification: {
+    icon: <Bell size={15} aria-hidden />,
+    words: 'A notification',
+  },
   phone: { icon: <Smartphone size={15} aria-hidden />, words: 'Your phone' },
+  chat_app: {
+    icon: <MessageCircle size={15} aria-hidden />,
+    words: 'Your chat app',
+  },
+  home: { icon: <House size={15} aria-hidden />, words: 'Home only' },
 };
 
 type PreviewRow = {
   key: string;
   time: string;
   line: string;
-  where: 'bubble' | 'home' | 'phone';
+  where: Where;
   inBrief?: boolean;
 };
 
@@ -142,7 +150,8 @@ function LevelPreview({
           key: item.moment_id,
           time: item.at ? clockOf(item.at) : '',
           line: item.title,
-          where: item.where === 'buddy' ? 'bubble' : 'home',
+          // Where it really went, or would have (R5).
+          where: item.where === 'buddy' ? 'bubble' : item.where,
           inBrief: item.in_brief,
         }),
       )
@@ -292,6 +301,8 @@ function RuleEditor({
 }
 
 type Filter = 'all' | 'shown' | 'silent' | 'planned';
+/** Activity entries read at a time: checks fold, so a page shows a good stretch. */
+const PAGE = 100;
 
 /** The day an entry belongs to, in words: Today, Yesterday, or the date. */
 function dayWords(at: string, now: Date) {
@@ -308,9 +319,34 @@ function dayWords(at: string, now: Date) {
   });
 }
 
+/** An Activity line: one entry, or a run of checks in a row folded into one. */
+type ActivityRow =
+  | { key: string; entry: ProactiveActivityEntry }
+  | { key: string; checks: ProactiveActivityEntry[] };
+
+/** Under All, checks in a row with nothing shown between them read as one line. */
+function activityRows(
+  entries: ProactiveActivityEntry[],
+  fold: boolean,
+): ActivityRow[] {
+  const rows: ActivityRow[] = [];
+  for (const entry of entries) {
+    const last = rows[rows.length - 1];
+    if (fold && entry.kind === 'pass' && last && 'checks' in last)
+      last.checks.push(entry);
+    else if (fold && entry.kind === 'pass')
+      rows.push({ key: `checks-${entry.entry_id}`, checks: [entry] });
+    else rows.push({ key: String(entry.entry_id), entry });
+  }
+  return rows;
+}
+
 /**
  * The Activity log: every check, silent ones too, newest first, by day; the
- * planned moments (waiting for a break) with Take over and Cancel.
+ * planned moments (waiting for a break) with Take over and Cancel. Under All,
+ * a run of checks folds into one line ("Checked workflows: nothing new. 34
+ * checks since 2:00 PM"), so what was shown or done stands out; Silent lists
+ * each one.
  */
 function Activity({
   store,
@@ -331,7 +367,7 @@ function Activity({
   useEffect(() => {
     let active = true;
     store.io
-      .activity(undefined, 20)
+      .activity(undefined, PAGE)
       .then((page) => {
         if (!active) return;
         setItems(page.items);
@@ -347,7 +383,7 @@ function Activity({
   }, [store, revision]);
   async function earlier() {
     if (next === null) return;
-    const page = await store.io.activity(next, 20);
+    const page = await store.io.activity(next, PAGE);
     setItems((current) => [...(current ?? []), ...page.items]);
     setNext(page.next_before);
   }
@@ -368,6 +404,11 @@ function Activity({
     if (last?.day === day) last.entries.push(entry);
     else days.push({ day, entries: [entry] });
   }
+  const clock = (at: string) =>
+    parseTimestamp(at)?.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
   const cancel = (moment: ProactiveMomentView) =>
     store
       .feedback(moment.moment_id, { action: 'dismiss' })
@@ -447,17 +488,36 @@ function Activity({
         <div key={day} className="proactive-activity-day">
           <h4>{day}</h4>
           <ul className="proactive-activity">
-            {entries.map((entry) => (
-              <li key={entry.entry_id} data-kind={entry.kind}>
-                <span className="proactive-activity-time">
-                  {parseTimestamp(entry.at)?.toLocaleTimeString(undefined, {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })}
-                </span>
-                <span className="proactive-activity-text">{entry.summary}</span>
-              </li>
-            ))}
+            {activityRows(entries, filter === 'all').map((row) => {
+              if ('entry' in row || row.checks.length === 1) {
+                const entry = 'entry' in row ? row.entry : row.checks[0];
+                return (
+                  <li key={row.key} data-kind={entry.kind}>
+                    <span className="proactive-activity-time">
+                      {clock(entry.at)}
+                    </span>
+                    <span className="proactive-activity-text">
+                      {entry.summary}
+                    </span>
+                  </li>
+                );
+              }
+              const said = [...new Set(row.checks.map((c) => c.summary))];
+              const first = row.checks[row.checks.length - 1];
+              return (
+                <li key={row.key} data-kind="pass" data-folded="true">
+                  <span className="proactive-activity-time">
+                    {clock(row.checks[0].at)}
+                  </span>
+                  <span className="proactive-activity-text">
+                    {said.join(' ')}{' '}
+                    <span className="proactive-activity-count">
+                      {row.checks.length} checks since {clock(first.at)}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       ))}

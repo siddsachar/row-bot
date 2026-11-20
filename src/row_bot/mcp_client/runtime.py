@@ -38,18 +38,19 @@ from row_bot.mcp_client.safety import (asks_first, classify_tool_effect, hints, 
 
 logger = logging.getLogger(__name__)
 
-try:  # optional until requirements are installed
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-except Exception:  # pragma: no cover - exercised in environments without mcp
-    ClientSession = None
-    StdioServerParameters = None
-    stdio_client = None
-
-try:
-    from mcp.client.streamable_http import streamablehttp_client
-except Exception:  # pragma: no cover
-    streamablehttp_client = None
+# The MCP SDK, bound by _load_sdk below; None while it isn't loaded.
+ClientSession: Any = None
+StdioServerParameters: Any = None
+stdio_client: Any = None
+streamablehttp_client: Any = None
+sse_client: Any = None
+_SDK_SESSION: Any = None
+_AppsSession: Any = None
+# Why the installed SDK didn't import (a start-up race on a slow disk, RM4), and when: it's tried again on use.
+_sdk_failure: BaseException | None = None
+_sdk_failed_at = 0.0
+_SDK_RETRY_SECONDS = 30.0
+_sdk_lock = threading.Lock()
 # The SDK logs each server's session id at INFO; ids stay out of Row-Bot's logs.
 logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
 
@@ -69,11 +70,6 @@ class _TransportLog(logging.Filter):
 for _name in ("mcp.client.streamable_http", "mcp.client.sse"):
     if not any(type(item).__name__ == "_TransportLog" for item in logging.getLogger(_name).filters):  # Once, even reloaded.
         logging.getLogger(_name).addFilter(_TransportLog())
-
-try:
-    from mcp.client.sse import sse_client
-except Exception:  # pragma: no cover
-    sse_client = None
 
 
 @dataclass
@@ -233,7 +229,7 @@ class PrivateMcpSession:
 
     async def _open_async(self) -> None:
         if not sdk_available() or StdioServerParameters is None or stdio_client is None:
-            raise RuntimeError("Python package 'mcp' with stdio support is not installed")
+            raise RuntimeError(sdk_problem() or "Python package 'mcp' with stdio support is not installed")
         if self._session is not None:
             return
         stack = AsyncExitStack()
@@ -336,8 +332,64 @@ def _now() -> str:
     return _dt.datetime.now().isoformat(timespec="seconds")
 
 
+def _load_sdk() -> None:
+    """Import the MCP SDK. Not installed: MCP stays off. Installed but failing: logged, and tried again on use."""
+    global ClientSession, StdioServerParameters, stdio_client, streamablehttp_client, sse_client
+    global _SDK_SESSION, _AppsSession, _sdk_failure, _sdk_failed_at
+    try:
+        from mcp import ClientSession as session, StdioServerParameters as stdio_parameters
+        from mcp.client.sse import sse_client as sse
+        from mcp.client.stdio import stdio_client as stdio
+        from mcp.client.streamable_http import streamablehttp_client as streamable_http
+    except Exception as exc:
+        _sdk_failure, _sdk_failed_at = (exc if _sdk_installed() else None), time.monotonic()
+        if _sdk_failure is not None:
+            logger.warning("The MCP SDK is installed but didn't load; it is tried again when used", exc_info=exc)
+        return
+    StdioServerParameters, stdio_client, streamablehttp_client, sse_client = stdio_parameters, stdio, streamable_http, sse
+    _SDK_SESSION, _AppsSession, _sdk_failure = session, _apps_session_type(session), None
+    ClientSession = session
+
+
+def _sdk_installed() -> bool:
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("mcp") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _retry_sdk() -> bool:
+    """Import again an installed SDK that failed to load; whether this call loaded it."""
+    with _sdk_lock:
+        if ClientSession is not None or _sdk_failure is None:
+            return False
+        _load_sdk()
+        return ClientSession is not None
+
+
 def sdk_available() -> bool:
+    """Whether the MCP SDK is loaded. One installed that failed to load is tried again, every 30 s at most;
+    once it loads, the enabled servers start as they would have at start-up."""
+    if ClientSession is None and _sdk_failure is not None and time.monotonic() - _sdk_failed_at >= _SDK_RETRY_SECONDS:
+        if _retry_sdk():
+            logger.info("The MCP SDK loaded on a later try; starting the enabled servers")
+            threading.Thread(target=discover_enabled_servers, name="mcp-sdk-loaded", daemon=True).start()
     return ClientSession is not None
+
+
+def sdk_state() -> str:
+    """The SDK is available, failed (installed but didn't load) or missing (not installed, and only then)."""
+    if sdk_available():
+        return "available"
+    return "failed" if _sdk_failure is not None else "missing"
+
+
+def sdk_problem() -> str:
+    """Why MCP can't run, in the words its state allows; empty while it can."""
+    return {"failed": "The MCP SDK didn't load. Restart Row-Bot to try again",
+            "missing": "Python package 'mcp' is not installed"}.get(sdk_state(), "")
 
 
 def _resolve_stdio_command(command: str, env: dict[str, str]) -> str:
@@ -469,9 +521,8 @@ def _view_meta(tool: Any) -> tuple[str, tuple[str, ...]]:
     return view, visibility
 
 
-_SDK_SESSION = ClientSession
-if ClientSession is not None:
-    class _AppsSession(ClientSession):  # type: ignore[misc, valid-type]
+def _apps_session_type(session_type: Any) -> Any:
+    class _AppsSession(session_type):  # type: ignore[misc, valid-type]
         """Says, when it connects, that Row-Bot can show an app's views (the MCP Apps extension), so a server
         may describe them. Whether a view is shown is still Row-Bot's and the person's choice."""
 
@@ -484,8 +535,11 @@ if ClientSession is not None:
                 request = types.ClientRequest(root.model_copy(
                     update={"params": root.params.model_copy(update={"capabilities": capabilities})}))
             return await super().send_request(request, result_type, *args, **kwargs)
-else:  # pragma: no cover - the SDK is missing
-    _AppsSession = None
+
+    return _AppsSession
+
+
+_load_sdk()
 
 
 def _views_offered() -> bool:
@@ -706,7 +760,7 @@ class McpServerRuntime:
             if self._stop_requested.is_set():
                 return
             if not sdk_available():
-                self._status(status="dependency_missing", last_error="Python package 'mcp' is not installed")
+                self._status(status="failed" if _sdk_failure else "dependency_missing", last_error=sdk_problem())
                 return
             self._status(status="connecting", enabled=True, transport=self.cfg.get("transport", "stdio"), last_error="")
             self._forget_stderr()
@@ -1132,11 +1186,13 @@ def discover_enabled_servers() -> None:
                 if name not in _servers:
                     _statuses[name] = McpServerStatus(name=name, enabled=bool(server_cfg.get("enabled")), status="global_disabled")
         return
+    _retry_sdk()  # Starting the servers is a use: an SDK that failed to load is tried again now.
     if not sdk_available():
-        log_event("mcp.dependency_missing", level=logging.WARNING, package="mcp")
+        log_event("mcp.sdk_failed" if _sdk_failure else "mcp.dependency_missing", level=logging.WARNING, package="mcp")
         for name, server_cfg in cfg.get("servers", {}).items():
             if server_cfg.get("enabled"):
-                _update_status(name, enabled=True, status="dependency_missing", last_error="Python package 'mcp' is not installed")
+                _update_status(name, enabled=True, status="failed" if _sdk_failure else "dependency_missing",
+                               last_error=sdk_problem())
         return
     desired = {name: server for name, server in cfg.get("servers", {}).items() if server.get("enabled")}
     with _runtime_lock:
@@ -1388,7 +1444,7 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
 
 def probe_server(name: str, server_cfg: dict[str, Any], timeout: float | None = None) -> dict[str, Any]:
     if not sdk_available():
-        return {"ok": False, "error": "Python package 'mcp' is not installed", "tools": []}
+        return {"ok": False, "error": sdk_problem(), "tools": []}
     future = _schedule(probe_server_async(name, server_cfg))
     wait_seconds = timeout or float(server_cfg.get("connect_timeout", 30)) + 5
     try:
@@ -1733,6 +1789,12 @@ def _issued_tool(name: str) -> tuple[str, str] | None:
     return found.pop() if len(found) == 1 else None
 
 
+def issued_tool(name: str) -> tuple[str, str] | None:
+    """(server, its own tool name) for a chat tool name this runtime issued; None for a look-alike or a
+    name two apps share. Never connects."""
+    return _issued_tool(name)
+
+
 def servers_for_tool(name: str) -> set[str]:
     """Every server a chat tool's name could come from, so leaving an app out leaves out a shared name too."""
     return {server for server, _ in _candidates(name)}
@@ -1971,6 +2033,7 @@ def get_status_summary() -> dict[str, Any]:
     return {
         "enabled": bool(cfg.get("enabled")),
         "sdk_available": sdk_available(),
+        "sdk_state": sdk_state(),
         "server_count": len(cfg.get("servers", {})),
         "enabled_server_count": sum(1 for server in cfg.get("servers", {}).values() if server.get("enabled")),
         "connected_server_count": sum(1 for status in statuses.values() if status.get("status") == "connected"),

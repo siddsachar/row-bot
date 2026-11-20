@@ -19,8 +19,8 @@ import { Drawer, ModalTask, useNotify } from '../../ui/overlays';
 import { When } from '../../ui/When';
 import { parseTimestamp } from '../../ui/format';
 import { useMedia } from '../../ui/use-media';
+import SafeMarkdown from '../shell/chat-parity-markdown';
 import { useProactive, type ProactiveStore } from './proactive-state';
-import { briefLines } from './words';
 
 const WIDE_LAYOUT = '(min-width: 1024px)';
 /** Edits wait this long after the last keystroke, then save to Row-Bot. */
@@ -217,7 +217,6 @@ export function DraftView({
     }
   }
 
-  const lines = reply ? [] : briefLines(draft.body);
   return (
     <article className="proactive-draft" aria-labelledby={`${id}-title`}>
       <header className="proactive-draft-head">
@@ -337,14 +336,11 @@ export function DraftView({
             <p className="proactive-draft-blocked">{blocked}</p>
           )}
         </>
-      ) : lines.length ? (
-        <ul className="proactive-brief-lines">
-          {lines.map((line, index) => (
-            <li key={index}>{line}</li>
-          ))}
-        </ul>
       ) : (
-        <p className="proactive-draft-text">{draft.body}</p>
+        // A brief is the model's Markdown, shown as chat shows it, never raw (R4).
+        <div className="proactive-draft-text">
+          <SafeMarkdown text={draft.body} />
+        </div>
       )}
     </article>
   );
@@ -355,10 +351,13 @@ export function DraftsList({
   store,
   openId,
   onOpen,
+  onShown,
 }: {
   store: ProactiveStore;
   openId: string | null;
   onOpen(draftId: string | null): void;
+  /** What is open now, for the panel's heading: a reply, a brief, or the list (null). */
+  onShown?(kind: ProactiveDraftView['kind'] | null): void;
 }) {
   const { view } = useProactive(store.io);
   const [single, setSingle] = useState<ProactiveDraftView | null>(null);
@@ -384,6 +383,8 @@ export function DraftsList({
     return () => request.abort();
   }, [store, openId, listed]);
   const open = listed ?? single;
+  const shown = openId && open ? open.kind : null;
+  useEffect(() => onShown?.(shown), [onShown, shown]);
   if (openId)
     return error ? (
       <p className="proactive-error" role="alert">
@@ -445,8 +446,24 @@ export function DraftsList({
   );
 }
 
-const DRAFTS_DESCRIPTION =
-  'Replies Row-Bot wrote for you. Nothing is sent until you approve it.';
+/** The panel's heading for what it shows: an open brief is no reply waiting to be approved (R4). */
+const HEADINGS = {
+  list: {
+    title: 'Drafts',
+    description:
+      'Replies and briefs Row-Bot prepared for you. Nothing is sent until you approve it.',
+  },
+  reply: {
+    title: 'Drafts',
+    description:
+      'A reply Row-Bot wrote for you. Nothing is sent until you approve it.',
+  },
+  brief: {
+    title: 'Meeting brief',
+    description:
+      'Row-Bot prepared this from your calendar, mail and chats. It only read; nothing was sent.',
+  },
+} as const;
 
 /**
  * Drafts: a non-modal drawer on a wide window (For you stays visible), a
@@ -466,8 +483,15 @@ export function DraftsDrawer({
   onClose(): void;
 }) {
   const wide = useMedia(WIDE_LAYOUT);
+  const [shown, setShown] = useState<ProactiveDraftView['kind'] | null>(null);
+  const { title, description } = HEADINGS[shown ?? 'list'];
   const list = open && (
-    <DraftsList store={store} openId={draftId} onOpen={onOpenDraft} />
+    <DraftsList
+      store={store}
+      openId={draftId}
+      onOpen={onOpenDraft}
+      onShown={setShown}
+    />
   );
   return wide ? (
     <Drawer
@@ -475,8 +499,8 @@ export function DraftsDrawer({
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
-      title="Drafts"
-      description={DRAFTS_DESCRIPTION}
+      title={title}
+      description={description}
       className="proactive-drafts-drawer"
     >
       {list}
@@ -489,8 +513,8 @@ export function DraftsDrawer({
       }}
       kind="sheet"
       className="proactive-sheet"
-      title="Drafts"
-      description={DRAFTS_DESCRIPTION}
+      title={title}
+      description={description}
     >
       {list}
     </ModalTask>

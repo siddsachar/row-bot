@@ -2,10 +2,10 @@
 
 Two tools, as Gmail and Calendar are: ``outlook_mail`` and ``outlook_calendar``, both through the one
 Microsoft sign-in (``microsoft_account``). Reading never asks. Sending, replying, forwarding and deleting
-mail, cancelling an event and answering an invitation always ask first (``destructive_tool_names``); creating
-or changing an event asks when it has attendees, since its invitations reach other people. Each card says in
-words who it goes to and what it says (``approval_card``). Results are plain summaries with Outlook on the web
-links; ids are there for the next step, never a token.
+mail, and creating, changing, cancelling and answering events always ask first (``destructive_tool_names``); an
+event change whose invitations or updates reach its attendees is the person's own to approve under Auto (W21).
+Each card says in words who it goes to and what it says (``approval_card``). Results are plain summaries with
+Outlook on the web links; ids are there for the next step, never a token.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ MAIL_OPERATIONS = (*MAIL_READS, "outlook_draft_mail", "outlook_send_mail", "outl
 CALENDAR_OPERATIONS = ("outlook_list_events", "outlook_find_free_times", "outlook_create_event",
                        "outlook_update_event", "outlook_cancel_event", "outlook_respond_event")
 MAIL_ASKS = {"outlook_send_mail", "outlook_reply_mail", "outlook_forward_mail", "outlook_delete_mail"}
-CALENDAR_ASKS = {"outlook_cancel_event", "outlook_respond_event"}
+CALENDAR_ASKS = {"outlook_create_event", "outlook_update_event", "outlook_cancel_event", "outlook_respond_event"}
 # Each operation's title, for the app's approval cards and step rows ("Allow Outlook to send an email?").
 TITLES = {
     "outlook_search_mail": "Search email", "outlook_read_mail": "Read an email", "outlook_draft_mail": "Draft an email",
@@ -502,31 +502,12 @@ def _event_body(subject: str | None, start: str | None, end: str | None, zone: s
     return found
 
 
-def _asks(tool: str, kwargs: dict) -> str | None:
-    """Ask first, for an event change whose invitations reach other people; None when it may go ahead."""
-    from row_bot.tools.approval_gate import approval_check
-
-    question, description = approval_card(tool, kwargs)
-    refusal, _line = approval_check(
-        {"tool": tool, "label": TITLES[tool], "question": question, "description": description,
-         "args": {key: value for key, value in kwargs.items() if value is not None}},
-        risks=("sends calendar invitations to other people",),
-        cancelled_message="The person didn't allow it; nothing was changed in Outlook.")
-    return refusal
-
-
 @_run
 def create_event(subject: str, start: str, end: str, timezone_name: Optional[str] = None, location: Optional[str] = None,
                  body: Optional[str] = None, attendees: Optional[list[str]] = None, online_meeting: bool = False,
                  all_day: bool = False) -> str:
     zone = _check_zone(timezone_name)
     event = _event_body(subject, start, end, zone, location, body, attendees, online_meeting or None, all_day)
-    if attendees:
-        refused = _asks("outlook_create_event", {"subject": subject, "start": start, "end": end, "timezone_name": zone,
-                                                 "location": location, "attendees": attendees,
-                                                 "online_meeting": online_meeting, "body": body})
-        if refused:
-            return refused
     made = microsoft_account.graph("POST", "/me/events", body=event)
     lines = [f"Added “{subject}” on {_span(made) if made.get('start') else start} ({zone})."]
     if attendees:
@@ -554,12 +535,6 @@ def update_event(event_id: str, subject: Optional[str] = None, start: Optional[s
     if not changes:
         return "Nothing to change: give a new subject, time, place, description, attendees or Teams setting."
     current = _get_event(event_id)
-    if current.get("attendees") or attendees:
-        refused = _asks("outlook_update_event", {"event_id": event_id, "subject": subject, "start": start, "end": end,
-                                                 "timezone_name": zone if timezone_name else None, "location": location,
-                                                 "attendees": attendees, "online_meeting": online_meeting, "body": body})
-        if refused:
-            return refused
     changed = microsoft_account.graph("PATCH", f"/me/events/{segment(event_id)}", body=changes)
     told = " Its attendees get the update." if (current.get("attendees") or attendees) else ""
     link = _link(changed.get("webLink") or current.get("webLink"))
@@ -617,13 +592,16 @@ def _quietly(read, fallback: dict) -> dict:
         return fallback
 
 
-def approval_card(tool: str, kwargs: dict[str, Any]) -> tuple[str, str]:
-    """An Outlook action's approval card: its question and what it will do, as labelled fields (who it goes to,
-    what it says, its files, or the event's time, attendees and place). Reads Outlook for the item an id names."""
+def approval_card(tool: str, kwargs: dict[str, Any]) -> tuple[str, str, bool]:
+    """An Outlook action's approval card: its question, what it will do as labelled fields (who it goes to,
+    what it says, its files, or the event's time, attendees and place), and whether it is an event change whose
+    invitations or updates reach its attendees, which only the person approves (W21). Reads Outlook for the item
+    an id names."""
     from row_bot.approval_messages import approval_fields
 
     given = {key: value for key, value in kwargs.items() if value is not None}
     me = microsoft_account.address()
+    tells = False
     if tool in {"outlook_send_mail", "outlook_draft_mail"}:
         to = ", ".join(given.get("to") or [])
         question = f"Send this email from {me}?" if me else "Send this email?"
@@ -666,16 +644,19 @@ def approval_card(tool: str, kwargs: dict[str, Any]) -> tuple[str, str]:
             when = f"{given['start']} – {given.get('end', '')} ({zone})"
         place = given.get("location") or _place(current)
         teams = "Yes" if given.get("online_meeting") or current.get("isOnlineMeeting") else ""
-        if tool == "outlook_create_event":
-            question = f"Send invitations for “{_short(title)}”?"
-            fields = {"Event": title, "When": when, "Where": place, "Teams meeting": teams,
-                      "Attendees": ", ".join(attendees), "Description": given.get("body", "")}
-        elif tool == "outlook_update_event":
-            question = f"Change “{_short(title)}” and update its attendees?"
+        if tool in {"outlook_create_event", "outlook_update_event"}:
+            # Outlook sends an event's attendees its invitation, and every change to it.
+            tells = bool(attendees)
+            if tool == "outlook_create_event":
+                question = (f"Send invitations for “{_short(title)}”?" if tells
+                            else f"Add “{_short(title)}” to your calendar?")
+            else:
+                question = (f"Change “{_short(title)}” and update its attendees?" if tells
+                            else f"Change “{_short(title)}”?")
             fields = {"Event": title, "When": when, "Where": place, "Teams meeting": teams,
                       "Attendees": ", ".join(attendees), "Description": given.get("body", "")}
         elif tool == "outlook_cancel_event":
-            told = bool(current.get("isOrganizer") and current.get("attendees"))
+            told = tells = bool(current.get("isOrganizer") and current.get("attendees"))
             question = f"Cancel “{_short(title)}” and tell its attendees?" if told else f"Delete “{_short(title)}” from your calendar?"
             fields = {"Event": title, "When": when, "Where": place, "Attendees": ", ".join(attendees),
                       "Message": given.get("comment", "")}
@@ -686,7 +667,8 @@ def approval_card(tool: str, kwargs: dict[str, Any]) -> tuple[str, str]:
             fields = {"Event": title, "When": when, "Where": place, "Organiser": _person(current.get("organizer")),
                       "Answer": verb, "Tells the organiser": "Yes" if given.get("send_response", True) else "No",
                       "Message": given.get("comment", "")}
-    return question[:240], approval_fields({key: value for key, value in fields.items() if value}) or TITLES[tool]
+    return (question[:240], approval_fields({key: value for key, value in fields.items() if value}) or TITLES[tool],
+            tells)
 
 
 # --- Tools -------------------------------------------------------------------------------------------------
@@ -805,9 +787,9 @@ _CALENDAR = {
     "outlook_list_events": (list_events, _List, "List Outlook calendar events between two dates."),
     "outlook_find_free_times": (find_free_times, _Free, "Find free times in the Outlook calendar."),
     "outlook_create_event": (create_event, _NewEvent, "Create an Outlook calendar event; with attendees it sends "
-                             "invitations and asks first. Can add a Teams link."),
+                             "invitations. Asks first. Can add a Teams link."),
     "outlook_update_event": (update_event, _ChangeEvent, "Change an Outlook event's title, time, place, "
-                             "description or attendees; asks first when it has attendees."),
+                             "description or attendees; its attendees get the update. Asks first."),
     "outlook_cancel_event": (cancel_event, _CancelEvent, "Cancel an Outlook event (telling attendees when the "
                              "person organised it) or delete it. Asks first."),
     "outlook_respond_event": (respond_event, _Respond, "Accept, tentatively accept or decline an Outlook "

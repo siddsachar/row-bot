@@ -175,6 +175,59 @@
       "title": "ApprovalFolderChoice",
       "type": "object"
     },
+    "ApprovalPrice": {
+      "additionalProperties": false,
+      "description": "What a paid picture or video costs, roughly (D4): \"About $0.40\", or \"Price unknown\" when Row-Bot has no price.",
+      "properties": {
+        "basis": {
+          "default": "",
+          "maxLength": 160,
+          "title": "Basis",
+          "type": "string"
+        },
+        "high_usd": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "High Usd"
+        },
+        "low_usd": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Low Usd"
+        },
+        "status": {
+          "enum": [
+            "known",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ApprovalPrice",
+      "type": "object"
+    },
     "ApprovalQuestion": {
       "additionalProperties": false,
       "description": "One of Row-Bot's questions (N4): a header chip, the question and 2 to 4 options; \"Other\" is always offered.",
@@ -288,6 +341,17 @@
           "maxLength": 4096,
           "title": "Memory Text",
           "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalPrice"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "question": {
           "default": "",
@@ -732,6 +796,11 @@
           ],
           "title": "Status",
           "type": "string"
+        },
+        "summary_ready": {
+          "default": false,
+          "title": "Summary Ready",
+          "type": "boolean"
         },
         "usable_input_tokens": {
           "anyOf": [

@@ -34,6 +34,21 @@ def _unlisted(current: str, rows: tuple) -> str:
     return f"{name} no longer lists {model_id}, so it may have been retired. Choose another model."
 
 
+def _unavailable_words(current: str, option: dict | None) -> str:
+    """Why a saved default can't run, by the model's name and in /status's words (W3)."""
+    from row_bot.providers.backup import model_name
+    from row_bot.providers.selection import provider_display_label
+
+    parsed = parse_model_ref(current)
+    name = model_name(current)
+    provider = provider_display_label(parsed[0]) if parsed else "its provider"
+    if parsed and parsed[0] == "ollama":
+        return f"{name} isn't available in {provider} right now. Check it below, or choose another model."
+    if option is None or option.get("unavailable_reason") == "configuration_required":
+        return f"{name} can't run: {provider} isn't connected. Connect it below, or choose another model."
+    return f"{name} isn't available right now. Check {provider} below, or choose another model."
+
+
 def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = None,
             media_options: dict[str, str] | None = None, visibility: ModelVisibility | None = None) -> dict:
     options = picker_options(rows, surface, current,
@@ -60,10 +75,8 @@ def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = N
             warning = unlisted
             if current_option is not None:
                 current_option["reason"] = "No longer listed"
-        elif current.startswith("model:ollama:"):
-            warning = f"Current {surface.capitalize()} local model is unavailable. Manage local models in Ollama, then refresh or choose another model."
         else:
-            warning = f"Current {surface.capitalize()} default is unavailable. Connect the provider, refresh the catalog, or choose another model."
+            warning = _unavailable_words(current, current_option)
     return {"current_ref": current, "enabled": enabled, "warning": warning,
             "options": annotate(options[:4096], key="selection_ref", visibility=visibility)}
 

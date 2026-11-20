@@ -705,6 +705,24 @@ const CATALOG: Record<string, Entry> = {
     "That edit can't be saved: the post is empty or longer than the account can post.",
     'none',
   ],
+  rule_not_eligible: [
+    'Always allow isn’t offered for this action. Approve it on its card.',
+    'none',
+  ],
+  rules_full: [
+    'You have 100 Always allow rules, the most there can be. Delete one in Settings › Activity first.',
+    'none',
+  ],
+  rule_exists: ['You already have a rule for exactly that command.', 'none'],
+  rule_command_refused: [
+    'A rule can only cover one plain command that doesn’t install, delete, use the network, commit, push or start a server.',
+    'review',
+  ],
+  rule_not_editable: ['Only a command rule’s command can be changed.', 'none'],
+  rules_unavailable: [
+    'Your Always allow rules couldn’t be read, so every action asks as usual.',
+    'retry',
+  ],
   approval_edit_invalid: [
     "That edit can't be used for this post. Close it and edit the post on its current card.",
     'review',
@@ -793,6 +811,13 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  answer_state_revision_conflict: [
+    'Your ticks changed on another device. Try again.',
+    'retry',
+    RETRY,
+  ],
+  answer_choice_taken: ['A reply was already sent from these buttons.', 'none'],
+  answer_state_full: ["This chat can't keep any more ticks.", 'none'],
   generation_active: [
     'Row-Bot is still answering. Wait for it to finish, or stop it first.',
     'review',
@@ -1903,6 +1928,27 @@ const CATALOG: Record<string, Entry> = {
   ],
   row_bot_sandbox_unavailable: ['That sandbox is no longer here.', 'none'],
   wait_unavailable: ['That wait has already ended.', 'none'],
+  watch_needs_approval: [
+    'That command needs your approval, so Row-Bot will ask first.',
+    'none',
+  ],
+  watch_page_refused: [
+    'Only a public web page can be watched, not an address on this computer or your network.',
+    'none',
+  ],
+  watch_limit: [
+    'Row-Bot keeps at most 10 watches across your chats, and 5 waits in a chat. Stop one first.',
+    'none',
+  ],
+  watch_invalid: [
+    'That watch can’t be set: a watch checks at most once a minute.',
+    'none',
+  ],
+  watch_lifetime_max: [
+    'A watch lasts at most 7 days. Make it a workflow to keep checking.',
+    'none',
+  ],
+  watch_paused: ['Resume the watch first.', 'none'],
   row_bot_sandbox_refused: [
     'The sandbox can’t do that now: start it first, or delete one (five at most).',
     'none',
@@ -2234,6 +2280,39 @@ const CATALOG: Record<string, Entry> = {
   invalid_browser_url: [
     "That web address isn't valid. Check it and try again.",
     'review',
+  ],
+  // Show Row-Bot how (C3)
+  demo_private: [
+    "This chat is or was incognito, so Row-Bot doesn't keep steps from it.",
+    'none',
+  ],
+  demo_no_page: ['Open a page first, then show Row-Bot how.', 'none'],
+  demo_browser_busy: [
+    'Wait for Row-Bot to finish in the browser, then show it how.',
+    'retry',
+    RETRY,
+  ],
+  demo_recording: ['Row-Bot is already recording your steps here.', 'none'],
+  demo_missing: ['These steps are no longer here.', 'none'],
+  demo_changed: [
+    'These steps changed in another window. Look at them again.',
+    'retry',
+    RETRY,
+  ],
+  demo_no_steps: ['There are no steps yet.', 'none'],
+  demo_step_missing: ['That step is no longer here.', 'none'],
+  narration_no_model: [
+    'Install a speech model in Settings › Voice to narrate.',
+    'none',
+    VOICE,
+  ],
+  narration_no_ffmpeg: [
+    "Narration needs Row-Bot's audio support (ffmpeg). Your steps are still kept.",
+    'none',
+  ],
+  narration_unavailable: [
+    "Narration isn't available right now. Your steps are still kept.",
+    'none',
   ],
 
   // Computer use (the step in the conversation)
@@ -2634,6 +2713,41 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  // "Save as a skill" (C1).
+  skill_offer_missing: ['This skill offer is no longer here.', 'none'],
+  skill_offer_changed: [
+    'This skill offer changed. Look at it again.',
+    'retry',
+    RETRY,
+  ],
+  skill_draft_busy: [
+    'Row-Bot is already drafting a skill from this chat.',
+    'none',
+  ],
+  skill_draft_private: [
+    "This chat is or was incognito, so it can't be saved as a skill.",
+    'none',
+  ],
+  skill_draft_no_steps: ['This reply has no steps to save as a skill.', 'none'],
+  skill_draft_unavailable: [
+    "Couldn't reach this chat's model to draft a skill. Try again.",
+    'retry',
+    RETRY,
+  ],
+  skill_draft_failed: [
+    "Couldn't draft a skill from this chat. Try again.",
+    'retry',
+    RETRY,
+  ],
+  skill_draft_refused: [
+    "Couldn't draft a skill from this chat: the draft kept adding links, addresses or other things a skill can't hold. Try again.",
+    'retry',
+    RETRY,
+  ],
+  skill_draft_secret: [
+    'Take out the password, key or token before saving.',
+    'none',
+  ],
   skill_receipt_missing: [
     "Row-Bot can't find the earlier install. Check your skills before trying again.",
     'review',
@@ -2659,6 +2773,15 @@ const CATALOG: Record<string, Entry> = {
   // Agent profiles and goals
   goal_action_unavailable: [
     "That goal action isn't available right now.",
+    'none',
+  ],
+  goal_check_read_only: [
+    'This chat is on Block, which only allows checks that just read.',
+    'none',
+  ],
+  goal_check_refused: ["That command can't run here.", 'none'],
+  goal_check_unavailable: [
+    "A channel conversation's goal can't have a check.",
     'none',
   ],
   goal_library_too_large: ['There are too many saved goals to show.', 'none'],

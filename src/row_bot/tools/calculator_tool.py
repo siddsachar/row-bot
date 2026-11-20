@@ -137,12 +137,9 @@ _MATH_NAMES = {
 
 
 class _CalculateInput(BaseModel):
-    # The functions are listed once, in the tool description.
-    expression: str = Field(description="The expression, e.g. '2 ** 10' or 'days_between(today(), \"2026-12-25\")'.")
-    text: str = Field(
-        default="",
-        description="Optional text the expression can use as `text`, e.g. len(text) to count a post's characters.",
-    )
+    # The date functions are listed in the tool description; every function is in math_guide.
+    expression: str = Field(description="e.g. '2 ** 10' or 'days_between(today(), \"2026-12-25\")'.")
+    text: str = Field(default="", description="Text the expression reads as `text`, e.g. len(text).")
 
 
 def _calculate(expression: str, text: str = "") -> str:
@@ -195,13 +192,10 @@ class CalculatorTool(BaseTool):
                 func=_calculate,
                 name="calculate",
                 description=(
-                    "Evaluate a math, date or text-length expression. Operators: +, -, *, /, //, %, **. "
-                    "Functions: sqrt, cbrt, pow, abs, round, ceil, floor, trunc, int, float, min, max, sum, "
-                    "log, log2, log10, sin, cos, tan, asin, acos, atan, atan2, radians, degrees, hypot, "
-                    "factorial, comb, perm, gcd, lcm. Constants: pi, e, tau. Dates and durations (local "
-                    "time): today(), now(), date('2026-10-18'), weekday(d), add_days(d, n), add_hours(d, n), "
-                    "add_months(d, n), days_between(a, b), hours_between(a, b). Text: len(text), with the "
-                    "text in `text`. Use this instead of the shell for dates, weekdays and lengths."
+                    "Evaluate a math, date or text-length expression, Python-style, with the math functions "
+                    "(sqrt, log, sin, factorial, gcd…) and pi, e. Dates (local): today(), now(), date('2026-10-18'), "
+                    "weekday(d), add_days/add_hours/add_months(d, n), days_between(a, b), hours_between(a, b). "
+                    "Use it instead of the shell for dates, weekdays and lengths."
                 ),
                 args_schema=_CalculateInput,
             )

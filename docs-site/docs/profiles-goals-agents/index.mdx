@@ -40,6 +40,16 @@ A goal is useful when work needs more than one turn. Set it from the conversatio
 - **Visible usage.** The card shows the goal's state (Working, Continuing, Waiting for your approval, Paused, Needs you, Done or Stopped), the turn it is on ("Turn 7", or "Turn 7 of 30" with a limit), how long it has been running and the tokens it has used.
 - **Pause**, **Resume** and **Stop** control it. Stopping ends the goal; it does not delete the conversation or its evidence. Starting a new goal replaces the current one, and **Earlier goals** lists the ones before.
 
+### Done means and checks
+
+Open **Done means and check** in the goal form to say what "done" means in your own words, and to name a command that must pass before Row-Bot calls the goal done, such as `npm test`, `python -m pytest` or `gh pr checks 590`. In a conversation with a code folder, the project's own commands are offered to pick from. You can also type it: `/goal Ship the docs check: npm run build`.
+
+- **Only you set the check.** Row-Bot can suggest one in words, but its goal tool has no way to set or change it.
+- **You approve it once.** Before the goal starts, Row-Bot shows where the check runs: the conversation's code folder (in its Docker sandbox when it uses one) or Row-Bot's workspace folder, the one chosen in Settings that the file tools and the shell use, named by its path. Starting the goal approves that command, in that folder, for that goal, at every approval level. If the workspace folder changes later, the check doesn't run until you set it again. A command that can't run here, or that reads Row-Bot's own data folder, is refused. A chat on **Block** allows only checks that just read, such as `git status`.
+- **It runs when the goal looks done.** When Row-Bot says the goal is done, the turn ends and the check runs, for at most 10 minutes. Each run checks the chat's approval level and the command again: if the chat moved to Block, or the command now counts as a different kind of command, it doesn't run and the goal pauses.
+- **Exit 0 means done.** The card says **Verified by `npm test`** with the time. Any other exit code gives Row-Bot a turn to fix what the command reported, with its output in front of it; that turn counts like any other goal turn. After 3 failed checks in a row the goal pauses and says why. A check that times out or can't start pauses the goal too.
+- **See the output.** The info button on the check line shows the last 2,000 characters the check printed, with Copy.
+
 ## Delegated Agents
 
 A conversation can delegate parts of its work to agents, which Row-Bot also calls **helpers**. Row-Bot hands work to helpers by itself when a request has several separate parts, such as researching three products, and works on the rest while they run. Each agent works in its own conversation, reached from the conversation that started it: the sidebar, the conversation library and a new chat's **Recent** list show only your own chats. Search still finds an agent's conversation.

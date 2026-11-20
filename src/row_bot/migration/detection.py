@@ -167,9 +167,16 @@ def detect_source(provider: str | MigrationProvider, root: str | Path | None = N
 def hermes_homes() -> list[tuple[Path, str]]:
     """Where Hermes Agent keeps its home, in the order looked at, each with the place shown for it.
 
-    ``~/.hermes`` everywhere; on Windows Hermes may use ``%LOCALAPPDATA%\\hermes`` instead.
+    The folder ``HERMES_HOME`` names, when set: Hermes uses it in place of its usual folder. Then
+    ``~/.hermes`` everywhere; on Windows Hermes may use ``%LOCALAPPDATA%\\hermes`` instead. A place is
+    shown in words, never as a path: the usual folders by their short names, and the folder
+    ``HERMES_HOME`` names by the variable's name, however long or private that path is.
     """
-    homes = [(Path.home() / ".hermes", "~/.hermes")]
+    homes: list[tuple[Path, str]] = []
+    named = os.environ.get("HERMES_HOME", "").strip()
+    if named and Path(named).expanduser().is_absolute():
+        homes.append((Path(named).expanduser(), "%HERMES_HOME%" if os.name == "nt" else "$HERMES_HOME"))
+    homes.append((Path.home() / ".hermes", "~/.hermes"))
     local = os.environ.get("LOCALAPPDATA", "").strip()
     if local:
         homes.append((Path(local) / "hermes", "%LOCALAPPDATA%\\hermes"))
@@ -179,7 +186,7 @@ def hermes_homes() -> list[tuple[Path, str]]:
 def find_hermes_home() -> tuple[Path, str] | None:
     """The first of :func:`hermes_homes` that really is Hermes (a real folder, not a link), with its place."""
     for folder, place in hermes_homes():
-        if folder.is_dir() and not folder.is_symlink() and _looks_like_hermes(folder):
+        if folder.is_dir() and not folder.is_symlink() and not folder.is_junction() and _looks_like_hermes(folder):
             return folder, place
     return None
 

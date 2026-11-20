@@ -334,38 +334,24 @@ it('offers a ready personal model with a Personal tag; it can be starred like an
   );
 });
 
-it('with stars, folds the providers under Browse by provider until you open them', async () => {
+it('with stars, lists your models first and every other model you can choose under its provider (R8)', async () => {
   show(
     'model:ollama:qwen3:8b',
     { state: 'ready' },
     { open: true, models: shelf },
   );
   const list = await screen.findByRole('listbox', { name: 'Models' });
-  expect(groupNames(list)).toEqual(['Your models']);
-  expect(names(list).some((row) => row.startsWith('gemma3:4b'))).toBe(false);
-
-  const browse = screen.getByRole('button', { name: 'Browse by provider' });
-  expect(browse).toHaveAttribute('aria-expanded', 'false');
-  await act(async () => fireEvent.click(browse));
-  expect(browse).toHaveAttribute('aria-expanded', 'true');
+  // No search needed: the other connected models show at once, starred first.
   expect(groupNames(list)).toEqual([
     'Your models',
     'ChatGPT / CodexConnectedSubscription',
     'Ollama LocalConnectedRuns on this computerLocal · free',
   ]);
   expect(names(list).some((row) => row.startsWith('gemma3:4b'))).toBe(true);
+  expect(screen.queryByRole('button', { name: /Browse/ })).toBeNull();
 });
 
-it('keeps the providers open with nothing starred, or when the current model is only there', async () => {
-  const { unmount } = show(
-    'model:codex:gpt-5.6-sol',
-    { state: 'ready' },
-    { open: true },
-  );
-  expect(
-    screen.queryByRole('button', { name: 'Browse by provider' }),
-  ).toBeNull();
-  unmount();
+it('lists the providers with nothing starred, and the current model wherever it is', async () => {
   show(
     'model:codex:gpt-5.6-sol',
     { state: 'ready' },
@@ -373,9 +359,6 @@ it('keeps the providers open with nothing starred, or when the current model is 
   );
   const list = await screen.findByRole('listbox', { name: 'Models' });
   expect(names(list).some((row) => row.startsWith('GPT-5.6-Sol'))).toBe(true);
-  expect(
-    screen.queryByRole('button', { name: 'Browse by provider' }),
-  ).toBeNull();
 });
 
 it('typing also searches every connected provider’s models, beyond the listed ones', async () => {

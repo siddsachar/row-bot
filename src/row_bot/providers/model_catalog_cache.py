@@ -147,6 +147,11 @@ def refresh_model_catalog_cache(
 
     try:
         cloud_cache, cloud_status = _refresh_cloud_cache(provider_id=provider_id)
+        # A refused key stays refused until the provider answers: a failed connection says nothing of it (T10).
+        for key, status in cloud_status.items():
+            earlier = previous.provider_status.get(key, {}).get("refused_key")
+            if earlier and not status.get("refused_key") and status.get("status") != "live":
+                status["refused_key"] = earlier
         provider_status.update(cloud_status)
         if provider_id:
             targeted = cloud_status.get(provider_id, {})

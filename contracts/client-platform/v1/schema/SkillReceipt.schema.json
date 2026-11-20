@@ -10,7 +10,8 @@
         "skill.duplicate",
         "skill.delete",
         "skill.proposal.apply",
-        "skill.proposal.reject"
+        "skill.proposal.reject",
+        "skill.proposal.edit"
       ],
       "title": "Action",
       "type": "string"

@@ -167,6 +167,52 @@ it('shows live shimmer text for the running step and an approval hold', () => {
   );
 });
 
+it('reads a question card as a question, never an approval (R7)', () => {
+  const asking: TranscriptTraceGroup[] = [
+    {
+      ...groups[0],
+      status: 'pending',
+      items: [
+        {
+          ...groups[0].items[0],
+          canonical_name: 'ask_person',
+          safe_input: '{}',
+          status: 'pending',
+          content_ref: '',
+        },
+      ],
+    },
+  ];
+  const line = () => row().querySelector('.activity-summary-text');
+  // Before its step is known: the turn's waiting card is the question.
+  const { rerender } = render(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[]}
+      live={{ running: true, waiting: true, asking: true }}
+    />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Waiting for your answer',
+  );
+  expect(screen.getByRole('group', { name: 'Activity' })).not.toHaveTextContent(
+    /approval/,
+  );
+  // With its step: the line and the status both say so.
+  rerender(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={asking}
+      live={{ running: true, waiting: true }}
+    />,
+  );
+  expect(line()).toHaveTextContent(/^Waiting for your answer$/);
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Waiting for your answer',
+  );
+  expect(row()).not.toHaveTextContent(/approval/);
+});
+
 it('says in plain words what a computer step in progress is doing', () => {
   const computing: TranscriptTraceGroup[] = [
     {
@@ -903,6 +949,16 @@ it.each([
     'Approval: allowed by Hands-off\n$ New-Item notes.txt',
     'Hands-off',
     'Allowed by Hands-off',
+  ],
+  [
+    'Approval: allowed by your rule: Always allow `New-Item notes.txt` in row-bot\n$ New-Item notes.txt',
+    'Your rule',
+    'Allowed by your rule: Always allow `New-Item notes.txt` in row-bot',
+  ],
+  [
+    'Approval: allowed by you for this chat\n$ New-Item notes.txt',
+    'Allowed in this chat',
+    'Allowed by you for this chat',
   ],
 ])(
   'records who let a step run without asking you (A0): %#',

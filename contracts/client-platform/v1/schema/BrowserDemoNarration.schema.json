@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "description": "Whether narration can be transcribed on this computer (a local speech model and ffmpeg).",
+  "properties": {
+    "code": {
+      "enum": [
+        "",
+        "narration_no_model",
+        "narration_no_ffmpeg",
+        "narration_unavailable"
+      ],
+      "title": "Code",
+      "type": "string"
+    },
+    "ready": {
+      "title": "Ready",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ready",
+    "code"
+  ],
+  "title": "BrowserDemoNarration",
+  "type": "object"
+}

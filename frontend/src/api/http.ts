@@ -150,6 +150,84 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  browserDemo(conversation: string, signal?: AbortSignal) {
+    return wire.getBrowserDemo(this.base, this.session(), conversation, signal);
+  }
+  startBrowserDemo(conversation: string, signal?: AbortSignal) {
+    return wire.startBrowserDemo(
+      this.base,
+      this.session(),
+      conversation,
+      signal,
+    );
+  }
+  controlBrowserDemo(
+    conversation: string,
+    demo: string,
+    action: 'stop' | 'undo' | 'discard',
+    signal?: AbortSignal,
+  ) {
+    return wire.controlBrowserDemo(
+      this.base,
+      this.session(),
+      conversation,
+      demo,
+      action,
+      signal,
+    );
+  }
+  setBrowserDemoAlways(
+    conversation: string,
+    demo: string,
+    step: number,
+    always: boolean,
+    signal?: AbortSignal,
+  ) {
+    return wire.setBrowserDemoAlways(
+      this.base,
+      this.session(),
+      conversation,
+      demo,
+      step,
+      { always },
+      signal,
+    );
+  }
+  sendBrowserDemoNarration(
+    conversation: string,
+    demo: string,
+    offset: number,
+    audio: Blob,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendBrowserDemoNarration(
+      this.base,
+      this.session(),
+      conversation,
+      demo,
+      offset,
+      audio,
+      signal,
+    );
+  }
+  draftDemoSkill(
+    conversation: string,
+    demo: string,
+    body: wire.SkillDemoDraftRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.draftDemoSkill(
+      this.base,
+      this.session(),
+      conversation,
+      demo,
+      body,
+      signal,
+    );
+  }
+  trySkill(name: string, signal?: AbortSignal) {
+    return wire.trySkill(this.base, this.session(), name, signal);
+  }
   browserSites(signal?: AbortSignal) {
     return wire.getBrowserSites(this.base, this.session(), signal);
   }
@@ -328,6 +406,87 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  answerState(conversationId: string, signal?: AbortSignal) {
+    return wire.getAnswerState(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  saveAnswerState(
+    conversationId: string,
+    change: wire.AnswerStateChange,
+    signal?: AbortSignal,
+  ) {
+    return wire.saveAnswerState(
+      this.base,
+      this.session(),
+      conversationId,
+      change,
+      signal,
+    );
+  }
+  createVisualFrame(
+    conversationId: string,
+    request: wire.VisualFrameRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.createVisualFrame(
+      this.base,
+      this.session(),
+      conversationId,
+      request,
+      signal,
+    );
+  }
+  createVisualPage(
+    conversationId: string,
+    request: wire.VisualPageRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.createVisualPage(
+      this.base,
+      this.session(),
+      conversationId,
+      request,
+      signal,
+    );
+  }
+  skillOffers(conversationId: string, signal?: AbortSignal) {
+    return wire.getSkillOffers(
+      this.base,
+      this.session(),
+      conversationId,
+      signal,
+    );
+  }
+  draftSkill(
+    conversationId: string,
+    body: wire.SkillDraftRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.draftSkill(
+      this.base,
+      this.session(),
+      conversationId,
+      body,
+      signal,
+    );
+  }
+  dismissSkillOffer(
+    conversationId: string,
+    offerId: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.dismissSkillOffer(
+      this.base,
+      this.session(),
+      conversationId,
+      offerId,
+      signal,
+    );
+  }
   pageFrame(pageId: string, theme: wire.PageTheme, signal?: AbortSignal) {
     return wire.createPageFrame(
       this.base,
@@ -427,6 +586,12 @@ export class HttpTransport implements ClientTransport {
   stopWait(waitId: string) {
     return wire.stopWait(this.base, this.session(), waitId);
   }
+  controlWatch(waitId: string, body: wire.WatchControl) {
+    return wire.controlWatch(this.base, this.session(), waitId, body);
+  }
+  setWatch(conversationId: string, body: wire.WatchCreate) {
+    return wire.setWatch(this.base, this.session(), conversationId, body);
+  }
   proactiveMoments(signal?: AbortSignal) {
     return wire.getProactiveMoments(this.base, this.session(), signal);
   }
@@ -440,6 +605,36 @@ export class HttpTransport implements ClientTransport {
       momentId,
       feedback,
     );
+  }
+  activity(filters: wire.ActivityFilters, signal?: AbortSignal) {
+    return wire.getActivity(this.base, this.session(), filters, signal);
+  }
+  activitySummary(since: number, signal?: AbortSignal) {
+    return wire.getActivitySummary(this.base, this.session(), since, signal);
+  }
+  exportActivity(body: wire.ActivityExportRequest) {
+    return wire.exportActivity(this.base, this.session(), body);
+  }
+  clearActivity() {
+    return wire.clearActivity(this.base, this.session());
+  }
+  approvalRules(signal?: AbortSignal) {
+    return wire.getApprovalRules(this.base, this.session(), signal);
+  }
+  createApprovalRule(body: wire.ApprovalRuleCreate) {
+    return wire.createApprovalRule(this.base, this.session(), body);
+  }
+  updateApprovalRule(ruleId: string, body: wire.ApprovalRuleUpdate) {
+    return wire.updateApprovalRule(this.base, this.session(), ruleId, body);
+  }
+  deleteApprovalRule(ruleId: string) {
+    return wire.deleteApprovalRule(this.base, this.session(), ruleId);
+  }
+  dryRunApprovalRule(
+    body: wire.ApprovalRuleDryRunRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.dryRunApprovalRule(this.base, this.session(), body, signal);
   }
   proactiveActivity(before?: number, limit?: number, signal?: AbortSignal) {
     return wire.getProactiveActivity(
@@ -676,6 +871,38 @@ export class HttpTransport implements ClientTransport {
   }
   localRuntime(signal?: AbortSignal) {
     return wire.getLocalRuntime(this.base, this.session(), signal);
+  }
+  localServers(signal?: AbortSignal) {
+    return wire.getLocalServers(this.base, this.session(), signal);
+  }
+  connectLocalServer(
+    body: wire.LocalServerConnectRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.connectLocalServer(this.base, this.session(), body, signal);
+  }
+  localModelRuntime(signal?: AbortSignal) {
+    return wire.getLocalModelRuntime(this.base, this.session(), signal);
+  }
+  installLocalModel(body: wire.LocalModelInstallRequest, signal?: AbortSignal) {
+    return wire.installLocalModel(this.base, this.session(), body, signal);
+  }
+  stopLocalModelRuntime(signal?: AbortSignal) {
+    return wire.stopLocalModelRuntime(this.base, this.session(), signal);
+  }
+  removeLocalModelRuntime(
+    body: wire.LocalModelRemoveRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.removeLocalModelRuntime(
+      this.base,
+      this.session(),
+      body,
+      signal,
+    );
+  }
+  repairLocalModelRuntime(signal?: AbortSignal) {
+    return wire.repairLocalModelRuntime(this.base, this.session(), signal);
   }
   testChosenModel(signal?: AbortSignal) {
     return wire.testChosenModel(this.base, this.session(), signal);

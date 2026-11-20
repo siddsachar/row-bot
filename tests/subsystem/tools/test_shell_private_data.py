@@ -153,7 +153,7 @@ def test_file_tools_refuse_paths_inside_the_data_folder(shell, reload_for_data_d
 
     assert tools["workspace_read_file"].invoke({"file_path": ".row-bot/settings.json"}).startswith(
         "Error: this path is inside Row-Bot's private data folder")
-    assert tools["workspace_list_directory"].invoke({"dir_path": ".row-bot"}).startswith(
+    assert tools["workspace_find"].invoke({"path": ".row-bot"}).startswith(
         "Error: this path is inside Row-Bot's private data folder")
     assert "hello" in tools["workspace_read_file"].invoke({"file_path": "notes.txt"})
 
@@ -180,7 +180,7 @@ def test_file_tools_treat_a_sibling_folder_named_like_the_workspace_as_outside(s
 
     for path in (str(sibling / "secret.txt"), "../Row-Bot2/secret.txt"):
         assert "private" not in tools["workspace_read_file"].invoke({"file_path": path})
-    assert "outside the workspace" in tools["workspace_list_directory"].invoke({"dir_path": str(sibling)})
+    assert "outside the workspace" in tools["workspace_find"].invoke({"path": str(sibling)})
     assert "hello" in tools["workspace_read_file"].invoke({"file_path": str(workspace / "notes.txt")})
 
 
@@ -214,6 +214,68 @@ def test_a_file_outside_the_workspace_is_written_after_approval_through_the_same
     assert (sibling / "plan.md").read_text(encoding="utf-8") == "Ship 5.3.1"
     assert asked[0]["label"] == "Change files outside the workspace?"
     assert asked[0]["description"] == f"Outside the workspace: {sibling / 'plan.md'}"
+
+
+def test_workspace_find_lists_a_folder_and_finds_files_beneath_it(shell, reload_for_data_dir):
+    """B1: listing and searching are one read-only tool; no pattern lists, a pattern searches beneath."""
+    tools, _approval_gate, workspace, _sibling = _file_tools(shell, reload_for_data_dir)
+    (workspace / "Receipts" / "November").mkdir(parents=True)
+    (workspace / "Receipts" / "November" / "taxi.pdf").write_text("receipt", encoding="utf-8")
+    (workspace / "Receipts" / "summary.txt").write_text("total", encoding="utf-8")
+    assert {"workspace_list_directory", "workspace_file_search"}.isdisjoint(tools)
+
+    listed = tools["workspace_find"].invoke({"path": "Receipts"})
+    found = tools["workspace_find"].invoke({"path": "Receipts", "pattern": "*.pdf"})
+
+    assert set(listed.splitlines()) == {"November", "summary.txt"}
+    assert found.replace("\\", "/").splitlines() == ["November/taxi.pdf"]
+    assert "notes.txt" in tools["workspace_find"].invoke({})  # the workspace itself by default
+
+
+def test_workspace_find_asks_before_it_looks_outside_the_workspace(shell, reload_for_data_dir, monkeypatch):
+    """Security: a folder elsewhere asks by the approval level, on a reading card named for the tool called."""
+    tools, approval_gate, _workspace, sibling = _file_tools(shell, reload_for_data_dir)
+    asked: list[dict] = []
+    answers = iter([False, True, True])
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "approve")
+    monkeypatch.setattr("langgraph.types.interrupt", lambda payload: asked.append(payload) or next(answers))
+
+    denied = tools["workspace_find"].invoke({"path": str(sibling)})
+    listed = tools["workspace_find"].invoke({"path": str(sibling)})
+    found = tools["workspace_find"].invoke({"path": str(sibling), "pattern": "*.txt"})
+
+    assert "secret.txt" not in denied and "secret.txt" in listed and "secret.txt" in found
+    assert [card["tool"] for card in asked] == ["workspace_find"] * 3
+    assert {card["label"] for card in asked} == {"Read outside the workspace?"}
+
+
+def test_workspace_find_refuses_the_data_folder_at_every_level(shell, reload_for_data_dir, monkeypatch):
+    tools, approval_gate, _workspace, _sibling = _file_tools(shell, reload_for_data_dir)
+    _shell_tool, _registry, home = shell
+    (home / ".row-bot").mkdir(exist_ok=True)
+    (home / ".row-bot" / "settings.json").write_text("{}", encoding="utf-8")
+
+    for level in ("block", "approve", "auto", "full"):
+        monkeypatch.setattr(approval_gate, "current_approval_mode", lambda level=level: level)
+        for call in ({"path": str(home / ".row-bot")}, {"path": str(home / ".row-bot"), "pattern": "*.json"}):
+            answer = tools["workspace_find"].invoke(call)
+            assert "private data folder" in answer and "settings.json" not in answer, (level, call)
+
+
+def test_workspace_find_keeps_to_the_allowed_operations(shell, reload_for_data_dir):
+    """The person's Allowed operations still say whether listing and searching may run."""
+    tools, _approval_gate, _workspace, _sibling = _file_tools(shell, reload_for_data_dir)
+    _shell_tool, registry, _home = shell
+    from row_bot.tools.filesystem_tool import FileSystemTool
+
+    registry.set_tool_config("filesystem", "selected_operations", ["read_file", "list_directory"])
+    only_listing = {tool.name: tool for tool in FileSystemTool().as_langchain_tools()}
+    registry.set_tool_config("filesystem", "selected_operations", ["read_file"])
+    neither = {tool.name for tool in FileSystemTool().as_langchain_tools()}
+
+    assert "notes.txt" in only_listing["workspace_find"].invoke({})
+    assert "switched off" in only_listing["workspace_find"].invoke({"pattern": "*.txt"})
+    assert "workspace_find" not in neither
 
 
 def test_the_data_folder_stays_out_of_reach_even_under_hands_off(shell, reload_for_data_dir, monkeypatch):

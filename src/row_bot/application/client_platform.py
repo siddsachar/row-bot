@@ -128,6 +128,24 @@ def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, 
     return [(indexed[0], row) for indexed, row in zip(records, projected)]
 
 
+def _tapped_choice(conversation_id: str, value: Any) -> dict[str, str] | None:
+    """A reply button's tap, kept only when it names a reply of this conversation (F3)."""
+
+    if not value:
+        return None
+    if not isinstance(value, dict):
+        raise ClientPlatformError("invalid_command")
+    from langchain_core.messages import AIMessage
+    from row_bot import threads
+
+    message_id = str(value.get("message_id") or "")[:256]
+    if not message_id or not any(isinstance(message, AIMessage) and message.id == message_id
+                                 for message in threads.get_latest_checkpoint_messages(conversation_id)):
+        raise ClientPlatformError("invalid_command")
+    label = str(value.get("label") or "")[:40]
+    return {"message_id": message_id, **({"label": label} if label else {})}
+
+
 def with_run_failures(conversation_id: str, rows: list[dict]) -> list[dict]:
     """A workflow run that didn't finish says why under its last line in the chat.
 
@@ -188,13 +206,11 @@ def _buddy_follows(conversation_id: str, event: tuple, handle: Any = None) -> No
     elif kind == "tool_done":
         _buddy(conversation_id, "tool.finished", "Tool finished")
     elif kind == "interrupt":
-        if not getattr(handle, "approval_granted", False):
-            # An action the person already approved for this turn asks
-            # nobody, so Buddy never says "Needs approval" for it (B333).
-            from row_bot.questions import question_item
-            asking = question_item(payload) is not None
-            _buddy(conversation_id, "approval.needed", "Row-Bot has a question" if asking else "Approval pending",
-                   approval_id=str(getattr(handle, "approval_id", "") or ""), **({"question": True} if asking else {}))
+        # An action the person already allowed for this chat never gets here: the gate allowed it (B333).
+        from row_bot.questions import question_item
+        asking = question_item(payload) is not None
+        _buddy(conversation_id, "approval.needed", "Row-Bot has a question" if asking else "Approval pending",
+               approval_id=str(getattr(handle, "approval_id", "") or ""), **({"question": True} if asking else {}))
     elif kind == "done":
         _buddy(conversation_id, "generation.done", "Done")
     elif kind == "error":
@@ -350,8 +366,9 @@ def _accepted_app_scope(conversation_id: str) -> dict | None:
 
 
 @_publishes_live("approvals", "conversations")
-def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "") -> list[str]:
-    """Withdraw the conversation's waiting approvals (only one turn's, with ``generation_id``)."""
+def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "", *,
+                             only: set[str] | None = None) -> list[str]:
+    """Withdraw the conversation's waiting approvals (only one turn's, with ``generation_id``; only these, with ``only``)."""
     from row_bot.tasks import _get_conn
     withdrawn = []
     with closing(_get_conn()) as conn:
@@ -360,6 +377,8 @@ def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "") -> l
             "WHERE source_thread_id=? AND resume_kind='conversation' AND status='pending'",
             (conversation_id,)).fetchall()
         for row in rows:
+            if only is not None and str(row["id"]) not in only:
+                continue
             try:
                 context = json.loads(row["approval_payload_json"] or "{}")
             except ValueError:
@@ -439,7 +458,8 @@ class ClientPlatformService:
                         resume_pending: bool = False,
                         attachments: list[dict[str, Any]] | None = None,
                         note: str = "", retry: bool = False, shown: dict[str, str] | None = None,
-                        linked: dict[str, Any] | None = None, held: tuple[dict, ...] = ()) -> Any:
+                        linked: dict[str, Any] | None = None, held: tuple[dict, ...] = (),
+                        tapped_choice: dict[str, str] | None = None) -> Any:
         """Single admission path for every conversation turn.
 
         ``retry`` runs the person's last message again in place: the turn it replaces goes in the same write that
@@ -506,6 +526,10 @@ class ClientPlatformService:
                 # them with their structured list. Its note keeps it from counting as the person's request when
                 # the Auto reviewer decides an approval: a page's decision never approves a tool call.
                 public_metadata = {"platform_public_content": shown["text"], "platform_note": shown["note"]}
+            elif tapped_choice:
+                # A reply button's tap (F3): the person's own message, its words the button's; this only says which
+                # reply offered it. Never a note: the turn stays the person's request.
+                public_metadata = {**public_metadata, "tapped_choice": dict(tapped_choice)}
             first_message = text is not None and not note and not threads.get_latest_checkpoint_revision(conversation_id)
             # A retry finds the turn it replaces by what the chat shows of the person's message.
             retry_text = ((shown["text"] if shown else text)
@@ -555,7 +579,7 @@ class ClientPlatformService:
     def _publish_queue(self, conversation_id: str, *, finishing: str = "") -> None:
         self.projection.publish(conversation_id, "queue.updated", {
             "submission_ids": admissions.queued_submission_ids(conversation_id, excluding_pass=finishing),
-            "revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1)})
+            "revision": str(self.projection.revision(conversation_id) + 1)})
 
     def finish_execution(self, handle: Any, status: str) -> None:
         # Admission cannot overtake terminal publication. The actual worker's
@@ -586,7 +610,7 @@ class ClientPlatformService:
                 status = admissions.finish(handle.pass_id, status, boundary={
                     "execution_id": handle.execution_id, "server_epoch": handle.server_epoch,
                     "segment_id": handle.segment_id, "message_id": handle.output_message_id,
-                    "checkpoint_revision": handle.output_checkpoint_revision})
+                    "checkpoint_revision": handle.output_checkpoint_revision}, failure_reason=handle.failure_reason)
             with _turn_end_step(conversation_id, "publishing the queue"):
                 self._publish_queue(conversation_id)
             from row_bot.application import client_queue
@@ -608,25 +632,10 @@ class ClientPlatformService:
             self.projection.publish(conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
             from row_bot.application import approval_grants
-            if status == "waiting_approval" and handle.approval_granted:
-                try:
-                    self._resolve_approval_locked(handle.approval_id, {"decision": "approve"},
-                                                  runtime_surface=handle.runtime_surface)
-                except ClientPlatformError:
-                    # Not answered after all: the person sees the card as usual.
-                    _LOG.warning("A turn-approved action in %s still needs its approval", handle.conversation_id,
-                                 exc_info=True)
-                    view = self.get_approval(handle.approval_id)
-                    if view["status"] == "pending":
-                        self.projection.publish(handle.conversation_id, "approval.required", {
-                            "status": "waiting_approval", "approval_id": handle.approval_id,
-                            **{key: view[key] for key in ("action_label", "reason", "risk_class", "scope",
-                                                          "safe_argument_summary", "requesting_trace_id", "setup",
-                                                          "question")
-                               if key in view}})
-                return
             if status != "waiting_approval":
                 approval_grants.end_turn(handle.conversation_id)
+                from row_bot import activity_log
+                activity_log.settle_pending(handle.conversation_id)
             if status == "completed":
                 try:
                     client_queue.dispatch(self, handle.conversation_id, automatic=True)
@@ -772,6 +781,7 @@ class ClientPlatformService:
                 "updated_at": str(row.get("updated_at") or ""),
                 "parent_conversation_id": parent_conversation_id or None,
                 "started_from": started_from or None,
+                "forked_from": self._fork_origin(str(row.get("forked_from_id") or "")),
                 "activity_state": orchestration_activity.get("state"),
                 "activity_phase": str(orchestration_activity.get("phase") or "")[:64],
                 "category": threads.classify_thread(
@@ -782,6 +792,17 @@ class ClientPlatformService:
                 ),
                 "generation_state": [h.view() for h in self.registry.active(conversation_id)],
                 "resource_bindings": [asdict(binding) for binding in resources.bindings]}
+
+    @staticmethod
+    def _fork_origin(source_id: str) -> dict | None:
+        """The conversation a fork was copied from, while it still exists: its id and name."""
+        if not source_id:
+            return None
+        from row_bot import threads
+        with closing(sqlite3.connect(threads.DB_PATH)) as conn:
+            row = conn.execute("SELECT name FROM thread_meta WHERE thread_id=? AND COALESCE(deleted_at,'')=''",
+                               (source_id,)).fetchone()
+        return {"id": source_id, "title": str(row[0] or "Untitled")[:256]} if row else None
 
     def register_attachment(self, *, owner_id: str, idempotency_key: str, command_id: str,
                             client_session_id: str, conversation_id: str, name: str,
@@ -959,7 +980,7 @@ class ClientPlatformService:
         try:
             with admissions.transaction() as conn:
                 row = conn.execute(
-                    "SELECT pass_id, generation_id, state FROM generation_passes WHERE conversation_id=? AND "
+                    "SELECT pass_id, generation_id, state, failure_reason FROM generation_passes WHERE conversation_id=? AND "
                     "state IN ('terminal','interrupted') ORDER BY admission_sequence DESC LIMIT 1",
                     (conversation_id,)).fetchone()
         except sqlite3.Error:
@@ -970,7 +991,7 @@ class ClientPlatformService:
                 "generation_id": str(row["generation_id"]), "pass_id": str(row["pass_id"]), "segment_id": None,
                 "status": "interrupted", "revision": "0", "cancel_requested": False, "quiesced": True,
                 "cleanup_complete": True, "external_outcome": "not_applicable", "approval_id": None,
-                "can_stop": False}
+                "can_stop": False, **({"failure_reason": str(row["failure_reason"])} if row["failure_reason"] else {})}
 
     def snapshot(self, conversation_id: str) -> dict:
         from row_bot.application.live_content import references
@@ -1283,6 +1304,19 @@ class ClientPlatformService:
                 raise ClientPlatformError(str(exc)) from exc
             return {"conversation_id": target, "revision": str(row["client_revision"]),
                     "saved_name": name, "status": "completed"}
+        if kind == "conversation.fork":
+            # Edit and resend, Fork from here (B5): a new conversation; this one is only read.
+            if self.registry.active(target):
+                raise ClientPlatformError("generation_active")
+            try:
+                fork = threads.fork_conversation(
+                    target, at_message_id=str(payload["at_message_id"]), include_message=payload["mode"] == "fork",
+                    thread_id=str(uuid.uuid5(uuid.UUID(str(command["command_id"])), "fork")))
+            except threads.ForkError as exc:
+                raise ClientPlatformError(exc.code) from exc
+            return {"conversation_id": target, "revision": str(row["client_revision"]), "status": "completed",
+                    "forked_conversation_id": fork.conversation_id,
+                    "draft_attachments": list(fork.draft_attachments)}
         if kind == "conversation.incognito":
             incognito = bool(payload.get("incognito"))
             if bool(row.get("incognito")) == incognito:
@@ -1395,15 +1429,20 @@ class ClientPlatformService:
             self.projection.publish(target, "resource.changed", {"revision": str(resources.revision)})
             return {"conversation_id": target, "revision": str(resources.revision), "status": "completed"}
         if kind in {"conversation.submit", "conversation.resume"}:
-            if kind == "conversation.resume":
-                from row_bot.tasks import _get_conn
-                with _get_conn() as conn:
-                    pending = conn.execute("SELECT 1 FROM approval_requests WHERE source_thread_id=? AND resume_kind='conversation' AND status='pending'", (target,)).fetchone()
-                if pending:
-                    raise ClientPlatformError("approval_required")
-            return self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]),
-                               runtime_surface=runtime_surface,
-                               **({"frozen_context": frozen_context} if frozen_context is not None else {}))
+            from row_bot.tasks import _get_conn
+            with _get_conn() as conn:
+                waiting = {str(row[0]) for row in conn.execute(
+                    "SELECT id FROM approval_requests WHERE source_thread_id=? AND resume_kind='conversation' "
+                    "AND status='pending'", (target,))}
+            if kind == "conversation.resume" and waiting:
+                raise ClientPlatformError("approval_required")
+            started = self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]),
+                                  runtime_surface=runtime_surface,
+                                  **({"frozen_context": frozen_context} if frozen_context is not None else {}))
+            if waiting:
+                # A new message replaces the turn that was waiting: its card goes, since nothing can go on with it.
+                _withdraw_turn_approvals(target, only=waiting)
+            return started
         if kind == "conversation.stop":
             return self.stop_conversation(target, str(payload.get("generation_id") or ""))
         if kind == "conversation.steer":
@@ -1589,6 +1628,10 @@ class ClientPlatformService:
         if page_id and (resume or followup is not None or queue_record is not None or frozen_context is not None
                         or attachment_refs or payload.get("retry")):
             raise ClientPlatformError("invalid_command")
+        tapped = _tapped_choice(conversation_id, payload.get("tapped_choice"))
+        if tapped and (page_id or resume or followup is not None or queue_record is not None
+                       or frozen_context is not None or attachment_refs):
+            raise ClientPlatformError("invalid_command")
         # Retry on the reply to a message sent from a page runs that message again: the same decisions, as the
         # page wrote them, still marked as from the page (never the words the chat shows, as the person's own).
         retried_page = (self._retried_page_message(conversation_id, text)
@@ -1629,17 +1672,24 @@ class ClientPlatformService:
                   "platform_command_id": command_id,
                   "model_override": model_ref}}
         if followup is not None:
-            # Continues the conversation's own work; never routed as steering.
+            # Continues the conversation's own work; never routed as steering. Its kind tells a goal step from
+            # Row-Bot's other follow-ups (Learning scopes those as their conversation).
             config["configurable"]["internal_goal_continuation"] = True
+            config["configurable"]["followup_kind"] = followup.kind
         from row_bot.workflow_turns import person_rules
         # A workflow's "Always ask me" apps and tools wait for the person in every turn of its
         # conversation, under every approval level (N9).
         if rules := person_rules(conversation_id):
             config["configurable"]["person_rules"] = rules
+        from row_bot.schedule_zones import is_zone
+        # The person's device zone: "local time" in this turn means it, and a new schedule keeps it (M10).
+        if is_zone(device_zone := payload.get("time_zone")):
+            config["configurable"]["device_time_zone"] = device_zone
         from copy import deepcopy
         from row_bot.application.profile_controls import freeze_profile
         if frozen_context is not None:
-            for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot"):
+            for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot",
+                          "device_time_zone"):
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
@@ -1712,7 +1762,8 @@ class ClientPlatformService:
                 shown=shown,
                 linked=({"text": followup.shown or followup.prompt, **(followup.linked_from or {})}
                         if followup is not None and followup.kind == "linked" else None),
-                held=followup.held if followup is not None else ())
+                held=followup.held if followup is not None else (),
+                tapped_choice=tapped)
         except BaseException:
             if page_id:
                 from row_bot import pages
@@ -1877,7 +1928,8 @@ class ClientPlatformService:
                                         assistant_text=final_text, model_ref=model_ref,
                                         goal_id=str((started_goal or {}).get("id") or ""),
                                         error_text=error_text,
-                                        followup_kind=followup.kind if followup is not None else "")
+                                        followup_kind=followup.kind if followup is not None else "",
+                                        service=self)
                 with _turn_end_step(conversation_id, "the workflow's run"):
                     # A workflow's run moves on when its turn ends: its next message, or its outcome (F31).
                     from row_bot.workflow_turns import after_turn as after_workflow_turn
@@ -1928,7 +1980,7 @@ class ClientPlatformService:
             for offset in range(0, len(text), 8192):
                 self.projection.publish(conversation_id, "transcript.delta", {
                     "pass_id": handle.pass_id, "segment_id": handle.segment_id, "row_id": row_id,
-                    "render_revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1),
+                    "render_revision": str(self.projection.revision(conversation_id) + 1),
                     "public_text_delta": text[offset:offset + 8192]})
         elif kind == "output_binding":
             from row_bot.projection.canonical import exact_assistant_equal
@@ -2107,14 +2159,13 @@ class ClientPlatformService:
                 source_thread_id=conversation_id, parent_thread_id=conversation_id,
                 approval_payload_json=context)
             handle.status = "waiting_approval"
-            from row_bot.application import approval_grants
-            handle.approval_granted = approval_grants.granted(conversation_id, payload)
-            if not handle.approval_granted:
-                # An X post's card (its full text and pictures) is read with the approval, not streamed.
-                public_approval.pop("x_post", None)
-                self.projection.publish(conversation_id, "approval.required", {
-                    "status": "waiting_approval", "approval_id": handle.approval_id,
-                    **public_approval})
+            # What the person allowed for this chat is decided in the approval gate, before any card: every
+            # card here is the person's to answer.
+            # An X post's card (its full text and pictures) is read with the approval, not streamed.
+            public_approval.pop("x_post", None)
+            self.projection.publish(conversation_id, "approval.required", {
+                "status": "waiting_approval", "approval_id": handle.approval_id,
+                **public_approval})
         elif kind == "provider_refusal":
             handle.refusal = dict(payload)
         elif kind == "error":
@@ -2145,8 +2196,12 @@ class ClientPlatformService:
         )
         from row_bot.application.approval_grants import approval_kinds
         repeatable = row["resume_kind"] == "conversation" and approval_kinds(context.get("interrupt")) is not None
+        # "Always allow…" (D1): one action whose card the gate gave a rule scope, still one a rule may cover.
+        from row_bot import approval_rules
+        rule_eligible = row["status"] == "pending" and approval_rules.from_interrupt(
+            context.get("interrupts") if agent_request else context.get("interrupt")) is not None
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
-                "requested_at": row["requested_at"], "repeatable": repeatable,
+                "requested_at": row["requested_at"], "repeatable": repeatable, "rule_eligible": rule_eligible,
                 "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
                 "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row)),
                 **public_context}
@@ -2165,8 +2220,15 @@ class ClientPlatformService:
                 raise ClientPlatformError("generation_active")
             from row_bot.application.reasoning_controls import restore_resume_reasoning
             context = json.loads(row["approval_payload_json"])
-            restore_resume_reasoning({"model_override": context["model_selection"]["model_ref"]},
-                                     conversation_id, pass_id=str(context.get("pass_id") or ""))
+            try:
+                restore_resume_reasoning({"model_override": context["model_selection"]["model_ref"]},
+                                         conversation_id, pass_id=str(context.get("pass_id") or ""))
+            except ClientPlatformError as exc:
+                if exc.code != "reasoning_snapshot_unavailable":
+                    raise
+                # A later turn replaced the one that waits on this card: it can never go on, so the card goes.
+                _withdraw_turn_approvals(conversation_id, only={approval_id})
+                raise ClientPlatformError("approval_expired") from None
             claimed = claim_conversation_approval(approval_id, approved,
                 expected_payload=row["approval_payload_json"], expected_timeout=row["timeout_at"])
             if not claimed:

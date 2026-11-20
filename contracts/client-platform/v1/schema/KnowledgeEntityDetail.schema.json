@@ -193,6 +193,7 @@
         "extraction",
         "document",
         "wiki",
+        "import",
         "other"
       ],
       "title": "Source Bucket",
@@ -206,6 +207,11 @@
       "maxItems": 10,
       "title": "Source Context",
       "type": "array"
+    },
+    "source_label": {
+      "maxLength": 128,
+      "title": "Source Label",
+      "type": "string"
     },
     "status": {
       "enum": [
@@ -300,7 +306,8 @@
     "relation_count",
     "can_archive",
     "can_restore",
-    "can_resolve"
+    "can_resolve",
+    "source_label"
   ],
   "title": "KnowledgeEntityDetail",
   "type": "object"

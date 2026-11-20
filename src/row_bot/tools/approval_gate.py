@@ -7,7 +7,8 @@
 - **Hands-off**: approved without asking, and recorded.
 
 Some risks are the person's own under Auto, whatever the reviewer would say:
-setting Git's identity, and posting on X in their name (N7).
+setting Git's identity, posting on X in their name (N7), and a calendar change
+that invites or tells other people, its guests (W21).
 
 A workflow's "Always ask me" rule (N9) makes an action the person's own to
 approve under every level: the reviewer never decides it, Hands-off never skips
@@ -18,6 +19,19 @@ Every decision is recorded on the action's result as its approval line (B235),
 so the conversation's activity shows "Approved by the reviewer: …" or "Allowed
 by Hands-off". Tools that cannot lead their own result with it get it from
 the agent's tool wrapper (``collect_decisions`` / ``with_decisions``).
+
+Each decision is also noted, as data, for the activity log (D1): who decided
+(the person, the reviewer, Hands-off, Block) and why. The tool-call middleware
+collects the notes (``collect_activity``) and writes one row per call; noting
+never changes a decision, a result or what Learning sees.
+
+Under Ask and Auto, a question nobody has decided yet is first checked against
+the person's own allowances, before the reviewer: one of their standing
+"Always allow" rules (``approval_rules``), then what they allowed for the rest
+of the chat or turn ("Allow in this chat", ``approval_grants``). Neither ever
+covers an action only the person approves, and a rule never applies in a
+conversation other people share. Neither is kept in the call's answer list, so
+an allowance switched off while the call waits is decided afresh.
 """
 
 from __future__ import annotations
@@ -43,6 +57,7 @@ APPROVAL_GIVEN = "Approval: asked; approved by you"
 APPROVAL_DENIED = "Approval: asked; denied by you — did not run"
 APPROVAL_FULL_AUTONOMY = "Approval: allowed by Hands-off"
 APPROVAL_CHANGED = "Approval: asked; what you approved has changed since — did not run"
+APPROVAL_ALLOWED_IN_CHAT = "Approval: allowed by you for this chat"
 _APPROVAL_PREFIX = "Approval: "
 # Why a person-only card asks: the person's own rule, set on purpose.
 PERSON_RULE_REASON = "You asked to approve this yourself."
@@ -59,6 +74,12 @@ def approved_by_reviewer(reason: str) -> str:
     """The approval line of an action the reviewer approved under Auto."""
 
     return f"Approval: approved by the reviewer: {_reason(reason)}"
+
+
+def allowed_by_rule(words: str) -> str:
+    """The approval line of an action one of the person's standing rules allowed."""
+
+    return f"Approval: allowed by your rule: {_reason(words)}"
 
 
 def after_review(line: str, reason: str) -> str:
@@ -117,6 +138,71 @@ def with_approval(line: str, result: Any) -> Any:
     if not isinstance(result, str) or result.lstrip().startswith(("{", "[", "__")):
         return result
     return f"{line}\n{result}"
+
+
+# ── Noting decisions for the activity log (D1) ───────────────────────────────
+
+_activity_var: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
+    "approval_activity", default=None
+)
+# Who made the decision ``_decide`` just returned, why, and the rule when one did:
+# ("person" | "reviewer" | "hands_off" | "rule" | "chat_grant", reason, rule id).
+_decider_var: contextvars.ContextVar[tuple[str, str, str]] = contextvars.ContextVar(
+    "approval_decider", default=("", "", ""))
+# The action ``_decide`` is deciding, as a standing rule would cover it (None when none may): for its
+# allowance, its card and its activity row.
+_scope_var: contextvars.ContextVar[Any] = contextvars.ContextVar("approval_rule_scope", default=None)
+
+
+@contextlib.contextmanager
+def collect_activity() -> Iterator[list[dict[str, Any]]]:
+    """Collect, for the activity log, the decisions made while one tool call runs (the tool-call middleware)."""
+
+    notes: list[dict[str, Any]] = []
+    token = _activity_var.set(notes)
+    try:
+        yield notes
+    finally:
+        _activity_var.reset(token)
+
+
+def _activity_note(stage: str, payload: dict[str, Any], mode: object, **fields: Any) -> None:
+    notes = _activity_var.get()
+    if notes is None:
+        return
+    try:
+        notes.append({
+            "stage": stage,
+            "level": normalize_approval_mode(mode),
+            "tool": str(payload.get("tool") or ""),
+            "label": str(payload.get("label") or "")[:300],
+            "description": str(payload.get("description") or "")[:600],
+            "risk": str(payload.get("risk_class") or payload.get("risk") or "unknown"),
+            "person_only": bool(payload.get("person_only")),
+            **(scope.note() if (scope := _scope_var.get()) is not None else {}),
+            **fields,
+        })
+    except Exception as exc:  # Noting never fails the action.
+        logger.debug("The activity log did not see an approval decision (%s)", type(exc).__name__)
+
+
+def _decided_by(who: str, reason: str = "", rule_id: str = "") -> None:
+    _decider_var.set((who, str(reason or ""), str(rule_id or "")))
+
+
+def _asking(payload: dict[str, Any], mode: object, reason: str) -> None:
+    """The person is about to be asked: if the call pauses here, its row says "Waiting for you"."""
+
+    _activity_note("asking", payload, mode, reason=str(reason or ""))
+    _decided_by("person", reason)
+
+
+def _note_for_activity(payload: dict[str, Any], mode: object, outcome: str, *, by: str = "") -> None:
+    """The decision just made, for the activity log; never part of it (like ``_note_for_learning``)."""
+
+    who, reason, rule_id = _decider_var.get()
+    _activity_note("decided", payload, mode, outcome=str(outcome), by=by or who or "person", reason=reason,
+                   **({"rule_id": rule_id} if rule_id else {}))
 
 
 def current_approval_mode() -> str:
@@ -229,6 +315,7 @@ def person_approval(
     outcome = _bound_outcome(response, binding)
     line = {"allow": APPROVAL_GIVEN, "changed": APPROVAL_CHANGED}.get(outcome, APPROVAL_DENIED)
     _record(line)
+    _note_for_activity(payload, current_approval_mode(), outcome)
     return outcome == "allow", line
 
 
@@ -246,6 +333,13 @@ def asked_alone(interrupt: Any) -> dict[str, Any] | None:
 
 def _is_record(value: Any) -> bool:
     return isinstance(value, dict) and _RECORD_KEY in value
+
+
+def _has_record(ledger: "_Ledger", payload: dict[str, Any]) -> bool:
+    """Whether this question was already decided once in this tool call (a reviewer's verdict, a card)."""
+
+    question = question_id(payload)
+    return any(_is_record(entry) and entry.get(_RECORD_KEY) == question for entry in ledger.kept)
 
 
 def _asked_the_person(record: Any) -> bool:
@@ -328,7 +422,65 @@ def _person_line(mode: str, response: Any, reason: str) -> str:
 
 
 def _with_review(payload: dict[str, Any], reason: str) -> dict[str, Any]:
-    return {**payload, "review": {"decision": "ask", "reason": reason}} if reason else payload
+    """The card the person is asked with: the reviewer's reason, and the scope a rule from it would cover."""
+
+    card = {**payload, "review": {"decision": "ask", "reason": reason}} if reason else payload
+    scope = _scope_var.get()
+    return {**card, "always_allow": scope.card()} if scope is not None else card
+
+
+def _rule_scope(payload: dict[str, Any], risks: Iterable[str], person_only: str) -> Any:
+    """The action as a standing rule would cover it, or None (never an error: then no rule applies)."""
+
+    try:
+        from row_bot import approval_rules
+
+        return approval_rules.candidate(payload, risks, person_only=bool(person_only))
+    except Exception as exc:
+        logger.debug("No rule scope for this action (%s)", type(exc).__name__)
+        return None
+
+
+def _conversations_here() -> list[str]:
+    """This conversation, and the ones behind it when this is a helper agent's: where a chat grant counts."""
+
+    try:
+        from row_bot.approval_rules import conversations_here
+
+        return conversations_here()
+    except Exception as exc:
+        logger.debug("No conversation for a chat grant (%s)", type(exc).__name__)
+        return []
+
+
+def _allowance(payload: dict[str, Any], mode: str, risks: tuple[str, ...]) -> str:
+    """The approval line when one of the person's own allowances covers this action under Ask or Auto, else ''.
+
+    Their standing rule first, then what they allowed for the rest of this chat or turn. Never an action only
+    the person approves: the gate's caller has already ruled those out, and their risks are checked here.
+    """
+
+    if mode not in {"approve", "auto"} or payload.get("person_only") or any(risk in _PERSON_ONLY_RISKS
+                                                                             for risk in risks):
+        return ""
+    scope = _scope_var.get()
+    if scope is not None:
+        from row_bot import approval_rules
+
+        rule = approval_rules.match(scope)  # Fails closed: an unreadable store matches nothing.
+        if rule is not None:
+            _decided_by("rule", "", rule.rule_id)
+            approval_rules.note_used(rule.rule_id)
+            return allowed_by_rule(rule.words)
+    try:
+        from row_bot.application import approval_grants
+
+        if any(approval_grants.granted(conversation, payload) for conversation in _conversations_here()):
+            _decided_by("chat_grant")
+            return APPROVAL_ALLOWED_IN_CHAT
+    except Exception as exc:
+        logger.debug("Chat grants unavailable; asking (%s)", type(exc).__name__)
+    return ""
 
 
 def _decide(
@@ -348,18 +500,33 @@ def _decide(
     """
 
     mode = normalize_approval_mode(approval_mode)
+    _decided_by("")
+    _scope_var.set(None)
     if not person_only and _approved_call_var.get():
+        _decided_by("person")
         return True, APPROVAL_GIVEN  # Inside a call the person approved with its exact details.
     if mode == "full" and not person_only:
+        _decided_by("hands_off")
         return True, APPROVAL_FULL_AUTONOMY
+    risks = tuple(risks)
+    if mode in {"approve", "auto"}:
+        _scope_var.set(_rule_scope(payload, risks, person_only))
     ask = approval_callback or _interrupt
     ledger = _ledger()
     if ledger is _UNKNOWN_LEDGER:
         # LangGraph changed how it keeps answers: the person decides every question, in order, so
         # none can take another's answer.
         logger.warning("Approval answers can't be bound to their questions here; asking the person")
+        _asking(payload, mode, person_only)
         response = ask(_with_review(payload, person_only))
         return response, _person_line(mode, response, person_only)
+    if not person_only and not (isinstance(ledger, _Ledger) and _has_record(ledger, payload)):
+        # The person's own allowance, before the reviewer. Like Hands-off it is never kept in the answer list,
+        # so one switched off while the call waits is decided afresh; and a question already put to the
+        # reviewer or the person keeps that answer.
+        line = _allowance(payload, mode, risks)
+        if line:
+            return True, line
     if isinstance(ledger, _Ledger):
         return _decide_in_graph(payload, mode=mode, risks=risks, ask=ask, ledger=ledger, person_only=person_only)
     return _decide_afresh(payload, mode=mode, risks=risks, ask=ask, ledger=None, person_only=person_only)
@@ -379,10 +546,12 @@ def _decide_in_graph(payload: dict[str, Any], *, mode: str, risks: Iterable[str]
             reason = str(entry.get("reason") or "")
             if entry.get("review") == "approve":
                 if mode == "auto" and not person_only:
+                    _decided_by("reviewer", reason)
                     return True, approved_by_reviewer(reason)  # The reviewer's verdict, never asked again.
                 # The level is stricter now than when the reviewer approved it: ask afresh.
             elif index + 1 >= len(kept) or not _is_record(kept[index + 1]):
                 # The person was asked: their answer is the next entry (or waiting), and is this question's.
+                _asking(payload, mode, reason)
                 response = ask(_with_review(payload, reason))
                 if _is_record(response):  # Never another question's record taken as an answer.
                     response = False
@@ -414,11 +583,14 @@ X_POST_RISK = "posts, replies, quotes or deletes on X as one of the person's acc
 SYSTEM_INSTALL_RISK = "installs software on this computer for everyone, outside Row-Bot, which only the person decides"
 SECURITY_CAPABILITY_RISK = ("turns on a tool that acts on this computer (commands, files, the browser, the screen or "
                             "MCP apps), which only the person decides")
+CALENDAR_GUESTS_RISK = ("invites other people to an event, or tells its guests of a change or cancellation, "
+                        "which only the person approves")
 # Risks the Auto reviewer never accepts for the person: they go straight to the person's card.
 _PERSON_ONLY_RISKS = {GIT_IDENTITY_RISK: "Only you can choose the name and email your commits are from.",
                       X_POST_RISK: "Only you can approve what goes out on X in your name.",
                       SYSTEM_INSTALL_RISK: "Only you can decide what software is installed on this computer.",
-                      SECURITY_CAPABILITY_RISK: "Only you can turn on a tool that acts on this computer."}
+                      SECURITY_CAPABILITY_RISK: "Only you can turn on a tool that acts on this computer.",
+                      CALENDAR_GUESTS_RISK: "Only you can approve what your calendar sends to other people."}
 
 
 def _decide_afresh(payload: dict[str, Any], *, mode: str, risks: Iterable[str], ask: Callable[[dict[str, Any]], Any],
@@ -445,9 +617,11 @@ def _decide_afresh(payload: dict[str, Any], *, mode: str, risks: Iterable[str], 
             ledger.append({_RECORD_KEY: question_id(payload), "review": "approve" if verdict.approved else "ask",
                            "reason": reason})
         if verdict.approved:
+            _decided_by("reviewer", reason)
             return True, approved_by_reviewer(reason)
     elif ledger is not None:
         ledger.append({_RECORD_KEY: question_id(payload), "review": None, "reason": ""})
+    _asking(payload, mode, reason)
     response = ask(_with_review(payload, reason))
     return response, _person_line(mode, response, reason)
 
@@ -472,6 +646,7 @@ def request_approval(
     response, line = _decide(payload, approval_mode=mode, risks=risks, approval_callback=approval_callback)
     _record(line)
     _note_for_learning(payload, mode, response, line)
+    _note_for_activity(payload, mode, _outcome(response))
     return response
 
 
@@ -517,6 +692,9 @@ def resolve_approval_line(
         return "allow", APPROVAL_NOT_NEEDED_READ_ONLY
     if decision == "block":
         _note_for_learning(payload, approval_mode, False, "", blocked=True)
+        _decided_by("block")
+        _scope_var.set(None)
+        _note_for_activity(payload, approval_mode, "block", by="block")
         return "block", ""
     response, line = _decide(payload, approval_mode=approval_mode, risks=risks,
                              approval_callback=approval_callback)
@@ -525,6 +703,7 @@ def resolve_approval_line(
         line = APPROVAL_GIVEN if outcome == "allow" else APPROVAL_DENIED
     _record(line)
     _note_for_learning(payload, approval_mode, response, line)
+    _note_for_activity(payload, approval_mode, outcome)
     return outcome, line
 
 

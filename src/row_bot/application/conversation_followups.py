@@ -55,8 +55,9 @@ def _about(seconds: float) -> str:
         count, unit = math.ceil(seconds / 3600), "hour"
     return f"{count} {unit}{'' if count == 1 else 's'}"
 
-# "proactive": the person acted on a Proactive Row-Bot moment that carries on in this chat.
-FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on", "proactive"]
+# "proactive": the person acted on a Proactive Row-Bot moment that carries on in this chat. "watch": a watch saw a
+# change (B4), apart from a one-time wait's "wait".
+FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_on", "proactive", "watch"]
 
 # A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
 # "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.
@@ -65,11 +66,34 @@ CARRY_ON_PROMPT = (
     "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
     "nothing ran. Carry on with it now. If you need the person for something, ask them; if the work is "
     "done, say so in a line.")
+# A word rule finds a likely stop; the chat's own model then decides (S1, 18 Nov): "I'll reshoot …", "the film
+# isn't finished yet" and "I should have kept going" ended turns the narrower rule missed, 7 of 7 since 5.3.3.
 _NEXT_STEP = re.compile(
+    r"\bI(?:'|’)ll\s+(?!be\b|wait\b|need\b|let you know\b|keep an eye\b|check back\b|report back\b)[a-z]+"
+    r"|\b(?:isn(?:'|’)t|is not|aren(?:'|’)t|hasn(?:'|’)t been|haven(?:'|’)t been|not)\s+(?:\w+\s+)?"
+    r"(?:finished|done|rendered|complete|built|made|ready)\s+yet\b"
+    r"|\bI should have (?:kept going|continued|carried on)\b"
+    r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
+    r"|\b(?:carrying on|moving on) (?:now|with)\b"
+    # Work announced as under way, or still owed, when the turn has already ended (lane E's τ²-bench traces,
+    # 19 Nov: "I'm checking the flight statuses before …", "I've checked two and will review the remaining
+    # two …", "I still need to verify …").
+    r"|\bI(?:'|’)m\s+(?:now\s+)?(?:checking|reviewing|verifying|looking into|working on|processing)\b"
+    r"|\b(?:I|and)\s+will\s+(?:now\s+)?(?:check|review|verify|finish|continue|go through|look)\b"
+    r"|\bI still (?:need|have) to\b",
+    re.IGNORECASE)
+# The narrower R1 rule: what carries on when the check can't be asked (no model, a provider error), as before.
+_SURE_NEXT_STEP = re.compile(
     r"\b(?:next|now|then),?\s+I(?:'|’)ll\b|\bI(?:'|’)ll\s+(?:now|next|then)\b"
     r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
     r"|\b(?:carrying on|moving on) (?:now|with)\b",
     re.IGNORECASE)
+_STOP_CHECK = (
+    "You check one reply from an assistant that works with tools. Its turn has ended, so it does nothing more "
+    "unless it is woken. Answer YES if the reply says it will do more of the work now, or that the work isn't "
+    "finished, and it needs nothing from the person. Answer NO if the work is done, or the reply asks the "
+    "person something, waits for them or for something else (a sign-in, an approval, a set time), or only "
+    "offers more. Answer with one word: YES or NO.")
 # The reply hands over to the person: their answer, OK or choice is what comes next.
 _HANDS_OVER = re.compile(
     r"\?|\b(?:let me know|once you|when you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
@@ -104,17 +128,21 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
     saved and that aren't there; never after another carry-on."""
     from row_bot.file_claims import could_claim
 
-    if status != "completed" or followup_kind == "carry_on":
-        return
+    if status != "completed" or followup_kind in ("carry_on", "watch"):
+        return  # A watch's turn says what changed and stops there.
     next_step = stopped_on_next_step(assistant_text)
     if not next_step and not could_claim(assistant_text):
         return
     from row_bot import tasks, waits
-    # A workflow's run moves on by itself, and a wait already brings the conversation back.
-    if tasks.active_run_for_conversation(conversation_id) is not None or waits.waiting(conversation_id):
+    # A workflow's run moves on by itself, and a wait already brings the conversation back. A watch (B4) only speaks
+    # up on a change, which may never come: it doesn't count.
+    if tasks.active_run_for_conversation(conversation_id) is not None or any(
+            record["kind"] != "watch" for record in waits.waiting(conversation_id)):
         return
     if next_step:
-        followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE)
+        reply = str(assistant_text or "").strip()
+        followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE, check_reply=reply[-1500:],
+                            unchecked=bool(_SURE_NEXT_STEP.search(reply[-_TAIL_CHARS:])))
     else:
         missing = _missing_files(conversation_id, assistant_text)
         if not missing:
@@ -188,6 +216,29 @@ class Followup:
     shown: str = ""
     # A workflow run's first turn: the messages other conversations left for it ({id, title, text}).
     held: tuple[dict, ...] = ()
+    # A carry-on the word rule found: the reply's end, which the chat's model checks before it starts (S1).
+    check_reply: str = ""
+    # Whether it carries on when the check can't be asked: only on the narrower rule's words, as before S1.
+    unchecked: bool = False
+
+
+def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecked: bool) -> bool:
+    """The chat's own model says whether *reply* stopped with work it means to do; *unchecked* when it can't."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    try:
+        from row_bot.models import get_llm_for
+        from row_bot.providers.resolution import resolve_provider_config
+        from row_bot.providers.usage_ledger import with_usage_purpose
+
+        model = with_usage_purpose(
+            get_llm_for(resolve_provider_config(model_ref, allow_legacy_local=True).selection_ref),
+            "verifier", thread_id=conversation_id)
+        answer = model.invoke([SystemMessage(content=_STOP_CHECK), HumanMessage(content=f"The reply:\n{reply}")])
+        return not str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper().startswith("NO")
+    except Exception as exc:
+        _LOG.info("The stop check for %s couldn't run (%s)", conversation_id, type(exc).__name__)
+        return unchecked
 
 
 _PENDING: dict[str, Followup] = {}
@@ -306,8 +357,26 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
         # waits and runs after their answer turn, once the goal is active again.
         schedule(conversation_id, followup)
         return
+    if followup.check_reply:
+        # The check asks a model, so it runs on its own thread: this one holds the command lock (S1).
+        _schedule(0, lambda: _carry_on_if_still_working(service, handle, followup))
+        return
     start(service, conversation_id, followup, model_ref=handle.model_ref,
           runtime_surface=handle.runtime_surface)
+
+
+def _carry_on_if_still_working(service: Any, handle: Any, followup: Followup) -> None:
+    """Start the carry-on turn the word rule found, if the chat's model agrees the reply stopped mid-work."""
+    conversation_id = handle.conversation_id
+    if not _still_working(conversation_id, followup.check_reply, handle.model_ref, unchecked=followup.unchecked):
+        return  # Done, or handing over to the person: nothing to carry on.
+    from row_bot.application.client_platform import _COMMAND_LOCK
+
+    with _COMMAND_LOCK:
+        if service.registry.active(conversation_id) or pending(conversation_id) is not None:
+            return  # The person wrote in the meantime: their message goes first.
+        start(service, conversation_id, followup, model_ref=handle.model_ref,
+              runtime_surface=handle.runtime_surface)
 
 
 # ------------------------------------------------------------------ goals
@@ -335,7 +404,7 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
                         assistant_text: str, model_ref: str, goal_id: str = "",
-                        error_text: str = "", followup_kind: str = "") -> None:
+                        error_text: str = "", followup_kind: str = "", service: Any = None) -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
@@ -343,7 +412,9 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
     with the reason, so it never reads as working while nothing runs. A turn
     in which the model finished the goal (``goal_id`` was live when it began)
     still counts, so the card reads "Done · Turn 3 of 3". A provider limit
-    with a reset time makes the goal wait instead (``error_text``).
+    with a reset time makes the goal wait instead (``error_text``). A goal
+    that looks done and has a check runs its check now instead of a next
+    turn (B3).
     """
     from row_bot import goals
     if goal_id:
@@ -369,7 +440,9 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
             _RETRIED_AFTER_CUT.discard(str(goal["id"]))
             decision = goals.after_turn(thread_id=conversation_id, turn_id=generation_id,
                                         assistant_text=assistant_text, model_override=model_ref)
-            if decision.should_continue and decision.goal:
+            if decision.goal and decision.goal.get("check_state") == "pending" and service is not None:
+                start_goal_check(service, conversation_id, decision.goal)
+            elif decision.should_continue and decision.goal:
                 schedule(conversation_id, Followup(
                     kind="goal", prompt=decision.continuation_prompt,
                     note=goal_note(decision.goal), goal_id=str(decision.goal.get("id") or "")))
@@ -452,10 +525,45 @@ def _after_limit_reset(service: Any, conversation_id: str) -> None:
     start_goal_turn(service, conversation_id, goal, initial=False)
 
 
+def start_goal_check(service: Any, conversation_id: str, goal: dict[str, Any]) -> None:
+    """The goal looks done and has a check: run it (B3). Exit 0 completes the goal; another exit code starts
+    the turn that fixes what it reported; a check that couldn't run pauses the goal."""
+    from row_bot import goal_checks
+
+    discard(conversation_id, "goal")
+    goal_checks.start(str(goal["id"]), lambda decision: _after_goal_check(service, conversation_id, decision))
+
+
+def _after_goal_check(service: Any, conversation_id: str, decision: Any) -> None:
+    if not decision.should_continue or not decision.goal:
+        return
+    from row_bot import goals
+    from row_bot.application.client_platform import _COMMAND_LOCK
+
+    goal = decision.goal
+    followup = Followup(kind="goal", prompt=decision.continuation_prompt,
+                        note=f"{goal_note(goal)} · fixing what {goal.get('check_command')} reported",
+                        goal_id=str(goal.get("id") or ""))
+    # A turn that is still finishing (or one the person started) goes first: the fix turn follows it.
+    with _COMMAND_LOCK:
+        if service.registry.active(conversation_id):
+            schedule(conversation_id, followup)
+            return
+        started = start(service, conversation_id, followup)
+    if started is None:
+        goals.set_goal_status(str(goal["id"]), "paused",
+                              reason="The goal couldn't continue after its check. Choose a model, then resume it.",
+                              verdict="paused", expected_revision=int(goal.get("revision") or 0))
+
+
 def start_goal_turn(service: Any, conversation_id: str, goal: dict[str, Any], *,
                     initial: bool) -> None:
-    """Begin working on a goal now, or right after the running turn."""
+    """Begin working on a goal now, or right after the running turn; a goal whose check is pending (Row-Bot
+    closed while it ran) runs its check instead (B3)."""
     from row_bot import goals
+    if not initial and goal.get("check_state") == "pending":
+        start_goal_check(service, conversation_id, goal)
+        return
     prompt = (goals.build_initial_goal_prompt(goal) if initial
               else goals.build_continuation_prompt(goal))
     followup = Followup(kind="goal", prompt=prompt, note=goal_note(goal),
@@ -491,6 +599,10 @@ def continue_goals_after_restart(service: Any) -> int:
 def after_goal_change(service: Any, conversation_id: str, operation: str,
                       goal: dict[str, Any] | None) -> None:
     """Start, resume, pause or end the goal's turns after a goal command."""
+    if operation in {"start", "pause", "complete", "clear"}:
+        # The person decides: a check running for the goal stops, a pending one is dropped (B3).
+        from row_bot import goal_checks
+        goal_checks.stop_conversation(conversation_id)
     if operation == "start" and goal:
         from row_bot import threads
         from row_bot.application.conversation_naming import name_first_message

@@ -39,9 +39,10 @@ To restore a hand-made copy, restore related databases and files as one set whil
 
 ## Import From Another Assistant
 
-**Settings › Data › Import from another assistant** scans Hermes Agent (`~/.hermes`, or `%LOCALAPPDATA%\hermes` on Windows) or OpenClaw data on this computer and lists what it found and where each item goes. Nothing is written until you confirm. What you already have is never replaced unless you turn on **Replace what you already have**, and then a backup is kept first. First launch offers it when it finds one of them.
+**Settings › Data › Import from another assistant** scans Hermes Agent (the folder `HERMES_HOME` names, `~/.hermes`, or `%LOCALAPPDATA%\hermes` on Windows) or OpenClaw data on this computer and lists what it found and where each item goes. Nothing is written until you confirm. What you already have is never replaced unless you turn on **Replace what you already have**, and then a backup is kept first. First launch offers it when it finds one of them.
 
 - **Memories** (Hermes's `memories/MEMORY.md` and `USER.md`; OpenClaw's `MEMORY.md`, `USER.md` and daily notes) open in **Import memories** for you to check. Nothing is saved to memory until you import them there.
+- **Past chats** (Hermes's `state.db`) are offered unticked. Ticked, they wait in **Import memories** too, where Row-Bot can look in what you wrote for memories if you turn that on.
 - **Persona** (`SOUL.md`) becomes the personality in **Settings › Preferences**, shortened to fit.
 - **Agent instructions** (`AGENTS.md`) become a skill, *Instructions from Hermes* (or OpenClaw), which nothing uses until you choose it.
 - **Skills** are copied to **Settings › Skills**.
@@ -50,7 +51,7 @@ To restore a hand-made copy, restore related databases and files as one set whil
 - **Model servers** (Hermes's custom providers) become **Custom endpoints**, unless you have one with the same name.
 - **API keys and tokens** come over only if you tick **Include API keys and tokens**, into the system keychain.
 
-Memories and MCP servers come over only into the data folder this Row-Bot uses, so leave **Target folder** empty for them. Hermes's sessions, logs, cron jobs, plugins and state are copied into the import's report for you to look at, not imported. OpenClaw's channels and its approval, tool, hook and cron settings are listed for you to set up by hand. Moving from Hermes? [Coming From Hermes?](/docs/getting-started/coming-from-hermes) walks through it, with what doesn't come over and how Hermes's ideas map to Row-Bot's.
+Memories, past chats and MCP servers come over only into the data folder this Row-Bot uses, so leave **Target folder** empty for them. Cron jobs aren't converted: make a workflow for each one. Hermes's sessions, logs, cron jobs and plugins can be copied into the import's report for you to look at, not imported. OpenClaw's channels and its approval, tool, hook and cron settings are listed for you to set up by hand. Moving from Hermes? [Coming From Hermes?](/docs/getting-started/coming-from-hermes) walks through it, with what doesn't come over and how Hermes's ideas map to Row-Bot's.
 
 The same page's danger zone holds irreversible clean-up, such as removing tracker data.
 

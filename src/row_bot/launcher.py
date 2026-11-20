@@ -59,6 +59,7 @@ from row_bot.brand import (
     DEFAULT_DATA_DIR_NAME,
     LAUNCHER_APP_LOG_FILENAME,
 )
+from row_bot.data_folder_lock import IN_USE_MESSAGE, RESET_IN_USE_MESSAGE, FolderInUse, alone
 from row_bot.data_paths import (
     describe_data_paths,
     get_access_db_path,
@@ -184,6 +185,9 @@ def _launch_event(event: str, **fields) -> None:
             "reason",
             "control_port",
             "window_pid",
+            "bytes_before",
+            "bytes_after",
+            "removed",
         }
     }
     compact.setdefault("session", _LAUNCH_SESSION_ID)
@@ -280,12 +284,11 @@ def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
     quit and this one holds the lock. Never starts a second server.
     """
     wants_server = bool(args.server or args.no_open)
-    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None
-                        or getattr(args, "compact_chats", False))
-    if changes_data:
-        doing = ("compacting chats" if getattr(args, "compact_chats", False)
-                 else "restoring data" if args.restore_data is not None else "resetting data")
-        logger.error("%s is running on this data folder; quit it before %s.", APP_DISPLAY_NAME, doing)
+    if getattr(args, "compact_chats", False):
+        print(IN_USE_MESSAGE)
+        return 1
+    if args.reset_tasks_db or args.reset_db or args.restore_data is not None:
+        print(RESET_IN_USE_MESSAGE)
         return 1
     _launch_event("instance_already_running", mode="server" if wants_server else "desktop")
     deadline = time.monotonic() + _INSTANCE_WAIT_SECONDS
@@ -1523,7 +1526,10 @@ class _RowBotProcess:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 status = getattr(response, "status", 200)
                 return 200 <= status < 300
-        except (OSError, urllib.error.URLError, TimeoutError):
+        except (OSError, urllib.error.URLError, TimeoutError) as exc:
+            # Only the kind of failure and its status, never the request or its secret.
+            logger.info("%s shutdown request failed: %s %s", APP_DISPLAY_NAME, type(exc).__name__,
+                        getattr(exc, "code", "") or "")
             return False
 
     @staticmethod
@@ -1573,9 +1579,15 @@ class _RowBotProcess:
         server_tree = _process_tree(proc.pid)
         stopped_gracefully = False
         shutdown_started = time.monotonic()
+        # Outside Windows terminate() is SIGTERM, the server's own graceful stop: it first waits up to 5 s for
+        # open browser connections (uvicorn's timeout_graceful_shutdown), then cleans up. Killing it at 5 s cut
+        # that clean-up off whenever a browser tab was connected (RM6).
+        terminate_wait = 5.0
         try:
             if proc.poll() is None:
                 graceful = self._request_graceful_shutdown()
+                if not graceful and sys.platform != "win32":
+                    terminate_wait = _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT
                 if graceful:
                     try:
                         proc.wait(timeout=_GRACEFUL_SHUTDOWN_EXIT_TIMEOUT)
@@ -1600,7 +1612,7 @@ class _RowBotProcess:
                 self._terminate_process(
                     proc,
                     label=f"{APP_DISPLAY_NAME} server",
-                    timeout=5,
+                    timeout=terminate_wait,
                     kill_tree=True,
                 )
         finally:
@@ -1614,6 +1626,13 @@ class _RowBotProcess:
                     cleanup_owned_agents(dead_owner=server_tree)
                 except Exception:
                     logger.debug("Owned tunnel cleanup after a forced stop failed", exc_info=True)
+                # Its sandboxes too: each is a second Row-Bot it started, recorded with its process.
+                try:
+                    from row_bot import sandboxes
+
+                    sandboxes.end_left_overs()
+                except Exception:
+                    logger.debug("Sandbox cleanup after a forced stop failed", exc_info=True)
         logger.info(
             "%s stopped%s",
             APP_DISPLAY_NAME,
@@ -1855,10 +1874,18 @@ try:
             fh.write(f"ready pid={os.getpid()} time={time.time()}\n")
 except Exception:
     pass
-_start, _d = time.monotonic(), [0]
+STATUS = READY_MARKER[:-len("ready")] + "status" if READY_MARKER.endswith(".ready") else ""
+def _status():
+    try:
+        with open(STATUS, encoding="utf-8") as fh: return fh.read().strip()[:80]
+    except OSError: return ""
+_start, _d = [time.monotonic()], [0]
 def _check():
-    _d[0] = (_d[0] % 3) + 1; lbl.configure(text="Loading" + "." * _d[0])
-    if time.monotonic() - _start > TIMEOUT or port_ready(): root.destroy(); return
+    _d[0] = (_d[0] % 3) + 1
+    note = _status() if STATUS else ""
+    if note: _start[0] = time.monotonic()  # Work the launcher names (S9) keeps the window open.
+    lbl.configure(text=note or "Loading" + "." * _d[0])
+    if time.monotonic() - _start[0] > TIMEOUT or port_ready(): root.destroy(); return
     root.after(500, _check)
 root.after(500, _check); root.mainloop()
 """
@@ -3864,14 +3891,24 @@ def _backup_family(path: Path, backup_dir: Path) -> list[tuple[Path, Path]]:
     return moved
 
 
+def _data_folder_alone(databases: list[Path]):
+    """``--reset-db``, ``--reset-tasks-db`` and ``--restore-data`` replace databases: never under a server (W6)."""
+    return alone(_row_bot_data_dir(), databases, message=RESET_IN_USE_MESSAGE)
+
+
 def _reset_tasks_db() -> int:
     data_dir = _row_bot_data_dir()
     tasks_db = get_tasks_db_path()
     backup_dir = data_dir / "recovery" / f"tasks-db-reset-{_timestamp()}"
-    moved = _backup_family(tasks_db, backup_dir)
-    from row_bot.tasks import ensure_task_schema
+    try:
+        with _data_folder_alone([tasks_db]):
+            moved = _backup_family(tasks_db, backup_dir)
+            from row_bot.tasks import ensure_task_schema
 
-    result = ensure_task_schema(repair=True, force=True)
+            result = ensure_task_schema(repair=True, force=True)
+    except FolderInUse as exc:
+        print(exc)
+        return 1
     logger.info("Data dir: %s", data_dir)
     logger.info("Tasks DB: %s", tasks_db)
     if moved:
@@ -3897,11 +3934,16 @@ def _reset_all_local_dbs() -> int:
         get_access_db_path(),
     ]
     moved: list[tuple[Path, Path]] = []
-    for db_path in dbs:
-        moved.extend(_backup_family(db_path, backup_dir))
-    from row_bot.tasks import ensure_task_schema
+    try:
+        with _data_folder_alone(dbs):
+            for db_path in dbs:
+                moved.extend(_backup_family(db_path, backup_dir))
+            from row_bot.tasks import ensure_task_schema
 
-    result = ensure_task_schema(repair=True, force=True)
+            result = ensure_task_schema(repair=True, force=True)
+    except FolderInUse as exc:
+        print(exc)
+        return 1
     logger.info("Data paths: %s", describe_data_paths())
     if moved:
         for src, dst in moved:
@@ -3917,6 +3959,40 @@ def _reset_all_local_dbs() -> int:
     return 0
 
 
+def _size_words(size: int) -> str:
+    """A file's size in the unit that fits it (W9): "20.0 GB", "3.4 MB", "512 KB"."""
+
+    for unit, scale in (("GB", 1024 ** 3), ("MB", 1024 ** 2)):
+        if size >= scale:
+            return f"{size / scale:.1f} {unit}"
+    return f"{max(1, round(size / 1024))} KB"
+
+
+def _compact_chats_at_start() -> None:
+    """A chat database left large by an older version gives its space back once, before the server opens it
+    (S9); the start-up window says what it's doing, and launcher.log what came of it (T1)."""
+    from row_bot import chat_compact
+
+    status = _helper_artifact_path("splash", "status")
+
+    def say() -> None:
+        try:
+            status.write_text("Making your chat history smaller (one time)…", encoding="utf-8")
+        except OSError:
+            pass
+
+    started = time.perf_counter()
+    try:
+        result = chat_compact.compact_at_start(get_threads_db_path(), on_start=say)
+    finally:
+        _delete_if_exists(status)
+    if "skipped" in result:
+        _launch_event("compact_chats", status="skipped", reason=result["skipped"])
+        return
+    _launch_event("compact_chats", status="compacted", bytes_before=result["before"], bytes_after=result["after"],
+                  removed=result["checkpoints"], duration_ms=round((time.perf_counter() - started) * 1000.0, 1))
+
+
 def _compact_chats() -> int:
     """``--compact-chats``: threads.db made small again, the old file kept beside it (R13)."""
     import sqlite3
@@ -3925,12 +4001,19 @@ def _compact_chats() -> int:
 
     try:
         result = chat_compact.compact(get_threads_db_path())
-    except (RuntimeError, OSError, sqlite3.Error) as exc:
+    except FolderInUse as exc:
+        print(exc)
+        return 1
+    except OSError as exc:
+        print(f"The chat database wasn't compacted: {exc.strerror or exc}")
+        return 1
+    except (RuntimeError, sqlite3.Error) as exc:
         print(f"The chat database wasn't compacted: {exc}")
         return 1
-    gb = 1024 ** 3
-    print(f"Chat database: {result['before'] / gb:.1f} GB -> {result['after'] / gb:.1f} GB "
-          f"({result['checkpoints']:,} old saved states removed).")
+    # The space can come back with no saved state removed: the copy leaves out unused pages (M13).
+    removed = result["checkpoints"]
+    what = f"{removed:,} old saved states removed" if removed else "unused space given back"
+    print(f"Chat database: {_size_words(result['before'])} -> {_size_words(result['after'])} ({what}).")
     print(f"The old file is kept as threads.db{chat_compact.KEPT_SUFFIX} beside it: delete it once Row-Bot "
           "opens your chats as before.")
     return 0
@@ -3956,24 +4039,36 @@ def _restore_data(selector: str | None = None) -> int:
         return 1
 
     pre_restore = recovery_root / f"pre-restore-{_timestamp()}"
+    try:
+        with _data_folder_alone([data_dir / name for name in _RESTORED_FILES if name.endswith(".db")]):
+            return _restore_from(source_dir, data_dir, pre_restore)
+    except FolderInUse as exc:
+        print(exc)
+        return 1
+
+
+_RESTORED_FILES = (
+    "tasks.db",
+    "tasks.db-wal",
+    "tasks.db-shm",
+    "memory.db",
+    "memory.db-wal",
+    "memory.db-shm",
+    "threads.db",
+    "threads.db-wal",
+    "threads.db-shm",
+    "mobile.db",
+    "mobile.db-wal",
+    "mobile.db-shm",
+    "usage.db",
+    "usage.db-wal",
+    "usage.db-shm",
+)
+
+
+def _restore_from(source_dir: Path, data_dir: Path, pre_restore: Path) -> int:
     restored: list[tuple[Path, Path]] = []
-    for name in (
-        "tasks.db",
-        "tasks.db-wal",
-        "tasks.db-shm",
-        "memory.db",
-        "memory.db-wal",
-        "memory.db-shm",
-        "threads.db",
-        "threads.db-wal",
-        "threads.db-shm",
-        "mobile.db",
-        "mobile.db-wal",
-        "mobile.db-shm",
-        "usage.db",
-        "usage.db-wal",
-        "usage.db-shm",
-    ):
+    for name in _RESTORED_FILES:
         src = source_dir / name
         if not src.exists():
             continue
@@ -4294,6 +4389,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_restore_data(args.restore_data))
     if args.compact_chats:
         raise SystemExit(_compact_chats())
+    _compact_chats_at_start()
 
     # Until the app is up, a second start leaves opening the window to this one.
     _write_launcher_state(

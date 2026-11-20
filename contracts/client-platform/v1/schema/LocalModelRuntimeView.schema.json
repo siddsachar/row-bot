@@ -1,0 +1,359 @@
+{
+  "$defs": {
+    "LocalModelDownload": {
+      "additionalProperties": false,
+      "properties": {
+        "acceleration": {
+          "maxLength": 32,
+          "title": "Acceleration",
+          "type": "string"
+        },
+        "done_bytes": {
+          "minimum": 0,
+          "title": "Done Bytes",
+          "type": "integer"
+        },
+        "facts": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Facts"
+        },
+        "model_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9.-]+$",
+          "title": "Model Id",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "downloading",
+            "checking",
+            "finished",
+            "stopped",
+            "failed"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "total_bytes": {
+          "minimum": 0,
+          "title": "Total Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_id",
+        "acceleration",
+        "total_bytes",
+        "done_bytes",
+        "phase"
+      ],
+      "title": "LocalModelDownload",
+      "type": "object"
+    },
+    "LocalModelFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "download_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Download Bytes"
+        },
+        "free_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Free Bytes"
+        },
+        "needed_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Needed Bytes"
+        },
+        "reason": {
+          "maxLength": 64,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "LocalModelFailure",
+      "type": "object"
+    },
+    "LocalModelOption": {
+      "additionalProperties": false,
+      "description": "One pinned model \"Run on this computer\" can download, and how it would run here.",
+      "properties": {
+        "download_bytes": {
+          "minimum": 0,
+          "title": "Download Bytes",
+          "type": "integer"
+        },
+        "everyday": {
+          "title": "Everyday",
+          "type": "boolean"
+        },
+        "fit": {
+          "enum": [
+            "gpu",
+            "partial",
+            "cpu",
+            "too_big"
+          ],
+          "title": "Fit",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9.-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "installed": {
+          "title": "Installed",
+          "type": "boolean"
+        },
+        "model_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "older": {
+          "title": "Older",
+          "type": "boolean"
+        },
+        "quantization": {
+          "maxLength": 32,
+          "title": "Quantization",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "model_ref",
+        "size_bytes",
+        "fit",
+        "everyday",
+        "quantization",
+        "older",
+        "installed",
+        "download_bytes"
+      ],
+      "title": "LocalModelOption",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Run on this computer (E1): this computer, the pinned models and what is installed.",
+  "properties": {
+    "acceleration": {
+      "maxLength": 32,
+      "title": "Acceleration",
+      "type": "string"
+    },
+    "acceleration_label": {
+      "maxLength": 64,
+      "title": "Acceleration Label",
+      "type": "string"
+    },
+    "build_installed": {
+      "title": "Build Installed",
+      "type": "boolean"
+    },
+    "computer": {
+      "maxLength": 256,
+      "title": "Computer",
+      "type": "string"
+    },
+    "disk_bytes": {
+      "minimum": 0,
+      "title": "Disk Bytes",
+      "type": "integer"
+    },
+    "download": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalModelDownload"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalModelFailure"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "free_bytes": {
+      "minimum": 0,
+      "title": "Free Bytes",
+      "type": "integer"
+    },
+    "freed_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Freed Bytes"
+    },
+    "models": {
+      "items": {
+        "$ref": "#/$defs/LocalModelOption"
+      },
+      "maxItems": 16,
+      "title": "Models",
+      "type": "array"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "on_this_computer": {
+      "title": "On This Computer",
+      "type": "boolean"
+    },
+    "recommended": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9.-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Recommended"
+    },
+    "release": {
+      "maxLength": 32,
+      "title": "Release",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "unavailable",
+        "not_installed",
+        "downloading",
+        "installed",
+        "running",
+        "failed"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "update_bytes": {
+      "minimum": 0,
+      "title": "Update Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "computer",
+    "acceleration",
+    "acceleration_label",
+    "release",
+    "build_installed",
+    "update_bytes",
+    "models",
+    "disk_bytes",
+    "free_bytes",
+    "on_this_computer"
+  ],
+  "title": "LocalModelRuntimeView",
+  "type": "object"
+}

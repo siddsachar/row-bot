@@ -4,6 +4,12 @@
       "additionalProperties": false,
       "description": "Something a conversation waits for (5.3.1): it carries on there when it happens.",
       "properties": {
+        "at": {
+          "default": "",
+          "maxLength": 32,
+          "title": "At",
+          "type": "string"
+        },
         "conversation_id": {
           "maxLength": 128,
           "minLength": 1,
@@ -26,7 +32,8 @@
             "process",
             "check",
             "time",
-            "conversation"
+            "conversation",
+            "watch"
           ],
           "title": "Kind",
           "type": "string"
@@ -40,7 +47,9 @@
         "status": {
           "enum": [
             "waiting",
-            "due"
+            "due",
+            "paused",
+            "ended"
           ],
           "title": "Status",
           "type": "string"
@@ -54,6 +63,17 @@
           "pattern": "^[0-9a-f]{12}$",
           "title": "Wait Id",
           "type": "string"
+        },
+        "watch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WatchView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -67,6 +87,141 @@
         "status"
       ],
       "title": "WaitView",
+      "type": "object"
+    },
+    "WatchView": {
+      "additionalProperties": false,
+      "description": "A watch (B4): it checks a command, a page or a question again and again and speaks up only on a change.",
+      "properties": {
+        "can_extend": {
+          "title": "Can Extend",
+          "type": "boolean"
+        },
+        "changes": {
+          "minimum": 0,
+          "title": "Changes",
+          "type": "integer"
+        },
+        "checked_at": {
+          "maxLength": 32,
+          "title": "Checked At",
+          "type": "string"
+        },
+        "checking": {
+          "title": "Checking",
+          "type": "boolean"
+        },
+        "checks": {
+          "minimum": 0,
+          "title": "Checks",
+          "type": "integer"
+        },
+        "cost_usd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Usd"
+        },
+        "ended": {
+          "default": "",
+          "enum": [
+            "",
+            "expired",
+            "capped"
+          ],
+          "title": "Ended",
+          "type": "string"
+        },
+        "max_changes": {
+          "minimum": 1,
+          "title": "Max Changes",
+          "type": "integer"
+        },
+        "mode": {
+          "enum": [
+            "command",
+            "page",
+            "judged"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "result": {
+          "maxLength": 200,
+          "title": "Result",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 500,
+          "title": "Target",
+          "type": "string"
+        },
+        "tokens": {
+          "minimum": 0,
+          "title": "Tokens",
+          "type": "integer"
+        },
+        "trouble": {
+          "title": "Trouble",
+          "type": "boolean"
+        },
+        "workflow": {
+          "$ref": "#/$defs/WatchWorkflowDraft"
+        }
+      },
+      "required": [
+        "mode",
+        "target",
+        "checks",
+        "changes",
+        "max_changes",
+        "checked_at",
+        "result",
+        "trouble",
+        "checking",
+        "tokens",
+        "can_extend",
+        "workflow"
+      ],
+      "title": "WatchView",
+      "type": "object"
+    },
+    "WatchWorkflowDraft": {
+      "additionalProperties": false,
+      "description": "What \"Make this a workflow\" fills the workflow editor with (B4); the person reviews it and saves.",
+      "properties": {
+        "every_minutes": {
+          "maximum": 10080,
+          "minimum": 1,
+          "title": "Every Minutes",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "prompt": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "prompt",
+        "every_minutes"
+      ],
+      "title": "WatchWorkflowDraft",
       "type": "object"
     }
   },

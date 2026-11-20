@@ -120,6 +120,9 @@ function cardState(card: ProviderLiveCard) {
     };
   }
   if (needsReconnect(card)) return { label: 'Reconnect', tone: 'warning' };
+  // The provider refused the saved key when Row-Bot last read its models.
+  if (card.configured && card.key_refused)
+    return { label: 'Check key', tone: 'warning' };
   if (card.configured && card.source === 'external_cli')
     return { label: 'Linked', tone: 'saved' };
   if (card.configured) return { label: 'Connected', tone: 'enabled' };
@@ -158,6 +161,13 @@ function cardDetail(card: ProviderLiveCard, place: PlaceWords) {
     }
     return details.join(' · ');
   }
+  if (card.configured && card.key_refused)
+    return [
+      `${card.display_name} refused this key. Check it, or save a new one`,
+      card.fingerprint ? `key ${maskedTail(card.fingerprint)}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
   const source =
     card.configured && card.provider_id === 'codex' && !card.runtime_enabled
       ? 'Reconnect ChatGPT to use Codex models in chat'

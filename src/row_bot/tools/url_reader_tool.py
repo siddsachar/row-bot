@@ -26,9 +26,9 @@ PAGE_CHARS_MAX = 100_000
 
 
 class _ReadURLInput(BaseModel):
-    url: str = Field(description="The full URL to read (must start with http:// or https://)")
-    offset: int = Field(default=0, description="Character offset to start from, to read on in a long page.")
-    limit: int = Field(default=PAGE_CHARS, description=f"Characters to return, at most {PAGE_CHARS_MAX}.")
+    url: str = Field(description="http:// or https://")
+    offset: int = Field(default=0, description="Character offset, to read on.")
+    limit: int = Field(default=PAGE_CHARS, description=f"At most {PAGE_CHARS_MAX}.")
 
 
 _PDF_MAX_BYTES = 200 * 1024 * 1024
@@ -300,9 +300,8 @@ class URLReaderTool(BaseTool):
                 func=_read_url,
                 name="read_url",
                 description=(
-                    "Fetch a webpage or PDF and return its readable text. Use this whenever the person "
-                    "shares a link or asks about a specific page. A long page comes in parts: the result "
-                    "ends with the offset to continue from."
+                    "Read a web page or PDF as text: use it whenever the person shares a link or asks about a "
+                    "page. A long page ends with the offset to read on from."
                 ),
                 args_schema=_ReadURLInput,
             )

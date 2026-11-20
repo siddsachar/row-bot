@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -197,6 +198,18 @@ def test_finding_memories_in_conversations_reads_only_the_persons_newest_message
     assert _memory(stack) == before  # found, not saved
 
 
+def test_a_found_conversation_is_read_with_its_own_date_not_todays(stack):
+    service = stack.service
+    said = datetime(2023, 7, 15, 12, tzinfo=timezone.utc).timestamp()
+    chats = [chatgpt_simple("c1", said, "I went to the council meeting last Friday.")]
+    batch_id = _scanned(service, text=None, files={"export.zip": zip_bytes({"conversations.json": chats})})
+
+    service.find_in_conversations(SESSION, batch_id)
+    settle()
+
+    assert "This conversation is dated Saturday, 15 July 2023." in "\n".join(stack.model.extraction_prompts)
+
+
 def test_finding_memories_stops_at_the_character_bound(stack, monkeypatch):
     service = stack.service
     monkeypatch.setattr(service, "CHARACTER_LIMIT", 9_000)
@@ -306,6 +319,84 @@ def test_discarded_abandoned_and_old_batches_leave_nothing_behind(stack, monkeyp
     assert not (stack.root / applied).exists()
     with pytest.raises(ClientPlatformError):
         service.undo(applied)
+
+
+def _hermes_files(tmp_path) -> list:
+    from row_bot.migration.fixtures import create_realistic_hermes_home
+
+    home = create_realistic_hermes_home(tmp_path / "hermes-home")
+    return [home / "memories" / "MEMORY.md", home / "memories" / "USER.md", home / "state.db"]
+
+
+def test_memories_brought_over_from_hermes_wait_through_closing_the_panel_and_a_restart(stack, tmp_path) -> None:
+    """W13: the person can come back to them in Import memories later, from any of their windows."""
+    service = stack.service
+    staged = service.stage_local(SESSION, _hermes_files(tmp_path))
+    batch_id = staged["batch_id"]
+    found = {item["text"] for item in service.candidates(SESSION, batch_id)["items"]}
+    assert staged["found"] == len(found) == 6 and staged["conversations"]["available"] == 3
+
+    # The panel closes and Import memories opens a new import in the same window: it still waits.
+    service.begin(SESSION)
+    (waiting,) = service.sources()["waiting"]
+    assert (waiting["batch_id"], waiting["sources"], waiting["found"], waiting["conversations"]) == (
+        batch_id, ["Hermes Agent"], 6, 3)
+    with pytest.raises(ClientPlatformError) as fixed:
+        service.add_text(SESSION, batch_id, ANSWER)  # its files are Hermes's, as found
+    assert fixed.value.code == "invalid_command"
+
+    # The app restarts; another window reviews them, previews and imports them.
+    service.close_batches()
+    assert [item["batch_id"] for item in service.sources()["waiting"]] == [batch_id]
+    view = service.status("session-b", batch_id)
+    assert (view["status"], view["scanned"], view["found"], view["receipt"]) == ("open", True, 6, None)
+    assert view["conversations"]["available"] == 3
+    assert {item["text"] for item in service.candidates("session-b", batch_id)["items"]} == found
+    assert stack.kg.list_entities(limit=50) == []  # nothing is saved before Apply
+
+    preview = _previewed_as("session-b", service, batch_id)
+    receipt = service.apply("session-b", batch_id, command_id="c0ffee00-0000-4000-8000-000000000007",
+                            revision=preview["revision"], exclude=[])
+    assert receipt["sources"] == ["Hermes Agent"] and receipt["failed"] == 0, receipt
+    assert receipt["added"] + receipt["updated"] + receipt["superseded"] + receipt["skipped"] == 6, receipt
+    saved = " ".join(entity["description"] for entity in stack.kg.list_entities(limit=50))
+    assert "User prefers local-first tools unless cloud is explicitly faster." in saved
+    assert service.sources()["waiting"] == []
+    assert [item["batch_id"] for item in service.recent()] == [batch_id]
+    assert sorted(path.name for path in (stack.root / batch_id).iterdir()) == ["receipt.json"]
+
+
+def test_a_waiting_import_is_replaced_by_the_next_from_the_same_app_let_go_or_kept_seven_days(
+        stack, tmp_path, monkeypatch) -> None:
+    service = stack.service
+    clock = [1_000_000.0]
+    monkeypatch.setattr(service, "_now", lambda: clock[0])
+    files = _hermes_files(tmp_path)
+
+    first = service.stage_local(SESSION, files)["batch_id"]
+    second = service.stage_local("session-b", files)["batch_id"]
+    assert [item["batch_id"] for item in service.sources()["waiting"]] == [second]
+    assert not (stack.root / first).exists()
+
+    service.discard(SESSION, second)  # let go, from any window
+    assert service.sources()["waiting"] == [] and not (stack.root / second).exists()
+
+    kept = service.stage_local(SESSION, files)["batch_id"]
+    service.close_batches()
+    clock[0] += service.KEEP_SECONDS + 1
+    assert service.sources()["waiting"] == []
+    assert not (stack.root / kept).exists()
+    with pytest.raises(ClientPlatformError) as gone:
+        service.status(SESSION, kept)
+    assert gone.value.code == "import_expired"
+
+
+def _previewed_as(session: str, service, batch_id: str) -> dict:
+    items = [{"candidate_id": item["candidate_id"]} for item in service.candidates(session, batch_id)["items"]]
+    service.preview(session, batch_id, items)
+    settle()
+    assert service.status(session, batch_id)["job"]["status"] == "completed"
+    return service.read_preview(session, batch_id)
 
 
 def test_a_cancelled_step_lets_go_of_what_it_found(stack, monkeypatch) -> None:

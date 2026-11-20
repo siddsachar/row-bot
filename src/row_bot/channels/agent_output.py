@@ -12,13 +12,15 @@ def assemble_agent_answer(
 ) -> str:
     """Return final channel text, favoring the model's answer over tool logs.
 
-    Links to Row-Bot's own pages become words: nothing in a chat app can open them.
+    Links to Row-Bot's own pages become words: nothing in a chat app can open them. Answer
+    components (tables, checklists, figures, choices…) become their plain text, never JSON.
     """
+    from row_bot.application.answer_components import components_as_text
     from row_bot.application.client_self import channel_words
 
     notice_lines = list(dict.fromkeys(str(notice) for notice in notices if str(notice).strip()))
     if str(answer or "").strip():
-        return channel_words(answer) + ("\n\n" + "\n".join(notice_lines) if notice_lines else "")
+        return channel_words(components_as_text(answer)) +("\n\n" + "\n".join(notice_lines) if notice_lines else "")
     reports = [str(report) for report in tool_reports if str(report).strip()]
     if reports:
         base = "\n".join(reports)

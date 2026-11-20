@@ -9,65 +9,73 @@
     "files": {
       "src/row_bot/api/v1/__init__.py": "f54ba3b1c9555e65c5e715ba99685ae3c795ced6c6c15c9bac2bc3f18a1498a8",
       "src/row_bot/api/v1/document_upload_stream.py": "9d7f480472630d5aa7298503af7b9451607b1856406caa115cb6578bbe700494",
-      "src/row_bot/api/v1/routes.py": "3f096ac780aa5131712ac4be820c02a2a77c6963ea4eea83ee79672553ca7b0f",
-      "src/row_bot/api/v1/schemas.py": "d415eab3268034c308e4b6c9a1bb2ed1da347115b74af4e4f8035181c0709b01",
+      "src/row_bot/api/v1/routes.py": "64c487243349af7301338b8a88563758e9467a555e6da8a92701fc31031ff7a6",
+      "src/row_bot/api/v1/schemas.py": "30710e92e6e98f888c7952ca4bbfdb00fb1ea59785542d81e30fb4dc1c3859b7",
       "src/row_bot/api/v1/security.py": "d94a1f82917863bd2a6bd7996b268557d742c3a5f0c564dd18c2673c16a63ea3",
       "src/row_bot/application/__init__.py": "139fbb6a5592b9bf600f82c1623c05a4f0b90b793e4d7183cac03951984fff51",
-      "src/row_bot/application/app_notices.py": "6dbc5e635a81f5a6cf27f5c4cdff1581fedc6951450e5032d2de4f225f58e1d1",
+      "src/row_bot/application/answer_components.py": "c7a4ca0fa2f513ed07a66a1de9b695181a188201b5f8cb42a4afe66eb15e4413",
+      "src/row_bot/application/answer_state.py": "a3af51752d7e7234dfe2769a9cc9d05423829552f42172095d2f2894a3968800",
+      "src/row_bot/application/app_notices.py": "1846e8243dadc98c096f45a29caf51600323d1560d9f85c113f38a77942b946d",
       "src/row_bot/application/approval_grants.py": "13d8b5abd3b962e8bed00be155419bae6acaf3b9f7381b32c483cd93054bcaa3",
-      "src/row_bot/application/approval_projection.py": "b84ee77e4273719edf199ed0a48a7c17c7cf6acad1f085190b1aa487277b2b30",
+      "src/row_bot/application/approval_projection.py": "dfd4242b8fe276b1144a26ed3a16b24bea3af6310ad9bcbfcaf4944218073f0d",
       "src/row_bot/application/artifact_controls.py": "25f0f623e0cd0571d4808a7f3dcecedecf932754993ba45b28b0f968d9b82dac",
       "src/row_bot/application/artifact_design_commands.py": "072f11172ff3b8fb9b211a21a76945161c2cffb74d7fa40719e1b3123fd743b1",
       "src/row_bot/application/artifact_exports.py": "6d9c956a0ebf9f923543364da82bb245682ebabe96511ce5c9f29115a195d637",
       "src/row_bot/application/artifact_lifecycle_commands.py": "163d45391fd3e499d4f6ab6c706ee26d49d98e5f2e0c7327b9e75cb7d88e1d2b",
       "src/row_bot/application/artifact_sharing.py": "48ebf9e785573186b63194b3733293abb926aa98e4af25b3453b78e381d301dc",
       "src/row_bot/application/attachment_context.py": "4732f1ebb2c105ad74436756bb453d3fcc283d75a46172b6b8506d0dcfd73195",
-      "src/row_bot/application/attachments.py": "f1ba7a956bf4cabd4694f1010b510d690eb646b61ed9361d6b06f64e48498112",
+      "src/row_bot/application/attachments.py": "2ef32364cfc27cfa131f035417d24170d70a459979dc04daa52ebf0cd88981a2",
       "src/row_bot/application/background_process_views.py": "98e7a8bb090f4d3366cb831694b869d7daf23db01dfab1937f55adca7de8f559",
-      "src/row_bot/application/buddy_commands.py": "8a4fe09ee9926132cb20c148e8335dcb430b1b7afe79c0e8d4da23890944a0ac",
-      "src/row_bot/application/buddy_policy.py": "1a136a1f4398e390c2385b2f1e51facdb397ca2717d0a9d70a0a562acca6ca88",
+      "src/row_bot/application/buddy_commands.py": "22dff8267e3e9262bccc5894040ef4cc99d39c403ebfa0f7171040b86f024cdb",
+      "src/row_bot/application/buddy_policy.py": "0e7a8e8d9dcb70217e6130fe78eb6ca9ab437d44dde09b2d8dcb614094ddf84e",
       "src/row_bot/application/capability_catalog_controls.py": "a5bf1d537b290590df4e5e3c827b5783b62d566b6f0026975ae95089176d1af1",
       "src/row_bot/application/capability_configuration_controls.py": "a5ac4b0c921092f1e21241adda03f310a239081d488729a9bbd791436de9b011",
       "src/row_bot/application/capability_policy_controls.py": "d61a95b0572f2999072a57d7298a2f2ff59022e9c76d1514d639097977a6249b",
       "src/row_bot/application/capability_runtime_controls.py": "f5ab9a6c1b86ccb30f407e668eb8964d574b89565a85d9d56ab1bfbe162af798",
       "src/row_bot/application/channel_controls.py": "db71ca58aad403f305769120ba92701097c29e9097d1c6387b720b4502f8d3f7",
-      "src/row_bot/application/client_account_oauth.py": "2aff5267ab4f4a5c79e6cdc5b5e5ce428b51399c292c8d310ecfb268c5405353",
+      "src/row_bot/application/client_account_oauth.py": "790bd100f8b492b167fc2ccbe44881b69e1f26d6720157a59a4407144a06602d",
       "src/row_bot/application/client_accounts.py": "84e81743f8666810f59f43df14df1dfed7b9a867c8f6d0096baf4e22367dde7d",
-      "src/row_bot/application/client_browser.py": "f04c54c0587b3e323f9910ce727e0cc30d82c95329d14687b060c638cc434939",
+      "src/row_bot/application/client_activity.py": "fd2e1118a512d818f72066eaa6ea3b33b5ac52f203830f446f721bd1a562ae14",
+      "src/row_bot/application/client_approval_rules.py": "1f86c6f159e1c4862ad982771b670c4b5e36c7c6751cad11976b38a5a1e946bb",
+      "src/row_bot/application/client_browser.py": "7ecb21e89b8b2986d19e6d4e974525aac8d4e9d364814edb03113d80dda7adf6",
       "src/row_bot/application/client_computer_controls.py": "d2c055a828b504dc41d66ffa3517c6feadf388bbce06c10f9f6866162c2e566f",
       "src/row_bot/application/client_data_backup.py": "96c4ce313cad733d8b5968062c14a0ae72e8e1b7f1d3c48ea080a3dca24ae751",
-      "src/row_bot/application/client_diagnosis.py": "45fea44bb6dc960980f42ca122bef899f51fc2b590af989879e98583e226321b",
-      "src/row_bot/application/client_first_run.py": "314744d8c16e81aacd82964870e9e5bb1176c6eff6e34448aff52513fe43c8ba",
-      "src/row_bot/application/client_goal_profile_commands.py": "a7213969daf1d0c63dffe559c3057dfa205df46904647290c86b6ed519731c6c",
+      "src/row_bot/application/client_diagnosis.py": "2f91fb812ca9c2fd679eaf0f44991db309e2501a60850f7bd05cf1acc7721329",
+      "src/row_bot/application/client_first_run.py": "18dda162605cd152ec1606eb42fb9965d0dbb1bde14fcfe6de6ebf6f852eb387",
+      "src/row_bot/application/client_goal_profile_commands.py": "70a357b70859daae577f300e760d62998562e05737bc604b45b25d6e3867020d",
       "src/row_bot/application/client_insights.py": "28e09475a988cf9c2bb5f06d941ba704252f74a286920efd75c95afd1e1969d0",
       "src/row_bot/application/client_integrations.py": "a4fd15e3f8faa1f017bedb2d22778bf539cf36e7c39ed048bda2fe10bdc1a434",
-      "src/row_bot/application/client_learning.py": "9b5f20d72105a33da939328ce988fd96b3822de9d2002cc7e4117acb8d1b5d0e",
+      "src/row_bot/application/client_learning.py": "d9d643022a136f1961b49801b3d0409ae10917732e2778fba48832f12fb04809",
+      "src/row_bot/application/client_local_runtime.py": "04e0bee4bf2390830689686d1e330deb3d0073fb3273584b64af128aeb31e92e",
+      "src/row_bot/application/client_local_servers.py": "c0300bc9a854d14cbdd9651e746a2b659908a13b6ce60563a4a418312ecf1ae2",
       "src/row_bot/application/client_mcp_auth.py": "1e60a74eb25b16e0bcbe836ed48b4a21ca3771b1903e56a129ebf170123d1f5e",
-      "src/row_bot/application/client_migration.py": "418cd8c11918556125656f47143304e6cd19cf3e121a3bce31b58090698fa4f3",
-      "src/row_bot/application/client_models_settings.py": "dcc16f5d4a92f507c06d5cd1b002e9a2aa635d587af6ec3e42d8f75dabcfeb94",
-      "src/row_bot/application/client_monitor.py": "24ba0f0adfb9f446e47e9ac0590ada0e4ab724be9e5ea2d75e49d6d01acd61d4",
-      "src/row_bot/application/client_onboarding.py": "c34445b8dc37699ddec0bad16ef63e5660c2b19cf495d7a972b55633b3df38e1",
-      "src/row_bot/application/client_platform.py": "4c448d5857750c9e6264ca1fd5de4b99aa893877393ad25c37c12ba6ec279349",
+      "src/row_bot/application/client_migration.py": "6c17b6c2b0758f2c6b1ff15d15eea7d471e92fe223c2012dea3f990a9def388d",
+      "src/row_bot/application/client_models_settings.py": "0f1c67cd61e64d5cbc4b132314b522f3f09fd845b3596aa54a9b1282aa8e4e72",
+      "src/row_bot/application/client_monitor.py": "1d0447a30817a312f46eea8c538f484ee1dc5862127c4c4a27129bddfdbd1eb6",
+      "src/row_bot/application/client_onboarding.py": "80d3a4a2ce57d17be071e4a75efce3f96c72969dad87ab95ad4409a64f4b2ddd",
+      "src/row_bot/application/client_platform.py": "4926208b41d6f3fe59cf75be56a30b0896f1d7b9d3212eb2dc89b118f42c2c15",
       "src/row_bot/application/client_plugin_lifecycle.py": "ca5325542cfff090276fd8eb48aa873cfe53a53bf45938edbc570dc03df1f6d0",
+      "src/row_bot/application/client_proactive.py": "e65f55b80b5fae1acbec3986b27b8e4e1d411cec8358eee53f0b0c6de4ee673d",
       "src/row_bot/application/client_queue.py": "156b69f8f9fb84cb28a38a6240d4cdc7a9105f44d93137027ffaa34b97b40ee9",
+      "src/row_bot/application/client_self.py": "64d8e679e57e8dd098398a6247f9c7cff0b0bc5b522ec13b56e0da072f23e062",
       "src/row_bot/application/client_skill_hub.py": "7a0e72a5010438b78cedf22c527d604d5479688ce98bb1a45b6c676b4c388678",
       "src/row_bot/application/client_updates.py": "18850a37faa98c05e9c88a5ca1a1497434139d8755d3a9fd10266dc8e47db76a",
       "src/row_bot/application/client_voice.py": "8ffd69b8f00c7adeda2c468cdd1b10f8f1ba1c097b178771efba3d7b7bfa0e52",
-      "src/row_bot/application/context_status.py": "fd66f2e5dd0be9a791ecff6753e09eb7fbc1a3400d085a91838ac129c420fc31",
-      "src/row_bot/application/conversation_actions.py": "ce1187e9828fdd3c2538775342c4e2bfd086e33f1733633cc2afd73bfdf14b86",
-      "src/row_bot/application/conversation_composer.py": "4ef628ea479a1e958d19d25cf0dbfc0d518d23c6338e905a5e8b9ce51142270e",
+      "src/row_bot/application/context_status.py": "b740434910e5216a14fe8895a243c728e8ddc699097a36e4c3e60c7b1636ebd9",
+      "src/row_bot/application/conversation_actions.py": "74d5165d557d039fffffbe2ada45a6735e098aeb40b0fbf12e8670437ef1f2b0",
+      "src/row_bot/application/conversation_composer.py": "37ed051d7d605916199a288378511cdea745cfef306249c31ffabecd0fedad80",
       "src/row_bot/application/conversation_creation.py": "e97661ccd2f32dfed16100a1101a24873d06c063ee78ec3acde5d5f3ad50d4fb",
       "src/row_bot/application/conversation_drafts.py": "e26915568fd055535e959435853a0193afa5a3426650eed1511a7c171d8fdd94",
-      "src/row_bot/application/conversation_followups.py": "08f0512a6b178bf55d699c61abd22d94abe0cfc110f806e250bd5747000d6bee",
+      "src/row_bot/application/conversation_followups.py": "b2a904ea0b85cdcfdc6916e4413135208afdfc103f0ccfbaa02a5b5d148bb092",
       "src/row_bot/application/conversation_media_copy.py": "719a34fb06e3e1ca4501bed7f361fd9cb3a0255060f2cb3b0f75f02d8da503cf",
       "src/row_bot/application/conversation_naming.py": "b4e04699858f82c02f493d0e17f4745b5b3b968470f033a2fffaa95278f92f97",
       "src/row_bot/application/conversation_open.py": "df746e819a8ad48ee24a8a372d3ac0e36ac1fc648bb4615bab75bd1fe84205ad",
       "src/row_bot/application/conversation_pdf.py": "871ba1243cbba5c57ba5456221d7d911e9f4b0161ac18c60dd816b5f9e542353",
       "src/row_bot/application/conversation_resource_commands.py": "0b34452f8c04fef136862cb70c0c7ec2de036a9f3e14143c341e1eae04b3b575",
-      "src/row_bot/application/conversation_search.py": "ffb1cb204280efcdd4046828aa88bcfd78ea8bf7229ec4fb794959a9c131c3df",
-      "src/row_bot/application/conversation_traces.py": "6a075a27d66e55b7f4d436ebef21d32471fddc91721d262f5f92408b79fa7185",
+      "src/row_bot/application/conversation_search.py": "df04cc8f3af104903af6832e6c3f6d182aa3adca10415575d19ed7e942e972d0",
+      "src/row_bot/application/conversation_traces.py": "b5cc040f6f69e2430a232243058e8af95e39e1a4378efd5516f9433f1672ed93",
       "src/row_bot/application/conversation_writer.py": "2a2fd06aacb4c200510296e93467ac5c25b8cc6ef1ce74f9c13be26f61e43a2d",
-      "src/row_bot/application/delegated_activity.py": "0473c5a7313f359d395e9488f91e293e855e23e5cc91278f5aa8365026721934",
+      "src/row_bot/application/delegated_activity.py": "efd4c54006c45c43b27ba3067cd0710736f805207af305c5d52570818b6d076e",
       "src/row_bot/application/delivery_views.py": "b538cc71649865994d4162ef244dad7b102c24b11a68a8461f58b2b17e2c8199",
       "src/row_bot/application/developer_repository_commands.py": "7a8625625f9df449281f692a44330ca8266891e9987f76270c467d1db50a2f9e",
       "src/row_bot/application/developer_tool_upgrade.py": "193453327f1961f00b65821dc189927ae46fb18abd5852be68ffa8ffd4217efa",
@@ -75,20 +83,23 @@
       "src/row_bot/application/document_job_commands.py": "2ec2b6fa483dc30f416816ff8cffdfcbe1736f30fb778e8e7ace2bb5d3a29da9",
       "src/row_bot/application/document_processing.py": "9b3cf0701ab9def54c61cbbd98d682b74928635f73794384d864d7b62dbc20b4",
       "src/row_bot/application/document_upload_commands.py": "5c8b395b17f7d455b176251c2733829a25e195f19fdd7fd7f5a129a5e0ba9db4",
-      "src/row_bot/application/export_folder.py": "0a93826b1bf8913885386c8a6b12ec2a0c74fdd0806c829138564e8a42bbb055",
+      "src/row_bot/application/export_folder.py": "5408e9ac6c21c6618326c6be35de5eae64ee750e78418d96a48aac3cbb41d91a",
       "src/row_bot/application/external_terminal.py": "3efaa3b97fa299bd8e305a09634165b88ccf1e101e0aa1538b75a119457606c7",
       "src/row_bot/application/folder_selections.py": "1258d3b21f84a1022b250023181e5a659697da146e083995964d32f0b623455f",
-      "src/row_bot/application/generated_media.py": "cbb4915a862e8397aa836ecfb6cc4f1039795c2d8d4a5e3c1e4fd771010bef1c",
+      "src/row_bot/application/generated_media.py": "6881019b2ac128dc79c6ec7c99ba828d86126cbb67ad59a5862fc88fb5e100bc",
       "src/row_bot/application/knowledge_commands.py": "9641be4c6bd9de0eff5b39bb2953eb12ae800cba9a5265d3abf96a9c97b87bc7",
       "src/row_bot/application/knowledge_relations.py": "86b47473b4f63b3093abd4e7f79a3eebb675b2bee061ce52c11b9da9c1f96c12",
       "src/row_bot/application/learning_hugging_face.py": "d0467a3dfcea8fe60f299324b3270dfd5fb762e5fd988746312b9919cc1aae12",
       "src/row_bot/application/lifecycle.py": "aabc97d6b61a385fd4689fde30a24e6191c4e8522179f0afde84f7201a2f3360",
       "src/row_bot/application/live_content.py": "b47edf0e017f8b6302841ecd3b2fdfa88bb602b1a52c2d013f24f813561fcfa4",
-      "src/row_bot/application/live_updates.py": "a00ee1e24d2acb191c815646d8427a66011faba453718c5e6d5bd2fcdf27616a",
+      "src/row_bot/application/live_updates.py": "a5619974db9efac984e2ae38b84d10afdcc726d330d80a17b05a8d6c15c64f5a",
       "src/row_bot/application/mcp_runtime_installation.py": "7450df85d53f1fee754f3a4de13ebf94d7dcd799434602f3313738f7c62f04e8",
+      "src/row_bot/application/memory_import.py": "f2968eb832e76ed80a11364ee6da46052f94c18e76c8cb771d26dd7119ed9298",
+      "src/row_bot/application/memory_review.py": "364b61b2053167746c8ba26950efa104542861877801452d42c8fc4a7c9e0f4a",
       "src/row_bot/application/message_text.py": "5fea1c1fd8604557943ae8bffdd8ae3346f88f0e8d670355ce7e5192f72cbc26",
       "src/row_bot/application/model_choice_migration.py": "995bfd764f50fd545432ca406296d03219c9cd085be3aceb9a8641fda70e8f97",
       "src/row_bot/application/native_mcp_controls.py": "31dc4de59d6ce1d3edd7aa135e431a721cc020a6d929ab7f68387a145a9f91ec",
+      "src/row_bot/application/openrouter_sign_in.py": "dee5243e44338b93a35b8b508b55ee3b868b9d35fa9fd6843e6b9fe16acebaff",
       "src/row_bot/application/plugin_commands.py": "6db02e0fb351c86e05c9cedca5324391a7d2e2b546f709b8fa9b2b9a4c72b9e2",
       "src/row_bot/application/profile_backup.py": "47e5ae333eef8daf8625ba5fe6728cd785319e61b01ae9cad06dc8ca9fcc547c",
       "src/row_bot/application/profile_controls.py": "9995e36c6435e53672f268f2d1ef6c2847eaf1541d2d058b970ccdbbc3b8ab65",
@@ -101,43 +112,45 @@
       "src/row_bot/application/recording_views.py": "8b3a696d24642d32ee3d46a0a57ebafec16e198ae48918e7bf1d15b05389242f",
       "src/row_bot/application/sandbox_views.py": "9a3738dff8bd369045af516152a239504a76b8661d5e577a9fbaebfecd228ebd",
       "src/row_bot/application/save_offers.py": "5f53f018482fcc2059b7923d2bd7aa8be500f5791e8bca5de74b2bef7efc4533",
-      "src/row_bot/application/settings_commands.py": "c8d3a286015e9437f61af2734c1ddd0ce24beed025a177197f0f9777bf3bae31",
-      "src/row_bot/application/settings_snapshot.py": "aee31404fe2dd4071033a2b885278f5a9835b1ec241e2da2ad93ade6d3ada391",
-      "src/row_bot/application/skill_commands.py": "070b557f0bfc55007c6ef0be24122862d63b2b4132f94afe9ae672f5ff1d412b",
+      "src/row_bot/application/settings_commands.py": "d315c56c46fdba80f3e112e0bcb8dce29d71f044128a8aefc36673adaec57dc8",
+      "src/row_bot/application/settings_snapshot.py": "299f3575b39a949a1552cbe50276c23976dc748da990f5ce46ae8690164aee9f",
+      "src/row_bot/application/skill_commands.py": "c028390e8b0a0d82a6fbc631ae98ca64a5f438349bfc83b6648711d5a7e52dea",
+      "src/row_bot/application/skill_offer_views.py": "416e5db63c696cc3355e99f9c2959812952b11974b2ae6499a655aba9e6d67ec",
       "src/row_bot/application/startup_state.py": "5743e19c166a454929675ef960f090852a34901098e28023a69644a97bd33959",
-      "src/row_bot/application/subscription_controls.py": "94a2c1c89b8ad6b96f086987ebe6d74bc07e1f70f285e2f89a2b9b2adf660e7c",
+      "src/row_bot/application/subscription_controls.py": "1f9e2612cd0f3a48b7ade679e454fd20335495ec5031453cf8158b73f9a6e80c",
       "src/row_bot/application/subscription_options.py": "1678a9ff2c023ff33643d58a4df1ca413dee89afae3c9e018cdcd250f2620616",
       "src/row_bot/application/subscription_probes.py": "11495f24d69edb1168f97a7906c2f2b7362f64ba85a5beb28b68414a6553c1db",
       "src/row_bot/application/task_commands.py": "5ac5dc5ec14d05d4c5d92ec1b1b75a6dbd2449e71a92d8a92793800d182011cc",
-      "src/row_bot/application/task_controls.py": "c7890a695c2991970a826b3b4e0fbb853ba4cf4a19a69f9ab98edf6b0fb6bfea",
+      "src/row_bot/application/task_controls.py": "3a6d740dc9ed3d0f0de06f797d19beb930b92cd2396cb2ac6453a2d411b643e7",
       "src/row_bot/application/task_delivery_controls.py": "d1cb0ff6900357b76debc539f35bdf4ad29e601b420adb322aed89f968bd1f2c",
-      "src/row_bot/application/task_execution.py": "57331b646787d72395d1b05ff3ab8a8fc1701da00d5bdb5f7c2178473f4d5624",
-      "src/row_bot/application/task_run_commands.py": "772a6dd3a4856bbab42d50655f8a5aef604c4162d04fa99e87c641d07cd4dee0",
+      "src/row_bot/application/task_execution.py": "80d82311f561ebc10e3a9f6ba63a1b22e8639b09fe5480972569099be36a8e44",
+      "src/row_bot/application/task_run_commands.py": "f2f609d8c41bf1bc98640921ec5d8f6fdf5f2078981f5692a150032fd0de31d5",
       "src/row_bot/application/task_settings_controls.py": "694c9ff0644d94295d75c89c213ca959ab3897cc7ca385a901942a0772ff9734",
-      "src/row_bot/application/transcript_blocks.py": "2b7dd080bae0bc4a6843c25105f6fa85f6d78aacd6ad3af9196ecfb622e9ce6d",
+      "src/row_bot/application/transcript_blocks.py": "45eeb50eb457c02b2efae17647c4c19163275134f68dbfc04d67b0c98bf0d59d",
+      "src/row_bot/application/turn_failure.py": "6914134daf5d9537fe678ffdc94ad099164f2c6eb37cafeaf72b50cf74178ad5",
       "src/row_bot/application/video_edit_views.py": "fa8cbaf73f35530d6752d29458d6b966073185ce9be73cbf0c3f86a43f72374f",
       "src/row_bot/application/video_project_views.py": "4e63d608584813097c3cacac4bda29423f45e6f9b7dd40d2493a0d3387ed5d8e",
       "src/row_bot/application/wiki_commands.py": "cf2fbb84c69bea86e23c55eceffdf9d3279ab500b7e468dda088a86bd073399c",
       "src/row_bot/application/workspace_edit_commands.py": "8610c1ba41dab554cfadb5e864b57895f25f395e92aa5da8083bcac8a0e4f536",
       "src/row_bot/application/workspace_import_commands.py": "9629e80c491792ae737e011e4fea6ece484d628bc0dd8c15fb3fabbc6928668e",
       "src/row_bot/application/workspace_process_commands.py": "4bc8f5d9219fb36bd007fe831c1617e89e74088631aba17c60c77e4275dbe9ed",
-      "src/row_bot/application/workspace_setup.py": "63052ffbc1499e95287e8cda58742274467b08725a9235e559601c79d640d438",
+      "src/row_bot/application/workspace_setup.py": "fc355b5b828ac1a98dff1014df602dd36e84825fa77a691d5294689666a07de0",
       "src/row_bot/application/workspace_undo_commands.py": "8a78a585cac7d0c784b6b68bde4a15162cbc0b2f3eca5faa3e7aef236ef0277b",
       "src/row_bot/conversation_resources.py": "8e68d84bb182b9e86d9f35dd1572688c5f3fa7c1f071ce961383fc60f7cb39b9",
       "src/row_bot/projection/__init__.py": "b13e25f65e14b5273db9d6de9da2149de0b0c62883b52e3379ec59c5a3ffb375",
       "src/row_bot/projection/canonical.py": "14a05e08289ccc6b9f431b5799c0c9d545cff7e5395d3f2f52b4a7c78073c8db",
-      "src/row_bot/projection/conversation.py": "3ce76bfa4290ae82dad2af0b8539da46c506e605e8adf9d7c923ce606c3e7be5",
+      "src/row_bot/projection/conversation.py": "ff58033401b6693ef50c9c879a8c144c7df1957d88d5c73f3e193c0ea68b83c6",
       "src/row_bot/runtime/__init__.py": "dc07d08406de7b69a49a74ba25964c5ed928f062d84f2d04dfed184a9b87e5cf",
       "src/row_bot/runtime/admissions.py": "9c384ba8d8de92cd862a85591709a6568e5f13e809930b2c155345ae7e4c02e4",
-      "src/row_bot/runtime/checkpoint_reader.py": "32a1e17b282e46a72c3f35b262307abe3129e216e1638b1657e64fccc2f2000b",
-      "src/row_bot/runtime/executions.py": "dd4c0846c6e974cb803ecb8bd04f211f637b9fdd57363a820ef46925da583e18",
-      "src/row_bot/tasks.py": "513e4722f578d7f0a25321762aefac59d2ea7496d645b66a293091f93a08259d",
-      "src/row_bot/threads.py": "953663fefc58b6f86bac79ee9eaac1a736aeae0191524056176b47222e0233df",
+      "src/row_bot/runtime/checkpoint_reader.py": "600b94655683dd413b1a52d38e2317e9d1a637add05694b93b101781a7c50a43",
+      "src/row_bot/runtime/executions.py": "717a690de03cbd442ed11e9e5d864b3dd95b3164987d6de66d51b23280cb1a44",
+      "src/row_bot/tasks.py": "a5f5ce79e833bcab88525794b9c67b655bc7e0764ff8dac62e24807c7c6fa6a3",
+      "src/row_bot/threads.py": "c3a6b6ca96f53f17a86068282976ce72e0b75521b89691f429c6bc5699541720",
       "tests/helpers/client_platform_fakes.py": "d42f99a12400aa20b34994a0dbb01904a160f0dd918258e5a3930a0054df898d",
-      "src/row_bot/providers/reasoning.py": "700310e1654b49f5b5399896f3edda96f1fb0168f58f3bb6d18df8089362d3db",
+      "src/row_bot/providers/reasoning.py": "f546044273e2a56a5bbeec9f34f8ee182bc4dbe8a7368911bc83a501bc622b09",
       "tests/contracts/client_platform/test_reasoning_recording.py": "18858e381d82953e39900af417bde76a79a091f825fbf59fa9e35db108f566ab"
     },
-    "sha256": "8b26b9e93e5719949fe88b63b79b1371a4fe1aa68257e9eed28692064b58b230"
+    "sha256": "77f5394d3c975e0b02583a0671c89b72a8f59812ff9acdf36dc372553b0fd912"
   },
   "records": [
     {
@@ -405,6 +418,21 @@
               "skill_id": null
             },
             {
+              "id": "watch",
+              "token": "/watch",
+              "aliases": [
+                "/loop"
+              ],
+              "label": "Watch",
+              "description": "Check a page, a command or a question on a schedule; Row-Bot speaks up only when it changes.",
+              "icon": "visibility",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "[interval] page, `command` or what to watch",
+              "handler_kind": "watch",
+              "skill_id": null
+            },
+            {
               "id": "reasoning",
               "token": "/reasoning",
               "aliases": [],
@@ -484,7 +512,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -541,7 +569,7 @@
               "skill_id": null
             }
           ],
-          "command_total": 14,
+          "command_total": 15,
           "commands_truncated": false,
           "apps": []
         },
@@ -860,6 +888,21 @@
               "skill_id": null
             },
             {
+              "id": "watch",
+              "token": "/watch",
+              "aliases": [
+                "/loop"
+              ],
+              "label": "Watch",
+              "description": "Check a page, a command or a question on a schedule; Row-Bot speaks up only when it changes.",
+              "icon": "visibility",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "[interval] page, `command` or what to watch",
+              "handler_kind": "watch",
+              "skill_id": null
+            },
+            {
               "id": "reasoning",
               "token": "/reasoning",
               "aliases": [],
@@ -939,7 +982,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -996,7 +1039,7 @@
               "skill_id": null
             }
           ],
-          "command_total": 14,
+          "command_total": 15,
           "commands_truncated": false,
           "apps": []
         },
@@ -1269,6 +1312,21 @@
               "skill_id": null
             },
             {
+              "id": "watch",
+              "token": "/watch",
+              "aliases": [
+                "/loop"
+              ],
+              "label": "Watch",
+              "description": "Check a page, a command or a question on a schedule; Row-Bot speaks up only when it changes.",
+              "icon": "visibility",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "[interval] page, `command` or what to watch",
+              "handler_kind": "watch",
+              "skill_id": null
+            },
+            {
               "id": "reasoning",
               "token": "/reasoning",
               "aliases": [],
@@ -1348,7 +1406,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -1405,7 +1463,7 @@
               "skill_id": null
             }
           ],
-          "command_total": 14,
+          "command_total": 15,
           "commands_truncated": false,
           "apps": []
         },
@@ -1751,6 +1809,21 @@
               "skill_id": null
             },
             {
+              "id": "watch",
+              "token": "/watch",
+              "aliases": [
+                "/loop"
+              ],
+              "label": "Watch",
+              "description": "Check a page, a command or a question on a schedule; Row-Bot speaks up only when it changes.",
+              "icon": "visibility",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "[interval] page, `command` or what to watch",
+              "handler_kind": "watch",
+              "skill_id": null
+            },
+            {
               "id": "reasoning",
               "token": "/reasoning",
               "aliases": [],
@@ -1830,7 +1903,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -1887,7 +1960,7 @@
               "skill_id": null
             }
           ],
-          "command_total": 14,
+          "command_total": 15,
           "commands_truncated": false,
           "apps": []
         },
@@ -2155,6 +2228,21 @@
               "skill_id": null
             },
             {
+              "id": "watch",
+              "token": "/watch",
+              "aliases": [
+                "/loop"
+              ],
+              "label": "Watch",
+              "description": "Check a page, a command or a question on a schedule; Row-Bot speaks up only when it changes.",
+              "icon": "visibility",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "[interval] page, `command` or what to watch",
+              "handler_kind": "watch",
+              "skill_id": null
+            },
+            {
               "id": "reasoning",
               "token": "/reasoning",
               "aliases": [],
@@ -2234,7 +2322,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -2291,7 +2379,7 @@
               "skill_id": null
             }
           ],
-          "command_total": 14,
+          "command_total": 15,
           "commands_truncated": false,
           "apps": []
         },
@@ -2545,6 +2633,21 @@
               "skill_id": null
             },
             {
+              "id": "watch",
+              "token": "/watch",
+              "aliases": [
+                "/loop"
+              ],
+              "label": "Watch",
+              "description": "Check a page, a command or a question on a schedule; Row-Bot speaks up only when it changes.",
+              "icon": "visibility",
+              "category": "Chat",
+              "argument_mode": "prefix",
+              "argument_hint": "[interval] page, `command` or what to watch",
+              "handler_kind": "watch",
+              "skill_id": null
+            },
+            {
               "id": "reasoning",
               "token": "/reasoning",
               "aliases": [],
@@ -2624,7 +2727,7 @@
               "icon": "flag",
               "category": "Agents",
               "argument_mode": "prefix",
-              "argument_hint": "objective",
+              "argument_hint": "objective [check: command]",
               "handler_kind": "goal",
               "skill_id": null
             },
@@ -2681,7 +2784,7 @@
               "skill_id": null
             }
           ],
-          "command_total": 14,
+          "command_total": 15,
           "commands_truncated": false,
           "apps": []
         },

@@ -412,3 +412,98 @@ def test_claude_code_runs_without_row_bots_keys_or_anything_that_leaves_the_plan
     # Row-Bot updates Claude Code itself, once a day (claude_update.py): Claude Code's own updater stays off.
     assert env["DISABLE_AUTOUPDATER"] == "1"
 
+
+
+# ── Media prices on approval cards (D4) ──────────────────────────────────────
+
+
+def test_every_shipped_media_price_is_a_dated_positive_price_for_a_billed_provider() -> None:
+    """A price the card shows says when it was read, and is for a provider that bills an API key."""
+    from datetime import date
+
+    from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META
+    from row_bot.providers.media_prices import CHOICE_KEYS, UNITS, table_rows
+
+    rows = table_rows()
+    assert rows
+    seen = set()
+    for row in rows:
+        meta = IMAGE_PROVIDER_META if row["unit"] == "picture" else VIDEO_PROVIDER_META
+        assert row["unit"] in UNITS and meta[row["provider"]].get("key"), row
+        assert isinstance(row["usd"], (int, float)) and 0 < row["usd"] < 10, row
+        assert date.fromisoformat(row["checked"]) <= date.today(), row
+        key = (row["provider"], row["model"], row["unit"], *(row.get(name) for name in CHOICE_KEYS))
+        assert key not in seen, row  # One price per tier, never two to choose from.
+        seen.add(key)
+
+
+def _local_runtime_endpoint(tmp_path, monkeypatch, *, installed: bool):
+    """Run on this computer's endpoint (E1) saved in a scratch provider config."""
+    import row_bot.providers.config as provider_config
+    from row_bot import local_runtime
+    from row_bot.local_runtime import models
+    from row_bot.providers import custom
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    custom.save_custom_endpoint({
+        "id": local_runtime.ENDPOINT_ID, "name": local_runtime.DISPLAY_NAME, "base_url": "http://127.0.0.1:9931/v1",
+        "profile": "llama_cpp", "execution_location": "local", "auth_required": False,
+        "managed": local_runtime.OWNER, "manual_capabilities": {"context_window": 32768},
+    }, manage_secret=False)
+    if installed:
+        monkeypatch.setattr("row_bot.local_runtime.install.installed_models",
+                            lambda root=None: [models.get("qwen3.5-9b")])
+        monkeypatch.setattr("row_bot.local_runtime.install.installed_build", lambda root=None: object())
+    return custom.get_custom_endpoint(local_runtime.PROVIDER_ID)
+
+
+def test_the_local_runtime_endpoint_resolves_through_its_owner_and_starts_nothing_while_not_installed(
+        tmp_path, monkeypatch) -> None:
+    from row_bot.providers import custom
+
+    endpoint = _local_runtime_endpoint(tmp_path, monkeypatch, installed=False)
+    monkeypatch.setattr("row_bot.local_runtime.server._servers", {})
+
+    assert endpoint["managed"] == "local"
+    assert custom.managed_connection(endpoint, start=False) is None
+    # Nothing is installed: a request finds no server, and no probe or start is attempted.
+    assert custom.managed_connection(endpoint) is None
+    with pytest.raises(ValueError, match="isn't available"):
+        custom._custom_endpoint_headers(endpoint)  # noqa: SLF001 - what a probe would send
+
+
+def test_the_local_runtime_model_counts_as_local_everywhere_row_bot_asks(tmp_path, monkeypatch) -> None:
+    from row_bot import local_runtime
+    from row_bot.agent import _is_cloud_model_ref
+    from row_bot.providers import backup
+    from row_bot.providers.background import _is_local
+    from row_bot.providers.catalog import provider_billing
+
+    _local_runtime_endpoint(tmp_path, monkeypatch, installed=True)
+    ref = local_runtime.model_ref("qwen3.5-9b")
+
+    assert ref == "model:custom_openai_llamacpp:qwen3.5-9b"
+    assert provider_billing(local_runtime.PROVIDER_ID) == "local"
+    assert backup.is_local(ref)
+    assert _is_local(ref)  # a thread's background call never swaps this model mid-turn
+    assert not _is_cloud_model_ref(ref)  # prepared compaction (B6) treats it as local
+
+
+def test_the_local_runtime_models_show_by_name_under_a_provider_that_says_who_runs_them(
+        tmp_path, monkeypatch) -> None:
+    """llama.cpp lists only ids ("qwen3.5-4b"); pickers show the names Setup used (W12)."""
+    from row_bot import local_runtime
+    from row_bot.providers import custom
+
+    endpoint = _local_runtime_endpoint(tmp_path, monkeypatch, installed=False)
+    listed = {"object": "list", "data": [{"id": "qwen3.5-4b"}, {"id": "qwen3.8-27b-q3"}, {"id": "other"}]}
+
+    infos = custom.model_infos_from_openai_compatible_catalog(endpoint, listed)
+
+    assert [info.display_name for info in infos] == ["Qwen3.5 4B", "Qwen3.8 27B · 3-bit", "other"]
+    names = {item.id: item.display_name for item in custom.list_custom_provider_definitions()}
+    assert names[local_runtime.PROVIDER_ID] == "Row-Bot (llama.cpp)"
+    # Another llama.cpp server keeps the names its own list gives.
+    other = {**endpoint, "managed": None}
+    assert custom.model_infos_from_openai_compatible_catalog(other, listed)[0].display_name == "qwen3.5-4b"

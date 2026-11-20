@@ -313,6 +313,7 @@ it('the memories brought over wait for the person to review them in Import memor
       character_limit: 0,
       model: null,
       recent: [],
+      waiting: [],
     })),
     begin: vi.fn(),
     batch: vi.fn(async () => ({
@@ -391,3 +392,48 @@ it('the memories brought over wait for the person to review them in Import memor
   expect(importIO.batch).toHaveBeenCalledWith(batch);
   expect(importIO.begin).not.toHaveBeenCalled();
 });
+
+it.each([
+  [
+    6,
+    3,
+    '6 memories and 3 past chats are ready to review. Nothing is saved to memory until you check them.',
+  ],
+  [
+    0,
+    1,
+    '1 past chat is ready to look in for memories. Nothing is saved to memory until you check them.',
+  ],
+])(
+  'past chats brought over wait with the memories (%i memories, %i chats)',
+  async (found, conversations, words) => {
+    const base = owners();
+    const owner = {
+      ...base,
+      importIO: {} as MemoryImportIO,
+      apply: vi.fn(async (body: MigrationApplyCommand) => ({
+        ...(await base.apply(body)),
+        memory_review: { batch_id: 'd'.repeat(32), found, conversations },
+      })),
+    };
+    render(
+      <OverlayProvider>
+        <MigrationControls owner={owner} />
+      </OverlayProvider>,
+    );
+    fireEvent.change(screen.getByLabelText('Source folder'), {
+      target: { value: 'C:\\fixture\\hermes' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Scan folders' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Apply selected items' }),
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Confirm import' }),
+    );
+    expect(await screen.findByText(words)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Review memories' }),
+    ).toBeVisible();
+  },
+);

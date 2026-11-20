@@ -32,6 +32,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ConversationActionReview", "ConversationActionCommand", "ConversationActionReceipt",
     "BrowserTab", "BrowserPaneState", "BrowserFrame", "BrowserInputEvent", "BrowserInput", "BrowserInputResult",
     "BrowserPaneAction", "BrowserSite", "BrowserSitePage", "BrowserSitesClear", "BrowserSitesCleared",
+    "BrowserDemoSummary", "BrowserDemoStep", "BrowserDemoView", "BrowserDemoNarration", "BrowserDemoPage",
+    "BrowserDemoAlways",
     "ComputerUseSnapshot", "ComputerUsePreview", "ComputerUseCommand", "ComputerUseReceipt",
     "Snapshot", "TranscriptPage", "SubscriptionView",
     "EventPage", "Choices", "HandshakeView", "ApprovalView", "ResourceView", "Acknowledgement",
@@ -73,7 +75,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "CustomToolLibrary", "CustomToolLibraryCommand", "CustomToolLibraryReceipt",
     "DataBackupState", "DataBackupCommand", "DataBackupReceipt", "DataRestoreReview",
     "DataBackupUploadRequest", "DataBackupUploadView",
-    "MemoryImportModel", "MemoryImportSource", "MemoryImportReceipt", "MemoryImportSources", "MemoryImportRequest",
+    "MemoryImportModel", "MemoryImportSource", "MemoryImportReceipt", "MemoryImportWaiting", "MemoryImportSources",
+    "MemoryImportRequest",
     "MemoryImportFileRequest", "MemoryImportFileView", "MemoryImportText", "MemoryImportJob", "MemoryImportBatch",
     "MemoryImportCandidatePage", "MemoryImportPreviewRequest", "MemoryImportPreview", "MemoryImportApply",
     "MemoryImportUndo",
@@ -82,7 +85,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WaitView", "WaitPage", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "LocalModelRuntimeView", "LocalModelInstallRequest", "LocalModelRemoveRequest", "LocalServersSnapshot", "LocalServerConnectRequest", "LocalServerConnection", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -104,13 +107,16 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactExport",
     "ArtifactExportRevealResult",
     "ExportSaved", "ExportRevealRequest", "SaveOfferRequest", "SaveOffer",
+    "ActivityEntry", "ActivityPage", "ActivitySummary", "ActivityExportRequest", "ActivityCleared",
+    "ApprovalRuleDraft", "ApprovalRuleView", "ApprovalRulePage", "ApprovalRuleCreate", "ApprovalRuleUpdate",
+    "ApprovalRuleDryRunRequest", "ApprovalRuleCounts", "ApprovalRuleExample", "ApprovalRuleDryRun",
     "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
-    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "ParentSteeringView", "ClientQueueView",
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
 
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
@@ -155,6 +161,14 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/browser/live", None, "BrowserPaneState"),
     ("post", "/conversations/{conversation_id}/browser/input", "BrowserInput", "BrowserInputResult"),
     ("post", "/conversations/{conversation_id}/browser/actions", "BrowserPaneAction", "BrowserPaneState"),
+    ("get", "/conversations/{conversation_id}/browser/demo", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/stop", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/undo", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/discard", None, "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/narration", "bytes", "BrowserDemoPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/steps/{step_id}/always", "BrowserDemoAlways",
+     "BrowserDemoPage"),
     ("get", "/browser/sites", None, "BrowserSitePage"),
     ("post", "/browser/sites/clear", "BrowserSitesClear", "BrowserSitesCleared"),
     ("get", "/conversations/{conversation_id}/browser/local-addresses", None, "LocalAddressPage"),
@@ -242,7 +256,18 @@ OPERATIONS = (
     ("post", "/video-projects/{project_id}/export", "VideoProjectExport", "VideoProjectView"),
     ("get", "/video-brand", None, "VideoBrand"),
     ("get", "/waits", None, "WaitPage"),
+    ("get", "/activity", None, "ActivityPage"),
+    ("get", "/activity/summary", None, "ActivitySummary"),
+    ("post", "/activity/export", "ActivityExportRequest", "SaveOffer"),
+    ("delete", "/activity", None, "ActivityCleared"),
+    ("get", "/approval-rules", None, "ApprovalRulePage"),
+    ("post", "/approval-rules", "ApprovalRuleCreate", "ApprovalRuleView"),
+    ("put", "/approval-rules/{rule_id}", "ApprovalRuleUpdate", "ApprovalRuleView"),
+    ("delete", "/approval-rules/{rule_id}", None, "ApprovalRulePage"),
+    ("post", "/approval-rules/dry-run", "ApprovalRuleDryRunRequest", "ApprovalRuleDryRun"),
     ("post", "/waits/{wait_id}/stop", None, "WaitPage"),
+    ("post", "/waits/{wait_id}/control", "WatchControl", "WaitPage"),
+    ("post", "/conversations/{conversation_id}/watches", "WatchCreate", "WaitPage"),
     ("get", "/proactive/moments", None, "ProactiveMomentPage"),
     ("get", "/proactive/moments/{moment_id}", None, "ProactiveMomentDetail"),
     ("post", "/proactive/moments/{moment_id}/feedback", "ProactiveFeedback", "ProactiveMomentDetail"),
@@ -307,6 +332,13 @@ OPERATIONS = (
     ("get", "/setup/onboarding", None, "OnboardingSnapshot"),
     ("post", "/setup/onboarding/commands", "OnboardingCommand", "OnboardingReceipt"),
     ("get", "/setup/local-runtime", None, "LocalRuntimeSnapshot"),
+    ("get", "/setup/local-servers", None, "LocalServersSnapshot"),
+    ("post", "/setup/local-servers/connect", "LocalServerConnectRequest", "LocalServerConnection"),
+    ("get", "/local-runtime", None, "LocalModelRuntimeView"),
+    ("post", "/local-runtime/install", "LocalModelInstallRequest", "LocalModelRuntimeView"),
+    ("post", "/local-runtime/stop", None, "LocalModelRuntimeView"),
+    ("post", "/local-runtime/remove", "LocalModelRemoveRequest", "LocalModelRuntimeView"),
+    ("post", "/local-runtime/repair", None, "LocalModelRuntimeView"),
     ("post", "/setup/model-test", None, "ModelTestResult"),
     ("post", "/setup/provider-key/check", "ProviderKeyCheckRequest", "ProviderKeyCheck"),
     ("post", "/monitor/dream/review", "DreamRunRequest", "DreamRunReview"),
@@ -573,6 +605,15 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/queue", None, "ClientQueueView"),
     ("get", "/conversations/{conversation_id}/links", None, "ConversationLinkPage"),
     ("put", "/conversations/{conversation_id}/draft", "DraftSave", "DraftView"),
+    ("get", "/conversations/{conversation_id}/answer-state", None, "AnswerStateView"),
+    ("put", "/conversations/{conversation_id}/answer-state", "AnswerStateChange", "AnswerStateView"),
+    ("get", "/conversations/{conversation_id}/skill-offers", None, "SkillOfferPage"),
+    ("post", "/conversations/{conversation_id}/skill-offers/draft", "SkillDraftRequest", "SkillOfferPage"),
+    ("post", "/conversations/{conversation_id}/skill-offers/{offer_id}/dismiss", None, "SkillOfferPage"),
+    ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/draft", "SkillDemoDraftRequest", "SkillOfferPage"),
+    ("post", "/skills/{name}/try", None, "SkillTryResult"),
+    ("post", "/conversations/{conversation_id}/visual-page", "VisualPageRequest", "PageView"),
+    ("post", "/conversations/{conversation_id}/visual-frame", "VisualFrameRequest", "VisualFrame"),
     ("post", "/resources/commands", "Command", "CommandReceipt"),
     ("post", "/resources/folder-selection", None, "FolderGrantView"),
     ("post", "/resources/folder-selection/claim", "FolderGrantClaim", "FolderGrantView"),
@@ -694,15 +735,21 @@ function proofHeaders(proof?: SessionProof): Record<string, string> {
 }
 // Client pacing leaves headroom under the server's independently enforced
 // budgets. Pending work is bounded and abortable; no mutation is replayed.
-const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number; waiting:number}>>();
+const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number; waiting:number; queue:object[]}>>();
 async function pace(proof: SessionProof | undefined, path: string, method: string, signal?: AbortSignal, body?: unknown): Promise<void> {
   if (!proof) return;
   // An approval card reads what it asks about, a sent-files card what was
-  // sent and a video edit card its edit (every second while it runs): the
-  // person is looking at them, so they never wait behind background reads.
-  const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated))?(?:\?|$)/.test(path)
+  // sent and a video edit card its edit (every second while it runs), and a
+  // reply's ticks and sent choices are read as it is shown (and again before
+  // the person's tick is saved), a page card its page's title, the details
+  // card its chat's goal, Home's Review the posts scheduled to go out and
+  // the sidebar's Buddy card its status and look (R9): the person is looking
+  // at them, so they never wait behind background reads. (The server counts
+  // each of these as a view read too.)
+  const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated|answer-state|goals))?(?:\?|$)/.test(path)
     || /^\/approvals\/[^/?]+(?:\?|$)/.test(path)
-    || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?)(?:\?|$)/.test(path);
+    || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?|pages\/page-[0-9a-f]{8}|monitor\/scheduled-posts)(?:\?|$)/.test(path)
+    || method === 'GET' && /^(?:\/conversations\/[^/?]+)?\/buddy(?:\/packs(?:\/[^/?]+)?)?(?:\?|$)/.test(path);
   // Following a computer-use session (about once a second) is observation.
   const observation = path.startsWith('/events') || path.startsWith('/live') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
     || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);
@@ -726,8 +773,12 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   if (!lanes) { lanes = new Map(); budgets.set(proof, lanes); }
   const [capacity, rate] = lane === 'terminal' ? [200, 100] : lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
   let bucket = lanes.get(lane);
-  if (!bucket) { bucket = {tokens:capacity,at:performance.now(),waiting:0}; lanes.set(lane,bucket); }
+  if (!bucket) { bucket = {tokens:capacity,at:performance.now(),waiting:0,queue:[]}; lanes.set(lane,bucket); }
   if (bucket.waiting >= 128) throw {code:'rate_limited'};
+  // First come, first served: a request that is waiting is never overtaken by
+  // a newer one, so a card read can't starve behind a stream of fresh reads.
+  const turn = {};
+  bucket.queue.push(turn);
   bucket.waiting++;
   try {
     while (true) {
@@ -735,14 +786,15 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
       const now = performance.now();
       bucket.tokens = Math.min(capacity, bucket.tokens + Math.max(0, now - bucket.at) * rate / 1000);
       bucket.at = now;
-      if (bucket.tokens >= 1) { bucket.tokens--; return; }
+      const ahead = bucket.queue.indexOf(turn);
+      if (ahead === 0 && bucket.tokens >= 1) { bucket.tokens--; return; }
       await new Promise<void>((resolve,reject) => {
         const abort = () => { clearTimeout(timer); reject(new DOMException('Cancelled','AbortError')); };
-        const timer = setTimeout(() => { signal?.removeEventListener('abort',abort); resolve(); }, Math.ceil((1-bucket.tokens)*1000/rate));
+        const timer = setTimeout(() => { signal?.removeEventListener('abort',abort); resolve(); }, Math.max(1, Math.ceil((ahead+1-bucket.tokens)*1000/rate)));
         signal?.addEventListener('abort',abort,{once:true});
       });
     }
-  } finally { bucket.waiting--; }
+  } finally { bucket.waiting--; bucket.queue.splice(bucket.queue.indexOf(turn), 1); }
 }
 async function jsonRequest<T>(baseUrl: string, path: string, schema: string,
   proof?: SessionProof, method = 'GET', body?: unknown, key?: string, signal?: AbortSignal, keepalive = false): Promise<T> {
@@ -811,6 +863,29 @@ export const getSteering = (base: string, proof: SessionProof, conversation: str
   jsonRequest(base, `/conversations/${id(conversation)}/steering` + query({generation_id,cursor}), 'ParentSteeringView', proof, 'GET', undefined, undefined, signal);
 export const saveDraft = (base: string, proof: SessionProof, conversation: string, body: DraftSave, signal?: AbortSignal): Promise<DraftView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/draft`, 'DraftView', proof, 'PUT', body, undefined, signal);
+/** The person's ticks and sent choices on a chat's answer components (F3). */
+export const getAnswerState = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<AnswerStateView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/answer-state`, 'AnswerStateView', proof, 'GET', undefined, undefined, signal);
+export const saveAnswerState = (base: string, proof: SessionProof, conversation: string, body: AnswerStateChange, signal?: AbortSignal): Promise<AnswerStateView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/answer-state`, 'AnswerStateView', proof, 'PUT', body, undefined, signal);
+/** "Save as a skill" (C1): a chat's offers and drafts; drafting one; "Not now". */
+export const getSkillOffers = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<SkillOfferPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/skill-offers`, 'SkillOfferPage', proof, 'GET', undefined, undefined, signal);
+export const draftSkill = (base: string, proof: SessionProof, conversation: string, body: SkillDraftRequest, signal?: AbortSignal): Promise<SkillOfferPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/skill-offers/draft`, 'SkillOfferPage', proof, 'POST', body, undefined, signal);
+export const dismissSkillOffer = (base: string, proof: SessionProof, conversation: string, offer: string, signal?: AbortSignal): Promise<SkillOfferPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/skill-offers/${id(offer)}/dismiss`, 'SkillOfferPage', proof, 'POST', undefined, undefined, signal);
+/** Show Row-Bot how (C3): draft a skill from the steps the person showed; Try it opens a chat with it pinned. */
+export const draftDemoSkill = (base: string, proof: SessionProof, conversation: string, demo: string, body: SkillDemoDraftRequest, signal?: AbortSignal): Promise<SkillOfferPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo/${id(demo)}/draft`, 'SkillOfferPage', proof, 'POST', validateWire('SkillDemoDraftRequest', body), undefined, signal);
+export const trySkill = (base: string, proof: SessionProof, name: string, signal?: AbortSignal): Promise<SkillTryResult> =>
+  jsonRequest(base, `/skills/${id(name)}/try`, 'SkillTryResult', proof, 'POST', undefined, undefined, signal);
+/** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
+export const createVisualFrame = (base: string, proof: SessionProof, conversation: string, body: VisualFrameRequest, signal?: AbortSignal): Promise<VisualFrame> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/visual-frame`, 'VisualFrame', proof, 'POST', body, undefined, signal);
+/** The person's "Open as page" on a visual in a reply (F3). */
+export const createVisualPage = (base: string, proof: SessionProof, conversation: string, body: VisualPageRequest, signal?: AbortSignal): Promise<PageView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/visual-page`, 'PageView', proof, 'POST', body, undefined, signal);
 export const getResourceLibrary = (base: string, proof: SessionProof, kind: 'artifact'|'workspace', cursor?: string, signal?: AbortSignal): Promise<ResourceChoicePage> =>
   jsonRequest(base, `/resources/library/${kind}` + query({cursor}), 'ResourceChoicePage', proof, 'GET', undefined, undefined, signal);
 export const getDeckSetup = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<DeckSetupOptions> =>
@@ -907,6 +982,32 @@ export const getWaits = (base: string, proof: SessionProof, signal?: AbortSignal
   jsonRequest(base, '/waits', 'WaitPage', proof, 'GET', undefined, undefined, signal);
 export const stopWait = (base: string, proof: SessionProof, wait: string, signal?: AbortSignal): Promise<WaitPage> =>
   jsonRequest(base, `/waits/${id(wait)}/stop`, 'WaitPage', proof, 'POST', undefined, undefined, signal);
+/** The watch card's Pause, Resume, Check now and Extend; /watch with no model call (B4). */
+export const controlWatch = (base: string, proof: SessionProof, wait: string, body: WatchControl, signal?: AbortSignal): Promise<WaitPage> =>
+  jsonRequest(base, `/waits/${id(wait)}/control`, 'WaitPage', proof, 'POST', validateWire('WatchControl', body), undefined, signal);
+export const setWatch = (base: string, proof: SessionProof, conversation: string, body: WatchCreate, signal?: AbortSignal): Promise<WaitPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/watches`, 'WaitPage', proof, 'POST', validateWire('WatchCreate', body), undefined, signal);
+/** The activity log (D1): every tool action, its outcome and who decided; its CSV and the person's Clear. */
+export type ActivityFilters = {before?: number; limit?: number; surface?: ActivityExportRequest['surface']; outcome?: ActivityExportRequest['outcome']; conversation?: string; q?: string};
+export const getActivity = (base: string, proof: SessionProof, filters: ActivityFilters = {}, signal?: AbortSignal): Promise<ActivityPage> =>
+  jsonRequest(base, '/activity' + query({before: filters.before, limit: filters.limit, surface: filters.surface || undefined, outcome: filters.outcome || undefined, conversation: filters.conversation || undefined, q: filters.q || undefined}), 'ActivityPage', proof, 'GET', undefined, undefined, signal);
+export const getActivitySummary = (base: string, proof: SessionProof, since: number, signal?: AbortSignal): Promise<ActivitySummary> =>
+  jsonRequest(base, '/activity/summary' + query({since}), 'ActivitySummary', proof, 'GET', undefined, undefined, signal);
+export const exportActivity = (base: string, proof: SessionProof, body: ActivityExportRequest, signal?: AbortSignal): Promise<SaveOffer> =>
+  jsonRequest(base, '/activity/export', 'SaveOffer', proof, 'POST', validateWire('ActivityExportRequest', body), undefined, signal);
+export const clearActivity = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ActivityCleared> =>
+  jsonRequest(base, '/activity', 'ActivityCleared', proof, 'DELETE', undefined, undefined, signal);
+/** Always allow (D1): the person's standing rules, made only from a real card; "Would this have asked?". */
+export const getApprovalRules = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ApprovalRulePage> =>
+  jsonRequest(base, '/approval-rules', 'ApprovalRulePage', proof, 'GET', undefined, undefined, signal);
+export const createApprovalRule = (base: string, proof: SessionProof, body: ApprovalRuleCreate, signal?: AbortSignal): Promise<ApprovalRuleView> =>
+  jsonRequest(base, '/approval-rules', 'ApprovalRuleView', proof, 'POST', validateWire('ApprovalRuleCreate', body), undefined, signal);
+export const updateApprovalRule = (base: string, proof: SessionProof, rule: string, body: ApprovalRuleUpdate, signal?: AbortSignal): Promise<ApprovalRuleView> =>
+  jsonRequest(base, `/approval-rules/${id(rule)}`, 'ApprovalRuleView', proof, 'PUT', validateWire('ApprovalRuleUpdate', body), undefined, signal);
+export const deleteApprovalRule = (base: string, proof: SessionProof, rule: string, signal?: AbortSignal): Promise<ApprovalRulePage> =>
+  jsonRequest(base, `/approval-rules/${id(rule)}`, 'ApprovalRulePage', proof, 'DELETE', undefined, undefined, signal);
+export const dryRunApprovalRule = (base: string, proof: SessionProof, body: ApprovalRuleDryRunRequest, signal?: AbortSignal): Promise<ApprovalRuleDryRun> =>
+  jsonRequest(base, '/approval-rules/dry-run', 'ApprovalRuleDryRun', proof, 'POST', validateWire('ApprovalRuleDryRunRequest', body), undefined, signal);
 /** Proactive Row-Bot: For you, "Why this?", feedback, the Activity log, settings, rules and drafts. */
 export const getProactiveMoments = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ProactiveMomentPage> =>
   jsonRequest(base, '/proactive/moments', 'ProactiveMomentPage', proof, 'GET', undefined, undefined, signal);
@@ -1055,6 +1156,20 @@ export const sendOnboardingCommand = (base: string, proof: SessionProof, command
   jsonRequest(base, '/setup/onboarding/commands', 'OnboardingReceipt', proof, 'POST', validateWire('OnboardingCommand', command), command.command_id, signal);
 export const getLocalRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalRuntimeSnapshot> =>
   jsonRequest(base, '/setup/local-runtime', 'LocalRuntimeSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getLocalServers = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalServersSnapshot> =>
+  jsonRequest(base, '/setup/local-servers', 'LocalServersSnapshot', proof, 'GET', undefined, undefined, signal);
+export const connectLocalServer = (base: string, proof: SessionProof, body: LocalServerConnectRequest, signal?: AbortSignal): Promise<LocalServerConnection> =>
+  jsonRequest(base, '/setup/local-servers/connect', 'LocalServerConnection', proof, 'POST', validateWire('LocalServerConnectRequest', body), undefined, signal);
+export const getLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime', 'LocalModelRuntimeView', proof, 'GET', undefined, undefined, signal);
+export const installLocalModel = (base: string, proof: SessionProof, body: LocalModelInstallRequest, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime/install', 'LocalModelRuntimeView', proof, 'POST', validateWire('LocalModelInstallRequest', body), undefined, signal);
+export const stopLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime/stop', 'LocalModelRuntimeView', proof, 'POST', undefined, undefined, signal);
+export const removeLocalModelRuntime = (base: string, proof: SessionProof, body: LocalModelRemoveRequest, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime/remove', 'LocalModelRuntimeView', proof, 'POST', validateWire('LocalModelRemoveRequest', body), undefined, signal);
+export const repairLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime/repair', 'LocalModelRuntimeView', proof, 'POST', undefined, undefined, signal);
 export const testChosenModel = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ModelTestResult> =>
   jsonRequest(base, '/setup/model-test', 'ModelTestResult', proof, 'POST', undefined, undefined, signal);
 export const checkProviderKey = (base: string, proof: SessionProof, body: ProviderKeyCheckRequest, signal?: AbortSignal): Promise<ProviderKeyCheck> =>
@@ -1411,8 +1526,28 @@ export const sendBrowserInput = (base: string, proof: SessionProof, conversation
 /** The pane's controls: address bar, Back, Forward, Reload, tabs, Take control / Give back, Restart. */
 export const sendBrowserAction = (base: string, proof: SessionProof, conversation: string, body: BrowserPaneAction, signal?: AbortSignal): Promise<BrowserPaneState> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser/actions`, 'BrowserPaneState', proof, 'POST', validateWire('BrowserPaneAction', body), undefined, signal);
+/** Show Row-Bot how (C3): the person's steps in the pane, recorded in memory; Done, Undo, Discard, "always this". */
+export const getBrowserDemo = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<BrowserDemoPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo`, 'BrowserDemoPage', proof, 'GET', undefined, undefined, signal);
+export const startBrowserDemo = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<BrowserDemoPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo`, 'BrowserDemoPage', proof, 'POST', undefined, undefined, signal);
+export const controlBrowserDemo = (base: string, proof: SessionProof, conversation: string, demo: string, action: 'stop' | 'undo' | 'discard', signal?: AbortSignal): Promise<BrowserDemoPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo/${id(demo)}/${action}`, 'BrowserDemoPage', proof, 'POST', undefined, undefined, signal);
+/** One narration clip for a demo (audio, and when it started in the demo), transcribed on this computer only. */
+export async function sendBrowserDemoNarration(base: string, proof: SessionProof, conversation: string, demo: string, offset: number, audio: Blob, signal?: AbortSignal): Promise<BrowserDemoPage> {
+  if (!audio.size || audio.size > 67108864) throw new Error(audio.size ? 'payload_too_large' : 'empty_audio');
+  const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/browser/demo/${id(demo)}/narration` + query({offset: Math.max(0, Math.round(offset * 10) / 10)}), {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store', signal, body: audio,
+    headers: {...proofHeaders(proof), 'Content-Type': audio.type},
+  });
+  const value = await response.json();
+  if (!response.ok) throw validateWire<Problem>('Problem', value);
+  return validateWire<BrowserDemoPage>('BrowserDemoPage', value);
+}
+export const setBrowserDemoAlways =(base: string, proof: SessionProof, conversation: string, demo: string, step: number, body: BrowserDemoAlways, signal?: AbortSignal): Promise<BrowserDemoPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/browser/demo/${id(demo)}/steps/${step}/always`, 'BrowserDemoPage', proof, 'POST', validateWire('BrowserDemoAlways', body), undefined, signal);
 /** Sites with saved sign-ins in Row-Bot's browser. */
-export const getBrowserSites = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<BrowserSitePage> =>
+export const getBrowserSites =(base: string, proof: SessionProof, signal?: AbortSignal): Promise<BrowserSitePage> =>
   jsonRequest(base, '/browser/sites', 'BrowserSitePage', proof, 'GET', undefined, undefined, signal);
 /** Sign out of one site, or every site. */
 export const clearBrowserSites = (base: string, proof: SessionProof, body: BrowserSitesClear, signal?: AbortSignal): Promise<BrowserSitesCleared> =>
@@ -2157,7 +2292,7 @@ def outputs() -> dict[Path, str]:
             if suffix.endswith("/entities"):
                 query_parameters += [
                     ("status", False, {"type": "string", "enum": ["active", "needs_review", "superseded", "archived"]}),
-                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "other"]}),
+                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "import", "other"]}),
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
         elif suffix == "/knowledge/review/overview":

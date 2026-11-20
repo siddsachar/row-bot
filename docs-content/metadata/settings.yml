@@ -85,6 +85,15 @@ pages:
     screenshot_id: settings-system
     security: Filesystem, shell, browser, and Computer Use controls can widen local
       access.
+  activity:
+    description: See every action Row-Bot took with a tool, its outcome and who allowed
+      it; filter it, export it as CSV, or clear it. Switch, edit or delete your Always
+      allow rules.
+    docs_route: /docs/privacy-safety/
+    security: The log stays on this computer for 90 days; summaries leave out what
+      tools read, and incognito chats show no words. Only you can clear it. A rule
+      starts only from an approval card, never covers sending, deleting, paying or
+      anything only you approve, and never applies in a chat other people share.
   access:
     description: Connect a phone or computer, review signed-in devices, and choose
       network access or a public link.

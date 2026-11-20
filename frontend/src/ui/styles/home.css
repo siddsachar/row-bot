@@ -636,6 +636,27 @@
 .overview-setup .overview-row-meta {
   white-space: normal;
 }
+/* The phone's one-time notifications offer: icon, question, then its two
+   answers under it, so the words get the phone's whole width. */
+.overview-notify {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px 12px;
+  padding: 14px 14px 12px;
+}
+.overview-notify .overview-row-text {
+  gap: 3px;
+}
+.overview-notify .overview-row-title,
+.overview-notify .overview-row-meta {
+  white-space: normal;
+}
+.overview-notify-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .overview-setup-error {
   grid-column: 1 / -1;
   margin: 0;
@@ -4061,6 +4082,24 @@
 }
 
 /* Monitor when everything passes: one line, details on request (U38). */
+/* The activity log's line (D1): today's count, and the way to the whole list. */
+.monitor-activity-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 8px 4px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.monitor-activity-line > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-primary);
+}
 .monitor-all-good {
   display: flex;
   align-items: center;
