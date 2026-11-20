@@ -440,6 +440,7 @@ _STATUS.update(
         "learning_change_refused": 409,
         "learning_change_busy": 409,
         "learning_method_changed": 409,
+        "learning_question_changed": 409,
         "learning_hugging_face_unavailable": 409,
         "learning_hugging_face_unreachable": 503,
         "learning_hugging_face_refused": 409,

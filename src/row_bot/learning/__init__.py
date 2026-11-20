@@ -26,6 +26,11 @@ Settings live in ``learning_config.json`` in the data folder::
      "starting_model": "qwen3.5-9b", "model_download": "not_asked",
      "hugging_face": {"model": "", "monthly_cap_usd": 0, "runs_confirmed": false}}
 
+**The monthly token limit** (``spending.py``) is a whole number of tokens up to
+:data:`MAX_MONTHLY_TOKEN_LIMIT` (0: no Learning model calls), or ``null`` for no limit, which only
+the person's own choice saves. A limit that is missing or can't be read is the default; a build
+before no limit existed reads ``null`` as the default too.
+
 **Training on Hugging Face** (C1, O130-O134): ``hugging_face.model`` is the model it trains there (empty: the
 strongest certified one this computer can run, ``training/catalog.py``); ``monthly_cap_usd`` the spend cap the
 person chose with the first run's quote (0: not chosen yet, so nothing runs on its own); ``runs_confirmed``
@@ -97,7 +102,8 @@ class LearningSettings:
     workflows_and_goals: bool = True
     past_chats: bool = True
     apply_mode: str = "ask_first"
-    monthly_token_limit: int = DEFAULT_MONTHLY_TOKEN_LIMIT
+    # Tokens a month for Learning's own model calls; None: no limit (its spending still counts and shows).
+    monthly_token_limit: int | None = DEFAULT_MONTHLY_TOKEN_LIMIT
     train_in_quiet_hours: bool = True
     train_where: str = "this_computer"
     paused: bool = False
@@ -118,6 +124,35 @@ def preview_enabled() -> bool:
     """Whether this build was started with Learning's preview flag (O34)."""
 
     return _PREVIEW
+
+
+# L4b's switches, one per part, both off unless this build is started with them (and the preview flag): practice
+# changes the training mix and the tests, so whether it reaches someone's preview is decided apart from the code.
+PRACTICE_ENV = "ROW_BOT_LEARNING_PRACTICE"
+QUICK_QUESTION_ENV = "ROW_BOT_LEARNING_QUICK_QUESTION"
+
+
+def practice_enabled() -> bool:
+    """Whether this build makes practice tasks and uses them in tests, trials and training data (L4b)."""
+
+    return _PREVIEW and os.environ.get(PRACTICE_ENV, "").strip() == "1"
+
+
+def quick_question_enabled() -> bool:
+    """Whether this build may ask the person a quick question (L4b)."""
+
+    return _PREVIEW and os.environ.get(QUICK_QUESTION_ENV, "").strip() == "1"
+
+
+# L4c: whether the personal model may take over Learning's own jobs (who does a job changes the improver: a paper
+# decision, so it is decided apart from the code).
+JOBS_ENV = "ROW_BOT_LEARNING_JOBS"
+
+
+def jobs_enabled() -> bool:
+    """Whether this build lets the personal model qualify for and take over Learning's drafting and practice."""
+
+    return _PREVIEW and os.environ.get(JOBS_ENV, "").strip() == "1"
 
 
 DEFAULTS = LearningSettings()
@@ -177,8 +212,8 @@ def _normalise(document: Any) -> LearningSettings:
     starting_model = document.get("starting_model")
     model_download = document.get("model_download")
     serve_runtime = document.get("serve_runtime")
-    limit = document.get("monthly_token_limit")
-    if type(limit) is not int or not 0 <= limit <= MAX_MONTHLY_TOKEN_LIMIT:
+    limit = document.get("monthly_token_limit", DEFAULT_MONTHLY_TOKEN_LIMIT)
+    if limit is not None and (type(limit) is not int or not 0 <= limit <= MAX_MONTHLY_TOKEN_LIMIT):
         limit = DEFAULT_MONTHLY_TOKEN_LIMIT
     paused = document.get("paused", False)
     hugging = document.get("hugging_face")
@@ -542,11 +577,14 @@ __all__ = [
     "DEFAULTS",
     "DEFAULT_MONTHLY_TOKEN_LIMIT",
     "FOLDER",
+    "JOBS_ENV",
     "LearningSettings",
     "MAX_MONTHLY_TOKEN_LIMIT",
     "MODELS_FOLDER",
     "MODEL_DOWNLOADS",
+    "PRACTICE_ENV",
     "PREVIEW_ENV",
+    "QUICK_QUESTION_ENV",
     "SERVE_RUNTIMES",
     "SETTINGS_FILE",
     "STARTING_MODELS",
@@ -558,10 +596,13 @@ __all__ = [
     "folder_path",
     "invalidate",
     "is_enabled",
+    "jobs_enabled",
     "note_channel_sender",
     "note_retry",
     "offered_personal_models",
+    "practice_enabled",
     "preview_enabled",
+    "quick_question_enabled",
     "read_settings",
     "route_turn",
     "settings_path",

@@ -565,6 +565,7 @@ def test_sitemap_source_includes_marketing_pages_without_shadow_copies() -> None
     for url in (
         "https://row-bot.ai/features.html",
         "https://row-bot.ai/architecture.html",
+        "https://row-bot.ai/research.html",
         "https://row-bot.ai/contact.html",
     ):
         assert url in config

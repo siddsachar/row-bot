@@ -35,22 +35,23 @@ import { CancelDownload, downloadView } from './PersonalModelDownload';
 import { HuggingFaceSignIn } from './HuggingFace';
 import { OTHER_MODELS_WORDS, OtherModels } from './OtherModels';
 import { StartingModelSheet } from './StartingModelSheet';
+import { MonthlyLimitPicker } from './MonthlyLimit';
 import {
   HF_ACCESS,
   limitMeaning,
-  limitOptions,
   moneyWords,
   percentWords,
   pictureWords,
   quietHoursWords,
   sizeWords,
+  spendingWords,
   tokenWords,
 } from './words';
 import { usePhone } from './use-phone';
 import './learning.css';
 
 const TURN_OFF_WORDS =
-  'Row-Bot stops recording, testing and training. Changes and models in use stay in use (undo them in Learning). Your learning data is kept until you delete it.';
+  'Row-Bot stops recording, testing and training. Changes and models in use stay in use: to take one out, undo it in Learning first, or turn Learning on again later. Your learning data is kept until you delete it.';
 
 /** "Create skills while chatting": the same setting as Preferences' old "Learn new skills" (D29). */
 function SkillsWhileChatting({
@@ -473,9 +474,7 @@ export default function LearningSettings({
       {sheets}
       <SettingsStatus
         tone={paused ? 'neutral' : 'success'}
-        more={[
-          `${tokenWords(spending.used_tokens)} of ${tokenWords(spending.limit_tokens)} tokens this month`,
-        ]}
+        more={[spendingWords(spending)]}
       >
         {paused ? 'Learning paused' : 'Learning on'}
       </SettingsStatus>
@@ -592,29 +591,29 @@ export default function LearningSettings({
           row={{
             status: (
               <StatusLine tone={spending.limit_reached ? 'warning' : undefined}>
-                {tokenWords(spending.used_tokens)} of{' '}
-                {tokenWords(spending.limit_tokens)} tokens used this month
+                {spendingWords(spending, 'used this month')}
               </StatusLine>
             ),
           }}
+          confirm={(value) =>
+            value === null
+              ? "With no limit, nothing caps what Learning spends each month, comparing methods included: it can use as many of your default model's tokens as it needs. What it spends still shows here each month."
+              : ''
+          }
           savedMessage={(value) =>
-            Number(value) === 0
-              ? 'Learning makes no model calls now'
-              : `Monthly limit set to ${tokenWords(Number(value))} tokens`
+            value === null
+              ? 'Learning has no monthly limit now'
+              : Number(value) === 0
+                ? 'Learning makes no model calls now'
+                : `Monthly limit set to ${tokenWords(Number(value))} tokens`
           }
         >
           {({ value, setValue, disabled }) => (
-            <Select
-              value={String(value)}
+            <MonthlyLimitPicker
+              value={typeof value === 'number' ? value : null}
               disabled={disabled}
-              onChange={(event) => setValue(Number(event.target.value))}
-            >
-              {limitOptions(Number(value)).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+              onChange={setValue}
+            />
           )}
         </SavedSetting>
         <SettingsItem

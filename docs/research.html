@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>document.documentElement.classList.add('js');</script>
+    <title>Research &mdash; Row-Bot</title>
+    <meta name="description" content="Row-Bot Research: pre-registered, reproducible studies of local-first AI agents, with every result reported.">
+    <link rel="canonical" href="https://row-bot.ai/research.html">
+    <meta name="theme-color" content="#080b0f">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://row-bot.ai/research.html">
+    <meta property="og:title" content="Row-Bot Research">
+    <meta property="og:description" content="Pre-registered, reproducible studies of local-first AI agents, with every result reported.">
+    <meta property="og:image" content="https://row-bot.ai/row_bot_preview.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Row-Bot Research">
+    <meta name="twitter:description" content="Pre-registered, reproducible studies of local-first AI agents, with every result reported.">
+    <meta name="twitter:image" content="https://row-bot.ai/row_bot_preview.png">
+    <link rel="icon" href="favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="site.css?v=5.3.4-r1">
+    <script src="site.js?v=5.3.4-r1" defer></script>
+    <style>
+        .research-page .site-nav { height: auto; padding: 0; }
+        .research-page main { width: 100%; max-width: none; margin: 0; padding: 0; }
+        .research-section { padding: clamp(4rem, 7vw, 6rem) 0; border-bottom: 1px solid var(--line); }
+        .research-section .section-head { margin-bottom: 2rem; }
+        .research-section .section-head h2 { margin: 0 0 0.6rem; font-family: var(--serif); font-size: clamp(2.4rem, 4vw, 3.6rem); font-weight: 400; line-height: 1; }
+        .research-section .section-head p { max-width: 760px; margin: 0; color: var(--text-soft); }
+        .principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 0; padding: 0; list-style: none; }
+        .principles li, .study { padding: 1.35rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+        .principles h3, .study h3 { margin: 0 0 0.45rem; font-size: 1.02rem; }
+        .principles p, .study p { margin: 0; color: var(--text-soft); font-size: 0.9rem; }
+        .studies { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; }
+        .study__status { display: inline-block; margin-bottom: 0.6rem; color: var(--steel-bright); font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; }
+        .study p + p { margin-top: 0.5rem; }
+        .research-page .link-stack { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 1.4rem; }
+        @media (max-width: 900px) { .principles { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body class="research-page">
+    <div class="site-progress" aria-hidden="true"></div>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <nav class="site-nav" aria-label="Primary navigation">
+        <div class="site-nav__inner shell">
+            <a class="wordmark" href="index.html" aria-label="Row-Bot home">
+                <img src="row_bot_glyph_256.png" width="256" height="256" alt="">
+                <strong>Row-Bot</strong>
+                <small>formerly Thoth</small>
+            </a>
+            <button class="nav-hamburger" type="button" aria-controls="nav-menu" aria-expanded="false" aria-label="Open navigation"><span></span></button>
+            <div class="nav-menu" id="nav-menu">
+                <a href="features.html">Features</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="docs/">Docs</a>
+                <a href="contact.html">Contact</a>
+                <a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a class="nav-download" href="index.html#install" data-os-primary data-os-label="short" data-placement="navigation">Desktop install</a>
+            </div>
+        </div>
+    </nav>
+
+    <main id="main">
+        <header class="page-hero page-hero--visual research-page-hero">
+            <div class="shell page-hero__grid">
+                <div class="page-hero__content">
+                    <a class="release-pill" href="https://gist.github.com/siddsachar/dd32427a86fe19b7fbc19b1c486402db" target="_blank" rel="noopener noreferrer">Pre-registrations &middot; public hashes</a>
+                    <p class="eyebrow">Row-Bot Research</p>
+                    <h1>How personal agents <em>learn.</em></h1>
+                    <p class="page-hero__copy">Studies of local-first AI agents: how an agent improves from the work it does, what it should remember, and what runs well on your own computer. Each study is fixed in advance, and every result is reported.</p>
+                </div>
+                <div class="page-hero-art page-hero-art--glyph" aria-label="Row-Bot project mark">
+                    <i class="page-hero-art__ring"></i>
+                    <i class="page-hero-art__ring page-hero-art__ring--inner"></i>
+                    <img src="row_bot_glyph_256.png" width="256" height="256" alt="">
+                </div>
+            </div>
+        </header>
+
+        <section class="research-section" id="how-we-work" aria-labelledby="how-we-work-title">
+            <div class="shell">
+                <div class="section-head">
+                    <h2 id="how-we-work-title">How we work</h2>
+                    <p>The rules every Row-Bot Research study follows. They hold whether or not a result favours Row-Bot.</p>
+                </div>
+                <ul class="principles">
+                    <li>
+                        <h3>Fixed in advance</h3>
+                        <p>Confirmatory studies are written down before they run, and their SHA-256 hash is made public. Any later change is a dated amendment, never an edit.</p>
+                    </li>
+                    <li>
+                        <h3>Every result reported</h3>
+                        <p>Null and negative results are reported in full, and so are runs that could not be made. Nothing is left out because it makes Row-Bot look worse.</p>
+                    </li>
+                    <li>
+                        <h3>Reproducible</h3>
+                        <p>Each paper names the exact code commits, scripts and hashes behind its numbers, and publishes the aggregate reports.</p>
+                    </li>
+                    <li>
+                        <h3>No personal data</h3>
+                        <p>Studies use seeded, simulated people and public tasks. A study on one person's real work publishes aggregates only, never their conversations or files.</p>
+                    </li>
+                    <li>
+                        <h3>Interests declared</h3>
+                        <p>The researcher builds Row-Bot. Every paper that studies Row-Bot says so in a competing-interests statement.</p>
+                    </li>
+                    <li>
+                        <h3>AI assistance disclosed</h3>
+                        <p>Code, analysis and drafts are written with AI coding agents under the researcher's direction. No AI system is listed as an author; the human author is responsible for every claim. Errors are corrected with a dated note.</p>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="research-section" id="studies" aria-labelledby="studies-title">
+            <div class="shell">
+                <div class="section-head">
+                    <h2 id="studies-title">Studies</h2>
+                    <p>Work in progress. The <a href="https://gist.github.com/siddsachar/dd32427a86fe19b7fbc19b1c486402db" target="_blank" rel="noopener noreferrer">pre-registration hashes</a> are public; papers and data are added here as they are published.</p>
+                </div>
+                <ul class="studies">
+                    <li class="study">
+                        <span class="study__status">Paper in preparation</span>
+                        <h3>How much does a local agent learn from a frontier model?</h3>
+                        <p>A pre-registered distillation study with seeded people, a pre-registered replication at a 64K context, and a field test on one person's work.</p>
+                        <p>Three pre-registrations, each with its hash published before it ran.</p>
+                    </li>
+                    <li class="study">
+                        <span class="study__status">Study in progress</span>
+                        <h3>Is it the contracts or the parallelism?</h3>
+                        <p>A pre-registered study of what makes graph-parallel agent plans work: the contracts between steps, or running steps at once.</p>
+                    </li>
+                    <li class="study">
+                        <span class="study__status">Study in progress</span>
+                        <h3>Stale skills</h3>
+                        <p>What happens when an agent's learned skills and memories go out of date, and how it should notice.</p>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="research-section" id="people" aria-labelledby="people-title">
+            <div class="shell">
+                <div class="section-head">
+                    <h2 id="people-title">Who we are</h2>
+                    <p>Row-Bot Research is one independent researcher, Siddharth Sachar, working with AI coding agents. It is part of the Row-Bot project.</p>
+                </div>
+                <div class="link-stack">
+                    <a class="button button--secondary" href="mailto:syd@row-bot.ai?subject=Row-Bot%20Research">syd@row-bot.ai</a>
+                    <a class="button button--secondary" href="https://orcid.org/0009-0008-2237-5520" target="_blank" rel="noopener noreferrer" title="ORCID 0009-0008-2237-5520">ORCID</a>
+                    <a class="button button--secondary" href="https://gist.github.com/siddsachar/dd32427a86fe19b7fbc19b1c486402db" target="_blank" rel="noopener noreferrer">Pre-registrations</a>
+                    <a class="button button--secondary" href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">Code on GitHub</a>
+                    <a class="button button--secondary" href="https://github.com/row-bot-research" target="_blank" rel="noopener noreferrer">GitHub organisation</a>
+                    <a class="button button--secondary" href="https://zenodo.org/communities/row-bot-research" target="_blank" rel="noopener noreferrer">Zenodo community</a>
+                    <a class="button button--secondary" href="https://huggingface.co/row-bot-research" target="_blank" rel="noopener noreferrer">Hugging Face</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="shell footer-grid">
+            <span>Row-Bot &middot; v5.3.4 &middot; Apache 2.0</span>
+            <div class="footer-links">
+                <a href="index.html">Home</a>
+                <a href="features.html">Features</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="docs/">Docs</a>
+                <a href="index.html#privacy">Privacy</a>
+                <a href="index.html#comparison">Compare</a>
+                <a href="research.html" aria-current="page">Research</a>
+                <a href="contact.html">Contact</a>
+                <a href="https://sydsachar.com/category/row-bot/" target="_blank" rel="noopener noreferrer">Blog</a>
+                <a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

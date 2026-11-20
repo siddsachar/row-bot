@@ -283,7 +283,6 @@ class PersonRun:
             raise ScratchError("Start the run with ROW_BOT_LEARNING_PREVIEW=1.")
         self.sign_in = SignIn(Path(self.args.eval_profile))
         self.sign_in.install()
-        from row_bot import models
         from row_bot.providers import codex
         from tests.e2e.live_eval import eval_profile
 
@@ -292,7 +291,7 @@ class PersonRun:
             model = eval_profile.choose_model([item.model_id for item in codex.fetch_codex_model_infos()])
             self.state.data["model"] = model
         self.main_ref = f"model:codex:{model}"
-        models.adopt_saved_default(self.main_ref)
+        use_main_model(self.data, self.main_ref)
         self._tools()
         # Which build of Row-Bot ran which days (a run that goes on after an update says so).
         builds = self.state.data.setdefault("builds", [])
@@ -1530,6 +1529,19 @@ class PersonRun:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def use_main_model(data: Path, model_ref: str) -> None:
+    """The person's main model as their saved default chat model, as choosing it does (first run's
+    ``choose_model``): Learning's night work reads the saved default (``routing.main_model_ref``), not the
+    runtime's in-memory choice, so its tests, practice and jobs run on it through the real runtime."""
+
+    from row_bot import models
+    from row_bot.providers import saved_model_settings
+
+    saved_model_settings.update_saved_model_settings(lambda raw: {**raw, "model": model_ref},
+                                                     path=Path(data) / "model_settings.json")
+    models.adopt_saved_default(model_ref)
 
 
 def _build() -> str:

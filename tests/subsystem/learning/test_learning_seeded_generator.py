@@ -196,6 +196,9 @@ def test_the_past_goes_through_the_past_chat_import_as_partial_history(learning_
         def messages(self, thread_id):
             return list(self.saved[thread_id][1])
 
+        def fork_source(self, thread_id):
+            return ""
+
         def window_start(self, thread_id, since, created_at):
             return 0, created_at
 

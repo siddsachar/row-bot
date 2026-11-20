@@ -35,7 +35,7 @@ SITE_LINUX_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/"
     "installer/install-linux.sh | bash -s -- 5.3.4"
 )
-MARKETING_PAGES = ("index.html", "features.html", "architecture.html", "contact.html", "404.html")
+MARKETING_PAGES = ("index.html", "features.html", "architecture.html", "research.html", "contact.html", "404.html")
 
 
 class LandingPageParser(HTMLParser):
@@ -258,6 +258,7 @@ def test_marketing_navigation_and_footers_share_one_contract() -> None:
         "docs/",
         "index.html#privacy",
         "index.html#comparison",
+        "research.html",
         "contact.html",
         "https://sydsachar.com/category/row-bot/",
         "https://github.com/siddsachar/row-bot",
