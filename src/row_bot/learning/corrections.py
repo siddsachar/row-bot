@@ -197,6 +197,18 @@ def is_row_bot_note(message: Any) -> bool:
     return bool(_kwargs(message).get(_NOTE_KEY))
 
 
+def is_row_bot_prompt(message: Any) -> bool:
+    """Whether a human-role message started work Row-Bot set itself (``platform_note``: its carry-on, a goal's
+    next step or a file check, a message linked from another chat, a page's decisions, a delegated agent's
+    task) or is an event it added: the same messages Capture never takes as the person's, so the person's
+    words read past them."""
+
+    kwargs = _kwargs(message)
+    ui = kwargs.get("row_bot_ui")
+    return bool(kwargs.get("platform_note") or kwargs.get("row_bot_internal_event")
+                or (isinstance(ui, Mapping) and ui.get("thread_event")))
+
+
 def _content_text(content: Any) -> str:
     if isinstance(content, str):
         text = content
@@ -212,14 +224,14 @@ def _content_text(content: Any) -> str:
 def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool]]:
     """Each message the person sent in a captured request: (where it is, its text, whether they sent it while
     the turn worked). Human messages without Row-Bot's turn context (its own message, or a block it
-    appended), its notes or the page's picture after an action."""
+    appended), its notes, its prompts (``is_row_bot_prompt``) or the page's picture after an action."""
 
     from row_bot.learning.pictures import is_page_picture
 
     found: list[tuple[int, str, bool]] = []
     for index, item in enumerate((request or {}).get("messages") or ()):
         if (not isinstance(item, Mapping) or item.get("type") != "human" or is_row_bot_note(item)
-                or is_page_picture(item)):
+                or is_row_bot_prompt(item) or is_page_picture(item)):
             continue
         kwargs = _kwargs(item)
         if kwargs.get(_TURN_CONTEXT_KEY):
@@ -246,7 +258,8 @@ def person_text(request: Mapping[str, Any] | None) -> str:
 
 def opening_texts(request: Mapping[str, Any] | None) -> list[str]:
     """What the person sent that a captured request's work starts from, in the order they sent it: their
-    messages since its last reply (their newest when there are none since).
+    messages since its last reply (their newest when there are none since: work Row-Bot carried on itself
+    continues that request).
 
     A message they sent while the turn worked (5.3.1, read at its next step) comes after the one the turn
     started with. When the request's work starts with such messages (the steps after one), it starts with
@@ -551,6 +564,7 @@ __all__ = [
     "corrected_decisions",
     "first_call",
     "is_row_bot_note",
+    "is_row_bot_prompt",
     "judge",
     "opening_texts",
     "person_text",

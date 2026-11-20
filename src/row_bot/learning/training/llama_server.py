@@ -70,6 +70,9 @@ SERVER_IDLE_SECONDS = 60.0
 CHECK_EVERY_SECONDS = 5.0
 START_SECONDS = 60.0
 LOAD_SECONDS = 600.0
+# How long a model may stay unloaded after Row-Bot asked for it before it asks again: a server still
+# unloading another model refuses the load ("model limit reached") and leaves this one unloaded.
+LOAD_RETRY_SECONDS = 2.0
 # A server that doesn't answer its health check this many times in a row is ended.
 MISSED_HEALTH = 3
 PROMPT_CACHE_MIB = 2048  # per loaded model, in the computer's memory
@@ -616,12 +619,17 @@ class ManagedServer:
         if not any(entry.name == name for entry in self.models()):
             raise ServerError("unknown_model")
         base = f"http://127.0.0.1:{connection.port}"
-        try:
-            self._http.request("POST", f"{base}/models/load", key=connection.api_key, body={"model": name},
-                               timeout=30.0)
-        except Exception:  # noqa: BLE001 - its status says what happened
-            pass
-        deadline = self._clock() + timeout
+
+        def ask() -> float:
+            try:
+                self._http.request("POST", f"{base}/models/load", key=connection.api_key,
+                                   body={"model": name}, timeout=30.0)
+            except Exception:  # noqa: BLE001 - its status says what happened
+                pass
+            return self._clock()
+
+        asked = ask()
+        deadline = asked + timeout
         while True:
             status = self.model_status(name)
             if status == "loaded":
@@ -631,6 +639,8 @@ class ManagedServer:
                 raise ServerError("crashed")
             if status == "failed" or self._clock() > deadline:
                 raise ServerError("load_failed")
+            if status == "unloaded" and self._clock() - asked >= LOAD_RETRY_SECONDS:
+                asked = ask()  # refused while another model was unloading: it isn't loading
             time.sleep(0.25)
 
     def model_status(self, name: str) -> str | None:

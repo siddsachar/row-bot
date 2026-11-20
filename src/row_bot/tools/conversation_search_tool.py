@@ -269,7 +269,8 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
         threads_scanned += 1
         found_alone, found_paired = _matches_in(messages, keywords)
         if found_alone or found_paired:
-            seen = {"thread": name, "date": (updated_at or "")[:10], "fenced": _others_may_have_written(tid)}
+            seen = {"thread": name, "date": (updated_at or "")[:10], "fenced": _others_may_have_written(tid),
+                    "tid": tid}
             singles += [{**seen, "messages": msgs} for msgs in found_alone]
             pairs += [{**seen, "messages": msgs} for msgs in found_paired]
         elif not singles and not pairs and messages:
@@ -282,7 +283,7 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
     if not matches:
         matches = _closest_in(scanned, keywords, max_results)
         for match in matches:
-            match["fenced"] = _others_may_have_written(match.pop("tid"))
+            match["fenced"] = _others_may_have_written(match["tid"])
         closest = bool(matches)
     if not matches:
         return (
@@ -302,6 +303,10 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
         part = _render(len(parts) + 1, match, keywords, room, message_cap)
         used += gap + len(part)
         parts.append(part)
+    # The chats the shown matches quote, kept with the result for Learning (never shown to the model).
+    from row_bot.tool_outputs import note_quoted_conversations
+
+    note_quoted_conversations(match["tid"] for match in matches[:len(parts)])
 
     header = (
         f"No message holds every keyword of '{query}'. The {len(matches)} closest (most keywords first) "

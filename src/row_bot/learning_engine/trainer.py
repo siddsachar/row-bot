@@ -707,6 +707,15 @@ def fit_main(writer: Any, options: dict[str, str]) -> int:
                 times.append(now - self.last)
                 self.last = now
 
+            def on_log(self, args, state, control, logs=None, **kwargs):
+                # C1 Part 4: a model's check reads each step's loss and gradient norm.
+                if logs and "loss" in logs:
+                    losses.append(float(logs["loss"]))
+                    if "grad_norm" in logs:
+                        grad_norms.append(float(logs["grad_norm"]))
+
+        losses: list[float] = []
+        grad_norms: list[float] = []
         config = SFTConfig(
             output_dir=str(Path(options["out"]).with_suffix(".runs")), per_device_train_batch_size=1,
             gradient_accumulation_steps=settings["gradient_accumulation"], learning_rate=settings["learning_rate"],
@@ -721,6 +730,9 @@ def fit_main(writer: Any, options: dict[str, str]) -> int:
         trainer.train()
         steady = times[2:] if len(times) > 3 else times
         result.update(_peak(torch))
+        result["losses"], result["grad_norms"] = losses, grad_norms
+        if options.get("adapter_out"):  # the trial's adapter, for the check's export
+            model.save_pretrained(options["adapter_out"])
         result["step_seconds_median"] = round(statistics.median(steady), 2) if steady else None
         result["seconds_per_row"] = (round(result["step_seconds_median"] / settings["gradient_accumulation"], 2)
                                      if result["step_seconds_median"] else None)

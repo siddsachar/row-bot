@@ -6684,6 +6684,122 @@ def l4a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     return {"action": action}
 
 
+def _l4b_night() -> None:
+    import json as _json
+    from datetime import date
+
+    from row_bot.learning import changes, diagnosis, practice
+    from row_bot.learning.store import LearningStore
+
+    store = LearningStore()
+    night = date.today().isoformat()
+    diagnosis._save(store, diagnosis.NightReport(night, found=2, drafted=1, needs_examples=1))
+    store.set_meta_values({changes.NIGHT_KEY: _json.dumps(changes.NightTests(night, tested=1, ready=1).to_dict())})
+    practice._note(store, {"night": night, "state": "done", "issues": 2, "asked": 12, "made": 12, "ran": 12,
+                           "passed": 9, "by_kind": {"document_lookups": [12, 9]}, "unreadable": 0, "unverifiable": 0,
+                           "repeats": 0, "not_novel": 0, "coding_left_out": 0, "needs_container": 1, "tokens": 0})
+
+
+def _l4b_question() -> None:
+    import json as _json
+    import time as _time
+
+    from row_bot.learning import question
+    from row_bot.learning.store import LearningStore
+
+    LearningStore().set_meta_values({question.OPEN_KEY: _json.dumps({
+        "id": "qq_l4b", "issue": "document_lookups:corrected", "kind": "document_lookups",
+        "question": "When two files share a name, which should I open?", "answers": ["The newest", "Ask me"],
+        "asked_at": _time.time()})})
+
+
+def _l4b_restore() -> None:
+    import os as _os
+
+    from row_bot import learning
+    from row_bot.learning import practice, question
+    from row_bot.learning.store import LearningStore
+
+    _os.environ.pop(learning.PRACTICE_ENV, None)
+    _os.environ.pop(learning.QUICK_QUESTION_ENV, None)
+    store = LearningStore()
+    if store.exists():
+        store.set_meta_values({practice.NIGHT_KEY: "", question.OPEN_KEY: "", question.ANSWERS_KEY: "",
+                               question.DONE_KEY: ""})
+
+
+@app.post("/__l4b_fixture/learning/{action}")
+def l4b_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L4b spec: a build with practice and the quick question on, a night that practised,
+    and a quick question waiting. Nothing reaches a model: the night and the question are written directly."""
+    import os as _os
+
+    from row_bot import learning
+
+    predecessor._authorize(x_fixture_token)
+    if action == "on":
+        _os.environ[learning.PRACTICE_ENV] = "1"
+        _os.environ[learning.QUICK_QUESTION_ENV] = "1"
+    elif action == "practised":
+        _l4b_night()
+    elif action == "question":
+        _l4b_question()
+    elif action == "restore":
+        _l4b_restore()
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
+def _l4c_jobs() -> None:
+    import json as _json
+    import time as _time
+
+    from row_bot.learning.improver import jobs
+    from row_bot.learning.store import LearningStore
+
+    now = _time.time()
+    test = {"job": "drafting", "version": 3, "model_ref": "model:ollama:row-bot-personal-v3", "at": now - 6 * 3600,
+            "items": 24, "personal_passed": 22, "main_passed": 23, "asked": 24, "personal_tokens": 140_000,
+            "main_tokens": 150_000, "personal_seconds": 420.0, "verdict": "qualified"}
+    practice = {**test, "job": "practice", "asked": 40, "personal_passed": 28, "main_passed": 36,
+                "verdict": "not_matched"}
+    state = {
+        "drafting": {"by": "personal", "version": 3, "model_ref": test["model_ref"], "since": now - 6 * 3600,
+                     "reason": "", "last": test, "history": [{"at": now - 6 * 3600, "event": "took_over"}],
+                     "usage": {"month": jobs.month_key(now), "tokens": 120_000, "seconds": 360.0}},
+        "practice": {"by": "main", "since": now - 5 * 3600, "reason": "not_matched", "last": practice},
+    }
+    LearningStore().set_meta_values({jobs.STATE_KEY: _json.dumps(state)})
+
+
+@app.post("/__l4c_fixture/learning/{action}")
+def l4c_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L4c spec: a build with the jobs switch (and practice) on, drafting done by personal
+    model v3 since its test, making practice tasks back with the main model. Nothing reaches a model."""
+    import os as _os
+
+    from row_bot import learning
+
+    predecessor._authorize(x_fixture_token)
+    if action == "jobs":
+        _os.environ[learning.JOBS_ENV] = "1"
+        _os.environ[learning.PRACTICE_ENV] = "1"
+        _l4c_jobs()
+    elif action == "restore":
+        _os.environ.pop(learning.JOBS_ENV, None)
+        _os.environ.pop(learning.PRACTICE_ENV, None)
+        from row_bot.learning.improver import jobs
+        from row_bot.learning.store import LearningStore
+
+        store = LearningStore()
+        if store.exists():
+            store.set_meta_values({jobs.STATE_KEY: ""})
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
 # ── Learning (preview), L2b: the personal model's download, its states set by the spec ──
 
 _GB = 1_000_000_000
@@ -6926,6 +7042,98 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
                     **current.to_dict(), "outputs": tuple(current.outputs)}))
                 trainer.tick()  # settled: the uploads go
         return {"action": action, "job_id": job.id}
+    raise HTTPException(404, "Unknown Learning fixture action")
+
+
+# ── Learning (preview), C1 Part 4: any open model, found on Hugging Face and checked here ──
+
+_c1m: dict[str, object] = {}
+
+
+@app.post("/__c1m_fixture/learning/{action}")
+def c1m_learning(action: str, name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """Any open model for the C1 Part 4 spec: Hugging Face's public pages from memory (a search's results and each
+    model's card and files), and the check on this computer played step by step by fake steps. Nothing reaches
+    huggingface.co, a GPU or a download."""
+    predecessor._authorize(x_fixture_token)
+    import shutil as _shutil
+
+    from row_bot.learning.training import open_models
+    from tests.fixtures.open_models import FakeHubPages, FakeSteps, card
+
+    if action == "restore":
+        for owner, attribute, original in reversed(_c1m.pop("patched", [])):
+            setattr(owner, attribute, original)
+        open_models.reset_checker(None)
+        _shutil.rmtree(open_models.folder(), ignore_errors=True)
+        _c1m.clear()
+        return {"action": action}
+    if action == "models":
+        llama = {"config": {"architectures": ["LlamaForCausalLM"]}, "cardData": {"license": "llama3.1"},
+                 "tags": ["llama", "license:llama3.1"]}
+        found = [
+            card(),
+            card("unsloth/Llama-3.1-8B-Instruct", safetensors={"total": 8_030_261_248}, downloads=2_400_000,
+                 **llama),
+            card("meta-llama/Llama-3.1-8B-Instruct", gated="manual", safetensors={"total": 8_030_261_248},
+                 downloads=9_800_000, **llama),
+            card("unsloth/Llama-3.3-70B-Instruct", safetensors={"total": 70_553_706_496}, downloads=310_000,
+                 **{**llama, "cardData": {"license": "llama3.3"}}),
+            card("Qwen/Qwen3-30B-A3B", config={"architectures": ["Qwen3MoeForCausalLM"]},
+                 safetensors={"total": 30_532_122_624}, downloads=1_900_000),
+            card("microsoft/Phi-4-mini-instruct", config={"architectures": ["Phi3ForCausalLM"]},
+                 cardData={"license": "mit"}, safetensors={"total": 3_836_021_760}, downloads=870_000),
+        ]
+        pages = FakeHubPages({"/api/models?": found})
+        for item in found:
+            pages.add(item)
+        steps = FakeSteps(open_models.folder())
+        patched = [(open_models, "safe_reader", open_models.safe_reader),
+                   (open_models.search, "__kwdefaults__", open_models.search.__kwdefaults__),
+                   (open_models.inspect, "__kwdefaults__", open_models.inspect.__kwdefaults__)]
+        _c1m.setdefault("patched", patched)
+        open_models.safe_reader = pages
+        open_models.search.__kwdefaults__ = {"reader": pages}
+        open_models.inspect.__kwdefaults__ = {"reader": pages}
+        open_models.reset_checker(open_models.Checker(steps=steps, start_threads=False))
+        _c1m.update(steps=steps)
+        return {"action": action}
+    steps = _c1m.get("steps")
+    checker = open_models.checker()
+    if steps is None:
+        raise HTTPException(409, "Set up the fake Hugging Face pages first")
+    if action == "check":
+        # name: downloading (45% of its files), checking (it fits; the training steps running), or the check run
+        # to its end: passed, failed (its tool sample), too-big (it fits only on Hugging Face's cards), or stopped
+        # (after Stop: the check ends at its next step)
+        repo = checker.running or next((record.repo for record in open_models.records()), None)
+        record = open_models.read(repo) if repo else None
+        if record is None:
+            raise HTTPException(409, "Start a check first")
+        if name == "downloading":
+            open_models.write(replace(record, downloaded_bytes=int(record.download_bytes * 0.45)))
+        elif name == "checking":
+            items = dict(record.items)
+            items["fits"] = open_models.CheckItem("passed", "Trains on this card: peak 21.2 GB of the 25.5 GB it "
+                                                  "may use.")
+            items["steps"] = open_models.CheckItem("running")
+            open_models.write(replace(record, state="checking", stage="steps", items=items,
+                                      downloaded_bytes=record.download_bytes))
+        elif name in ("passed", "failed", "too-big", "stopped"):
+            steps.tools = (True, False, False) if name == "failed" else (True, True, False)
+            steps.fits = name != "too-big"
+            checker.run(record.repo)
+            ended = open_models.read(record.repo)
+            if ended is not None and ended.item("export").state == "passed":  # a real export's size, not the fake's
+                items = dict(ended.items)
+                items["export"] = open_models.CheckItem("passed", "Converted to a 9.0 GB file at Q4_K_M.")
+                open_models.write(replace(ended, items=items))
+        else:
+            raise HTTPException(404, "Unknown check state")
+        from row_bot import learning
+
+        learning.changed()  # the open Learning screens read it again, as the check's own steps make them
+        return {"action": action, "model": record.id}
     raise HTTPException(404, "Unknown Learning fixture action")
 
 

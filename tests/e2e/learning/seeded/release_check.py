@@ -49,13 +49,16 @@ STAGES = ("profile", "past", "days", "generations", "checks", "benchmark", "tidy
 LAST = ("benchmark", "tidy")
 #: A person's run kept under another name: ``<person>@<label>`` (``--archive``).
 ARCHIVE_MARK = "@"
-#: Rough cloud tokens for --plan, from the pilots: a live request (a turn or two on GPT-6.1 Sol with the
-#: person's tools, a correction now and then: about 50K), the main model on the packs once a run (64 visible
-#: + 32 hidden x 3, kept 30 days and shared between the people), and its replay of a person's held-out work
-#: in each of their comparisons (about three: the runner's two and the benchmark).
+#: Rough cloud tokens for --plan, from the pilots and the 15-16 Nov rehearsal (one person, 16 GB: 26.9M before
+#: its benchmark): a live request (a turn or two on GPT-6.1 Sol with the person's tools, a correction now and
+#: then: about 50K), the main model on the packs once a run (64 visible + 32 hidden x 3, kept 30 days and shared
+#: between the people), its replay of a person's held-out work in their comparisons and change tests (6.8M over
+#: 55 nights, the benchmark on top), and each inherited generation (L4a): a strategy trial's arms at their equal
+#: budget and its judging (two trials took 15.0M).
 PLAN_TOKENS_PER_REQUEST = 50_000
 PLAN_TOKENS_MAIN_PACKS = 2_500_000
-PLAN_TOKENS_REPLAY_PER_PERSON = 3_000_000
+PLAN_TOKENS_REPLAY_PER_PERSON = 9_000_000
+PLAN_TOKENS_PER_GENERATION = 7_500_000
 
 Runner = Callable[[list[str], Mapping[str, str], Path], int]
 
@@ -131,9 +134,10 @@ class ReleaseCheck:
                          "past_turns": sum(len(item.requests) for item in history.past),
                          "live_requests": len(history.stream), "history": history.fingerprint()[:12]})
         requests = sum(row["live_requests"] for row in rows)
+        per_person = PLAN_TOKENS_REPLAY_PER_PERSON + int(self.args.generations or 0) * PLAN_TOKENS_PER_GENERATION
         estimate = (requests * PLAN_TOKENS_PER_REQUEST + PLAN_TOKENS_MAIN_PACKS
-                    + len(rows) * PLAN_TOKENS_REPLAY_PER_PERSON) * len([tier for tier in self.tiers
-                                                                       if self.tier_status(tier) == "ran"] or [1])
+                    + len(rows) * per_person) * len([tier for tier in self.tiers
+                                                    if self.tier_status(tier) == "ran"] or [1])
         return {"people": rows, "tiers": {tier: self.tier_status(tier) for tier in self.tiers},
                 "estimated_cloud_tokens": estimate, "cap": self.args.cap_tokens,
                 "fits": estimate <= self.args.cap_tokens}
@@ -162,6 +166,13 @@ class ReleaseCheck:
         env.update({"ROW_BOT_DATA_DIR": str(data), "ROW_BOT_LEARNING_PREVIEW": "1",
                     "ROW_BOT_DESKTOP_NOTIFICATIONS": "off", "ROW_BOT_AUTO_START_OLLAMA": "0",
                     "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"})
+        # L4b and L4c have their own switches (O179: they ship on only if the release check passes with them on).
+        from row_bot import learning
+
+        if self.args.practice:
+            env.update({learning.PRACTICE_ENV: "1", learning.QUICK_QUESTION_ENV: "1"})
+        if self.args.jobs:
+            env[learning.JOBS_ENV] = "1"
         return env
 
     def run_person(self, tier: str, person: str, spent_before: int, stages: Sequence[str] = ()) -> dict[str, Any]:
@@ -204,7 +215,8 @@ class ReleaseCheck:
     def execute(self) -> dict[str, Any]:
         self.run.setdefault("started_at", time.strftime("%Y-%m-%d %H:%M"))
         self.run.update({"seed": self.args.seed, "days": self.args.days, "people": self.people,
-                         "build": _build(), "cap_tokens": self.args.cap_tokens})
+                         "build": _build(), "cap_tokens": self.args.cap_tokens,
+                         "practice": bool(self.args.practice), "jobs": bool(self.args.jobs)})
         self.run.setdefault("tiers", {})
         self.run.setdefault("people_runs", {})
         self.save_run()
@@ -282,6 +294,9 @@ class ReleaseCheck:
 
     def write_report(self) -> dict[str, Any]:
         results = self.results()
+        if self.args.practice or self.args.jobs:
+            for result in results:
+                result["l4"] = l4_summary(self.data_dir(str(result.get("tier")), str(result.get("person"))))
         if results:
             self.run.setdefault("model", results[0].get("model"))
         built = report_module.build(results, run=self.run, tiers=self.run.get("tiers"),
@@ -298,6 +313,32 @@ def _build() -> str:
                               timeout=20).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
+
+
+def l4_summary(data: Path) -> dict[str, Any]:
+    """What practice and the quick question (L4b) and Learning's own jobs (L4c) did in a person's profile, read
+    after the run through the product's own readers (they read the profile's Learning store only)."""
+
+    from row_bot.learning import practice, question
+    from row_bot.learning.improver import jobs
+    from row_bot.learning.store import LearningStore
+
+    store = LearningStore(data)
+    if not store.exists():
+        return {}
+    night = practice.last_night(store) or {}
+    held = jobs.state(store)
+    return {
+        "practice": {"runs": len(practice.runs(store)), "tasks": len(practice.pool(store)),
+                     "training_turns": len(practice.turns(store)),
+                     "last_night": {key: night.get(key) for key in ("night", "made", "ran", "passed", "tokens")
+                                    if key in night}},
+        "questions_answered": sum(len(items) for items in question.answers_for(store).values()),
+        "jobs": {str(job): {"by": (item or {}).get("by") or "main",
+                            **{key: ((item or {}).get("last") or {}).get(key)
+                               for key in ("verdict", "items", "personal_passed", "main_passed")}}
+                 for job, item in sorted(held.items()) if isinstance(item, dict)},
+    }
 
 
 def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -328,6 +369,10 @@ def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="L4a: during the generations, quiet hours run every this many nights")
     parser.add_argument("--monthly-limit", type=int, default=100_000_000,
                         help="L4a: each person's monthly Learning limit during the generations (trials get 20%%)")
+    parser.add_argument("--practice", action="store_true",
+                        help="L4b: every person's build makes practice tasks and may ask a quick question")
+    parser.add_argument("--jobs", action="store_true",
+                        help="L4c: every person's build lets the personal model take over Learning's own jobs")
     parser.add_argument("--plan", action="store_true", help="print the plan and run nothing")
     parser.add_argument("--report-only", action="store_true", help="write the report from the results so far")
     parser.add_argument("--archive", default="", help="keep a person's run as <person>@<label> and stop")

@@ -174,8 +174,19 @@ def _schema_v2(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _schema_v3(connection: sqlite3.Connection) -> None:
+    statements = (
+        # The blobs holding another conversation's words (a past-conversation search's matches) and that
+        # conversation: excluding or deleting it frees them, even while the quoting chat still owns them.
+        "CREATE TABLE quote_blobs (sha256 TEXT NOT NULL, thread_id TEXT NOT NULL, PRIMARY KEY (sha256, thread_id))",
+        "CREATE INDEX quote_blobs_thread ON quote_blobs(thread_id)",
+    )
+    for statement in statements:
+        connection.execute(statement)
+
+
 # MIGRATIONS[n] takes a store at user_version n to n + 1.
-MIGRATIONS: tuple[Migration, ...] = (_schema_v1, _schema_v2)
+MIGRATIONS: tuple[Migration, ...] = (_schema_v1, _schema_v2, _schema_v3)
 SCHEMA_VERSION = len(MIGRATIONS)
 
 
@@ -553,6 +564,8 @@ class LearningStore:
             )
         if isinstance(record, contracts.Decision) and record.request_blob:
             self._own_request(connection, record, owning or _Owning())
+        if isinstance(record, contracts.Decision) and record.quoted_thread_ids:
+            self._own_quotes(connection, record, owning or _Owning())
 
     def _blob_json(self, sha: object) -> object:
         data = self.read_blob(sha) if isinstance(sha, str) else None
@@ -583,6 +596,29 @@ class LearningStore:
             names += [conversation, *conversations[conversation]]
         found = [str(item) for item in manifest.get("pictures") or () if isinstance(item, str)]
         return [name for name in names if _SHA256.fullmatch(name)], [name for name in found if _SHA256.fullmatch(name)]
+
+    def _own_quotes(self, connection: sqlite3.Connection, decision: contracts.Decision, owning: _Owning) -> None:
+        """The blobs of a step that quotes other conversations (``quoted_thread_ids``) that hold their words:
+        each quoted conversation has them too, so excluding or deleting it frees them (``_purge``). Every
+        step naming such a blob quotes that conversation as well, so it is purged with it."""
+
+        from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY
+
+        names: list[str] = []
+        if decision.request_blob:
+            names, _pictures = self._request_blobs(str(decision.request_blob), owning.conversations)
+        if decision.result_blob:
+            names.append(str(decision.result_blob))
+        wanted = set(decision.quoted_thread_ids)
+        rows: list[tuple[str, str]] = []
+        for sha in dict.fromkeys(names):
+            body = self._blob_json(sha)
+            data = body.get("data") if isinstance(body, dict) else None
+            extra = data.get("additional_kwargs") if isinstance(data, dict) else None
+            quoted = extra.get(QUOTED_CONVERSATIONS_KEY) if isinstance(extra, dict) else None
+            if isinstance(quoted, list):
+                rows.extend((sha, str(thread)) for thread in quoted if str(thread) in wanted)
+        connection.executemany("INSERT OR IGNORE INTO quote_blobs (sha256, thread_id) VALUES (?, ?)", rows)
 
     def _own_request(self, connection: sqlite3.Connection, decision: contracts.Decision, owning: _Owning) -> int:
         """The blobs a decision's request names become its conversation's; its pictures are counted for the
@@ -928,7 +964,7 @@ class LearningStore:
         """Blobs about to be freed leave the tables (a picture's size and uses with them)."""
 
         rows = [(sha,) for sha in shas]
-        for table in ("blobs", "pictures", "picture_uses", "blob_owners"):
+        for table in ("blobs", "pictures", "picture_uses", "blob_owners", "quote_blobs"):
             connection.executemany(f"DELETE FROM {table} WHERE sha256 = ?", rows)
 
     def _leftover_files(self, known: set[str], cutoff: float) -> list[Path]:
@@ -1159,6 +1195,15 @@ class LearningStore:
         shas: set[str] = {str(row[0]) for row in connection.execute(
             "SELECT sha256 FROM blob_owners WHERE thread_id = ?", (thread_id,))}
         connection.execute("DELETE FROM blob_owners WHERE thread_id = ?", (thread_id,))
+        # Its words that other chats quoted: they go however many chats hold them (each step naming one
+        # quotes this chat, so it is among the records purged below).
+        quoted = sorted({str(row[0]) for row in connection.execute(
+            "SELECT sha256 FROM quote_blobs WHERE thread_id = ?", (thread_id,))})
+        for chunk in _chunks(quoted):
+            marks = ", ".join("?" for _ in chunk)
+            connection.execute(f"DELETE FROM blob_owners WHERE sha256 IN ({marks})", chunk)
+            connection.execute(f"DELETE FROM quote_blobs WHERE sha256 IN ({marks})", chunk)
+        shas.update(quoted)
         removed: dict[str, int] = {}
         for kind, record_id in owned:
             shas.update(
@@ -1417,7 +1462,10 @@ class LearningStore:
     # ── Delete learning data… ────────────────────────────────────────────
 
     def storage_bytes(self) -> int:
-        """Bytes Learning data takes on disk (the database and its blobs)."""
+        """Bytes Learning data takes on disk: the database and the blobs it lists. Every blob file is written
+        before its row and goes with it, so the rows' sizes are the files' (an interrupted write's leftover
+        file, swept by :meth:`gc_blobs`, is not counted). Read from the database, so a large store costs one
+        query, not a walk of its blob folder."""
 
         total = 0
         for suffix in ("", "-wal"):
@@ -1425,13 +1473,9 @@ class LearningStore:
                 total += Path(str(self.path) + suffix).stat().st_size
             except OSError:
                 pass
-        if self.blobs_dir.is_dir():
-            for path in self.blobs_dir.rglob("*"):
-                try:
-                    if path.is_file() and not path.is_symlink():
-                        total += path.stat().st_size
-                except OSError:
-                    pass
+        with self._reader() as connection:
+            if connection is not None:
+                total += int(connection.execute("SELECT COALESCE(SUM(size), 0) FROM blobs").fetchone()[0])
         return total
 
     def delete_all(self) -> DeleteAllReport:

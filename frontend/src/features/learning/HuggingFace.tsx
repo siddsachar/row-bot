@@ -222,8 +222,17 @@ export function HuggingFaceModels({
           <span>
             <span>
               {model.name} · {model.licence}
-              {model.recommended ? ' · Recommended' : ''}
+              {model.recommended
+                ? ' · Recommended'
+                : model.certified
+                  ? ''
+                  : ' · Not certified'}
             </span>
+            {!model.certified && (
+              <small>
+                Checked on this computer. Its time and price are estimates.
+              </small>
+            )}
             {model.runs_here_gb ? (
               <small>
                 Runs on this computer after: needs about{' '}

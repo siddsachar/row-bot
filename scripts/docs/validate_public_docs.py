@@ -469,6 +469,7 @@ def _validate_public_guardrails(errors: list[str]) -> None:
         "docs/features.html",
         "docs/contact.html",
         "docs/architecture.html",
+        "docs/research.html",
         "docs/404.html",
     ]
     for rel in marketing_files:
