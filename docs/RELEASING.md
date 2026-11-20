@@ -304,8 +304,9 @@ GitHub Actions.
      version's section of `RELEASE_NOTES.md`; a pre-release for `-beta`/`-rc`)
      and attaches every file except the Windows installer. The DMG is attached
      only once it is stapled. Running the release again for the same tag
-     reuses the draft and removes every file this run did not build, so an
-     earlier run's files (a moved tag, an older build) are never published.
+     reuses the draft, gives it this run's title and notes, and removes every
+     file this run did not build, so an earlier run's notes and files (a moved
+     tag, an older build) are never published.
 
 3. If macOS was still with Apple when the release finished, its job succeeded
    with a warning and uploaded `macos-notarization-pending-X.Y.Z-r<run id>`.

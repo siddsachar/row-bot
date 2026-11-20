@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -255,6 +256,25 @@ def chat_file(conversation_id: str, name: str) -> Media | None:
     return None
 
 
+def _edit_frame(edit_id: str, name: str, conversation_id: str) -> Media:
+    """``edit-…/frame-08.jpg``: that edit's still, by the name it was saved under or its number (S3). A bare
+    ``frame-08.jpg`` named another edit's frame once two edits had saved stills."""
+    from row_bot import video_edits
+
+    edit = video_edits.get(edit_id)
+    if edit is None or edit.conversation_id != conversation_id or edit.kind != "frames" or edit.status != "saved":
+        raise SourceError(f"{edit_id} isn't a video edit with saved frames in this chat.")
+    names = [item.casefold() for item in edit.frame_names]
+    number = re.search(r"(\d+)(?:\.\w+)?$", name)
+    index = (names.index(name.casefold()) if name.casefold() in names
+             else int(number.group(1)) - 1 if number else -1)
+    if not 0 <= index < len(edit.frame_refs):
+        raise SourceError(f"{edit_id} has {len(edit.frame_refs)} frames: name one by its number, 1 to "
+                          f"{len(edit.frame_refs)}.")
+    moment = edit.frame_times[index] if index < len(edit.frame_times) else 0.0
+    return Media(label=f"Frame at {video_edits.clock(moment)}", kind="image", ref=edit.frame_refs[index])
+
+
 def resolve(value: str, conversation_id: str) -> list[Media]:
     """The videos or pictures a source names (an edit that saved frames names several)."""
     text = str(value or "").strip()
@@ -270,6 +290,9 @@ def resolve(value: str, conversation_id: str) -> list[Media]:
             raise SourceError(f"{text} has no saved video yet.")
         label = "Screen recording" if record.kind == "screen" else "Browser recording"
         return [Media(label=label, kind="video", ref=record.media_ref)]
+    named = re.fullmatch(r"(edit-[0-9a-f]{8})[/\\](.+)", text)
+    if named:
+        return [_edit_frame(named.group(1), named.group(2).strip(), conversation_id)]
     if video_edits.EDIT_ID.fullmatch(text):
         edit = video_edits.get(text)
         if edit is None or edit.conversation_id != conversation_id:

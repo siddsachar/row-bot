@@ -1,0 +1,110 @@
+{
+  "additionalProperties": false,
+  "description": "One recorded step: the page, the control and, for typing, an example value (never a secret's).",
+  "properties": {
+    "always": {
+      "title": "Always",
+      "type": "boolean"
+    },
+    "at": {
+      "maximum": 100000,
+      "minimum": 0,
+      "title": "At",
+      "type": "number"
+    },
+    "id": {
+      "maximum": 1000000,
+      "minimum": 1,
+      "title": "Id",
+      "type": "integer"
+    },
+    "input": {
+      "title": "Input",
+      "type": "boolean"
+    },
+    "kind": {
+      "enum": [
+        "open",
+        "click",
+        "type",
+        "key",
+        "back",
+        "forward",
+        "reload",
+        "tab"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "narration": {
+      "maxLength": 2000,
+      "title": "Narration",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 200,
+      "title": "Path",
+      "type": "string"
+    },
+    "secret": {
+      "enum": [
+        "",
+        "password",
+        "code",
+        "card",
+        "sensitive",
+        "sign_in",
+        "hidden"
+      ],
+      "title": "Secret",
+      "type": "string"
+    },
+    "secret_text": {
+      "maxLength": 120,
+      "title": "Secret Text",
+      "type": "string"
+    },
+    "site": {
+      "maxLength": 253,
+      "title": "Site",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 600,
+      "title": "Text",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "title": "Title",
+      "type": "string"
+    },
+    "unsafe": {
+      "title": "Unsafe",
+      "type": "boolean"
+    },
+    "value": {
+      "maxLength": 300,
+      "title": "Value",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "at",
+    "kind",
+    "text",
+    "site",
+    "path",
+    "title",
+    "value",
+    "secret",
+    "secret_text",
+    "always",
+    "input",
+    "unsafe",
+    "narration"
+  ],
+  "title": "BrowserDemoStep",
+  "type": "object"
+}

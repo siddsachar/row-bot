@@ -542,6 +542,21 @@
   padding: 0;
   list-style: none;
 }
+/*
+ * A grid's implicit column is as wide as its widest row, so a long model name
+ * (nowrap) would widen the whole first-run page on a phone (W2). One column that
+ * may shrink keeps every row inside the screen; the name truncates instead.
+ */
+.first-run,
+.first-run-panel-body,
+.first-run-models,
+.first-run-models ul,
+.first-run-model-groups,
+.first-run-providers,
+.local-found,
+.local-found-server {
+  grid-template-columns: minmax(0, 1fr);
+}
 .first-run-models {
   display: grid;
   gap: 8px;
@@ -925,4 +940,235 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Run on this computer (E1): the model Row-Bot downloads and runs itself. */
+.local-model {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.local-model-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.local-model h3 {
+  margin: 0;
+  font-size: var(--text-17);
+  font-weight: var(--weight-semibold);
+}
+.local-model p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+}
+.local-model .local-model-facts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+.local-model .local-model-ready {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--status-success-text);
+  font-weight: var(--weight-medium);
+}
+.local-model .local-model-note {
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.local-model [role='alert'] {
+  color: var(--status-danger-text);
+}
+.local-model .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.local-model .actions .button {
+  gap: 8px;
+}
+.local-model-progress {
+  display: grid;
+  gap: 6px;
+}
+.local-model-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--accent-solid);
+}
+.local-model-choices {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.local-model-choice {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.local-model-choice:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.local-model-choice[aria-pressed='true'] {
+  border-color: var(--accent-solid);
+  background: var(--accent-subtle);
+}
+.local-model-choice:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+.local-model-choice-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.local-model-choice-name small {
+  color: var(--accent-solid);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+.local-model-choice-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+/* How the model would run here, as a badge: green on the card, amber slower. */
+.local-model-fit {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+.local-model-fit[data-fit='gpu'] {
+  background: var(--status-success-background);
+  color: var(--status-success-text);
+}
+.local-model-fit[data-fit='partial'],
+.local-model-fit[data-fit='cpu'] {
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+}
+.first-run-secondary .disclosure-body {
+  padding-top: 10px;
+}
+
+/* On this computer: what is running, then every way to run models as equal rows. */
+.local-found {
+  display: grid;
+  gap: 10px;
+}
+.local-found-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.local-found-head h3,
+.local-ways-title {
+  margin: 0;
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.local-found .local-found-none {
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.local-found-server {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.local-found .local-found-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+.local-found-name small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.local-ways {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  list-style: none;
+}
+.local-way + .local-way {
+  border-top: 1px solid var(--border-hairline);
+}
+.local-way-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+}
+.local-way-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.local-way-text strong {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+.local-way-text span {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.local-way-text small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.local-way-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+.local-way-actions .button {
+  gap: 6px;
+  white-space: nowrap;
+}
+.local-way-details {
+  padding: 0 12px 12px;
+}
+@media (max-width: 767px) {
+  .local-way-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .local-way-actions {
+    justify-content: flex-start;
+  }
 }

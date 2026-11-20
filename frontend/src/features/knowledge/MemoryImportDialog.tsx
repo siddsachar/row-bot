@@ -14,6 +14,7 @@ import type {
   MemoryImportPreview,
   MemoryImportReceipt,
   MemoryImportSources,
+  MemoryImportWaiting,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
@@ -40,6 +41,7 @@ import {
   RecentImports,
   SourceGrid,
   VirtualList,
+  WaitingImports,
   sourceName,
   type Edit,
   type PickedFile,
@@ -157,6 +159,8 @@ function ImportFlow({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const batchRef = useRef<string | null>(null);
+  // The import found elsewhere that is open now: it is kept, never discarded here.
+  const kept = useRef<string | null>(staged ?? null);
   const applied = useRef(false);
   const uploads = useRef<AbortController | null>(null);
   const alive = useRef(true);
@@ -188,10 +192,10 @@ function ImportFlow({
       // Closed before importing: its files and everything found go (an
       // import found elsewhere stays to be opened again).
       const id = batchRef.current;
-      if (id && id !== staged && !applied.current)
+      if (id && id !== kept.current && !applied.current)
         void io.discard(id).catch(() => undefined);
     };
-  }, [io, loadSources, staged]);
+  }, [io, loadSources]);
 
   const source = sources?.sources.find((item) => item.id === sourceId);
 
@@ -229,13 +233,13 @@ function ImportFlow({
     [io],
   );
 
-  // An import found elsewhere: straight to what it found.
-  useEffect(() => {
-    if (!staged) return;
-    batchRef.current = staged;
-    void (async () => {
+  /** An import found elsewhere: straight to what it found. */
+  const openKept = useCallback(
+    async (id: string) => {
+      kept.current = id;
+      batchRef.current = id;
       try {
-        const view = await follow(staged);
+        const view = await follow(id);
         if (!view) return;
         if (view.receipt) {
           applied.current = true;
@@ -248,29 +252,87 @@ function ImportFlow({
           setStep('source');
           return;
         }
-        await loadCandidates(staged);
+        await loadCandidates(id);
         if (alive.current) setStep('review');
       } catch (reason) {
         if (!alive.current) return;
         batchRef.current = null;
+        kept.current = null;
         setError(problem(reason));
         setStep('source');
       }
-    })();
-  }, [staged, follow, loadCandidates]);
+    },
+    [follow, loadCandidates],
+  );
+
+  useEffect(() => {
+    if (staged) void openKept(staged);
+  }, [staged, openKept]);
+
+  /** One of the imports waiting in the list: reviewed here, from the start. */
+  const reviewWaiting = (item: MemoryImportWaiting) => {
+    known.current = new Set();
+    setCandidates([]);
+    setChosen(new Set());
+    setEdits({});
+    setCategory('');
+    setOrigin('');
+    setWithConversations(false);
+    setPreview(null);
+    setError('');
+    setNotice('');
+    setBatch(null);
+    setStep('working');
+    void openKept(item.batch_id);
+  };
+
+  const letGo = async (item: MemoryImportWaiting) => {
+    setBusy(item.batch_id);
+    setError('');
+    try {
+      await io.discard(item.batch_id);
+      if (kept.current === item.batch_id) {
+        kept.current = null;
+        batchRef.current = null;
+      }
+      setSources((current) =>
+        current
+          ? {
+              ...current,
+              waiting: current.waiting.filter(
+                (entry) => entry.batch_id !== item.batch_id,
+              ),
+            }
+          : current,
+      );
+      setNotice(
+        `Let go of the memories from ${listWords(item.sources) || 'another assistant'}. Nothing was saved from them.`,
+      );
+    } catch (reason) {
+      setError(problem(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const findMemories = async () => {
     setError('');
     setStep('working');
     try {
       let id = batchRef.current;
-      if (!id) {
+      // A kept import holds the other app's files only: new ones start their
+      // own, with every file picked.
+      const fresh = !id || id === kept.current;
+      if (fresh) {
         id = (await io.begin()).batch_id;
         batchRef.current = id;
       }
+      if (!id) return;
       const controller = new AbortController();
       uploads.current = controller;
-      const waiting = files.filter((item) => item.state !== 'sent');
+      const waiting = fresh
+        ? files
+        : files.filter((item) => item.state !== 'sent');
       const total = waiting.reduce((sum, item) => sum + item.file.size, 0);
       let done = 0;
       setSending(waiting.length ? { sent: 0, total } : null);
@@ -522,6 +584,8 @@ function ImportFlow({
                   void io.removeFile(id, item.fileId).catch(() => undefined);
               }}
               onUndo={(item) => void undo(item)}
+              onReview={reviewWaiting}
+              onLetGo={(item) => void letGo(item)}
             />
           ))}
         {step === 'working' && <WorkingStep batch={batch} sending={sending} />}
@@ -679,6 +743,8 @@ function SourceStep({
   onFiles,
   onRemove,
   onUndo,
+  onReview,
+  onLetGo,
 }: {
   sources: MemoryImportSources;
   sourceId: string;
@@ -690,12 +756,20 @@ function SourceStep({
   onFiles: (files: File[]) => void;
   onRemove: (key: string) => void;
   onUndo: (receipt: MemoryImportReceipt) => void;
+  onReview: (item: MemoryImportWaiting) => void;
+  onLetGo: (item: MemoryImportWaiting) => void;
 }) {
   const source = sources.sources.find((item) => item.id === sourceId);
   const name = source ? sourceName(source) : '';
   const fileRoute = source && source.export !== 'none';
   return (
     <div className="memory-import-step">
+      <WaitingImports
+        items={sources.waiting}
+        busy={busy}
+        onReview={onReview}
+        onLetGo={onLetGo}
+      />
       <RecentImports items={sources.recent} busy={busy} onUndo={onUndo} />
       <h3 className="memory-import-heading">Where from?</h3>
       <SourceGrid

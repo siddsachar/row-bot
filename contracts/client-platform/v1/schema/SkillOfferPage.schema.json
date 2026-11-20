@@ -103,6 +103,15 @@
           "title": "Proposal Status",
           "type": "string"
         },
+        "shown": {
+          "items": {
+            "maxLength": 400,
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Shown",
+          "type": "array"
+        },
         "source_title": {
           "maxLength": 200,
           "title": "Source Title",
@@ -192,7 +201,8 @@
         "origin": {
           "enum": [
             "offered",
-            "manual"
+            "manual",
+            "demo"
           ],
           "title": "Origin",
           "type": "string"

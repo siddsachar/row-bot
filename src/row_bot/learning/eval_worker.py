@@ -105,7 +105,7 @@ MALFORMED_DETAIL = "the model's tool call was malformed (the runtime refused it)
 #: Trace events a developer's run keeps per task (only when it asks for them).
 TRACE_EVENTS = 160
 _APP_PREFIXES = ("calendar_", "mail_", "issues_")
-_FILE_WRITERS = frozenset({"workspace_write_file", "write_file", "workspace_edit_file", "edit_file"})
+_FILE_WRITERS = frozenset({"workspace_write_file", "write_file"})
 
 
 def _result_problem(name: str, content: Any) -> str:

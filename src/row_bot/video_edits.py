@@ -71,6 +71,8 @@ class VideoEdit:
     size_bytes: int = 0
     frame_refs: list[str] = field(default_factory=list)
     frame_times: list[float] = field(default_factory=list)
+    # The names the stills were saved under in the chat (S3): a taken name is kept as name-2, …
+    frame_names: list[str] = field(default_factory=list)
     ffmpeg: str = ""
     checks: list[str] = field(default_factory=list)
     checks_passed: bool | None = None
@@ -143,7 +145,7 @@ def _iso(value: float | None) -> str | None:
 
 _SAVED_FIELDS = ("edit_id", "conversation_id", "kind", "summary", "output_name", "started_at", "status",
                  "expected_seconds", "process_id", "ended_at", "stopped_by", "problem", "detail", "media_ref",
-                 "mime_type", "size_bytes", "frame_refs", "frame_times", "ffmpeg", "checks", "checks_passed", "marks",
+                 "mime_type", "size_bytes", "frame_refs", "frame_times", "frame_names", "ffmpeg", "checks", "checks_passed", "marks",
                  "sheet", "silent")
 
 
@@ -177,6 +179,7 @@ def _load(path: Path) -> VideoEdit | None:
         edit.size_bytes = int(data.get("size_bytes") or 0)
         edit.frame_refs = [str(item) for item in data.get("frame_refs") or []][:64]
         edit.frame_times = [float(item) for item in data.get("frame_times") or []][:64]
+        edit.frame_names = [str(item)[:120] for item in data.get("frame_names") or []][:64]
         edit.checks = [str(item)[:300] for item in data.get("checks") or []][:12]
         edit.checks_passed = None if data.get("checks_passed") is None else bool(data["checks_passed"])
         edit.marks = [float(item) for item in data.get("marks") or []][:61]
@@ -464,6 +467,7 @@ def _save_frames(edit: VideoEdit, folder: Path, names: list[str], times: list[fl
     _set(edit, status="saving")
     pictures: list[tuple[bytes, str]] = []
     refs: list[str] = []
+    saved_names: list[str] = []
     stem = Path(edit.output_name).stem or "frame"
     for index, (name, moment) in enumerate(zip(names, times), start=1):
         path = folder / name
@@ -475,6 +479,7 @@ def _save_frames(edit: VideoEdit, folder: Path, names: list[str], times: list[fl
         except AttachmentError:
             raise EditError("The frames couldn't be saved to this chat.") from None
         refs.append(str(saved["attachment_ref"]))
+        saved_names.append(str(saved["name"]))
         pictures.append((data, clock(moment)))
     if not refs:
         raise EditError("ffmpeg made no frames (the times may be past the end of the video).")
@@ -483,7 +488,7 @@ def _save_frames(edit: VideoEdit, folder: Path, names: list[str], times: list[fl
         saved = register_attachment(edit.conversation_id, f"generated-{stem}-sheet.jpg", sheet)
     except (SheetError, AttachmentError):
         raise EditError("The frames were saved, but their contact sheet couldn't be made.") from None
-    _set(edit, frame_refs=refs, frame_times=list(times[:len(refs)]), media_ref=str(saved["attachment_ref"]),
+    _set(edit, frame_refs=refs, frame_times=list(times[:len(refs)]), frame_names=saved_names, media_ref=str(saved["attachment_ref"]),
          mime_type=str(saved["mime_type"]), size_bytes=len(sheet))
 
 
@@ -809,10 +814,12 @@ def summary(edit: VideoEdit) -> str:
     if edit.status == "saved" and edit.kind == "frames":
         moments = ", ".join(clock(moment) for moment in edit.frame_times[:12])
         stem = Path(edit.output_name).stem or "frame"
-        last = f"{stem}-{len(edit.frame_refs):02d}.jpg"
+        first, last = ((edit.frame_names[0], edit.frame_names[-1]) if edit.frame_names
+                       else (f"{stem}-01.jpg", f"{stem}-{len(edit.frame_refs):02d}.jpg"))
         return (head + f"saved {len(edit.frame_refs)} frames (at {moments}) to this chat's files; the person sees "
                 "them on one contact sheet. Look at them with analyze_image, files=['" + edit.edit_id + "']. "
-                f"Each is also a full-size still ({stem}-01.jpg to {last}): name one to read small text.")
+                f"Each is also a full-size still ({first} to {last}, or {edit.edit_id}/{first}): name one to read "
+                "small text.")
     if edit.status == "saved":
         from row_bot.recordings import size_words
 

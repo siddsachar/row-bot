@@ -172,6 +172,36 @@ test('turn Learning on, its tab appears, Teach a reply and undo it, then switch 
     page.getByText('Downloading the training engine').first(),
   ).toBeVisible();
   await shoot(page, info, 'settings-on');
+  // The monthly limit: a custom amount in millions, then No limit, which asks first and still shows spending.
+  const limit = page.getByRole('combobox', { name: 'Monthly limit' });
+  await limit.scrollIntoViewIfNeeded();
+  await limit.selectOption({ label: 'Custom amount…' });
+  const amount = page.getByRole('textbox', {
+    name: 'Custom monthly limit, in millions of tokens',
+  });
+  await expect(amount).toBeFocused();
+  await amount.fill('1200');
+  await amount.press('Enter');
+  await expect(amount).toHaveAccessibleDescription(
+    'Enter 0.1 to 1,000 million tokens, like 75 or 2.5.',
+  );
+  await shoot(page, info, 'settings-limit-custom-error');
+  await amount.fill('75');
+  await amount.press('Enter');
+  await expect(notice(page, 'Monthly limit set to 75M tokens')).toBeVisible();
+  await shoot(page, info, 'settings-limit-custom');
+  await limit.selectOption({ label: 'No limit' });
+  const ask = page.getByRole('group', { name: 'Confirm Monthly limit' });
+  await expect(ask).toBeVisible();
+  await shoot(page, info, 'settings-limit-no-limit-ask');
+  await ask.getByRole('button', { name: 'Change it' }).click();
+  await expect(notice(page, 'Learning has no monthly limit now')).toBeVisible();
+  await expect(
+    page.getByText(/tokens used this month \(no limit\)$/),
+  ).toBeVisible();
+  await shoot(page, info, 'settings-limit-none');
+  await limit.selectOption({ label: '2M tokens' });
+  await expect(notice(page, 'Monthly limit set to 2M tokens')).toBeVisible();
   // The rest of the page (it scrolls inside the settings pane).
   await page
     .locator('#settings-page')

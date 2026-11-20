@@ -3,6 +3,7 @@ import {
   CircleDollarSign,
   Folder,
   HatGlasses,
+  Infinity as AlwaysIcon,
   Pencil,
   Power,
   Settings2,
@@ -43,6 +44,7 @@ import { requestBrowserPane } from '../browser/open-pane';
 import QuestionCard from './QuestionCard';
 import XPostDetails, { XPostEditor } from './XPostDetails';
 import { resolveApproval } from './resolve-approval';
+import { AlwaysAllowSheet } from './AlwaysAllow';
 import { AppIcon } from '../apps/parts';
 import { WaitingSince } from './waiting-since';
 import { readPendingApprovalsNow } from './pending-approvals';
@@ -181,6 +183,8 @@ const ALLOW_IN_CHAT =
   'Approves this, and actions like it later in this chat, without asking. Sending, posting, deleting and paying still ask.';
 const AUTO_IN_CHAT =
   'Approves this and switches this chat to Auto: a reviewer approves what matches your request, and anything else still asks you.';
+const ALWAYS_ALLOW =
+  'Approve this now and from now on, in any chat. You’ll see what it would have covered first.';
 
 function ApprovalDetails({
   view,
@@ -300,7 +304,9 @@ function editableTarget(target: EventTarget | null) {
  * An inline card anchored at the step that needs a decision: what will
  * happen, how risky it is, and Approve (⌘↵) / Deny. Under Auto it says, quietly,
  * why the reviewer asked rather than approving. "Use Auto in this chat"
- * switches the conversation to reviewed Auto, then approves.
+ * switches the conversation to reviewed Auto, then approves. "Always allow…"
+ * (D1, only on a card the server marks rule_eligible) shows the rule the server
+ * would make from this card and its 30-day dry run, then saves it and approves.
  *
  * Turning on a tool the work needs is a setup card instead (decision 12):
  * "Turn on Web search?" with Turn on (⌘↵) / Not now, in place of sending
@@ -387,6 +393,64 @@ export default function ApprovalCard({
       setError(clientError(cause).message);
       setBusy(false);
     }
+  }
+  /**
+   * Always allow… (D1): the server makes the rule from this card (the client
+   * names only the approval, as the person saw it), then the same command
+   * approves the card.
+   */
+  async function saveRule() {
+    if (!view) return;
+    const identity = crypto.randomUUID();
+    let seen = view;
+    const create = (nonce: string) =>
+      controller.createApprovalRule({
+        approval_id: id,
+        nonce,
+        command_id: identity,
+      });
+    try {
+      await create(seen.nonce);
+    } catch (cause) {
+      if (clientError(cause).code !== 'approval_expired') throw cause;
+      const fresh = await controller.approval(id).catch(() => null);
+      if (!fresh?.nonce || fresh.revision !== view.revision) throw cause;
+      seen = fresh;
+      await create(fresh.nonce);
+    }
+    overlay.close();
+    setBusy(true);
+    try {
+      await resolveApproval(
+        controller,
+        id,
+        seen,
+        { decision: 'approve' },
+        identity,
+      );
+      setResolution('Approved, and saved as a rule.');
+      readPendingApprovalsNow(controller.pendingApprovals);
+      onResolved?.();
+    } catch (cause) {
+      setError(clientError(cause).message);
+      setBusy(false);
+    }
+  }
+  function openAlwaysAllow() {
+    if (!view || busy || resolution) return;
+    overlay.open({
+      kind: 'sheet',
+      title: 'Always allow this?',
+      description: 'Approve it now and from now on, in any of your chats.',
+      content: (
+        <AlwaysAllowSheet
+          approvalId={id}
+          dryRun={(body, signal) => controller.dryRunApprovalRule(body, signal)}
+          onSave={saveRule}
+          onCancel={() => overlay.close()}
+        />
+      ),
+    });
   }
   /** An X post edited on its card (G2): Row-Bot asks again with it. */
   async function saveEdit(edit: XPostEdit) {
@@ -560,6 +624,16 @@ export default function ApprovalCard({
             label: 'Allow in this chat',
             description: ALLOW_IN_CHAT,
             onSelect: () => void resolve('approve', false, 'chat'),
+          },
+        ]
+      : []),
+    ...(view?.rule_eligible
+      ? [
+          {
+            label: 'Always allow…',
+            description: ALWAYS_ALLOW,
+            icon: <AlwaysIcon size={16} />,
+            onSelect: openAlwaysAllow,
           },
         ]
       : []),
@@ -848,6 +922,18 @@ export default function ApprovalCard({
                 >
                   <Pencil size={16} aria-hidden />
                 </IconButton>
+              )}
+              {view.rule_eligible && (
+                <Hint label={`Always allow… ${ALWAYS_ALLOW}`}>
+                  <IconButton
+                    label="Always allow…"
+                    tooltip={false}
+                    disabled={settled}
+                    onClick={openAlwaysAllow}
+                  >
+                    <AlwaysIcon size={16} aria-hidden />
+                  </IconButton>
+                </Hint>
               )}
               {details}
               {deny}

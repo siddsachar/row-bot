@@ -39,8 +39,40 @@ class Recording(ScriptedAgentStream):
         yield from super().stream(text, enabled_tools, config, stop_event=stop_event)
 
 
+class StopCheck:
+    """The chat's model answering the stop check (S1); it notes whether the command lock was free."""
+
+    def __init__(self) -> None:
+        self.answer = "YES"
+        self.asked: list[str] = []
+        self.lock_free: list[bool] = []
+
+    def invoke(self, messages):
+        from row_bot.application.client_platform import _COMMAND_LOCK
+        free: list[bool] = []
+
+        def other_thread() -> None:
+            got = _COMMAND_LOCK.acquire(timeout=2)
+            if got:
+                _COMMAND_LOCK.release()
+            free.append(got)
+        thread = threading.Thread(target=other_thread)
+        thread.start()
+        thread.join()
+        self.lock_free.append(free == [True])
+        self.asked.append(messages[-1].content)
+        return AIMessage(content=self.answer)
+
+
 @pytest.fixture
-def chat(platform):  # noqa: F811
+def stop_check(monkeypatch):
+    check = StopCheck()
+    monkeypatch.setattr("row_bot.models.get_llm_for", lambda *_args, **_kwargs: check)
+    return check
+
+
+@pytest.fixture
+def chat(platform, stop_check):  # noqa: F811
     from row_bot import threads
     from row_bot.application import conversation_followups
 
@@ -183,3 +215,70 @@ def test_the_persons_message_replaces_a_pending_carry_on(chat):
     settle(chat, fake, 1)
     assert fake.prompts == ["Stop there and show me what you have"]
     assert len(fake.calls) == 1, "the stale carry-on doesn't run after the person's turn"
+
+
+@pytest.mark.parametrize("reply", [
+    "The first take is saved. I also caught that the brief went in as separate messages. I'll reshoot with the "
+    "same brief sent as one message in each run. The replacement film isn't finished yet.",
+    "That approval only blocked one run, not the retakes. I should have kept going. I've saved the fix.",
+    "I've updated the studio plan beside the chat. The real-data video hasn't been rendered yet.",
+    # Stops from the τ²-bench traces (19 Nov): the reply ends announcing work, and no tool call follows.
+    "Your reservation has travel insurance. I'm checking the flight statuses before determining the next steps.",
+    "I found four more reservations; I've checked two and will review the remaining two before totaling them.",
+    "One booking is basic economy. I still need to verify the flight statuses before deciding what can change.",
+])
+def test_a_reply_that_stops_mid_work_in_other_words_carries_on_when_the_model_agrees(chat, stop_check, reply):
+    """S1 (18 Nov): the owner's real stops, which the narrower rule never caught; the chat's own model is asked
+    first, with the command lock free so other chats don't wait on it."""
+    from row_bot.application.conversation_followups import CARRY_ON_PROMPT
+    fake = Recording(replied(reply, "first"), replied("Reshot all three: the film is in the chat.", "second"),
+                     replied("unused", "third"))
+    send(chat, fake, "Film the three models on the same task", "film")
+    settle(chat, fake, 2)
+    assert fake.prompts[1] == CARRY_ON_PROMPT
+    assert len(stop_check.asked) == 1 and reply[-60:] in stop_check.asked[0]
+    assert stop_check.lock_free == [True]
+
+
+def test_no_carry_on_when_the_chats_model_reads_the_reply_as_done(chat, stop_check):
+    stop_check.answer = "NO"
+    fake = Recording(replied("Saved both cuts. I'll keep the raw takes in the chat's files.", "only"),
+                     replied("unused", "extra"))
+    send(chat, fake, "Make the launch film", "film")
+    for _ in range(100):
+        if stop_check.asked:
+            break
+        threading.Event().wait(0.05)
+    settle(chat, fake, 1)
+    assert stop_check.asked, "the word rule found it and the model was asked"
+    assert len(fake.calls) == 1
+    assert notes(chat) == []
+
+
+@pytest.mark.parametrize("reply, carries_on", [
+    ("The landscape cut is saved. Next I'll render the vertical version.", True),
+    ("Recording Row-Bot's browser now. I'll stop it once the sign-up flow is done.", False),
+    # The broader rule's newer phrasings (19 Nov) never carry on by themselves: only the model's check can.
+    ("Your reservation has travel insurance. I'm checking the flight statuses before determining the next steps.",
+     False),
+])
+def test_when_the_check_cannot_be_asked_only_the_narrower_rules_words_carry_on(chat, monkeypatch, reply, carries_on):
+    """With no model to ask (a provider error, an endpoint that is down), the broader rule alone fired on
+    replies that were waiting, not stopping; the narrower R1 rule decides then, as before."""
+    asked: list[str] = []
+
+    def unavailable(*_args, **_kwargs):
+        asked.append("asked")
+        raise RuntimeError("the provider is down")
+
+    monkeypatch.setattr("row_bot.models.get_llm_for", unavailable)
+    fake = Recording(replied(reply, "first"), replied("Done.", "second"), replied("unused", "third"))
+    send(chat, fake, "Film the sign-up flow", "film")
+    for _ in range(100):
+        if asked:
+            break
+        threading.Event().wait(0.05)
+    settle(chat, fake, 2 if carries_on else 1)
+    assert asked, "the check was tried"
+    assert len(fake.calls) == (2 if carries_on else 1)
+

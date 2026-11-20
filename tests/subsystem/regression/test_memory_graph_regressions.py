@@ -188,7 +188,7 @@ def test_full_extraction_flow_uses_thread_messages_filters_and_dedups(tmp_path, 
         ],
     )
 
-    def fake_extract(conversation: str) -> list[dict[str, Any]]:
+    def fake_extract(conversation: str, *, dated=None) -> list[dict[str, Any]]:
         if "thread-1" in conversation:
             return [{"category": "person", "subject": "Maria Regression", "content": "Maria lives in Rome."}]
         if "thread-2" in conversation:
@@ -242,9 +242,10 @@ def test_extract_from_conversation_parses_json_filters_invalid_and_handles_failu
 
     extracted = memory_extraction._extract_from_conversation("User: Ada likes tests.")
 
+    mine = {"said_by": "user", "evidence_role": "user"}
     assert extracted == [
-        {"category": "person", "subject": "Ada", "content": "Ada likes tests"},
-        {"relation_type": "works_on", "source_subject": "Ada", "target_subject": "Row-Bot"},
+        {"category": "person", "subject": "Ada", "content": "Ada likes tests", **mine},
+        {"relation_type": "works_on", "source_subject": "Ada", "target_subject": "Row-Bot", **mine},
     ]
 
     class BrokenLLM:

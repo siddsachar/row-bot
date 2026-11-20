@@ -832,16 +832,26 @@
   justify-items: start;
   text-align: start;
 }
+/* The status keeps to the sidebar's width: never a sideways scrollbar (M9). */
+.navigation .buddy-card .buddy-companion-text > * {
+  min-width: 0;
+  max-width: 100%;
+}
 .buddy-card-status {
   min-width: 0;
   color: var(--text-secondary);
   font-size: var(--text-13);
   line-height: var(--leading-13);
 }
-/* A longer status ("Learning: training your personal model") takes a second line, not an ellipsis. */
+/* A longer status ("Learning: training your personal model") takes a second line; past that, an ellipsis. */
+.buddy-card-status {
+  max-width: 100%;
+}
 .buddy-card-status .status-indicator-label {
   display: -webkit-box;
+  min-width: 0;
   overflow: hidden;
+  white-space: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -2853,6 +2863,10 @@ button.agent-row-main:focus-visible {
 }
 .context-goal-blockers {
   color: var(--status-warning-text);
+}
+/* "Runs in Row-Bot's workspace (~/Work)": a long folder path wraps. */
+.context-goal-meta {
+  overflow-wrap: anywhere;
 }
 /* The verifier's latest reason ("Two sections are still empty."). */
 .context-goal-reason {

@@ -258,6 +258,26 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+# Each exported file's hash at the size and modification time it was read at (P12): Monitor's check reads
+# the vault every 15 minutes and hashed every file each time. The hash stays the truth: a file whose size or
+# time moved is read and hashed again.
+_sync_hashes: dict[str, tuple[int, int, str]] = {}
+_sync_hashes_lock = threading.Lock()
+
+
+def _file_hash(path: pathlib.Path) -> str:
+    stat = path.stat()
+    key = str(path)
+    with _sync_hashes_lock:
+        seen = _sync_hashes.get(key)
+    if seen is not None and seen[:2] == (stat.st_mtime_ns, stat.st_size):
+        return seen[2]
+    digest = _digest(path.read_bytes())
+    with _sync_hashes_lock:
+        _sync_hashes[key] = (stat.st_mtime_ns, stat.st_size, digest)
+    return digest
+
+
 def _source_revision(entity: dict) -> str:
     return _digest(json.dumps(entity, sort_keys=True, ensure_ascii=False).encode("utf-8"))
 
@@ -1574,20 +1594,25 @@ def _parse_entity_text(text: str) -> dict | None:
 
 
 def check_vault_sync() -> list[dict]:
-    """Report content edits and divergent DB revisions without trusting mtimes."""
+    """Report content edits and divergent DB revisions by content hash.
+
+    A file whose size and modification time are as they were at the last check keeps that check's hash.
+    """
     if not is_enabled():
         return []
     import row_bot.knowledge_graph as kg
 
     manifest = _read_manifest()
     result = []
+    checked: set[str] = set()
     for relative, baseline in manifest["files"].items():
         entity_id = baseline.get("entity_id")
         if not entity_id:
             continue
         path = _wiki_path(relative)
+        checked.add(str(path))
         try:
-            content_hash = _digest(path.read_bytes())
+            content_hash = _file_hash(path)
             if content_hash == baseline["hash"]:
                 continue
             entity = kg.get_entity(entity_id)
@@ -1603,6 +1628,9 @@ def check_vault_sync() -> list[dict]:
             })
         except (OSError, UnicodeError):
             continue
+    with _sync_hashes_lock:  # Only files still exported are remembered.
+        for gone in _sync_hashes.keys() - checked:
+            del _sync_hashes[gone]
     # Old articles the naming tidy did not adopt (edited by hand) stay the
     # user's. First import needs explicit review because legacy timestamps omit
     # property edits.

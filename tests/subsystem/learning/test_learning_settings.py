@@ -68,6 +68,8 @@ def test_learning_is_off_by_default_with_the_setup_sheets_defaults(api):
         ("apply_mode", "automatic", ("apply_mode",)),
         ("monthly_token_limit", 500_000, ("monthly_token_limit",)),
         ("monthly_token_limit", 0, ("monthly_token_limit",)),
+        ("monthly_token_limit", 75_000_000, ("monthly_token_limit",)),
+        ("monthly_token_limit", None, ("monthly_token_limit",)),
         ("train_in_quiet_hours", False, ("train_in_quiet_hours",)),
         ("train_where", "hugging_face", ("train_where",)),
     ],
@@ -178,6 +180,37 @@ def test_saved_values_that_cant_be_read_fall_back_to_the_safe_choice(data_dir):
         "ask_first", "this_computer", 2_000_000,
     )
     assert (settings.my_chats, settings.workflows_and_goals, settings.train_in_quiet_hours) == (False, True, False)
+
+
+def test_no_monthly_limit_is_reviewed_in_plain_words_and_a_limit_brings_it_back(api):
+    client, headers, data, _ = api
+    review, snapshot = _save(client, headers, "monthly_token_limit", None)
+
+    assert review["value_summary"] == (
+        "No monthly limit for Learning: nothing caps its spending, comparing methods included; "
+        "what it spends still shows each month"
+    )
+    assert snapshot["learning"]["monthly_token_limit"] is None
+    assert learning.read_settings().monthly_token_limit is None
+    _, snapshot = _save(client, headers, "monthly_token_limit", 5_000_000)
+    assert snapshot["learning"]["monthly_token_limit"] == 5_000_000
+    assert json.loads((data / "learning_config.json").read_text(encoding="utf-8"))["monthly_token_limit"] == 5_000_000
+
+
+@pytest.mark.parametrize(
+    ("saved", "reads"),
+    [
+        ({"monthly_token_limit": 3_000_000}, 3_000_000),  # an amount that was never one of the choices
+        ({"monthly_token_limit": 0}, 0),
+        ({}, 2_000_000),  # a file from before the limit was saved
+        ({"monthly_token_limit": None}, None),
+        ({"monthly_token_limit": "none"}, 2_000_000),
+        ({"monthly_token_limit": 1_000_000_001}, 2_000_000),
+    ],
+)
+def test_saved_monthly_limits_load_as_they_were_saved(data_dir, saved, reads):
+    save_learning_settings(data_dir, enabled=True, **saved)
+    assert learning.read_settings().monthly_token_limit == reads
 
 
 def test_turning_learning_on_reads_past_chats_only_when_that_box_is_ticked(api, monkeypatch):

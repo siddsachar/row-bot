@@ -65,10 +65,15 @@ def append_parent_thread_message_once(
     agent_completion_for = _clean_text(metadata.get("agent_completion_for"))
     goal_completion_for = _clean_text(metadata.get("goal_completion_for"))
     try:
-        from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_messages
+        from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_messages, paused_at_a_question
         from langchain_core.messages import AIMessage
 
         with _LOCAL_APPEND_LOCK:
+            if paused_at_a_question(clean_thread_id):
+                # Never on top of a turn waiting for an answer (its own parent approval, say): the answer
+                # would find no question to resume (R15). The chat shows waiting cards from the approvals.
+                log.debug("A notice was left out of a conversation waiting for an answer")
+                return False
             for message in get_latest_checkpoint_messages(clean_thread_id):
                 if getattr(message, "type", "") != "ai":
                     continue

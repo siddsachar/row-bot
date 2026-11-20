@@ -183,20 +183,24 @@ def _default_model_name() -> str:
 
 
 def _spending(settings: learning.LearningSettings) -> dict[str, Any]:
-    used = 0
+    used = kept = 0
+    limit = settings.monthly_token_limit
     try:
         from row_bot.learning import spending
 
         used = spending.used_this_month()
+        kept = spending.kept_for_trials(limit)
     except Exception:
         logger.debug("Learning could not read this month's tokens", exc_info=True)
-    limit = settings.monthly_token_limit
     return {
+        # Shown whatever the limit is, no limit included.
         "used_tokens": max(0, int(used)),
         "limit_tokens": limit,
         "resets_on": _next_month(date.today()).isoformat(),
         "model_name": _default_model_name(),
-        "limit_reached": settings.enabled and (limit == 0 or used >= limit),
+        # What comparing methods still has of its share: the rest of Learning's work stops before it (O178).
+        "kept_for_comparing": max(0, int(kept)),
+        "limit_reached": settings.enabled and limit is not None and (limit == 0 or used >= limit - kept),
     }
 
 
@@ -1411,6 +1415,20 @@ def read_learning_conversation(conversation_id: str, *, validate: Callable[[], N
     return {"conversation_id": clean, "state": state, "reason": reason}
 
 
+def _memory_present(memory_id: str) -> bool:
+    """Whether a lesson's memory is still saved (unsure: yes, so a read error never shows it removed)."""
+
+    if not memory_id:
+        return True
+    try:
+        from row_bot import knowledge_graph
+
+        return knowledge_graph.get_entity(memory_id) is not None
+    except Exception:
+        logger.debug("Learning could not check a lesson's memory", exc_info=True)
+        return True
+
+
 def read_learning_lessons(*, validate: Callable[[], None]) -> dict[str, Any]:
     """Lessons (UX §7): those Learning put into use (In use, or Off after Undo), with their kind of work and
     how often recall used them this month, and those Row-Bot saved for itself during chats (its
@@ -1435,11 +1453,14 @@ def read_learning_lessons(*, validate: Callable[[], None]) -> dict[str, Any]:
                 continue  # shown below, as the memory it tests
             if state == "in_use" or (state == "not_used" and meta.get("state") == "undone"):
                 kind = str(meta.get("kind_of_work") or "other")
+                # Its memory removed outside Lessons (Memory, the memory tool): recall can't reach it, so it isn't
+                # in use. Undoing the removal puts the memory back by id, and it shows In use again.
+                status = "off" if state != "in_use" else "in_use" if _memory_present(memory_id) else "removed"
                 items.append({
                     "id": _text(proposal.get("id"), 128), "title": _text(proposal.get("title"), 200),
                     "text": _text((proposal.get("payload") or {}).get("text"), 600), "origin": "learning",
-                    "status": "in_use" if state == "in_use" else "off", "kind": kind if kind in _KINDS else "other",
-                    "used": changes.used_this_month(memory_id) if state == "in_use" else 0,
+                    "status": status, "kind": kind if kind in _KINDS else "other",
+                    "used": changes.used_this_month(memory_id) if status == "in_use" else 0,
                     "change_id": _text(proposal.get("id"), 128),
                     "updated_at": _text(proposal.get("updated_at"), 64),
                 })
@@ -1625,12 +1646,14 @@ def _setup_values(setup: Any) -> dict[str, Any]:
         if type(value) is not bool:
             raise ClientPlatformError("invalid_learning_command")
         values[f"sources.{key}"] = value
-    limit = setup.get("monthly_token_limit")
+    # None: no limit, which only an explicit null chooses (a missing limit is refused).
+    limit = setup.get("monthly_token_limit", -1)
     if (setup.get("apply_mode") not in learning.APPLY_MODES
             or setup.get("train_where") not in learning.TRAIN_PLACES
             or setup.get("starting_model", learning.STARTING_MODELS[0]) not in _trainable_models()
             or type(setup.get("train_in_quiet_hours")) is not bool
-            or type(limit) is not int or not 0 <= limit <= learning.MAX_MONTHLY_TOKEN_LIMIT):
+            or (limit is not None
+                and (type(limit) is not int or not 0 <= limit <= learning.MAX_MONTHLY_TOKEN_LIMIT))):
         raise ClientPlatformError("invalid_learning_command")
     values.update({
         "apply_mode": setup["apply_mode"],

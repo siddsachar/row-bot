@@ -201,24 +201,32 @@ def check_active_model() -> CheckResult:
             return CheckResult("Model", "warn", "No model selected", settings_tab="Models")
         from row_bot.providers.resolution import resolve_provider_config
 
+        from row_bot.providers.backup import model_name
+
+        # The model by its name, and why it can't run in the words the composer uses (W3): never its ref.
+        name = model_name(model)
         resolved = resolve_provider_config(model, allow_legacy_local=True)
         if resolved.provider_id in {"ollama", "local"}:
-            return CheckResult("Model", "ok", model, settings_tab="Models")
+            return CheckResult("Model", "ok", name, settings_tab="Models")
         from row_bot.providers.readiness import evaluate_runtime_readiness
 
         readiness = evaluate_runtime_readiness(resolved, refresh_provider_status=False)
         if readiness.selected_mode == "agent":
-            return CheckResult("Model", "ok", model, settings_tab="Models")
+            return CheckResult("Model", "ok", name, settings_tab="Models")
         if readiness.selected_mode == "chat_only":
-            return CheckResult("Model", "warn", f"{model} can chat, but tools and actions are off.",
+            return CheckResult("Model", "warn", f"{name} can chat, but tools and actions are off.",
                                settings_tab="Models")
-        return CheckResult("Model", "error", f"{model} can't run: {readiness.selection_reason}", settings_tab="Models")
+        from row_bot.application.workspace_setup import unavailable_reason
+
+        reason, _fix = unavailable_reason(model, resolved.provider_id, readiness, "agent")
+        return CheckResult("Model", "error", f"{name} can't run: {reason}.", settings_tab="Models")
     except Exception as exc:
         return CheckResult("Model", "error", str(exc), settings_tab="Models")
 
 
 def check_sign_ins() -> list[CheckResult]:
-    """Subscription sign-ins (ChatGPT, Claude, Grok) that were set up and can't be used now (G24).
+    """Subscription sign-ins (ChatGPT, Claude, Grok) that were set up and can't be used now (G24), and
+    API keys a provider refused (T10).
 
     Local reads only, so it runs with the local checks: an expired sign-in shows in Needs you
     before a chat fails on it. Providers that are fine or never connected say nothing.
@@ -226,7 +234,7 @@ def check_sign_ins() -> list[CheckResult]:
     from row_bot.providers.status import sign_in_problems
 
     return [
-        CheckResult(f"{problem['name']} sign-in", problem["status"], problem["detail"], settings_tab="Models",
+        CheckResult(problem["title"], problem["status"], problem["detail"], settings_tab="Models",
                     metadata={"provider_id": problem["provider_id"]})
         for problem in sign_in_problems()
     ]
@@ -822,7 +830,10 @@ def check_mcp() -> CheckResult:
         from row_bot.mcp_client.runtime import get_status_summary
         status = get_status_summary()
         if not status.get("sdk_available"):
-            return CheckResult("MCP", "warn", "SDK missing", settings_tab="Apps")
+            # "Missing" only when the package isn't installed; one that failed to load says so (RM4).
+            failed = status.get("sdk_state") == "failed"
+            return CheckResult("MCP", "warn", "SDK didn't load · restart Row-Bot" if failed else "SDK missing",
+                               settings_tab="Apps")
         server_count = int(status.get("server_count") or 0)
         enabled_servers = int(status.get("enabled_server_count") or 0)
         connected = int(status.get("connected_server_count") or 0)

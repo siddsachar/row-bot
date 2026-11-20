@@ -36,6 +36,9 @@ describe('Home › For you', () => {
             moment_id: '0000000000000001',
             kind: 'meeting_prep',
             title: 'Design review with Priya and Tom',
+            // Made on this test's morning, never the real clock's: on 16 November
+            // itself a real "an hour ago" came after the moment was due.
+            created_at: at(8, 30),
             due_at: at(9, 40),
             actions: [{ id: 'open_brief', label: 'Open brief' }],
           }),
@@ -43,6 +46,7 @@ describe('Home › For you', () => {
             moment_id: '0000000000000002',
             kind: 'change',
             title: '1:1 with Ana moved to 15:30',
+            created_at: at(8, 30),
             due_at: at(15, 30),
             actions: [],
             prepared_ref: '',
@@ -71,6 +75,42 @@ describe('Home › For you', () => {
     expect(screen.getByText('12 memories saved this week')).toBeVisible();
   });
 
+  it('puts fact rows on a later day under that day, between Later today and Ready when you are', async () => {
+    render(
+      <MemoryRouter>
+        <ForYou
+          io={fakeIO({ moments: [moment({ moment_id: '0000000000000003' })] })}
+          now={now}
+          today={[<li key="run">Weekly report runs at 17:00</li>]}
+          ahead={[
+            {
+              at: new Date(2026, 10, 19, 9, 0),
+              row: <li key="thu">Invoices run at 09:00</li>,
+            },
+            {
+              at: new Date(2026, 10, 17, 8, 0),
+              row: <li key="tue">Weekday plan runs at 08:00</li>,
+            },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    const tomorrow = await screen.findByRole('group', { name: 'Tomorrow' });
+    expect(
+      within(tomorrow).getByText('Weekday plan runs at 08:00'),
+    ).toBeVisible();
+    const thursday = screen.getByRole('group', { name: 'Thursday' });
+    expect(within(thursday).getByText('Invoices run at 09:00')).toBeVisible();
+    const later = screen.getByRole('group', { name: 'Later today' });
+    expect(within(later).queryByText(/Weekday plan/)).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole('group')
+        .map((group) => group.getAttribute('aria-labelledby'))
+        .map((id) => document.getElementById(id ?? '')?.textContent),
+    ).toEqual(['Later today', 'Tomorrow', 'Thursday', 'Ready when you are']);
+  });
+
   it('lets expired moments leave quietly, and renders nothing on a day with nothing', async () => {
     const io = fakeIO({
       moments: [moment({ expires_at: at(9, 0) })],
@@ -83,7 +123,7 @@ describe('Home › For you', () => {
     expect(screen.queryByText(/No reply from Priya/)).not.toBeInTheDocument();
   });
 
-  it('shows the morning brief first, its lines and its end', async () => {
+  it('shows the morning brief first, its lines in plain words, and ends once', async () => {
     show(
       fakeIO({
         moments: [
@@ -91,7 +131,7 @@ describe('Home › For you', () => {
             moment_id: '0000000000000009',
             kind: 'brief',
             title: 'Good morning. 3 meetings, 2 follow-ups.',
-            body: '- 10:00 Design review\n- Priya hasn’t replied\nThat’s everything for today.',
+            body: '- **Calendar and deadlines:** 10:00 Design review\n- Priya hasn’t replied, see [the thread](https://mail.example.test/t/1)\nThat’s everything for today.',
             actions: [],
             prepared_ref: '',
           }),
@@ -101,10 +141,21 @@ describe('Home › For you', () => {
     const brief = await screen.findByRole('region', {
       name: 'Good morning. 3 meetings, 2 follow-ups.',
     });
-    expect(within(brief).getByText('10:00 Design review')).toBeVisible();
-    expect(
-      within(brief).getByText('That’s everything for today.'),
-    ).toBeVisible();
+    const [calendar, reply] = within(brief).getAllByRole('listitem');
+    // Bold reads as bold, never as asterisks.
+    expect(within(calendar).getByText('Calendar and deadlines:').tagName).toBe(
+      'STRONG',
+    );
+    expect(calendar).toHaveTextContent(
+      /^Calendar and deadlines: 10:00 Design review$/,
+    );
+    expect(brief).not.toHaveTextContent('*');
+    // A link stays words in the card: nothing here leaves Home.
+    expect(reply).toHaveTextContent('Priya hasn’t replied, see the thread');
+    expect(within(brief).queryByRole('link')).toBeNull();
+    // "That's everything for today." once, where For you ends.
+    expect(screen.getAllByText(/That’s everything for today/)).toHaveLength(1);
+    expect(within(brief).queryByText(/That’s everything for today/)).toBeNull();
   });
 
   it('the row does the primary action and reports it', async () => {

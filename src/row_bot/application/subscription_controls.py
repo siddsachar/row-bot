@@ -58,10 +58,12 @@ def _provider(provider_id: str) -> None:
 
 def _connection_changed(provider_id: str, *, connected: bool = True) -> None:
     """A sign-in was saved, removed or restored: runtimes forget the old one, Settings › Models shows it (B411)."""
+    from row_bot.application.client_diagnosis import recheck_sign_ins
     from row_bot.application.provider_settings_commands import invalidate_provider_runtime
     from row_bot.providers.model_catalog_cache import provider_connection_changed
     invalidate_provider_runtime()
     provider_connection_changed(provider_id, connected=connected)
+    recheck_sign_ins()  # Monitor's kept sign-in check follows at once (W18).
     if provider_id == "codex" and connected:
         _default_image_model_to_chatgpt()
 

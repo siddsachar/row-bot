@@ -91,6 +91,16 @@ def metadata_of(message: Any) -> dict[str, Any] | None:
     return dict(meta)
 
 
+def turn_began(message: Any) -> datetime | None:
+    """When the turn of a turn-context message began, or None (any other message, or one made
+    before turn contexts kept the time)."""
+    meta = metadata_of(message)
+    try:
+        return datetime.fromisoformat(str((meta or {}).get("at") or ""))
+    except ValueError:
+        return None
+
+
 def is_turn_context_message(message: Any) -> bool:
     """Whether *message* is a Row-Bot turn context (by its metadata, never by its text)."""
     return metadata_of(message) is not None
@@ -316,6 +326,8 @@ def build_message(
         "turn_id": str(turn_id),
         "summary": str(summary_marker or ""),
         "sequence": int(sequence),
+        # When the turn began, in local time: memory extraction dates what was said by it.
+        "at": values.now.isoformat(timespec="seconds"),
         **data,
     }
     suffix = f"-{sequence}" if sequence else ""

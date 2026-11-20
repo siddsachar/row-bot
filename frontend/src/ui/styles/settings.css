@@ -3641,6 +3641,15 @@
   flex: 1 1 180px;
   min-width: 0;
 }
+/* "This device" keeps its words; the last-seen line wraps under it (W11). */
+.access-devices .entity-row-meta {
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 0;
+}
+.access-devices .entity-row-meta .status-indicator {
+  flex: none;
+}
 .access-devices .entity-row-meta > span:not(.status-indicator) {
   white-space: normal;
 }
@@ -5456,4 +5465,63 @@ button.settings-mcp-server-name:hover {
   min-height: 44px;
   margin-inline-start: -10px;
   color: var(--text-primary);
+}
+
+/* Settings › Models › This computer (E1). */
+.local-model-settings-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.local-model-settings-message {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.local-model-settings-update {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.local-model-settings-update .button {
+  gap: 6px;
+}
+.local-model-settings-list {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.local-model-settings-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.local-model-settings-list li span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.local-model-settings-list small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.local-model-settings-add {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
 }

@@ -88,7 +88,7 @@ export const settingsKeywords: Record<ListedLeafId, string> = {
   system:
     'shell commands browser computer use workspace folder logging logs files blocked privacy telemetry',
   activity:
-    'actions audit log history approvals approved denied blocked reviewer hands-off who allowed export csv clear',
+    'actions audit log history approvals approved denied blocked reviewer hands-off who allowed export csv clear always allow rules standing',
   access:
     'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
   updates: 'version upgrade release channel beta',
@@ -321,6 +321,12 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'window_mode',
     label: 'Open Row-Bot in',
     keywords: 'window mode app native browser launch',
+  },
+  {
+    leaf: 'preferences',
+    anchor: 'desktop_notifications',
+    label: 'Desktop notifications',
+    keywords: 'notify alerts sound toast workflow finished timer approval',
   },
   {
     leaf: 'preferences',
@@ -737,6 +743,12 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'devices',
     label: 'Your devices',
     keywords: 'sessions signed in sign out phones computers',
+  },
+  {
+    leaf: 'access',
+    anchor: 'notifications',
+    label: 'Notifications on this device',
+    keywords: 'phone push notifications tablet iphone android',
   },
   {
     leaf: 'access',

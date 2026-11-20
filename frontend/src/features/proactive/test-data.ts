@@ -177,7 +177,7 @@ export function fakeIO(
         state: feedback.action === 'act' ? 'acted' : settled,
       });
     }),
-    activity: vi.fn(async () => ({
+    activity: vi.fn<ProactiveIO['activity']>(async () => ({
       schema_version: 1 as const,
       items: [
         {

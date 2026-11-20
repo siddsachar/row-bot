@@ -288,3 +288,39 @@ def test_two_models_stay_loaded_only_where_the_card_holds_both():
     assert llama_server.models_max([two_billion], 8 * 1024**3) == 1  # an 8 GB card: one at a time
     assert llama_server.models_max([two_billion], None) == 1  # unknown card: one at a time
     assert llama_server.models_max([twenty_seven_billion], 32 * 1024**3) == 1
+
+
+def test_a_load_refused_while_another_model_unloads_is_asked_for_again(monkeypatch):
+    # Right after an unload the server may still hold the other model: it refuses the load ("model limit
+    # reached") and leaves this one unloaded. Row-Bot asks again instead of waiting out the 600 s.
+    from row_bot.learning.training.llama_server import Connection
+
+    clock = Clock()
+    state = {"status": "unloaded", "loads": 0}
+
+    class Http:
+        def request(self, method, url, *, key=None, body=None, timeout=None):
+            if url.endswith("/models/load"):
+                state["loads"] += 1
+                if state["loads"] == 1:
+                    return 400, {"error": {"message": "model limit reached"}}
+                state["status"] = "loaded"
+                return 200, {"success": True}
+            clock.now += 1.0  # each look at the models is a second later
+            return 200, {"data": [{"id": "row-bot-personal-v2", "status": {"value": state["status"]}}]}
+
+    class Alive:
+        def alive(self):
+            return True
+
+    server = ManagedServer(None, http=Http(), clock=clock, card_bytes=lambda: None, monitor=False)
+    connection = Connection("http://127.0.0.1:1/v1", "key", 1)
+    monkeypatch.setattr(server, "ensure", lambda: connection)
+    monkeypatch.setattr(server, "models", lambda: [ModelEntry("row-bot-personal-v2", "v2.gguf", 32_768)])
+    monkeypatch.setattr(server, "_connection", connection)
+    monkeypatch.setattr(server, "_process", Alive())
+    monkeypatch.setattr(llama_server.time, "sleep", lambda _seconds: None)
+
+    server.load("row-bot-personal-v2")
+
+    assert state["loads"] == 2 and clock.now < 1000.0 + 10  # asked again within seconds, not at 600 s

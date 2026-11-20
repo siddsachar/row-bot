@@ -23,7 +23,7 @@ CSV_COLUMNS = ("Time", "Chat", "Where", "Tool", "App", "What", "Level", "Outcome
 
 OUTCOME_WORDS = {
     "ran": "Ran", "asked": "Waiting for you", "approved_by_you": "You approved",
-    "approved_by_reviewer": "Reviewer approved", "hands_off": "Hands-off", "allowed_by_rule": "Your rule",
+    "approved_by_reviewer": "Reviewer approved", "hands_off": "Hands-off", "allowed_by_rule": "Allowed by your rule",
     "allowed_in_chat": "Allowed in this chat", "denied": "You said no",
     "changed": "Changed after you approved — didn't run", "blocked": "Blocked", "failed": "Didn't work",
 }
@@ -68,7 +68,10 @@ def _entry(row: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
         "surface": row["surface"] if row["surface"] in activity_log.SURFACES else "chat",
         "source_id": str(row["source_id"] or "")[:256],
         "tool": str(row["tool"] or "")[:180],
-        "title": str(row["title"] or "")[:160],
+        # A title that is only the tool's own name is left to the client, which says it the way chat steps
+        # do ("Read page", not "Read url") (W19).
+        "title": "" if str(row["title"] or "") == activity_log.tool_words(str(row["tool"] or ""))
+        else str(row["title"] or "")[:160],
         "app_id": str(row["app_id"] or "")[:256],
         "app_name": str(row["app_name"] or "")[:128],
         "summary": str(row["summary"] or "")[:activity_log.SUMMARY_MAX],
@@ -78,6 +81,7 @@ def _entry(row: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
         "reason": str(row["reason"] or "")[:activity_log.REASON_MAX],
         "risk": row["risk"] if row["risk"] in activity_log.RISKS else "unknown",
         "pending": row["status"] == "pending",
+        "rule_id": str(row.get("rule_id") or "")[:32],
     }
 
 
@@ -147,7 +151,8 @@ def export_csv(**filters: Any) -> bytes:
             if entry["outcome"] == "asked" and not entry["pending"]:
                 outcome = _UNANSWERED
             writer.writerow([_cell(item) for item in (
-                entry["at"], entry["conversation_title"], SURFACE_WORDS[entry["surface"]], entry["title"],
+                entry["at"], entry["conversation_title"], SURFACE_WORDS[entry["surface"]],
+                entry["title"] or activity_log.tool_words(entry["tool"]),
                 entry["app_name"], entry["summary"], LEVEL_WORDS.get(entry["level"], ""), outcome,
                 DECIDER_WORDS[entry["decided_by"]], entry["reason"],
             )])

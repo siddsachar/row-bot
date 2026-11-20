@@ -116,12 +116,15 @@ def _message_dict(message: Any) -> Any:
 
 
 def _is_untrusted(message: Any) -> bool:
-    """A tool or web result stamped untrusted when it was stored, or fenced as external content."""
+    """A tool or web result stamped untrusted when it was stored, or fenced as external content: a tool's
+    result, or a message Row-Bot sends as the turn's prompt that quotes outside text in the fence (a goal
+    check's output, a watch's change, a delegated agent's answer). The system prompt's fenced project notes
+    are the person's own files."""
 
     extra = getattr(message, "additional_kwargs", None)
     if isinstance(extra, Mapping) and extra.get(UNTRUSTED_KEY):
         return True
-    if str(getattr(message, "type", "") or "") == "tool":
+    if str(getattr(message, "type", "") or "") in ("tool", "human"):
         content = getattr(message, "content", "")
         return _EXTERNAL_FENCE in content if isinstance(content, str) else _EXTERNAL_FENCE in str(content)
     return False

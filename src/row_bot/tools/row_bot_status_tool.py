@@ -481,7 +481,7 @@ def _query_mcp() -> str:
         lines = [
             "**MCP Client**",
             f"- Global enable: {'on' if summary.get('enabled') else 'off'}",
-            f"- MCP SDK: {'available' if summary.get('sdk_available') else 'missing'}",
+            f"- MCP SDK: {summary.get('sdk_state') or ('available' if summary.get('sdk_available') else 'missing')}",
             f"- Servers: {summary.get('enabled_server_count', 0)} enabled / {summary.get('server_count', 0)} configured / {summary.get('connected_server_count', 0)} connected",
             f"- Tools: {summary.get('enabled_tool_count', 0)} enabled / {summary.get('tool_count', 0)} discovered",
             f"- Approval-gated tools: {summary.get('destructive_tool_count', 0)}",
@@ -1434,7 +1434,7 @@ class _StatusQueryInput(BaseModel):
     # Offered straight from the handlers, so the schema and what answers cannot drift apart.
     # What each category reports is in row_bot_status_guide.
     category: Literal[tuple(_QUERY_HANDLERS)] = Field(  # type: ignore[valid-type]
-        description="What to query; 'overview' summarises every area."
+        description="'overview' summarises every area."
     )
 
 
@@ -1549,8 +1549,8 @@ def _update_setting(setting: str, value: str) -> str:
 
 
 class _DocsInput(BaseModel):
-    query: str = Field(default="", description="What the person wants to do or know, in their words.")
-    page: str = Field(default="", description="A guide link from an earlier result (/docs/...#section) to read whole.")
+    query: str = Field(default="", description="In the person's words.")
+    page: str = Field(default="", description="A guide link from a result (/docs/...#section), read whole.")
 
 
 _SECTION_CHARS = 1_500
@@ -1841,9 +1841,8 @@ class RowBotStatusTool(BaseTool):
                 func=_row_bot_status,
                 name="row_bot_status",
                 description=(
-                    "Row-Bot's live state, one area at a time: version, model and readiness, providers and "
-                    "sign-ins, tools, skills, the settings Row-Bot can change ('settings'), what needs "
-                    "attention ('health'), and more."
+                    "Row-Bot's live state, one area at a time: version, model, providers, tools, skills, the "
+                    "settings Row-Bot can change ('settings'), what needs attention ('health')…"
                 ),
                 args_schema=_StatusQueryInput,
             ),
@@ -1851,8 +1850,8 @@ class RowBotStatusTool(BaseTool):
                 func=_row_bot_docs,
                 name="row_bot_docs",
                 description=(
-                    "Search Row-Bot's own guides for this version, offline: how to do something in Row-Bot, "
-                    "what a feature or setting does, or where it is. Cite the guide and link each setting."
+                    "Search Row-Bot's own guides, offline: how to do something in Row-Bot, what a feature or "
+                    "setting does, or where it is. Cite the guide and link each setting."
                 ),
                 args_schema=_DocsInput,
             ),

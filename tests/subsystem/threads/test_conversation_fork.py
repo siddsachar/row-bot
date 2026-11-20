@@ -151,6 +151,22 @@ def test_a_summary_inside_the_kept_part_stays_valid_and_one_past_it_is_dropped(t
     assert threads.load_validated_summary_state(early, "chat_only") is None
 
 
+def test_a_summary_prepared_ahead_goes_with_a_fork_that_keeps_what_it_summarizes(threads):
+    source = _source(threads)
+    messages = threads.get_latest_checkpoint_messages(source)
+    assert threads.save_prepared_summary_cas(source, {
+        "schema_version": 1, "mode": "agent", "summary": "prepared summary", "boundary_message_count": 7,
+        "boundary_digest": threads.context_boundary_digest(messages, 7, "agent"), "base_summary_digest": "",
+    }, messages=messages)
+
+    kept = threads.fork_conversation(source, at_message_id="h3", include_message=False).conversation_id
+    cut = threads.fork_conversation(source, at_message_id="h2", include_message=False).conversation_id
+
+    assert threads.load_prepared_summary(kept, "agent")["summary"] == "prepared summary"
+    assert threads.load_prepared_summary(cut, "agent") is None
+    assert threads.load_prepared_summary(source, "agent")["summary"] == "prepared summary"
+
+
 def test_hygiene_marks_are_kept_by_their_anchors_and_reset_past_the_cut(threads):
     from row_bot import history_hygiene
 

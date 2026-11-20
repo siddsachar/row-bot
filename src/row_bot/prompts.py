@@ -16,6 +16,8 @@ _GUIDELINES_HEAD = (
     "ALWAYS respond in the same language the user writes in. Never switch to a\n"
     "different language mid-response.\n\n"
     "TOOL USE GUIDELINES:\n"
+    "- The person's word comes first: when they ask you not to use tools (or a certain tool) for a request,\n"
+    "  answer it without them, from what you know. That limit is for that request only, not later ones.\n"
     "- ALWAYS use your tools to look up information before answering factual questions.\n"
     "- For anything time-sensitive (news, weather, prices, scores, releases, events,\n"
     "  current status, 'latest', 'recent', 'today', 'this week', etc.) you MUST\n"
@@ -63,8 +65,12 @@ _ABILITIES_GUIDELINES = (
 # window leaves it out with the abilities above.
 _ANSWER_COMPONENTS_GUIDELINES = (
     "ANSWER COMPONENTS:\n"
-    "When an answer is data or a choice and reads better that way, add one fenced block with a JSON body,\n"
-    "and keep a one-line summary in prose:\n"
+    "When an answer is data or a choice and reads better that way, add one fenced block whose language is\n"
+    "the component's name and whose body is JSON, and keep a one-line summary in prose. For example:\n"
+    "```rowbot-checklist\n"
+    "{\"title\": \"Packing\", \"items\": [{\"text\": \"Passport\", \"done\": false}]}\n"
+    "```\n"
+    "The components and their bodies:\n"
     "- rowbot-table {title, columns:[{key,label}], rows:[{key:value}]}\n"
     "- rowbot-chart {title, kind:\"bar\"|\"line\", x:[...], series:[{name, values:[...]}]}\n"
     "- rowbot-checklist {title, items:[{text, done}]}\n"
@@ -311,27 +317,44 @@ AGENT_BG_OVERRIDE = (
 
 EXTRACTION_PROMPT = """\
 You are a memory extraction assistant. Read the conversation below between \
-a user and an AI assistant. Extract ONLY facts that reveal who the user is, \
-what they care about, and what they are working on. Be conservative — it is \
+a user and an AI assistant. Extract the facts worth keeping about the \
+user's life: who they are, what they care about and what they are working \
+on; the people, places and events in their life, including what they \
+learned from or shared about others; and the substance of answers they \
+asked the assistant for and would want remembered. Be conservative — it is \
 far better to extract nothing than to save low-value noise. The user's full \
 conversation history is already searchable separately, so only save facts \
 that belong in a permanent knowledge base about this person.
 
 THE KEY TEST — Before extracting ANYTHING, ask yourself:
-"Did the USER explicitly state or clearly imply this fact about their own \
-life, work, relationships, or interests?" If YES → extract. If NO → skip.
+"Is this a fact about the user's life, or about the people, places and \
+events in it, that the user stated or clearly implied, or the substance of \
+an answer the user asked for and would want remembered?" If YES → extract. \
+If NO → skip.
+- From the user: facts about their own life, work, relationships and \
+  interests, and what they learned from or shared about others ("My sister \
+  moved to Lisbon", "Sam told me he is allergic to nuts").
+- From the assistant: only the substance of an answer the user asked for and \
+  took up or would want kept: a recommendation they chose, the name of a \
+  place, product or person found for them, a plan they agreed to. Save it as \
+  the user's (e.g. "The user chose Nostalgia, a vintage shop the assistant \
+  recommended"), never as general knowledge.
+- An assistant line that reads "[answer left out: ...]" came from a turn \
+  that read outside content; nothing of it is known.
+- A long assistant line is shortened: "[...]" marks where sentences were \
+  left out, and code, tables and long lists are left out.
 
-ENTITIES — Only extract when the USER stated or implied it:
-- person: People the user knows — family, friends, colleagues, pets
+ENTITIES — Only extract what passes the key test:
+- person: People the user knows or tells about — family, friends, colleagues, pets — and what the user learned about them
 - preference: The user's own likes, dislikes, habits, routines, choices
 - fact: Biographical details about the user — name, age, health, qualifications
-- event: Events with lasting personal significance — birthdays, deadlines, milestones, anniversaries
-- place: Places personally relevant to the user — home, workplace, travel destinations
+- event: Events with lasting personal significance in the user's life or the lives of people they know — birthdays, deadlines, milestones, anniversaries
+- place: Places personally relevant to the user — home, workplace, travel destinations, a place found for them
 - project: The user's own work projects, side projects, goals, initiatives
 - organisation: Companies, teams, institutions the user belongs to or works with
 - concept: Technologies, methodologies the user is actively working with or studying
 - skill: The user's abilities, programming languages, spoken languages, certifications
-- media: Books, movies, podcasts, papers the user says they are reading/watching/recommending
+- media: Books, movies, podcasts, papers the user says they are reading/watching/recommending, or chose from a recommendation
 
 Write descriptions as if they will appear in a knowledge base article — be \
 descriptive and include context, not just telegraphic labels.
@@ -352,6 +375,20 @@ THE "User" ENTITY:
   Example: {{"relation_type": "lives_in", "source_subject": "User",
   "target_subject": "London", "confidence": 0.9}}
 
+WHO SAID IT — keep every fact with the person it belongs to:
+- Lines starting "User" are the person this memory belongs to. Lines starting \
+  "Assistant" are the other side: usually the AI assistant, sometimes another \
+  person (their name is in brackets when known, e.g. "Assistant (Caroline):").
+- Facts about the user come only from the user's own lines. Something the \
+  other side says about themselves is THEIR fact, never the user's: "I'm \
+  trans", said on an Assistant line, is about that speaker, not about the user.
+- Save the other side's facts under their own name (category person, event \
+  or place), never under "User", the user's name, or a "User's ..." subject, \
+  and never as preference, fact or skill (those are the user's own).
+- Give every object "said_by": "user" when the user's own lines state or \
+  clearly imply it (a choice the user confirmed counts), "assistant" when only \
+  the other side's lines say it.
+
 RELATIONS — Look for connections between entities:
 - Family: mother_of, father_of, sibling_of, married_to, child_of, partner_of
 - Social: friend_of, colleague_of, boss_of, mentor_of
@@ -371,10 +408,12 @@ entities relate. Do not invent one just to connect an entity:
 - If you mention a person is the user's dad → entity for "Dad" + relation
   Dad→father_of→User
 
-DATES — Today is {today}. Write every date as a calendar date (e.g. \
-"14 November 2026"), never as "today", "tomorrow", "next week" or "last \
-month", and give the date a state started when it matters ("since \
-November 2026", not "currently").
+DATES — The conversation's date, and the weeks either side of it by \
+weekday, are given just before it. Work out every relative date ("today", \
+"yesterday", "last Friday", "next week") from that date, reading weekdays \
+off those lists, and write it as a calendar date (e.g. "14 November 2026"), \
+never as "today", "tomorrow", "next week" or "last month". Give the date a \
+state started when it matters ("since November 2026", not "currently").
 
 CORRECTIONS:
 - If the user corrects a previously stated fact during the conversation
@@ -388,9 +427,14 @@ ALIASES:
 - Format: "aliases": "Sarah, Mom" or "aliases": "Robert, Bob"
 
 DO NOT EXTRACT — these are the most common mistakes:
-- Content from AI responses — search results, news articles, web summaries, \
-  generated reports, research findings the AI looked up. The user asking \
-  "search for AI news" does NOT mean those news items are the user's knowledge.
+- General content from AI answers — explanations, news, summaries, generated \
+  reports, research findings, lists of options the user did not take up. The \
+  user asking "tell me the AI news" does NOT make those news items the user's \
+  knowledge; only what the user chose or would want kept counts.
+- Chit-chat and one-off trivia — greetings, thanks, small talk, a passing \
+  question answered once that the user will not need again.
+- Things the user would not want kept — passwords, codes, account or card \
+  numbers, and anything they asked to keep off the record or to forget.
 - Creative writing — fictional characters, places, events, or plot elements \
   from stories the AI generated. "Write me a story about a space captain" \
   does not create real entities.
@@ -409,13 +453,15 @@ DO NOT EXTRACT — these are the most common mistakes:
   (e.g. "The user is learning Rust").
 
 Rules:
-- ONLY extract facts the USER stated or implied about their own life, work, \
-  relationships, interests, or projects they are personally involved in
+- ONLY extract what passes the key test: facts the user stated or implied \
+  about their life (themselves, the people, places and events in it, their \
+  work, interests and projects), or the substance of an answer they asked \
+  for and would want remembered
 - When in doubt, do NOT extract — err on the side of silence
 - Return a JSON array of objects. There are TWO types of objects:
-  1. Entity: {{"category": "...", "subject": "...", "content": "..."}}
+  1. Entity: {{"category": "...", "subject": "...", "content": "...", "said_by": "user"}}
      Optionally include "aliases": "name1, name2" for alternative names.
-  2. Relation: {{"relation_type": "...", "source_subject": "...", "target_subject": "...", "confidence": 0.9}}
+  2. Relation: {{"relation_type": "...", "source_subject": "...", "target_subject": "...", "confidence": 0.9, "said_by": "user"}}
 - category must be one of: person, preference, fact, event, place, project, organisation, concept, skill, media
 - relation_type should be a snake_case label (e.g. "mother_of", "lives_in")
 - NEVER use vague relation types: related_to, associated_with, connected_to,
@@ -431,20 +477,27 @@ Rules:
 Example — user says "My name is Alex, I'm a software engineer at Acme Corp in London. \
 I'm reading Designing Data-Intensive Applications and learning Rust on the side. My dad Robert lives in Manchester":
 [
-  {{"category": "person", "subject": "User", "content": "User's name is Alex. Software engineer based in London.", "aliases": "Alex"}},
-  {{"category": "person", "subject": "Dad", "content": "User's father is named Robert, lives in Manchester", "aliases": "Robert"}},
-  {{"category": "organisation", "subject": "Acme Corp", "content": "Company where the user works as a software engineer"}},
-  {{"category": "place", "subject": "London", "content": "City where the user lives and works"}},
-  {{"category": "place", "subject": "Manchester", "content": "City where the user's father Robert lives"}},
-  {{"category": "media", "subject": "Designing Data-Intensive Applications", "content": "Book the user is currently reading, by Martin Kleppmann — covers distributed systems and data architecture"}},
-  {{"category": "skill", "subject": "Rust", "content": "Programming language the user is learning as a side project"}},
-  {{"relation_type": "employed_by", "source_subject": "User", "target_subject": "Acme Corp", "confidence": 1.0}},
-  {{"relation_type": "lives_in", "source_subject": "User", "target_subject": "London", "confidence": 1.0}},
-  {{"relation_type": "father_of", "source_subject": "Dad", "target_subject": "User", "confidence": 1.0}},
-  {{"relation_type": "lives_in", "source_subject": "Dad", "target_subject": "Manchester", "confidence": 0.9}},
-  {{"relation_type": "reading", "source_subject": "User", "target_subject": "Designing Data-Intensive Applications", "confidence": 1.0}},
-  {{"relation_type": "learning", "source_subject": "User", "target_subject": "Rust", "confidence": 1.0}}
+  {{"category": "person", "subject": "User", "content": "User's name is Alex. Software engineer based in London.", "aliases": "Alex", "said_by": "user"}},
+  {{"category": "person", "subject": "Dad", "content": "User's father is named Robert, lives in Manchester", "aliases": "Robert", "said_by": "user"}},
+  {{"category": "organisation", "subject": "Acme Corp", "content": "Company where the user works as a software engineer", "said_by": "user"}},
+  {{"category": "place", "subject": "London", "content": "City where the user lives and works", "said_by": "user"}},
+  {{"category": "place", "subject": "Manchester", "content": "City where the user's father Robert lives", "said_by": "user"}},
+  {{"category": "media", "subject": "Designing Data-Intensive Applications", "content": "Book the user is currently reading, by Martin Kleppmann — covers distributed systems and data architecture", "said_by": "user"}},
+  {{"category": "skill", "subject": "Rust", "content": "Programming language the user is learning as a side project", "said_by": "user"}},
+  {{"relation_type": "employed_by", "source_subject": "User", "target_subject": "Acme Corp", "confidence": 1.0, "said_by": "user"}},
+  {{"relation_type": "lives_in", "source_subject": "User", "target_subject": "London", "confidence": 1.0, "said_by": "user"}},
+  {{"relation_type": "father_of", "source_subject": "Dad", "target_subject": "User", "confidence": 1.0, "said_by": "user"}},
+  {{"relation_type": "lives_in", "source_subject": "Dad", "target_subject": "Manchester", "confidence": 0.9, "said_by": "user"}},
+  {{"relation_type": "reading", "source_subject": "User", "target_subject": "Designing Data-Intensive Applications", "confidence": 1.0, "said_by": "user"}},
+  {{"relation_type": "learning", "source_subject": "User", "target_subject": "Rust", "confidence": 1.0, "said_by": "user"}}
 ]
+
+Example — on an Assistant line, another person says "I'm Sam. I just moved to Leeds and I'm learning the cello":
+[
+  {{"category": "person", "subject": "Sam", "content": "Sam recently moved to Leeds and is learning the cello", "said_by": "assistant"}}
+]
+
+{dated}
 
 CONVERSATION:
 {conversation}

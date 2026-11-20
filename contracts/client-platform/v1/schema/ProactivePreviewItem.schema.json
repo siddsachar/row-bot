@@ -35,6 +35,9 @@
     "where": {
       "enum": [
         "buddy",
+        "notification",
+        "phone",
+        "chat_app",
         "home"
       ],
       "title": "Where",

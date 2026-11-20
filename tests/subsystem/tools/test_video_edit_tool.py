@@ -290,13 +290,34 @@ def test_frames_are_saved_as_stills_with_one_contact_sheet(studio):
     assert ": saved 3 frames (at 0:01, 0:03, 0:05)" in result
     assert "files=['edit-" in result
     # R4: a contact sheet can't show UI text; the result names the full-size stills to read it from.
-    assert "full-size still (frame-01.jpg to frame-03.jpg)" in result
+    assert "full-size still (frame-01.jpg to frame-03.jpg, or edit-" in result
     files = list_conversation_files(studio.chat)
     assert sorted(item["name"] for item in files if item["name"].startswith("frame")) == [
         "frame-01.jpg", "frame-02.jpg", "frame-03.jpg"]
     edit = studio.edits.get(_edit_id(result))
     view = studio.edits.view(edit)
     assert (view["kind"], view["frame_count"], view["mime_type"]) == ("frames", 3, "image/jpeg")
+
+
+def test_a_second_edits_stills_are_named_as_saved_and_read_by_name_or_by_their_edit(studio):
+    """S3 (18 Nov): a second frames edit's stills were saved as frame-08-2.jpg and so on, but its result still
+    said "frame-01.jpg to frame-08.jpg"; the model asked for frame-08.jpg and read the first edit's frame."""
+    from row_bot import media_sources
+
+    first = _edit_id(studio.edit(action="frames", inputs=["demo.mp4"], count=3))
+    result = studio.edit(action="frames", inputs=["demo.mp4"], count=3)
+    second = _edit_id(result)
+    theirs, mine = studio.edits.get(first), studio.edits.get(second)
+
+    assert f"full-size still ({mine.frame_names[0]} to {mine.frame_names[-1]}, or {second}/" in result
+    assert "frame-01.jpg to" not in result, "never the first edit's names"
+    for name in (mine.frame_names[-1], f"{second}/frame-03.jpg", f"{second}/{mine.frame_names[-1]}", f"{second}/3"):
+        [frame] = media_sources.resolve(name, studio.chat)
+        assert frame.ref == mine.frame_refs[2], name
+    [frame] = media_sources.resolve(f"{first}/frame-03.jpg", studio.chat)
+    assert frame.ref == theirs.frame_refs[2]
+    with pytest.raises(media_sources.SourceError, match="has 3 frames"):
+        media_sources.resolve(f"{second}/frame-09.jpg", studio.chat)
 
 
 def test_many_frames_are_picked_in_one_read_of_the_video(studio):

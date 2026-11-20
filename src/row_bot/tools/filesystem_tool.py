@@ -17,6 +17,13 @@ ALL_OPERATIONS = _SAFE_OPS + _WRITE_OPS + _DESTRUCTIVE_OPS
 
 # Default: every operation. Moving and deleting ask by the approval level like any change (5.3.1 A1).
 DEFAULT_OPERATIONS = ALL_OPERATIONS
+# The operations workspace_find runs: with no pattern it lists a folder, with one it searches beneath it.
+_FIND_OPS = ("list_directory", "file_search")
+# Said once, on the tool that saves a new file; the turn context names the workspace folder (B1).
+_SCOPE_NOTE = (
+    "(Paths are relative to the workspace folder. An absolute path elsewhere on this "
+    "computer works too, after the person's approval.)"
+)
 
 class FileSystemTool(BaseTool):
 
@@ -97,8 +104,9 @@ class FileSystemTool(BaseTool):
         if not selected:
             return []
 
-        # Separate custom tools from LangChain FileManagementToolkit tools
-        _CUSTOM_OPS = {"export_to_pdf"}
+        # Separate custom tools from LangChain FileManagementToolkit tools. Listing and searching are
+        # one tool, workspace_find; each stays its own allowed operation.
+        _CUSTOM_OPS = {"export_to_pdf", *_FIND_OPS}
         lc_selected = [op for op in selected if op not in _CUSTOM_OPS]
 
         tools = []
@@ -118,6 +126,10 @@ class FileSystemTool(BaseTool):
         if "read_file" in selected:
             tools = [t for t in tools if t.name != "workspace_read_file"]
             tools.append(_make_pdf_aware_read_tool(root))
+
+        finding = [op for op in _FIND_OPS if op in selected]
+        if finding:
+            tools.append(_make_find_tool(root, finding))
 
         # Add export_to_pdf sub-tool
         if "export_to_pdf" in selected:
@@ -205,7 +217,7 @@ PRIVATE_DATA_PATH_REFUSAL = (
 _READING_OPERATIONS = {"read_file", "list_directory", "file_search"}
 
 
-def outside_workspace_refusal(operation: str, paths: list[Path]) -> tuple[str | None, str]:
+def outside_workspace_refusal(operation: str, paths: list[Path], *, tool: str = "") -> tuple[str | None, str]:
     """Ask by the approval level before a file operation reaches outside the workspace (5.3.1 B1).
 
     Returns the refusal (None when it may run) and the approval line for the result. Row-Bot's data
@@ -218,7 +230,7 @@ def outside_workspace_refusal(operation: str, paths: list[Path]) -> tuple[str | 
     reading = operation in _READING_OPERATIONS
     names = [str(path) for path in paths]
     payload = {
-        "tool": f"workspace_{operation}",
+        "tool": tool or f"workspace_{operation}",
         "label": "Read outside the workspace?" if reading else "Change files outside the workspace?",
         # The card asks by the tool ("Write a file?"); this line says where.
         "description": "Outside the workspace: " + ", ".join(names),
@@ -239,6 +251,21 @@ def _absolute(value: str, root_dir: str) -> Path:
 
 # The operations that leave a file somewhere, and the argument naming where.
 _SAVED_TO = {"write_file": "file_path", "copy_file": "destination_path", "move_file": "destination_path"}
+
+
+def _make_folder_for(relative: str, root_dir: str) -> None:
+    """Make the workspace folder a file is saved into before the file tool checks its path (S2): on Windows a
+    parallel write creating the same new folder made that check read the path as outside the workspace. Only a
+    folder that lies inside the workspace by its name alone; anything else is left to the tool to refuse."""
+    import os
+
+    base = os.path.normcase(os.path.normpath(root_dir))
+    folder = os.path.normcase(os.path.normpath(os.path.join(root_dir, os.path.dirname(relative))))
+    if folder != base and folder.startswith(base.rstrip(os.sep) + os.sep):
+        try:
+            os.makedirs(os.path.join(root_dir, os.path.dirname(relative)), exist_ok=True)
+        except OSError:
+            pass  # The tool's own write says what went wrong.
 
 
 def _where_saved(operation: str, result, kwargs: dict, target: Path, root_dir: str):
@@ -263,7 +290,7 @@ def _where_saved(operation: str, result, kwargs: dict, target: Path, root_dir: s
     return f"{lead} outside the workspace: {display_path(target)}."
 
 
-def _wrap_tool_with_path_fix(tool, root_dir: str):
+def _wrap_tool_with_path_fix(tool, root_dir: str, *, card_tool: str = ""):
     """Return a copy of *tool* that:
     1. Rejects absolute paths outside the workspace with a redirect hint.
     2. Normalises paths the LLM provides (strips redundant workspace prefix).
@@ -305,7 +332,7 @@ def _wrap_tool_with_path_fix(tool, root_dir: str):
         except ValueError:
             return "Error: these paths are on different drives; copy them with run_command instead."
         # The decision is recorded on the result by the agent's tool wrapper.
-        refusal, _line = outside_workspace_refusal(operation, list(paths.values()))
+        refusal, _line = outside_workspace_refusal(operation, list(paths.values()), tool=card_tool)
         if refusal:
             return refusal
         rooted = type(tool)(root_dir=str(common))
@@ -327,19 +354,18 @@ def _wrap_tool_with_path_fix(tool, root_dir: str):
                 kwargs[key] = _normalise_path(kwargs[key], root_dir)
                 if is_private_data_path(Path(root_dir) / kwargs[key]):
                     return PRIVATE_DATA_PATH_REFUSAL
+        saving = kwargs.get(_SAVED_TO.get(operation, ""))
+        if isinstance(saving, str):
+            _make_folder_for(saving, root_dir)
         result = original_func(**kwargs)
         target = kwargs.get(_SAVED_TO.get(operation, ""))
         if isinstance(target, str):
             return _where_saved(operation, result, kwargs, (Path(root_dir) / target).resolve(), root_dir)
         return result
 
-    # Rename to workspace_* and enrich description with scope
+    # Rename to workspace_*; the scope note goes once, on the tool that saves a new file.
     new_name = f"workspace_{tool.name}"
-    new_desc = (
-        f"{tool.description} "
-        f"(Paths are relative to the workspace folder. An absolute path elsewhere on this "
-        f"computer works too, after the person's approval.)"
-    )
+    new_desc = f"{tool.description} {_SCOPE_NOTE}" if tool.name == "write_file" else tool.description
 
     # Preserve the original input schema so StructuredTool passes kwargs
     # correctly.  Class-based LangChain tools expose their schema via
@@ -369,17 +395,12 @@ def _make_pdf_aware_read_tool(root_dir: str):
     from row_bot.tool_outputs import PAGE_CHARS, PAGE_LINES, page_lines
 
     class _ReadFileInput(_BM):
-        file_path: str = _F(
-            description="Path relative to the workspace folder. For Excel, add '::SheetName' for a sheet."
-        )
+        file_path: str = _F(description="Relative to the workspace, or a full path. Excel: add '::Sheet'.")
         offset: int = _F(
             default=0,
-            description=(
-                "First line to read (1-based). 0 starts at the top; for CSV or JSON files 0 gives a "
-                "summary and 1 or more reads the raw lines."
-            ),
+            description="First line (1-based); 0: the top, or a CSV or JSON file's summary.",
         )
-        limit: int = _F(default=PAGE_LINES, description="Most lines to read.")
+        limit: int = _F(default=PAGE_LINES, description="Most lines.")
 
     def _page(text: str, offset: int, limit: int) -> str:
         page, footer = page_lines(
@@ -474,12 +495,47 @@ def _make_pdf_aware_read_tool(root_dir: str):
         func=read_file,
         name="workspace_read_file",
         description=(
-            "Read a file in pages of lines, including PDF, CSV, Excel, JSON and images (images are "
-            "shown inline). A long file ends with the line range shown and the offset to continue from. "
-            "(WORKSPACE ONLY — file_path is relative to the workspace folder. "
-            "For files outside the workspace, use run_command instead.)"
+            "Read a file in pages of lines: text, PDF, CSV, Excel, JSON or an image (shown inline). A long "
+            "file ends with the offset to read on from."
         ),
         args_schema=_ReadFileInput,
+    )
+
+
+def _make_find_tool(root_dir: str, operations: list[str]):
+    """``workspace_find``: with no pattern it lists a folder, with one it finds files beneath it (B1).
+
+    Each half is the LangChain tool it was before, wrapped the same way, so a path outside the
+    workspace asks first and Row-Bot's data folder is refused. The person's Allowed operations still
+    say whether listing, searching or both may run.
+    """
+    from langchain_community.tools.file_management import FileSearchTool, ListDirectoryTool
+    from langchain_core.tools import StructuredTool
+    from pydantic import BaseModel as _BM, Field as _F
+
+    listing = (_wrap_tool_with_path_fix(ListDirectoryTool(root_dir=root_dir), root_dir, card_tool="workspace_find")
+               if "list_directory" in operations else None)
+    searching = (_wrap_tool_with_path_fix(FileSearchTool(root_dir=root_dir), root_dir, card_tool="workspace_find")
+                 if "file_search" in operations else None)
+
+    class _FindInput(_BM):
+        path: str = _F(default=".", description="A folder; relative to the workspace, or a full path.")
+        pattern: str = _F(default="", description="e.g. '*.pdf': find files beneath path. Empty lists path.")
+
+    def find(path: str = ".", pattern: str = "") -> str:
+        if str(pattern or "").strip():
+            if searching is None:
+                return "Error: searching files is switched off in this workspace's Allowed operations."
+            return searching.func(dir_path=path, pattern=pattern)
+        if listing is None:
+            return "Error: listing folders is switched off in this workspace's Allowed operations."
+        return listing.func(dir_path=path)
+
+    return StructuredTool.from_function(
+        func=find,
+        name="workspace_find",
+        description="List a folder, or find files beneath it by a name pattern.",
+        args_schema=_FindInput,
     )
 
 

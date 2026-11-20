@@ -115,14 +115,19 @@ it('shows progress against each target, and how far over a target is', () => {
     items: [
       { label: 'Running', value: 42, target: 50, unit: 'km' },
       { label: 'Saving', value: 1300, target: 1200, unit: '£' },
+      { label: 'Setup', value: 3, target: 5, unit: 'steps' },
+      { label: 'Budget', value: 300, target: 500, unit: '$' },
     ],
     actions: [],
     text: '',
   });
   const running = screen.getByRole('progressbar', { name: 'Running' });
   expect(running).toHaveAttribute('aria-valuenow', '84');
-  expect(running).toHaveAttribute('aria-valuetext', '42 km of 50 km (84%)');
-  expect(screen.getByText('42 km of 50 km (84%)')).toBeVisible();
+  // A word unit once, after the target (M4); a currency keeps its symbol on both.
+  expect(running).toHaveAttribute('aria-valuetext', '42 of 50 km (84%)');
+  expect(screen.getByText('42 of 50 km (84%)')).toBeVisible();
+  expect(screen.getByText('3 of 5 steps (60%)')).toBeVisible();
+  expect(screen.getByText('$300 of $500 (60%)')).toBeVisible();
   expect(screen.getByRole('progressbar', { name: 'Saving' })).toHaveAttribute(
     'aria-valuenow',
     '100',
