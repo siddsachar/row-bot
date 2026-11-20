@@ -246,7 +246,10 @@ def background_model_ref(
 def _is_local(model: str) -> bool:
     parsed = parse_model_ref(model)
     if parsed:
-        return parsed[0] == "ollama"
+        from row_bot.local_runtime import is_local_runtime_provider
+
+        # Ollama, or the model Row-Bot runs on this computer itself (Run on this computer, E1).
+        return parsed[0] == "ollama" or is_local_runtime_provider(parsed[0])
     try:
         from row_bot.models import is_model_local
 

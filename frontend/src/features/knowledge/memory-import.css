@@ -221,6 +221,15 @@
   flex: 1;
   min-width: 0;
 }
+/* Waiting to be checked: the one thing on this step that asks for the person. */
+.memory-import-waiting > li {
+  border-color: color-mix(
+    in srgb,
+    var(--accent-solid) 45%,
+    var(--border-subtle)
+  );
+  background: color-mix(in srgb, var(--accent-solid) 6%, var(--surface));
+}
 .memory-import-recent strong {
   color: var(--text-primary);
   font-weight: var(--weight-medium);

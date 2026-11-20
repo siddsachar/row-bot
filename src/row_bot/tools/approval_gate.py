@@ -7,7 +7,8 @@
 - **Hands-off**: approved without asking, and recorded.
 
 Some risks are the person's own under Auto, whatever the reviewer would say:
-setting Git's identity, and posting on X in their name (N7).
+setting Git's identity, posting on X in their name (N7), and a calendar change
+that invites or tells other people, its guests (W21).
 
 A workflow's "Always ask me" rule (N9) makes an action the person's own to
 approve under every level: the reviewer never decides it, Hands-off never skips
@@ -582,11 +583,14 @@ X_POST_RISK = "posts, replies, quotes or deletes on X as one of the person's acc
 SYSTEM_INSTALL_RISK = "installs software on this computer for everyone, outside Row-Bot, which only the person decides"
 SECURITY_CAPABILITY_RISK = ("turns on a tool that acts on this computer (commands, files, the browser, the screen or "
                             "MCP apps), which only the person decides")
+CALENDAR_GUESTS_RISK = ("invites other people to an event, or tells its guests of a change or cancellation, "
+                        "which only the person approves")
 # Risks the Auto reviewer never accepts for the person: they go straight to the person's card.
 _PERSON_ONLY_RISKS = {GIT_IDENTITY_RISK: "Only you can choose the name and email your commits are from.",
                       X_POST_RISK: "Only you can approve what goes out on X in your name.",
                       SYSTEM_INSTALL_RISK: "Only you can decide what software is installed on this computer.",
-                      SECURITY_CAPABILITY_RISK: "Only you can turn on a tool that acts on this computer."}
+                      SECURITY_CAPABILITY_RISK: "Only you can turn on a tool that acts on this computer.",
+                      CALENDAR_GUESTS_RISK: "Only you can approve what your calendar sends to other people."}
 
 
 def _decide_afresh(payload: dict[str, Any], *, mode: str, risks: Iterable[str], ask: Callable[[dict[str, Any]], Any],

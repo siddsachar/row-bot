@@ -251,6 +251,55 @@ def test_a_sandbox_a_crash_left_running_is_ended_before_it_starts_again(fake_pro
     assert sandboxes.end_left_overs() == 0, "nothing left"
 
 
+@pytest.mark.parametrize("graceful", [False, True])
+def test_a_forced_quit_of_row_bot_ends_its_sandboxes_too(fake_process, home, monkeypatch, graceful):
+    """A forced stop skips the server's own clean-up, so the launcher ends the sandboxes it had running."""
+    from row_bot import background_processes, launcher, tunnel
+
+    sandbox = sandboxes.create("Demo shop", "shop")
+    started = sandboxes.start(sandbox.sandbox_id)
+    sandboxes._PROCESSES.clear()  # The server, not the launcher, held the sandbox's process.
+    ended: list[object] = []
+    monkeypatch.setattr("row_bot.process_cancellation.kill_process_tree", lambda process: ended.append(process))
+    monkeypatch.setattr(background_processes, "_same_process",
+                        lambda pid, birth: f"pid {pid}" if (pid, birth) == (started.pid, started.pid_birth) else None)
+
+    class Server:
+        pid = 4242
+
+        def __init__(self) -> None:
+            self.alive = True
+
+        def poll(self):
+            return None if self.alive else 0
+
+        def wait(self, timeout=None):  # noqa: ARG002
+            self.alive = False
+            return 0
+
+        def kill(self) -> None:
+            self.alive = False
+
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda cmd, **kwargs: Server())  # noqa: ARG005
+    monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(launcher._RowBotProcess, "_request_graceful_shutdown", lambda self: graceful)
+    monkeypatch.setattr(launcher._RowBotProcess, "_terminate_process", lambda self, proc, **kwargs: proc.kill())  # noqa: ARG005
+    monkeypatch.setattr(launcher, "_process_tree", lambda pid: {pid})
+    monkeypatch.setattr(tunnel, "cleanup_owned_agents", lambda **kwargs: 0)  # noqa: ARG005
+
+    server = launcher._RowBotProcess(port=8125, host="127.0.0.1")
+    server.start()
+    try:
+        server.stop()
+        if graceful:  # The server stopped its sandboxes itself.
+            assert ended == []
+        else:
+            assert ended == [f"pid {started.pid}"]
+            assert sandboxes.get(sandbox.sandbox_id).status == "stopped"
+    finally:
+        sandboxes.delete(sandbox.sandbox_id)  # Its record names this test's own process: never left behind.
+
+
 def test_a_sandbox_says_when_it_has_no_model_yet(home):
     import json
 

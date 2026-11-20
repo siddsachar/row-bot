@@ -481,7 +481,7 @@ def _query_mcp() -> str:
         lines = [
             "**MCP Client**",
             f"- Global enable: {'on' if summary.get('enabled') else 'off'}",
-            f"- MCP SDK: {'available' if summary.get('sdk_available') else 'missing'}",
+            f"- MCP SDK: {summary.get('sdk_state') or ('available' if summary.get('sdk_available') else 'missing')}",
             f"- Servers: {summary.get('enabled_server_count', 0)} enabled / {summary.get('server_count', 0)} configured / {summary.get('connected_server_count', 0)} connected",
             f"- Tools: {summary.get('enabled_tool_count', 0)} enabled / {summary.get('tool_count', 0)} discovered",
             f"- Approval-gated tools: {summary.get('destructive_tool_count', 0)}",

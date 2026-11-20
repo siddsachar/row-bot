@@ -1,5 +1,20 @@
 import type { ConversationView } from '../../api/types';
 
+// What the person is typing in Home's box while it shows. A New chat that opens as they type (a slow
+// one, over a remote link) takes it into the new chat's composer, so nothing typed is lost (M12).
+let homeText = '';
+
+export function setHomeDraft(text: string): void {
+  homeText = text;
+}
+
+/** Home's text, once: the chat that opens now has it. */
+export function takeHomeDraft(): string {
+  const text = homeText;
+  homeText = '';
+  return text;
+}
+
 /** The name the server gives a new chat; its first message renames it (B230). */
 const NEW_CHAT_TITLE = 'New conversation';
 

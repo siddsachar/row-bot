@@ -40,6 +40,7 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import { announceSaved, saveProblem } from '../shell/save-file';
+import { approvalAction } from '../shell/tool-activity';
 import { SettingsGroup } from './anatomy';
 import './activity.css';
 
@@ -488,7 +489,7 @@ function ActivityRow({
         <span className="alog-what">
           <span className="alog-title">
             {entry.app_name ? `${entry.app_name} › ` : ''}
-            {entry.title || entry.tool}
+            {entry.title || approvalAction(entry.tool)}
           </span>
           {entry.summary && (
             <span className="alog-summary">{entry.summary}</span>

@@ -423,18 +423,39 @@ def components_as_text(text: str) -> str:
     person can answer in words. A fence that doesn't fit stays as it was written.
     """
 
-    if "```rowbot-" not in text:
+    spans = component_spans(text)
+    if not spans:
         return text
+    parts: list[str] = []
+    cursor = 0
+    for start, end, kind, fields in spans:
+        parts.append(text[cursor:start])
+        # A chat app can't draw a visual: say where it is, never send its code.
+        parts.append(f"[{fields['text']}: open the chat in Row-Bot to see it]" if kind == "visual" else fields["text"])
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts)
 
-    def words(match: re.Match[str]) -> str:
-        component = parse_component(match.group(1), match.group(2))
-        if component is None:
-            return match.group(0)
-        if component[0] == "visual":  # A chat app can't draw it: say where it is, never send its code.
-            return f"[{component[1]['text']}: open the chat in Row-Bot to see it]"
-        return component[1]["text"]
 
-    return FENCE_RE.sub(words, text)
+def _load(source: str) -> Any:
+    """The JSON a component body holds; raises ValueError (or RecursionError) when it isn't JSON."""
+
+    return json.loads(source, parse_constant=_reject_constant)
+
+
+def _build(tag: str, raw: Any) -> tuple[str, dict[str, Any]] | None:
+    """The block *raw* makes under *tag*'s schema, or None when it doesn't fit."""
+
+    try:
+        body = _SCHEMAS[tag].model_validate(raw)
+        fields = _BUILDERS[tag](body)  # type: ignore[arg-type]
+        if isinstance(body, _Component):
+            fields["actions"] = _actions(body)
+    except (ValueError, TypeError, ValidationError, RecursionError):
+        return None
+    if len(fields.get("text", "")) > MAX_COMPONENT_TEXT_CHARS:
+        return None
+    return tag, fields
 
 
 def parse_component(tag: str, source: str) -> tuple[str, dict[str, Any]] | None:
@@ -445,17 +466,91 @@ def parse_component(tag: str, source: str) -> tuple[str, dict[str, Any]] | None:
 
     if tag == "visual":
         return _visual(source)
-    schema = _SCHEMAS.get(tag)
-    if schema is None or len(source) > MAX_COMPONENT_CHARS:
+    if tag not in _SCHEMAS or len(source) > MAX_COMPONENT_CHARS:
         return None
     try:
-        raw = json.loads(source, parse_constant=_reject_constant)
-        body = schema.model_validate(raw)
-        fields = _BUILDERS[tag](body)  # type: ignore[arg-type]
-        if isinstance(body, _Component):
-            fields["actions"] = _actions(body)
-    except (ValueError, TypeError, ValidationError, RecursionError):
+        raw = _load(source)
+    except (ValueError, RecursionError):
         return None
-    if len(fields.get("text", "")) > MAX_COMPONENT_TEXT_CHARS:
+    return _build(tag, raw)
+
+
+def infer_component(source: str) -> tuple[str, dict[str, Any]] | None:
+    """The component an untagged JSON object is, when exactly one schema takes it whole (W14).
+
+    A local model may write a component's body without its rowbot- tag (in a ```json fence, a bare
+    fence, or as the whole reply). Each schema forbids keys it doesn't know and needs its own (a table's
+    columns and rows, a chart's kind, x and series…), so an object that fits one schema exactly is that
+    component. One that fits none, or more than one, stays as it was written. A visual is never inferred:
+    it runs as HTML, so only its own tag makes one.
+    """
+
+    text = source.strip()
+    if not (text.startswith("{") and text.endswith("}")) or len(text) > MAX_COMPONENT_CHARS:
         return None
-    return tag, fields
+    try:
+        raw = _load(text)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    fits = [component for tag in _SCHEMAS if (component := _build(tag, raw)) is not None]
+    return fits[0] if len(fits) == 1 else None
+
+
+# A fence line: ``` with an optional language. A line with a language never closes a fence.
+_FENCE_LINE_RE = re.compile(r"[ \t]{0,3}```[ \t]*([A-Za-z0-9_+.-]*)[ \t]*")
+# The languages an untagged component body may be fenced with.
+_LOOSE_LANGUAGES = frozenset({"", "json"})
+
+Span = tuple[int, int, str, dict[str, Any]]
+
+
+def _loose_spans(text: str) -> list[Span]:
+    """Components written without their tag: a ```json or bare fence holding exactly one component's body."""
+
+    spans: list[Span] = []
+    opening: tuple[int, int, str] | None = None  # (fence start, body start, language)
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip("\r\n")
+        match = _FENCE_LINE_RE.fullmatch(bare)
+        if match is not None:
+            language = match.group(1)
+            if opening is None:
+                opening = (offset, offset + len(line), language.lower())
+            elif not language:
+                start, body_start, opened = opening
+                if opened in _LOOSE_LANGUAGES:
+                    component = infer_component(text[body_start:offset])
+                    if component is not None:
+                        spans.append((start, offset + len(bare), *component))
+                opening = None
+        offset += len(line)
+    return spans
+
+
+def component_spans(text: str) -> list[Span]:
+    """Every answer component in a reply as (start, end, block type, fields), in order.
+
+    A ```rowbot-<tag> fence is read by its tag. A ```json or untagged fence, or a reply that is nothing
+    but one JSON object, is a component only when ``infer_component`` finds exactly one that fits (W14).
+    """
+
+    stripped = text.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        component = infer_component(stripped)
+        if component is not None:
+            start = text.index(stripped)
+            return [(start, start + len(stripped), *component)]
+    if "```" not in text:
+        return []
+    tagged: list[Span] = []
+    if "```rowbot-" in text:
+        for match in FENCE_RE.finditer(text):
+            component = parse_component(match.group(1), match.group(2))
+            if component is not None:
+                tagged.append((match.start(), match.end(), *component))
+    loose = [span for span in _loose_spans(text)
+             if not any(span[0] < end and start < span[1] for start, end, *_ in tagged)]
+    return sorted(tagged + loose, key=lambda span: span[0])

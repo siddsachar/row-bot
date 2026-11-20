@@ -77,6 +77,8 @@ def transaction() -> Iterator[sqlite3.Connection]:
                 ("queue_source_generation_id", "TEXT NOT NULL DEFAULT ''"),
                 ("queue_epoch", "TEXT NOT NULL DEFAULT ''"),
                 ("queue_checkpoint_revision", "TEXT NOT NULL DEFAULT ''"),
+                # Why an interrupted turn stopped, as the chat shows it: a reload after a restart keeps it.
+                ("failure_reason", "TEXT NOT NULL DEFAULT ''"),
             ):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE generation_passes ADD COLUMN {name} {definition}")
@@ -339,7 +341,7 @@ def start(pass_id: str, execution_id: str, epoch: str) -> None:
             raise AdmissionError("admission_conflict")
 
 
-def finish(pass_id: str, status: str, *, boundary: dict | None = None) -> str:
+def finish(pass_id: str, status: str, *, boundary: dict | None = None, failure_reason: str = "") -> str:
     with transaction() as conn:
         if status == "completed":
             proof = boundary or {}
@@ -350,8 +352,10 @@ def finish(pass_id: str, status: str, *, boundary: dict | None = None) -> str:
                  proof.get("message_id", ""), proof.get("checkpoint_revision", ""))).fetchone()
             if not matched:
                 status = "interrupted"
-        conn.execute("UPDATE generation_passes SET state=?,terminal_status=? WHERE pass_id=? AND state='started'",
-                     ("terminal" if status in {"completed", "stopped", "waiting_approval"} else "interrupted", status, pass_id))
+        conn.execute("UPDATE generation_passes SET state=?,terminal_status=?,failure_reason=? "
+                     "WHERE pass_id=? AND state='started'",
+                     ("terminal" if status in {"completed", "stopped", "waiting_approval"} else "interrupted", status,
+                      failure_reason if status == "interrupted" else "", pass_id))
         conn.execute("UPDATE generation_segments SET state='interrupted' WHERE pass_id=? AND state='started'", (pass_id,))
     return status
 

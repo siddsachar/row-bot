@@ -461,7 +461,8 @@ def classify_tool_result(
         return "uncertain"
     if text.startswith(("blocked:", "tool blocked:")):
         return "blocked"
-    if text.startswith(("cancelled:", "canceled:", "tool cancelled:")):
+    if text.startswith(("cancelled:", "canceled:", "tool cancelled:", "[stopped:")):
+        # "[Stopped: too many browser actions in one turn]": a step the turn stopped before it ran.
         return "cancelled"
     if text.startswith(("tool error:", "error:")) or (
         "traceback (most recent call last)" in text

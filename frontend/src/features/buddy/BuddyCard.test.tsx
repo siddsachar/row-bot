@@ -105,8 +105,25 @@ it('opens the conversation Buddy is busy in when it is not the open one', async 
     </RuntimeContext.Provider>,
   );
   const card = screen.getByRole('complementary', { name: 'Buddy companion' });
-  await userEvent.click(
-    within(card).getByRole('button', { name: /Needs approval/ }),
-  );
+  const link = within(card).getByRole('button', { name: /Needs approval/ });
+  // A line too long for the sidebar ends in an ellipsis; the tooltip has it whole (M9).
+  expect(link).toHaveAttribute('title', 'Needs approval · Open Ship 5.3.1');
+  await userEvent.click(link);
   expect(screen.getByTestId('at')).toHaveTextContent('/conversations/there');
+});
+
+it('gives the status line its whole words as a tooltip (M9)', () => {
+  render(
+    <BuddyCard
+      snapshot={at('idle', 'Learning: training your personal model')}
+      avatar={<span>avatar</span>}
+      portrait={<span>portrait</span>}
+      onSettings={vi.fn()}
+    />,
+  );
+  const card = screen.getByRole('complementary', { name: 'Buddy companion' });
+  expect(within(card).getByRole('status')).toHaveAttribute(
+    'title',
+    'Learning: training your personal model',
+  );
 });

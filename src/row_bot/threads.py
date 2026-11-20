@@ -2247,6 +2247,20 @@ def get_latest_checkpoint_messages(thread_id: str) -> list:
     return []
 
 
+def paused_at_a_question(thread_id: str) -> bool:
+    """Whether the thread's latest checkpoint is a turn paused at a question (an approval, or Row-Bot's own).
+
+    The answer resumes that very checkpoint: a message written on top of it would leave the question, and
+    the results of the calls beside it, on an older checkpoint the resume never reads (R15).
+    """
+    from langgraph._internal._constants import INTERRUPT
+
+    if not thread_id:
+        return False
+    saved = checkpointer.get_tuple({"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}})
+    return bool(saved) and any(write[1] == INTERRUPT for write in saved.pending_writes or ())
+
+
 def get_latest_checkpoint_revision(thread_id: str) -> str:
     """Return a stable identity for the latest parent-thread checkpoint."""
 

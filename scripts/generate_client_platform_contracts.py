@@ -75,7 +75,8 @@ MODELS = {name: getattr(schemas, name) for name in (
     "CustomToolLibrary", "CustomToolLibraryCommand", "CustomToolLibraryReceipt",
     "DataBackupState", "DataBackupCommand", "DataBackupReceipt", "DataRestoreReview",
     "DataBackupUploadRequest", "DataBackupUploadView",
-    "MemoryImportModel", "MemoryImportSource", "MemoryImportReceipt", "MemoryImportSources", "MemoryImportRequest",
+    "MemoryImportModel", "MemoryImportSource", "MemoryImportReceipt", "MemoryImportWaiting", "MemoryImportSources",
+    "MemoryImportRequest",
     "MemoryImportFileRequest", "MemoryImportFileView", "MemoryImportText", "MemoryImportJob", "MemoryImportBatch",
     "MemoryImportCandidatePage", "MemoryImportPreviewRequest", "MemoryImportPreview", "MemoryImportApply",
     "MemoryImportUndo",
@@ -84,7 +85,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "LocalModelRuntimeView", "LocalModelInstallRequest", "LocalModelRemoveRequest", "LocalServersSnapshot", "LocalServerConnectRequest", "LocalServerConnection", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -331,6 +332,13 @@ OPERATIONS = (
     ("get", "/setup/onboarding", None, "OnboardingSnapshot"),
     ("post", "/setup/onboarding/commands", "OnboardingCommand", "OnboardingReceipt"),
     ("get", "/setup/local-runtime", None, "LocalRuntimeSnapshot"),
+    ("get", "/setup/local-servers", None, "LocalServersSnapshot"),
+    ("post", "/setup/local-servers/connect", "LocalServerConnectRequest", "LocalServerConnection"),
+    ("get", "/local-runtime", None, "LocalModelRuntimeView"),
+    ("post", "/local-runtime/install", "LocalModelInstallRequest", "LocalModelRuntimeView"),
+    ("post", "/local-runtime/stop", None, "LocalModelRuntimeView"),
+    ("post", "/local-runtime/remove", "LocalModelRemoveRequest", "LocalModelRuntimeView"),
+    ("post", "/local-runtime/repair", None, "LocalModelRuntimeView"),
     ("post", "/setup/model-test", None, "ModelTestResult"),
     ("post", "/setup/provider-key/check", "ProviderKeyCheckRequest", "ProviderKeyCheck"),
     ("post", "/monitor/dream/review", "DreamRunRequest", "DreamRunReview"),
@@ -734,12 +742,14 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   // sent and a video edit card its edit (every second while it runs), and a
   // reply's ticks and sent choices are read as it is shown (and again before
   // the person's tick is saved), a page card its page's title, the details
-  // card its chat's goal and Home's Review the posts scheduled to go out:
-  // the person is looking at them, so they never wait behind background
-  // reads. (The server counts each of these as a view read too.)
+  // card its chat's goal, Home's Review the posts scheduled to go out and
+  // the sidebar's Buddy card its status and look (R9): the person is looking
+  // at them, so they never wait behind background reads. (The server counts
+  // each of these as a view read too.)
   const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated|answer-state|goals))?(?:\?|$)/.test(path)
     || /^\/approvals\/[^/?]+(?:\?|$)/.test(path)
-    || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?|pages\/page-[0-9a-f]{8}|monitor\/scheduled-posts)(?:\?|$)/.test(path);
+    || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?|pages\/page-[0-9a-f]{8}|monitor\/scheduled-posts)(?:\?|$)/.test(path)
+    || method === 'GET' && /^(?:\/conversations\/[^/?]+)?\/buddy(?:\/packs(?:\/[^/?]+)?)?(?:\?|$)/.test(path);
   // Following a computer-use session (about once a second) is observation.
   const observation = path.startsWith('/events') || path.startsWith('/live') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
     || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);
@@ -1146,6 +1156,20 @@ export const sendOnboardingCommand = (base: string, proof: SessionProof, command
   jsonRequest(base, '/setup/onboarding/commands', 'OnboardingReceipt', proof, 'POST', validateWire('OnboardingCommand', command), command.command_id, signal);
 export const getLocalRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalRuntimeSnapshot> =>
   jsonRequest(base, '/setup/local-runtime', 'LocalRuntimeSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getLocalServers = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalServersSnapshot> =>
+  jsonRequest(base, '/setup/local-servers', 'LocalServersSnapshot', proof, 'GET', undefined, undefined, signal);
+export const connectLocalServer = (base: string, proof: SessionProof, body: LocalServerConnectRequest, signal?: AbortSignal): Promise<LocalServerConnection> =>
+  jsonRequest(base, '/setup/local-servers/connect', 'LocalServerConnection', proof, 'POST', validateWire('LocalServerConnectRequest', body), undefined, signal);
+export const getLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime', 'LocalModelRuntimeView', proof, 'GET', undefined, undefined, signal);
+export const installLocalModel = (base: string, proof: SessionProof, body: LocalModelInstallRequest, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime/install', 'LocalModelRuntimeView', proof, 'POST', validateWire('LocalModelInstallRequest', body), undefined, signal);
+export const stopLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime/stop', 'LocalModelRuntimeView', proof, 'POST', undefined, undefined, signal);
+export const removeLocalModelRuntime = (base: string, proof: SessionProof, body: LocalModelRemoveRequest, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime/remove', 'LocalModelRuntimeView', proof, 'POST', validateWire('LocalModelRemoveRequest', body), undefined, signal);
+export const repairLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
+  jsonRequest(base, '/local-runtime/repair', 'LocalModelRuntimeView', proof, 'POST', undefined, undefined, signal);
 export const testChosenModel = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ModelTestResult> =>
   jsonRequest(base, '/setup/model-test', 'ModelTestResult', proof, 'POST', undefined, undefined, signal);
 export const checkProviderKey = (base: string, proof: SessionProof, body: ProviderKeyCheckRequest, signal?: AbortSignal): Promise<ProviderKeyCheck> =>
@@ -2268,7 +2292,7 @@ def outputs() -> dict[Path, str]:
             if suffix.endswith("/entities"):
                 query_parameters += [
                     ("status", False, {"type": "string", "enum": ["active", "needs_review", "superseded", "archived"]}),
-                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "other"]}),
+                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "import", "other"]}),
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
         elif suffix == "/knowledge/review/overview":

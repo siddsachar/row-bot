@@ -6,7 +6,9 @@ each kind's cooldown; everything else stays on Home. A kind that is off or went 
 level. Nothing checked yet today: ``example`` is true and the client shows an example day instead.
 
 It is a preview, not a replay: breaks, calls and quiet hours aren't simulated, so it says what the budget
-lets through, at the times the moments came.
+lets through, at the times the moments came. Where it says what really happened: a moment that reached a surface
+names that surface, and one the person's level let through that never reached any (they were away, or on a
+call) stayed on Home at every level, never "Buddy's bubble" (R5). Any other names the surface it would use now.
 """
 from __future__ import annotations
 
@@ -15,9 +17,15 @@ from typing import Any
 
 from row_bot.proactive import store
 from row_bot.proactive import settings as proactive_settings
+from row_bot.proactive.model import OPEN_STATES
 from row_bot.proactive.timing import day_start
 
 LEVELS = ("off", "quiet", "balanced", "eager")
+
+
+# Each surface a moment really went to, as the preview names it.
+_SURFACES = {"buddy": "buddy", "desktop": "notification", "notice": "notification", "push": "phone",
+             "channel": "chat_app"}
 
 
 def _when(moment: dict[str, Any]) -> float:
@@ -31,38 +39,58 @@ def _today(now: float) -> list[dict[str, Any]]:
     return sorted(found, key=_when)
 
 
-def _level(level: str, moments: list[dict[str, Any]], settings: dict[str, Any],
-           quieted: set[str]) -> list[dict[str, Any]]:
+def _budget(level: str, moments: list[dict[str, Any]], settings: dict[str, Any], quieted: set[str]) -> set[str]:
+    """The moments *level*'s budget lets through to a surface."""
     if level == "off":
-        return []
+        return set()
     cap, cooldown = proactive_settings.DAILY_CAP[level], proactive_settings.COOLDOWN_SECONDS[level]
     used = 0
     last: dict[str, float] = {}
-    items = []
+    through = set()
     for moment in moments:
         kind, at = moment["kind"], _when(moment)
-        carried = moment["surface"] == "brief"
-        where = "home"
-        if not settings["kinds"].get(kind, False) or kind in quieted or carried:
-            pass
-        elif kind == "brief" or moment["urgency"] == "urgent":
-            if used < cap or (moment["urgency"] == "urgent" and level != "quiet"):
-                where = "buddy"
+        if not settings["kinds"].get(kind, False) or kind in quieted or moment["surface"] == "brief":
+            continue
+        if kind == "brief" or moment["urgency"] == "urgent":
+            if not (used < cap or (moment["urgency"] == "urgent" and level != "quiet")):
+                continue
         elif level != "quiet" and used < cap and at - last.get(kind, -cooldown) >= cooldown:
-            where = "buddy"
             last[kind] = at
-        if where == "buddy":
-            used += 1
-        items.append({"moment_id": moment["id"], "kind": kind, "title": moment["title"][:200],
-                      "at": datetime.fromtimestamp(at).astimezone().isoformat(timespec="seconds")
-                      if where == "buddy" else "", "where": where, "in_brief": carried})
+        else:
+            continue
+        used += 1
+        through.add(moment["id"])
+    return through
+
+
+def _level(level: str, moments: list[dict[str, Any]], through: set[str], held: set[str],
+           now_surface: str) -> list[dict[str, Any]]:
+    if level == "off":
+        return []
+    items = []
+    for moment in moments:
+        where = "home"
+        if moment["id"] in through and moment["id"] not in held:
+            where = _SURFACES.get(moment["surface"]) or now_surface
+        items.append({"moment_id": moment["id"], "kind": moment["kind"], "title": moment["title"][:200],
+                      "at": datetime.fromtimestamp(_when(moment)).astimezone().isoformat(timespec="seconds")
+                      if where != "home" else "", "where": where, "in_brief": moment["surface"] == "brief"})
     return items
 
 
 def preview(now: float) -> dict[str, Any]:
     """{example, levels: [{level, items}]}: what each level would have brought up today."""
+    from row_bot.proactive import deliver
+
     settings = proactive_settings.load()
     moments = _today(now)
     quieted = {kind for kind in settings["kinds"] if store.kind_stats(kind)["quieted_at"]}
+    through = {level: _budget(level, moments, settings, quieted) for level in LEVELS}
+    # Let through at the person's own level, settled, and never on a surface: what held it (away, a call, quiet
+    # hours) would have held it at any level.
+    held = {moment["id"] for moment in moments if moment["id"] in through.get(settings["level"], set())
+            and moment["state"] not in OPEN_STATES and not moment["surface"]}
+    now_surface = "buddy" if deliver.buddy_on() else "notification"
     return {"example": not moments,
-            "levels": [{"level": level, "items": _level(level, moments, settings, quieted)} for level in LEVELS]}
+            "levels": [{"level": level, "items": _level(level, moments, through[level], held, now_surface)}
+                       for level in LEVELS]}

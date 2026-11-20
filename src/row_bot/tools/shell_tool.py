@@ -40,11 +40,11 @@ from row_bot.approval_policy import normalize_approval_mode
 from row_bot.approval_rules import COMMAND_RISK
 from row_bot.brand import APP_DATA_DIR_ENV, DEFAULT_DATA_DIR_NAME
 from row_bot.data_paths import (
-    default_workspace_root,
     get_row_bot_data_dir,
     own_workspaces,
     private_data_dirs,
     shared_data_folder,
+    workspace_folder,
 )
 from row_bot.process_cancellation import run_cancellable_subprocess
 from row_bot.secret_store import SERVER_SECRETS_DIR_ENV
@@ -959,12 +959,7 @@ class ShellTool(BaseTool):
         )
         if developer_root:
             return developer_root
-        root = str(registry.get_tool_config("filesystem", "workspace_root", "") or "")
-        if root and os.path.isdir(root):
-            return root
-        default = default_workspace_root()
-        default.mkdir(parents=True, exist_ok=True)
-        return str(default)
+        return str(workspace_folder())
 
     def _get_runtime_configurable(
         self,

@@ -148,6 +148,11 @@ function withKeptBreakdown(
   return { ...next, breakdown: previous.breakdown };
 }
 
+/** This device's IANA zone ("Europe/London"), or undefined when the browser won't say. */
+function deviceTimeZone(): string | undefined {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+}
+
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
@@ -3202,6 +3207,56 @@ export class ClientController {
   /** Ollama on this computer: running with models, installed, or not installed. */
   localRuntime = (signal?: AbortSignal) =>
     this.query(() => this.transport.localRuntime?.(signal));
+  /** Local model servers answering on their usual loopback ports, asked once when called. */
+  localServers = (signal?: AbortSignal) =>
+    this.query(() => this.transport.localServers?.(signal));
+  /** Use on a found local server: connect it and list its models as refs. */
+  connectLocalServer = (
+    kind: 'ollama' | 'lmstudio' | 'vllm' | 'llama_cpp',
+    port: number,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.connectLocalServer)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.connectLocalServer({ kind, port }, signal);
+    });
+  /** Run on this computer (E1): this computer, the pinned models and what is installed. */
+  localModelRuntime = (signal?: AbortSignal) =>
+    this.query(() => this.transport.localModelRuntime?.(signal));
+  /** The person pressed Download; `downloadBytes` is the size the button showed. */
+  installLocalModel = (modelId: string, downloadBytes: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.installLocalModel)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.installLocalModel(
+        { model_id: modelId, download_bytes: downloadBytes },
+        signal,
+      );
+    });
+  /** Stop a download (it resumes later) and the model server. */
+  stopLocalModelRuntime = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopLocalModelRuntime)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopLocalModelRuntime(signal);
+    });
+  /** Remove one model, or (no id) the runtime and every model. */
+  removeLocalModelRuntime = (modelId?: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.removeLocalModelRuntime)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.removeLocalModelRuntime(
+        modelId ? { model_id: modelId } : {},
+        signal,
+      );
+    });
+  /** Read this computer's graphics card and memory again. */
+  repairLocalModelRuntime = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.repairLocalModelRuntime)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.repairLocalModelRuntime(signal);
+    });
   /** One short message to the model just chosen; the result is in words. */
   testChosenModel = () =>
     this.authenticatedResult((signal) => {
@@ -5863,7 +5918,11 @@ export class ClientController {
       command_id: identity,
       client_session_id: session,
       type,
-      payload,
+      // A message says which zone its device is in: "local time" means this device's (M10).
+      payload:
+        type === 'conversation.submit'
+          ? { ...payload, time_zone: deviceTimeZone() }
+          : payload,
       expected_revision: revision,
     } as Command;
     const receipt = await this.command(target, command, identity);

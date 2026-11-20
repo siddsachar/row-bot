@@ -3456,7 +3456,12 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                         raise TimeoutError("Timed expiry observers were not prepared")
                 chunks = [f"Tick {index:04d}. " for index in range(5000)]
                 call["emitted_tokens"] = 0
-                for chunk in chunks:
+                for index, chunk in enumerate(chunks):
+                    # The projection keeps a run of one row's text as one journal entry, so the ticks alone
+                    # fit; a thinking step between every few ticks ends each run, and the 2,500 entries this
+                    # makes exhaust the retained history (1,024 entries per conversation).
+                    if index and index % 4 == 0:
+                        yield "thinking", None
                     yield "token", chunk
                     call["emitted_tokens"] += 1
                 partial = "".join(chunks)
@@ -4112,6 +4117,39 @@ def p4_provider_credentials(x_fixture_token: str = Header(default="")) -> dict:
         os.environ.pop(name, None)
     auth_store._session_provider_secrets.clear()
     auth_store.set_provider_secret('openai', 'api_key', 'synthetic-browser-old-credential')
+    return {"ready": True}
+
+
+_p4_catalog_before_refusal: list[bytes | None] = []
+
+
+@app.post("/__p4_fixture/provider-key-refused/{state}")
+def p4_provider_key_refused(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """on: OpenAI's saved synthetic key, refused (401) at its last model-list read, as a refresh records it.
+    off: the saved catalog as it was before."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import secret_store
+    from row_bot.providers import model_catalog_cache as cache
+    path = cache.CATALOG_CACHE_PATH
+    if not path.resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    if state == "off":
+        before = _p4_catalog_before_refusal.pop() if _p4_catalog_before_refusal else None
+        if before is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(before)
+        return {"ready": True}
+    if state != "on":
+        raise HTTPException(status_code=422, detail="Unknown synthetic state")
+    p4_provider_credentials(x_fixture_token)
+    _p4_catalog_before_refusal.append(path.read_bytes() if path.exists() else None)
+    refused = secret_store.fingerprint('synthetic-browser-old-credential')
+    cloud = {"model:openai:synthetic-chat": {"provider": "openai", "model_id": "synthetic-chat", "label": "Synthetic chat",
+             "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]}}}
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+        1, 1000.0, cloud, [], {"openai": {"status": "cached", "count": 1, "refused_key": refused}}, (), "synthetic-browser",
+    ))
     return {"ready": True}
 
 
@@ -4864,6 +4902,163 @@ def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = 
     return {"action": action, "runtime": _p10_state["runtime"], "models": _p10_state["models"]}
 
 
+# ── E1: On this computer ────────────────────────────────────────────────────
+# Row-Bot's own download is synthetic: a computer with a 12 GB NVIDIA card, and a download that moves
+# only when a spec says so. Nothing is downloaded and no llama.cpp runs. By default it is "unavailable"
+# here and no local server is found, so every other first-run spec sees Ollama's steps as before.
+# Found servers are synthetic too: no port of the real machine is ever asked.
+_E1_GB = 1_000_000_000
+_e1_state: dict = {"state": "unavailable", "done": 0, "installed": [], "failure": None, "freed": None,
+                   "found": []}
+# (id, name, quantization, older, size, fit) as the real catalog lists them for a 12 GB card.
+_E1_MODELS = (
+    ("qwen3.8-27b-q4", "Qwen3.8 27B", "4-bit", False, 16_564_259_744, "partial"),
+    ("qwen3.8-27b-q3", "Qwen3.8 27B", "3-bit", False, 13_146_393_504, "partial"),
+    ("qwen3.8-27b-q2", "Qwen3.8 27B", "2-bit", False, 9_948_666_784, "gpu"),
+    ("qwen3.5-9b", "Qwen3.5 9B", "4-bit", True, 5_680_522_464, "gpu"),
+    ("qwen3.5-4b", "Qwen3.5 4B", "4-bit", True, 2_740_937_888, "gpu"),
+)
+_E1_PICK = "qwen3.8-27b-q2"
+_E1_BUILD = 179_546_112 + 426_314_199
+# A long model name (as LM Studio's own catalogue names some) must truncate in its row on a phone (W2).
+_E1_STUDIO = {"kind": "lmstudio", "label": "LM Studio", "port": 1234, "base_url": "http://127.0.0.1:1234/v1",
+              "models": ["qwen3.8-27b", "gemma-4", "mistral-small-3.3-24b-instruct-2603-gguf-q4_k_m-imatrix"]}
+
+
+def _e1_view() -> dict:
+    installed = set(_e1_state["installed"])
+    build = bool(installed)
+    rows = [{"id": model_id, "name": name, "model_ref": f"model:custom_openai_llamacpp:{model_id}", "size_bytes": size,
+             "fit": fit, "everyday": model_id == "qwen3.5-4b", "quantization": quant, "older": older,
+             "installed": model_id in installed,
+             "download_bytes": 0 if model_id in installed else size + (0 if build else _E1_BUILD)}
+            for model_id, name, quant, older, size, fit in _E1_MODELS]
+    state = _e1_state["state"]
+    download = None
+    if state == "downloading":
+        total = _E1_BUILD + _E1_MODELS[2][4]
+        download = {"model_id": _E1_PICK, "acceleration": "cuda-13", "total_bytes": total,
+                    "done_bytes": min(total, int(_e1_state["done"])), "phase": "downloading"}
+    view = {
+        "schema_version": 1, "state": state, "computer": "NVIDIA GeForce RTX 4070 (12 GB)",
+        "acceleration": "cuda-13", "acceleration_label": "NVIDIA (CUDA 13)", "note": None, "release": "b12359",
+        "build_installed": build, "update_bytes": 0, "recommended": _E1_PICK if state != "unavailable" else None,
+        "models": rows, "download": download, "failure": _e1_state["failure"],
+        "disk_bytes": sum(row[4] for row in _E1_MODELS if row[0] in installed)
+        + (int(_E1_BUILD * 2.2) if build else 0),
+        "free_bytes": 412 * _E1_GB,
+    }
+    if _e1_state["freed"] is not None:
+        view["freed_bytes"] = _e1_state["freed"]
+    return view
+
+
+def _e1_store_models(endpoint_id: str, names: list[str]) -> None:
+    from row_bot.providers import custom
+
+    endpoint = custom.get_custom_endpoint(endpoint_id)
+    payload = {"data": [{"id": name, "context_window": 32768} for name in names]}
+    custom._store_custom_endpoint_models(  # noqa: SLF001 - what a model refresh stores
+        endpoint_id, custom.model_infos_from_openai_compatible_catalog(endpoint, payload))
+
+
+def _e1_install_fakes() -> None:
+    from row_bot.application import client_local_runtime as local
+    from row_bot.application import client_local_servers as servers
+
+    def install_model(model_id: str, download_bytes: int) -> dict:
+        _e1_state.update(state="downloading", done=int(4.2 * _E1_GB), failure=None)
+        return _e1_view()
+
+    def stop() -> dict:
+        if _e1_state["state"] == "downloading":
+            _e1_state["state"] = "not_installed"
+        return _e1_view()
+
+    def remove(model_id: str | None = None) -> dict:
+        before = _e1_view()["disk_bytes"]
+        _e1_state.update(installed=[] if model_id is None else [m for m in _e1_state["installed"] if m != model_id],
+                         state="not_installed" if model_id is None else _e1_state["state"])
+        if not _e1_state["installed"]:
+            _e1_state["state"] = "not_installed"
+        _e1_state["freed"] = before - _e1_view()["disk_bytes"]
+        view = _e1_view()
+        _e1_state["freed"] = None
+        return view
+
+    def detect() -> dict:
+        from row_bot.providers.custom import get_custom_endpoint
+
+        endpoint = get_custom_endpoint("lmstudio-1234")
+        return {"schema_version": 1, "servers": [
+            {**server, "provider_id": endpoint["provider_id"] if endpoint else None}
+            for server in _e1_state["found"]]}
+
+    def connect(kind: str, port: int) -> dict:
+        from row_bot.application.client_platform import ClientPlatformError
+        from row_bot.providers import custom
+
+        if kind != "lmstudio" or int(port) != 1234 or not _e1_state["found"]:
+            raise ClientPlatformError("model_configuration_unavailable")
+        custom.save_custom_endpoint({"id": "lmstudio-1234", "name": "LM Studio", "base_url": _E1_STUDIO["base_url"],
+                                     "profile": "lmstudio", "execution_location": "local", "auth_required": False},
+                                    manage_secret=False)
+        _e1_store_models("lmstudio-1234", _E1_STUDIO["models"])
+        provider = "custom_openai_lmstudio-1234"
+        return {"schema_version": 1, "provider_id": provider,
+                "model_refs": [f"model:{provider}:{name}" for name in _E1_STUDIO["models"]]}
+
+    local.snapshot = _e1_view
+    local.install_model = install_model
+    local.stop = stop
+    local.remove = remove
+    local.repair = _e1_view
+    servers.detect = detect
+    servers.connect = connect
+
+
+def _e1_save_endpoint() -> None:
+    """The endpoint a finished download saves, so the model picker and Setup's pick list its models."""
+    from row_bot.providers import custom
+
+    custom.save_custom_endpoint({
+        "id": "llamacpp", "name": "Row-Bot (llama.cpp)", "base_url": "http://127.0.0.1:9931/v1", "profile": "llama_cpp",
+        "execution_location": "local", "auth_required": False, "managed": "local",
+        "manual_capabilities": {"context_window": 32768},
+    }, manage_secret=False)
+    custom.store_managed_endpoint_models("llamacpp", [
+        (row[0], row[1] if row[3] else f"{row[1]} · {row[2]}", 32768)
+        for row in _E1_MODELS if row[0] in _e1_state["installed"]])
+
+
+@app.post("/__e1_fixture/local-runtime/{state}")
+def e1_local_runtime(state: str, done: float = 0.0, failure: str = "", found: str = "",
+                     x_fixture_token: str = Header(default="")) -> dict:
+    """fresh: nothing downloaded; downloading (done GB); installed: Qwen3.8 27B 2-bit ready; found: only
+    ``found``; restore: unavailable and nothing found. ``found=lmstudio`` lists LM Studio as running."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.providers import custom
+
+    if found:
+        _e1_state["found"] = [dict(_E1_STUDIO)] if found == "lmstudio" else []
+    if state == "fresh":
+        _e1_state.update(state="not_installed", done=0, installed=[], failure=None)
+    elif state == "downloading":
+        _e1_state.update(state="downloading", done=int(done * _E1_GB), failure=None)
+    elif state == "installed":
+        _e1_state.update(state="installed", installed=[_E1_PICK], failure=None)
+        _e1_save_endpoint()
+    elif state == "failed":
+        _e1_state.update(state="failed", failure={"reason": failure or "network"})
+    elif state == "restore":
+        _e1_state.update(state="unavailable", done=0, installed=[], failure=None, found=[])
+        if custom.get_custom_endpoint("llamacpp") is not None:
+            custom.remove_managed_endpoint("llamacpp")
+    elif state != "found":
+        raise HTTPException(status_code=422, detail="Unknown local-runtime state")
+    return _e1_view()
+
+
 # ── A6 (U3, U4, U10): a hosted Row-Bot ──────────────────────────────────────
 # A known host runs this Row-Bot (ROW_BOT_HOSTED_BY=pikapods): the first run's two big
 # buttons, the hosted Setup Center and the phone card. "off" puts it back; the first run's
@@ -5438,7 +5633,9 @@ def main() -> None:
         return VoiceProviderStatus("fixture", "Fixture speech", True)
     synthetic_speech = SimpleNamespace(voice_service=voice, transcribe=transcribe_fixture,
                                        synthesize=synthesize_fixture,
-                                       speech_input_status=speech_input_status_fixture)
+                                       speech_input_status=speech_input_status_fixture,
+                                       # No ffmpeg: Show Row-Bot how's narration says why it can't run.
+                                       ffmpeg_command=lambda: None)
     browser_local.get_browser_local_voice_service = lambda: synthetic_speech
     from row_bot.application import client_voice
     def fixture_credentials(**kwargs):
@@ -5533,6 +5730,7 @@ def main() -> None:
 
     client_platform_service.readiness_factory = lambda _: True
     _p10_install_fakes()
+    _e1_install_fakes()
     _p17_install_connection_check_fakes()
     client_platform_service.stream_factory = stream
     client_platform_service.resume_factory = _n11_resume
@@ -7874,7 +8072,7 @@ def _n10_stream(text: str, config: dict):
         append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
             tool_calls=[{"id": tool_id, "name": name, "args": args}])])
         yield "tool_call", {"tool_call_id": tool_id, "name": name, "args": args}
-        question, description = outlook_tool.approval_card(name, args)
+        question, description, _tells_attendees = outlook_tool.approval_card(name, args)
         yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), "tool": name,
                              "label": outlook_tool.TITLES[name], "question": question, "description": description,
                              "args": args}]

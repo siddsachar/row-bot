@@ -135,6 +135,8 @@ BROWSER_SMOKE_SPECS = (
     # Show Row-Bot how (C3): record in the Browser pane, the steps, the draft with "What you showed", Try it.
     # Last, so the specs before it keep their shards.
     "browser-demo",
+    # A phone's Send and + with the keyboard open: one tap, never a misfire. Appended for the same reason.
+    "phone-composer",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
@@ -165,7 +167,7 @@ BROWSER_PHONE_SPECS = (
     "learning-method",
     "learning-hugging-face",
     "settings-claude-plan", "install-count", "hosted-first-run", "place-words", "memory-guidance",
-    "hosted-settings", "backup-model", "hermes-import",
+    "hosted-settings", "backup-model", "hermes-import", "first-run-local",
 )
 # Performance budgets and pixel baselines (recorded on Windows): a quiet local machine only.
 BROWSER_BUDGET_SPECS = ("unified-startup", "unified-memory", "unified-performance", "polish-snapshots")

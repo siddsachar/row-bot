@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Settings Controls
 
 <!-- generated-from: frontend/src/features/settings/model.ts -->
-<!-- inventory-hash: f28fefbafbb532a4 -->
+<!-- inventory-hash: f0935a04ef105d31 -->
 
 <GeneratedNotice source="frontend/src/features/settings/model.ts" />
 
@@ -22,6 +22,7 @@ Group: General. Open in Row-Bot: `/app-v2/settings/preferences`. Guide: [/docs/s
 | Personality | behaviour tone | `/app-v2/settings/preferences#identity.personality` | `frontend/src/features/settings/model.ts#identity.personality` |
 | Learn new skills | self-improvement improve | `/app-v2/settings/preferences#identity.self_improvement_enabled` | `frontend/src/features/settings/model.ts#identity.self_improvement_enabled` |
 | Open Row-Bot in | window mode app native browser launch | `/app-v2/settings/preferences#window_mode` | `frontend/src/features/settings/model.ts#window_mode` |
+| Desktop notifications | notify alerts sound toast workflow finished timer approval | `/app-v2/settings/preferences#desktop_notifications` | `frontend/src/features/settings/model.ts#desktop_notifications` |
 | Dream Cycle | overnight tidy-up background consolidation hours | `/app-v2/settings/preferences#dream-cycle` | `frontend/src/features/settings/model.ts#dream-cycle` |
 
 ## Appearance Controls
@@ -46,6 +47,24 @@ Dependencies: Desktop overlay behaviour depends on native-window support.
 | --- | --- | --- | --- |
 | Show Buddy |  | `/app-v2/settings/buddy#buddy-visibility` | `frontend/src/features/settings/model.ts#buddy-visibility` |
 | Buddy look and motion | avatar pack | `/app-v2/settings/buddy#buddy-look` | `frontend/src/features/settings/model.ts#buddy-look` |
+
+## Proactive Controls
+
+Group: General. Open in Row-Bot: `/app-v2/settings/proactive`. Guide: [/docs/guides/proactive](/docs/guides/proactive).
+
+Security: Watching for changes happens on this computer; short summaries of what changed go to the main model to decide what is worth a mention.
+
+| Setting | Search keywords | Open in Row-Bot | Source |
+| --- | --- | --- | --- |
+| Proactive level | off quiet balanced eager speak first how much | `/app-v2/settings/proactive#level` | `frontend/src/features/settings/model.ts#level` |
+| Quiet hours | night do not disturb focus | `/app-v2/settings/proactive#quiet-hours` | `frontend/src/features/settings/model.ts#quiet-hours` |
+| Desktop context for timing | idle locked call focus activity privacy | `/app-v2/settings/proactive#desktop-context` | `frontend/src/features/settings/model.ts#desktop-context` |
+| Sources | mail calendar chats memory workflows monitor privacy | `/app-v2/settings/proactive#sources` | `frontend/src/features/settings/model.ts#sources` |
+| What to bring up | follow-ups meeting prep morning brief dates changes workflow ideas quieted | `/app-v2/settings/proactive#kinds` | `frontend/src/features/settings/model.ts#kinds` |
+| End-of-day wrap | evening summary done moved tomorrow day end | `/app-v2/settings/proactive#wrap` | `frontend/src/features/settings/model.ts#wrap` |
+| Urgent in chat apps | telegram slack discord away channel | `/app-v2/settings/proactive#urgent` | `frontend/src/features/settings/model.ts#urgent` |
+| Your rules | less like this never about fewer not at time | `/app-v2/settings/proactive#rules` | `frontend/src/features/settings/model.ts#rules` |
+| Proactive activity | log checks silent planned take over cancel why | `/app-v2/settings/proactive#activity` | `frontend/src/features/settings/model.ts#activity` |
 
 ## Models Controls
 
@@ -172,6 +191,14 @@ Security: Filesystem, shell, browser, and Computer Use controls can widen local 
 | What else Row-Bot contacts | privacy network internet connections phone home updates catalogs | `/app-v2/settings/system#contacts` | `frontend/src/features/settings/model.ts#contacts` |
 | Blocked commands | shell patterns deny never run | `/app-v2/settings/system#shell.blocked_patterns` | `frontend/src/features/settings/model.ts#shell.blocked_patterns` |
 
+## Activity Controls
+
+Group: System. Open in Row-Bot: `/app-v2/settings/activity`. Guide: [/docs/privacy-safety/](/docs/privacy-safety/).
+
+Security: The log stays on this computer for 90 days; summaries leave out what tools read, and incognito chats show no words. Only you can clear it. A rule starts only from an approval card, never covers sending, deleting, paying or anything only you approve, and never applies in a chat other people share.
+
+_This page has no individually searchable settings._
+
 ## Devices & remote access Controls
 
 Group: System. Open in Row-Bot: `/app-v2/settings/access`. Guide: [/docs/operations/remote-access](/docs/operations/remote-access).
@@ -182,6 +209,8 @@ Security: Invitations grant full owner access; network access and public links w
 | --- | --- | --- | --- |
 | Connect a phone or computer | phone pair qr code invitation tablet laptop | `/app-v2/settings/access#connect` | `frontend/src/features/settings/model.ts#connect` |
 | Your devices | sessions signed in sign out phones computers | `/app-v2/settings/access#devices` | `frontend/src/features/settings/model.ts#devices` |
+| Notifications on this device | phone push notifications tablet iphone android | `/app-v2/settings/access#notifications` | `frontend/src/features/settings/model.ts#notifications` |
+| Show details in notifications | phone push notifications lock screen preview privacy | `/app-v2/settings/access#notification-details` | `frontend/src/features/settings/model.ts#notification-details` |
 | Network access | listen wifi lan allowed addresses origins | `/app-v2/settings/access#network` | `frontend/src/features/settings/model.ts#network` |
 | Public link | ngrok tunnel internet | `/app-v2/settings/access#tunnel` | `frontend/src/features/settings/model.ts#tunnel` |
 

@@ -1375,11 +1375,13 @@ async def _body(request: Request, model, maximum: int = JSON_LIMIT):
         raise ProtocolError("invalid_command", 422) from None
 
 
-async def _context(request: Request) -> AccessContext:
+async def _context(request: Request, *, reuse: bool = False) -> AccessContext:
+    """The request's access, checked again. ``reuse``, for a check that delivers nothing: this request's
+    last check, while under a second old (P9)."""
     context = request.scope.get(ACCESS_CONTEXT_SCOPE_KEY)
     validate = request.scope.get("row_bot_revalidate_access")
     if validate is not None:
-        context = await validate()
+        context = await validate(reuse=reuse)
     if not isinstance(context, AccessContext) or not context.authenticated:
         raise ProtocolError("authentication_required", 401)
     if request.headers.get("origin") is not None and not request_origin_matches(
@@ -1391,14 +1393,12 @@ async def _context(request: Request) -> AccessContext:
 
 def cached_choices() -> dict:
     """Read existing caches/catalogues; opening a client never refreshes a provider."""
-    from row_bot.providers.model_catalog_cache import read_model_catalog_cache
-    from row_bot.providers.client_status import picker_choices
+    from row_bot.providers.client_status import catalog_is_stale, picker_choices
     from row_bot.providers.model_visibility import annotate, withheld
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
-    snapshot = read_model_catalog_cache()
     from row_bot.application.provider_default_model import read_default_model
     from row_bot.providers.config import ProviderConfigError
 
@@ -1463,7 +1463,7 @@ def cached_choices() -> dict:
     return {
         "models": models,
         "capabilities": capabilities,
-        "catalog_stale": snapshot.is_stale,
+        "catalog_stale": catalog_is_stale(),
     }
 
 
@@ -1576,7 +1576,8 @@ def create_router(
     )
 
     async def session(request: Request, *, lane: str = "query") -> Any:
-        context = await _context(request)
+        # A route's first check, just after admission's: it delivers nothing, so admission's answer serves.
+        context = await _context(request, reuse=True)
         current = security.session(
             context,
             request.headers.get("x-client-session", ""),
@@ -3333,7 +3334,9 @@ def create_router(
             # For the person: never the model's overview, its ids or paths (G6).
             from row_bot.application.client_self import person_status
 
-            title, text = "Status", await call(person_status, conversation_id)
+            # Needs you counts the sidebar's listed conversations too (W3).
+            listed = await call(service.list_conversations)
+            title, text = "Status", await call(person_status, conversation_id, listed["items"])
         elif body.command_id == "tools":
             from row_bot.tools.row_bot_status_tool import _row_bot_status
 
@@ -6944,6 +6947,72 @@ def create_router(
         return await respond(
             request, dto.LocalRuntimeSnapshot, {**snapshot, "on_this_computer": on_machine}
         )
+
+    @router.get("/setup/local-servers")
+    async def setup_local_servers(request: Request) -> JSONResponse:
+        # Asked only when "On this computer" opens: 127.0.0.1 on each runtime's usual port, nowhere else.
+        await session(request)
+        from row_bot.application.client_local_servers import detect
+
+        return await respond(request, dto.LocalServersSnapshot, await call(detect))
+
+    @router.post("/setup/local-servers/connect")
+    async def setup_local_server_connect(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.LocalServerConnectRequest, 1024)
+        from row_bot.application.client_local_servers import connect
+
+        return await respond(request, dto.LocalServerConnection, await call(connect, body.kind, body.port))
+
+    # Run on this computer (E1): the pinned llama.cpp build and models Row-Bot downloads and runs.
+    async def local_model_runtime(request: Request, result: dict) -> JSONResponse:
+        on_machine = on_this_computer(await _context(request))
+        return await respond(
+            request, dto.LocalModelRuntimeView, {**result, "on_this_computer": on_machine}
+        )
+
+    @router.get("/local-runtime")
+    async def local_runtime_view(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_local_runtime import snapshot
+
+        return await local_model_runtime(request, await call(snapshot))
+
+    @router.post("/local-runtime/install")
+    async def local_runtime_install(request: Request) -> JSONResponse:
+        # The person pressed Download (the button named the size). A download lands on the computer
+        # Row-Bot runs on, so only its own desktop app starts one.
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        body = await _body(request, dto.LocalModelInstallRequest, 1024)
+        from row_bot.application.client_local_runtime import install_model
+
+        return await local_model_runtime(
+            request, await call(install_model, body.model_id, body.download_bytes)
+        )
+
+    @router.post("/local-runtime/stop")
+    async def local_runtime_stop(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_local_runtime import stop
+
+        return await local_model_runtime(request, await call(stop))
+
+    @router.post("/local-runtime/remove")
+    async def local_runtime_remove(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        body = await _body(request, dto.LocalModelRemoveRequest, 1024)
+        from row_bot.application.client_local_runtime import remove
+
+        return await local_model_runtime(request, await call(remove, body.model_id))
+
+    @router.post("/local-runtime/repair")
+    async def local_runtime_repair(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_local_runtime import repair
+
+        return await local_model_runtime(request, await call(repair))
 
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:
@@ -12106,7 +12175,8 @@ def create_router(
             try:
                 yield ": connected\n\n"
                 while not await request.is_disconnected():
-                    security.session(await _context(request), current.id, current.csrf)
+                    # Topic names and numbers only: a check under a second old serves (P9).
+                    security.session(await _context(request, reuse=True), current.id, current.csrf)
                     frame = live_updates.live_updates.frame()
                     if sent != (frame["epoch"], frame["revision"]):
                         sent = (frame["epoch"], frame["revision"])

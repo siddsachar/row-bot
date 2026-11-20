@@ -198,15 +198,39 @@ def _is_app_event(message) -> bool:
 
 
 _PERSON_CHARS = 2_000  # of a person's message; also what a watermark's hash covers of any message
-# Of one of Row-Bot's answers in a trusted turn: a whole chat answer (most are 1,000 to 3,000
-# characters) with a question fits one 6,000-character extraction window; a longer one (code,
-# a report) is cut. About 1,000 tokens at most, where 200 characters (50 tokens) was read before.
+# What is read of one of Row-Bot's answers in a trusted turn (``_answer_excerpt``, P2: reading long
+# answers in full cost BEAM 10-12x the tokens for no gain): its first ~1,200 characters, then only
+# the later sentences that name a person, place, date, amount or a choice the user made; never code
+# blocks, tables or long lists. At most 4,000 characters (about 1,000 tokens), out of the first
+# 12,000 of the answer.
+_ANSWER_HEAD_CHARS = 1_200
 _ANSWER_CHARS = 4_000
+_ANSWER_SCAN_CHARS = 12_000
+_LONG_LIST_ITEMS = 8  # a list with more items than this is left out
+_CODE_BLOCK = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+•]|\d{1,3}[.)])\s+")
+_SENTENCE = re.compile(r"[^.!?]+(?:[.!?]+[\"')\]]*|$)")
+_MONTHS_AND_DAYS = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|"
+    r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"today|tomorrow|yesterday|tonight|weekend)\b", re.IGNORECASE)
+_CHOICE = re.compile(
+    r"\byou(?:'ve| have|'ll| will)? (?:chose|chosen|choose|picked|decided|booked|ordered|bought|went with|"
+    r"signed up|settled on|agreed)\b|\byour (?:choice|pick|order|booking|plan|appointment|reservation)\b",
+    re.IGNORECASE)
+_NAME_WORD = re.compile(r"(?<=[\s,;:(])[A-Z][a-z]+(?:[-'][A-Za-z]+)?")
 _LEFT_OUT = "[answer left out: this turn read outside content]"
 # A fence or untrusted tag, in any message (a child Agent's words, a relayed result).
 _FENCE_TAG = re.compile(r"<\s*/?\s*(?:EXTERNAL_CONTENT|untrusted)\b", re.IGNORECASE)
 # A file or image the person attached, inlined into their message (``file_context``, channel media).
 _ATTACHMENT = re.compile(r"(?:^|\n)\[Attached ")
+_SPEAKER_CHARS = 60  # a speaker's name shown in a line's label
+# Who said it (the attribution guard): a line of the other side with words of its own, and the
+# names the person's lines carry. A fact only the other side said is never saved as the user's.
+_OTHER_SIDE_LINE = re.compile(r"^Assistant(?: \([^()\n]{1,60}\))?: (?!\[answer left out)", re.MULTILINE)
+_USER_LABEL = re.compile(r"^User \(([^()\n]{1,60})\):", re.MULTILINE)
+_USER_WORDS = frozenset({"user", "me", "myself"})
+_USER_ONLY_CATEGORIES = frozenset({"preference", "fact", "skill"})  # the prompt defines these as the user's
 
 
 def _extraction_categories() -> frozenset[str]:
@@ -303,11 +327,14 @@ def _get_thread_messages(thread_id: str) -> list[dict]:
             role = "user" if is_person_message(m) else ("assistant" if getattr(m, "type", None) == "ai" else None)
             content = _content_text(getattr(m, "content", "") or "")
             if role and content.strip():
-                entry = {"role": role, "content": content[:_PERSON_CHARS if role == "user" else _ANSWER_CHARS]}
+                entry = {"role": role, "content": content[:_PERSON_CHARS if role == "user" else _ANSWER_SCAN_CHARS]}
                 if role == "assistant" and not outside:
                     entry["trusted"] = True
                 if getattr(m, "id", None):
                     entry["id"] = str(m.id)
+                speaker = " ".join(str(getattr(m, "name", "") or "").split())
+                if speaker and len(speaker) <= _SPEAKER_CHARS and "(" not in speaker and ")" not in speaker:
+                    entry["speaker"] = speaker  # who said it, when the message names them
                 if day:
                     entry["date"] = day
                 else:
@@ -319,13 +346,78 @@ def _get_thread_messages(thread_id: str) -> list[dict]:
         return []
 
 
+def _without_blocks(text: str) -> str:
+    """*text* with its code blocks, tables and long lists each replaced by a short note."""
+    text = _CODE_BLOCK.sub("[code left out]", text)
+    kept: list[str] = []
+    run: list[str] = []  # the list or table being read
+    kind = ""
+
+    def close() -> None:
+        nonlocal run, kind
+        if kind == "table" and len(run) >= 2:
+            kept.append("[table left out]")
+        elif kind == "list" and len(run) > _LONG_LIST_ITEMS:
+            kept.append(f"[list of {len(run)} items left out]")
+        else:
+            kept.extend(run)
+        run, kind = [], ""
+
+    for line in text.split("\n"):
+        line_kind = "table" if line.lstrip().startswith("|") else ("list" if _LIST_ITEM.match(line) else "")
+        if line_kind != kind:
+            close()
+            kind = line_kind
+        if line_kind:
+            run.append(line)
+        else:
+            kept.append(line)
+    close()
+    return "\n".join(kept)
+
+
+def _names_something(sentence: str) -> bool:
+    """A sentence worth keeping past an answer's start: it names a person or place (a capitalised word
+    after its first), a date, an amount (any digit), or a choice the user made."""
+    return bool(re.search(r"\d", sentence) or _MONTHS_AND_DAYS.search(sentence) or _CHOICE.search(sentence)
+                or _NAME_WORD.search(sentence.strip()))
+
+
+def _answer_excerpt(text: str) -> str:
+    """What extraction reads of a trusted answer: its first ~1,200 characters, then the later sentences
+    that name a person, place, date, amount or a choice; code blocks, tables and long lists left out.
+    Deterministic, and at most ``_ANSWER_CHARS``."""
+    text = _without_blocks(text).strip()
+    if len(text) <= _ANSWER_HEAD_CHARS:
+        return text
+    head = text[:_ANSWER_HEAD_CHARS]
+    # End the start at a sentence or line break when one is near.
+    cut = max(head.rfind(". "), head.rfind("\n"), head.rfind("! "), head.rfind("? "))
+    if cut >= _ANSWER_HEAD_CHARS * 2 // 3:
+        head = head[:cut + 1]
+    kept: list[str] = []
+    for line in text[len(head):].split("\n"):
+        for sentence in _SENTENCE.findall(line):
+            sentence = sentence.strip()
+            if sentence and not sentence.startswith("[") and _names_something(sentence):
+                kept.append(sentence)
+    excerpt = head.rstrip()
+    for sentence in kept:
+        if len(excerpt) + len(sentence) + 7 > _ANSWER_CHARS:
+            break
+        excerpt += " [...] " + sentence
+    return excerpt + " [...]"
+
+
 def _format_conversation(messages: list[dict]) -> str:
     """Format messages into a readable conversation string.
 
     The person's messages are read as loaded. An answer of Row-Bot's is read, up
     to ``_ANSWER_CHARS``, only when it is marked trusted (``_get_thread_messages``);
     any other answer is only a placeholder, so nothing of a turn that read a web
-    page, an email, a file or a tool result reaches the prompt.
+    page, an email, a file or a tool result reaches the prompt. Each line names
+    its side, with the speaker's name in brackets when the message has one
+    ("Assistant (Caroline): ..."), so the prompt can keep who said what.
     """
     lines = []
     for m in messages:
@@ -333,15 +425,15 @@ def _format_conversation(messages: list[dict]) -> str:
         content = m.get("content", "") if isinstance(m, dict) else ""
         if role not in {"user", "assistant"} or not str(content).strip():
             continue
+        label = "User" if role == "user" else "Assistant"
+        if m.get("speaker"):
+            label = f"{label} ({m['speaker']})"
         if role == "user":
-            lines.append(f"User: {content}")
+            lines.append(f"{label}: {content}")
         elif m.get("trusted") is True:
-            text = str(content)
-            if len(text) > _ANSWER_CHARS:
-                text = text[:_ANSWER_CHARS] + " [...]"
-            lines.append(f"Assistant: {text}")
+            lines.append(f"{label}: {_answer_excerpt(str(content))}")
         else:
-            lines.append(f"Assistant: {_LEFT_OUT}")
+            lines.append(f"{label}: {_LEFT_OUT}")
     return "\n".join(lines)
 
 
@@ -349,17 +441,21 @@ def _extraction_answer():
     """The extraction reply as a JSON schema: entities and relations, as the prompt describes."""
     from row_bot.providers.background import json_object, structured_answer
 
+    said_by = {"type": "string", "enum": ["user", "assistant"],
+               "description": "Whose lines say it: the user's, or only the other side's."}
     entity = json_object({
         "category": {"type": "string", "enum": sorted(_extraction_categories())},
         "subject": {"type": "string"},
         "content": {"type": "string"},
         "aliases": {"type": "string", "description": "Other names, comma separated, or an empty string."},
+        "said_by": said_by,
     })
     relation = json_object({
         "relation_type": {"type": "string"},
         "source_subject": {"type": "string"},
         "target_subject": {"type": "string"},
         "confidence": {"type": "number"},
+        "said_by": said_by,
     })
     return structured_answer("memory_extraction", {
         "memories": {"type": "array", "items": {"anyOf": [entity, relation]}},
@@ -372,6 +468,69 @@ class _NoReply(list):
     Empty like a reply with nothing worth saving, but the conversation stays
     unread, so the next run reads it again.
     """
+
+
+def _name_key(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+
+
+def _names_the_user(text: str, names: set[str]) -> bool:
+    """Whether *text* (a subject, aliases, a relation end) is about the user: "User", "User's ...",
+    "me", or one of the user's names, as whole words."""
+    words = f" {_name_key(text)} "  # "User's identity" reads "user s identity"
+    return any(f" {word} " in words for word in _USER_WORDS) or any(f" {name} " in words for name in names if name)
+
+
+def _user_names(entries: list[dict], conversation_text: str) -> set[str]:
+    """The user's names: the labels of their lines, their saved record's, and those this reply gives them."""
+    names = {_name_key(match.group(1)) for match in _USER_LABEL.finditer(conversation_text)}
+    records = [entry for entry in entries
+               if _name_key(entry.get("subject", "")) == "user" and entry.get("said_by") != "assistant"]
+    try:
+        from row_bot.memory import find_by_subject
+
+        saved = find_by_subject(None, "User")
+        if saved:
+            records.append(saved)
+    except Exception:
+        logger.debug("The user's saved names are unavailable to the attribution guard", exc_info=True)
+    for record in records:
+        names.update(_name_key(alias) for alias in str(record.get("aliases") or "").split(","))
+    return {name for name in names if name}
+
+
+def _attributed(entries: list[dict], conversation_text: str) -> list[dict]:
+    """Keep who said what (the attribution guard), in code after the model's reply.
+
+    Facts about the user come only from the user's own lines. When the window has lines of the
+    other side with words of their own (Row-Bot's trusted answers, or another person's), a fact
+    the reply says only the other side said ("said_by": "assistant") is dropped when it would be
+    the user's: an entity under "User", "User's ...", "me" or one of the user's names, one in a
+    category that is the user's own (preference, fact, skill), or a relation with the user at
+    either end. Without such lines everything came from the user. A reply that leaves "said_by"
+    out is read as the user's (the schema asks for it). What is kept records its side
+    (``evidence_role``).
+    """
+    if not _OTHER_SIDE_LINE.search(conversation_text):
+        return [{**entry, "said_by": "user", "evidence_role": "user"} for entry in entries]
+    names = _user_names(entries, conversation_text)
+    kept: list[dict] = []
+    for entry in entries:
+        said_by = "assistant" if str(entry.get("said_by") or "").strip().lower() == "assistant" else "user"
+        if said_by == "assistant":
+            if entry.get("relation_type"):
+                users = _names_the_user(entry.get("source_subject", ""), names) or _names_the_user(
+                    entry.get("target_subject", ""), names)
+            else:
+                users = (str(entry.get("category") or "").strip().lower() in _USER_ONLY_CATEGORIES
+                         or _names_the_user(entry.get("subject", ""), names)
+                         or _names_the_user(entry.get("aliases", ""), names))
+            if users:
+                logger.info("Extraction: left out a fact only the other side said, saved as the user's (%s)",
+                            str(entry.get("subject") or entry.get("relation_type") or "")[:60])
+                continue
+        kept.append({**entry, "said_by": said_by, "evidence_role": said_by})
+    return kept
 
 
 def _day_name(day: date, year: int) -> str:
@@ -444,7 +603,7 @@ def _extract_from_conversation(conversation_text: str, *, dated: date | None = N
                 and entry.get("target_subject")
             ):
                 valid.append(entry)
-        return valid
+        return _attributed(valid, conversation_text)
     except Exception as exc:
         logger.warning("Memory extraction reply could not be read: %s", exc)
         return []

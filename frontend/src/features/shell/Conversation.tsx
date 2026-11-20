@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -195,6 +196,29 @@ import {
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
+
+/**
+ * A press on one of the composer's buttons while the message field has focus
+ * leaves the focus there, as Enter does. On a phone, the field losing focus on
+ * the press closed the keyboard, and the composer dropped to the bottom of the
+ * screen before the tap's click landed: the click fell on whatever was then
+ * under the finger (a new chat's prompt suggestion, or nothing), so Send took
+ * two taps. A menu trigger still opens on its press; whatever a button opens
+ * takes focus itself.
+ */
+function keepFieldFocus(event: MouseEvent<HTMLElement>) {
+  const button =
+    event.target instanceof Element ? event.target.closest('button') : null;
+  const field = document.activeElement;
+  if (
+    !button ||
+    !(field instanceof HTMLTextAreaElement) ||
+    !event.currentTarget.contains(field) ||
+    (event.type === 'pointerdown' && button.hasAttribute('aria-haspopup'))
+  )
+    return;
+  event.preventDefault();
+}
 
 /** Below 740px Context floats; a floating chat docks it again from 780px. */
 /** Too narrow for the details rail beside a comfortable reading column (U3). */
@@ -488,6 +512,10 @@ export default function Conversation({
     value: ReturnType<typeof controller.getDraft>;
   } | null>(null);
   const firstPromptSent = useRef<string | null>(null);
+  const [openingPrompt, setOpeningPrompt] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
   // Edit and resend (B5): the edited text, sent once the new conversation is open.
   const [forkPrompt, setForkPrompt] = useState<{
     conversationId: string;
@@ -820,17 +848,27 @@ export default function Conversation({
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   // A helper this chat started waits on an approval: its card shows here
   // even when no notice reached the transcript, so no helper waits on an
-  // approval nobody can see (B348). Read once the first screen is up.
+  // approval nobody can see (B348). So does this chat's own agent work
+  // waiting in the background: no notice is written on its paused turn
+  // (R15). Read once the first screen is up.
   const approvalsFeed = usePendingApprovals(
     backgroundReady ? controller.pendingApprovals : undefined,
   );
   const helperApprovals = useMemo(
     () =>
-      (approvalsFeed.page?.items ?? []).filter(
-        (item) =>
-          item.parent_conversation_id === id &&
-          !rows.some((row) => row.approval_id === item.id),
-      ),
+      (approvalsFeed.page?.items ?? [])
+        .filter(
+          (item) =>
+            (item.parent_conversation_id === id ||
+              (item.source === 'agent' &&
+                !item.parent_conversation_id &&
+                item.conversation_id === id)) &&
+            !rows.some((row) => row.approval_id === item.id),
+        )
+        // A helper asks by its name; this chat's own work asks as Row-Bot.
+        .map((item) =>
+          item.parent_conversation_id ? item : { ...item, title: 'Row-Bot' },
+        ),
     [approvalsFeed.page, id, rows],
   );
   const lastAgentActivity =
@@ -899,6 +937,18 @@ export default function Conversation({
         record.event.type === 'approval.required' &&
         record.event.payload.approval_id === generation?.approval_id,
     );
+  // The turn waits on Row-Bot's question card: it reads as a question, never
+  // an approval (R7). The live event says so; after a reload the waiting list does.
+  const waitingOnQuestion = Boolean(
+    generation?.status === 'waiting_approval' &&
+    generation.approval_id &&
+    ((approvalEvent?.event.type === 'approval.required' &&
+      (approvalEvent.event.payload.questions?.length ?? 0) > 0) ||
+      approvalsFeed.page?.items.some(
+        (item) =>
+          item.id === generation.approval_id && item.kind === 'question',
+      )),
+  );
   // Row-Bot's browser shows as a live step while the turn uses it, on every
   // signed-in device; tapping it opens the Browser pane (N12-A).
   // The turn's tool steps settle into the transcript as they're saved, so this
@@ -1715,6 +1765,37 @@ export default function Conversation({
       void answerOrSend(waiting, outgoing.text.trim(), keepTargets, retry);
       return;
     }
+    // Enter while the chat is still opening (its controls not read yet) is
+    // kept and sent once it has opened, never dropped (R2).
+    if (
+      !example &&
+      id &&
+      outgoing.text.trim() &&
+      (!historyReady || state.workspace?.conversation_id !== id)
+    ) {
+      setOpeningPrompt({ conversationId: id, text: outgoing.text });
+      return;
+    }
+    // "/goal Ship the docs", "/reasoning high", "/profile writer",
+    // "/agent <task>" run here instead of reaching the model as text (B112).
+    const withArgument = example
+      ? null
+      : slashArgument(outgoing.text, composerSnapshot?.commands ?? []);
+    // A watch on a public page or a command needs no model (W8): it is set
+    // even while the chat's model can't answer. One the model must set (a
+    // question, or a command that needs approval) still waits for it.
+    if (
+      id &&
+      withArgument?.command.handler_kind === 'watch' &&
+      watchRequest(withArgument.argument).kind !== 'model' &&
+      state.status === 'ready' &&
+      !pendingSteering &&
+      !pendingSubmit &&
+      !pendingResume
+    ) {
+      void runSlashArgument(withArgument);
+      return;
+    }
     const modelStatus = state.workspace?.model_status;
     if (
       id &&
@@ -1746,11 +1827,6 @@ export default function Conversation({
       !sendActionReady
     )
       return;
-    // "/goal Ship the docs", "/reasoning high", "/profile writer",
-    // "/agent <task>" run here instead of reaching the model as text (B112).
-    const withArgument = example
-      ? null
-      : slashArgument(outgoing.text, composerSnapshot?.commands ?? []);
     if (withArgument) {
       void runSlashArgument(withArgument);
       return;
@@ -1834,6 +1910,23 @@ export default function Conversation({
     }
     if (!answered) send(undefined, keepTargets, [], retry, true);
   }
+  // A message sent while the chat was opening goes once it has opened, unless
+  // it was changed meanwhile or the person left the chat (R2).
+  const sendOpeningPrompt = useEffectEvent(() => send());
+  const workspaceOpen = Boolean(id) && state.workspace?.conversation_id === id;
+  useEffect(() => {
+    if (!openingPrompt) return;
+    if (
+      openingPrompt.conversationId !== id ||
+      draft.text !== openingPrompt.text
+    ) {
+      setOpeningPrompt(null);
+      return;
+    }
+    if (!historyReady || !workspaceOpen) return;
+    setOpeningPrompt(null);
+    sendOpeningPrompt();
+  }, [openingPrompt, id, draft.text, historyReady, workspaceOpen]);
   const sendFirstPrompt = useEffectEvent(() => send());
   useEffect(() => {
     if (
@@ -3515,7 +3608,9 @@ export default function Conversation({
         running: 'Row-Bot is working.',
         stopping: 'Stopping — waiting for the worker to finish.',
         stopped: 'Stopped.',
-        waiting_approval: 'Waiting for your approval.',
+        waiting_approval: waitingOnQuestion
+          ? 'Waiting for your answer.'
+          : 'Waiting for your approval.',
         completed: 'Response complete.',
         interrupted: claudeSignedOut
           ? 'Claude signed you out.'
@@ -3854,6 +3949,7 @@ export default function Conversation({
                           waiting:
                             generation?.status === 'waiting_approval' &&
                             !computerPause,
+                          asking: waitingOnQuestion,
                           paused: computerPause,
                           stopping: generation?.status === 'stopping',
                           startedAt: runStartedAt,
@@ -4176,6 +4272,9 @@ export default function Conversation({
               className="composer-field"
               ref={composerFieldRef}
               data-dragging={dragging ? 'true' : undefined}
+              // Before the buttons' own handlers, which focus the button.
+              onPointerDownCapture={keepFieldFocus}
+              onMouseDownCapture={keepFieldFocus}
               onDragEnter={(event) => {
                 if (!hasFiles(event)) return;
                 event.preventDefault();

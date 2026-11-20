@@ -53,7 +53,7 @@ concurrency:
 
 jobs:
   live-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.timeout_minutes }}
     env:
       ROW_BOT_MCP_REAL_WORLD_E2E: ${{ inputs.run_real_mcp && '1' || '0' }}
@@ -94,7 +94,7 @@ jobs:
   # uses fresh data folders under .tmp/live-eval and stops before passing the caps above.
   live-eval:
     if: ${{ inputs.run_live_eval }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.timeout_minutes }}
     env:
       ROW_BOT_LIVE_EVAL: "1"

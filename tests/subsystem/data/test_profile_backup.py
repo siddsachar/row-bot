@@ -287,8 +287,8 @@ def test_the_server_start_restores_first_and_listens_on_loopback(tmp_path):
     assert report["host"] == "127.0.0.1"
     assert report["proxy_headers"] is False
     # Nothing that opens the profile was loaded when the restore ran.
-    assert report["loaded"] == ["row_bot", "row_bot.brand", "row_bot.data_paths", "row_bot.profile_restore",
-                                "row_bot.version"]
+    assert report["loaded"] == ["row_bot", "row_bot.brand", "row_bot.data_folder_lock", "row_bot.data_paths",
+                                "row_bot.profile_restore", "row_bot.version"]
     assert _rows(target / "threads.db", "SELECT title FROM threads") == [("Kept conversation",)]
 
 

@@ -253,6 +253,21 @@ def _absolute(value: str, root_dir: str) -> Path:
 _SAVED_TO = {"write_file": "file_path", "copy_file": "destination_path", "move_file": "destination_path"}
 
 
+def _make_folder_for(relative: str, root_dir: str) -> None:
+    """Make the workspace folder a file is saved into before the file tool checks its path (S2): on Windows a
+    parallel write creating the same new folder made that check read the path as outside the workspace. Only a
+    folder that lies inside the workspace by its name alone; anything else is left to the tool to refuse."""
+    import os
+
+    base = os.path.normcase(os.path.normpath(root_dir))
+    folder = os.path.normcase(os.path.normpath(os.path.join(root_dir, os.path.dirname(relative))))
+    if folder != base and folder.startswith(base.rstrip(os.sep) + os.sep):
+        try:
+            os.makedirs(os.path.join(root_dir, os.path.dirname(relative)), exist_ok=True)
+        except OSError:
+            pass  # The tool's own write says what went wrong.
+
+
 def _where_saved(operation: str, result, kwargs: dict, target: Path, root_dir: str):
     """A write, copy or move result that says where the file now is (A2), so the reply can name it.
 
@@ -339,6 +354,9 @@ def _wrap_tool_with_path_fix(tool, root_dir: str, *, card_tool: str = ""):
                 kwargs[key] = _normalise_path(kwargs[key], root_dir)
                 if is_private_data_path(Path(root_dir) / kwargs[key]):
                     return PRIVATE_DATA_PATH_REFUSAL
+        saving = kwargs.get(_SAVED_TO.get(operation, ""))
+        if isinstance(saving, str):
+            _make_folder_for(saving, root_dir)
         result = original_func(**kwargs)
         target = kwargs.get(_SAVED_TO.get(operation, ""))
         if isinstance(target, str):

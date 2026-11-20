@@ -4,6 +4,11 @@ import {
   getConversation,
   getAnswerState,
   getApproval,
+  getBuddy,
+  getBuddyPack,
+  getBuddyPacks,
+  getGlobalBuddy,
+  getGlobalBuddyPack,
   getDelivery,
   getPage,
   getScheduledPosts,
@@ -640,6 +645,43 @@ it('reads a page card’s page at once while background reads wait (N5)', async 
   const view = await getPage('', proof, 'page-1234abcd');
   expect(view.title).toBe('Sales by week');
   expect(fetcher).toHaveBeenCalledTimes(21);
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await queries;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('reads the sidebar Buddy’s status and look at once while background reads wait (R9)', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async (_url: string) => ({
+    ok: true,
+    json: async () => ({ items: [], has_more: false, next_cursor: null }),
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  // A screen's worth of reads uses up the background budget first.
+  const queries = Promise.allSettled(
+    Array.from({ length: 25 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  await Promise.allSettled([
+    getBuddy('', proof, 'conversation-a'),
+    getBuddyPacks('', proof, 'conversation-a'),
+    getBuddyPack('', proof, 'conversation-a', 'tile'),
+    getGlobalBuddy('', proof),
+    getGlobalBuddyPack('', proof, 'tile'),
+  ]);
+  const buddy = fetcher.mock.calls
+    .map(([url]) => String(url))
+    .filter((url) => url.includes('/buddy'));
+  expect(buddy).toHaveLength(5);
+  // Only the first 20 background reads went; the rest still wait their turn.
+  expect(fetcher).toHaveBeenCalledTimes(25);
   abort.abort();
   await vi.runAllTimersAsync();
   await queries;

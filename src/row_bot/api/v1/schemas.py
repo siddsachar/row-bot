@@ -167,6 +167,8 @@ class SubmitPayload(WireModel):
     page_id: str | None = Field(default=None, pattern=r"^page-[0-9a-f]{8}$")
     # A reply button's tap (F3): the reply that offered it. The text is the button's words, the person's own.
     tapped_choice: TappedChoice | None = None
+    # The sending device's IANA zone ("Europe/London"): "local time" in this turn means it (M10).
+    time_zone: str | None = Field(default=None, max_length=64)
 
 
 class RenamePayload(WireModel):
@@ -651,7 +653,7 @@ class KnowledgeEntityDetail(WireModel):
     status: Literal["active", "needs_review", "superseded", "archived"]
     tier: Literal["core", "semantic", "episodic", "resource"]
     source: str = Field(max_length=4096)
-    source_bucket: Literal["manual", "extraction", "document", "wiki", "other"]
+    source_bucket: Literal["manual", "extraction", "document", "wiki", "import", "other"]
     confidence: float | None = Field(ge=0, le=1)
     aliases: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
         max_length=12
@@ -682,6 +684,8 @@ class KnowledgeEntityDetail(WireModel):
     can_archive: bool
     can_restore: bool
     can_resolve: bool
+    # The app an imported memory came from ("ChatGPT"); empty for any other source.
+    source_label: str = Field(max_length=128)
 
 
 class KnowledgeRecallCandidate(WireModel):
@@ -1362,6 +1366,8 @@ class PreferenceSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     identity: IdentitySettingsSnapshot
     window_mode: Literal["ask", "native", "browser"]
+    # Desktop notifications and their sounds on the computer running Row-Bot.
+    desktop_notifications: bool = True
     dream_cycle: DreamCycleSettingsSnapshot
     updates: UpdateSettingsSnapshot
     migration: MigrationSettingsSnapshot
@@ -2136,13 +2142,15 @@ class KnowledgeGraphNode(WireModel):
     subject: str = Field(max_length=256)
     description: str = Field(max_length=1024)
     entity_type: str = Field(max_length=64)
-    source: Literal["manual", "extraction", "document", "wiki", "other"]
+    source: Literal["manual", "extraction", "document", "wiki", "import", "other"]
     updated_at: str = Field(max_length=128)
     relation_count: int = Field(ge=0, le=9007199254740991)
     orphan: bool
     is_user: bool
     status: Literal["active", "needs_review", "superseded", "archived"]
     tier: Literal["core", "semantic", "episodic", "resource"]
+    # The app an imported memory came from ("ChatGPT"); empty for any other source.
+    source_label: str = Field(max_length=128)
 
 
 class KnowledgeGraphEdge(WireModel):
@@ -2168,8 +2176,8 @@ class KnowledgeGraphSnapshot(WireModel):
     entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
         max_length=64
     )
-    sources: list[Literal["manual", "extraction", "document", "wiki", "other"]] = Field(
-        max_length=5
+    sources: list[Literal["manual", "extraction", "document", "wiki", "import", "other"]] = Field(
+        max_length=6
     )
     # Every saved memory's status, not only the shown ones (B264).
     status_counts: KnowledgeStatusCounts
@@ -2656,6 +2664,113 @@ class LocalRuntimeSnapshot(WireModel):
     models: list[LocalRuntimeModel] = Field(max_length=256)
     # False on another device (a phone): a download link would land there.
     on_this_computer: bool
+
+
+LocalModelFit = Literal["gpu", "partial", "cpu", "too_big"]
+LocalModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9.-]+$")]
+
+
+class LocalModelOption(WireModel):
+    """One pinned model "Run on this computer" can download, and how it would run here."""
+
+    id: LocalModelId
+    name: str = Field(max_length=128)
+    model_ref: str = Field(min_length=1, max_length=256)
+    size_bytes: int = Field(ge=0)
+    fit: LocalModelFit
+    # Good for everyday chat; long tasks want a larger model or a provider.
+    everyday: bool
+    # "4-bit", "3-bit", "2-bit": the build of the model that fits.
+    quantization: str = Field(max_length=32)
+    # A smaller model of the generation before the default, offered where the default doesn't fit.
+    older: bool
+    installed: bool
+    # What pressing Download would fetch now (the build too when it isn't installed); 0 when ready.
+    download_bytes: int = Field(ge=0)
+
+
+class LocalModelDownload(WireModel):
+    model_id: LocalModelId
+    acceleration: str = Field(max_length=32)
+    total_bytes: int = Field(ge=0)
+    done_bytes: int = Field(ge=0)
+    phase: Literal["downloading", "checking", "finished", "stopped", "failed"]
+    reason: str | None = Field(default=None, max_length=64)
+    facts: dict[str, int] | None = None
+
+
+class LocalModelFailure(WireModel):
+    reason: str = Field(max_length=64)
+    needed_bytes: int | None = Field(default=None, ge=0)
+    free_bytes: int | None = Field(default=None, ge=0)
+    download_bytes: int | None = Field(default=None, ge=0)
+
+
+class LocalModelRuntimeView(WireModel):
+    """Run on this computer (E1): this computer, the pinned models and what is installed."""
+
+    schema_version: Literal[1]
+    state: Literal["unavailable", "not_installed", "downloading", "installed", "running", "failed"]
+    computer: str = Field(max_length=256)
+    acceleration: str = Field(max_length=32)
+    acceleration_label: str = Field(max_length=64)
+    note: str | None = Field(default=None, max_length=64)
+    release: str = Field(max_length=32)
+    build_installed: bool
+    # The size of the current build when an older one is installed (it keeps working until updated).
+    update_bytes: int = Field(ge=0)
+    recommended: LocalModelId | None = None
+    models: list[LocalModelOption] = Field(max_length=16)
+    download: LocalModelDownload | None = None
+    failure: LocalModelFailure | None = None
+    disk_bytes: int = Field(ge=0)
+    free_bytes: int = Field(ge=0)
+    # After Remove: the space it gave back.
+    freed_bytes: int | None = Field(default=None, ge=0)
+    # False on another device (a phone): downloads are a desktop action.
+    on_this_computer: bool
+
+
+LocalServerKind = Literal["ollama", "lmstudio", "vllm", "llama_cpp"]
+
+
+class LocalServerFound(WireModel):
+    """A local model server that answered on its usual loopback port when "On this computer" opened."""
+
+    kind: LocalServerKind
+    label: str = Field(max_length=64)
+    port: int = Field(ge=1, le=65535)
+    base_url: str = Field(max_length=128)
+    models: list[str] = Field(max_length=64)
+    # The provider its models are under when it is already connected (Ollama always), else None.
+    provider_id: str | None = Field(default=None, max_length=160)
+
+
+class LocalServersSnapshot(WireModel):
+    schema_version: Literal[1]
+    servers: list[LocalServerFound] = Field(max_length=8)
+
+
+class LocalServerConnectRequest(WireModel):
+    kind: LocalServerKind
+    port: int = Field(ge=1, le=65535)
+
+
+class LocalServerConnection(WireModel):
+    schema_version: Literal[1]
+    provider_id: str = Field(max_length=160)
+    model_refs: list[str] = Field(max_length=64)
+
+
+class LocalModelInstallRequest(WireModel):
+    model_id: LocalModelId
+    # The size the Download button showed; the download starts only while it still holds.
+    download_bytes: int = Field(ge=0)
+
+
+class LocalModelRemoveRequest(WireModel):
+    # One model; absent: the runtime and every model.
+    model_id: LocalModelId | None = None
 
 
 class ModelTestResult(WireModel):
@@ -4399,6 +4514,16 @@ class MemoryImportReceipt(WireModel):
     failed: int = Field(ge=0)
 
 
+class MemoryImportWaiting(WireModel):
+    """Memories brought over from another app on this computer (Settings › Data), still to review."""
+    batch_id: MemoryImportBatchId
+    sources: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=20)
+    found: int = Field(ge=0)
+    conversations: int = Field(ge=0)
+    staged_at: str = Field(max_length=40)
+    keep_until: str = Field(max_length=40)
+
+
 class MemoryImportSources(WireModel):
     sources: list[MemoryImportSource] = Field(max_length=40)
     prompt: str = Field(max_length=8000)
@@ -4408,6 +4533,7 @@ class MemoryImportSources(WireModel):
     character_limit: int = Field(ge=1)
     model: MemoryImportModel | None = None
     recent: list[MemoryImportReceipt] = Field(max_length=10)
+    waiting: list[MemoryImportWaiting] = Field(max_length=4)
 
 
 class MemoryImportRequest(WireModel):
@@ -6245,7 +6371,7 @@ class WatchView(WireModel):
     checks: int = Field(ge=0)
     changes: int = Field(ge=0)
     max_changes: int = Field(ge=1)
-    # The last check's local time (ISO), "" before the first.
+    # The last check's time (ISO 8601 in UTC with its offset), "" before the first.
     checked_at: str = Field(max_length=32)
     # The last check's result in a line: "No change", "Couldn't check: …", or a judged check's own line.
     result: str = Field(max_length=200)
@@ -6267,8 +6393,11 @@ class WaitView(WireModel):
     conversation_title: str = Field(max_length=160)
     kind: Literal["process", "check", "time", "conversation", "watch"]
     label: str = Field(min_length=1, max_length=120)
-    # "checks every 5 min", "at 14:00" or "watching"; a watch's "every 10 min" or "every 5–60 min".
+    # "checks every 5 min" or "watching"; a watch's "every 10 min" or "every 5–60 min"; "" for a time wait.
     how: str = Field(max_length=40)
+    # When a time wait carries on, "" for the others; and until when any wait waits. ISO 8601 in UTC with its
+    # offset: the client writes them in the viewer's own zone (M5, M11).
+    at: str = Field(default="", max_length=32)
     until: str = Field(max_length=32)
     # "paused" is only ever a watch; "ended", a watch that ran out or reached its change cap and keeps its card
     # (with "Make this a workflow") until the person puts it away.
@@ -6564,7 +6693,9 @@ class ProactivePreviewItem(WireModel):
     title: str = Field(max_length=200)
     # When it would have come up ("" when it stays on Home).
     at: ProactiveTime
-    where: Literal["buddy", "home"]
+    # The surface it went to, or would have: Buddy's bubble, a desktop or in-app notification, the phone, the
+    # chosen chat app, or Home only.
+    where: Literal["buddy", "notification", "phone", "chat_app", "home"]
     # Carried in the morning brief.
     in_brief: bool
 
@@ -7151,6 +7282,8 @@ class ProviderLiveCard(WireModel):
     oauth_client_id_configured: bool
     external_reference_exists: bool
     reconnect_required: bool = False
+    # The provider refused the saved API key when its model list was last read.
+    key_refused: bool = False
     risk_label: str = Field(max_length=80)
     last_runtime_probe_ok: bool | None = None
     billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None

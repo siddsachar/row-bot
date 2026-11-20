@@ -10,6 +10,7 @@ import threading
 import time
 import re
 import uuid
+from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Iterator
 
@@ -1272,18 +1273,10 @@ def _is_browser_tool_name(tool_name: str) -> bool:
     return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
 
 
-# How many browser actions one turn may take before it is stopped as a runaway loop; filming a demo (its browser
-# recording) is a long run of deliberate page actions, so it may take more.
-BROWSER_TOOL_LIMIT = 80
-RECORDING_BROWSER_TOOL_LIMIT = 400
-
-
-def _browser_tool_limit(thread_id: str) -> int:
-    """The browser actions this turn may take: more while this chat's browser is being recorded."""
-    from row_bot import recordings
-
-    recording = bool(thread_id) and recordings.active_for(thread_id, "browser") is not None
-    return RECORDING_BROWSER_TOOL_LIMIT if recording else BROWSER_TOOL_LIMIT
+# How many browser actions one turn may take before it is stopped as a runaway loop. A long task (a growth
+# workflow, filming a demo) takes a hundred or more deliberate page actions; a real loop is caught sooner by the
+# stuck check (only looking, many times in a row).
+BROWSER_TOOL_LIMIT = 400
 
 
 def _browser_action_name(tool_name: str) -> str:
@@ -1419,16 +1412,29 @@ def _code_folder() -> str:
 
 def _workspace_line() -> str:
     """Where the file tools and the shell start, ``~/…`` under the home folder so the account name isn't sent."""
-    from row_bot.data_paths import default_workspace_root, display_path
+    from row_bot.data_paths import display_path, workspace_folder
 
-    configured = str(tool_registry.get_tool_config("filesystem", "workspace_root", "") or "")
-    workspace = display_path(configured if configured and os.path.isdir(configured) else default_workspace_root())
+    workspace = display_path(workspace_folder(create=False))
     code_folder = _code_folder()
     if code_folder:
         return (f"Code folder: {display_path(code_folder)} (the shell and Developer tools start here). "
                 f"Workspace folder for other files: {workspace}.")
     return (f"Workspace folder: {workspace}. File tools and the shell start here; relative paths are inside it, "
             "and a file tool asks the person before it uses a full path elsewhere.")
+
+
+def _device_zone_line() -> str:
+    """The person's device zone when it isn't this computer's (M10): their "local time" is its time."""
+    from zoneinfo import ZoneInfo
+
+    from row_bot.schedule_zones import local_zone_name
+
+    zone = _current_device_zone_var.get("")
+    if not zone or zone == local_zone_name():
+        return ""
+    offset = _datetime.now(ZoneInfo(zone)).isoformat(timespec="minutes")[-6:]
+    return (f"The person's device is in {zone} (UTC{offset}), not this computer's time zone: their \"local "
+            "time\" is that zone's, and a new workflow schedule keeps it.")
 
 
 def _runtime_turn_fields(tool_names: list[str]) -> list:
@@ -1472,6 +1478,7 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
         ContextField("workspace", _workspace_line()),
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
+        ContextField("device_zone", _device_zone_line(), "The person's device is in this computer's time zone."),
     ]
     off: list[str] = []
     switched_off: list[str] = []
@@ -5072,8 +5079,11 @@ class _AgentModelCall:
         return RunnableLambda(call, name="row_bot_model_call")
 
 
-# Cache compiled agent graphs keyed by frozenset of enabled tool names
-_agent_cache: dict[frozenset[str], object] = {}
+# Compiled agent graphs by their cache key (tools, model, context, approval mode, fingerprints...), the
+# most recently used last. Each holds its tools and their schemas, a few MB; every workflow configuration
+# and fingerprint change added one for good (P5), so only the newest few stay.
+AGENT_CACHE_SIZE = 8
+_agent_cache: OrderedDict[frozenset[str], object] = OrderedDict()
 _agent_cache_metadata: dict[frozenset[str], dict[str, Any]] = {}
 
 # Thread-local storage for misc flags; background flag uses ContextVar
@@ -5086,6 +5096,32 @@ _tlocal = _threading.local()
 # threads racing during warm-up share one compilation instead of
 # duplicating the work.
 _agent_cache_lock = _threading.Lock()
+# Guards the two dicts above together: a hit reorders them, a build may evict.
+_agent_cache_entries_lock = _threading.Lock()
+
+
+def _cached_agent(cache_key: frozenset[str]) -> tuple[object, dict[str, Any]] | None:
+    with _agent_cache_entries_lock:
+        agent = _agent_cache.get(cache_key)
+        if agent is None:
+            return None
+        _agent_cache.move_to_end(cache_key)
+        return agent, _agent_cache_metadata.get(cache_key, {})
+
+
+def _remember_agent(cache_key: frozenset[str], agent: object, metadata: dict[str, Any]) -> None:
+    with _agent_cache_entries_lock:
+        _agent_cache[cache_key] = agent
+        _agent_cache.move_to_end(cache_key)
+        _agent_cache_metadata[cache_key] = metadata
+        while len(_agent_cache) > AGENT_CACHE_SIZE:
+            evicted, _graph = _agent_cache.popitem(last=False)
+            _agent_cache_metadata.pop(evicted, None)
+
+
+def agent_graph_cache_size() -> int:
+    """How many compiled agent graphs are kept (the hourly perf line reports it)."""
+    return len(_agent_cache)
 
 # ContextVar for background workflow flag — MUST be ContextVar (not
 # threading.local) because LangGraph runs tools in executor threads
@@ -5212,6 +5248,16 @@ def current_person_rules() -> dict | None:
     """The running workflow's "Always ask me" rules (N9), for an agent it starts: they go with it."""
     rules = _current_person_rules_var.get(None)
     return dict(rules) if rules else None
+
+
+# The IANA zone of the device that sent this turn's message (M10): "local time" means it. "" when no
+# device said (a channel, a workflow run): the computer's own zone.
+_current_device_zone_var: _contextvars.ContextVar[str] = _contextvars.ContextVar("current_device_zone", default="")
+
+
+def current_device_zone() -> str:
+    """The zone of the device the person sent this turn from, or "" when no device said."""
+    return _current_device_zone_var.get("")
 
 
 # ── Learning (preview) seams ────────────────────────────────────────────────────────────────────
@@ -5488,6 +5534,7 @@ def _set_active_runtime_context(
     external_discovery_active: bool = False,
     app_scope: dict | None = None,
     person_rules: dict | None = None,
+    device_zone: str = "",
 ) -> None:
     _current_thread_id_var.set(thread_id or "")
     _current_runtime_surface_var.set(runtime_surface or "")
@@ -5512,6 +5559,7 @@ def _set_active_runtime_context(
     _current_external_discovery_active_var.set(bool(external_discovery_active))
     _current_app_scope_var.set(dict(app_scope) if isinstance(app_scope, dict) else None)
     _current_person_rules_var.set(dict(person_rules) if isinstance(person_rules, dict) else None)
+    _current_device_zone_var.set(str(device_zone or ""))
     _current_authorized_skill_records_var.set(None)
     _current_effective_tool_parent_names_var.set(())
     _current_bound_tool_schema_tokens_var.set(0)
@@ -5672,15 +5720,21 @@ def is_background_workflow() -> bool:
 _DESTRUCTIVE_LABELS: dict[str, str] = {
     "workspace_file_delete": "Delete file",
     "workspace_move_file": "Move / rename file",
-    "delete_calendar_event": "Delete calendar event",
-    "move_calendar_event": "Move calendar event",
+    # Each calendar change in the words its step and card use, so the activity log reads alike (R1).
+    "create_calendar_event": "Create an event",
+    "create_calendar_events": "Create events",
+    "update_calendar_event": "Change an event",
+    "delete_calendar_event": "Delete an event",
+    "move_calendar_event": "Move an event",
     "send_gmail_message": "Send email",
     "outlook_send_mail": "Send email",
     "outlook_reply_mail": "Reply to email",
     "outlook_forward_mail": "Forward email",
     "outlook_delete_mail": "Delete email",
-    "outlook_cancel_event": "Cancel event",
-    "outlook_respond_event": "Answer invitation",
+    "outlook_create_event": "Add an event",
+    "outlook_update_event": "Change an event",
+    "outlook_cancel_event": "Cancel an event",
+    "outlook_respond_event": "Answer an invitation",
     "delete_memory": "Delete memory",
     "tracker_delete": "Delete tracker / entry",
     "task_delete": "Delete task",
@@ -5724,14 +5778,55 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
     return f"{label}: {args_str}"
 
 
+# An app's arguments that invite people or tell an event's guests (any app's calendar tool), as lowercase letters.
+_GUEST_ARGUMENTS = frozenset({"attendees", "guests", "invitees", "requiredattendees", "optionalattendees"})
+_TELL_GUEST_ARGUMENTS = frozenset({"sendupdates", "sendnotifications", "sendinvitations", "notifyattendees",
+                                   "notifyguests"})
+
+
+def _tells_guests(value) -> bool:
+    """Whether a call's own arguments invite people or tell an event's guests (W21), nested ones included."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            word = "".join(ch for ch in str(key).lower() if ch.isalpha())
+            if word in _GUEST_ARGUMENTS and item:
+                return True
+            if word in _TELL_GUEST_ARGUMENTS and item and str(item).strip().casefold() not in {"none", "false", "no"}:
+                return True
+            if _tells_guests(item):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_tells_guests(item) for item in value)
+    return False
+
+
+def _own_approval_card(tool_name: str, given: dict) -> tuple[str, str, bool] | None:
+    """A calendar or Outlook action's own card: its question, what it will do, and whether it invites other people
+    or tells an event's guests; None for other tools, or when it can't be written (the call itself asks)."""
+    from row_bot.tools import calendar_tool
+
+    if tool_name.startswith("outlook_"):
+        from row_bot.tools.outlook_tool import approval_card
+    elif tool_name in calendar_tool.CHANGE_OPERATIONS:
+        approval_card = calendar_tool.approval_card
+    else:
+        return None
+    try:
+        return approval_card(tool_name, given)
+    except Exception:
+        logger.warning("%s's approval card couldn't be written; it asks with the call itself", tool_name, exc_info=True)
+        return None
+
+
 def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
     """Keep sync and async targets behind the same current approval decision, resolved by the approval level
     (``approval_gate``): the person under Ask, the reviewer first under Auto, the level itself under Hands-off.
     ``always_ask``: an app tool its app's access says to ask about (a routine change without Full access, or a
-    high-impact one); the reviewer is told so, and decides as for any other action."""
+    high-impact one); the reviewer is told so, and decides as for any other action. A calendar change that invites
+    other people or tells an event's guests is the person's own to approve under Auto (``CALENDAR_GUESTS_RISK``)."""
     from functools import wraps
     from row_bot.approval_rules import APP_ASKS_RISK, CHANGE_RISK
-    from row_bot.tools.approval_gate import resolve_approval_line, with_approval
+    from row_bot.tools.approval_gate import CALENDAR_GUESTS_RISK, resolve_approval_line, with_approval
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
     risks = (CHANGE_RISK,) + ((APP_ASKS_RISK,) if always_ask else ())
@@ -5744,6 +5839,8 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
         mode = get_approval_mode()
         decision = decision_for_action(mode)
         if decision == "block":
+            # Noted as Block's decision, for the activity log.
+            resolve_approval_line({"tool": tool.name, "label": label, "args": kwargs}, approval_mode=mode)
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
                     "tool. Inform the user that this action was skipped "
@@ -5770,14 +5867,13 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                 if given:
                     args_str += ", " + ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
             description = _enrich_description(tool.name, label, args_str, kwargs)
-        if tool.name.startswith("outlook_"):
-            # Outlook's card names who it goes to and what it says, or the event's time, attendees and place.
-            try:
-                from row_bot.tools.outlook_tool import approval_card
-
-                question, description = approval_card(tool.name, given)
-            except Exception:
-                logger.warning("Outlook's approval card couldn't be written; it asks with the call itself", exc_info=True)
+        # Outlook's and Google Calendar's own cards name who it goes to and what it says, or the event's time,
+        # guests and place; without one, the call's own arguments say whether it reaches other people.
+        card = _own_approval_card(tool.name, given)
+        if card is not None:
+            question, description, guests = card
+        else:
+            guests = _tells_guests(given) or _tells_guests(list(args))
         try:
             from row_bot.tools.discovery import is_external_discovery_invocation
             external_discovery_active = is_external_discovery_invocation()
@@ -5789,9 +5885,10 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                 "args": kwargs or (args[0] if args else {}),
                 "external_discovery_active": external_discovery_active,
                 **({"question": question} if question else {}),
+                **({"risk_class": "high"} if guests else {}),
             },
             approval_mode=mode,
-            risks=risks,
+            risks=risks + ((CALENDAR_GUESTS_RISK,) if guests else ()),
             # This module's own name, so a test can stand in for the person.
             approval_callback=lambda payload: interrupt(payload),
         )
@@ -5822,10 +5919,29 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
         tool._arun = gated_async
 
 
+def _gate_changes(lc_tools: list, destructive_names: set[str], approval_mode: str,
+                  app_asks: set[str] | frozenset[str] = frozenset()) -> list:
+    """The tools a graph offers at this level, each change behind the approval gate.
+
+    Workflows and chats gate alike: Block leaves the changes out; every other level wraps them, and the gate
+    resolves each call by the level (the person under Ask, the reviewer first under Auto, the level itself under
+    Hands-off). A workflow run pauses when the person is asked. run_command self-gates at runtime via
+    classify_command, and a tool marked row_bot_gates_itself (x_post) asks with its own card, bound to exactly
+    what it sends.
+    """
+    if approval_mode == "block":
+        return [t for t in lc_tools if t.name not in destructive_names]
+    for t in lc_tools:
+        if t.name in destructive_names and not (t.metadata or {}).get("row_bot_gates_itself"):
+            _wrap_with_interrupt_gate(t, always_ask=t.name in app_asks)
+    return lc_tools
+
+
 def clear_agent_cache():
     """Clear the cached agent graphs so tools are rebuilt on next call."""
-    _agent_cache.clear()
-    _agent_cache_metadata.clear()
+    with _agent_cache_entries_lock:
+        _agent_cache.clear()
+        _agent_cache_metadata.clear()
     _TOOL_DISPLAY_NAMES.clear()
 
 
@@ -6167,7 +6283,10 @@ def _has_code_folder() -> bool:
 
 
 def _activate_agent_cache_metadata(cache_key: frozenset[str]) -> None:
-    metadata = _agent_cache_metadata.get(cache_key, {})
+    _activate_cached_metadata(_agent_cache_metadata.get(cache_key, {}))
+
+
+def _activate_cached_metadata(metadata: dict[str, Any]) -> None:
     _current_on_demand_tools_var.set(dict(metadata.get("on_demand_tools") or {}))
     deferred_tools.offer(metadata.get("deferred_tool_names") or ())
     _current_effective_tool_parent_names_var.set(tuple(metadata.get("tool_parents") or ()))
@@ -6742,29 +6861,20 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             f"tool_allow:{name}" for name in sorted(normalized_allowlist)
         )
 
-    if cache_key not in _agent_cache:
+    cached = _cached_agent(cache_key)
+    if cached is None:
         with _agent_cache_lock:
-            if cache_key in _agent_cache:
-                _activate_agent_cache_metadata(cache_key)
-                return _agent_cache[cache_key]
+            cached = _cached_agent(cache_key)
+            if cached is not None:
+                _activate_cached_metadata(cached[1])
+                return cached[0]
             # Collect LangChain tool wrappers for enabled tools.
             eager_core_tools = [entry["tool"] for entry in eager_core_entries]
             external_tools = [entry["tool"] for entry in external_entries]
             lc_tools = eager_core_tools + external_tools
 
             # Append tools from enabled plugins (totally separate registry)
-            # Workflows and chats gate alike: block=strip destructive tools; every other level wraps them,
-            # and the gate resolves each call by the level (the person under Ask, the reviewer first under
-            # Auto, the level itself under Hands-off). A workflow run pauses when the person is asked.
-            # run_command self-gates at runtime via classify_command, and a tool marked
-            # row_bot_gates_itself (x_post) asks with its own card, bound to exactly what it sends.
-            if approval_mode == "block":
-                lc_tools = [t for t in lc_tools
-                            if t.name not in destructive_names]
-            else:
-                for t in lc_tools:
-                    if t.name in destructive_names and not (t.metadata or {}).get("row_bot_gates_itself"):
-                        _wrap_with_interrupt_gate(t, always_ask=t.name in app_asks)
+            lc_tools = _gate_changes(lc_tools, destructive_names, approval_mode, app_asks)
 
             lc_tools = _apply_provider_tool_schema_compatibility(
                 lc_tools,
@@ -6991,9 +7101,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 state_schema=RowBotAgentState,
                 version="v2",
             )
-            _agent_cache[cache_key] = agent
             bound_names = {str(getattr(tool, "name", "") or "") for tool in lc_tools}
-            _agent_cache_metadata[cache_key] = {
+            metadata = {
                 "on_demand_tools": {
                     str(getattr(entry["tool"], "name", "") or ""): (str(entry["parent"]), entry["tool"])
                     for entry in on_demand_entries
@@ -7010,9 +7119,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 ),
                 "skill_records": tuple(authorized_skill_records),
             }
+            _remember_agent(cache_key, agent, metadata)
+            cached = agent, metadata
 
-    _activate_agent_cache_metadata(cache_key)
-    return _agent_cache[cache_key]
+    _activate_cached_metadata(cached[1])
+    return cached[0]
 
 
 def _paused_at_a_question(state: Any) -> bool:
@@ -7175,6 +7286,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     _log_runtime_decision(
@@ -7706,6 +7818,14 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         target = _current_on_demand_tools_var.get().get(str((request.tool_call or {}).get("name") or ""))
         if target is not None:
             request = request.override(tool=target[1])
+    if getattr(request, "tool", None) is not None:
+        # A "null" for an optional argument, or an object as JSON text, is what the model meant (S5, S6).
+        from row_bot.tools.argument_repair import repaired_arguments
+
+        call = dict(request.tool_call or {})
+        repaired = repaired_arguments(request.tool, call.get("args"))
+        if repaired != call.get("args"):
+            request = request.override(tool_call={**call, "args": repaired})
     if handle is not None:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
@@ -8066,6 +8186,7 @@ def _stream_chat_only_events(
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(model_label)
     _current_prompt_cache_ttl_var.set(_prompt_cache_ttl_for(configurable))
@@ -8519,6 +8640,7 @@ def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     # A chat on another of the owner's devices runs like one on this computer.
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "remote_client", "channel"}
@@ -8624,6 +8746,7 @@ def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     _graph_build_started = time.perf_counter()
@@ -8692,11 +8815,14 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
                                config: dict | None = None,
                                *, agent_graph=None,
                                orphan_message: str = "[Cancelled by user]",
-                               marker_message: str = "\u23f9\ufe0f *[Stopped]*") -> int | None:
+                               marker_message: str | None = "\u23f9\ufe0f *[Stopped]*",
+                               as_node: str | None = None) -> int | None:
     """Patch the checkpoint so every AIMessage tool_call has a ToolMessage.
 
     Called after stop-generation to prevent
-    ``INVALID_CHAT_HISTORY`` errors on the next query.
+    ``INVALID_CHAT_HISTORY`` errors on the next query. ``marker_message=None`` adds no stop marker, so the
+    conversation ends on the patched results; ``as_node`` saves them as that node's output (``"tools"``: the
+    model runs next, as after any tool step).
     """
     if config is None:
         return 0
@@ -8737,11 +8863,10 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
             logger.warning("Repairing %d orphaned tool_call(s): %s",
                            len(patches),
                            [p.tool_call_id for p in patches])
-            agent.update_state(config, {"messages": patches})
-            # Add a visible stop marker so the conversation reloads correctly
-            agent.update_state(config, {"messages": [
-                AIMessage(content=str(marker_message or "\u23f9\ufe0f *[Stopped]*"))
-            ]})
+            agent.update_state(config, {"messages": patches}, as_node=as_node)
+            if marker_message is not None:
+                # Add a visible stop marker so the conversation reloads correctly
+                agent.update_state(config, {"messages": [AIMessage(content=str(marker_message))]})
             logger.warning("repair_orphaned_tool_calls: checkpoint patched successfully")
         else:
             logger.debug("repair_orphaned_tool_calls: no orphaned tool_calls in %d messages", len(msgs))
@@ -8749,6 +8874,24 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
     except Exception:
         logger.warning("repair_orphaned_tool_calls failed", exc_info=True)
         return None
+
+
+def _save_stopped_browser_step(agent, config: dict, stream_iter) -> None:
+    """Save a turn stopped at its browser limit so the conversation ends on the stopped step's result.
+
+    The turn broke out of its stream as soon as the model asked for the step, before LangGraph saved that
+    model step: the request is only a pending write of the open run. Ending the run first lets its background
+    checkpoint writes land; settling keeps the finished request and drops the step that would run next; the
+    result is then saved as the tools' output, so Resume runs the model on a history every provider accepts.
+    """
+    from langgraph.graph import END
+
+    stream_iter.close()
+    agent.update_state(config, None, as_node=END)
+    # Its unfinished step says why it stopped: not the person.
+    repair_orphaned_tool_calls(config=config, agent_graph=agent,
+                               orphan_message="[Stopped: too many browser actions in one turn]",
+                               marker_message=None, as_node="tools")
 
 
 def _resume_value(approved: bool, interrupt_ids: list[str] | None,
@@ -8835,6 +8978,7 @@ def _resume_stream_agent_turn(enabled_tool_names: list[str], config: dict, appro
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     try:
@@ -8932,6 +9076,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     try:
@@ -9498,7 +9643,6 @@ def _stream_graph(agent, input_data, config: dict,
     # (a multi-step form) takes dozens of page actions; this only stops a
     # runaway loop.
     _loop_detected = False
-    _browser_thread = str((config.get("configurable") or {}).get("thread_id") or "")
     _browser_tool_count = 0
     _recent_browser_actions: list[str] = []
     _browser_budget_exceeded = False
@@ -9671,8 +9815,7 @@ def _stream_graph(agent, input_data, config: dict,
                                     action in {"snapshot", "take_screenshot", "screenshot"}
                                     for action in _recent_browser_actions[-8:]
                                 )
-                                if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
-                                                       >= _browser_tool_limit(_browser_thread)):
+                                if _snapshot_heavy or _browser_tool_count >= BROWSER_TOOL_LIMIT:
                                     _browser_budget_exceeded = True
 
                     # Tool result returned
@@ -9959,11 +10102,9 @@ def _stream_graph(agent, input_data, config: dict,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
-            # Its unfinished step says why it stopped: not the person.
-            repair_orphaned_tool_calls(config=config, agent_graph=agent,
-                                       orphan_message="[Stopped: too many browser actions in one turn]")
+            _save_stopped_browser_step(agent, config, stream_iter)
         except Exception:
-            pass
+            logger.warning("The stopped browser step was not saved", exc_info=True)
         _browser_msg = (
             "⚠️ I took a long run of browser steps in this turn without settling, so I stopped to check "
             "with you before going round again. Say carry on and I'll pick up from here, or tell me what to change."
