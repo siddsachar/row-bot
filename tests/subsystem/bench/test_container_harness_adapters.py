@@ -7,6 +7,8 @@ and the one follow-up the app makes after a turn runs on a scripted turn.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -175,6 +177,63 @@ def test_the_relay_command_needs_a_free_or_capped_model_and_the_key_before_it_ru
     assert cli.main(["relay", "--model", "recursive/flint-v1.0:free", "--", "harbor", "run"]) == 2
     assert "OPENROUTER_API_KEY" in capsys.readouterr().out
     assert ran == []  # nothing started without the key
+
+
+def test_the_local_lane_serves_an_existing_build_read_only_from_its_own_scratch_and_bills_at_zero(tmp_path) -> None:
+    import hashlib
+
+    from tests.e2e.bench import ledger
+    from tests.e2e.bench.agent_evals import llamacpp
+
+    study = tmp_path / "study"
+    (study / "bin").mkdir(parents=True)
+    (study / "bin" / ("llama-server.exe" if os.name == "nt" else "llama-server")).write_bytes(b"binary")
+    gguf = study / "model.gguf"
+    gguf.write_bytes(b"weights" * 1000)
+    before = {path: path.stat().st_mtime_ns for path in study.rglob("*")}
+    assert llamacpp.sha256_of(gguf) == hashlib.sha256(b"weights" * 1000).hexdigest()
+    started: dict = {}
+
+    class Process:
+        pid = 4242
+
+        def __init__(self) -> None:
+            self.code = None
+
+        def poll(self):
+            return self.code
+
+        def terminate(self):
+            started["terminated"] = True
+            self.code = 0
+
+        def wait(self, timeout=None):
+            return self.code
+
+    def popen(argv, cwd, env, stdout, stderr):
+        started.update(argv=argv, cwd=cwd, env=env)
+        return Process()
+
+    server = llamacpp.LlamaServer(study / "bin", gguf, tmp_path / "scratch", context=65_536, alias="qwen3.5-9b-q8_0",
+                                  popen=popen, health=lambda port: True)
+    argv = started["argv"]
+    assert argv[argv.index("--ctx-size") + 1] == "65536" and "--jinja" in argv and "--offline" in argv
+    assert argv[argv.index("--host") + 1] == "127.0.0.1" and server.port not in llamacpp.RESERVED
+    assert started["env"]["LLAMA_API_KEY"] == server.key and server.key not in " ".join(argv)  # never on its command line
+    assert Path(started["cwd"]) == tmp_path / "scratch" and started["env"]["TEMP"].startswith(str(tmp_path / "scratch"))
+    server.stop()
+    assert started["terminated"]
+    assert {path: path.stat().st_mtime_ns for path in study.rglob("*")} == before  # nothing written in the study
+    record = llamacpp.endpoint(server.port, server.key, context=65_536)
+    assert (record["profile"], record["execution_location"], record["manual_capabilities"]) == (
+        "llama_cpp", "local", {"context_window": 65_536})
+    undo = llamacpp.local_billing()
+    try:
+        assert ledger.billing_for(llamacpp.PROVIDER_ID) == ledger.LOCAL
+        assert ledger.billing_for("custom_openai_someone_else") == ledger.API
+    finally:
+        undo()
+    assert ledger.billing_for(llamacpp.PROVIDER_ID) == ledger.API
 
 
 def test_a_benchmark_turn_binds_every_tool_but_the_ones_that_wait_for_a_person() -> None:

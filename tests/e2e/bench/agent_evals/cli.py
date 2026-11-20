@@ -27,7 +27,7 @@ from .. import booking as booking_module
 from .. import orchestrate
 from ..ledger import API, LedgerCaps, billing_for, usage_book_path
 from ..runtime import BenchConfig, child_env
-from . import keys, openrouter
+from . import keys, llamacpp, openrouter
 from .tau2 import scoring
 from .variants import VARIANTS
 
@@ -111,7 +111,7 @@ def tool_schemas(root: Path, domain: str) -> list[dict[str, Any]]:
     return list(json.loads(completed.stdout.decode("utf-8").strip().splitlines()[-1])["tools"])
 
 
-def run_worker(run_dir: Path, spec: dict[str, Any]) -> int:
+def run_worker(run_dir: Path, spec: dict[str, Any], extra_env: dict[str, str] | None = None) -> int:
     stem = spec["task_id"]
     data_dir, workspace = run_dir / "data" / stem, run_dir / "workspace" / stem
     for folder in (data_dir, workspace, run_dir / "specs", run_dir / "logs"):
@@ -120,7 +120,8 @@ def run_worker(run_dir: Path, spec: dict[str, Any]) -> int:
     spec_path = run_dir / "specs" / f"{stem}.json"
     spec_path.write_text(json.dumps(spec, indent=1, default=str), encoding="utf-8")
     completed = subprocess.run([sys.executable, "-m", "tests.e2e.bench.agent_evals.worker", "--spec", str(spec_path)],
-                               cwd=orchestrate.REPO_ROOT, env=child_env(data_dir, workspace), check=False)
+                               cwd=orchestrate.REPO_ROOT, env={**child_env(data_dir, workspace), **(extra_env or {})},
+                               check=False)
     return completed.returncode
 
 
@@ -129,15 +130,25 @@ def run(args: argparse.Namespace) -> int:
         print(f"set {orchestrate.ENABLE_ENV}=1 to run (it uses the models you name)")
         return 2
     caps = LedgerCaps.from_env()
+    local = bool(args.local_gguf)
+    if local:  # the local llama.cpp lane: Row-Bot's own model is the bench's llama-server (llamacpp.py)
+        if not args.local_bin or not args.local_sha256:
+            print("not running: the local lane needs --local-bin, --local-gguf and --local-sha256")
+            return 2
+        args.model = f"{llamacpp.PROVIDER_ID}:{args.local_alias}"
     provider, model = orchestrate.split_ref(args.model)
-    for ref in filter(None, (args.model, args.user_model, args.nl_judge)):
+    for ref in filter(None, (None if local else args.model, args.user_model, args.nl_judge)):
         ref_provider, ref_model = orchestrate.split_ref(ref)
         problem = orchestrate.lane_problem(ref_provider, caps, model=ref_model)
         if problem:
             print(f"not running: {ref}: {problem}")
             return 2
+    if local and not str(os.environ.get(orchestrate.BOOKING_ENV, "")).strip():
+        print(f"not running: set {orchestrate.BOOKING_ENV}: the graphics card is booked")
+        return 2
     refs = [orchestrate.split_ref(ref) for ref in filter(None, (args.model, args.user_model, args.nl_judge))]
-    paid = [provider_id for provider_id, _ in refs if billing_for(provider_id) == API]
+    paid = [provider_id for provider_id, _ in refs
+            if provider_id != llamacpp.PROVIDER_ID and billing_for(provider_id) == API]
     direct = sorted({provider_id for provider_id in paid if provider_id != "openrouter"})
     if direct:
         print(f"not running: paid models go through OpenRouter (one key, one balance), not {direct}; "
@@ -200,20 +211,39 @@ def run(args: argparse.Namespace) -> int:
             "rates_file": str(openrouter.write_rates(run_dir / "openrouter-rates.json",
                                                      {model: endpoint for model, (_, endpoint) in pins.items()}))
             if pins else ""}
-    kind = orchestrate.booking_kind(provider)
+    kind = booking_module.GPU if local else orchestrate.booking_kind(provider)
     what = f"tau2 {args.domain} {args.split} ({len(tasks)} tasks x {args.trials})"
     book = booking_module.BookingFile(Path(os.environ[orchestrate.BOOKING_ENV]), lane=lane()) if kind else None
+    server = None
+    if local:
+        found = llamacpp.sha256_of(Path(args.local_gguf))  # read-only, before anything loads
+        if found != args.local_sha256.lower():
+            print(f"not running: {args.local_gguf} does not have the expected SHA-256")
+            return 2
+        record["run"]["local_model"] = {"gguf": Path(args.local_gguf).name, "sha256": found,
+                                        "server": Path(args.local_bin).name, "context": args.local_ctx}
+        (run_dir / "run.json").write_text(json.dumps({**record["run"], "config": config.to_dict(),
+                                                      "caps": asdict(caps)}, indent=1), encoding="utf-8")
     if book is not None:
         if not book.wait_for(kind, stop=lambda: (run_dir / "STOP").exists()):
             return 77
-        book.start(kind, what, f"{max(10, len(tasks) * args.trials * 3)} min")
+        book.start(kind, what, f"{max(10, len(tasks) * args.trials * 3)} min, "
+                               f"{'11' if local else str(orchestrate.GPU_GB)} GB")
     try:
+        extra: dict[str, str] = {}
+        if local:
+            server = llamacpp.LlamaServer(Path(args.local_bin), Path(args.local_gguf), run_dir / "llama-server",
+                                          context=args.local_ctx, alias=args.local_alias)
+            spec["local_endpoint"] = {"port": server.port, "context": args.local_ctx, "pid": server.pid}
+            extra[llamacpp.KEY_ENV] = server.key  # the worker's environment only, never the spec file
         code = throttle_check(run_dir, provider, model, caps)
         if not code:
-            code = run_worker(run_dir, spec)
+            code = run_worker(run_dir, spec, extra)
     finally:
+        if server is not None:
+            server.stop()  # by its exact PID
         if book is not None:
-            if kind == booking_module.GPU:
+            if kind == booking_module.GPU and not local:
                 orchestrate.unload_local_model(model)
             book.end(kind, what)
     if code == orchestrate.EXIT_PROVIDER_LIMIT:
@@ -327,6 +357,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--openrouter-host", default="",
                             help="model=Host where the published row ran on another host than the model's maker "
                                  "(the Harness Leaderboard's DeepSeek-V4.1-Flash: low on Novita, high on DeepInfra)")
+    run_parser.add_argument("--local-bin", default="", help="the local lane: a llama.cpp build's bin folder (read-only)")
+    run_parser.add_argument("--local-gguf", default="", help="the local lane: the GGUF (read-only, hash-checked)")
+    run_parser.add_argument("--local-sha256", default="")
+    run_parser.add_argument("--local-ctx", type=int, default=65_536)
+    run_parser.add_argument("--local-alias", default="qwen3.5-9b-q8_0")
     run_parser.add_argument("--variant", default="", choices=VARIANTS,
                             help="a bench-only arm of a paired A/B (agent_evals.variants); '' is Row-Bot as shipped")
     run_parser.add_argument("--run-dir", default="")

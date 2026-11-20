@@ -90,6 +90,14 @@ def main(argv: list[str] | None = None) -> int:
         from row_bot.tools import registry
 
         registry.register(bridge.external_tool_group(specs, router))
+        local = spec.get("local_endpoint") or {}
+        if local:  # the bench's own llama-server (llamacpp.py): its endpoint in this scratch folder, billed as local
+            from . import llamacpp
+
+            runtime._undo.append(llamacpp.local_billing())  # noqa: SLF001
+            probe = llamacpp.save_endpoint(int(local["port"]), os.environ.pop(llamacpp.KEY_ENV),
+                                           context=int(local["context"]), model=config.model)
+            runtime.notes.append(f"local endpoint probe: {probe.get('classification')}")
         runtime.setup()
         from .variants import apply as apply_variant
 
