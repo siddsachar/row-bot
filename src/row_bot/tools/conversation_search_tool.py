@@ -6,17 +6,22 @@ Exposes two sub-tools:
 
 An incognito conversation (N11) is seen only from itself; one that was
 incognito is seen from elsewhere only after incognito was turned off.
+Hits from a chat other people may have written in (any channel chat, a
+delegated Agent's chat, or one that can't be told) come inside the
+``<EXTERNAL_CONTENT>`` fence, scanned for injection.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import re
 from datetime import datetime
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from row_bot.external_content import KNOWN_CATEGORIES, fence, wrap
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 
@@ -29,7 +34,7 @@ class _SearchConversationsInput(BaseModel):
     query: str = Field(
         description=(
             "Keywords or phrase to search for in past conversations. "
-            "All words must appear in a message for it to match."
+            "All words must appear in a message, or in a message and the one next to it, for it to match."
         )
     )
     max_results: int = Field(
@@ -44,9 +49,22 @@ class _ListConversationsInput(BaseModel):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-_SNIPPET_LEN = 500  # max chars per message snippet
+# About 4 characters a token: a message is shown whole up to ~1,500 tokens, and a search's
+# matches together take about a tenth of the model's window, at most ~6,000 tokens (far below
+# the 100K tool-result cap). A longer message is cut around where its keywords are.
+_MESSAGE_CHARS = 6_000  # one message, cut markers included
+_RESULTS_CEILING = 24_000  # every match shown, headers and fences included
+_MIN_MATCH_CHARS = 1_000  # a match with less room left than this is not shown
+_MARKER_ROOM = 80  # the two cut markers of one message
+_SEPARATOR = "\n\n---\n\n"
+_FENCE_SOURCE = "search_conversations"
+_FENCE_ROOM = len(fence(_FENCE_SOURCE, "", tuple(KNOWN_CATEGORIES)))  # the fence and its longest warning
+_FENCE_TAG = re.compile(r"</?\s*EXTERNAL_CONTENT\b[^>\n]*>?", re.IGNORECASE)  # as developer/project_notes.py
 _MAX_THREADS = 200  # safety cap on how many threads to scan
 _LIST_CHARS = 20_000  # list_conversations beyond this is read on with read_tool_output
+# When no message holds every keyword, the messages holding at least half of them come back as the closest,
+# most keywords first, then rarer ones (a model often asks with several alternative words at once).
+_CLOSEST_MIN_SHARE = 0.5
 
 
 def _get_thread_messages(thread_id: str, *, own: bool = False) -> list[dict]:
@@ -89,9 +107,127 @@ def _get_thread_messages(thread_id: str, *, own: bool = False) -> list[dict]:
         return []
 
 
-def _snippet(text: str, max_len: int = _SNIPPET_LEN) -> str:
-    """Truncate text to *max_len* chars, adding ellipsis if needed."""
-    return text[:max_len] + ("…" if len(text) > max_len else "")
+def _match_span(lower: str, keywords: list[str]) -> tuple[int, int]:
+    """The shortest stretch of *lower* that holds each of the *keywords* it contains."""
+    hits = sorted((m.start(), kw) for kw in set(keywords) for m in re.finditer(re.escape(kw), lower))
+    wanted = len({kw for _pos, kw in hits})
+    best: tuple[int, int] | None = None
+    counts: dict[str, int] = {}
+    left = 0
+    for pos, kw in hits:
+        counts[kw] = counts.get(kw, 0) + 1
+        while len(counts) == wanted:
+            first, first_kw = hits[left]
+            if best is None or pos + len(kw) - first < best[1] - best[0]:
+                best = (first, pos + len(kw))
+            counts[first_kw] -= 1
+            if not counts[first_kw]:
+                del counts[first_kw]
+            left += 1
+    return best or (0, 0)
+
+
+def _excerpt(text: str, keywords: list[str], limit: int) -> str:
+    """*text* whole if it fits in *limit* characters, else the part around its keywords, marked as cut."""
+    if len(text) <= limit:
+        return text
+    window = max(1, limit - _MARKER_ROOM)
+    start, end = _match_span(text.lower(), keywords)
+    begin = max(0, min((start + end - window) // 2, len(text) - window))
+    stop = begin + window
+    before = f"[… {begin:,} characters before]\n" if begin else ""
+    after = f"\n[{len(text) - stop:,} characters after …]" if stop < len(text) else ""
+    return before + text[begin:stop] + after
+
+
+def _matches_in(messages: list[dict], keywords: list[str]) -> tuple[list[list[dict]], list[list[dict]]]:
+    """A thread's messages holding every keyword, then neighbouring pairs that hold them between them."""
+    lowered = [msg["content"].lower() for msg in messages]
+    alone = [all(kw in text for kw in keywords) for text in lowered]
+    singles = [[msg] for msg, hit in zip(messages, alone) if hit]
+    pairs: list[list[dict]] = []
+    i = 0
+    while i < len(messages) - 1:
+        if not (alone[i] or alone[i + 1]) and all(kw in lowered[i] or kw in lowered[i + 1] for kw in keywords):
+            pairs.append(messages[i:i + 2])
+            i += 2
+        else:
+            i += 1
+    return singles, pairs
+
+
+def _closest_in(scanned: list[tuple[dict, list[dict]]], keywords: list[str], limit: int) -> list[dict]:
+    """Single messages holding the most of *keywords* (at least ``_CLOSEST_MIN_SHARE`` of them), for a search
+    that no message or neighbouring pair matches whole. Ties go to the rarer keywords, then the newer chat."""
+    distinct = list(dict.fromkeys(keywords))
+    if len(distinct) < 2:
+        return []
+    need = max(1, math.ceil(len(distinct) * _CLOSEST_MIN_SHARE))
+    lowered = [(seen, msg, msg["content"].lower()) for seen, messages in scanned for msg in messages]
+    holding = {kw: sum(1 for _seen, _msg, text in lowered if kw in text) for kw in distinct}
+    ranked = []
+    for order, (seen, msg, text) in enumerate(lowered):
+        held = [kw for kw in distinct if kw in text]
+        if len(held) >= need:
+            rarity = sum(math.log((1 + len(lowered)) / (1 + holding[kw])) for kw in held)
+            ranked.append((-len(held), -rarity, order, {**seen, "messages": [msg], "held": held}))
+    ranked.sort(key=lambda item: item[:3])
+    return [item[3] for item in ranked[:limit]]
+
+
+def _render(number: int, match: dict, keywords: list[str], room: int, message_cap: int) -> str:
+    """One match in at most *room* characters, each message in at most *message_cap*.
+
+    A match from a chat others may have written in comes fenced, its own fence tags removed first.
+    """
+    fenced = match["fenced"]
+    if fenced:
+        room -= _FENCE_ROOM
+    msgs = [{**msg, "content": _FENCE_TAG.sub("[fence tag removed]", msg["content"])} if fenced else msg
+            for msg in match["messages"]]
+    roles = " + ".join(msg["role"].title() for msg in msgs)
+    held = f" | Has: {', '.join(match['held'])}" if match.get("held") else ""
+    head = f"[Match {number}] Thread: \"{match['thread']}\" | Date: {match['date']} | {roles}{held}\n"
+    if len(msgs) == 1:
+        text = head + _excerpt(msgs[0]["content"], keywords, min(message_cap, room - len(head)))
+    else:
+        labels = [f"{msg['role'].title()}: " for msg in msgs]
+        limit = min(message_cap, (room - len(head) - sum(map(len, labels)) - 2) // 2)
+        text = head + "\n\n".join(
+            label + _excerpt(msg["content"], [kw for kw in keywords if kw in msg["content"].lower()], limit)
+            for label, msg in zip(labels, msgs)
+        )
+    return wrap(_FENCE_SOURCE, text) if fenced else text
+
+
+def _others_may_have_written(thread_id: str) -> bool:
+    """Whether a chat's messages may be other people's.
+
+    Any channel chat is (a shared one, a group, or a direct chat whose sender Row-Bot can't
+    always tell apart, as on Slack or Discord), and so is a delegated Agent's chat or one whose
+    origin can't be read. The person's own chats in Row-Bot are not.
+    """
+    try:
+        from row_bot.agent_runs import get_agent_run_for_thread
+        from row_bot.tasks import get_thread_channel_ref
+
+        return get_thread_channel_ref(thread_id) is not None or get_agent_run_for_thread(thread_id) is not None
+    except Exception:
+        logger.debug("Could not read where conversation %s comes from", thread_id, exc_info=True)
+        return True
+
+
+def _results_cap() -> int:
+    """All matches' characters: a tenth of the active model's window (~4 characters a token),
+    at most ``_RESULTS_CEILING``, which is also the cap when the window isn't known."""
+    try:
+        from row_bot.models import get_context_policy
+
+        window = int(get_context_policy(allow_probe=False).effective_limit_tokens or 0)
+    except Exception:
+        logger.debug("Could not read the model's context window", exc_info=True)
+        window = 0
+    return min(_RESULTS_CEILING, window * 4 // 10) if window > 0 else _RESULTS_CEILING
 
 
 # ── Tool functions ───────────────────────────────────────────────────────────
@@ -107,7 +243,12 @@ def _visible_threads() -> tuple[list, str]:
 
 
 def _search_conversations(query: str, max_results: int = 15) -> str:
-    """Search all past conversations for messages containing *query* keywords."""
+    """Search all past conversations for messages containing *query* keywords.
+
+    A message holding every keyword ranks before two neighbouring messages that hold them
+    between them; within each, newer conversations come first. A message is shown whole up
+    to ``_MESSAGE_CHARS``, and all matches together up to ``_results_cap()``.
+    """
     threads, own = _visible_threads()
     if not threads:
         return "No saved conversations found."
@@ -116,47 +257,66 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
     keywords = [kw.lower() for kw in query.split() if kw]
     if not keywords:
         return "Please provide at least one search keyword."
+    max_results = max(1, int(max_results))
 
-    matches: list[dict] = []
+    singles: list[dict] = []
+    pairs: list[dict] = []
+    scanned: list[tuple[dict, list[dict]]] = []
     threads_scanned = 0
 
-    for tid, name, created_at, updated_at, *_cs_rest in threads[:_MAX_THREADS]:
+    for tid, name, _created_at, updated_at, *_cs_rest in threads[:_MAX_THREADS]:
         messages = _get_thread_messages(tid, own=bool(own) and tid == own)
         threads_scanned += 1
-
-        for msg in messages:
-            content_lower = msg["content"].lower()
-            if all(kw in content_lower for kw in keywords):
-                matches.append({
-                    "thread": name,
-                    "thread_id": tid,
-                    "date": (updated_at or "")[:10],
-                    "role": msg["role"],
-                    "snippet": _snippet(msg["content"]),
-                })
-                if len(matches) >= max_results:
-                    break
-        if len(matches) >= max_results:
+        found_alone, found_paired = _matches_in(messages, keywords)
+        if found_alone or found_paired:
+            seen = {"thread": name, "date": (updated_at or "")[:10], "fenced": _others_may_have_written(tid)}
+            singles += [{**seen, "messages": msgs} for msgs in found_alone]
+            pairs += [{**seen, "messages": msgs} for msgs in found_paired]
+        elif not singles and not pairs and messages:
+            scanned.append(({"thread": name, "date": (updated_at or "")[:10], "tid": tid}, messages))
+        if len(singles) >= max_results:
             break
 
+    matches = (singles + pairs)[:max_results]
+    closest = False
+    if not matches:
+        matches = _closest_in(scanned, keywords, max_results)
+        for match in matches:
+            match["fenced"] = _others_may_have_written(match.pop("tid"))
+        closest = bool(matches)
     if not matches:
         return (
             f"No messages matching '{query}' found "
             f"across {threads_scanned} conversation(s)."
         )
 
+    cap = _results_cap()
+    message_cap = min(_MESSAGE_CHARS, cap)
     parts: list[str] = []
-    for i, m in enumerate(matches, 1):
-        parts.append(
-            f"[Match {i}] Thread: \"{m['thread']}\" | Date: {m['date']} | "
-            f"{m['role'].title()}\n{m['snippet']}"
-        )
+    used = 0
+    for match in matches:
+        gap = len(_SEPARATOR) if parts else 0
+        room = cap - used - gap
+        if room < min(_MIN_MATCH_CHARS, cap):
+            break
+        part = _render(len(parts) + 1, match, keywords, room, message_cap)
+        used += gap + len(part)
+        parts.append(part)
 
     header = (
+        f"No message holds every keyword of '{query}'. The {len(matches)} closest (most keywords first) "
+        f"across {threads_scanned} conversation(s):\n\n"
+    ) if closest else (
         f"Found {len(matches)} match(es) for '{query}' "
         f"across {threads_scanned} conversation(s):\n\n"
     )
-    return header + "\n\n---\n\n".join(parts)
+    footer = ""
+    if len(parts) < len(matches):
+        footer = (
+            f"\n\n[{len(matches) - len(parts)} more match(es) not shown: results are limited to "
+            f"{cap:,} characters. Add keywords to narrow the search.]"
+        )
+    return header + _SEPARATOR.join(parts) + footer
 
 
 def _list_conversations() -> str:
@@ -214,7 +374,7 @@ class ConversationSearchTool(BaseTool):
                     "references something discussed previously, e.g. 'What did "
                     "I ask about taxes?', 'When did we talk about Python?', "
                     "'Find where I mentioned that recipe'. All keywords must "
-                    "appear in a message for it to match."
+                    "appear in a message, or in a message and the one next to it."
                 ),
                 args_schema=_SearchConversationsInput,
             ),

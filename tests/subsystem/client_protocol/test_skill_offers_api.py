@@ -85,3 +85,34 @@ def test_drafting_a_reply_without_steps_or_dismissing_a_missing_offer_says_why(s
         assert (missing.status_code, missing.json()["code"]) == (404, "skill_offer_missing")
         assert client.get("/api/v1/conversations/nope/skill-offers", headers=headers).status_code == 404
         assert chat == []
+
+
+def test_a_demo_drafts_a_skill_and_try_it_opens_a_chat_with_it(service, chat, monkeypatch):
+    """Show Row-Bot how (C3): the steps the person showed become a draft; Try it needs a saved skill."""
+    from row_bot import skills
+    from row_bot.browser import demo
+
+    monkeypatch.setattr(demo, "_DEMOS", {})
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation = _command(client, headers, "conversation.create", {"title": "Bank"}).json()["conversation_id"]
+        recorded = demo.start(conversation, url="https://example.org/statements")
+        demo.stop(conversation, recorded.id)
+        url = f"/api/v1/conversations/{conversation}/browser/demo/{recorded.id}/draft"
+
+        drafted = client.post(url, headers=headers, json={"purpose": "Download my statement"})
+
+        assert drafted.status_code == 200, drafted.text
+        [item] = drafted.json()["items"]
+        assert (item["origin"], item["status"]) == ("demo", "drafted")
+        assert item["draft"]["shown"] == ["Opened example.org/statements"]
+        again = client.post(url, headers=headers, json={})
+        assert (again.status_code, again.json()["code"]) == (404, "demo_missing")  # Drafted: the steps are gone.
+        missing = client.post("/api/v1/skills/monthly_expense_report/try", headers=headers)
+        assert (missing.status_code, missing.json()["code"]) == (404, "skill_missing")  # Not approved yet.
+        skills.create_skill("monthly_expense_report", "Monthly expense report", "🧾", "Builds a report.",
+                            "Builds it.\n\n## Inputs\n- the month\n\n## Steps\n1. Do it.")
+        tried = client.post("/api/v1/skills/monthly_expense_report/try", headers=headers)
+        assert tried.status_code == 200, tried.text
+        assert tried.json()["text"] == "Do “Monthly expense report” with:\n- the month: "
+        assert chat == ["skill_draft"]

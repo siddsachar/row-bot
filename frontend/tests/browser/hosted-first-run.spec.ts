@@ -68,11 +68,12 @@ test('hosted: ChatGPT in one click, straight into a chat with one suggestion, th
   await accessibility(page, testInfo, 'hosted-first-run-axe');
   await assertNoOverflow(page);
   await page.getByText('Other ways').click();
+  // Providers merged into Models, where a custom endpoint is added (E1).
   await expect(
     page.getByRole('link', { name: /Use my own model server/ }),
   ).toHaveAttribute(
     'href',
-    '/app-v2/settings/providers?add=custom-endpoint&type=ollama&from=setup',
+    '/app-v2/settings/models?add=custom-endpoint&type=ollama&from=setup',
   );
   await screenshot(page, testInfo, 'hosted-other-ways');
 

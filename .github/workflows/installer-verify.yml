@@ -50,7 +50,7 @@ env:
 
 jobs:
   preflight:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -59,8 +59,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install uv
-        run: python -m pip install "uv>=0.7,<1.0"
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
 
       - name: Verify locked dependency files
         run: |
@@ -158,7 +159,7 @@ jobs:
   verify-linux:
     if: ${{ inputs.linux }}
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
@@ -492,7 +493,7 @@ jobs:
     name: 5.1 bridge (Linux)
     if: ${{ inputs.bridge && inputs.linux }}
     needs: verify-linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7

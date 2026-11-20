@@ -43,7 +43,7 @@ from row_bot.browser.policy import (
 from row_bot.browser.service import ACTION_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS, STOPPED, BrowserStopped
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.tools import registry
-from row_bot.tools.base import BaseTool
+from row_bot.tools.base import BaseTool, NullMeansUnset
 
 DATA_DIR = _DEFAULT_HISTORY_PATH.parent
 _HISTORY_PATH = _DEFAULT_HISTORY_PATH
@@ -113,39 +113,39 @@ class _SelectInput(BaseModel):
     options: list[str] = Field(description="Option label(s) to choose")
 
 
-class _PressInput(BaseModel):
+class _PressInput(NullMeansUnset):
     key: str = Field(description="Key or combination, e.g. Enter, Escape, ArrowDown, Control+A")
-    ref: Optional[str] = Field(default=None, description="Ref to focus first; else the focused element")
+    ref: str = Field(default="", description="Ref to focus first; else the focused element")
 
 
-class _ScrollInput(BaseModel):
+class _ScrollInput(NullMeansUnset):
     direction: Literal["up", "down"] = Field(default="down")
     amount: int = Field(default=3, ge=1, le=20, description="Screens of about 400 px")
-    ref: Optional[str] = Field(default=None, description="Scroll this element into view instead")
+    ref: str = Field(default="", description="Scroll this element into view instead")
 
 
 # How long one browser_wait_for waits (R6): a 30-second cap made a long job 36 waits in a row.
 WAIT_SECONDS = 90
 
 
-class _WaitInput(BaseModel):
-    text: Optional[str] = Field(default=None, description="Wait until this text shows")
-    gone: Optional[str] = Field(default=None, description="Wait until this text goes")
-    seconds: Optional[float] = Field(default=None, ge=0, le=WAIT_SECONDS, description="Or just wait this long")
+class _WaitInput(NullMeansUnset):
+    text: str = Field(default="", description="Wait until this text shows")
+    gone: str = Field(default="", description="Wait until this text goes")
+    seconds: float = Field(default=0, ge=0, le=WAIT_SECONDS, description="Or just wait this long")
 
 
-class _TabsInput(BaseModel):
+class _TabsInput(NullMeansUnset):
     action: Literal["list", "switch", "new", "close"] = Field(default="list")
-    tab: Optional[str] = Field(default=None, description="Tab id for switch or close, e.g. t2")
-    url: Optional[str] = Field(default=None, description="Address for a new tab")
+    tab: str = Field(default="", description="Tab id for switch or close, e.g. t2")
+    url: str = Field(default="", description="Address for a new tab")
 
 
 class _ScreenshotInput(BaseModel):
     full_page: bool = Field(default=False, description="The whole page instead of what's on screen")
 
 
-class _ExtractInput(BaseModel):
-    ref: Optional[str] = Field(default=None, description="Only this element's text")
+class _ExtractInput(NullMeansUnset):
+    ref: str = Field(default="", description="Only this element's text")
 
 
 class _UploadInput(BaseModel):
@@ -276,8 +276,11 @@ def _local_address_refusal(session: BrowserSession, thread_id: str, url: str, to
 def _wait_for_person(session: BrowserSession, thread_id: str) -> str | None:
     """Wait while the person is using the shared page, so Row-Bot never acts under their hand."""
 
+    from row_bot.browser import demo
     from row_bot.browser.service import PERSON_STILL_SECONDS
 
+    if demo.recording(thread_id):
+        return demo.HOLD  # Show Row-Bot how (C3): the person is driving the page.
     if session.person_still_for(thread_id) >= PERSON_STILL_SECONDS:
         return None
     scope = current_cancellation_scope()
@@ -463,6 +466,10 @@ def browser_navigate(url: str) -> str:
 
     thread_id = _get_thread_id()
     session = _session_manager.get_session(thread_id)
+    from row_bot.browser import demo
+
+    if demo.recording(thread_id):
+        return demo.HOLD
     word = str(url or "").strip().casefold()
     if word in {"back", "forward", "reload"}:
         async def history_step(tab: Any) -> str:
@@ -771,7 +778,7 @@ def browser_tabs(action: str = "list", tab: str | None = None, url: str | None =
             return refusal
 
     async def step(current: Any) -> str:
-        return await session.tab_step(thread_id, action, tab, selected_url)
+        return await session.tab_step(thread_id, action, tab or None, selected_url)
 
     _history(thread_id, f"tab_{action}", url=_history_url(selected_url) if selected_url else None)
     result = _run(session, thread_id, {"list": "Checking tabs", "switch": "Switching tab", "new": "Opening a tab",
@@ -788,7 +795,7 @@ def browser_extract(ref: str | None = None) -> str:
     if refusal:
         return refusal
     try:
-        return session.extract(thread_id, ref)
+        return session.extract(thread_id, ref or None)
     except BaseException as exc:
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise
@@ -883,6 +890,10 @@ def browser_screenshot(full_page: bool = False) -> str:
 
     thread_id = _get_thread_id()
     session = _session_manager.get_session(thread_id)
+    from row_bot.browser import demo
+
+    if demo.recording(thread_id):
+        return demo.HOLD
     try:
         image, words = session.capture_page(thread_id, full_page=full_page)
     except BaseException as exc:
@@ -1137,9 +1148,8 @@ def sandbox(action: str = "list", sandbox: str = "", name: str = "", pack: str =
 
 _TOOLS: tuple[tuple[Any, str, str, type[BaseModel] | None], ...] = (
     (browser_navigate, "browser_navigate",
-     "Open a web address in Row-Bot's browser (or back, forward, reload) and return the page with refs. "
-     "The person watches in the Browser pane and stays signed in to sites there. Addresses on this computer "
-     "(localhost:5173) ask the person once per chat; servers you started here open without asking.",
+     "Open a web address in Row-Bot's browser (or back, forward, reload); returns the page with refs. An "
+     "address on this computer asks the person once per chat; a server you started here opens without asking.",
      _NavigateInput),
     (browser_click, "browser_click", "Click a control by its ref; returns the page after it.", _ClickInput),
     (browser_type, "browser_type",

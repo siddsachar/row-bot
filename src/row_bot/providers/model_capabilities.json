@@ -1,5 +1,5 @@
 {
- "fetched_at": "2026-11-12T14:53:17+00:00",
+ "fetched_at": "2026-11-19T08:08:17+00:00",
  "providers": {
   "alibaba": {
    "deepseek-v4-flash-0731": {
@@ -1205,6 +1205,24 @@
     "tool_call": true,
     "vision": true
    },
+   "gemini-4-hydrogen": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gemini-4-neon": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "gemini-embedding-001": {
     "context": 2048,
     "output": [
@@ -1535,6 +1553,15 @@
     "tool_call": true,
     "vision": false
    },
+   "Qwen/Qwen3-30B-A3B-Instruct-2507": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": false
+   },
    "Qwen/Qwen3-32B": {
     "context": 131072,
     "output": [
@@ -1850,6 +1877,15 @@
     "tool_call": true,
     "vision": true
    },
+   "google/gemma-2-27b-it": {
+    "context": 8192,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
+    "vision": false
+   },
    "google/gemma-3-12b-it": {
     "context": 131072,
     "output": [
@@ -1895,8 +1931,35 @@
     "tool_call": true,
     "vision": true
    },
+   "meta-llama/Llama-3.1-70B-Instruct": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": false
+   },
    "meta-llama/Llama-3.1-8B-Instruct": {
     "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": false
+   },
+   "meta-llama/Llama-3.2-1B-Instruct": {
+    "context": 60000,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": false
+   },
+   "meta-llama/Llama-3.2-3B-Instruct": {
+    "context": 80000,
     "output": [
      "text"
     ],
@@ -1985,6 +2048,15 @@
     "tool_call": true,
     "vision": true
    },
+   "moonshotai/Kimi-K3.1-Pro": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "openai/gpt-oss-120b": {
     "context": 131072,
     "output": [
@@ -2030,6 +2102,15 @@
     "tool_call": true,
     "vision": false
    },
+   "tencent/Hy4-flash": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "tencent/Hy4-preview": {
     "context": 1000000,
     "output": [
@@ -2040,6 +2121,15 @@
     "vision": false
    },
    "thinkingmachines/Inkling": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "thinkingmachines/Inkling-2-Small": {
     "context": 1048576,
     "output": [
      "text"
@@ -2065,6 +2155,15 @@
     "reasoning": false,
     "tool_call": false,
     "vision": true
+   },
+   "zai-org/GLM-4.5": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
    },
    "zai-org/GLM-4.5-Air": {
     "context": 131072,
@@ -2092,6 +2191,15 @@
     "reasoning": true,
     "tool_call": true,
     "vision": false
+   },
+   "zai-org/GLM-4.6V": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
    },
    "zai-org/GLM-4.6V-Flash": {
     "context": 131072,
@@ -2266,7 +2374,7 @@
     ],
     "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
    },
    "devstral-2512": {
     "context": 262144,
@@ -2413,11 +2521,11 @@
     "vision": true
    },
    "mistral-large-latest": {
-    "context": 262144,
+    "context": 1048576,
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
     "vision": true
    },
@@ -3192,6 +3300,15 @@
     "tool_call": true,
     "vision": false
    },
+   "inkling-2-small": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "kimi-k2.6": {
     "context": 262144,
     "output": [
@@ -3646,6 +3763,24 @@
     "vision": true
    },
    "gpt-6.1-terra": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gpt-6.2-astra": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gpt-6.2-sol": {
     "context": 1050000,
     "output": [
      "text"
@@ -4163,6 +4298,24 @@
     "tool_call": true,
     "vision": true
    },
+   "gemini-4-hydrogen": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gemini-4-neon": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "glm-4.6": {
     "context": 204800,
     "output": [
@@ -4469,6 +4622,24 @@
     "tool_call": true,
     "vision": true
    },
+   "gpt-6.2-astra": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gpt-6.2-sol": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "grok-4.5": {
     "context": 500000,
     "output": [
@@ -4531,6 +4702,15 @@
     "reasoning": true,
     "tool_call": true,
     "vision": false
+   },
+   "hy4-flash-free": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
    },
    "iceman-free": {
     "context": 262144,
@@ -5018,6 +5198,15 @@
     "tool_call": true,
     "vision": true
    },
+   "tidepool-alpha-free": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
    "trinity-large-preview-free": {
     "context": 131072,
     "output": [
@@ -5174,6 +5363,15 @@
     "vision": false
    },
    "hy4": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "hy4-flash-free": {
     "context": 1048576,
     "output": [
      "text"
@@ -5363,6 +5561,15 @@
     "vision": true
    },
    "qwen3.8-max": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "qwen4-max": {
     "context": 1000000,
     "output": [
      "text"
@@ -6126,6 +6333,24 @@
     "tool_call": true,
     "vision": true
    },
+   "google/gemini-4-hydrogen": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "google/gemini-4-neon": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "google/gemini-nano-banana-2.1": {
     "context": 65536,
     "output": [
@@ -6302,6 +6527,15 @@
     "tool_call": true,
     "vision": false
    },
+   "inclusionai/ling-3.2-flash:free": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "inference-net/schematron-v2-small": {
     "context": 128000,
     "output": [
@@ -6322,24 +6556,6 @@
    },
    "kt/midm-k-3.0-pro": {
     "context": 261795,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": false,
-    "vision": false
-   },
-   "liquid/lfm-2.5-2.6b": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "liquid/lfm-2.5-2.6b:free": {
-    "context": 65536,
     "output": [
      "text"
     ],
@@ -6398,7 +6614,7 @@
      "text"
     ],
     "reasoning": false,
-    "tool_call": false,
+    "tool_call": true,
     "vision": false
    },
    "meta-llama/llama-3.1-8b-instruct": {
@@ -6555,7 +6771,7 @@
     "vision": false
    },
    "minimax/minimax-m2.5": {
-    "context": 200000,
+    "context": 198000,
     "output": [
      "text"
     ],
@@ -6884,7 +7100,7 @@
      "text"
     ],
     "reasoning": true,
-    "tool_call": false,
+    "tool_call": true,
     "vision": false
    },
    "nex-agi/nex-n2.5-mini": {
@@ -6978,7 +7194,7 @@
     "vision": true
    },
    "nvidia/nemotron-3.5-lightning": {
-    "context": 262144,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -7457,6 +7673,42 @@
     "tool_call": true,
     "vision": true
    },
+   "openai/gpt-6.2-astra": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "openai/gpt-6.2-astra-pro": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "openai/gpt-6.2-sol": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "openai/gpt-6.2-sol-pro": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "openai/gpt-audio": {
     "context": 128000,
     "output": [
@@ -7578,6 +7830,15 @@
     "vision": false
    },
    "particle-ai/particle-1": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "particle-ai/particle-1:free": {
     "context": 1048576,
     "output": [
      "text"
@@ -7820,15 +8081,6 @@
     "tool_call": true,
     "vision": true
    },
-   "qwen/qwen3-vl-30b-a3b-thinking": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "qwen/qwen3-vl-8b-instruct": {
     "context": 262144,
     "output": [
@@ -7983,7 +8235,7 @@
     "vision": false
    },
    "qwen/qwen3.8-27b": {
-    "context": 1048575,
+    "context": 1024000,
     "output": [
      "text"
     ],
@@ -8019,6 +8271,15 @@
     "vision": true
    },
    "qwen/qwen3.8-omni-flash": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "qwen/qwen4-max": {
     "context": 1000000,
     "output": [
      "text"
@@ -8162,15 +8423,6 @@
     "tool_call": false,
     "vision": true
    },
-   "stepfun/step-3.5-flash": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "stepfun/step-3.7-flash": {
     "context": 262144,
     "output": [
@@ -8188,15 +8440,6 @@
     "reasoning": true,
     "tool_call": true,
     "vision": true
-   },
-   "tencent/hunyuan-a13b-instruct": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": false,
-    "vision": false
    },
    "tencent/hy-mt2-1.8b": {
     "context": 8192,
@@ -8252,6 +8495,15 @@
     "tool_call": true,
     "vision": true
    },
+   "tencent/hy4-flash": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "tencent/hy4-preview": {
     "context": 1048576,
     "output": [
@@ -8290,6 +8542,15 @@
    },
    "thinkingmachines/inkling": {
     "context": 524288,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "thinkingmachines/inkling-2-small": {
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -8451,7 +8712,7 @@
     "vision": true
    },
    "xiaomi/mimo-v2.5-pro": {
-    "context": 1024000,
+    "context": 262144,
     "output": [
      "text"
     ],
@@ -8853,7 +9114,7 @@
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
     "vision": true
    },
@@ -8862,7 +9123,7 @@
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
     "vision": true
    },
@@ -8884,7 +9145,7 @@
     "tool_call": true,
     "vision": true
    },
-   "claude-opus-4-1": {
+   "claude-opus-4-5": {
     "context": 200000,
     "output": [
      "text"
@@ -8893,21 +9154,12 @@
     "tool_call": true,
     "vision": true
    },
-   "claude-opus-4-5": {
-    "context": 200000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
    "claude-opus-4-5@eu": {
     "context": 200000,
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
     "vision": true
    },
@@ -9006,7 +9258,7 @@
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
     "vision": true
    },
@@ -9015,7 +9267,7 @@
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
     "vision": true
    },
@@ -9029,15 +9281,6 @@
     "vision": true
    },
    "claude-sonnet-4-6@eu": {
-    "context": 1000000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "claude-sonnet-4@eu": {
     "context": 1000000,
     "output": [
      "text"
@@ -9188,7 +9431,7 @@
     ],
     "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
    },
    "devstral-latest@eu": {
     "context": 256000,
@@ -9197,7 +9440,7 @@
     ],
     "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
    },
    "fugu-ultra": {
     "context": 1048576,
@@ -9251,7 +9494,7 @@
      "image",
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
     "vision": true
    },
@@ -9381,6 +9624,51 @@
     "tool_call": true,
     "vision": true
    },
+   "gemini-4-carbon": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gemini-4-carbon@eu": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gemini-4-hydrogen": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gemini-4-hydrogen@eu": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gemini-4-hydrogen@us": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "gemma-4-26b-a4b-it": {
     "context": 262144,
     "output": [
@@ -9408,26 +9696,8 @@
     "tool_call": true,
     "vision": false
    },
-   "glm-5.1@eu": {
-    "context": 200000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "glm-5.2": {
     "context": 1048576,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "glm-5.2-fast": {
-    "context": 1000000,
     "output": [
      "text"
     ],
@@ -9768,6 +10038,42 @@
     "tool_call": true,
     "vision": true
    },
+   "gpt-6.2-astra": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gpt-6.2-astra@eu": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gpt-6.2-sol": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gpt-6.2-sol@eu": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "grok-4.2-beta": {
     "context": 2000000,
     "output": [
@@ -9849,15 +10155,6 @@
     "tool_call": true,
     "vision": true
    },
-   "kat-coder-pro": {
-    "context": 256000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
    "kimi-k2.5@eu": {
     "context": 128000,
     "output": [
@@ -9869,15 +10166,6 @@
    },
    "kimi-k2.6": {
     "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "kimi-k2.6@eu": {
-    "context": 256000,
     "output": [
      "text"
     ],
@@ -9904,7 +10192,7 @@
     "vision": true
    },
    "kimi-k3": {
-    "context": 1048576,
+    "context": 1000000,
     "output": [
      "text"
     ],
@@ -9930,6 +10218,15 @@
     "tool_call": true,
     "vision": true
    },
+   "kimi-k3.1-pro@eu": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "kimi-k3@eu": {
     "context": 1048576,
     "output": [
@@ -9939,24 +10236,6 @@
     "tool_call": true,
     "vision": true
    },
-   "laguna-m.1": {
-    "context": 32768,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": false,
-    "vision": false
-   },
-   "laguna-xs.2": {
-    "context": 32768,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": false,
-    "vision": false
-   },
    "leanstral-1-5": {
     "context": 262144,
     "output": [
@@ -9964,7 +10243,7 @@
     ],
     "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
    },
    "leanstral-1-5@eu": {
     "context": 262144,
@@ -9973,41 +10252,14 @@
     ],
     "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
    },
-   "ling-2.6-1t": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "ling-2.6-flash": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "ling-3.0-tiny": {
+   "mimo-v2.5": {
     "context": 262144,
     "output": [
      "text"
     ],
     "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "mimo-v2.5": {
-    "context": 1048576,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
     "tool_call": true,
     "vision": true
    },
@@ -10016,7 +10268,7 @@
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
     "vision": false
    },
@@ -10200,15 +10452,6 @@
     "tool_call": true,
     "vision": true
    },
-   "nemotron-3-nano-omni": {
-    "context": 300000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "nemotron-3-nano-omni-30b-a3b-reasoning": {
     "context": 131072,
     "output": [
@@ -10217,24 +10460,6 @@
     "reasoning": true,
     "tool_call": true,
     "vision": true
-   },
-   "nemotron-3-nano-omni@eu": {
-    "context": 300000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "nemotron-3-super-120b-a12b": {
-    "context": 1048576,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
    },
    "nemotron-3-ultra-550b-a55b": {
     "context": 1048576,
@@ -10253,15 +10478,6 @@
     "reasoning": true,
     "tool_call": true,
     "vision": false
-   },
-   "nemotron-3.5-content-safety": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": false,
-    "vision": true
    },
    "nemotron-3.5-lightning-30b-a3b": {
     "context": 1048576,
@@ -10415,15 +10631,6 @@
     "reasoning": true,
     "tool_call": true,
     "vision": true
-   },
-   "ring-2.6-1t": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
    },
    "seed-1.8": {
     "context": 256000,
@@ -10789,15 +10996,6 @@
     "tool_call": true,
     "vision": false
    },
-   "alibaba/qwen-3-235b": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "alibaba/qwen-3-30b": {
     "context": 40960,
     "output": [
@@ -10809,15 +11007,6 @@
    },
    "alibaba/qwen-3-32b": {
     "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "alibaba/qwen3-coder": {
-    "context": 262144,
     "output": [
      "text"
     ],
@@ -10880,20 +11069,11 @@
     "vision": false
    },
    "alibaba/qwen3-next-80b-a3b-instruct": {
-    "context": 262114,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "alibaba/qwen3-next-80b-a3b-thinking": {
     "context": 262144,
     "output": [
      "text"
     ],
-    "reasoning": true,
+    "reasoning": false,
     "tool_call": true,
     "vision": false
    },
@@ -11006,7 +11186,7 @@
     "vision": true
    },
    "alibaba/qwen3.8-max": {
-    "context": 262144,
+    "context": 1000000,
     "output": [
      "text"
     ],
@@ -11033,6 +11213,15 @@
     "vision": true
    },
    "alibaba/qwen3.8-omni-flash": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "alibaba/qwen4-max": {
     "context": 1000000,
     "output": [
      "text"
@@ -12055,6 +12244,24 @@
     "tool_call": true,
     "vision": true
    },
+   "google/gemini-4-hydrogen": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "google/gemini-4-neon": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "google/gemini-embedding-001": {
     "context": 2048,
     "output": [
@@ -12138,7 +12345,7 @@
     "vision": false
    },
    "google/veo-3.1-fast-generate-001": {
-    "context": 0,
+    "context": 1024,
     "output": [
      "video"
     ],
@@ -12147,7 +12354,7 @@
     "vision": true
    },
    "google/veo-3.1-generate-001": {
-    "context": 0,
+    "context": 1024,
     "output": [
      "video"
     ],
@@ -12156,7 +12363,7 @@
     "vision": true
    },
    "google/veo-3.1-lite-generate-001": {
-    "context": 0,
+    "context": 1024,
     "output": [
      "video"
     ],
@@ -12182,39 +12389,12 @@
     "tool_call": true,
     "vision": false
    },
-   "inception/mercury-2": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "inception/mercury-2.5": {
-    "context": 260000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "inception/mercury-3": {
     "context": 1000000,
     "output": [
      "text"
     ],
     "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "inception/mercury-coder-small": {
-    "context": 32000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
     "tool_call": true,
     "vision": false
    },
@@ -12614,15 +12794,6 @@
     "tool_call": false,
     "vision": true
    },
-   "minimax/minimax-m2": {
-    "context": 205000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "minimax/minimax-m2.1": {
     "context": 204800,
     "output": [
@@ -12632,26 +12803,8 @@
     "tool_call": true,
     "vision": false
    },
-   "minimax/minimax-m2.1-lightning": {
-    "context": 204800,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "minimax/minimax-m2.5": {
-    "context": 204800,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "minimax/minimax-m2.5-highspeed": {
-    "context": 204800,
+    "context": 1000000,
     "output": [
      "text"
     ],
@@ -12660,16 +12813,7 @@
     "vision": false
    },
    "minimax/minimax-m2.7": {
-    "context": 204800,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "minimax/minimax-m2.7-highspeed": {
-    "context": 204800,
+    "context": 196608,
     "output": [
      "text"
     ],
@@ -12678,7 +12822,7 @@
     "vision": false
    },
    "minimax/minimax-m3": {
-    "context": 512000,
+    "context": 1000000,
     "output": [
      "text"
     ],
@@ -12687,7 +12831,7 @@
     "vision": true
    },
    "minimax/minimax-m3.1-flash": {
-    "context": 1048576,
+    "context": 1000000,
     "output": [
      "text"
     ],
@@ -12926,15 +13070,6 @@
      "text"
     ],
     "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
-   "nvidia/nemotron-3-nano-30b-a3b": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
     "tool_call": false,
     "vision": false
    },
@@ -13487,6 +13622,42 @@
     "tool_call": true,
     "vision": true
    },
+   "openai/gpt-6.2-astra": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "openai/gpt-6.2-astra-fast": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "openai/gpt-6.2-sol": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "openai/gpt-6.2-sol-fast": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "openai/gpt-image-1-mini": {
     "context": 0,
     "output": [
@@ -13735,6 +13906,15 @@
     "tool_call": false,
     "vision": false
    },
+   "paperinstruments/ultramarine-1-flash": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "particle/particle-1": {
     "context": 1048576,
     "output": [
@@ -13770,15 +13950,6 @@
     "reasoning": false,
     "tool_call": true,
     "vision": true
-   },
-   "poolside/laguna-s-2.1": {
-    "context": 1000000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
    },
    "quiverai/arrow-2": {
     "context": 131072,
@@ -13881,6 +14052,15 @@
     "tool_call": false,
     "vision": false
    },
+   "recursive/flint-v1.0": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
    "reflection/beam": {
     "context": 1048576,
     "output": [
@@ -13933,6 +14113,15 @@
     ],
     "reasoning": true,
     "tool_call": true,
+    "vision": true
+   },
+   "scaledown/extract-1": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
     "vision": true
    },
    "scaledown/scaledown-extract-1": {
@@ -14134,7 +14323,7 @@
     "vision": true
    },
    "stepfun/step-5-preview": {
-    "context": 1048576,
+    "context": 1000000,
     "output": [
      "text"
     ],
@@ -14187,6 +14376,15 @@
     "tool_call": true,
     "vision": true
    },
+   "tencent/hy4-flash": {
+    "context": 1024000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "tencent/hy4-preview": {
     "context": 1024000,
     "output": [
@@ -14198,6 +14396,15 @@
    },
    "thinkingmachines/inkling": {
     "context": 256000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "thinkingmachines/inkling-2-small": {
+    "context": 1048576,
     "output": [
      "text"
     ],

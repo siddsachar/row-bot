@@ -15,8 +15,9 @@ describe('Proactive state', () => {
     stop();
   });
 
-  it('tells the server the window opened, once, after the handshake', () => {
+  it('tells the server the window opened, once, after the handshake and the first screen', async () => {
     let handshake: object | null = null;
+    let firstScreen = () => {};
     const listeners = new Set<() => void>();
     const controller = {
       getSnapshot: () => ({ handshake }),
@@ -24,9 +25,16 @@ describe('Proactive state', () => {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      afterFirstScreen: () =>
+        new Promise<void>((resolve) => (firstScreen = resolve)),
       noteProactiveBoundary: vi.fn(async () => ({})),
     } as unknown as ClientController;
     noteAppOpen(controller);
+    await Promise.resolve();
+    expect(controller.noteProactiveBoundary).not.toHaveBeenCalled();
+    // The first screen is up before the handshake: it waits for that too.
+    firstScreen();
+    await vi.waitFor(() => expect(listeners.size).toBe(1));
     expect(controller.noteProactiveBoundary).not.toHaveBeenCalled();
     handshake = {};
     listeners.forEach((listener) => listener());
@@ -35,5 +43,44 @@ describe('Proactive state', () => {
     expect(controller.noteProactiveBoundary).toHaveBeenCalledWith({
       kind: 'app_open',
     });
+  });
+
+  it('says nothing from a view-only window, which may not act as the person', async () => {
+    let handshake: object | null = null;
+    const listeners = new Set<() => void>();
+    const controller = {
+      getSnapshot: () => ({ handshake }),
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      afterFirstScreen: async () => undefined,
+      noteProactiveBoundary: vi.fn(async () => ({})),
+    } as unknown as ClientController;
+    noteAppOpen(controller);
+    await vi.waitFor(() => expect(listeners.size).toBe(1));
+    handshake = { may_act: false };
+    listeners.forEach((listener) => listener());
+    // It stops waiting: later changes send nothing either.
+    expect(listeners.size).toBe(0);
+    expect(controller.noteProactiveBoundary).not.toHaveBeenCalled();
+  });
+
+  it('waits for the first screen to be up before telling the server', async () => {
+    let firstScreen = () => {};
+    const controller = {
+      getSnapshot: () => ({ handshake: {} }),
+      subscribe: () => () => undefined,
+      afterFirstScreen: () =>
+        new Promise<void>((resolve) => (firstScreen = resolve)),
+      noteProactiveBoundary: vi.fn(async () => ({})),
+    } as unknown as ClientController;
+    noteAppOpen(controller);
+    await Promise.resolve();
+    expect(controller.noteProactiveBoundary).not.toHaveBeenCalled();
+    firstScreen();
+    await vi.waitFor(() =>
+      expect(controller.noteProactiveBoundary).toHaveBeenCalledTimes(1),
+    );
   });
 });

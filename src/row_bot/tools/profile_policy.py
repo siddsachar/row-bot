@@ -18,8 +18,7 @@ _READ_OPERATIONS = {
     "memory": {"search_memory", "list_memories", "explore_connections"},
     "filesystem": {
         "workspace_read_file",
-        "workspace_list_directory",
-        "workspace_file_search",
+        "workspace_find",
     },
     "developer": {
         "developer_workspace_info",

@@ -51,3 +51,35 @@ def draft_skill(service: Any, conversation_id: str, body: dict[str, Any],
                                   offer_id=str(body.get("offer_id") or "") or None)
     except skill_offers.SkillOfferError as error:
         raise ClientPlatformError(error.code) from None
+
+
+def draft_demo_skill(service: Any, conversation_id: str, demo_id: str, body: dict[str, Any],
+                     validate: Callable[[], None] | None = None) -> dict[str, Any]:
+    """Draft a skill from the steps the person showed in the Browser pane (C3)."""
+    from row_bot import skill_offers
+
+    if validate:
+        validate()
+    _readable(service, conversation_id)
+    try:
+        page = skill_offers.draft_from_demo(conversation_id, demo_id, str(body.get("purpose") or ""))
+    except skill_offers.SkillOfferError as error:
+        raise ClientPlatformError(error.code) from None
+    # Drafted, the steps are forgotten: the Browser pane's line says so at once.
+    from row_bot.application import client_browser
+
+    client_browser._changed(client_browser._engine(start=False), conversation_id)  # noqa: SLF001
+    return page
+
+
+def try_skill(service: Any, name: str, validate: Callable[[], None] | None = None) -> dict[str, Any]:
+    """Try it: a new chat with the saved skill pinned and its request ready in the composer."""
+    from row_bot import skill_offers
+
+    del service
+    if validate:
+        validate()
+    try:
+        return skill_offers.try_skill(name)
+    except skill_offers.SkillOfferError as error:
+        raise ClientPlatformError(error.code) from None

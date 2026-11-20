@@ -1633,6 +1633,7 @@ def _preferences(root: Path) -> dict[str, Any]:
             "self_improvement_enabled": identity.get("self_improvement") is not False,
         },
         "window_mode": window_mode,
+        "desktop_notifications": user.get("desktop_notifications") is not False,
         "dream_cycle": {
             "enabled": dream.get("enabled") is not False,
             "window_start": start,
@@ -1756,6 +1757,7 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "identity.personality": "",
         "identity.self_improvement_enabled": True,
         "window_mode": "ask",
+        "desktop_notifications": True,
         "dream_cycle.enabled": True,
         "dream_cycle.window_start": 1,
         "dream_cycle.window_end": 5,

@@ -133,6 +133,11 @@ vi.mock('../../runtime', () => ({
     taskEditSessions: mock.taskEditSessions,
   }),
 }));
+// The first screen is up: Buddy beside the greeting reads at once.
+vi.mock('../../shell-settled', async (load) => ({
+  ...(await load<typeof import('../../shell-settled')>()),
+  useBackgroundReady: () => true,
+}));
 
 vi.mock('../../ui/overlays', async (load) => {
   const actual = await load<typeof import('../../ui/overlays')>();
@@ -433,6 +438,17 @@ it('reads what needs you for Overview on any signed-in device', async () => {
   };
   show();
   await waitFor(() => expect(mock.controller.attention).toHaveBeenCalled());
+});
+
+it('reads what needs you once for Overview and Monitor together', async () => {
+  show();
+  await waitFor(() =>
+    expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(1),
+  );
+  await waitFor(() => expect(mock.controller.attention).toHaveBeenCalled());
+  chooseTab('Monitor');
+  await screen.findByRole('tab', { name: 'Monitor', selected: true });
+  expect(mock.controller.attention).toHaveBeenCalledTimes(1);
 });
 
 it('checks Dream Cycle from one click and opens the irreversible-change confirmation', async () => {

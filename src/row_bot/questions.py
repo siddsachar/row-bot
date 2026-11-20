@@ -57,6 +57,18 @@ def _text(value: Any, maximum: int) -> str:
     return text[:maximum]
 
 
+def _chip(header: str) -> str:
+    """A header longer than its chip, cut at a word (S8): a long one refused the whole question."""
+    if len(header) <= HEADER_CHARS:
+        return header
+    kept = ""
+    for word in header.split():
+        if len(f"{kept} {word}".strip()) > HEADER_CHARS:
+            break
+        kept = f"{kept} {word}".strip()
+    return kept or header[:HEADER_CHARS - 1] + "…"
+
+
 # ── The questions ────────────────────────────────────────────────────────────
 
 
@@ -78,7 +90,7 @@ def normalize(raw: Any) -> list[dict[str, Any]]:
             item = item.model_dump()
         if not isinstance(item, Mapping):
             raise QuestionError("Each question needs a header, the question and its options.")
-        header = _text(item.get("header"), HEADER_CHARS + 1)
+        header = _chip(_text(item.get("header"), 200))
         question = _text(item.get("question"), QUESTION_CHARS + 1)
         if not header or len(header) > HEADER_CHARS:
             raise QuestionError(f"Each question needs a header of at most {HEADER_CHARS} characters.")

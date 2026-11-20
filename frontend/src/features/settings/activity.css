@@ -295,3 +295,84 @@
     transition: none;
   }
 }
+
+/* Always allow (D1): one row per rule, its words and use, then Edit, Delete and its switch. */
+.always-rules-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.always-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 16px;
+}
+.always-rule + .always-rule {
+  border-top: 1px solid var(--border-hairline);
+}
+.always-rule-what {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+.always-rule-words {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+  overflow-wrap: anywhere;
+}
+.always-rule[data-off] .always-rule-words {
+  color: var(--text-secondary);
+}
+.always-rule-used {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.always-rule-tools {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.always-rule-tools .toggle-control {
+  margin-left: 8px;
+}
+.always-rule:target {
+  background: color-mix(in srgb, var(--accent-solid) 8%, transparent);
+}
+.always-rule-command {
+  display: grid;
+  gap: 6px;
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+.always-rule-command .input {
+  font-family: var(--font-mono);
+  font-weight: normal;
+}
+.always-rule-command small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: normal;
+}
+.alog-rule-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-solid);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+@media (max-width: 767px) {
+  .always-rule {
+    align-items: flex-start;
+    padding: 12px 16px;
+  }
+}

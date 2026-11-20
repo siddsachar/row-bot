@@ -114,6 +114,26 @@ it('a tile opens the provider’s sheet with its state and its models', async ()
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });
 
+it('a key the provider refused says Check key, on its tile and in its sheet', async () => {
+  render(
+    <ProviderStatus
+      load={async () => ({
+        schema_version: 1,
+        providers: [{ ...card, billing: 'pay_per_use', key_refused: true }],
+      })}
+      refresh={vi.fn()}
+      refreshState={vi.fn()}
+    />,
+  );
+  const tile = await screen.findByRole('button', { name: /^OpenAI API/ });
+  expect(tile).toHaveTextContent('Check key');
+  expect(tile).not.toHaveTextContent('Connected');
+  const sheet = await openSheet('OpenAI API');
+  expect(sheet).toHaveAccessibleDescription(
+    'Check key · OpenAI API refused this key. Check it, or save a new one · key ····QBA',
+  );
+});
+
 it('a link with ?provider= opens that provider’s sheet at once', async () => {
   render(
     <ProviderStatus

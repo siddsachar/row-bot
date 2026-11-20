@@ -46,6 +46,36 @@ def test_it_asks_the_person_with_its_reason():
     assert not verdict.approved
 
 
+@pytest.mark.parametrize(("decision", "reason", "shown"), [
+    # What a local reviewer wrote in the 5.3.4 Windows test (W15): the assistant's voice on the card.
+    ("ask", "You explicitly asked me not to run any tools, but I am attempting to execute a Python command.",
+     "It isn't sure this is what you asked for."),
+    ("ask", "I'm not sure you wanted the folder deleted.", "It isn't sure this is what you asked for."),
+    ("approve", "This matches my reading of your request.", "It matches what you asked for."),
+    ("ask", "This deletes three files you didn't mention.", "This deletes three files you didn't mention."),
+    ("approve", "You asked for an AI summary of the page.", "You asked for an AI summary of the page."),
+])
+def test_the_card_shows_the_reviewers_own_words_about_the_action_never_the_assistants(decision, reason, shown):
+    _seen, call = _answer(json.dumps({"decision": decision, "reason": reason}))
+    verdict = review(_PAYLOAD, request=_REQUEST, runtime={}, call=call)
+    assert verdict == ReviewVerdict(decision, shown)
+
+
+def test_in_a_goal_turn_the_goal_is_what_the_person_asks_for_now(monkeypatch):
+    from row_bot import threads
+
+    conversation = [HumanMessage(content="Don't run any tools, just tell me what calc.py does."),
+                    AIMessage(content="It adds two numbers.")]
+    monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda _thread_id: conversation)
+    request = approval_review.current_request({"thread_id": "chat-1", "runtime_surface": "goal",
+                                               "root_objective": "Make calc.add work; check it with python -c"})
+    seen, call = _answer('{"decision": "approve", "reason": "The goal names this check."}')
+    review(_PAYLOAD, request=request, runtime={}, call=call)
+    case = json.loads(seen[0][1]["content"])
+    assert case["person_asked"] == ["Don't run any tools, just tell me what calc.py does.",
+                                    "Goal: Make calc.add work; check it with python -c"]
+
+
 @pytest.mark.parametrize("reply", [
     "Sure, go ahead.",                      # not JSON
     "I can't help with that.",             # a refusal

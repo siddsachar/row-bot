@@ -57,7 +57,10 @@ export function BuddyAvatar({
 }) {
   const [still, setStill] = useState('');
   const unloading = usePageUnloading();
-  const asset = stillAsset(pack);
+  const living = !preview && isLivingPack(pack);
+  // A living Buddy draws its own art: its still is read only where it can't.
+  const [livingStill, setLivingStill] = useState(false);
+  const asset = living && !livingStill ? '' : stillAsset(pack);
   const packId = pack?.id ?? '';
   const revision = pack?.revision ?? '';
   useEffect(() => {
@@ -98,7 +101,6 @@ export function BuddyAvatar({
         : snapshot,
     [glancing, snapshot],
   );
-  const living = !preview && isLivingPack(pack);
   const media = !pack
     ? 'fallback'
     : !pack.available
@@ -145,6 +147,7 @@ export function BuddyAvatar({
           cursor={cursor}
           handle={handle}
           still={image}
+          onStill={setLivingStill}
         />
       ) : (
         image

@@ -193,7 +193,13 @@ def test_the_api_lists_waits_with_their_conversation_and_stops_one(waits, platfo
         [item] = page.json()["items"]
         assert (item["conversation_id"], item["label"], item["kind"]) == (
             "conversation-a", "the deploy has had time to finish", "time")
-        assert item["how"].startswith("at ") and item["conversation_title"]
+        assert item["conversation_title"]
+        # When it carries on and until when, in UTC with the offset: the client writes them in the viewer's own
+        # zone and clock style (M5, M11).
+        [record] = waits.waiting("conversation-a")
+        assert item["how"] == ""
+        assert datetime.fromisoformat(item["at"]).timestamp() == int(record["next_at"])
+        assert item["at"].endswith("+00:00") and item["until"].endswith("+00:00")
 
         stopped = client.post(f"/api/v1/waits/{item['wait_id']}/stop", headers=headers)
         assert stopped.status_code == 200 and stopped.json()["items"] == []

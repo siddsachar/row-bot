@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "description": "Always allow\u2026 on a card: only the approval, as the person saw it (its nonce). The server makes the rule\nfrom the stored approval; the same command id then approves the card.",
+  "properties": {
+    "approval_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Approval Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 256,
+      "minLength": 32,
+      "title": "Nonce",
+      "type": "string"
+    }
+  },
+  "required": [
+    "approval_id",
+    "nonce",
+    "command_id"
+  ],
+  "title": "ApprovalRuleCreate",
+  "type": "object"
+}

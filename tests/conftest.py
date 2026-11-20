@@ -415,6 +415,16 @@ def _fresh_builtin_ways():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_provider_catalog_reads():
+    # The Models catalog's rows are built once per change of the files and secrets they're read from;
+    # tests share a folder and fake those readers differently, so each one builds from them again.
+    forget = getattr(sys.modules.get("row_bot.providers.client_status"), "forget_saved_reads", None)
+    if callable(forget):
+        forget()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _package_attributes_follow_sys_modules():
     # Older tests evict row_bot modules from sys.modules by hand and never
     # re-import them, so the package keeps the evicted module as an attribute.
@@ -472,11 +482,31 @@ def _fresh_context_calibration():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_model_readiness():
+    # Reads reuse a model's readiness for a few seconds; one test's faked readiness must not answer the next's.
+    forget = getattr(sys.modules.get("row_bot.application.workspace_setup"), "forget_model_readiness", None)
+    if callable(forget):
+        forget()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_title_model(monkeypatch):
     # A conversation's first finished turn asks its model for a title on a background
     # thread. Tests that run turns script the agent, not that model: unscripted, the thread
     # built a real provider client after the test had ended. The naming tests script it.
     monkeypatch.setattr("row_bot.application.conversation_naming._ask", lambda *_args: "")
+
+
+@pytest.fixture(autouse=True)
+def _no_background_summary(monkeypatch):
+    # A cloud chat that settles near its compaction point prepares its next summary on a
+    # background thread (B6). Tests that run turns script the turn, not that summarizer:
+    # unscripted, the thread would call the compaction model after the test. The prepared
+    # compaction tests run it in line.
+    agent = sys.modules.get("row_bot.agent")
+    if agent is not None and hasattr(agent, "_submit_preparation"):
+        monkeypatch.setattr(agent, "_submit_preparation", lambda _job: None)
 
 
 @pytest.fixture(autouse=True)

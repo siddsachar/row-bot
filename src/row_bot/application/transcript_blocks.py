@@ -11,7 +11,7 @@ import json
 import re
 from typing import Any
 
-from row_bot.application.answer_components import FENCE_RE as COMPONENT_FENCE_RE, parse_component
+from row_bot.application.answer_components import component_spans
 
 MAX_BLOCKS = 256
 MAX_MERMAID_CHARS = 64 * 1024
@@ -112,12 +112,9 @@ def _segments(
     text: str, *, links: bool = True, components: bool = False
 ) -> list[tuple[str, dict[str, Any] | str]]:
     matches: list[tuple[int, int, str, Any]] = []
-    if components and "```rowbot-" in text:
+    if components:
         # A reply's answer components (F3); a fence that doesn't fit stays in the text as code.
-        for match in COMPONENT_FENCE_RE.finditer(text):
-            component = parse_component(match.group(1), match.group(2))
-            if component is not None:
-                matches.append((match.start(), match.end(), component[0], component[1]))
+        matches.extend(component_spans(text))
     for match in _MERMAID_FENCE_RE.finditer(text):
         source = match.group(1).strip()
         if source and len(source) <= MAX_MERMAID_CHARS:

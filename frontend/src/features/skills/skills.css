@@ -210,3 +210,34 @@
 .skill-proposal-source {
   color: var(--text-secondary);
 }
+
+/* Show Row-Bot how (C3): the steps the person showed, and the saved skill with Try it. */
+.skill-draft-shown-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) 0 var(--space-2) var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.skill-draft-saved {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-success-border);
+  border-radius: var(--radius-control);
+  background: var(--status-success-background);
+}
+.skill-draft-saved > svg {
+  flex: none;
+  color: var(--status-success-text);
+}
+.skill-draft-saved strong {
+  color: var(--text-primary);
+}
+.skill-draft-saved p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+}

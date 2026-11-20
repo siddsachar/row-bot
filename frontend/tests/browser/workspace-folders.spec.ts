@@ -268,11 +268,18 @@ async function detailsCard(page: Page) {
 /** The project notes popover, opened from the card on screen. */
 async function notesPopover(page: Page) {
   const popover = page.getByRole('dialog', { name: 'Project notes' });
-  if (!(await popover.isVisible())) {
-    const card = await detailsCard(page);
-    await card.getByRole('button', { name: 'About project notes' }).click();
-  }
-  await expect(popover).toBeVisible();
+  // Back from a phone, the code folder's panel can take the place of the
+  // details rail just after the card was found: find it again and retry,
+  // rather than waiting out the test on a button that is no longer shown.
+  await expect(async () => {
+    if (!(await popover.isVisible())) {
+      const card = await detailsCard(page);
+      await card
+        .getByRole('button', { name: 'About project notes' })
+        .click({ timeout: 5_000 });
+    }
+    await expect(popover).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 60_000 });
   return popover;
 }
 
@@ -291,8 +298,14 @@ async function notesViews(
     await page.setViewportSize(size);
     if (await popover.isVisible()) await page.keyboard.press('Escape');
     await expect(popover).toBeHidden();
-    const card = await detailsCard(page);
-    await card.getByText(/^Project notes:/).scrollIntoViewIfNeeded();
+    // As in notesPopover: the code folder's panel can take the card's place
+    // just after it was found on a phone, so find it again and retry.
+    await expect(async () => {
+      const card = await detailsCard(page);
+      await card
+        .getByText(/^Project notes:/)
+        .scrollIntoViewIfNeeded({ timeout: 5_000 });
+    }).toPass({ timeout: 60_000 });
     await views(page, info, `${name}-card${suffix}`);
     await expect(async () => check(await notesPopover(page))).toPass();
     await views(page, info, `${name}${suffix}`);

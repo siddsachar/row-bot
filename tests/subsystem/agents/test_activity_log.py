@@ -298,13 +298,16 @@ def test_a_failing_write_never_fails_the_tool_call(data, monkeypatch):
     assert activity_log.flush()
 
 
-def test_allow_in_this_chat_marks_the_waiting_row(data):
-    activity_log.record(activity_log.ToolCall(call_id="g1", tool="run_command", thread_id="chat-1",
-                                              decisions=({"stage": "asking", "level": "approve"},), paused=True))
-    activity_log.mark_chat_grant("chat-1")
-    activity_log.record(activity_log.ToolCall(call_id="g1", tool="run_command", thread_id="chat-1", decisions=(
-        {"stage": "asking", "level": "approve"},
-        {"stage": "decided", "level": "approve", "outcome": "allow", "by": "person"})))
+def test_what_you_allowed_in_this_chat_is_its_own_outcome(data, monkeypatch):
+    from row_bot.application import approval_grants
+
+    turns = _turns(monkeypatch, asks(call("run_command", "g1", command="npm test")), says("Ran."))
+    kinds = approval_grants.approval_kinds({"tool": "run_command", "label": "Run a command"})
+    approval_grants.grant(turns.thread_id, kinds, "chat")
+    try:
+        turns.send("Run the tests")
+    finally:
+        approval_grants.end_chat(turns.thread_id)
 
     row = _only()
     assert (row["outcome"], row["decided_by"], row["status"]) == ("allowed_in_chat", "chat_grant", "final")

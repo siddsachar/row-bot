@@ -95,6 +95,12 @@
       "title": "Risk",
       "type": "string"
     },
+    "rule_id": {
+      "default": "",
+      "maxLength": 32,
+      "title": "Rule Id",
+      "type": "string"
+    },
     "source_id": {
       "maxLength": 256,
       "title": "Source Id",

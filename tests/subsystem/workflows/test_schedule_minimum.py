@@ -129,7 +129,7 @@ def test_a_fractional_interval_is_kept_exactly(owner, schedule, seconds):
     last = NOW - timedelta(seconds=10)
     assert owner.estimate_next_run(
         {"enabled": 1, "schedule": schedule, "last_run": last.isoformat()}, NOW
-    ) == (last + timedelta(seconds=seconds)).astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
+    ) == (last + timedelta(seconds=seconds)).astimezone().isoformat(timespec="seconds")
 
 
 @pytest.mark.parametrize("schedule", ["interval_minutes:0.5", "interval:0.01"])
@@ -151,8 +151,8 @@ def test_a_schedule_saved_below_a_minute_runs_once_a_minute_and_keeps_its_words(
     last = NOW - timedelta(seconds=10)
     task = {"id": task_id, "enabled": 1, "schedule": schedule,
             "last_run": last.astimezone().replace(tzinfo=None).isoformat()}
-    assert owner.estimate_next_run(task, NOW) == (last + timedelta(minutes=1)).astimezone().replace(
-        tzinfo=None).isoformat(timespec="seconds")
+    assert owner.estimate_next_run(task, NOW) == (last + timedelta(minutes=1)).astimezone().isoformat(
+        timespec="seconds")
     assert owner.missed_run_time(task, NOW - timedelta(hours=1), NOW + timedelta(minutes=5)) == (
         last + timedelta(minutes=5)).astimezone()
 

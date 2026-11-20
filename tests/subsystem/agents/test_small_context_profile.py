@@ -249,9 +249,10 @@ def test_a_large_window_keeps_the_whole_prompt_with_guides_as_an_index_and_rare_
     assert "- agents_guide (agents):" in prepared.system
     assert "DELEGATING:" not in prepared.system
     # What Row-Bot uses unasked stays bound; rarely used tools are offered on demand.
-    assert {"delegate_work", "row_bot_status", "create_chart", "page_create", "ask_person", "start_process",
+    assert {"delegate_work", "row_bot_status", "calculate", "page_create", "ask_person", "start_process",
             "task_create", "save_memory", "tool_search", "tool_invoke"} <= set(bound)
-    for rare in ("tracker_log", "edit_video", "custom_tool_builder", "agent_profile_save", "row_bot_create_skill"):
+    for rare in ("tracker_log", "edit_video", "custom_tool_builder", "agent_profile_save", "row_bot_create_skill",
+                 "create_chart", "speak"):
         assert rare not in bound
         assert rare in on_demand
     assert "Current state:" in str(prepared.messages[-1].content)

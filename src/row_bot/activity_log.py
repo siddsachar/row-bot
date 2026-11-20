@@ -95,8 +95,11 @@ _SCHEMA = (
     "scope_app TEXT NOT NULL DEFAULT '', "
     "person_only INTEGER NOT NULL DEFAULT 0, "
     "risk TEXT NOT NULL DEFAULT 'unknown', "
-    "status TEXT NOT NULL DEFAULT 'final')"
+    "status TEXT NOT NULL DEFAULT 'final', "
+    "scope_command TEXT NOT NULL DEFAULT '')"
 )
+# Columns added after the table was first made, for a log written by an earlier version.
+_ADDED_COLUMNS = (("scope_command", "TEXT NOT NULL DEFAULT ''"),)
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_actions_conversation ON actions(conversation_id, id)",
     "CREATE INDEX IF NOT EXISTS idx_actions_at ON actions(at)",
@@ -104,22 +107,23 @@ _INDEXES = (
 )
 _COLUMNS = ("at", "call_id", "conversation_id", "surface", "source_id", "tool", "title", "app_id", "app_name",
             "summary", "level", "outcome", "decided_by", "reason", "rule_id", "kind", "scope_folder", "scope_app",
-            "person_only", "risk", "status")
+            "person_only", "risk", "status", "scope_command")
 # A paused call's row ("Waiting for you") becomes its final row when it runs; a final row stays as it is,
-# except one settled as "asked" that was answered after all. Answered by a grant the person made for this
-# chat (marked on its pending row), the person's approval reads "Allowed in this chat".
+# except one settled as "asked" that was answered after all.
 _UPSERT = (
     f"INSERT INTO actions ({', '.join(_COLUMNS)}) VALUES ({', '.join('?' * len(_COLUMNS))}) "
     "ON CONFLICT(call_id) DO UPDATE SET "
-    "outcome = CASE WHEN actions.decided_by = 'chat_grant' AND excluded.outcome = 'approved_by_you' "
-    "THEN 'allowed_in_chat' ELSE excluded.outcome END, "
-    "decided_by = CASE WHEN actions.decided_by = 'chat_grant' AND excluded.outcome = 'approved_by_you' "
-    "THEN 'chat_grant' ELSE excluded.decided_by END, "
+    "outcome = excluded.outcome, decided_by = excluded.decided_by, "
     "reason = CASE WHEN excluded.reason <> '' THEN excluded.reason ELSE actions.reason END, "
     "summary = CASE WHEN excluded.summary <> '' THEN excluded.summary ELSE actions.summary END, "
     "title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE actions.title END, "
     "level = excluded.level, risk = excluded.risk, status = excluded.status, "
-    "person_only = MAX(actions.person_only, excluded.person_only) "
+    "person_only = MAX(actions.person_only, excluded.person_only), "
+    "rule_id = excluded.rule_id, "
+    "kind = CASE WHEN excluded.kind <> '' THEN excluded.kind ELSE actions.kind END, "
+    "scope_folder = CASE WHEN excluded.kind <> '' THEN excluded.scope_folder ELSE actions.scope_folder END, "
+    "scope_app = CASE WHEN excluded.kind <> '' THEN excluded.scope_app ELSE actions.scope_app END, "
+    "scope_command = CASE WHEN excluded.kind <> '' THEN excluded.scope_command ELSE actions.scope_command END "
     "WHERE actions.status = 'pending' OR actions.outcome = 'asked'"
 )
 
@@ -153,6 +157,12 @@ class Outcome:
     risk: str = "unknown"
     person_only: bool = False
     status: str = "final"
+    # The rule that allowed it, and the action's kind and scope as a rule would match them (D1 WP3).
+    rule_id: str = ""
+    rule_kind: str = ""
+    rule_app: str = ""
+    rule_folder: str = ""
+    rule_command: str = ""
 
 
 # ── Outcome: decided by structure, never by a result's words ─────────────────
@@ -171,6 +181,7 @@ def outcome_of(call: ToolCall) -> Outcome | None:
     notes = decided or asking
     last = notes[-1] if notes else {}
     described = next((note for note in reversed(notes) if note.get("description") or note.get("label")), {})
+    scoped = next((note for note in reversed(notes) if note.get("rule_kind")), {})
     base = dict(
         level=str(last.get("level") or call.level or ""),
         summary=str(described.get("description") or described.get("label") or ""),
@@ -178,6 +189,8 @@ def outcome_of(call: ToolCall) -> Outcome | None:
         risk=str(last.get("risk") or "unknown"),
         person_only=any(bool(note.get("person_only")) for note in notes),
         reason=next((str(note.get("reason") or "") for note in reversed(notes) if note.get("reason")), ""),
+        rule_id=next((str(note.get("rule_id") or "") for note in reversed(decided) if note.get("rule_id")), ""),
+        **{key: str(scoped.get(key) or "") for key in ("rule_kind", "rule_app", "rule_folder", "rule_command")},
     )
     if call.paused:
         if not call.decisions or call.decisions[-1].get("stage") != "asking":
@@ -291,16 +304,6 @@ def _waiting_in() -> set[str]:
         return _waiting
 
 
-def mark_chat_grant(conversation_id: str) -> None:
-    """The person's "Allow in this chat" answered this conversation's waiting cards: their rows say so."""
-
-    try:
-        if conversation_id and str(conversation_id) in _waiting_in():
-            _enqueue("grant", str(conversation_id))
-    except Exception:
-        logger.debug("Activity log grant mark skipped", exc_info=True)
-
-
 def settle_pending(conversation_id: str) -> None:
     """The turn ended without waiting: a card it left unanswered is no longer "Waiting for you"."""
 
@@ -311,6 +314,15 @@ def settle_pending(conversation_id: str) -> None:
             _enqueue("settle", str(conversation_id))
     except Exception:
         logger.debug("Activity log settle skipped", exc_info=True)
+
+
+def rule_used(rule_id: str) -> None:
+    """A standing rule just allowed an action: its count and last use, written by the writer."""
+
+    try:
+        _enqueue("rule_used", (str(rule_id), time.time()))
+    except Exception:
+        logger.debug("Activity log rule use skipped", exc_info=True)
 
 
 def flush(timeout: float = 5.0) -> bool:
@@ -331,6 +343,10 @@ def _connect(path: str) -> sqlite3.Connection:
         except sqlite3.OperationalError:
             logger.debug("Activity log could not switch to WAL", exc_info=True)
         connection.execute(_SCHEMA)
+        present = {str(row[1]) for row in connection.execute("PRAGMA table_info(actions)")}
+        for name, definition in _ADDED_COLUMNS:
+            if name not in present:
+                connection.execute(f"ALTER TABLE actions ADD COLUMN {name} {definition}")
         for statement in _INDEXES:
             connection.execute(statement)
         connection.commit()
@@ -347,9 +363,10 @@ def _apply(kind: str, path: str, payload: Any) -> None:
             row = _row(payload)
             if row is not None:
                 connection.execute(_UPSERT, row)
-        elif kind == "grant":
-            connection.execute("UPDATE actions SET decided_by = 'chat_grant' "
-                               "WHERE conversation_id = ? AND status = 'pending'", (payload,))
+        elif kind == "rule_used":
+            rule_id, at = payload
+            connection.execute("UPDATE approval_rules SET uses = uses + 1, last_used_at = ? WHERE id = ?",
+                               (float(at), str(rule_id)))
         elif kind == "settle":
             # A helper agent's card waits on after its parent's turn ends: only the turn's own rows settle.
             connection.execute("UPDATE actions SET status = 'final' WHERE conversation_id = ? AND status = 'pending' "
@@ -416,30 +433,20 @@ def _incognito(conversation_id: str) -> bool:
         return False
 
 
-def _safe_summary(tool: str, args: Mapping[str, Any]) -> str:
-    """The reviewed safe-argument vocabulary only (never what a tool read or wrote)."""
+def tool_words(tool: str) -> str:
+    """A tool's own name in words ("Read url"): the title of a call that had no label or app tool. The client
+    says such a call in the words its chat steps use instead (W19)."""
 
-    from row_bot.application.conversation_traces import safe_tool_call_args
+    from row_bot.application.conversation_traces import canonical_tool_name
 
-    inner = args.get("arguments") if tool and isinstance(args.get("arguments"), Mapping) else None
-    safe = safe_tool_call_args(dict(inner if inner is not None else args))
-    parts = []
-    for key, value in safe.items():
-        if isinstance(value, list):
-            value = ", ".join(str(item) for item in value)
-        parts.append(f"{key.replace('_', ' ')}: {value}")
-    return "; ".join(parts)
+    words = canonical_tool_name(tool).replace("_", " ").strip()
+    return words[:1].upper() + words[1:] if words else "Tool"
 
 
 def _title(tool: str, app: Mapping[str, Any] | None, label: str) -> str:
     if app and app.get("tool"):
         return str(app["tool"])
-    if label:
-        return label
-    from row_bot.application.conversation_traces import canonical_tool_name
-
-    words = canonical_tool_name(tool).replace("_", " ").strip()
-    return words[:1].upper() + words[1:] if words else "Tool"
+    return label or tool_words(tool)
 
 
 def _row(call: ToolCall) -> tuple[Any, ...] | None:
@@ -457,7 +464,8 @@ def _row(call: ToolCall) -> tuple[Any, ...] | None:
 
     app = app_of_tool(call.tool, dict(call.args))
     tool = str(call.tool or "")[:180]
-    summary = outcome.summary or _safe_summary(str(call.tool or ""), call.args)
+    # What an approval card said; a call that asked nobody has none (its arguments are internal: W19).
+    summary = outcome.summary
     reason = outcome.reason
     if _incognito(conversation):
         summary, reason = INCOGNITO_SUMMARY, ""
@@ -476,10 +484,14 @@ def _row(call: ToolCall) -> tuple[Any, ...] | None:
         outcome.outcome,
         outcome.decided_by if outcome.decided_by in DECIDERS else "none",
         _clean(reason, REASON_MAX),
-        "", "", "", "",
+        outcome.rule_id[:32],
+        outcome.rule_kind[:256],
+        outcome.rule_folder[:1024],
+        outcome.rule_app[:256],
         int(outcome.person_only),
         _choice(outcome.risk, RISKS, "unknown"),
         outcome.status,
+        outcome.rule_command[:500],
     )
 
 
@@ -539,6 +551,24 @@ def query(*, before: int = 0, limit: int = 50, **filters: Any) -> tuple[list[dic
     more = len(rows) > limit
     rows = rows[:limit]
     return rows, (int(rows[-1]["id"]) if more and rows else None)
+
+
+def rule_candidates(kind: str, outcomes: Iterable[str], *, since: float) -> list[dict[str, Any]]:
+    """Rows since *since* of one action kind (a rule's ``kind:tool``) with one of *outcomes*, newest first,
+    never an action only the person may approve, nor a card still waiting (the card a rule is being made
+    from among them): what a draft rule's dry run weighs."""
+
+    path = _existing()
+    if path is None or not kind:
+        return []
+    wanted = tuple(outcomes)
+    with _db_lock, closing(_connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        return [dict(row) for row in connection.execute(
+            f"SELECT id, at, conversation_id, outcome, title, summary, app_name, scope_app, scope_folder, "
+            f"scope_command FROM actions WHERE kind = ? AND at >= ? AND person_only = 0 AND status = 'final' "
+            f"AND outcome IN ({', '.join('?' * len(wanted))}) ORDER BY id DESC LIMIT 5000",
+            (kind, float(since), *wanted))]
 
 
 def summary(*, since: float) -> dict[str, int]:
