@@ -283,12 +283,12 @@ test('a paid run stopped before its download says its model stays in the account
   await expect(card(page)).toContainText(
     'the model it trained stays in your Hugging Face account, to download or delete there',
   );
-  await expect(
-    card(page).getByRole('link', { name: 'Open it' }),
-  ).toHaveAttribute(
+  const link = card(page).getByRole('link', { name: 'Open it' });
+  await expect(link).toHaveAttribute(
     'href',
     /^https:\/\/huggingface\.co\/[\w.-]+\/row-bot-personal-/,
   );
+  await link.scrollIntoViewIfNeeded(); // the shots show the line on a phone too
   await shoot(page, info, 'hf-run-kept');
 });
 
