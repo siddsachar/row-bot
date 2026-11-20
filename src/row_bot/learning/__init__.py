@@ -53,6 +53,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
@@ -235,7 +236,8 @@ def _normalise(document: Any) -> LearningSettings:
         train_where=train_where if train_where in TRAIN_PLACES else DEFAULTS.train_where,
         # A pause that can't be read keeps Learning paused (nothing is recorded).
         paused=paused if type(paused) is bool else True,
-        starting_model=starting_model if starting_model in STARTING_MODELS else DEFAULTS.starting_model,
+        starting_model=starting_model if starting_model in STARTING_MODELS or _checked_model(starting_model)
+        else DEFAULTS.starting_model,
         model_download=model_download if model_download in MODEL_DOWNLOADS else DEFAULTS.model_download,
         serve_runtime=serve_runtime if serve_runtime in SERVE_RUNTIMES else DEFAULTS.serve_runtime,
         hf_model=hf_model,
@@ -243,6 +245,14 @@ def _normalise(document: Any) -> LearningSettings:
         hf_monthly_cap_usd=cap,
         hf_runs_confirmed=hugging.get("runs_confirmed") is True,
     )
+
+
+def _checked_model(value: Any) -> bool:
+    """A model the person checked on this computer (C1 Part 4): ``hf:<owner>/<name>`` (the lookup decides
+    whether it can train; nothing is imported here)."""
+
+    return isinstance(value, str) and re.fullmatch(
+        r"hf:[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}", value) is not None
 
 
 def read_settings(root: Path | None = None) -> LearningSettings:

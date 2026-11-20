@@ -369,26 +369,51 @@ class RemoteTrainer:
             return False
 
     def models(self) -> tuple[Any, ...]:
-        from row_bot.learning.training import catalog
+        """What Hugging Face can train for this computer: the certified models first (the strongest it can run),
+        then the models the person checked here that passed (O138, uncertified)."""
 
-        return catalog.for_hugging_face(self.card_mib())
+        from row_bot.learning.training import catalog, open_models
+
+        card = self.card_mib()
+        return (*catalog.for_hugging_face(card), *open_models.hugging_face_choices(card, self._root))
 
     def choice(self) -> Any:
-        """The model the person chose (else the strongest this computer can run), or None."""
+        """The model the person chose (else the strongest certified one this computer can run), or None."""
 
         offered = self.models()
         chosen = gate.read_settings(self._root).hf_model
-        return next((model for model in offered if model.id == chosen), offered[0] if offered else None)
+        return next((model for model in offered if model.id == chosen),
+                    next((model for model in offered if model.certified), None))
+
+    def model(self, model_id: str) -> Any:
+        """The model a run names: a certified one, or one the person checked here (its check passed), or None."""
+
+        from row_bot.learning.training import catalog, open_models
+
+        return catalog.get(model_id) or open_models.checked_choice(model_id, self._root)
+
+    def recipe_of(self, model: Any) -> Any:
+        """The Hugging Face recipe that trains ``model``: a certified model's own, or (O138) the certified recipe
+        nearest a checked model's size, taking that model (``open_models.remote_recipe``)."""
+
+        from row_bot.learning.training import open_models, recipes
+
+        if model is None or not model.remote_recipe:
+            raise RemoteError("no_model")
+        if model.certified:
+            return recipes.load(model.remote_recipe)
+        record = open_models.read(model.repo, self._root)
+        found = open_models.remote_recipe(record) if record is not None else None
+        if found is None:
+            raise RemoteError("no_model")
+        return found
 
     def recipe(self) -> Any:
         """The Hugging Face recipe of the chosen model, with the person's Advanced choices (D9)."""
 
-        from row_bot.learning.training import advanced, recipes
+        from row_bot.learning.training import advanced
 
-        model = self.choice()
-        if model is None or not model.remote_recipe:
-            raise RemoteError("no_model")
-        return advanced.apply(recipes.load(model.remote_recipe), self._root)
+        return advanced.apply(self.recipe_of(self.choice()), self._root)
 
     def measure(self, rows: list[Any], max_seq: int) -> list[tuple[int, int]]:
         """The Hugging Face planner's exact row lengths (``measure_rows``) for the chosen model."""
@@ -590,9 +615,17 @@ class RemoteTrainer:
 
         from row_bot.learning.training import base_model
 
-        state = base_model.read(model_id, self._root)
-        folder = base_model.folder(model_id, self._root)
+        key = self._base_key(model_id)
+        state = base_model.read(key, self._root)
+        folder = base_model.folder(key, self._root)
         return not (state is not None and state.gguf and (folder / state.gguf).is_file())
+
+    def _base_key(self, model_id: str) -> str:
+        """Where the untouched starting model's GGUF is kept: its pinned model's id (a checked model's ``hf:<repo>``
+        becomes a folder's name), as the comparison looks it up."""
+
+        model = self.model(model_id)
+        return model.pinned.id if model is not None and model.pinned is not None else model_id
 
     def _upload_size(self, job: Job) -> tuple[int, int]:
         from row_bot.learning.training import jobs as jobs_module
@@ -609,9 +642,9 @@ class RemoteTrainer:
         return rows, size
 
     def _plan(self, job: Job, record: RunRecord) -> dict[str, Any]:
-        from row_bot.learning.training import catalog, lockfile
+        from row_bot.learning.training import lockfile
 
-        model = catalog.get(record.model_id)
+        model = self.model(record.model_id)
         if model is None or model.pinned is None:
             raise RemoteError("no_model")
         plan = self.jobs.plan_of(job)
@@ -694,10 +727,13 @@ class RemoteTrainer:
                    progress_at=self.clock())
 
     def recipe_for(self, record: RunRecord) -> Any:
-        from row_bot.learning.training import catalog, recipes
+        from row_bot.learning.training import recipes
 
-        model = catalog.get(record.model_id)
-        return recipes.load(model.remote_recipe if model is not None and model.remote_recipe else "hf-9b")
+        model = self.model(record.model_id)
+        try:
+            return self.recipe_of(model)
+        except RemoteError:
+            return recipes.load("hf-9b")
 
     # ── Moves ───────────────────────────────────────────────────────────
 
@@ -953,14 +989,15 @@ class RemoteTrainer:
         item = next((entry for entry in record.outputs if entry.get("name") == "gguf/base.gguf"), None)
         if item is None:
             return
-        target = base_model.folder(record.model_id, self._root)
-        name = f"{record.model_id}-{record.quantization}.gguf"
+        key = self._base_key(record.model_id)
+        target = base_model.folder(key, self._root)
+        name = f"{key}-{record.quantization}.gguf"
         try:
             self._fetch(self.hub(), record, item, target, name)
         except (HubError, fetch.FetchError, OSError):
             logger.warning("Learning couldn't download the starting model's file a Hugging Face run built")
             return
-        base_model.write(base_model.BaseState(model_id=record.model_id, phase="exported", gguf=name,
+        base_model.write(base_model.BaseState(model_id=key, phase="exported", gguf=name,
                                               gguf_bytes=int(item["size"]), quantization=record.quantization,
                                               at=self.clock(), runtime="row_bot"), self._root)
 

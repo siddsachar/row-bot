@@ -5160,6 +5160,70 @@ class LearningHuggingFaceModel(WireModel):
     download_bytes: int = Field(ge=0)
 
 
+class LearningOpenModel(WireModel):
+    """A model found on Hugging Face (C1 Part 4): what it is, its licence, and whether Row-Bot can try it."""
+
+    id: str = Field(max_length=200)
+    repo: str = Field(max_length=192)
+    name: str = Field(max_length=128)
+    family: str | None = Field(default=None, max_length=32)
+    params_b: float | None = Field(default=None, ge=0)
+    licence: str = Field(max_length=96)
+    # permissive: just shown; terms: their key terms, the person's OK once; gated: request access on Hugging Face.
+    licence_kind: Literal["permissive", "terms", "gated"]
+    licence_url: str = Field(max_length=512)
+    terms: list[str] = Field(default_factory=list, max_length=6)
+    downloads: int = Field(ge=0)
+    # Why Row-Bot can't train it, in words (never attempted); None when it can be checked.
+    unsupported: str | None = Field(default=None, max_length=300)
+    # O131: whether this card could run it afterwards (about this much of its memory).
+    runs_here: bool
+    runs_here_gb: float | None = Field(default=None, ge=0)
+
+
+class LearningModelSearch(WireModel):
+    query: str = Field(max_length=80)
+    models: list[LearningOpenModel] = Field(max_length=20)
+    failure: Literal["unreachable", "not_found", "unreadable"] | None = None
+
+
+class LearningModelCheckItem(WireModel):
+    id: Literal["fits", "steps", "export", "tools"]
+    state: Literal["waiting", "running", "passed", "failed", "skipped"]
+    words: str = Field(max_length=300)
+
+
+class LearningModelSample(WireModel):
+    prompt: str = Field(max_length=300)
+    passed: bool
+
+
+class LearningCheckedModel(WireModel):
+    """A model the person chose to check on this computer, and what the check found (C1 Part 4)."""
+
+    id: str = Field(max_length=200)
+    repo: str = Field(max_length=192)
+    name: str = Field(max_length=128)
+    family: str | None = Field(default=None, max_length=32)
+    params_b: float | None = Field(default=None, ge=0)
+    licence: str = Field(max_length=96)
+    licence_kind: Literal["permissive", "terms", "gated"]
+    licence_url: str = Field(max_length=512)
+    terms: list[str] = Field(default_factory=list, max_length=6)
+    licence_agreed: bool
+    state: Literal["not_checked", "downloading", "checking", "passed", "failed", "stopped"]
+    stage: Literal["download", "fits", "steps", "export", "tools"] | None = None
+    failure: str | None = Field(default=None, max_length=64)
+    items: list[LearningModelCheckItem] = Field(max_length=4)
+    # The tool calls it was asked to make, as the person can read them.
+    sample: list[LearningModelSample] = Field(default_factory=list, max_length=6)
+    download_bytes: int = Field(ge=0)
+    downloaded_bytes: int = Field(ge=0)
+    # Where it trains once checked: this computer's card, and/or Hugging Face (its card).
+    trains_here: bool | None = None
+    hugging_face_flavor: str | None = Field(default=None, max_length=64)
+
+
 class LearningHuggingFaceGpu(WireModel):
     flavor: str = Field(max_length=64)
     label: str = Field(max_length=128)
@@ -5268,6 +5332,8 @@ class LearningPersonalModel(WireModel):
     stronger_model: LearningStartingModel | None = None
     # C1: training on Hugging Face (None while Learning is off).
     hugging_face: LearningHuggingFace | None = None
+    # C1 Part 4: models the person found on Hugging Face and checked (or is checking) on this computer.
+    other_models: list[LearningCheckedModel] = Field(default_factory=list, max_length=12)
 
 
 class LearningNeedsYou(WireModel):
@@ -5783,7 +5849,7 @@ class LearningCommand(WireModel):
         "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
         "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
         "hf_sign_in", "hf_cancel_sign_in", "hf_sign_out", "hf_choose_model", "hf_choose_flavor", "hf_set_cap",
-        "hf_start", "hf_cancel",
+        "hf_start", "hf_cancel", "check_model", "stop_model_check", "forget_model",
         "hf_check_now",
     ]
     setup: LearningSetupChoices | None = None
@@ -5823,6 +5889,8 @@ class LearningCommand(WireModel):
     quote_cost_cents: int | None = Field(default=None, ge=0, le=100_000)
     # hf_choose_flavor: the Hugging Face card (one the recipe offers).
     flavor: str = Field(default="", max_length=64, pattern=r"^$|^[a-z0-9][a-z0-9-]{0,63}$")
+    # check_model: the person agreed to the model's licence in the same ask (a licence with terms).
+    licence_ok: bool | None = None
 
 
 class LearningReceipt(WireModel):

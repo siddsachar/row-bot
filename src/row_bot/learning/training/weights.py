@@ -171,6 +171,22 @@ QWEN38_27B = PinnedModel(
 )
 MODELS: dict[str, PinnedModel] = {model.id: model for model in (QWEN35_2B, QWEN35_9B, QWEN38_27B)}
 
+
+def model_for(model_id: str | None, root: Path | None = None,
+              default: PinnedModel | None = None) -> PinnedModel | None:
+    """The pinned starting model ``model_id`` names: a certified one, or (C1 Part 4) a model the person checked
+    on this computer (``hf:<repo>``) once its check passed; ``default`` otherwise."""
+
+    found = MODELS.get(str(model_id or ""))
+    if found is not None or not str(model_id or "").startswith("hf:"):
+        return found or default
+    from row_bot.learning.training import open_models
+
+    repo = open_models.repo_of(str(model_id))
+    record = open_models.read(repo, root) if repo else None
+    pinned = open_models.pinned_model(record) if record is not None and record.state == "passed" else None
+    return pinned or default
+
 WeightsState = Literal["not_downloaded", "partial", "downloaded", "damaged"]
 
 

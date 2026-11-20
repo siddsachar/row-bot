@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "LearningOpenModel": {
+      "additionalProperties": false,
+      "description": "A model found on Hugging Face (C1 Part 4): what it is, its licence, and whether Row-Bot can try it.",
+      "properties": {
+        "downloads": {
+          "minimum": 0,
+          "title": "Downloads",
+          "type": "integer"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
+        "id": {
+          "maxLength": 200,
+          "title": "Id",
+          "type": "string"
+        },
+        "licence": {
+          "maxLength": 96,
+          "title": "Licence",
+          "type": "string"
+        },
+        "licence_kind": {
+          "enum": [
+            "permissive",
+            "terms",
+            "gated"
+          ],
+          "title": "Licence Kind",
+          "type": "string"
+        },
+        "licence_url": {
+          "maxLength": 512,
+          "title": "Licence Url",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "params_b": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Params B"
+        },
+        "repo": {
+          "maxLength": 192,
+          "title": "Repo",
+          "type": "string"
+        },
+        "runs_here": {
+          "title": "Runs Here",
+          "type": "boolean"
+        },
+        "runs_here_gb": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runs Here Gb"
+        },
+        "terms": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Terms",
+          "type": "array"
+        },
+        "unsupported": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unsupported"
+        }
+      },
+      "required": [
+        "id",
+        "repo",
+        "name",
+        "licence",
+        "licence_kind",
+        "licence_url",
+        "downloads",
+        "runs_here"
+      ],
+      "title": "LearningOpenModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "failure": {
+      "anyOf": [
+        {
+          "enum": [
+            "unreachable",
+            "not_found",
+            "unreadable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure"
+    },
+    "models": {
+      "items": {
+        "$ref": "#/$defs/LearningOpenModel"
+      },
+      "maxItems": 20,
+      "title": "Models",
+      "type": "array"
+    },
+    "query": {
+      "maxLength": 80,
+      "title": "Query",
+      "type": "string"
+    }
+  },
+  "required": [
+    "query",
+    "models"
+  ],
+  "title": "LearningModelSearch",
+  "type": "object"
+}
