@@ -209,7 +209,7 @@ def run(args: argparse.Namespace) -> int:
             llm_args_user={"reasoning_effort": args.user_effort} if args.user_effort else {},
             num_trials=args.num_trials, seed=args.seed, max_steps=args.max_steps, max_concurrency=1,
             task_split_name=args.split, task_ids=args.task_ids.split(",") if args.task_ids else None,
-            save_to=str(Path(args.save_to).resolve()))
+            save_to=str(Path(args.save_to).resolve()), auto_resume=bool(args.resume))
         results = run_domain(config)
         for simulation in results.simulations:
             session = next((message.raw_data.get("rowbot_session") for message in simulation.messages
@@ -258,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--nl-judge", default="", help="provider:model for retail's NL assertions")
     run_parser.add_argument("--nl-judge-effort", default="")
     run_parser.add_argument("--save-to", required=True)
+    run_parser.add_argument("--resume", action="store_true",
+                            help="tau2's checkpoint resume: only the (task, trial) pairs not saved, with their own seeds")
     args = parser.parse_args(argv)
     if args.dump_tools:
         return dump_tools(args.dump_tools)

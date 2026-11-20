@@ -375,6 +375,14 @@ def test_a_run_needs_the_bench_switch_a_free_lane_and_a_judge_for_judged_tasks(t
     assert "need tau2's NL-assertion judge" in capsys.readouterr().out
     assert cli.main([*base[:5], "airline", *base[6:], "--model", "ollama:gpt-oss:20b"]) == 2
     assert "qwen3.8:27b (stock weights) only" in capsys.readouterr().out
+    finished = tmp_path / "finished-run"
+    (finished / "tau2").mkdir(parents=True)
+    (finished / "tau2" / "results.json").write_text("{}", encoding="utf-8")
+    airline = [*base[:5], "airline", *base[6:]]
+    assert cli.main([*airline, "--run-dir", str(finished)]) == 2
+    assert "already has tau2 results" in capsys.readouterr().out  # never written over without --resume
+    assert cli.main([*airline, "--run-dir", str(tmp_path / "never-ran"), "--resume"]) == 2
+    assert "--resume needs --run-dir of an earlier run" in capsys.readouterr().out
     monkeypatch.setenv("ROW_BOT_BENCH_MAX_USD", "5")  # the owner's yes for a paid judge: it still needs its key
     monkeypatch.setenv("ROW_BOT_BENCH_KEYS_FILE", str(tmp_path / "bench-keys.env"))
     assert cli.main([*base, "--nl-judge", "openai:gpt-4.1-2025-04-14"]) == 2

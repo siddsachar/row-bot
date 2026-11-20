@@ -181,8 +181,11 @@ def run(args: argparse.Namespace) -> int:
     label = f"tau2-{args.domain}-{args.split}{'-' + args.variant if args.variant else ''}-{os.urandom(2).hex()}"
     run_dir = Path(args.run_dir) if args.run_dir else orchestrate.new_run_dir(label)
     run_dir.mkdir(parents=True, exist_ok=True)
-    if (run_dir / "tau2" / "results.json").exists():
-        print(f"not running: {run_dir} already has tau2 results (start a new run folder)")
+    if (run_dir / "tau2" / "results.json").exists() and not args.resume:
+        print(f"not running: {run_dir} already has tau2 results (start a new run folder, or --resume it)")
+        return 2
+    if args.resume and not (run_dir / "run.json").is_file():
+        print("not running: --resume needs --run-dir of an earlier run")
         return 2
     print(f"run folder: {run_dir}")
     config = BenchConfig(provider=provider, model=model, tools=(), reasoning_effort=args.reasoning_effort or "")
@@ -198,7 +201,7 @@ def run(args: argparse.Namespace) -> int:
     argv = [str(tau2_python(root)), str(TAU2_SIDE), "run", "--domain", args.domain, "--split", args.split,
             "--num-trials", str(args.trials), "--seed", str(args.seed), "--max-steps", str(args.max_steps),
             "--user-model", args.user_model, "--user-effort", args.user_effort,
-            "--save-to", str(run_dir / "tau2")]
+            "--save-to", str(run_dir / "tau2")] + (["--resume"] if args.resume else [])
     if args.task_ids or args.limit:
         argv += ["--task-ids", ",".join(tasks)]
     if args.nl_judge:
@@ -365,6 +368,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--variant", default="", choices=VARIANTS,
                             help="a bench-only arm of a paired A/B (agent_evals.variants); '' is Row-Bot as shipped")
     run_parser.add_argument("--run-dir", default="")
+    run_parser.add_argument("--resume", action="store_true",
+                            help="with --run-dir: run only the (task, trial) pairs tau2 has not saved, each with the "
+                                 "seed it would have had (tau2's own checkpoint resume)")
     run_parser.add_argument("--published", default="", help="a published run's results.json (gzip or plain)")
     report = tau2_sub.add_parser("report")
     report.add_argument("--run-dir", required=True)
