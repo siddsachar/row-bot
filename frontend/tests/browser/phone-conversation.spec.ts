@@ -151,10 +151,10 @@ for (const phone of PHONES)
         await expect(menu.getByRole('menuitem').nth(index + 1)).toHaveText(
           name,
         );
-      // Incognito stays here until Chat settings takes it (B2).
+      // Incognito is in + › Chat settings (B2).
       await expect(
         menu.getByRole('menuitem', { name: /^Incognito/ }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       await screenshot(page, info, `phone-conversation-menu-${width}`);
       await page.keyboard.press('Escape');
       await expect(menu).toHaveCount(0);

@@ -10,6 +10,17 @@ export type Selection =
   | { kind: 'folder'; files: File[] }
   | { kind: 'file' | 'folder'; reference: string };
 
+/**
+ * What a file picker offers (the phone's + tiles, B2): `accept` is the
+ * input's list of types ("image/*"), and `capture` opens that camera
+ * straight away. Only the browser's file input reads them for now; the
+ * native shells' bridge (E7) will take the same two.
+ */
+export type FilePickerOptions = {
+  accept?: string;
+  capture?: 'environment' | 'user';
+};
+
 export type SelectionIntent = {
   intentId: string;
   intent: string;
@@ -164,6 +175,7 @@ export interface ClientPlatform {
   selectFile(
     signal?: AbortSignal,
     intent?: SelectionIntent,
+    picker?: FilePickerOptions,
   ): Promise<CapabilityResult<Selection>>;
   selectFolder(
     signal?: AbortSignal,

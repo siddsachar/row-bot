@@ -370,11 +370,13 @@ test('the composer’s picker offers a ready version as Personal model v1', asyn
   const pill = page.getByRole('button', { name: 'Model', exact: true });
   const plus = page.getByRole('button', { name: 'Add files and more' });
   await expect(pill.or(plus).first()).toBeVisible();
+  // A phone opens it from the model under the chat's title (B1, B2).
   if (await pill.isVisible()) await pill.click();
-  else {
-    await plus.click();
-    await page.getByRole('menuitem', { name: /^Model/ }).click();
-  }
+  else
+    await page
+      .locator('header.conversation-heading')
+      .getByRole('button', { name: /^(Model: |Choose a model$)/ })
+      .click();
   const list = page.getByRole('listbox', { name: 'Models' });
   const row = list.getByRole('option', { name: /^Personal model v1/ });
   await expect(row).toContainText('Personal');
