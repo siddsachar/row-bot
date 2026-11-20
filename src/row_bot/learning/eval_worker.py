@@ -1090,6 +1090,7 @@ class _TaskGate:
 
 
 def _install_gate(gate: _TaskGate) -> None:
+    from row_bot.agent import _PREPARED_COMPACTION_KEY as prepared_mark
     from row_bot.learning.evaluation import estimate_tokens
     from row_bot.learning.spending import is_local_provider
     from row_bot.providers import usage_ledger
@@ -1106,6 +1107,10 @@ def _install_gate(gate: _TaskGate) -> None:
         return found
 
     def on_chat_model_start(self: Any, serialized: Any, messages: Any, *, run_id: Any, **kwargs: Any) -> None:
+        if (kwargs.get("metadata") or {}).get(prepared_mark):
+            # A summary prepared ahead after a task settled (B6) is no task's work: refused before it is sent,
+            # never charged or counted against the task running then; the preparation then stores nothing.
+            raise RuntimeError("learning evaluation: no compaction is prepared ahead")
         tools = (kwargs.get("invocation_params") or {}).get("tools")
         estimate = estimate_tokens(flatten(messages), tools)
         gate.admit(run_id, estimate, local=is_local_provider(str(getattr(self, "provider_id", "") or "")))
