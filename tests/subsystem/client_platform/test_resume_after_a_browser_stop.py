@@ -21,6 +21,7 @@ import pytest
 from tests.contracts.client_platform.test_headless_lifecycle import command, platform  # noqa: F401
 from tests.helpers.client_platform_fakes import fixture_id
 from tests.subsystem.client_platform.test_finished_turns_answer_every_call import _call
+from tests.subsystem.client_platform.test_interrupted_after_restart import _restart
 
 pytestmark = pytest.mark.subsystem
 
@@ -105,3 +106,23 @@ def test_a_turn_stopped_at_the_browser_limit_carries_on_on_the_claude_plan(platf
 
     assert carried.status == "completed"
     assert platform.transcript("conversation-a")["rows"][-1]["blocks"][0]["text"] == "Posted the thread."
+
+def test_a_browser_stop_still_shows_why_after_a_reload_and_a_restart(platform, turns):
+    """Learning's check on the change above: the stop marker used to end the saved turn, and the notice's reason is
+    not in the conversation. A reload, even after Row-Bot restarts, shows the stopped step as stopped, the reason
+    and Resume."""
+    platform.stream_factory, platform.resume_factory = turns
+    stopped = _run(platform, "conversation.submit", "browse", {
+        "submission_id": fixture_id("browse"), "text": "Post my thread on X", "attachment_refs": [],
+        "model_selection": {"provider_id": "claude_subscription",
+                            "model_ref": "claude_subscription/claude-opus-5-5"}})
+    reason = platform.snapshot("conversation-a")["generation"]["failure_reason"]
+    assert stopped.status == "interrupted" and reason
+
+    _restart(platform)
+
+    reloaded = platform.snapshot("conversation-a")
+    assert (reloaded["generation"]["status"], reloaded["generation"]["failure_reason"]) == ("interrupted", reason)
+    step = next(row for row in reloaded["rows"] if row["id"] == "assistant:checkpoint:ai-call-3")
+    assert [item["status"] for trace in step["traces"] for item in trace["items"]] == ["cancelled"]
+    assert reloaded["rows"][-1]["role"] == "tool" and reloaded["rows"][-1]["tool_call_id"] == "call-3"
