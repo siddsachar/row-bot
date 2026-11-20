@@ -6980,7 +6980,8 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
         return {"action": action}
     if action == "run":
         # name: first (planned, never confirmed), planned, over-cap, uploading, setting-up, training, exporting,
-        # downloading, lost, no-credit, done (the version made ready and the uploads deleted)
+        # downloading, lost, no-credit, done (the version made ready and the uploads deleted), kept (trained and
+        # paid for, then stopped before its outputs were downloaded: the uploads go, the model stays)
         jobs = runner.supervisor.jobs
         recipe = recipes.load("hf-27b")
         steps = recipe.steps_for(412)
@@ -7028,12 +7029,15 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
             remote.stage = "ERROR"
             hub.say(remote.id, "error", reason="no_credit", stage="setting_up")
             trainer.tick()
-        if name in ("downloading", "done"):
+        if name in ("downloading", "done", "kept"):
             hub.finish(remote.id, output_repo=record.output_repo, running_seconds=6_120)
-            if name == "downloading":
+            if name in ("downloading", "kept"):
                 remote_training.write_record(remote_training.RunRecord(**{
                     **record.to_dict(), "outputs": tuple(record.outputs), "phase": "downloading",
-                    "stage": "done", "running_seconds": 6_120, "cost_usd": remote_training.cost(6_120, 1.8)}))
+                    "stage": "done", "running_seconds": 6_120, "cost_usd": remote_training.cost(6_120, 1.8),
+                    **({"outcome": "completed"} if name == "kept" else {})}))
+                if name == "kept":
+                    trainer.cancel(job.id)  # the person's Stop, before the download
             else:
                 trainer.tick()  # downloaded, evaluating
                 current = remote_training.read_record(job.id)

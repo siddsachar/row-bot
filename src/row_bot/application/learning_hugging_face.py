@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 import math
+import re
+from collections.abc import Sequence
 from typing import Any
 
 from row_bot import learning
@@ -26,6 +28,8 @@ CAP_CHOICES = (10, 20, 50, 100)
 STAGES = frozenset({"setting_up", "downloading", "training", "exporting", "uploading", "done"})
 REMOTE_FAILURES = frozenset({"upload_failed", "not_started", "remote_error", "no_credit", "signed_out",
                              "model_mismatch", "export_failed", "out_of_gpu_memory", "engine_error"})
+# A Hugging Face repository's name (``owner/name``): only such a name becomes a link to it.
+_REPO = re.compile(r"[A-Za-z0-9][\w.-]{0,95}/[A-Za-z0-9][\w.-]{0,95}")
 
 
 def _trainer() -> Any:
@@ -150,15 +154,21 @@ def view(settings: learning.LearningSettings) -> dict[str, Any] | None:
 
 
 def _last_run() -> dict[str, Any] | None:
-    """The newest finished Hugging Face run: its version, what it cost, and whether its uploads were deleted
-    there (O133: Learning says so)."""
-
     from row_bot.learning import runner as runner_module
-    from row_bot.learning.remote import training as remote_training
 
     if not learning.store_exists():
         return None
-    for job in runner_module.get().supervisor.jobs.all()[:50]:
+    return last_run(runner_module.get().supervisor.jobs.all())
+
+
+def last_run(jobs: Sequence[Any]) -> dict[str, Any] | None:
+    """The newest finished Hugging Face run of ``jobs`` (newest first): its version, what it cost, whether its
+    uploads were deleted there (O133: Learning says so), and whether the model it trained stays in the person's
+    account (training finished, and was paid for, but the run ended before its outputs were downloaded)."""
+
+    from row_bot.learning.remote import training as remote_training
+
+    for job in jobs[:50]:
         if job.backend != "hugging_face" or job.state in ("planned", "waiting", "preparing", "running",
                                                           "unknown_remote"):
             continue
@@ -169,8 +179,16 @@ def _last_run() -> dict[str, Any] | None:
                 "minutes": int(math.ceil(record.running_seconds / 60)) if record.running_seconds else 0,
                 "outcome": record.outcome if record.outcome in ("completed", "error", "canceled", "not_started")
                 else None,
-                "cleaned": record.cleaned_at is not None, "cleanup_failed": bool(record.cleanup_failed)}
+                "cleaned": record.cleaned_at is not None, "cleanup_failed": bool(record.cleanup_failed),
+                **_kept_model(record)}
     return None
+
+
+def _kept_model(record: Any) -> dict[str, Any]:
+    kept = bool(record.model_kept) and record.cleaned_at is None
+    repo = str(record.output_repo or "")
+    return {"model_kept": kept,
+            "model_url": f"https://huggingface.co/{repo}" if kept and _REPO.fullmatch(repo) else None}
 
 
 def run_view(job: Any) -> dict[str, Any] | None:
@@ -345,4 +363,4 @@ def _save(values: dict[str, Any]) -> None:
         ) from None
 
 
-__all__ = ["ACTIONS", "CAP_CHOICES", "available", "failure", "perform", "run_view", "view"]
+__all__ = ["ACTIONS", "CAP_CHOICES", "available", "failure", "last_run", "perform", "run_view", "view"]
