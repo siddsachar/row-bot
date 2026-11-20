@@ -405,3 +405,27 @@ def test_under_auto_the_reviewer_decides_from_the_persons_words_never_learnings(
     [approval] = _decisions(store, subkind="approval")
     assert (approval.approval_level, approval.decided_by, approval.approval_outcome) == ("auto", "reviewer", "approved")
     assert read_json_blob(store, approval.result_blob)["reviewer_reason"] == "You asked to delete old.txt"
+
+
+def test_only_a_goal_step_is_a_goal_and_row_bots_other_follow_ups_belong_to_their_chat(learning_dir, monkeypatch):
+    # Every follow-up Row-Bot starts (a wait, a linked reply, a carry-on) continues the conversation's work, but
+    # only a goal step is scoped as a goal: the others are the chat's, under My chats.
+    from tests.fixtures.learning import save_learning_settings
+
+    model = ScriptedModel(responses=[says("The parcel is in."), says("Step two done."), says("Step three done."),
+                                     says("Noted."), says("Step four done.")], seen=[])
+    turns = AgentTurns(monkeypatch, model, [])
+    turns.send("The wait is over: the parcel arrived.", internal_goal_continuation=True, followup_kind="wait")
+    turns.send("Carry on with the goal.", internal_goal_continuation=True, followup_kind="goal")
+    turns.send("Carry on with the goal.", internal_goal_continuation=True)  # goals.py's own turn
+    store = _written(learning_dir)
+    assert [item.source for item in sorted(store.find("episode"), key=lambda item: item.started_at)] == [
+        "my_chat", "goal", "goal"]
+
+    save_learning_settings(learning_dir, sources={"my_chats": False, "workflows_and_goals": True})
+    turns.send("From your other chat: the venue is booked.", internal_goal_continuation=True,
+               followup_kind="linked")
+    turns.send("Carry on with the goal.", internal_goal_continuation=True, followup_kind="goal")
+    store = _written(learning_dir)
+    assert [item.source for item in sorted(store.find("episode"), key=lambda item: item.started_at)] == [
+        "my_chat", "goal", "goal", "goal"]  # the linked reply's turn stays out with My chats off

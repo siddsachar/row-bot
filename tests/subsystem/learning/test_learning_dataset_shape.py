@@ -348,6 +348,26 @@ def test_imported_rows_get_only_the_static_part_of_the_live_prompt(work, learnin
     assert "AGENT PROFILE: Research" in live.row["messages"][0]["content"]  # its own conversation keeps it
 
 
+def test_imported_rows_leave_out_a_code_folders_project_notes(work, learning_on, clock, chats, recipe):
+    # Two chats in one code folder share its project notes, so they'd pass as a static part of the prompt; an
+    # imported chat had none.
+    notes = ("<<<PROJECT NOTES>>>\nPROJECT NOTES from the code folder \"app\".\n\n--- AGENTS.md ---\n"
+             "Run the tests with make check.\n<<<END PROJECT NOTES>>>")
+    work.turn("chat-a", "Read my notes", [("workspace_read_file", {"path": "a.txt"}, "a")], "A.",
+              system=[*CLOUD_SYSTEM, notes])
+    work.turn("chat-b", "Read my plan", [("workspace_read_file", {"path": "b.txt"}, "b")], "B.",
+              system=[*CLOUD_SYSTEM, notes])
+    _import(learning_on, clock, chats, ("chat-past", [], "Paris.", "Capital of France?"))
+
+    [example] = _past(_compile(learning_on, chats, recipe))
+    system = example.row["messages"][0]["content"]
+
+    assert "PROJECT NOTES" not in system and "make check" not in system
+    assert system.startswith(SMALL_ROOT) and PLATFORM in system
+    live = next(item for item in _compile(learning_on, chats, recipe).train if item.thread_id == "chat-b")
+    assert "Run the tests with make check." in live.row["messages"][0]["content"]  # its own chat keeps them
+
+
 def test_imported_rows_wait_for_a_first_live_turn_with_tools(learning_on, clock, chats, recipe):
     # Nothing live yet: no prompt or tools to frame them with, so they wait (and say so); the captured shape
     # (the paper's ablation) keeps them as imported.
