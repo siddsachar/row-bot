@@ -145,6 +145,9 @@ BROWSER_SMOKE_SPECS = (
     "phone-chats",
     # The phone's conversation header (B1): the model under the title, New chat, ⋯, long-press for older messages. Appended likewise.
     "phone-conversation",
+    # Working on, on a phone (B3): a design previewed and paged, a code folder's Changes and Files; Edit, Run
+    # and Git say "Open this on your computer". Appended likewise.
+    "phone-panels",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
