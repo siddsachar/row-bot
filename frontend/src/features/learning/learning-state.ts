@@ -71,6 +71,8 @@ const RETRY_ON_CHANGE = new Set<LearningAction>([
   'review_version',
   'export_version',
   'stop_compare',
+  'answer_question',
+  'dismiss_question',
 ]);
 
 /** How often the training run is read while it runs, and otherwise. */

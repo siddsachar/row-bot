@@ -7,8 +7,9 @@ looks at what is due, after Dream, in this order:
   is using Row-Bot, the vault takes its share of new work and held-out corrections first, then
   ``diagnosis`` groups issues and drafts changes, all by the learning method in use (L4a,
   ``improver.archive``). It stops before its next model call when the person comes back or Learning
-  is paused, and goes on later that night. Its tests follow (L3b), then a **strategy trial** when
-  enough fresh hidden problems have built up (L4a, ``improver.meta``);
+  is paused, and goes on later that night. In a build with them on (L4b), the day's **quick question**
+  (``question``) and the night's **practice** (``practice``) come next. Its tests follow (L3b), then a
+  **strategy trial** when enough fresh hidden problems have built up (L4a, ``improver.meta``);
 
 - a personal-model training run starts or continues when **Train during quiet hours**
   is on, training happens on this computer, the training engine and its weights are
@@ -215,6 +216,17 @@ class NightLook:
         except Exception:  # noqa: BLE001 - the changes can't be read: nothing to test tonight
             return True
 
+    def practised_tonight(self) -> bool:
+        """Tonight's practice finished, or this build doesn't practise (L4b)."""
+
+        from row_bot.learning import practice
+
+        if not practice.enabled():
+            return True
+        night = self.tonight()
+        found = practice.last_night(self._store()) if gate.store_exists(self._root) else None
+        return bool(night and found and found.get("night") == night and found.get("state") != "stopped")
+
     def tried_tonight(self) -> bool:
         """Tonight's strategy trial finished, or none could run (L4a)."""
 
@@ -225,7 +237,7 @@ class NightLook:
         return bool(night and found and found.get("night") == night and found.get("state") != "stopped")
 
     def done_tonight(self) -> bool:
-        return self.looked_tonight() and self.tested_tonight() and self.tried_tonight()
+        return self.looked_tonight() and self.practised_tonight() and self.tested_tonight() and self.tried_tonight()
 
     def due(self) -> bool:
         """Learning is on, it is quiet hours after Dream, and tonight's look hasn't finished."""
@@ -245,7 +257,11 @@ class NightLook:
         if night is None:
             return None
         report = self._look(night) if not self.looked_tonight() else None
-        if self.looked_tonight() and not self.tested_tonight():
+        if self.looked_tonight() and not self._stop():
+            self._ask(night)
+        if self.looked_tonight() and not self.practised_tonight() and not self._stop():
+            self._practise(night)
+        if self.looked_tonight() and self.practised_tonight() and not self.tested_tonight():
             self._test(night)
         if self.looked_tonight() and self.tested_tonight() and not self.tried_tonight() and not self._stop():
             self._trial(night)
@@ -289,6 +305,10 @@ class NightLook:
         if isinstance(switched, dict) and switched.get("to"):
             parts.append(f"changed how it learns (method v{switched['to']}): {switched.get('words') or 'a new method'}"
                          " (Undo in Learning)")
+        from row_bot.learning import question
+
+        if question.current(store) is not None:
+            parts.append("a quick question for you (in Learning)")
         store.set_meta_values({MORNING_KEY: night})
         if not parts:
             return None
@@ -333,6 +353,41 @@ class NightLook:
         except Exception:
             logger.exception("Learning's look for things to improve failed")
             diagnosis.note_night(store, night, "failed")
+            return None
+
+    def _client(self) -> Any:
+        if self.client is not None:
+            return self.client
+        from row_bot.learning.calls import LedgerModelClient
+
+        return LedgerModelClient()
+
+    def _ask(self, night: str) -> Any:
+        """Today's quick question, when the night left real uncertainty (L4b; at most one a day)."""
+
+        from row_bot.learning import question
+
+        try:
+            return question.maybe_ask(self._store(), client=self._client(), night=night,
+                                      now=self.clock() if self.clock else None)
+        except Exception:
+            logger.exception("Learning couldn't ask its quick question")
+            return None
+
+    def _practise(self, night: str) -> Any:
+        """Tonight's practice (L4b): tasks made up from the issues, run once, kept; under the same stop rule."""
+
+        from row_bot.learning import practice
+        from row_bot.learning.improver import archive
+
+        store = self._store()
+        try:
+            method = archive.current(store).strategy
+            return practice.practise(store, night=night, client=self._client(), tester=self._tester(method),
+                                     method=method, should_stop=self._stop, now=self.clock() if self.clock else None)
+        except Exception:
+            logger.exception("Learning's practice failed")
+            practice.note_failed(store, night)
             return None
 
     def _test(self, night: str) -> Any:

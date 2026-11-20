@@ -53,6 +53,7 @@ import {
   UsedByItself,
 } from './ChangesView';
 import { MethodSheet, MethodSummary, MethodSwitched } from './HowRowBotLearns';
+import { QuickQuestion } from './QuickQuestion';
 import { StrongerModelNotice } from './StrongerModelNotice';
 import { HuggingFaceCard } from './HuggingFace';
 import { TrainingProgress } from './TrainingProgress';
@@ -181,6 +182,7 @@ function Overview({
   const uses = io.snapshot?.personal_model.uses ?? [];
   const night = io.snapshot?.overnight;
   const method = io.snapshot?.method;
+  const question = io.snapshot?.quick_question;
   const lines = night ? overnightLines(night) : [];
   const learning = io.snapshot?.kinds_learning ?? [];
   const kinds = [
@@ -205,8 +207,9 @@ function Overview({
         </div>
       )}
       <Section title="Needs you">
-        {needs.length || changeNeeds ? (
+        {needs.length || changeNeeds || question ? (
           <>
+            <QuickQuestion io={io} question={question} />
             <ChangeNeeds changes={changes} onReview={onReviewChange} />
             {needs.length > 0 && (
               <PersonalModelNeeds io={io} onReview={onReview} />

@@ -461,3 +461,77 @@ def test_a_local_endpoints_key_is_saved_with_its_endpoint_so_the_worker_can_use_
 
     assert runtime.provider_status(provider)["configured"] is True  # Row-Bot's readiness asks this first
     assert auth_store.get_provider_secret(provider, "api_key") == "key-1" and "key-1" in secrets
+
+
+def test_only_a_passing_practice_task_brings_back_its_turn_as_sent(data_dir, monkeypatch):
+    """L4b: the training data's practice slice is a passing practice task's last request and reply exactly as the real
+    runtime sent them; a sample or hidden task, a failed one, or one not asked for never brings its turn back."""
+
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    from row_bot import agent, models, threads
+    from row_bot.learning.practice import generate
+    from row_bot.tools import registry
+    from tests.subsystem.learning.test_learning_practice import GOOD
+
+    monkeypatch.setattr(threads, "create_thread", lambda *args, **kwargs: None)
+    monkeypatch.setattr(models, "adopt_saved_default", lambda ref: None)
+    monkeypatch.setattr(registry, "set_tool_config", lambda *args, **kwargs: None)
+    monkeypatch.setattr(eval_worker, "_ledger_rows", lambda after: ([], 0))
+    monkeypatch.setattr(eval_worker, "_forget_task", lambda thread_id: None)
+    gate = eval_worker._TaskGate()  # noqa: SLF001
+    schema = {"type": "function", "function": {"name": "workspace_read_file", "description": "Read a file.",
+                                               "parameters": {"type": "object", "properties": {}}}}
+    replies: dict[str, str] = {}
+
+    def turn(prompt, tools, config, stop_event=None):
+        # What the usage ledger's callback hands the gate around the turn's one model call.
+        gate.sending([SystemMessage(content="You are Row-Bot."), HumanMessage(content=prompt)], [schema])
+        gate.replied(LLMResult(generations=[[ChatGeneration(message=AIMessage(content=replies[prompt]))]]))
+        yield ("done", replies[prompt])
+
+    monkeypatch.setattr(agent, "stream_agent", turn)
+    spec = {"arms": [{"name": "main", "model_ref": "model:openai:gpt-5.6-sol"}], "code_backend": "local"}
+    practice = generate.task_from(GOOD, "document_lookups")
+    sample = next(item for item in visible_tasks() if item.pack == "document_lookups")
+
+    def run(task, answer, *, asked=True):
+        replies[task.prompt] = answer
+        message = {"id": 1, "task": task.to_dict(), "arm": "main", "budget": {"task_tokens": 100_000},
+                   "timeout": 30, **({"turn": True} if asked else {})}
+        return eval_worker._run_task(message, spec, [], gate, data_dir)  # noqa: SLF001
+
+    kept = run(practice, practice.reference.answer)
+    assert kept["case"]["status"] == "passed"
+    assert kept["turn"]["purpose"] == "agent" and kept["turn"]["tools"] == [schema]
+    assert [item["data"]["content"] for item in kept["turn"]["messages"]] == ["You are Row-Bot.", practice.prompt]
+    assert kept["turn"]["reply"]["data"]["content"] == practice.reference.answer
+    assert "turn" not in run(practice, practice.decoy.answer)  # it failed
+    assert "turn" not in run(practice, practice.reference.answer, asked=False)
+    assert "turn" not in run(sample, sample.reference.answer)  # a sample task's turn never leaves the worker
+
+
+def test_the_runner_asks_for_turns_only_for_practice_tasks_and_keeps_a_passing_ones():
+    from row_bot.learning.practice import generate
+    from tests.subsystem.learning.test_learning_practice import GOOD
+
+    class TurnWorker(FakeWorker):
+        def run(self, task, arm, *, budget, timeout=0, **options):
+            frame = super().run(task, arm, budget=budget, timeout=timeout)
+            self.asked[-1] = (*self.asked[-1], options)
+            if options.get("turn"):
+                frame["turn"] = {"messages": [], "tools": None, "reply": {"type": "ai", "data": {"content": "x"}}}
+            return frame
+
+    worker = TurnWorker()
+    runner = eval_worker.RuntimeRunner(worker, {"main": eval_worker.WorkerArm("main", "model:openai:gpt-5.6-sol")},
+                                       keep_turns=True)
+    practice = generate.task_from(GOOD, "document_lookups")
+    arm, budget = Arm("main", "model:openai:gpt-5.6-sol"), Budget(task_tokens=50_000)
+
+    kept = runner.run(practice, arm, budget=budget, meter=TokenMeter(10**6), arm_left=None)
+    sample = runner.run(visible_tasks()[0], arm, budget=budget, meter=TokenMeter(10**6), arm_left=None)
+
+    assert kept.turn is not None and sample.turn is None
+    assert [asked[3] for asked in worker.asked] == [{"turn": True}, {}]
