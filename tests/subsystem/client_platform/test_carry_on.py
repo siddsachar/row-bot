@@ -222,6 +222,10 @@ def test_the_persons_message_replaces_a_pending_carry_on(chat):
     "same brief sent as one message in each run. The replacement film isn't finished yet.",
     "That approval only blocked one run, not the retakes. I should have kept going. I've saved the fix.",
     "I've updated the studio plan beside the chat. The real-data video hasn't been rendered yet.",
+    # Stops from the τ²-bench traces (19 Nov): the reply ends announcing work, and no tool call follows.
+    "Your reservation has travel insurance. I'm checking the flight statuses before determining the next steps.",
+    "I found four more reservations; I've checked two and will review the remaining two before totaling them.",
+    "One booking is basic economy. I still need to verify the flight statuses before deciding what can change.",
 ])
 def test_a_reply_that_stops_mid_work_in_other_words_carries_on_when_the_model_agrees(chat, stop_check, reply):
     """S1 (18 Nov): the owner's real stops, which the narrower rule never caught; the chat's own model is asked
@@ -254,6 +258,9 @@ def test_no_carry_on_when_the_chats_model_reads_the_reply_as_done(chat, stop_che
 @pytest.mark.parametrize("reply, carries_on", [
     ("The landscape cut is saved. Next I'll render the vertical version.", True),
     ("Recording Row-Bot's browser now. I'll stop it once the sign-up flow is done.", False),
+    # The broader rule's newer phrasings (19 Nov) never carry on by themselves: only the model's check can.
+    ("Your reservation has travel insurance. I'm checking the flight statuses before determining the next steps.",
+     False),
 ])
 def test_when_the_check_cannot_be_asked_only_the_narrower_rules_words_carry_on(chat, monkeypatch, reply, carries_on):
     """With no model to ask (a provider error, an endpoint that is down), the broader rule alone fired on

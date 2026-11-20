@@ -7,10 +7,12 @@ import type {
   LearningMethodStep,
   LearningMethodTrial,
   LearningOvernight,
+  LearningSnapshot,
 } from '../../api/types';
 import { Button, InlineEmpty } from '../../ui/primitives';
 import { Drawer, useNotify } from '../../ui/overlays';
 import type { LearningIO } from './learning-state';
+import { LearningJobs } from './LearningJobs';
 import { dayWords, plural, tokenWords } from './words';
 import './learning.css';
 
@@ -131,14 +133,22 @@ function armLabel(arm: LearningMethodArm, trial: LearningMethodTrial): string {
 }
 
 /** The newest trial: each method's ideas kept per 1M tokens, with the denominators (designs §6). */
-function TrackRecord({ method }: { method: LearningMethod }) {
+function TrackRecord({
+  method,
+  spending,
+}: {
+  method: LearningMethod;
+  spending: LearningSnapshot['spending'] | undefined;
+}) {
   const trial = (method.trials ?? []).find((item) => item.outcome !== 'final');
   const next = method.next_trial;
   if (!trial)
     return (
       <p className="learning-muted">
         {next.state === 'limit'
-          ? 'Not compared with another method yet: this month’s share for comparing methods is used up.'
+          ? spending?.limit_reached
+            ? `Not compared with another method yet: this month’s Learning limit is used up. Comparisons can run again from ${day(spending.resets_on)}.`
+            : 'Not compared with another method yet: this month’s share for comparing methods is used up.'
           : `Not compared with another method yet. A comparison runs once ${next.needed.toLocaleString()} new problems have built up (${next.fresh.toLocaleString()} so far).`}
       </p>
     );
@@ -231,7 +241,7 @@ export function MethodSheet({
         </section>
         <section aria-label="Track record">
           <h3>Track record</h3>
-          <TrackRecord method={method} />
+          <TrackRecord method={method} spending={io.snapshot?.spending} />
         </section>
         <section aria-label="History">
           <h3>History</h3>
@@ -266,6 +276,7 @@ export function MethodSheet({
             </p>
           )}
         </section>
+        <LearningJobs jobs={method.jobs} />
         <section aria-label="What it can never change">
           <h3>What it can never change</h3>
           <ul className="learning-method-never">

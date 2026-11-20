@@ -440,6 +440,7 @@ _STATUS.update(
         "learning_change_refused": 409,
         "learning_change_busy": 409,
         "learning_method_changed": 409,
+        "learning_question_changed": 409,
         "learning_hugging_face_unavailable": 409,
         "learning_hugging_face_unreachable": 503,
         "learning_hugging_face_refused": 409,
@@ -447,6 +448,12 @@ _STATUS.update(
         "learning_hugging_face_signed_out": 409,
         "learning_hugging_face_over_cap": 409,
         "learning_quote_changed": 409,
+        "learning_licence_needed": 409,
+        "learning_model_unavailable": 409,
+        "learning_model_check_busy": 409,
+        "learning_model_check_changed": 409,
+        "learning_model_in_use": 409,
+        "learning_engine_needed": 409,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,
@@ -1375,11 +1382,13 @@ async def _body(request: Request, model, maximum: int = JSON_LIMIT):
         raise ProtocolError("invalid_command", 422) from None
 
 
-async def _context(request: Request) -> AccessContext:
+async def _context(request: Request, *, reuse: bool = False) -> AccessContext:
+    """The request's access, checked again. ``reuse``, for a check that delivers nothing: this request's
+    last check, while under a second old (P9)."""
     context = request.scope.get(ACCESS_CONTEXT_SCOPE_KEY)
     validate = request.scope.get("row_bot_revalidate_access")
     if validate is not None:
-        context = await validate()
+        context = await validate(reuse=reuse)
     if not isinstance(context, AccessContext) or not context.authenticated:
         raise ProtocolError("authentication_required", 401)
     if request.headers.get("origin") is not None and not request_origin_matches(
@@ -1391,14 +1400,12 @@ async def _context(request: Request) -> AccessContext:
 
 def cached_choices() -> dict:
     """Read existing caches/catalogues; opening a client never refreshes a provider."""
-    from row_bot.providers.model_catalog_cache import read_model_catalog_cache
-    from row_bot.providers.client_status import picker_choices
+    from row_bot.providers.client_status import catalog_is_stale, picker_choices
     from row_bot.providers.model_visibility import annotate, withheld
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
-    snapshot = read_model_catalog_cache()
     from row_bot.application.provider_default_model import read_default_model
     from row_bot.providers.config import ProviderConfigError
 
@@ -1463,7 +1470,7 @@ def cached_choices() -> dict:
     return {
         "models": models,
         "capabilities": capabilities,
-        "catalog_stale": snapshot.is_stale,
+        "catalog_stale": catalog_is_stale(),
     }
 
 
@@ -1576,7 +1583,8 @@ def create_router(
     )
 
     async def session(request: Request, *, lane: str = "query") -> Any:
-        context = await _context(request)
+        # A route's first check, just after admission's: it delivers nothing, so admission's answer serves.
+        context = await _context(request, reuse=True)
         current = security.session(
             context,
             request.headers.get("x-client-session", ""),
@@ -10707,6 +10715,17 @@ def create_router(
             ),
         )
 
+    @router.get("/learning/models")
+    async def learning_models(request: Request, query: str = "") -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_models
+
+        return await respond(
+            request,
+            dto.LearningModelSearch,
+            await call(read_learning_models, validate=dispatch_validation(request, current), query=query[:80]),
+        )
+
     @router.get("/learning/conversations/{conversation_id}")
     async def learning_conversation(conversation_id: str, request: Request) -> JSONResponse:
         current = await session(request)
@@ -12174,7 +12193,8 @@ def create_router(
             try:
                 yield ": connected\n\n"
                 while not await request.is_disconnected():
-                    security.session(await _context(request), current.id, current.csrf)
+                    # Topic names and numbers only: a check under a second old serves (P9).
+                    security.session(await _context(request, reuse=True), current.id, current.csrf)
                     frame = live_updates.live_updates.frame()
                     if sent != (frame["epoch"], frame["revision"]):
                         sent = (frame["epoch"], frame["revision"])

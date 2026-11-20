@@ -493,3 +493,86 @@ def test_while_hugging_face_waits_for_a_free_card_the_run_says_so_and_costs_noth
     world.hub.jobs[job.remote_request_id].stage = "RUNNING"
     world.trainer.tick()
     assert learning_hugging_face.run_view(world.jobs.get(job.id))["waiting_for_gpu"] is False
+
+
+# ── A model the person checked on this computer (C1 Part 4, O138) ─────────────
+
+CHECKED = "hf:Qwen/Qwen3-14B"
+
+
+def _checked(world, *, choose: bool = True):
+    """Qwen3-14B's check passed here (faked steps); it trains on Hugging Face on its card (an L40S)."""
+
+    from tests.fixtures.open_models import FakeSteps
+    from tests.subsystem.learning.test_learning_open_models import _check, _record
+
+    found = _check(world.root, FakeSteps(world.root), _record(world.root))
+    if choose:
+        save_learning_settings(world.root, hugging_face={"model": CHECKED, "monthly_cap_usd": 20,
+                                                         "runs_confirmed": True})
+    return found
+
+
+def test_a_checked_model_is_offered_after_the_certified_ones_never_recommended(world):
+    assert CHECKED not in [model.id for model in world.trainer.models()]  # not before its check passed
+    _checked(world, choose=False)
+
+    offered = world.trainer.models()
+
+    assert [model.id for model in offered] == ["qwen3.8-27b", "qwen3.5-9b", CHECKED]
+    assert not offered[2].certified and offered[2].checks["tools"]["state"] == "passed"
+    assert world.trainer.choice().id == "qwen3.8-27b"  # nothing chosen: the strongest certified model
+    world.trainer._card_mib = lambda: 8_192  # noqa: SLF001 - an 8 GB card can't run the 14.8B after (O131)
+    assert [model.id for model in world.trainer.models()] == ["qwen3.5-9b"]
+
+
+def test_a_checked_model_s_quote_is_an_estimate_on_the_card_its_check_chose(world):
+    _checked(world)
+
+    quote = world.trainer.quote(examples=90, upload_bytes=4_000_000)
+
+    assert (quote.model_id, quote.model_name, quote.flavor) == (CHECKED, "Qwen3-14B", "l40sx1")
+    assert quote.measured is False and quote.quantization == "Q4_K_M"  # estimates, never certified numbers
+    assert [item["flavor"] for item in quote.choices] == ["l40sx1", "a100-large"]
+    recipe = world.trainer.recipe()
+    assert (recipe.certified, recipe.starting_model) == (False, CHECKED)
+
+
+def test_a_checked_model_s_run_uploads_its_pin_and_trains_it_on_its_card(world):
+    found = _checked(world)
+    job = _planned(world)
+
+    world.trainer.start(job, "train_now", confirmed=True)
+
+    record = remote_training.read_record(job.id, world.root)
+    assert world.jobs.get(job.id).state == "running" and record.model_id == CHECKED
+    plan = json.loads(world.hub.repos[record.dataset_repo]["files"]["job.json"])
+    assert plan["model"] == {"repo": "Qwen/Qwen3-14B", "revision": found.revision,
+                             "files": [dict(item) for item in found.pinned]}  # exactly the files the check pinned
+    assert plan["quantization"] == "Q4_K_M" and plan["base_gguf"] is True
+    assert world.hub.jobs[world.jobs.get(job.id).remote_request_id].flavor == "l40sx1"
+
+
+def test_a_checked_model_s_version_names_it_and_keeps_its_untouched_gguf_for_the_comparison(world):
+    from row_bot.learning.training import base_model, weights
+
+    found = _checked(world)
+    job, record = _started(world)
+    world.hub.finish(job.remote_request_id, output_repo=record.output_repo, base=True)
+    world.trainer.tick()
+
+    def server(runtime, **options):
+        return serving.ServeOutcome("ready", runtime, model_ref="model:row_bot:row-bot-personal-v1",
+                                    probe={"agent_ready": True}, tool_turn={"ok": True})
+
+    maker = releases.ReleaseMaker(world.root, jobs=world.jobs, clock=world.clock, server=server,
+                                  engine_status=lambda: SimpleNamespace(folder=None), runtime=lambda: "row_bot",
+                                  start_threads=False)
+    assert maker.tick()
+
+    manifest = json.loads((releases.version_dir(job.version, world.root) / releases.MANIFEST_FILE).read_text())
+    assert manifest["identity"]["base"] == {"name": "Qwen/Qwen3-14B", "version": found.revision, "sha256": "d" * 64}
+    pinned = weights.model_for(CHECKED, world.root)
+    built = base_model.read(pinned.id, world.root)  # where the comparison looks for the untouched model
+    assert built is not None and (base_model.folder(pinned.id, world.root) / built.gguf).read_bytes() == (
+        b"GGUF untouched starting model")

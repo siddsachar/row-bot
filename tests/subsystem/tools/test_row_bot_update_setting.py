@@ -188,6 +188,23 @@ def test_row_bot_turns_notification_details_off_on_the_persons_ok_and_undoes_it(
     assert (undo["setting"], undo["value"]) == ("notification_details", "on")
 
 
+def test_row_bot_turns_desktop_notifications_off_on_the_persons_ok_and_undoes_it(profile, level, person):
+    from row_bot import notifications
+
+    answer = self_settings.change("desktop_notifications", "off")
+
+    [card] = person["cards"]
+    assert card["change"] == {"label": "Desktop notifications",
+                              "where": "Settings › Preferences › Desktop notifications",
+                              "href": "/settings/preferences#desktop_notifications", "before": "On", "after": "Off",
+                              "tier": "preference"}
+    assert answer.startswith("Desktop notifications are off.")
+    assert notifications.desktop_enabled() is False
+    undo = self_settings.parse_undo(answer)
+    assert self_settings.undo(undo["setting"], undo["value"], undo["now"])[0] == "undone"
+    assert notifications.desktop_enabled() is True
+
+
 def test_block_refuses_on_both_turn_on_paths(profile, level, person, monkeypatch):
     """G22: the setup tool's "Turn on" used to ask the person under Block while the setting tool refused."""
     from row_bot.tools import registry

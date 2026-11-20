@@ -230,3 +230,49 @@ it('the quote lets the person pick another card, each with its own time and pric
     flavor: 'a100-large',
   });
 });
+
+it('a model checked on this computer is offered after the certified ones, said to be uncertified', () => {
+  const found = hugging({
+    sign_in: {
+      state: 'signed_in',
+      user: 'ada',
+      code: null,
+      url: null,
+      failure: null,
+    },
+    models: [
+      ...(hugging().models ?? []),
+      {
+        id: 'hf:Qwen/Qwen3-14B',
+        name: 'Qwen3-14B',
+        licence: 'Apache 2.0',
+        params_b: 14.8,
+        certified: false,
+        recommended: false,
+        runs_here_gb: 11.8,
+        download_bytes: 9_000_000_000,
+      },
+    ],
+  });
+  const io = fakeIO(snapshotWith(found));
+  render(
+    <OverlayProvider>
+      <HuggingFaceCard io={io} hugging={found} />
+    </OverlayProvider>,
+  );
+
+  const models = screen.getByRole('group', { name: 'Model to train' });
+  expect(
+    within(models).getByRole('radio', {
+      name: /^Qwen3\.8 27B · Apache 2\.0 · Recommended/,
+    }),
+  ).toBeChecked();
+  expect(
+    within(models).getByRole('radio', {
+      name: /^Qwen3-14B · Apache 2\.0 · Not certified/,
+    }),
+  ).not.toBeChecked();
+  expect(models).toHaveTextContent(
+    'Checked on this computer. Its time and price are estimates.',
+  );
+});

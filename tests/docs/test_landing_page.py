@@ -12,30 +12,30 @@ CSS = (ROOT / "docs" / "site.css").read_text(encoding="utf-8")
 JS = (ROOT / "docs" / "site.js").read_text(encoding="utf-8")
 
 INDEX_WINDOWS_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.3/"
-    "Row-Bot-5.3.3-Windows-x64.exe"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.4/"
+    "Row-Bot-5.3.4-Windows-x64.exe"
 )
 INDEX_MAC_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.3/"
-    "Row-Bot-5.3.3-macOS-arm64.dmg"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.4/"
+    "Row-Bot-5.3.4-macOS-arm64.dmg"
 )
 INDEX_LINUX_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/"
-    "installer/install-linux.sh | bash -s -- 5.3.3"
+    "installer/install-linux.sh | bash -s -- 5.3.4"
 )
 SITE_WINDOWS_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.3/"
-    "Row-Bot-5.3.3-Windows-x64.exe"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.4/"
+    "Row-Bot-5.3.4-Windows-x64.exe"
 )
 SITE_MAC_URL = (
-    "https://github.com/siddsachar/row-bot/releases/download/v5.3.3/"
-    "Row-Bot-5.3.3-macOS-arm64.dmg"
+    "https://github.com/siddsachar/row-bot/releases/download/v5.3.4/"
+    "Row-Bot-5.3.4-macOS-arm64.dmg"
 )
 SITE_LINUX_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/"
-    "installer/install-linux.sh | bash -s -- 5.3.3"
+    "installer/install-linux.sh | bash -s -- 5.3.4"
 )
-MARKETING_PAGES = ("index.html", "features.html", "architecture.html", "contact.html", "404.html")
+MARKETING_PAGES = ("index.html", "features.html", "architecture.html", "research.html", "contact.html", "404.html")
 
 
 class LandingPageParser(HTMLParser):
@@ -92,8 +92,8 @@ def test_landing_page_is_evergreen_and_current() -> None:
     )
     assert json_ld_match
     metadata = json.loads(json_ld_match.group(1))
-    assert metadata["softwareVersion"] == "5.3.3"
-    assert metadata["downloadUrl"].endswith("/releases/tag/v5.3.3")
+    assert metadata["softwareVersion"] == "5.3.4"
+    assert metadata["downloadUrl"].endswith("/releases/tag/v5.3.4")
 
     parser = _parse()
     assert all(image.get("width") and image.get("height") for image in parser.images)
@@ -104,8 +104,8 @@ def test_landing_page_is_evergreen_and_current() -> None:
         "faq",
         "install",
     ]
-    assert "Row-Bot 5.3.3 available" in HTML
-    assert "Row-Bot &middot; v5.3.3 &middot; Apache 2.0" in HTML
+    assert "Row-Bot 5.3.4 available" in HTML
+    assert "Row-Bot &middot; v5.3.4 &middot; Apache 2.0" in HTML
     assert 'src="media/landing-story/screenshots/research.webp"' in HTML
     assert "One private workspace to reason, build, automate, and act." in HTML
     assert "Row-Bot · Real app capture" in HTML
@@ -258,6 +258,7 @@ def test_marketing_navigation_and_footers_share_one_contract() -> None:
         "docs/",
         "index.html#privacy",
         "index.html#comparison",
+        "research.html",
         "contact.html",
         "https://sydsachar.com/category/row-bot/",
         "https://github.com/siddsachar/row-bot",
@@ -281,7 +282,7 @@ def test_marketing_pages_share_analytics_and_download_conversion_contract() -> N
     assert "data-row-bot-google-tag" in JS
     assert "trackAdsConversion" in JS
 
-    cache_versions = {name: "5.3.3" for name in MARKETING_PAGES}
+    cache_versions = {name: "5.3.4" for name in MARKETING_PAGES}
     for name in MARKETING_PAGES:
         content = (ROOT / "docs" / name).read_text(encoding="utf-8")
         version = cache_versions[name]

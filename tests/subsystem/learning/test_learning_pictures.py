@@ -110,6 +110,9 @@ def test_past_the_cap_the_oldest_pictures_go_but_never_a_vault_tasks_and_the_dec
     assert pictures[1] not in files and pictures[2] in files and pictures[3] in files  # the oldest other went
     stats = store.picture_stats()
     assert (stats.stored, stats.dropped, stats.bytes) == (3, 1, cap)
+    database = sum(path.stat().st_size for path in (store.path, store.path.with_name(store.path.name + "-wal"))
+                   if path.is_file())
+    assert store.storage_bytes() == database + sum(len(data) for data in _blob_files(learning_on).values())
     dropped = _decision(store, ids[1][1])
     assert dropped is not None  # the decision stays
     request = capture.read_request(store, dropped)

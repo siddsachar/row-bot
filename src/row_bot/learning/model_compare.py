@@ -324,8 +324,8 @@ class Comparer:
             return self._baseline_model(runtime)
         from row_bot.learning.training import base_model, engine, hardware, recipes, weights
 
-        model = _trained_from(version, self._root) or weights.MODELS.get(
-            gate.read_settings(self._root).starting_model, weights.QWEN35_9B)
+        model = _trained_from(version, self._root) or weights.model_for(
+            gate.read_settings(self._root).starting_model, self._root, weights.QWEN35_9B)
         found = weights.status(model, self._root)
         built = base_model.read(model.id, self._root)
         # A version trained on Hugging Face brings its untouched starting model as a GGUF the job built (C1): it
@@ -397,8 +397,8 @@ class Comparer:
 
         sizes = [int(getattr(state, "gguf_bytes", 0) or 0)]
         if base_key == "base":
-            model = _trained_from(version, self._root) or weights.MODELS.get(
-                gate.read_settings(self._root).starting_model, weights.QWEN35_9B)
+            model = _trained_from(version, self._root) or weights.model_for(
+                gate.read_settings(self._root).starting_model, self._root, weights.QWEN35_9B)
             built = base_model.read(model.id, self._root)
             sizes.append(int(built.gguf_bytes) if built is not None else 0)
         elif base_key.startswith("v") and base_key[1:].isdigit():
@@ -742,7 +742,12 @@ def _trained_from(version: int | None, root: Path | None) -> Any:
         repo = str(((manifest.get("identity") or {}).get("base") or {}).get("name") or "")
     except (OSError, ValueError, AttributeError):
         return None
-    return next((model for model in weights.MODELS.values() if model.repo == repo), None)
+    certified = next((model for model in weights.MODELS.values() if model.repo == repo), None)
+    if certified is not None or not repo:
+        return certified
+    from row_bot.learning.training import open_models  # a model the person checked here (C1 Part 4)
+
+    return weights.model_for(open_models.model_id(repo), root)
 
 
 def family_key(label: str) -> str:

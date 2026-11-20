@@ -95,7 +95,8 @@ class TestPlan:
     Own work: up to ``own`` hidden problems of its kind (held-out corrections first) and ``other`` of other
     kinds, ``repeats`` runs per arm. Packs: up to ``visible_own`` visible tasks of its kind and
     ``visible_other`` of each other pack, ``hidden_own`` of its pack's hidden tasks (``repeats`` runs) and
-    ``harder_own`` of the harder split (O31), through the real runtime unless ``runtime`` is off."""
+    ``harder_own`` of the harder split (O31), through the real runtime unless ``runtime`` is off. Practice (L4b, in
+    a build with practice on): up to ``practice`` of the practice tasks of its kind, newest first."""
 
     own: int = 8
     other: int = 4
@@ -107,6 +108,7 @@ class TestPlan:
     visible_repeats: int = 1
     task_tokens: int = 150_000
     runtime: bool = True
+    practice: int = 0
 
     @classmethod
     def of(cls, method: Any = None, **overrides: Any) -> TestPlan:
@@ -115,10 +117,12 @@ class TestPlan:
 
         from row_bot.learning.improver import strategy
 
-        budget = (method or strategy.FIRST).budget
+        method = method or strategy.FIRST
+        budget = method.budget
+        practice = method.practice.tested if strategy.practising(method) else 0
         return cls(own=budget.own_problems, other=budget.other_problems, visible_own=budget.visible_own,
                    visible_other=budget.visible_other, hidden_own=budget.hidden_own, harder_own=budget.harder_own,
-                   **overrides)
+                   **{"practice": practice, **overrides})
 
 
 @dataclass
@@ -475,7 +479,7 @@ class Tester:
                            subject_kind="attempt", subject_id=str(meta.get("attempt_id") or "") or None),
         ]
 
-    def _visible(self, kind: str, container: bool) -> list[Any]:
+    def _visible(self, kind: str, container: bool, practice: Sequence[Any] | None = None) -> list[Any]:
         from row_bot.learning.packs import PACKS, visible_tasks
 
         chosen = []
@@ -489,6 +493,12 @@ class Tester:
 
             chosen.extend([task for task in harder.tasks([kind])
                            if container or task.verifier.kind != "code_tests"][: self.plan.harder_own])
+        if self.plan.practice > 0 and kind in PACKS:
+            from row_bot.learning import practice as practice_module
+
+            made = list(practice) if practice is not None else practice_module.pool(self.store, kind)
+            chosen.extend([task for task in made if container or task.verifier.kind != "code_tests"][
+                : self.plan.practice])
         return chosen
 
     def test(self, change_id: str, *, should_stop: Callable[[], bool] = lambda: False) -> Result:
@@ -519,10 +529,12 @@ class Tester:
         return result
 
     def measure(self, proposal: Mapping[str, Any], *, should_stop: Callable[[], bool] = lambda: False,
-                progress: bool = False, meter: Any = None, leave_out: str | None = None) -> Result:
+                progress: bool = False, meter: Any = None, leave_out: str | None = None,
+                practice: Sequence[Any] | None = None) -> Result:
         """One change against the same assistant without it, at equal budget, by the plan; nothing about the
         change is kept (``test`` keeps it). A strategy trial's arm measures its own drafts this way with its own
-        ``meter`` and leaves its fresh problems out (``leave_out``: the trial whose problems judge it)."""
+        ``meter``, its own ``practice`` tasks, and leaves its fresh problems out (``leave_out``: the trial whose
+        problems judge it)."""
 
         from row_bot.learning import evaluation
 
@@ -531,7 +543,7 @@ class Tester:
         main_ref = self._main()
         arms = self.arms(proposal, main_ref)
         container = self._has_container()
-        visible = self._visible(kind, container)
+        visible = self._visible(kind, container, practice)
         meter = meter if meter is not None else (self._meter or evaluation.TokenMeter.for_month)()
         budget = evaluation.Budget(task_tokens=self.plan.task_tokens)
         # A trial's arms each pay for their whole test: a result one arm kept would make the next arm's cheaper

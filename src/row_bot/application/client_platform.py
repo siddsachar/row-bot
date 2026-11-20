@@ -579,7 +579,7 @@ class ClientPlatformService:
     def _publish_queue(self, conversation_id: str, *, finishing: str = "") -> None:
         self.projection.publish(conversation_id, "queue.updated", {
             "submission_ids": admissions.queued_submission_ids(conversation_id, excluding_pass=finishing),
-            "revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1)})
+            "revision": str(self.projection.revision(conversation_id) + 1)})
 
     def finish_execution(self, handle: Any, status: str) -> None:
         # Admission cannot overtake terminal publication. The actual worker's
@@ -610,7 +610,7 @@ class ClientPlatformService:
                 status = admissions.finish(handle.pass_id, status, boundary={
                     "execution_id": handle.execution_id, "server_epoch": handle.server_epoch,
                     "segment_id": handle.segment_id, "message_id": handle.output_message_id,
-                    "checkpoint_revision": handle.output_checkpoint_revision})
+                    "checkpoint_revision": handle.output_checkpoint_revision}, failure_reason=handle.failure_reason)
             with _turn_end_step(conversation_id, "publishing the queue"):
                 self._publish_queue(conversation_id)
             from row_bot.application import client_queue
@@ -980,7 +980,7 @@ class ClientPlatformService:
         try:
             with admissions.transaction() as conn:
                 row = conn.execute(
-                    "SELECT pass_id, generation_id, state FROM generation_passes WHERE conversation_id=? AND "
+                    "SELECT pass_id, generation_id, state, failure_reason FROM generation_passes WHERE conversation_id=? AND "
                     "state IN ('terminal','interrupted') ORDER BY admission_sequence DESC LIMIT 1",
                     (conversation_id,)).fetchone()
         except sqlite3.Error:
@@ -991,7 +991,7 @@ class ClientPlatformService:
                 "generation_id": str(row["generation_id"]), "pass_id": str(row["pass_id"]), "segment_id": None,
                 "status": "interrupted", "revision": "0", "cancel_requested": False, "quiesced": True,
                 "cleanup_complete": True, "external_outcome": "not_applicable", "approval_id": None,
-                "can_stop": False}
+                "can_stop": False, **({"failure_reason": str(row["failure_reason"])} if row["failure_reason"] else {})}
 
     def snapshot(self, conversation_id: str) -> dict:
         from row_bot.application.live_content import references
@@ -1980,7 +1980,7 @@ class ClientPlatformService:
             for offset in range(0, len(text), 8192):
                 self.projection.publish(conversation_id, "transcript.delta", {
                     "pass_id": handle.pass_id, "segment_id": handle.segment_id, "row_id": row_id,
-                    "render_revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1),
+                    "render_revision": str(self.projection.revision(conversation_id) + 1),
                     "public_text_delta": text[offset:offset + 8192]})
         elif kind == "output_binding":
             from row_bot.projection.canonical import exact_assistant_equal

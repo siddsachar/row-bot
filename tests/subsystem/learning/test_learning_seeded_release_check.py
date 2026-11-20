@@ -250,6 +250,75 @@ def test_each_person_runs_in_their_own_scratch_profile_and_nothing_is_written_el
     assert "32gb" not in {path.split("/")[1] for path in written if path.startswith("out/") and path.count("/") > 1}
 
 
+def test_practice_and_jobs_reach_every_persons_build_only_when_asked(tmp_path, home):
+    from row_bot import learning
+
+    (tmp_path / "eval-profile").mkdir()
+    switches = (learning.PRACTICE_ENV, learning.QUICK_QUESTION_ENV, learning.JOBS_ENV)
+    plain = FakePerson()
+    release_check.ReleaseCheck(_args(tmp_path, people="mara"), runner=plain, say=lambda _text: None).execute()
+    assert plain.calls and all(not any(key in env for key in switches) for _person, env in plain.calls)
+
+    on = FakePerson()
+    args = release_check.parse(["--out", str(tmp_path / "out-l4"), "--scratch", str(tmp_path / "scratch-l4"),
+                                "--eval-profile", str(tmp_path / "eval-profile"), "--days", "2", "--people", "mara",
+                                "--practice", "--jobs"])
+    release_check.ReleaseCheck(args, runner=on, say=lambda _text: None).execute()
+    assert on.calls and all(all(env.get(key) == "1" for key in switches) for _person, env in on.calls)
+    run = json.loads((tmp_path / "out-l4" / "run.json").read_text(encoding="utf-8"))
+    assert (run["practice"], run["jobs"]) == (True, True)
+
+
+def test_the_report_says_what_practice_and_learnings_own_jobs_did_and_when_they_were_off(tmp_path, home):
+    # O179: practice and jobs ship on only if the release check passes with them on, so it says what they did.
+    from row_bot.learning import practice
+    from row_bot.learning.improver import jobs
+    from row_bot.learning.store import LearningStore
+
+    (tmp_path / "eval-profile").mkdir()
+    plain = release_check.ReleaseCheck(_args(tmp_path, people="mara"), runner=FakePerson(), say=lambda _text: None)
+    plain.execute()
+    report = (tmp_path / "out" / "report.md").read_text(encoding="utf-8")
+    assert "Practice and the quick question (L4b): off in this run." in report
+    assert "Learning's own jobs (L4c): off in this run." in report and "not built yet** (L4b)" not in report
+
+    args = release_check.parse(["--out", str(tmp_path / "out-l4"), "--scratch", str(tmp_path / "scratch-l4"),
+                                "--eval-profile", str(tmp_path / "eval-profile"), "--days", "2", "--people", "mara",
+                                "--practice", "--jobs"])
+    check = release_check.ReleaseCheck(args, runner=FakePerson(), say=lambda _text: None)
+    check.execute()
+    store = LearningStore(check.data_dir("16gb", "mara"))
+    store.create()
+    store.set_meta_values({
+        practice.NIGHT_KEY: json.dumps({"night": "2026-12-27", "made": 3, "ran": 3, "passed": 2, "tokens": 41_000}),
+        jobs.STATE_KEY: json.dumps({"drafting": {"by": "personal", "last": {
+            "verdict": "matched", "items": 12, "personal_passed": 11, "main_passed": 12}}}),
+    })
+
+    check.write_report()
+
+    report = (tmp_path / "out-l4" / "report.md").read_text(encoding="utf-8")
+    assert ("- Practice (L4b): 0 tasks in use from 0 runs, 0 passing turns in the training data; last night "
+            "(2026-12-27): made 3, ran 3, passed 2, 41,000 tokens; quick questions answered 0.") in report
+    assert ("- Learning's own jobs (L4c): drafting by the personal model (latest test: matched, personal 11 and "
+            "main 12 of 12).") in report
+
+
+def test_a_seeded_persons_main_model_is_their_saved_default_so_learnings_night_work_uses_it(tmp_path,
+                                                                                           monkeypatch):
+    # Learning's change tests, practice and jobs find the main model as the person's saved default; the
+    # rehearsal of 15-17 Nov had it only in memory, so they ran in-process and practice kept no turns.
+    from row_bot.learning import routing
+    from tests.e2e.learning.seeded import live
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    assert routing.main_model_ref() == ""
+
+    live.use_main_model(tmp_path, "model:codex:gpt-6.1-sol")
+
+    assert routing.main_model_ref() == "model:codex:gpt-6.1-sol"
+
+
 def test_a_planned_crash_starts_the_person_again_and_a_full_cap_stops_cleanly(tmp_path, home):
     (tmp_path / "eval-profile").mkdir()
     fake = FakePerson(exits={"idris": [release_check.EXIT_PLANNED_CRASH, 0], "mara": [release_check.EXIT_TOKEN_CAP]},

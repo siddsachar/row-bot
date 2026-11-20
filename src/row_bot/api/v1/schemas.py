@@ -653,7 +653,7 @@ class KnowledgeEntityDetail(WireModel):
     status: Literal["active", "needs_review", "superseded", "archived"]
     tier: Literal["core", "semantic", "episodic", "resource"]
     source: str = Field(max_length=4096)
-    source_bucket: Literal["manual", "extraction", "document", "wiki", "other"]
+    source_bucket: Literal["manual", "extraction", "document", "wiki", "import", "other"]
     confidence: float | None = Field(ge=0, le=1)
     aliases: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
         max_length=12
@@ -684,6 +684,8 @@ class KnowledgeEntityDetail(WireModel):
     can_archive: bool
     can_restore: bool
     can_resolve: bool
+    # The app an imported memory came from ("ChatGPT"); empty for any other source.
+    source_label: str = Field(max_length=128)
 
 
 class KnowledgeRecallCandidate(WireModel):
@@ -1364,6 +1366,8 @@ class PreferenceSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     identity: IdentitySettingsSnapshot
     window_mode: Literal["ask", "native", "browser"]
+    # Desktop notifications and their sounds on the computer running Row-Bot.
+    desktop_notifications: bool = True
     dream_cycle: DreamCycleSettingsSnapshot
     updates: UpdateSettingsSnapshot
     migration: MigrationSettingsSnapshot
@@ -1384,7 +1388,8 @@ class LearningSettingsSnapshot(WireModel):
     paused: bool
     sources: LearningSourcesSnapshot
     apply_mode: Literal["ask_first", "automatic"]
-    monthly_token_limit: int = Field(ge=0, le=1_000_000_000)
+    # Tokens a month (0: no Learning model calls); null: no limit, its spending still shows.
+    monthly_token_limit: int | None = Field(ge=0, le=1_000_000_000)
     train_in_quiet_hours: bool
     train_where: Literal["this_computer", "hugging_face"]
     # Learning data is on this computer (kept after Learning is turned off).
@@ -2138,13 +2143,15 @@ class KnowledgeGraphNode(WireModel):
     subject: str = Field(max_length=256)
     description: str = Field(max_length=1024)
     entity_type: str = Field(max_length=64)
-    source: Literal["manual", "extraction", "document", "wiki", "other"]
+    source: Literal["manual", "extraction", "document", "wiki", "import", "other"]
     updated_at: str = Field(max_length=128)
     relation_count: int = Field(ge=0, le=9007199254740991)
     orphan: bool
     is_user: bool
     status: Literal["active", "needs_review", "superseded", "archived"]
     tier: Literal["core", "semantic", "episodic", "resource"]
+    # The app an imported memory came from ("ChatGPT"); empty for any other source.
+    source_label: str = Field(max_length=128)
 
 
 class KnowledgeGraphEdge(WireModel):
@@ -2170,8 +2177,8 @@ class KnowledgeGraphSnapshot(WireModel):
     entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
         max_length=64
     )
-    sources: list[Literal["manual", "extraction", "document", "wiki", "other"]] = Field(
-        max_length=5
+    sources: list[Literal["manual", "extraction", "document", "wiki", "import", "other"]] = Field(
+        max_length=6
     )
     # Every saved memory's status, not only the shown ones (B264).
     status_counts: KnowledgeStatusCounts
@@ -4893,11 +4900,15 @@ class InsightReceipt(WireModel):
 
 class LearningSpending(WireModel):
     used_tokens: int = Field(ge=0)
-    limit_tokens: int = Field(ge=0, le=1_000_000_000)
+    # null: no limit (used_tokens still counts what Learning used).
+    limit_tokens: int | None = Field(ge=0, le=1_000_000_000)
     # The 1st of next month (local date): when the limit starts again.
     resets_on: str = Field(max_length=16)
     # The default chat model's name; Learning's own model calls use it. "" when none is chosen.
     model_name: str = Field(max_length=256)
+    # Tokens of the limit kept for comparing methods (the strategy trials' unused 20% share, O178); 0 with no limit.
+    kept_for_comparing: int = Field(default=0, ge=0, le=1_000_000_000)
+    # Learning's other work has used all it may: the limit, less what is kept for comparing methods.
     limit_reached: bool
 
 
@@ -5149,6 +5160,70 @@ class LearningHuggingFaceModel(WireModel):
     download_bytes: int = Field(ge=0)
 
 
+class LearningOpenModel(WireModel):
+    """A model found on Hugging Face (C1 Part 4): what it is, its licence, and whether Row-Bot can try it."""
+
+    id: str = Field(max_length=200)
+    repo: str = Field(max_length=192)
+    name: str = Field(max_length=128)
+    family: str | None = Field(default=None, max_length=32)
+    params_b: float | None = Field(default=None, ge=0)
+    licence: str = Field(max_length=96)
+    # permissive: just shown; terms: their key terms, the person's OK once; gated: request access on Hugging Face.
+    licence_kind: Literal["permissive", "terms", "gated"]
+    licence_url: str = Field(max_length=512)
+    terms: list[str] = Field(default_factory=list, max_length=6)
+    downloads: int = Field(ge=0)
+    # Why Row-Bot can't train it, in words (never attempted); None when it can be checked.
+    unsupported: str | None = Field(default=None, max_length=300)
+    # O131: whether this card could run it afterwards (about this much of its memory).
+    runs_here: bool
+    runs_here_gb: float | None = Field(default=None, ge=0)
+
+
+class LearningModelSearch(WireModel):
+    query: str = Field(max_length=80)
+    models: list[LearningOpenModel] = Field(max_length=20)
+    failure: Literal["unreachable", "not_found", "unreadable"] | None = None
+
+
+class LearningModelCheckItem(WireModel):
+    id: Literal["fits", "steps", "export", "tools"]
+    state: Literal["waiting", "running", "passed", "failed", "skipped"]
+    words: str = Field(max_length=300)
+
+
+class LearningModelSample(WireModel):
+    prompt: str = Field(max_length=300)
+    passed: bool
+
+
+class LearningCheckedModel(WireModel):
+    """A model the person chose to check on this computer, and what the check found (C1 Part 4)."""
+
+    id: str = Field(max_length=200)
+    repo: str = Field(max_length=192)
+    name: str = Field(max_length=128)
+    family: str | None = Field(default=None, max_length=32)
+    params_b: float | None = Field(default=None, ge=0)
+    licence: str = Field(max_length=96)
+    licence_kind: Literal["permissive", "terms", "gated"]
+    licence_url: str = Field(max_length=512)
+    terms: list[str] = Field(default_factory=list, max_length=6)
+    licence_agreed: bool
+    state: Literal["not_checked", "downloading", "checking", "passed", "failed", "stopped"]
+    stage: Literal["download", "fits", "steps", "export", "tools"] | None = None
+    failure: str | None = Field(default=None, max_length=64)
+    items: list[LearningModelCheckItem] = Field(max_length=4)
+    # The tool calls it was asked to make, as the person can read them.
+    sample: list[LearningModelSample] = Field(default_factory=list, max_length=6)
+    download_bytes: int = Field(ge=0)
+    downloaded_bytes: int = Field(ge=0)
+    # Where it trains once checked: this computer's card, and/or Hugging Face (its card).
+    trains_here: bool | None = None
+    hugging_face_flavor: str | None = Field(default=None, max_length=64)
+
+
 class LearningHuggingFaceGpu(WireModel):
     flavor: str = Field(max_length=64)
     label: str = Field(max_length=128)
@@ -5257,6 +5332,8 @@ class LearningPersonalModel(WireModel):
     stronger_model: LearningStartingModel | None = None
     # C1: training on Hugging Face (None while Learning is off).
     hugging_face: LearningHuggingFace | None = None
+    # C1 Part 4: models the person found on Hugging Face and checked (or is checking) on this computer.
+    other_models: list[LearningCheckedModel] = Field(default_factory=list, max_length=12)
 
 
 class LearningNeedsYou(WireModel):
@@ -5301,6 +5378,21 @@ class LearningOvernight(WireModel):
     method: Literal["switched", "kept"] | None = None
     method_version: int | None = Field(default=None, ge=1)
     method_words: str = Field(default="", max_length=200)
+    # L4b (in a build with practice on): the practice tasks it made up and ran ("Practised 12 document tasks it made
+    # up: 9 passed"), their kind of work when there was one, and whether coding practice waited for a container.
+    practised: int = Field(default=0, ge=0)
+    practised_passed: int = Field(default=0, ge=0)
+    practice_kind: LearningKindOfWork | None = None
+    practice_needs_container: bool = False
+
+
+class LearningQuickQuestion(WireModel):
+    """The quick question (L4b; UX §3): at most one a day, two answers to tap, ✕ never asks it again."""
+
+    id: str = Field(max_length=128)
+    question: str = Field(max_length=200)
+    answers: list[str] = Field(min_length=2, max_length=2)
+    kind: LearningKindOfWork | Literal["other"]
 
 
 class LearningMethodArm(WireModel):
@@ -5349,6 +5441,36 @@ class LearningNextTrial(WireModel):
     needed: int = Field(ge=0)
 
 
+class LearningJobTest(WireModel):
+    """A job's latest test (L4c): the same items for the personal version and the main model, each output checked
+    the way the job's real output is."""
+
+    at: str = Field(max_length=64)
+    version: int = Field(ge=1)
+    # Items done by both (drafting: issues; practice: tasks asked), and how many passed for each.
+    asked: int = Field(ge=0)
+    personal_passed: int = Field(ge=0)
+    main_passed: int = Field(ge=0)
+    verdict: Literal["qualified", "not_matched", "too_few", "limit", "unavailable"]
+
+
+class LearningJob(WireModel):
+    """Who does one of Learning's own jobs (L4c; designs §6 "Jobs your personal model does")."""
+
+    job: Literal["drafting", "practice"]
+    by: Literal["personal", "main"]
+    version: int | None = Field(default=None, ge=1)
+    # The main model's name ("GPT-6.1 Sol"), whoever does the job now.
+    main_model: str = Field(max_length=128)
+    since: str | None = Field(default=None, max_length=64)
+    # Why it went back to the main model, when it did.
+    reason: Literal["", "not_matched", "new_version", "not_served"] = ""
+    last: LearningJobTest | None = None
+    # This month: the personal model's tokens and graphics-card time for this job.
+    tokens: int = Field(default=0, ge=0)
+    seconds: float = Field(default=0.0, ge=0)
+
+
 class LearningMethod(WireModel):
     """How Row-Bot learns (L4a; designs/learning-ux.md §6): the method in use in plain words, its trials with their
     denominators, its history and Undo."""
@@ -5364,6 +5486,8 @@ class LearningMethod(WireModel):
     history: list[LearningMethodStep] = Field(default_factory=list, max_length=30)
     can_undo: bool = False
     next_trial: LearningNextTrial
+    # L4c (a build with the jobs switch on): who does drafting and making practice tasks.
+    jobs: list[LearningJob] = Field(default_factory=list, max_length=4)
 
 
 class LearningChangeWhy(WireModel):
@@ -5556,6 +5680,8 @@ class LearningSnapshot(WireModel):
     testing_now: LearningTestingNow | None = None
     # L4a: how Row-Bot learns (while Learning is on).
     method: LearningMethod | None = None
+    # L4b: the quick question waiting for the person (a build with it on).
+    quick_question: LearningQuickQuestion | None = None
 
 
 class LearningNamedValue(WireModel):
@@ -5683,7 +5809,8 @@ class LearningLessonView(WireModel):
     # learning: tested and put into use by Learning (E5); agent_saved: Row-Bot saved it for itself during
     # a chat (Not tested, with Test it).
     origin: Literal["agent_saved", "learning"]
-    status: Literal["not_tested", "testing", "tested_better", "tested_not_better", "in_use", "off"]
+    # removed: in use, but its memory was removed outside Lessons (it shows In use again if that's undone).
+    status: Literal["not_tested", "testing", "tested_better", "tested_not_better", "in_use", "off", "removed"]
     kind: LearningAnyKind | None = None
     # How often recall used it this month ("used 12 times this month").
     used: int = Field(default=0, ge=0)
@@ -5700,7 +5827,8 @@ class LearningLessonPage(WireModel):
 class LearningSetupChoices(WireModel):
     sources: LearningSourcesSnapshot
     apply_mode: Literal["ask_first", "automatic"]
-    monthly_token_limit: int = Field(ge=0, le=1_000_000_000)
+    # Tokens a month (0: no Learning model calls); null: no limit, its spending still shows.
+    monthly_token_limit: int | None = Field(ge=0, le=1_000_000_000)
     train_in_quiet_hours: bool
     train_where: Literal["this_computer", "hugging_face"]
     starting_model: Literal["qwen3.5-9b"] = "qwen3.5-9b"
@@ -5719,9 +5847,9 @@ class LearningCommand(WireModel):
         "export_version", "delete_version", "save_advanced", "reset_advanced", "retrain_without", "dismiss",
         "review_version", "use_smaller_model", "change_starting_model",
         "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
-        "test_lesson", "delete_lesson", "undo_method",
+        "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
         "hf_sign_in", "hf_cancel_sign_in", "hf_sign_out", "hf_choose_model", "hf_choose_flavor", "hf_set_cap",
-        "hf_start", "hf_cancel",
+        "hf_start", "hf_cancel", "check_model", "stop_model_check", "forget_model",
         "hf_check_now",
     ]
     setup: LearningSetupChoices | None = None
@@ -5746,7 +5874,8 @@ class LearningCommand(WireModel):
     tool_call_id: str = Field(default="", max_length=256)
     category: Literal["wrong_answer", "wrong_tool_or_step", "ignored_instructions", "other"] | None = None
     note: str = Field(default="", max_length=2000)
-    # Teach's optional "What should it have done?" (L3b).
+    # Teach's optional "What should it have done?" (L3b); the quick question's answer tapped (L4b, with its id
+    # in ``item_id``).
     answer: str = Field(default="", max_length=2000)
     signal_id: str = Field(default="", max_length=128)
     # L3b: the change an action is for (a lesson's memory for test_lesson and delete_lesson), and an Edit's
@@ -5760,6 +5889,8 @@ class LearningCommand(WireModel):
     quote_cost_cents: int | None = Field(default=None, ge=0, le=100_000)
     # hf_choose_flavor: the Hugging Face card (one the recipe offers).
     flavor: str = Field(default="", max_length=64, pattern=r"^$|^[a-z0-9][a-z0-9-]{0,63}$")
+    # check_model: the person agreed to the model's licence in the same ask (a licence with terms).
+    licence_ok: bool | None = None
 
 
 class LearningReceipt(WireModel):
@@ -7275,6 +7406,8 @@ class ProviderLiveCard(WireModel):
     oauth_client_id_configured: bool
     external_reference_exists: bool
     reconnect_required: bool = False
+    # The provider refused the saved API key when its model list was last read.
+    key_refused: bool = False
     risk_label: str = Field(max_length=80)
     last_runtime_probe_ok: bool | None = None
     billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None

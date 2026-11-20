@@ -185,6 +185,9 @@ def _launch_event(event: str, **fields) -> None:
             "reason",
             "control_port",
             "window_pid",
+            "bytes_before",
+            "bytes_after",
+            "removed",
         }
     }
     compact.setdefault("session", _LAUNCH_SESSION_ID)
@@ -3967,7 +3970,7 @@ def _size_words(size: int) -> str:
 
 def _compact_chats_at_start() -> None:
     """A chat database left large by an older version gives its space back once, before the server opens it
-    (S9); the start-up window says what it's doing."""
+    (S9); the start-up window says what it's doing, and launcher.log what came of it (T1)."""
     from row_bot import chat_compact
 
     status = _helper_artifact_path("splash", "status")
@@ -3978,10 +3981,16 @@ def _compact_chats_at_start() -> None:
         except OSError:
             pass
 
+    started = time.perf_counter()
     try:
-        chat_compact.compact_at_start(get_threads_db_path(), on_start=say)
+        result = chat_compact.compact_at_start(get_threads_db_path(), on_start=say)
     finally:
         _delete_if_exists(status)
+    if "skipped" in result:
+        _launch_event("compact_chats", status="skipped", reason=result["skipped"])
+        return
+    _launch_event("compact_chats", status="compacted", bytes_before=result["before"], bytes_after=result["after"],
+                  removed=result["checkpoints"], duration_ms=round((time.perf_counter() - started) * 1000.0, 1))
 
 
 def _compact_chats() -> int:

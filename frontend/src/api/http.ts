@@ -2987,6 +2987,9 @@ export class HttpTransport implements ClientTransport {
   learningHardware(refresh = false, signal?: AbortSignal) {
     return wire.getLearningHardware(this.base, this.session(), refresh, signal);
   }
+  learningModels(search: string, signal?: AbortSignal) {
+    return wire.getLearningModels(this.base, this.session(), search, signal);
+  }
   learningConversation(conversation: string, signal?: AbortSignal) {
     return wire.getLearningConversation(
       this.base,

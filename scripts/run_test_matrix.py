@@ -128,6 +128,7 @@ BROWSER_SMOKE_SPECS = (
     "learning-changes",
     "learning-method",
     "learning-hugging-face",
+    "learning-other-models",
     # The setup page's sign-in link clears its code from the address (A1): security-sensitive.
     "setup-link",
     # The request budget: API requests at app open and during one reply stay under their numbers.
@@ -135,6 +136,8 @@ BROWSER_SMOKE_SPECS = (
     # Show Row-Bot how (C3): record in the Browser pane, the steps, the draft with "What you showed", Try it.
     # Last, so the specs before it keep their shards.
     "browser-demo",
+    # A phone's Send and + with the keyboard open: one tap, never a misfire. Appended for the same reason.
+    "phone-composer",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
@@ -164,6 +167,7 @@ BROWSER_PHONE_SPECS = (
     "model-visibility", "learning", "learning-training", "learning-download", "learning-version", "learning-use", "learning-starting-model",
     "learning-method",
     "learning-hugging-face",
+    "learning-other-models",
     "settings-claude-plan", "install-count", "hosted-first-run", "place-words", "memory-guidance",
     "hosted-settings", "backup-model", "hermes-import", "first-run-local",
 )
