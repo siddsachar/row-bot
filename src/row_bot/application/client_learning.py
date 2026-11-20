@@ -555,7 +555,41 @@ def _method_view(store: Any, now: float | None = None) -> dict[str, Any]:
             "description": _text(method.describe(), 600), "tried": tried, "kept": kept,
             "tokens": max(0, int(spending.used_this_month(now=now))), "trials": trial_rows, "history": history[:30],
             "can_undo": can_undo, "next_trial": {"state": state, "fresh": max(0, int(fresh)),
-                                                 "needed": evaluation.MIN_FRESH}}
+                                                 "needed": evaluation.MIN_FRESH}, "jobs": _jobs(store, now)}
+
+
+def _jobs(store: Any, now: float | None = None) -> list[dict[str, Any]]:
+    """Who does each of Learning's own jobs (L4c), with since when, the latest test and this month's use."""
+
+    from row_bot.learning import routing
+    from row_bot.learning.improver import jobs
+
+    offered = jobs.offered()
+    if not offered:
+        return []
+    found = jobs.state(store)
+    main = routing.model_name(routing.main_model_ref())
+    month = jobs.month_key(now if now is not None else store.now())
+    rows = []
+    for job in offered:
+        held = found.get(job) or {}
+        last = held.get("last") or {}
+        usage = held.get("usage") or {}
+        this_month = usage.get("month") == month
+        rows.append({
+            "job": job, "by": "personal" if held.get("by") == "personal" else "main",
+            "version": int(held["version"]) if held.get("by") == "personal" and held.get("version") else None,
+            "main_model": _text(main, 128), "since": _iso(held.get("since")),
+            "reason": held.get("reason") if held.get("reason") in ("not_matched", "new_version", "not_served") else "",
+            "last": {"at": _iso(last.get("at")) or "", "version": max(1, int(last.get("version") or 1)),
+                     "asked": max(0, int(last.get("asked") or 0)),
+                     "personal_passed": max(0, int(last.get("personal_passed") or 0)),
+                     "main_passed": max(0, int(last.get("main_passed") or 0)), "verdict": last["verdict"]}
+            if last.get("verdict") in ("qualified", "not_matched", "too_few", "limit", "unavailable") else None,
+            "tokens": max(0, int(usage.get("tokens") or 0)) if this_month else 0,
+            "seconds": max(0.0, float(usage.get("seconds") or 0.0)) if this_month else 0.0,
+        })
+    return rows
 
 
 def _kinds_learning(changes: list[dict[str, Any]]) -> list[dict[str, str]]:

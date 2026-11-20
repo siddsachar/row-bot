@@ -695,3 +695,26 @@ def test_the_quick_question_shows_on_every_device_and_one_answer_settles_it(api,
     assert question.answers_for(store)["document_lookups:corrected"][0]["answer"] == "The newest"
     stale = _command(client, headers, "dismiss_question", item_id="qq_1")
     assert stale.status_code == 409 and stale.json()["code"] == "learning_question_changed"
+
+
+def test_how_row_bot_learns_shows_who_does_each_job_only_in_a_build_with_the_jobs_switch(api, no_channels,
+                                                                                       monkeypatch):
+    # L4c (designs/learning-ux.md §6, "Jobs your personal model does"): who does drafting, since when, its latest
+    # test with its denominators and this month's use; nothing without the switch.
+    from row_bot.learning.improver import jobs
+
+    client, headers, data, _ = api
+    _turn_on(client, headers)
+    store = LearningStore(data)
+    assert _snapshot(client, headers)["method"]["jobs"] == []
+
+    monkeypatch.setenv(learning.JOBS_ENV, "1")
+    monkeypatch.setattr(jobs, "newest_ready", lambda root=None: (3, "model:ollama:row-bot-personal-v3:abcd"))
+    jobs.apply(store, jobs.Qualification(jobs.DRAFTING, 3, "model:ollama:row-bot-personal-v3:abcd", store.now(),
+                                         24, 22, 23, 24, verdict="qualified"))
+    [drafting] = _snapshot(client, headers)["method"]["jobs"]
+
+    assert (drafting["job"], drafting["by"], drafting["version"]) == ("drafting", "personal", 3)
+    assert drafting["since"] and drafting["reason"] == ""
+    assert {key: drafting["last"][key] for key in ("asked", "personal_passed", "main_passed", "verdict")} == {
+        "asked": 24, "personal_passed": 22, "main_passed": 23, "verdict": "qualified"}

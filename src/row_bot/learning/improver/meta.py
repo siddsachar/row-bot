@@ -381,6 +381,7 @@ def run_arm(store: Any, entry: archive.Entry, *, role: str, trial_id: str, budge
     is saved as a change or shown."""
 
     from row_bot.learning import diagnosis
+    from row_bot.learning.improver import jobs
     from row_bot.learning.improver.strategy import practising
 
     method = entry.strategy
@@ -404,13 +405,16 @@ def run_arm(store: Any, entry: archive.Entry, *, role: str, trial_id: str, budge
         if practises and len(drafts) <= method.budget.tests and not meter.exhausted:
             from row_bot.learning.practice import generate
 
-            made = generate.make(store, issue, client=_TimedClient(client, meter), count=method.practice.made,
+            made = generate.make(store, issue, client=_TimedClient(jobs.client_for(store, jobs.PRACTICE, client), meter),
+                                 count=method.practice.made,
                                  now=now, meter=meter, purpose=PURPOSE, method=method,
                                  asked_by=f"trial {trial_id} {role}")
             practice[draft["id"]] = made.kept
         return diagnosis.Outcome(issue.key, issue.kind, found.change, proposal_id=draft["id"], tokens=tokens)
 
-    report = diagnosis.run(store, client=_TimedClient(client, meter), night=f"trial:{trial_id}:{role}", now=now,
+    # Each arm drafts and practises with whoever does those jobs now (L4c), the same for every arm.
+    report = diagnosis.run(store, client=_TimedClient(jobs.client_for(store, jobs.DRAFTING, client), meter),
+                           night=f"trial:{trial_id}:{role}", now=now,
                            meter=meter, should_stop=should_stop, save=False, method=method, sink=sink,
                            purpose=PURPOSE, check_model=check_model, dedupe=False)
     run.diagnosed, run.drafted = report.diagnosed, len(drafts)

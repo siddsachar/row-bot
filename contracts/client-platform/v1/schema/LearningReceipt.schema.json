@@ -1521,6 +1521,152 @@
       "title": "LearningHuggingFaceSignIn",
       "type": "object"
     },
+    "LearningJob": {
+      "additionalProperties": false,
+      "description": "Who does one of Learning's own jobs (L4c; designs \u00a76 \"Jobs your personal model does\").",
+      "properties": {
+        "by": {
+          "enum": [
+            "personal",
+            "main"
+          ],
+          "title": "By",
+          "type": "string"
+        },
+        "job": {
+          "enum": [
+            "drafting",
+            "practice"
+          ],
+          "title": "Job",
+          "type": "string"
+        },
+        "last": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearningJobTest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "main_model": {
+          "maxLength": 128,
+          "title": "Main Model",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "enum": [
+            "",
+            "not_matched",
+            "new_version",
+            "not_served"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "seconds": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Since"
+        },
+        "tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tokens",
+          "type": "integer"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "job",
+        "by",
+        "main_model"
+      ],
+      "title": "LearningJob",
+      "type": "object"
+    },
+    "LearningJobTest": {
+      "additionalProperties": false,
+      "description": "A job's latest test (L4c): the same items for the personal version and the main model, each output checked\nthe way the job's real output is.",
+      "properties": {
+        "asked": {
+          "minimum": 0,
+          "title": "Asked",
+          "type": "integer"
+        },
+        "at": {
+          "maxLength": 64,
+          "title": "At",
+          "type": "string"
+        },
+        "main_passed": {
+          "minimum": 0,
+          "title": "Main Passed",
+          "type": "integer"
+        },
+        "personal_passed": {
+          "minimum": 0,
+          "title": "Personal Passed",
+          "type": "integer"
+        },
+        "verdict": {
+          "enum": [
+            "qualified",
+            "not_matched",
+            "too_few",
+            "limit",
+            "unavailable"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at",
+        "version",
+        "asked",
+        "personal_passed",
+        "main_passed",
+        "verdict"
+      ],
+      "title": "LearningJobTest",
+      "type": "object"
+    },
     "LearningKindState": {
       "additionalProperties": false,
       "description": "Where Learning stands on a kind of work (UX \u00a73 \"What Row-Bot is learning\"), besides models in use.",
@@ -1574,6 +1720,14 @@
           },
           "maxItems": 30,
           "title": "History",
+          "type": "array"
+        },
+        "jobs": {
+          "items": {
+            "$ref": "#/$defs/LearningJob"
+          },
+          "maxItems": 4,
+          "title": "Jobs",
           "type": "array"
         },
         "kept": {

@@ -143,6 +143,17 @@ def quick_question_enabled() -> bool:
     return _PREVIEW and os.environ.get(QUICK_QUESTION_ENV, "").strip() == "1"
 
 
+# L4c: whether the personal model may take over Learning's own jobs (who does a job changes the improver: a paper
+# decision, so it is decided apart from the code).
+JOBS_ENV = "ROW_BOT_LEARNING_JOBS"
+
+
+def jobs_enabled() -> bool:
+    """Whether this build lets the personal model qualify for and take over Learning's drafting and practice."""
+
+    return _PREVIEW and os.environ.get(JOBS_ENV, "").strip() == "1"
+
+
 DEFAULTS = LearningSettings()
 
 # (settings path, mtime_ns, size, inode) -> settings; one entry, swapped whole.
@@ -556,6 +567,7 @@ __all__ = [
     "DEFAULTS",
     "DEFAULT_MONTHLY_TOKEN_LIMIT",
     "FOLDER",
+    "JOBS_ENV",
     "LearningSettings",
     "MAX_MONTHLY_TOKEN_LIMIT",
     "MODELS_FOLDER",
@@ -574,6 +586,7 @@ __all__ = [
     "folder_path",
     "invalidate",
     "is_enabled",
+    "jobs_enabled",
     "note_channel_sender",
     "note_retry",
     "offered_personal_models",

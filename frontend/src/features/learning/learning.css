@@ -726,3 +726,29 @@
     justify-self: start;
   }
 }
+/* L4c: who does each of Learning's own jobs, its latest test under it. */
+.learning-jobs {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.learning-jobs > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px var(--space-2);
+  overflow-wrap: break-word;
+}
+.learning-job-name {
+  font-weight: var(--weight-semibold);
+}
+.learning-jobs > li > .learning-muted {
+  grid-column: 1 / -1;
+}
+@media (max-width: 767px) {
+  .learning-jobs > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

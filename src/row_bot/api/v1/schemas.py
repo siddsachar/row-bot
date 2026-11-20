@@ -5375,6 +5375,36 @@ class LearningNextTrial(WireModel):
     needed: int = Field(ge=0)
 
 
+class LearningJobTest(WireModel):
+    """A job's latest test (L4c): the same items for the personal version and the main model, each output checked
+    the way the job's real output is."""
+
+    at: str = Field(max_length=64)
+    version: int = Field(ge=1)
+    # Items done by both (drafting: issues; practice: tasks asked), and how many passed for each.
+    asked: int = Field(ge=0)
+    personal_passed: int = Field(ge=0)
+    main_passed: int = Field(ge=0)
+    verdict: Literal["qualified", "not_matched", "too_few", "limit", "unavailable"]
+
+
+class LearningJob(WireModel):
+    """Who does one of Learning's own jobs (L4c; designs §6 "Jobs your personal model does")."""
+
+    job: Literal["drafting", "practice"]
+    by: Literal["personal", "main"]
+    version: int | None = Field(default=None, ge=1)
+    # The main model's name ("GPT-6.1 Sol"), whoever does the job now.
+    main_model: str = Field(max_length=128)
+    since: str | None = Field(default=None, max_length=64)
+    # Why it went back to the main model, when it did.
+    reason: Literal["", "not_matched", "new_version", "not_served"] = ""
+    last: LearningJobTest | None = None
+    # This month: the personal model's tokens and graphics-card time for this job.
+    tokens: int = Field(default=0, ge=0)
+    seconds: float = Field(default=0.0, ge=0)
+
+
 class LearningMethod(WireModel):
     """How Row-Bot learns (L4a; designs/learning-ux.md §6): the method in use in plain words, its trials with their
     denominators, its history and Undo."""
@@ -5390,6 +5420,8 @@ class LearningMethod(WireModel):
     history: list[LearningMethodStep] = Field(default_factory=list, max_length=30)
     can_undo: bool = False
     next_trial: LearningNextTrial
+    # L4c (a build with the jobs switch on): who does drafting and making practice tasks.
+    jobs: list[LearningJob] = Field(default_factory=list, max_length=4)
 
 
 class LearningChangeWhy(WireModel):

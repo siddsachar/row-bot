@@ -6751,6 +6751,55 @@ def l4b_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     return {"action": action}
 
 
+def _l4c_jobs() -> None:
+    import json as _json
+    import time as _time
+
+    from row_bot.learning.improver import jobs
+    from row_bot.learning.store import LearningStore
+
+    now = _time.time()
+    test = {"job": "drafting", "version": 3, "model_ref": "model:ollama:row-bot-personal-v3", "at": now - 6 * 3600,
+            "items": 24, "personal_passed": 22, "main_passed": 23, "asked": 24, "personal_tokens": 140_000,
+            "main_tokens": 150_000, "personal_seconds": 420.0, "verdict": "qualified"}
+    practice = {**test, "job": "practice", "asked": 40, "personal_passed": 28, "main_passed": 36,
+                "verdict": "not_matched"}
+    state = {
+        "drafting": {"by": "personal", "version": 3, "model_ref": test["model_ref"], "since": now - 6 * 3600,
+                     "reason": "", "last": test, "history": [{"at": now - 6 * 3600, "event": "took_over"}],
+                     "usage": {"month": jobs.month_key(now), "tokens": 120_000, "seconds": 360.0}},
+        "practice": {"by": "main", "since": now - 5 * 3600, "reason": "not_matched", "last": practice},
+    }
+    LearningStore().set_meta_values({jobs.STATE_KEY: _json.dumps(state)})
+
+
+@app.post("/__l4c_fixture/learning/{action}")
+def l4c_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L4c spec: a build with the jobs switch (and practice) on, drafting done by personal
+    model v3 since its test, making practice tasks back with the main model. Nothing reaches a model."""
+    import os as _os
+
+    from row_bot import learning
+
+    predecessor._authorize(x_fixture_token)
+    if action == "jobs":
+        _os.environ[learning.JOBS_ENV] = "1"
+        _os.environ[learning.PRACTICE_ENV] = "1"
+        _l4c_jobs()
+    elif action == "restore":
+        _os.environ.pop(learning.JOBS_ENV, None)
+        _os.environ.pop(learning.PRACTICE_ENV, None)
+        from row_bot.learning.improver import jobs
+        from row_bot.learning.store import LearningStore
+
+        store = LearningStore()
+        if store.exists():
+            store.set_meta_values({jobs.STATE_KEY: ""})
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
 # ── Learning (preview), L2b: the personal model's download, its states set by the spec ──
 
 _GB = 1_000_000_000
