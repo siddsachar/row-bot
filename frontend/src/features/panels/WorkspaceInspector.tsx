@@ -33,6 +33,8 @@ import type {
   WorkspaceChangeSetFiles,
 } from '../../api/types';
 import { usePlace } from '../../api/place';
+import { OnYourComputer, usePhone } from '../../ui/on-your-computer';
+import '../../ui/styles/phone-panels.css';
 import {
   onWorkspaceFileRequest,
   takeWorkspaceFile,
@@ -308,6 +310,9 @@ const BOUNDARY_WORDS: Record<string, string> = {
  */
 export function WorkspaceInspector(props: WorkspaceInspectorProps) {
   const place = usePlace();
+  // A phone reviews: Changes and Files, read only. Run, Git and editing stay
+  // on the computer (D5); a chip that leads there says so.
+  const phone = usePhone();
   const callbacks = useRef(props);
   callbacks.current = props;
   const epoch = useRef(0);
@@ -901,7 +906,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         {!current.is_git && (
           <p className="dev-empty">
             This folder is not a Git repository, so there is no diff to show.
-            Files and Run still work.
+            {phone ? ' Its files are in Files.' : ' Files and Run still work.'}
           </p>
         )}
         {current.is_git && (
@@ -1570,7 +1575,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
                 Show changes
               </Button>
             )}
-            {props.editableFile && props.saveFile && filePath && (
+            {props.editableFile && props.saveFile && filePath && !phone && (
               <Button
                 onClick={() => {
                   if (props.editSessions) props.editSessions.open(filePath);
@@ -1887,10 +1892,12 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
           <TabsPrimitive.Trigger className="dev-tab" value="files">
             Files
           </TabsPrimitive.Trigger>
-          <TabsPrimitive.Trigger className="dev-tab" value="run">
-            Run
-          </TabsPrimitive.Trigger>
-          {props.renderGit && (
+          {!phone && (
+            <TabsPrimitive.Trigger className="dev-tab" value="run">
+              Run
+            </TabsPrimitive.Trigger>
+          )}
+          {props.renderGit && !phone && (
             <TabsPrimitive.Trigger className="dev-tab" value="git">
               Git
             </TabsPrimitive.Trigger>
@@ -1908,7 +1915,11 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
           forceMount
           hidden={activeTab !== 'run'}
         >
-          {props.renderRun ? (
+          {phone ? (
+            <OnYourComputer what="Run">
+              Running commands and checks needs a bigger screen.
+            </OnYourComputer>
+          ) : props.renderRun ? (
             props.renderRun({ checks })
           ) : checks.length ? (
             <ul className="dev-checks" aria-label="Detected checks">
@@ -1923,7 +1934,7 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
           ) : (
             <p className="dev-empty">No checks detected in this folder.</p>
           )}
-          {current.processes.length > 0 && (
+          {!phone && current.processes.length > 0 && (
             <section
               className="dev-run-section dev-managed"
               aria-label="Workspace process status"
@@ -1957,7 +1968,13 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
             forceMount
             hidden={activeTab !== 'git'}
           >
-            {props.renderGit(gitContext)}
+            {phone ? (
+              <OnYourComputer what="Git">
+                Branches, commits and pushes need a bigger screen.
+              </OnYourComputer>
+            ) : (
+              props.renderGit(gitContext)
+            )}
           </TabsPrimitive.Content>
         )}
       </TabsPrimitive.Root>
