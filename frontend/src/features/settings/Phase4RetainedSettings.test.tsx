@@ -25,7 +25,7 @@ import { setPlace } from '../../api/place';
 import { setMemoryLimit } from '../../api/server-memory';
 import { OverlayProvider } from '../../ui/overlays';
 import { ThemeProvider } from '../../ui/theme';
-import { settingsRows, type SettingsLeafId } from './model';
+import { visibleSettingsRows, type SettingsLeafId } from './model';
 import SettingRoute from './SettingRoute';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
@@ -1921,7 +1921,8 @@ it('renders editable document, tool, and preference owners', async () => {
     screen.getByText(/Row-Bot starts every chat as: “You are Row-Bot/),
   ).toBeVisible();
   expect(screen.getByText('0 / 200')).toBeVisible();
-  expect(screen.getByLabelText('Learn new skills')).not.toBeChecked();
+  // "Learn new skills" lives in Settings › Learning (D29).
+  expect(screen.queryByLabelText('Learn new skills')).toBeNull();
   const openIn = screen.getByRole('radiogroup', { name: 'Open in' });
   expect(
     within(openIn).getByRole('radio', { name: 'Ask each time' }),
@@ -2472,7 +2473,7 @@ it.each<SettingsLeafId>([
         </ThemeProvider>
       </RuntimeContext.Provider>,
     );
-    const wanted = settingsRows
+    const wanted = visibleSettingsRows()
       .filter((row) => row.leaf === leaf && !row.href)
       .map((row) => row.anchor);
     expect(wanted.length).toBeGreaterThan(0);

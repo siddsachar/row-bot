@@ -46,19 +46,6 @@ class FakeClock:
         self.now += float(seconds)
 
 
-def set_learning_preview(monkeypatch: Any, on: bool = True) -> None:
-    """Start-up's preview flag (O34), as if the app had been started with or without it."""
-
-    from row_bot import learning
-
-    if on:
-        monkeypatch.setenv(learning.PREVIEW_ENV, "1")
-    else:
-        monkeypatch.delenv(learning.PREVIEW_ENV, raising=False)
-    monkeypatch.setattr(learning, "_PREVIEW", on)
-    learning.invalidate()
-
-
 def save_learning_settings(root: Path, **values: Any) -> None:
     """Write ``learning_config.json`` the way Settings saves it (merged)."""
 

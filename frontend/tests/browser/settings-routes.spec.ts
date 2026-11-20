@@ -15,6 +15,7 @@ const settingsRoutes = [
   ['preferences', 'Preferences'],
   ['appearance', 'Appearance'],
   ['buddy', 'Buddy'],
+  ['learning', 'Learning'],
   ['proactive', 'Proactive'],
   ['models', 'Models'],
   ['voice', 'Voice'],

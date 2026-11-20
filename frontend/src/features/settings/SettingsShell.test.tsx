@@ -10,7 +10,7 @@ import {
 } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { setPlace } from '../../api/place';
-import { resolveSetting, settingsGroups, settingsLeaves } from './model';
+import { resolveSetting, settingsGroups, visibleLeaves } from './model';
 import SettingsShell from './SettingsShell';
 import {
   SettingsAdvanced,
@@ -130,19 +130,23 @@ it('lists every group with its leaves and marks the open page', () => {
       .getAllByRole('list')
       .map((list) => list.getAttribute('aria-label')),
   ).toEqual(settingsGroups.map((group) => group.label));
-  // Learning (preview) is listed only in a build with its flag (O34).
   expect(within(navigation).getAllByRole('link')).toHaveLength(
-    settingsLeaves.length,
+    visibleLeaves().length,
   );
-  expect(
-    within(navigation).queryByRole('link', { name: 'Learning' }),
-  ).toBeNull();
   for (const group of settingsGroups)
     expect(
       within(
         within(navigation).getByRole('list', { name: group.label }),
       ).getAllByRole('link'),
-    ).toHaveLength(group.leaves.length);
+    ).toHaveLength(
+      visibleLeaves().filter((item) => item.group === group.id).length,
+    );
+  expect(
+    within(within(navigation).getByRole('list', { name: 'General' })).getByRole(
+      'link',
+      { name: 'Learning' },
+    ),
+  ).toBeVisible();
   expect(screen.getByRole('link', { name: 'Documents' })).toHaveAttribute(
     'aria-current',
     'page',
@@ -418,7 +422,7 @@ it('on a phone opens on the list of pages, and each page has its way back to it 
     );
     const list = screen.getByRole('navigation', { name: 'Settings sections' });
     expect(within(list).getAllByRole('link')).toHaveLength(
-      settingsLeaves.length,
+      visibleLeaves().length,
     );
     // The tab bar takes Close's place; no page shows beside the list.
     expect(screen.queryByRole('link', { name: 'Close settings' })).toBeNull();

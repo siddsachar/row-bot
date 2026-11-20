@@ -1,6 +1,5 @@
 import { Navigate } from 'react-router-dom';
 import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
-import { useLearningPreview } from '../learning/learning-state';
 import SettingsShell from './SettingsShell';
 
 /**
@@ -9,10 +8,5 @@ import SettingsShell from './SettingsShell';
  */
 export default function SettingsIndex() {
   const phone = useMedia(PHONE_LAYOUT);
-  const learning = useLearningPreview();
-  return phone ? (
-    <SettingsShell learning={learning} />
-  ) : (
-    <Navigate to="/settings/models" replace />
-  );
+  return phone ? <SettingsShell /> : <Navigate to="/settings/models" replace />;
 }

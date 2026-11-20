@@ -167,15 +167,6 @@ def test_nothing_downloads_while_learning_is_off_paused_or_training_elsewhere(wo
     assert not engine.learning_runtimes(world.root).exists()
 
 
-def test_nothing_downloads_without_the_preview_flag(world, monkeypatch):
-    from tests.fixtures.learning import set_learning_preview
-
-    set_learning_preview(monkeypatch, False)
-    with pytest.raises(downloads.DownloadError):
-        world.downloads(start_threads=False).start()
-    assert world.index.requests == []
-
-
 @pytest.mark.parametrize("found", [
     hardware.HardwareCheck("no_gpu"),
     hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 4080", 16_376, "560.94")]),

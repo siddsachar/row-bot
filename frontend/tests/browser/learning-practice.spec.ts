@@ -69,7 +69,7 @@ function notice(page: Page, text: string | RegExp) {
 }
 
 async function turnOn(page: Page) {
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   await l1a(page, 'gpu');
   await page.goto('/app-v2/settings/learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();

@@ -36,12 +36,9 @@ strongest certified one this computer can run, ``training/catalog.py``); ``month
 person chose with the first run's quote (0: not chosen yet, so nothing runs on its own); ``runs_confirmed``
 whether the person has started a first run (until then every run asks, O132).
 
-**The preview flag (O34).** Until the 5.4 cut, Learning exists only in a build
-started with ``ROW_BOT_LEARNING_PREVIEW=1``. The flag is read once, when this
-package is imported at start-up; it is a build gate, not a setting. Without it
-Learning is off whatever the settings say: :func:`read_settings` reports it off,
-:func:`is_enabled` is false, nothing is recorded and the Learning API answers
-"unavailable".
+**Every build has Learning (O34).** The preview flag that once hid it is gone:
+Learning exists in every build and stays off until the person turns it on in
+Settings › Learning.
 
 **Pause.** A paused Learning stays on (its settings, changes and models in use are
 kept) but records, tests and trains nothing: :func:`is_enabled` is false while it is
@@ -88,10 +85,6 @@ MAX_HUGGING_FACE_CAP_USD = 1_000
 MAX_MONTHLY_TOKEN_LIMIT = 1_000_000_000
 _MAX_SETTINGS_BYTES = 64 * 1024
 
-PREVIEW_ENV = "ROW_BOT_LEARNING_PREVIEW"
-# Read once at start-up (O34); tests change it through ``tests/fixtures/learning.py``.
-_PREVIEW = os.environ.get(PREVIEW_ENV, "").strip() == "1"
-
 
 @dataclass(frozen=True)
 class LearningSettings:
@@ -120,14 +113,8 @@ class LearningSettings:
     readable: bool = True
 
 
-def preview_enabled() -> bool:
-    """Whether this build was started with Learning's preview flag (O34)."""
-
-    return _PREVIEW
-
-
-# L4b's switches, one per part, both off unless this build is started with them (and the preview flag): practice
-# changes the training mix and the tests, so whether it reaches someone's preview is decided apart from the code.
+# L4b's switches, one per part, both off unless this build is started with them: practice changes the training
+# mix and the tests, so whether it reaches someone's build is decided apart from the code.
 PRACTICE_ENV = "ROW_BOT_LEARNING_PRACTICE"
 QUICK_QUESTION_ENV = "ROW_BOT_LEARNING_QUICK_QUESTION"
 
@@ -135,13 +122,13 @@ QUICK_QUESTION_ENV = "ROW_BOT_LEARNING_QUICK_QUESTION"
 def practice_enabled() -> bool:
     """Whether this build makes practice tasks and uses them in tests, trials and training data (L4b)."""
 
-    return _PREVIEW and os.environ.get(PRACTICE_ENV, "").strip() == "1"
+    return os.environ.get(PRACTICE_ENV, "").strip() == "1"
 
 
 def quick_question_enabled() -> bool:
     """Whether this build may ask the person a quick question (L4b)."""
 
-    return _PREVIEW and os.environ.get(QUICK_QUESTION_ENV, "").strip() == "1"
+    return os.environ.get(QUICK_QUESTION_ENV, "").strip() == "1"
 
 
 # L4c: whether the personal model may take over Learning's own jobs (who does a job changes the improver: a paper
@@ -152,14 +139,13 @@ JOBS_ENV = "ROW_BOT_LEARNING_JOBS"
 def jobs_enabled() -> bool:
     """Whether this build lets the personal model qualify for and take over Learning's drafting and practice."""
 
-    return _PREVIEW and os.environ.get(JOBS_ENV, "").strip() == "1"
+    return os.environ.get(JOBS_ENV, "").strip() == "1"
 
 
 DEFAULTS = LearningSettings()
 
 # (settings path, mtime_ns, size, inode) -> settings; one entry, swapped whole.
-# The key carries the preview flag too, so the gate costs nothing per call.
-_cache: tuple[tuple[str, int, int, int, bool], LearningSettings] | None = None
+_cache: tuple[tuple[str, int, int, int], LearningSettings] | None = None
 
 
 def data_dir() -> Path:
@@ -259,8 +245,7 @@ def read_settings(root: Path | None = None) -> LearningSettings:
     """The saved settings, cached until the file changes. Never raises.
 
     A missing file reads as the defaults (Learning off). A file that exists but
-    can't be read or parsed reads as off and ``readable=False``. Without the
-    preview flag Learning reads as off whatever was saved (O34).
+    can't be read or parsed reads as off and ``readable=False``.
     """
 
     global _cache
@@ -270,7 +255,7 @@ def read_settings(root: Path | None = None) -> LearningSettings:
             stat = os.stat(path)
         except FileNotFoundError:
             return DEFAULTS
-        key = (str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino, _PREVIEW)
+        key = (str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino)
         cached = _cache
         if cached is not None and cached[0] == key:
             return cached[1]
@@ -279,8 +264,6 @@ def read_settings(root: Path | None = None) -> LearningSettings:
         else:
             with open(path, encoding="utf-8") as handle:
                 settings = _normalise(json.load(handle))
-        if not _PREVIEW and settings.enabled:
-            settings = replace(settings, enabled=False)
         _cache = (key, settings)
         return settings
     except Exception:
@@ -291,8 +274,7 @@ def read_settings(root: Path | None = None) -> LearningSettings:
 def is_enabled(root: Path | None = None) -> bool:
     """Whether Learning may record, test or train now: on and not paused.
 
-    Cheap, cached, and False when settings can't be read or the build has no
-    preview flag.
+    Cheap, cached, and False when settings can't be read.
     """
 
     try:
@@ -331,12 +313,10 @@ def settings_saved(field: str, value: Any) -> None:
     of chats" is ticked, starts reading past chats in the background (D26). Turning it
     off or pausing it keeps the data and stops capture and the import; resuming
     carries the import on. A store that can't be created now is created by the first
-    write while Learning is on. Without the preview flag nothing happens.
+    write while Learning is on.
     """
 
     invalidate()
-    if not _PREVIEW:
-        return
     changed()
     if field == "enabled" and value is True:
         try:
@@ -441,11 +421,8 @@ USE_FILE = "use.json"
 def route_turn(**request: Any) -> Any | None:
     """Where a new chat turn runs (L2c2): a route to the personal model when the person gave its
     kind of work to a version, else None (the main model). While nothing is in use this is one path
-    check and imports nothing. Models in use stay in use while Learning is off or paused (UX §8);
-    without the preview flag nothing is routed (O34)."""
+    check and imports nothing. Models in use stay in use while Learning is off or paused (UX §8)."""
 
-    if not _PREVIEW:
-        return None
     try:
         if not (data_dir() / MODELS_FOLDER / USE_FILE).is_file():
             return None
@@ -463,11 +440,8 @@ WAYS_OF_WORKING_FILE = "learning_ways_of_working.json"
 def ways_of_working_text() -> str:
     """The ways of working in use (E7, D18), as the agent's stable system section, or "". The agent
     reads it once per turn. While none was ever used this is one path check and imports nothing; ways
-    of working in use stay in use while Learning is off or paused (UX §8); without the preview flag
-    nothing is added (O34)."""
+    of working in use stay in use while Learning is off or paused (UX §8)."""
 
-    if not _PREVIEW:
-        return ""
     try:
         if not (data_dir() / WAYS_OF_WORKING_FILE).is_file():
             return ""
@@ -484,10 +458,8 @@ LESSONS_FILE = "learning_lessons.json"
 
 def lesson_memory_ids() -> set[str]:
     """The memories that are lessons in use (E5), for the chat's quiet "Used a lesson" line. While none was
-    ever used this is one path check; without the preview flag there are none (O34)."""
+    ever used this is one path check."""
 
-    if not _PREVIEW:
-        return set()
     try:
         path = data_dir() / LESSONS_FILE
         if not path.is_file():
@@ -532,8 +504,6 @@ def offered_personal_models() -> dict[str, str]:
     """``{model reference: "Personal model v1"}`` of the personal-model versions model lists offer
     (D11: every ready version), or ``{}``. While there is none this is one path check."""
 
-    if not _PREVIEW:
-        return {}
     try:
         if not (data_dir() / MODELS_FOLDER / "versions").is_dir():
             return {}
@@ -583,7 +553,6 @@ __all__ = [
     "MODELS_FOLDER",
     "MODEL_DOWNLOADS",
     "PRACTICE_ENV",
-    "PREVIEW_ENV",
     "QUICK_QUESTION_ENV",
     "SERVE_RUNTIMES",
     "SETTINGS_FILE",
@@ -601,7 +570,6 @@ __all__ = [
     "note_retry",
     "offered_personal_models",
     "practice_enabled",
-    "preview_enabled",
     "quick_question_enabled",
     "read_settings",
     "route_turn",

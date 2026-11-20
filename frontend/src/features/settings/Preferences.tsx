@@ -17,7 +17,6 @@ export default function Preferences({
   snapshotState,
   showUpdateControls = false,
   part = 'preferences',
-  skillsMoved = false,
   host = null,
   reviewIO,
 }: {
@@ -26,8 +25,6 @@ export default function Preferences({
   snapshotState?: ReactNode;
   showUpdateControls?: boolean;
   part?: 'preferences' | 'updates' | 'data';
-  /** "Learn new skills" moved to Settings › Learning (D29). */
-  skillsMoved?: boolean;
   /** The hosting company that runs this Row-Bot (H13), when Row-Bot knows it. */
   host?: SettingsSnapshot['system']['hosted_by'];
   /** Review memory, offered beside the Dream Cycle's overnight tidy-up. */
@@ -42,7 +39,6 @@ export default function Preferences({
           mutation={mutation}
           showUpdateControls={showUpdateControls}
           part={part}
-          skillsMoved={skillsMoved}
           host={host}
           onReviewMemory={reviewIO ? () => setReviewing(true) : undefined}
         />

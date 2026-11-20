@@ -424,12 +424,10 @@ def test_deleting_a_lesson_in_use_takes_it_out_of_use_and_deletes_its_memory(sto
 # ── The real runtime's seeding (the evaluation worker) ──────────────────────
 
 
-def test_the_worker_seeds_an_arms_lessons_as_memories_and_its_ways_of_working_per_task(memories, learning_on,
-                                                                                     monkeypatch):
+def test_the_worker_seeds_an_arms_lessons_as_memories_and_its_ways_of_working_per_task(memories, learning_on):
     from row_bot import learning
     from row_bot.learning import eval_worker
 
-    monkeypatch.setattr(learning, "_PREVIEW", True)
     saved = eval_worker.seed_arm({"lessons": [["Use the current document", LESSON]],
                                   "ways": [["tool_guidance", "Check the calendar before booking."]]})
 
@@ -447,7 +445,6 @@ def test_with_no_ways_of_working_or_lessons_in_use_the_turn_start_gates_import_n
 
     for name in [name for name in sys.modules if name.startswith("row_bot.learning.")]:
         monkeypatch.delitem(sys.modules, name)
-    monkeypatch.setattr(learning, "_PREVIEW", True)
 
     assert learning.ways_of_working_text() == "" and learning.lesson_memory_ids() == set()
     learning.note_lessons_recalled(["mem_1"])
@@ -456,7 +453,7 @@ def test_with_no_ways_of_working_or_lessons_in_use_the_turn_start_gates_import_n
     assert json.dumps(sorted(path.name for path in data_dir.iterdir())) == "[]"
 
 
-def test_a_reply_whose_turn_recalled_a_lesson_in_use_says_used_a_lesson(learning_on, monkeypatch):
+def test_a_reply_whose_turn_recalled_a_lesson_in_use_says_used_a_lesson(learning_on):
     import uuid
     from datetime import datetime, timezone
 
@@ -465,7 +462,6 @@ def test_a_reply_whose_turn_recalled_a_lesson_in_use_says_used_a_lesson(learning
     from row_bot import learning, threads, turn_context
     from row_bot.runtime.checkpoint_reader import open_checkpoint
 
-    monkeypatch.setattr(learning, "_PREVIEW", True)
     (learning_on / learning.LESSONS_FILE).write_text(json.dumps({"lessons": {"mem_lesson": "proposal_1"}}),
                                                      encoding="utf-8")
 

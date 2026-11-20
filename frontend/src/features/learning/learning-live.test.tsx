@@ -9,7 +9,7 @@ import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
 import { OverlayProvider } from '../../ui/overlays';
 import LearningHome from './LearningHome';
-import { LEARNING_CAPABILITY, useLearning } from './learning-state';
+import { useLearning } from './learning-state';
 import {
   downloadState,
   installedModel,
@@ -78,7 +78,7 @@ it('a version made ready in the background shows at once, without a reload (O127
       handshake: {
         instance_id: 'instance',
         client_session_id: 'session',
-        application_capabilities: [LEARNING_CAPABILITY],
+        application_capabilities: [],
       },
     }),
     learning,

@@ -4,14 +4,7 @@ import sys
 
 import pytest
 
-from tests.fixtures.learning import FakeClock, FakeThreads, save_learning_settings, set_learning_preview
-
-
-@pytest.fixture(autouse=True)
-def _learning_preview(monkeypatch):
-    """These tests run a build started with the preview flag (O34) unless one says otherwise."""
-
-    set_learning_preview(monkeypatch, True)
+from tests.fixtures.learning import FakeClock, FakeThreads, save_learning_settings
 
 
 @pytest.fixture

@@ -120,13 +120,10 @@ function typingTarget(target: EventTarget | null) {
 
 export default function SettingsShell({
   leaf,
-  learning = false,
   children,
 }: {
   /** The open page; none for a phone's list of pages (D6). */
   leaf?: SettingsLeaf;
-  /** A build with Learning (preview): its page is listed (O34). */
-  learning?: boolean;
   children?: ReactNode;
 }) {
   const place = usePlace();
@@ -170,12 +167,12 @@ export default function SettingsShell({
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, []);
-  const leaves = visibleLeaves(learning);
+  const leaves = visibleLeaves();
   const searching = Boolean(query.trim());
-  const pages = searching ? searchSettings(query, learning) : [];
+  const pages = searching ? searchSettings(query) : [];
   // A hosted Row-Bot's host runs its network: Devices has no Network or
   // Public link section to find.
-  const rows = (searching ? searchSettingsRows(query, learning) : []).filter(
+  const rows = (searching ? searchSettingsRows(query) : []).filter(
     (row) =>
       place.kind !== 'hosted' ||
       row.leaf !== 'access' ||

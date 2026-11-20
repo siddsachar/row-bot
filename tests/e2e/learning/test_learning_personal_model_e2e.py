@@ -9,9 +9,9 @@ Ollama and through llama.cpp's server, and each is ready only after Row-Bot's pr
 Agent turn that calls a tool. Times, sizes, peak graphics memory and connections are recorded.
 
 Skipped without ``ROW_BOT_LEARNING_TRAINING_E2E=1`` or an NVIDIA card. The data folder must be a
-scratch one (``ROW_BOT_LEARNING_E2E_DATA``, never a profile) and the build must have the preview flag::
+scratch one (``ROW_BOT_LEARNING_E2E_DATA``, never a profile)::
 
-    $env:ROW_BOT_LEARNING_E2E_DATA = "<scratch>\\data"; $env:ROW_BOT_LEARNING_PREVIEW = "1"
+    $env:ROW_BOT_LEARNING_E2E_DATA = "<scratch>\\data"
     $env:ROW_BOT_LEARNING_TRAINING_E2E = "1"
     $env:ROW_BOT_LEARNING_E2E_UV = "<uv.exe>"                       # builds the engine offline from
     $env:ROW_BOT_LEARNING_E2E_UV_CACHE = "<uv cache with the wheels>" # a cache that holds its wheels
@@ -138,7 +138,6 @@ def test_a_personal_model_from_captured_work_to_a_ready_version(monkeypatch):
     found = hardware.detect()
     if found.state not in ("gpu",) or found.gpu is None:
         pytest.skip("needs an NVIDIA graphics card that can train")
-    assert learning.preview_enabled(), "start the run with ROW_BOT_LEARNING_PREVIEW=1"
     root = learning.data_dir()
     assert ".row-bot" not in str(root).lower(), "use a scratch data folder, never a profile"
     out = root.parent / "l2c_e2e_results.json"

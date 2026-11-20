@@ -4,7 +4,7 @@
         --out <folder> --scratch <folder> --eval-profile <folder> --runtimes-from <folder>
 
 For each made-up person (``people/``) and each tier it runs ``live.py`` in its own process with its own
-scratch profile (``--scratch``/``<run>/<person>/data``, Learning's preview flag on, the main model
+scratch profile (``--scratch``/``<run>/<person>/data``, Learning on, the main model
 GPT-6.1 Sol on the ChatGPT lane from the eval profile), one person at a time, and then writes the
 report (``report.json`` and ``report.md`` in ``--out``): per person and overall, pass rates with their
 denominators and 95% intervals, the product's paired analyses, tokens, GPU-hours, time per task, the
@@ -163,9 +163,8 @@ class ReleaseCheck:
         env = {key: value for key, value in os.environ.items() if not key.startswith("ROW_BOT_")}
         if protect:
             env[PROTECT_ENV] = protect
-        env.update({"ROW_BOT_DATA_DIR": str(data), "ROW_BOT_LEARNING_PREVIEW": "1",
-                    "ROW_BOT_DESKTOP_NOTIFICATIONS": "off", "ROW_BOT_AUTO_START_OLLAMA": "0",
-                    "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"})
+        env.update({"ROW_BOT_DATA_DIR": str(data), "ROW_BOT_DESKTOP_NOTIFICATIONS": "off",
+                    "ROW_BOT_AUTO_START_OLLAMA": "0", "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"})
         # L4b and L4c have their own switches (O179: they ship on only if the release check passes with them on).
         from row_bot import learning
 

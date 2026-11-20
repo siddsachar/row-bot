@@ -200,28 +200,20 @@ describe('settings navigation metadata', () => {
 });
 
 describe('Learning (preview)', () => {
-  it('is a page only in a build with its flag, and "Learn new skills" moves there (D29)', () => {
-    expect(visibleLeaves(false).map((leaf) => leaf.id)).not.toContain(
-      'learning',
-    );
-    expect(visibleLeaves(true).map((leaf) => leaf.id)).toContain('learning');
-    expect(searchSettings('learning').map((leaf) => leaf.id)).not.toContain(
-      'learning',
-    );
-    expect(searchSettings('learning', true).map((leaf) => leaf.id)).toContain(
+  it('is a page after Buddy, and "Learn new skills" lives there (D29)', () => {
+    const ids = visibleLeaves().map((leaf) => leaf.id);
+    expect(ids[ids.indexOf('buddy') + 1]).toBe('learning');
+    expect(searchSettings('learning').map((leaf) => leaf.id)).toContain(
       'learning',
     );
     expect(
-      searchSettingsRows('learn new skills').map((row) => row.leaf),
-    ).toEqual(['preferences']);
-    expect(
-      searchSettingsRows('learn new skills', true).map((row) => [
+      searchSettingsRows('learn new skills').map((row) => [
         row.leaf,
         row.label,
       ]),
     ).toEqual([['learning', 'Create skills while chatting']]);
     expect(searchSettingsRows('personal model').map((row) => row.leaf)).toEqual(
-      [],
+      ['learning'],
     );
   });
 });

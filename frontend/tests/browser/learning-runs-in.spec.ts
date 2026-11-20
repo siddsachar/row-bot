@@ -52,8 +52,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  // Close the app first: restoring turns Learning's start-up flag off, and a
-  // poll still due (download, training) would get a 404 a real app never sees.
+  // Close the app first: restoring deletes Learning's data and its stand-ins, and
+  // a poll still due (download, training) would read them half gone.
   await page.close();
   await l2x(page, 'restore');
   await l2c(page, 'restore');
@@ -91,7 +91,7 @@ function notice(page: Page, text: string | RegExp) {
 const GPU = 'NVIDIA GeForce RTX 5090 (32 GB)';
 
 async function turnOn(page: Page, info: TestInfo) {
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   await l2x(page, 'card', '5090');
   await page.goto('/app-v2/settings/learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();
@@ -139,7 +139,7 @@ async function runsIn(page: Page) {
 }
 
 async function setupSheet(page: Page, card: string, twoModels = false) {
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   // O112, O124: the 9B is the only certified model since T1; a stand-in smaller one shows the offers.
   if (twoModels) await l2x(page, 'two-models');
   await l2x(page, 'card', card);
@@ -232,7 +232,7 @@ test('after two nights without room on the graphics card for the 9B, the Persona
 test('after two nights without room on the graphics card, the Personal model view offers a smaller model (O112)', async ({
   page,
 }, info) => {
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   await l2x(page, 'two-models');
   await turnOn(page, info);
   // v1 is planned and waits for the card (a local model holds it), two nights running.

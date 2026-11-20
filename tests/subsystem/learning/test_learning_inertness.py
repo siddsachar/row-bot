@@ -15,7 +15,7 @@ import pytest
 
 # Bound to the session's data folder at import, as in the app (not to a test's folder).
 from row_bot import threads, thread_cleanup
-from tests.fixtures.learning import learning_files, save_learning_settings, set_learning_preview
+from tests.fixtures.learning import learning_files, save_learning_settings
 from tests.fixtures.memory_stack import fresh_memory_stack
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
@@ -148,20 +148,19 @@ def test_deleting_a_memory_with_learning_off_touches_nothing_of_learning(
     assert _learning_modules() in ([], ["row_bot.learning"])
 
 
-@pytest.mark.parametrize("state", ["off", "paused", "on_without_the_preview_flag"])
+@pytest.mark.parametrize("state", ["off", "saved_off", "paused"])
 def test_full_turns_with_learning_off_capture_nothing_load_nothing_and_start_nothing(
     state, data_dir, no_learning_modules, monkeypatch
 ):
     """Model calls, tool calls, an approval, a Stop and a Retry pass every capture seam: with
-    Learning off, paused, or on in a build without the preview flag (O34), each costs one check
+    Learning off (never set up, or set up and never turned on) or paused, each costs one check
     and nothing else happens."""
     from langchain_core.messages import HumanMessage
 
     if state == "paused":
         save_learning_settings(data_dir, enabled=True, paused=True)
-    elif state == "on_without_the_preview_flag":
-        save_learning_settings(data_dir, enabled=True)
-        set_learning_preview(monkeypatch, False)
+    elif state == "saved_off":
+        save_learning_settings(data_dir, enabled=False)
     settings_file = [] if state == "off" else ["learning_config.json"]
     from langchain_core.tools import tool
 
@@ -211,12 +210,12 @@ def test_full_turns_with_learning_off_capture_nothing_load_nothing_and_start_not
     assert not [name for name in started if name.startswith("learning-")]
 
 
-@pytest.mark.parametrize("state", ["off", "paused", "on_without_the_preview_flag"])
+@pytest.mark.parametrize("state", ["off", "saved_off", "paused"])
 def test_training_starts_nothing_and_loads_nothing_while_learning_is_off(state, data_dir, no_learning_modules,
                                                                          monkeypatch):
     """Start-up's runner, a settings save, Buddy's check of what's running and Dream's check of
-    the lease (L2a): with Learning off, paused, or on without the preview flag, none of them
-    loads Learning's training, starts a thread or writes a file."""
+    the lease (L2a): with Learning off (never set up, or set up and never turned on) or paused,
+    none of them loads Learning's training, starts a thread or writes a file."""
     import row_bot.agent_orchestrator as orchestrator
     import row_bot.buddy.brain as brain_mod
     import row_bot.dream_cycle as dream_cycle
@@ -225,9 +224,8 @@ def test_training_starts_nothing_and_loads_nothing_while_learning_is_off(state, 
 
     if state == "paused":
         save_learning_settings(data_dir, enabled=True, paused=True)
-    elif state == "on_without_the_preview_flag":
-        save_learning_settings(data_dir, enabled=True)
-        set_learning_preview(monkeypatch, False)
+    elif state == "saved_off":
+        save_learning_settings(data_dir, enabled=False)
     settings_file = [] if state == "off" else ["learning_config.json"]
     monkeypatch.setattr(tasks, "get_pending_approvals", lambda: [])
     monkeypatch.setattr(tasks, "get_running_tasks", lambda: {})
@@ -249,21 +247,21 @@ def test_training_starts_nothing_and_loads_nothing_while_learning_is_off(state, 
     assert learning_files(data_dir) == settings_file
 
 
-@pytest.mark.parametrize("state", ["off", "paused", "on_without_the_preview_flag"])
+@pytest.mark.parametrize("state", ["off", "saved_off", "paused"])
 def test_memory_extraction_and_settings_saves_load_no_engine_and_download_nothing_while_off(
         state, data_dir, no_learning_modules, monkeypatch):
     """Memory extraction's check of the lease (O41) and a settings save (L2b's download stop):
-    with Learning off, paused, or on without the preview flag, neither loads the training
-    engine, its download or the lease, and nothing appears under the data folder's runtimes."""
+    with Learning off (never set up, or set up and never turned on) or paused, neither loads the
+    training engine, its download or the lease, and nothing appears under the data folder's
+    runtimes."""
     import row_bot.memory_extraction as extraction
     import row_bot.models as models
     from row_bot import learning
 
     if state == "paused":
         save_learning_settings(data_dir, enabled=True, paused=True)
-    elif state == "on_without_the_preview_flag":
-        save_learning_settings(data_dir, enabled=True)
-        set_learning_preview(monkeypatch, False)
+    elif state == "saved_off":
+        save_learning_settings(data_dir, enabled=False)
     monkeypatch.setattr(models, "get_current_model", lambda: "model:ollama:qwen3:8b")
     monkeypatch.setattr(extraction, "_read_conversations", lambda *args, **kwargs: 0)
 

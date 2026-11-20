@@ -38,7 +38,7 @@ export const settingsGroups = [
 export type SettingsGroupId = (typeof settingsGroups)[number]['id'];
 type ListedLeafId = (typeof settingsGroups)[number]['leaves'][number];
 /**
- * Learning (preview) is a page only in a build started with its flag (O34). It
+ * Learning (preview) is a page in every build (O34), listed after Buddy. It
  * stays out of the lists above, which the public docs are generated from.
  */
 type PreviewLeafId = 'learning';
@@ -129,9 +129,8 @@ export const previewLeaves: SettingsLeaf[] = [
   },
 ];
 
-/** The pages this build shows: Learning only with its preview flag. */
-export function visibleLeaves(learning: boolean): SettingsLeaf[] {
-  if (!learning) return settingsLeaves;
+/** The pages Settings lists: every page, with Learning after Buddy. */
+export function visibleLeaves(): SettingsLeaf[] {
   const after = settingsLeaves.findIndex((leaf) => leaf.id === 'buddy') + 1;
   return [
     ...settingsLeaves.slice(0, after),
@@ -190,7 +189,6 @@ export const agentProfileLibrary = {
 export function resolveSetting(value: string) {
   const key = value.toLowerCase();
   const target = settingsRedirects[key]?.leaf ?? key;
-  // The route itself sends Learning away in a build without its flag.
   return [...settingsLeaves, ...previewLeaves].find(
     (leaf) => leaf.id === target,
   );
@@ -272,9 +270,9 @@ function leafText(leaf: SettingsLeaf) {
     .join(' ')}`.toLowerCase();
 }
 
-export function searchSettings(query: string, learning = false) {
+export function searchSettings(query: string) {
   const term = query.trim().toLowerCase();
-  return visibleLeaves(learning).filter((leaf) =>
+  return visibleLeaves().filter((leaf) =>
     term
       .split(/\s+/)
       .filter(Boolean)
@@ -310,6 +308,8 @@ export const settingsRows: SettingsRow[] = [
     label: 'Personality',
     keywords: 'behaviour tone',
   },
+  // Row-Bot's own settings and the docs still name this row; since D29 it is
+  // Settings › Learning's, so search offers Learning's row instead.
   {
     leaf: 'preferences',
     anchor: 'identity.self_improvement_enabled',
@@ -828,22 +828,20 @@ export const previewSettingsRows: SettingsRow[] = [
   },
 ];
 
-/** The rows this build offers: with Learning (preview), its rows replace "Learn new skills". */
-export function visibleSettingsRows(learning: boolean): SettingsRow[] {
-  return learning
-    ? [
-        ...settingsRows.filter(
-          (row) => row.anchor !== 'identity.self_improvement_enabled',
-        ),
-        ...previewSettingsRows,
-      ]
-    : settingsRows;
+/** The rows search offers: Learning's replace "Learn new skills" (D29). */
+export function visibleSettingsRows(): SettingsRow[] {
+  return [
+    ...settingsRows.filter(
+      (row) => row.anchor !== 'identity.self_improvement_enabled',
+    ),
+    ...previewSettingsRows,
+  ];
 }
 
-export function searchSettingsRows(query: string, learning = false) {
+export function searchSettingsRows(query: string) {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
-  return visibleSettingsRows(learning).filter((row) => {
+  return visibleSettingsRows().filter((row) => {
     const own = `${row.label} ${row.keywords ?? ''}`.toLowerCase();
     // The page name narrows ("mcp runtime" → MCP › Runtimes), but
     // one word must name the row itself, so "system" lists the page only.
