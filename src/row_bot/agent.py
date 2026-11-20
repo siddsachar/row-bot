@@ -5566,6 +5566,7 @@ def _set_active_runtime_context(
     _current_device_zone_var.set(str(device_zone or ""))
     _current_authorized_skill_records_var.set(None)
     _current_effective_tool_parent_names_var.set(())
+    _current_on_demand_tools_var.set({})
     _current_bound_tool_schema_tokens_var.set(0)
     _current_canonical_tools_var.set(())
     _current_last_preparation_var.set(None)
