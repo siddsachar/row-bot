@@ -5307,7 +5307,11 @@ def _learning_begin_turn(configurable: dict | None, *, resumed: bool = False) ->
             generation_id=str(values.get("generation_id") or ""),
             surface=surface,
             agent_run_id=str(values.get("agent_run_id") or ""),
-            goal=bool(values.get("internal_goal_continuation")),
+            # A goal step: goals.py's own turns (no follow-up kind) or a conversation's "goal" follow-up. Row-Bot's
+            # other follow-ups (a wait, a linked reply, a carry-on) belong to their conversation, as the person
+            # scoped it (My chats, not Workflows and goals).
+            goal=bool(values.get("internal_goal_continuation"))
+            and str(values.get("followup_kind", "goal")) == "goal",
             person_message=surface in _LEARNING_PERSON_SURFACES and not started_by_row_bot,
             resumed=resumed,
         ))
