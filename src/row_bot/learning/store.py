@@ -1417,7 +1417,10 @@ class LearningStore:
     # ── Delete learning data… ────────────────────────────────────────────
 
     def storage_bytes(self) -> int:
-        """Bytes Learning data takes on disk (the database and its blobs)."""
+        """Bytes Learning data takes on disk: the database and the blobs it lists. Every blob file is written
+        before its row and goes with it, so the rows' sizes are the files' (an interrupted write's leftover
+        file, swept by :meth:`gc_blobs`, is not counted). Read from the database, so a large store costs one
+        query, not a walk of its blob folder."""
 
         total = 0
         for suffix in ("", "-wal"):
@@ -1425,13 +1428,9 @@ class LearningStore:
                 total += Path(str(self.path) + suffix).stat().st_size
             except OSError:
                 pass
-        if self.blobs_dir.is_dir():
-            for path in self.blobs_dir.rglob("*"):
-                try:
-                    if path.is_file() and not path.is_symlink():
-                        total += path.stat().st_size
-                except OSError:
-                    pass
+        with self._reader() as connection:
+            if connection is not None:
+                total += int(connection.execute("SELECT COALESCE(SUM(size), 0) FROM blobs").fetchone()[0])
         return total
 
     def delete_all(self) -> DeleteAllReport:

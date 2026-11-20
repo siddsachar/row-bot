@@ -293,6 +293,8 @@ function lessonMeta(item: LearningLessonView): string {
     return `Saved by Row-Bot during a chat${item.updated_at ? ` · ${relativeTime(item.updated_at)}` : ''}`;
   const kind =
     item.kind && item.kind !== 'other' ? kindLabel(item.kind) : 'Your work';
+  if (item.status === 'removed')
+    return `${kind} · its memory was removed, so Row-Bot doesn’t use it`;
   return item.status === 'in_use'
     ? `${kind} · ${item.used ? `used ${timesWords(item.used)} this month` : 'not used yet this month'}`
     : kind;

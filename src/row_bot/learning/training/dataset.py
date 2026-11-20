@@ -540,6 +540,16 @@ def _paragraphs(text: str) -> list[str]:
     return [part for part in text.split("\n\n") if part.strip()]
 
 
+# A code folder's notes (the stable section ``developer.project_notes``): that conversation's own, always between
+# these two lines (a file's own copy of either is replaced before it is sent).
+_PROJECT_NOTES = re.compile(r"<<<PROJECT NOTES>>>.*?<<<END PROJECT NOTES>>>", re.DOTALL)
+
+
+def _without_project_notes(text: str) -> str:
+    kept, found = _PROJECT_NOTES.subn("", text)
+    return "\n\n".join(_paragraphs(kept)) if found else text
+
+
 def past_frame(episodes: Sequence[Episode], book: _Book) -> PastFrame | None:
     """What imported rows are framed with: the newest finished live turn's Agent request's tools and the
     static part of its system prompt, or None (nothing live yet: imported rows wait for it).
@@ -567,6 +577,7 @@ def past_frame(episodes: Sequence[Episode], book: _Book) -> PastFrame | None:
     if newest is None:
         return None
     _episode, text, tools = newest
+    text = _without_project_notes(text)  # two chats in one code folder share them; an imported chat had none
     if shared is not None:
         kept = [part for part in _paragraphs(text) if part in shared]
         text = "\n\n".join(kept) or text
