@@ -1388,7 +1388,8 @@ class LearningSettingsSnapshot(WireModel):
     paused: bool
     sources: LearningSourcesSnapshot
     apply_mode: Literal["ask_first", "automatic"]
-    monthly_token_limit: int = Field(ge=0, le=1_000_000_000)
+    # Tokens a month (0: no Learning model calls); null: no limit, its spending still shows.
+    monthly_token_limit: int | None = Field(ge=0, le=1_000_000_000)
     train_in_quiet_hours: bool
     train_where: Literal["this_computer", "hugging_face"]
     # Learning data is on this computer (kept after Learning is turned off).
@@ -4899,11 +4900,15 @@ class InsightReceipt(WireModel):
 
 class LearningSpending(WireModel):
     used_tokens: int = Field(ge=0)
-    limit_tokens: int = Field(ge=0, le=1_000_000_000)
+    # null: no limit (used_tokens still counts what Learning used).
+    limit_tokens: int | None = Field(ge=0, le=1_000_000_000)
     # The 1st of next month (local date): when the limit starts again.
     resets_on: str = Field(max_length=16)
     # The default chat model's name; Learning's own model calls use it. "" when none is chosen.
     model_name: str = Field(max_length=256)
+    # Tokens of the limit kept for comparing methods (the strategy trials' unused 20% share, O178); 0 with no limit.
+    kept_for_comparing: int = Field(default=0, ge=0, le=1_000_000_000)
+    # Learning's other work has used all it may: the limit, less what is kept for comparing methods.
     limit_reached: bool
 
 
@@ -5724,7 +5729,8 @@ class LearningLessonPage(WireModel):
 class LearningSetupChoices(WireModel):
     sources: LearningSourcesSnapshot
     apply_mode: Literal["ask_first", "automatic"]
-    monthly_token_limit: int = Field(ge=0, le=1_000_000_000)
+    # Tokens a month (0: no Learning model calls); null: no limit, its spending still shows.
+    monthly_token_limit: int | None = Field(ge=0, le=1_000_000_000)
     train_in_quiet_hours: bool
     train_where: Literal["this_computer", "hugging_face"]
     starting_model: Literal["qwen3.5-9b"] = "qwen3.5-9b"

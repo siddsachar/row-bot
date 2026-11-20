@@ -34,6 +34,7 @@ export function learningSnapshot(
       limit_tokens: 2_000_000,
       resets_on: '2026-11-01',
       model_name: 'GPT-5.6 Sol',
+      kept_for_comparing: 0,
       limit_reached: false,
     },
     quiet_hours: { window_start: 1, window_end: 5, next_look_at: null },
