@@ -15,6 +15,8 @@ export type WorkspaceActions = {
    * see one header, not two stacked bars (B119).
    */
   compactControls?: { navigation: ReactNode; commands: ReactNode };
+  /** A phone header's end, after Search: a place portals its own icons here (Chats' New chat and ⋯). */
+  phoneHeaderSlot?: HTMLElement | null;
 };
 
 export const WorkspaceActionsContext = createContext<WorkspaceActions | null>(

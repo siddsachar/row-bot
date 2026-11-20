@@ -13,6 +13,12 @@
 .phone-header .workspace-controls > :last-child {
   margin-inline-start: auto;
 }
+/* Search, then the place's own icons (Chats: New chat and ⋯). */
+.phone-header-end,
+.phone-header-slot {
+  display: flex;
+  align-items: center;
+}
 
 /* Workflows is a place of its own: no Home sub-tabs above it (D1), and the
    header names it, so its page title is for screen readers only. */
