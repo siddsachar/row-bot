@@ -6,6 +6,7 @@ fakes, made-up benchmark files and no network.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import socket
 from datetime import datetime, timedelta
@@ -1077,6 +1078,12 @@ def test_a_benchmark_turn_reaches_only_the_pinned_tools_and_never_the_web(tmp_pa
     assert not policy.host_reason("chatgpt.com")
 
 
+def _graph_tools(groups: tuple[str, ...]) -> dict:
+    """The tools an agent built for *groups* binds, built in a copy of the context: building one sets the
+    turn's context variables, which must not reach the tests after it."""
+    return contextvars.copy_context().run(lambda: agent.get_agent_graph(list(groups)).tools.tools_by_name)
+
+
 def test_the_agent_a_benchmark_builds_keeps_b1s_deferral_but_binds_no_question_tool(monkeypatch) -> None:
     from row_bot.plugins import registry as plugin_registry
     from tests.e2e.bench.runtime import install_tool_fence, pinned_tool_names
@@ -1097,7 +1104,7 @@ def test_the_agent_a_benchmark_builds_keeps_b1s_deferral_but_binds_no_question_t
     withheld: set[str] = set()
     undo = install_tool_fence(pinned_tool_names(groups), withheld)
     try:
-        bound = agent.get_agent_graph(list(groups)).tools.tools_by_name
+        bound = _graph_tools(groups)
     finally:
         undo()
         agent.clear_agent_cache()
@@ -1130,10 +1137,10 @@ def test_with_tool_deferral_off_every_pinned_tool_is_bound_and_on_comes_back_aft
     try:
         undo = install_deferral_off()
         try:
-            off = set(agent.get_agent_graph(list(groups)).tools.tools_by_name)
+            off = set(_graph_tools(groups))
         finally:
             undo()
-        on = set(agent.get_agent_graph(list(groups)).tools.tools_by_name)
+        on = set(_graph_tools(groups))
     finally:
         fence()
         agent.clear_agent_cache()
@@ -1308,8 +1315,11 @@ DOMAIN_SYSTEM_PROMPTS = {
 '''
 
 
-def test_the_fixed_reader_gets_the_controller_turns_context_in_the_benchmarks_message_shape(tmp_path) -> None:
+def test_the_fixed_reader_gets_the_controller_turns_context_in_the_benchmarks_message_shape(tmp_path,
+                                                                                           monkeypatch) -> None:
     from tests.e2e.bench.memory import controller
+
+    monkeypatch.setattr(controller, "count_tokens", lambda text: len(text.split()))
 
     harness = tmp_path / "harness.py"
     harness.write_text(_V2_HARNESS, encoding="utf-8")
@@ -1422,6 +1432,8 @@ def test_the_fixed_reader_is_the_only_other_local_model_and_only_for_its_benchma
 
 def test_each_controller_turn_is_asked_as_a_retrieval_module_and_leaves_its_context(monkeypatch) -> None:
     from tests.e2e.bench.memory import controller
+
+    monkeypatch.setattr(controller, "count_tokens", lambda text: len(text.split()))
     from tests.e2e.bench.trajectory import Step
 
     question = Question(question_id="q1", question="Is there a post box on the home page?", answer="false",
