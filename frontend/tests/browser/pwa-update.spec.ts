@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test, writeEvidence } from './evidence';
-import { captureSurface, openHome } from './surface-helpers';
+import { captureSurface, openHome, watchReads } from './surface-helpers';
 import { composer, newConversation } from './unified-helpers';
 
 /** An older worker controls the page and a newer one is waiting. */
@@ -85,6 +85,7 @@ test('manifest and installed service worker cache only immutable public assets',
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
+  const reads = watchReads(page);
   await page.reload();
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
@@ -148,6 +149,9 @@ test('manifest and installed service worker cache only immutable public assets',
       fixture: 'intentional-public-offline-navigation-503',
     }),
   });
+  // Home's reads the first screen doesn't show (Proactive) answer before the
+  // outage: only the offline navigation itself may fail in it.
+  await reads.settled();
   await context.setOffline(true);
   try {
     const offline = await page.goto('/app-v2/offline-proof');

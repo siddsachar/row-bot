@@ -5,6 +5,7 @@ import sqlite3
 import uuid
 import pathlib
 import json
+import re
 import time
 import gc
 import hashlib
@@ -63,12 +64,17 @@ _THREAD_META_COLUMNS = {
     "chat_only_summary_state_json": "TEXT NOT NULL DEFAULT ''",
     # The compaction that last failed, per mode, so it is not retried before the turn or input changes.
     "compaction_failure_json": "TEXT NOT NULL DEFAULT ''",
+    # The next summary, per mode, written while the chat was idle near its compaction point (B6).
+    "prepared_summary_json": "TEXT NOT NULL DEFAULT ''",
     # Deleted with Undo on offer (thread_cleanup.hold_thread_deletion): hidden now, removed when Undo ends.
     "deleted_at": "TEXT NOT NULL DEFAULT ''",
     # Incognito (N11): nothing said here is read for memory, and the agent saves only what the person approves.
     "incognito": "INTEGER NOT NULL DEFAULT 0",
     # Where incognito was last turned off (IncognitoBoundary); what came before it is never read for memory.
     "incognito_boundary_json": "TEXT NOT NULL DEFAULT ''",
+    # A fork (Edit and resend, Fork from here): the conversation it was copied from, and the message it was cut at.
+    "forked_from_id": "TEXT NOT NULL DEFAULT ''",
+    "forked_at_message_id": "TEXT NOT NULL DEFAULT ''",
 }
 
 THREAD_NAME_SOURCE_AUTO = "auto"
@@ -1609,18 +1615,101 @@ def load_validated_summary_state(
         state = _summary_state_slot(conn, thread_id, mode)
     if not isinstance(state, dict):
         return None
+    source_messages = list(messages) if messages is not None else get_latest_checkpoint_messages(thread_id)
+    return _valid_summary_state(state, mode, source_messages)
+
+
+def _valid_summary_state(state: dict | None, mode: str, messages: list) -> dict | None:
+    """*state* when its schema, mode and summary are sound and it summarizes *messages*' own prefix."""
+    if not isinstance(state, dict):
+        return None
     if int(state.get("schema_version") or 0) != SUMMARY_STATE_SCHEMA_VERSION:
         return None
     if str(state.get("mode") or "") != mode or not str(state.get("summary") or "").strip():
         return None
-    source_messages = list(messages) if messages is not None else get_latest_checkpoint_messages(thread_id)
     count = int(state.get("boundary_message_count") or 0)
-    if count <= 0 or count > len(source_messages):
+    if count <= 0 or count > len(messages):
         return None
-    expected = context_boundary_digest(source_messages, count, mode)
+    expected = context_boundary_digest(messages, count, mode)
     if expected != str(state.get("boundary_digest") or ""):
         return None
     return state
+
+
+def summary_text_digest(state: dict | None) -> str:
+    """The digest of a summary's text, or "" without one: what a prepared summary builds on (B6)."""
+    summary = str((state or {}).get("summary") or "").strip()
+    return hashlib.sha256(summary.encode("utf-8")).hexdigest() if summary else ""
+
+
+def _prepared_slots(conn: sqlite3.Connection, thread_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT COALESCE(prepared_summary_json, '') FROM thread_meta WHERE thread_id = ?", (thread_id,),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        slots = json.loads(row[0]) if row[0] else {}
+    except (TypeError, json.JSONDecodeError):
+        slots = {}
+    return slots if isinstance(slots, dict) else {}
+
+
+def load_prepared_summary(thread_id: str, mode: str) -> dict | None:
+    """The summary prepared ahead for *mode* (unvalidated: the caller checks it still fits), or None."""
+    if not thread_id or mode not in _SUMMARY_STATE_COLUMNS:
+        return None
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        slot = (_prepared_slots(conn, thread_id) or {}).get(mode)
+    return slot if isinstance(slot, dict) else None
+
+
+def save_prepared_summary_cas(thread_id: str, state: dict, *, messages: list) -> bool:
+    """Keep a summary prepared ahead, only while the summary in force is still the one it builds on.
+
+    *state* names that summary by ``base_summary_digest`` ("" when none was in force); *messages* is
+    the conversation it was prepared from, against which the summary in force is validated.
+    """
+    mode = str((state or {}).get("mode") or "")
+    if not thread_id or mode not in _SUMMARY_STATE_COLUMNS or _thread_write_blocked(thread_id):
+        return False
+    if _valid_summary_state(state, mode, list(messages)) is None:
+        return False
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        slots = _prepared_slots(conn, thread_id)
+        in_force = _valid_summary_state(_summary_state_slot(conn, thread_id, mode), mode, list(messages))
+        if slots is None or summary_text_digest(in_force) != str(state.get("base_summary_digest") or ""):
+            conn.rollback()
+            return False
+        slots[mode] = dict(state)
+        conn.execute(
+            "UPDATE thread_meta SET prepared_summary_json = ? WHERE thread_id = ?",
+            (json.dumps(slots, sort_keys=True, ensure_ascii=False), thread_id),
+        )
+        conn.commit()
+    return True
+
+
+def clear_prepared_summary(thread_id: str, mode: str) -> None:
+    """Drop the summary prepared ahead for *mode* (used, or no longer valid)."""
+    if not thread_id or mode not in _SUMMARY_STATE_COLUMNS or _thread_write_blocked(thread_id):
+        return
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        slots = _prepared_slots(conn, thread_id)
+        if not slots or mode not in slots:
+            conn.rollback()
+            return
+        slots.pop(mode, None)
+        conn.execute(
+            "UPDATE thread_meta SET prepared_summary_json = ? WHERE thread_id = ?",
+            (json.dumps(slots, sort_keys=True, ensure_ascii=False) if slots else "", thread_id),
+        )
+        conn.commit()
 
 
 def load_history_hygiene(thread_id: str) -> dict | None:
@@ -2158,6 +2247,20 @@ def get_latest_checkpoint_messages(thread_id: str) -> list:
     return []
 
 
+def paused_at_a_question(thread_id: str) -> bool:
+    """Whether the thread's latest checkpoint is a turn paused at a question (an approval, or Row-Bot's own).
+
+    The answer resumes that very checkpoint: a message written on top of it would leave the question, and
+    the results of the calls beside it, on an older checkpoint the resume never reads (R15).
+    """
+    from langgraph._internal._constants import INTERRUPT
+
+    if not thread_id:
+        return False
+    saved = checkpointer.get_tuple({"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}})
+    return bool(saved) and any(write[1] == INTERRUPT for write in saved.pending_writes or ())
+
+
 def get_latest_checkpoint_revision(thread_id: str) -> str:
     """Return a stable identity for the latest parent-thread checkpoint."""
 
@@ -2547,6 +2650,251 @@ def _retried_turn(existing: list, text: str) -> int | None:
            for message in existing[human + 1:]):
         return None
     return human
+
+
+# ── Forks (B5): Edit and resend, Fork from here ─────────────────────────────
+
+
+class ForkError(ValueError):
+    """Why a conversation can't be forked at a message, as a client error code."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass(frozen=True)
+class ForkedConversation:
+    conversation_id: str
+    # How many of the source's checkpoint messages the fork holds.
+    message_count: int
+    # Edit and resend: the edited message's files, copied into the fork for the message that replaces it.
+    draft_attachments: tuple[dict, ...] = ()
+
+
+# A person's own message may carry only this note; any other was sent by Row-Bot or another conversation.
+_PERSON_NOTES = frozenset({"page"})
+_ATTACHMENT_ID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+_SAVED_OUTPUT = re.compile(r"out_[0-9a-f]{16}")
+
+
+def fork_conversation(source_id: str, *, at_message_id: str, include_message: bool,
+                      thread_id: str | None = None) -> ForkedConversation:
+    """Copy a conversation up to one of its messages into a new conversation. The source is never written.
+
+    ``include_message`` False (Edit and resend): *at_message_id* is a message the person sent, and the fork
+    holds everything before it; its turn context goes with it. True (Fork from here): it is a reply, and the
+    fork holds its whole turn, tool results included, up to the person's next message. A cut never falls
+    between a tool call and its result.
+
+    The fork keeps the source's model, profile, skills, apps, approval level (as the source runs it) and
+    incognito, shares its code folder and design, and keeps each summary still valid for what it holds, the
+    history-hygiene marks anchored in it and the files its messages name (copied under its own id). Memory
+    extraction starts at its end, so copied messages are never extracted twice, and what was said incognito
+    stays unread. Goals, waits, links and helpers stay with the source.
+    """
+    source = str(source_id or "").strip()
+    message_id = str(at_message_id or "").strip()
+    if not source or not message_id:
+        raise ForkError("invalid_command")
+    _ensure_thread_db()
+    with checkpoint_mutation(source):
+        if _thread_write_blocked(source):
+            raise ForkError("not_found")
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM thread_meta WHERE thread_id = ?", (source,)).fetchone()
+        if row is None or str(row["deleted_at"] or ""):
+            raise ForkError("not_found")
+        messages = get_latest_checkpoint_messages(source)
+        cut = _fork_cut(messages, message_id, include_message)
+        new_id = str(thread_id or uuid.uuid4())
+        if new_id == source or _thread_exists(new_id):
+            raise ForkError("invalid_command")
+        try:
+            forked = _write_fork(source, new_id, dict(row), messages, cut, message_id,
+                                 edited=None if include_message else messages[cut])
+        except Exception:
+            from row_bot.thread_cleanup import _clear_in_memory_state, _purge_owned_state
+
+            _purge_owned_state(new_id)
+            _clear_in_memory_state(new_id)
+            raise
+        _learning_chat_forked(source, new_id)
+    logger.info("Forked conversation %s into %s at message %d of %d", source[:8], new_id[:8], cut, len(messages))
+    return forked
+
+
+def _learning_chat_forked(source: str, fork: str) -> None:
+    """A fork of a chat left out of Learning is left out too: every request in it carries the copied messages.
+    Only when Learning has a store (otherwise one path check); never raises into the fork."""
+    try:
+        from row_bot import learning
+        if not learning.store_exists():
+            return
+        from row_bot.learning.store import LearningStore
+
+        store = LearningStore()
+        if store.is_chat_opted_out(source):
+            store.set_chat_opt_out(fork, True)
+    except Exception:
+        logger.debug("Learning could not carry a chat's opt-out to its fork", exc_info=True)
+
+
+def _fork_cut(messages: list, message_id: str, include_message: bool) -> int:
+    """How many of *messages* a fork at *message_id* keeps."""
+    from row_bot.turn_context import is_person_message
+
+    index = next((position for position, message in enumerate(messages)
+                  if str(getattr(message, "id", "") or "") == message_id), None)
+    if index is None:
+        raise ForkError("not_found")
+    message = messages[index]
+    if include_message:
+        if getattr(message, "type", "") != "ai":
+            raise ForkError("invalid_command")
+        # The turn ends just before the person's next message (a turn context follows that message).
+        cut = next((later for later in range(index + 1, len(messages)) if is_person_message(messages[later])),
+                   len(messages))
+    else:
+        note = (getattr(message, "additional_kwargs", None) or {}).get("platform_note")
+        if not is_person_message(message) or (note and note not in _PERSON_NOTES):
+            raise ForkError("invalid_command")
+        cut = index
+    called = {str(call.get("id")) for message in messages[:cut]
+              for call in (getattr(message, "tool_calls", None) or []) if call.get("id")}
+    answered = {str(getattr(message, "tool_call_id", "") or "") for message in messages[:cut]
+                if getattr(message, "type", "") == "tool"}
+    if called - answered:
+        # A step still waiting on its result (an approval being asked): that turn hasn't finished.
+        raise ForkError("invalid_command")
+    return cut
+
+
+def _write_fork(source: str, new_id: str, meta: dict, messages: list, cut: int, message_id: str, *,
+                edited) -> ForkedConversation:
+    from row_bot import history_hygiene
+    from row_bot.application.attachments import AttachmentError, copy_attachment, inspect_attachment
+    from row_bot.conversation_resources import ResourceError, inherit_bindings, list_bindings
+    from row_bot.memory_extraction import read_to_end
+    from row_bot.tool_outputs import copy_saved_outputs
+
+    create_thread(
+        f"{meta.get('name') or 'Untitled'} (fork)", thread_id=new_id,
+        thread_type=str(meta.get("thread_type") or ""),
+        # As the source runs it: a shared conversation's Auto never becomes Hands-off here.
+        approval_mode=_get_thread_approval_mode(source),
+        model_override=str(meta.get("model_override") or ""),
+        agent_profile_id=str(meta.get("agent_profile_id") or ""),
+        agent_profile_slug=str(meta.get("agent_profile_slug") or ""),
+        seed_default_skills=False, incognito=bool(meta.get("incognito")),
+    )
+    references: set[str] = set()
+    kept = [_with_references(message, source, new_id, references) for message in messages[:cut]]
+    draft: list = []
+    if edited is not None:
+        extra = getattr(edited, "additional_kwargs", None) or {}
+        if extra.get("platform_attachments"):
+            draft = _with_references_in(extra["platform_attachments"], source, new_id, references)
+    for attachment_id in sorted(references):
+        try:
+            copy_attachment(f"{source}:{attachment_id}", new_id)
+        except AttachmentError:
+            # Gone from the source too: the fork shows it as the source does.
+            logger.debug("Attachment %s of %s was not copied into its fork", attachment_id, source[:8])
+    copy_saved_outputs(source, new_id, {handle for message in kept
+                                        for handle in _SAVED_OUTPUT.findall(_searchable(message))})
+    if kept and not append_checkpoint_messages(new_id, kept):
+        raise RuntimeError("The fork's history could not be saved.")
+
+    summaries: dict[str, dict | None] = {}
+    for mode in ("agent", "chat_only"):
+        state = load_validated_summary_state(source, mode, messages=messages)
+        count = int((state or {}).get("boundary_message_count") or 0)
+        valid = (state is not None and count <= len(kept)
+                 and context_boundary_digest(kept, count, mode) == str(state.get("boundary_digest") or ""))
+        summaries[mode] = {**state, "source_revision": get_latest_checkpoint_revision(new_id)} if valid else None
+    # A summary prepared ahead goes with the fork by the same rule, while it still builds on the fork's summary.
+    prepared = {
+        mode: slot for mode in ("agent", "chat_only")
+        if (slot := load_prepared_summary(source, mode)) is not None
+        and _valid_summary_state(slot, mode, kept) is not None
+        and str(slot.get("base_summary_digest") or "") == summary_text_digest(summaries[mode])
+    }
+    shown = summaries["agent"] or summaries["chat_only"]
+    with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
+        conn.execute(
+            "UPDATE thread_meta SET reasoning_selections_json = ?, skills_override = ?, apps_off_json = ?, "
+            "client_runtime_mode = ?, incognito_boundary_json = ?, summary_state_json = ?, "
+            "chat_only_summary_state_json = ?, summary = ?, summary_msg_count = ?, context_usage_json = '', "
+            "prepared_summary_json = ?, forked_from_id = ?, forked_at_message_id = ? WHERE thread_id = ?",
+            (
+                str(meta.get("reasoning_selections_json") or ""), str(meta.get("skills_override") or ""),
+                str(meta.get("apps_off_json") or ""), str(meta.get("client_runtime_mode") or "agent"),
+                # What was said incognito stays unread in the fork: the boundary's message id is kept.
+                str(meta.get("incognito_boundary_json") or ""),
+                *(json.dumps(summaries[mode], sort_keys=True, ensure_ascii=False) if summaries[mode] else ""
+                  for mode in ("agent", "chat_only")),
+                str((shown or {}).get("summary") or ""), int((shown or {}).get("boundary_message_count") or 0),
+                json.dumps(prepared, sort_keys=True, ensure_ascii=False) if prepared else "",
+                source, message_id, new_id,
+            ),
+        )
+    marks = history_hygiene.load_marks(source, messages)
+    if marks != history_hygiene.Marks():
+        # A mark past the cut has no anchor in the fork, so it starts again from nothing.
+        history_hygiene.save_marks(new_id, kept, marks)
+    parent = list_bindings(source)
+    if parent.bindings:
+        try:
+            # The same code folder and design: no new worktree (the person can bind another).
+            inherit_bindings(source, new_id, expected_parent_revision=parent.revision,
+                             expected_child_revision=list_bindings(new_id).revision)
+        except ResourceError as exc:
+            if exc.code != "resource_unavailable":
+                raise
+            logger.info("Fork %s starts without the source's resources: one is no longer available", new_id[:8])
+    read_to_end(new_id)
+    attachments: list[dict] = []
+    for item in draft:
+        try:
+            attachments.append(inspect_attachment(str(item.get("attachment_ref") or "")))
+        except AttachmentError:
+            continue
+    return ForkedConversation(new_id, len(kept), tuple(attachments))
+
+
+def _searchable(message) -> str:
+    """A message's content and tool calls as text, to find what it names."""
+    return json.dumps([getattr(message, "content", ""), getattr(message, "tool_calls", None) or []],
+                      ensure_ascii=False, default=str)
+
+
+def _with_references_in(value, source: str, new_id: str, found: set[str]):
+    """*value* with each of the source's file references (``source:<id>``) naming the fork's copy instead."""
+    if isinstance(value, str):
+        if source not in value:
+            return value
+        pattern = re.compile(rf"(?<![A-Za-z0-9_-]){re.escape(source)}:({_ATTACHMENT_ID})")
+        found.update(pattern.findall(value))
+        return pattern.sub(lambda match: f"{new_id}:{match.group(1)}", value)
+    if isinstance(value, list):
+        return [_with_references_in(item, source, new_id, found) for item in value]
+    if isinstance(value, dict):
+        return {key: _with_references_in(item, source, new_id, found) for key, item in value.items()}
+    return value
+
+
+def _with_references(message, source: str, new_id: str, found: set[str]):
+    """A copy of *message* for the fork: the same id, its file references re-prefixed."""
+    update = {}
+    for field in ("content", "additional_kwargs", "artifact"):
+        if hasattr(message, field):
+            before = getattr(message, field)
+            after = _with_references_in(before, source, new_id, found)
+            if after != before:
+                update[field] = after
+    return message.model_copy(update=update) if update else message
 
 
 def pick_or_create_thread() -> dict:

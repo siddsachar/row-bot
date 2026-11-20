@@ -252,6 +252,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'preferences',
     'appearance',
     'buddy',
+    'proactive',
     'models',
     'voice',
     'knowledge',
@@ -261,6 +262,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'skills',
     'apps',
     'system',
+    'activity',
     'access',
     'updates',
     'data',
@@ -386,6 +388,59 @@ test('Owner-review phone Settings reach representative owners from one list of p
     await page.getByRole('link', { name: 'Back to Settings' }).click();
     await expect(page).toHaveURL(/\/app-v2\/settings$/);
   }
+});
+
+test('Devices on a phone keep “This device” and its last-seen line readable beside Sign out (W11)', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  // The fixture signs this browser in without a device record: list one, as
+  // the real server does for a paired browser.
+  const now = new Date().toISOString();
+  await page.route('**/api/access/devices', (route) =>
+    route.fulfill({
+      json: {
+        devices: [
+          {
+            id: 'device-w11',
+            display_name: 'RUT Playwright',
+            created_at: now,
+            last_seen_at: now,
+            revoked_at: null,
+            user_agent: null,
+            paired_from: null,
+            access_route: null,
+            last_address: '127.0.0.1',
+            current: true,
+            sessions: [],
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/app-v2/settings/access');
+  const devices = page.getByRole('list', { name: 'Your devices' });
+  const row = devices.getByRole('listitem').first();
+  await expect(row.getByText('This device')).toBeVisible();
+  await expect(row.getByRole('button', { name: /^Sign out / })).toBeVisible();
+  // Nothing in the row is cut short: the badge keeps its words, the meta wraps.
+  const clipped = await row.evaluate((item) =>
+    [
+      ...item.querySelectorAll<HTMLElement>(
+        '.status-indicator-label, .entity-row-title',
+      ),
+    ]
+      .filter((element) => element.scrollWidth > element.clientWidth + 1)
+      .map((element) => element.textContent),
+  );
+  expect(clipped).toEqual([]);
+  await assertNoOverflow(page);
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await row.scrollIntoViewIfNeeded();
+    await screenshot(page, testInfo, `devices-phone-${scheme}`);
+  }
+  await page.emulateMedia({ colorScheme: null });
 });
 
 test('Channels Plugins and Skills keep reviewed local settings through the real owners', async ({
@@ -1364,7 +1419,9 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     name: 'Buddy looks',
     exact: true,
   });
-  await expect(looks.locator('img[src^="blob:"]')).toHaveCount(6);
+  // Every built-in look shows its picture: twenty since fourteen joined the
+  // first six (ed7f34c48).
+  await expect(looks.locator('img[src^="blob:"]')).toHaveCount(20);
   await expect
     .poll(() =>
       looks

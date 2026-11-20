@@ -11,6 +11,7 @@ import json
 import re
 from typing import Any
 
+from row_bot.application.answer_components import component_spans
 
 MAX_BLOCKS = 256
 MAX_MERMAID_CHARS = 64 * 1024
@@ -107,8 +108,13 @@ def _chart(text: str) -> tuple[dict[str, Any] | None, str]:
     return {"figure_json": canonical, "text": fallback[:4096]}, ""
 
 
-def _segments(text: str, *, links: bool = True) -> list[tuple[str, dict[str, Any] | str]]:
+def _segments(
+    text: str, *, links: bool = True, components: bool = False
+) -> list[tuple[str, dict[str, Any] | str]]:
     matches: list[tuple[int, int, str, Any]] = []
+    if components:
+        # A reply's answer components (F3); a fence that doesn't fit stays in the text as code.
+        matches.extend(component_spans(text))
     for match in _MERMAID_FENCE_RE.finditer(text):
         source = match.group(1).strip()
         if source and len(source) <= MAX_MERMAID_CHARS:
@@ -171,7 +177,12 @@ def canonical_transcript_blocks(row: dict[str, Any]) -> dict[str, Any]:
         else:
             # A tool's result is shown as it was given (the step's Result box, never Markdown), so a URL
             # in it stays a plain URL, not "[url](url)".
-            candidates = _segments(auto_fence_mermaid(remaining), links=row.get("role") != "tool")
+            # Only a reply makes answer components: a tool's result or a person's message keeps the text.
+            candidates = _segments(
+                auto_fence_mermaid(remaining),
+                links=row.get("role") != "tool",
+                components=row.get("role") == "assistant",
+            )
         for kind, value in candidates:
             if len(projected) >= MAX_BLOCKS:
                 break

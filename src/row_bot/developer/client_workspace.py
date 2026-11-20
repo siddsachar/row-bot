@@ -116,6 +116,16 @@ class WorkspaceTodo:
 
 
 @dataclass(frozen=True)
+class WorkspaceProjectNote:
+    """A project-notes file the agent reads in this folder, and whether it is used (B2); never its text."""
+    path: str
+    state: Literal["used", "cut", "not_used_injection", "not_used_secret", "not_used_outside", "too_large",
+                   "unreadable"]
+    characters: int
+    used_characters: int
+
+
+@dataclass(frozen=True)
 class WorkspaceInspector:
     resource_id: str
     project_workspace_id: str
@@ -134,6 +144,9 @@ class WorkspaceInspector:
     processes: tuple[WorkspaceProcessStatus, ...]
     todos: tuple[WorkspaceTodo, ...]
     error: str = ""
+    project_notes: tuple[WorkspaceProjectNote, ...] = ()
+    # Why a sandbox with its network on is running without it for now (its gate didn't start).
+    sandbox_network_note: str = ""
 
 
 @dataclass(frozen=True)
@@ -563,7 +576,17 @@ async def get_workspace_inspector(resource_id: str, conversation_id: str,
         tuple(WorkspaceCommandStatus(c.label, c.kind, _check_status(results, c.command), command=c.command[:4096])
               for c in snapshot.command_specs[:100]), processes,
         tuple(WorkspaceTodo(t.id[:256], t.label[:4096], t.status[:80]) for t in snapshot.todos[:100]),
-        "inspector_refresh_failed" if snapshot.error or refresh_error else "")
+        "inspector_refresh_failed" if snapshot.error or refresh_error else "",
+        tuple(WorkspaceProjectNote(item.path, item.state, item.characters, item.used_characters)
+              for item in snapshot.project_notes),
+        _sandbox_network_note(workspace))
+
+
+def _sandbox_network_note(workspace: DeveloperWorkspace) -> str:
+    if workspace.execution_mode != "docker" or workspace.sandbox_network == "off":
+        return ""
+    from row_bot.developer.sandbox_runtime import network_problem
+    return network_problem(workspace.id)[:1024]
 
 
 def list_inspector_changes(resource_id: str, conversation_id: str, cursor: str | None = None,

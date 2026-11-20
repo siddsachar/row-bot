@@ -54,11 +54,14 @@ function useElsewhere(conversationId: string) {
 function StatusElsewhere({
   conversationId,
   status,
+  text,
   peek = false,
   onOpen,
 }: {
   conversationId: string;
   status: ReactNode;
+  /** The status in words, for the tooltip of a line too long to show whole. */
+  text: string;
   peek?: boolean;
   onOpen(): void;
 }) {
@@ -78,7 +81,7 @@ function StatusElsewhere({
     <button
       type="button"
       className="buddy-card-status-link"
-      title={`Open ${title}`}
+      title={`${text} · Open ${title}`}
       onClick={open}
     >
       <span role="status">{status}</span>
@@ -185,6 +188,7 @@ export function BuddyCard({
               <StatusElsewhere
                 conversationId={about}
                 status={statusLine}
+                text={status.text}
                 peek
                 onOpen={() => setOpen(false)}
               />
@@ -233,10 +237,14 @@ export function BuddyCard({
             <StatusElsewhere
               conversationId={about}
               status={statusLine}
+              text={status.text}
               onOpen={() => setOpen(false)}
             />
           ) : (
-            <span role="status">{statusLine}</span>
+            // A status too long for the sidebar ends in an ellipsis; the tooltip has it whole (M9).
+            <span role="status" title={status.text}>
+              {statusLine}
+            </span>
           ))}
       </span>
       <span className="buddy-card-actions">

@@ -57,6 +57,8 @@ class ContextUsageView(TypedDict):
     conversation_usage: NotRequired[ConversationTokenUsage]
     # Present on a settled measurement (a saved snapshot or the event after a reply).
     breakdown: NotRequired[ContextBreakdown]
+    # True when a summary of older messages is prepared ahead (B6); absent otherwise.
+    summary_ready: NotRequired[bool]
 
 
 _MAX_SNAPSHOT_BYTES = 16 * 1024
@@ -87,6 +89,8 @@ def _with_breakdown(view: ContextUsageView, source: Mapping[str, Any]) -> Contex
     breakdown = _breakdown(source.get("breakdown"))
     if breakdown is not None:
         view["breakdown"] = breakdown
+    if source.get("summary_ready") is True and view["state"] in {"saved", "live"}:
+        view["summary_ready"] = True
     return view
 
 

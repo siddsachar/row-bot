@@ -100,12 +100,18 @@ def _gather(candidates: list[Candidate], settings: dict[str, Any], at: datetime)
         fresh.append(candidate)
     if not fresh:
         return []
-    chosen = _triage(fresh, settings, now)
-    if chosen is None:
-        return []  # Nothing was decided: nothing is shown, and nothing is remembered as silenced.
-    kept_keys = {candidate.key for candidate, _title, _body in chosen}
-    silenced.extend(candidate.key for candidate in fresh if candidate.key not in kept_keys)
-    store.set_state("silenced", silenced[-SILENCED_KEPT:])
+    # What's about to happen (a meeting with other people starting in a few minutes) is Row-Bot's own rule,
+    # not a judgment call: it skips triage, so the main model can't silence it (W22). The person's kinds and
+    # rules above still apply, and timing still holds it for quiet hours, a call or Focus.
+    chosen = [(candidate, candidate.title, candidate.summary) for candidate in fresh if candidate.urgency == "urgent"]
+    judged = [candidate for candidate in fresh if candidate.urgency != "urgent"]
+    if judged:
+        decided = _triage(judged, settings, now)
+        if decided is not None:  # Else nothing was decided: none is shown, and none is remembered as silenced.
+            kept_keys = {candidate.key for candidate, _title, _body in decided}
+            silenced.extend(candidate.key for candidate in judged if candidate.key not in kept_keys)
+            store.set_state("silenced", silenced[-SILENCED_KEPT:])
+            chosen.extend(decided)
     kept = []
     for candidate, title, body in chosen:
         moment = store.add_moment(candidate, title=title, body=body, now=now)
@@ -166,10 +172,10 @@ def _pick(moment: dict[str, Any], desktop: Desktop, settings: dict[str, Any]) ->
                         channel=deliver.channel_ready(settings))
 
 
-def _put(surface: str, moment: dict[str, Any], settings: dict[str, Any]) -> bool:
+def _put(surface: str, moment: dict[str, Any], settings: dict[str, Any], now: float) -> bool:
     from row_bot.proactive import deliver
 
-    return deliver.send(surface, moment, settings)
+    return deliver.send(surface, moment, settings, now=now)
 
 
 def _send(boundary: str | None, at: datetime, desktop: Desktop, settings: dict[str, Any]) -> list[dict[str, Any]]:
@@ -211,7 +217,7 @@ def _send(boundary: str | None, at: datetime, desktop: Desktop, settings: dict[s
         if not store.move(moment["id"], "shown", from_states=("pending",), now=now, surface=place, shown_at=now,
                           why=list(decision.why)):
             continue
-        if not _put(place, moment, settings):
+        if not _put(place, moment, settings, now):
             store.move(moment["id"], "pending", from_states=("shown",), now=now, surface="", shown_at=0.0, why=[])
             continue
         store.count(moment["kind"], "shown", now=now)

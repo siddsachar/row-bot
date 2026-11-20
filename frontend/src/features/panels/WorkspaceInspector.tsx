@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Rows2,
   Sparkles,
+  WifiOff,
 } from 'lucide-react';
 import type {
   WorkspaceInspector as Inspector,
@@ -32,6 +33,10 @@ import type {
   WorkspaceChangeSetFiles,
 } from '../../api/types';
 import { usePlace } from '../../api/place';
+import {
+  onWorkspaceFileRequest,
+  takeWorkspaceFile,
+} from './workspace-file-requests';
 type WorkspaceChangeSet = WorkspaceChangeSetPage['items'][number];
 import { humanizeToken } from '../../ui/format';
 import {
@@ -622,9 +627,37 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         void loadChanges(result.snapshot_revision);
         void loadFolder('');
         void loadLedger(result.snapshot_revision);
+        openRequestedFile();
       },
     );
   }
+
+  // A file asked for from outside (the details card's project notes) opens
+  // in the Files tab once the summary is read.
+  function openRequestedFile() {
+    const path = takeWorkspaceFile(callbacks.current.resourceId);
+    if (!path) return;
+    setTab({
+      owner: callbacks.current.resourceId,
+      value: 'files',
+      chosen: true,
+    });
+    void loadFile(path);
+  }
+  const openRequested = useRef(openRequestedFile);
+  openRequested.current = openRequestedFile;
+  useEffect(
+    () =>
+      onWorkspaceFileRequest((request) => {
+        if (
+          request.resourceId === callbacks.current.resourceId &&
+          callbacks.current.visible &&
+          owner === request.resourceId
+        )
+          openRequested.current();
+      }),
+    [owner],
+  );
 
   function loadDiff(
     nextPath: string,
@@ -786,6 +819,12 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
       (complete || !Object.values(setPaths).flat().includes(item.path)),
   );
   const policy = current.policy;
+  // A sandbox with its network on runs without it while its network gate can't start.
+  const networkNote =
+    policy.execution_mode === 'docker' ? current.sandbox_network_note : '';
+  const sandboxNetwork = networkNote
+    ? 'off for now'
+    : humanizeToken(policy.sandbox_network).toLowerCase();
   const stale =
     errors.summary ||
     current.status !== 'ready' ||
@@ -1725,11 +1764,11 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
         )}
         <span
           className="dev-strip-item"
-          title={`Network in the sandbox: ${humanizeToken(policy.sandbox_network)}`}
+          title={`Network in the sandbox: ${humanizeToken(policy.sandbox_network)}${networkNote ? ', off for now' : ''}`}
         >
           {policy.execution_mode === 'docker' ? 'Docker sandbox' : 'Local'}
           {policy.execution_mode === 'docker'
-            ? ` · network ${humanizeToken(policy.sandbox_network).toLowerCase()}`
+            ? ` · network ${sandboxNetwork}`
             : ''}
         </span>
         <span className="dev-strip-actions">
@@ -1808,6 +1847,12 @@ export function WorkspaceInspector(props: WorkspaceInspectorProps) {
           </Popover.Root>
         </span>
       </div>
+      {networkNote && (
+        <p className="dev-network-note" role="status">
+          <WifiOff size={14} aria-hidden />
+          <span>{networkNote}</span>
+        </p>
+      )}
       {stale && (
         <div className="dev-stale" role="status">
           <span>

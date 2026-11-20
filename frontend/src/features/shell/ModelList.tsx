@@ -122,9 +122,8 @@ const SEARCH_DELAY_MS = 200;
  * models in Settings and Setup all use it. Your starred models first, then
  * recent choices, then the providers with a status dot and a billing tag,
  * on-device providers marked and providers that are not connected muted with
- * Connect. With stars, the providers fold under Browse by provider. Typing
- * also searches every connected provider's models (`search`). The current
- * model is always in view.
+ * Connect. Typing also searches every connected provider's models (`search`).
+ * The current model is always in view.
  */
 export default function ModelList({
   models,
@@ -170,7 +169,6 @@ export default function ModelList({
     showRecent ? readRecentModels() : [],
   );
   const [found, setFound] = useState<readonly ListedModel[]>(NO_ROWS);
-  const [browsing, setBrowsing] = useState(false);
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
     const text = query.trim();
@@ -193,7 +191,7 @@ export default function ModelList({
       window.clearTimeout(timer);
     };
   }, [query, search]);
-  const [sections, foldable] = useMemo(() => {
+  const sections = useMemo(() => {
     const matching = models.filter((model) => matchesModel(model, query));
     const result: Section[] = [];
     const first = leading.filter((model) => matchesModel(model, query));
@@ -258,7 +256,7 @@ export default function ModelList({
           mixed: true,
           rows: foldedRows('search', rest, opened),
         });
-      return [result, false] as const;
+      return result;
     }
     const favourites = matching.filter(isFavourite).sort(byRank);
     if (favourites.length)
@@ -287,34 +285,24 @@ export default function ModelList({
         mixed: true,
         rows: modelRows('recent', recentModels),
       });
+    // Every other model you can choose, by provider, under your starred ones:
+    // the list Settings › Models counts (R8). Search finds the long tail.
     const groups = groupModels(matching.filter((model) => !isFavourite(model)));
     const currentGroup = groups.findIndex((group) =>
       group.models.some((model) => model.model_ref === current),
     );
     if (currentGroup > 0) groups.unshift(...groups.splice(currentGroup, 1));
-    // With stars, the providers fold away at rest, unless the current model is
-    // only in them: Your models and Recent are the short list.
-    const shown = new Set(
-      result
-        .flatMap((section) => section.rows)
-        .map((row) => row.model.model_ref),
-    );
-    const foldable =
-      favourites.length > 0 &&
-      groups.length > 0 &&
-      (!current || shown.has(current));
-    if (!foldable || browsing)
-      for (const group of groups)
-        result.push({
-          key: `provider:${group.id}`,
-          label: group.label,
-          connected: group.connected,
-          local: group.local,
-          billing: group.models.find((model) => model.billing)?.billing ?? null,
-          rows: modelRows(group.id, group.models),
-        });
-    return [result, foldable] as const;
-  }, [browsing, current, found, leading, models, opened, query, recent]);
+    for (const group of groups)
+      result.push({
+        key: `provider:${group.id}`,
+        label: group.label,
+        connected: group.connected,
+        local: group.local,
+        billing: group.models.find((model) => model.billing)?.billing ?? null,
+        rows: modelRows(group.id, group.models),
+      });
+    return result;
+  }, [current, found, leading, models, opened, query, recent]);
   const rows = sections.flatMap((section) => section.rows);
   const enabled = rows.filter((row) => row.model.available);
   const activeRow =
@@ -648,21 +636,6 @@ export default function ModelList({
         <p className="model-picker-empty" role="status">
           {models.length || leading.length ? 'No models match.' : emptyText}
         </p>
-      )}
-      {foldable && (
-        <button
-          type="button"
-          className="model-picker-browse"
-          aria-expanded={browsing}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            setBrowsing((value) => !value);
-            input.current?.focus();
-          }}
-        >
-          Browse by provider
-          <ChevronDown size={14} aria-hidden />
-        </button>
       )}
     </>
   );

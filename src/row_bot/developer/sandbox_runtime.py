@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import difflib
 import hashlib
 import json
@@ -586,7 +587,7 @@ def run_docker_sandbox_command(
             cwd="/workspace",
             returncode=None,
             stdout=(exc.stdout or "")[-20_000:] if isinstance(exc.stdout, str) else "",
-            stderr=f"Sandbox command timed out after {timeout}s.",
+            stderr=_with_network_note(workspace.id, f"Sandbox command timed out after {timeout}s."),
             changed_files=pending.files if pending else [],
             pending_change_id=pending.id if pending else "",
             sandbox_workspace=str(shadow),
@@ -602,7 +603,7 @@ def run_docker_sandbox_command(
         cwd="/workspace",
         returncode=completed.returncode,
         stdout=(completed.stdout or "")[-20_000:],
-        stderr=(completed.stderr or "")[-20_000:],
+        stderr=_with_network_note(workspace.id, (completed.stderr or "")[-20_000:]),
         changed_files=pending.files if pending else [],
         pending_change_id=pending.id if pending else "",
         sandbox_workspace=str(shadow),
@@ -775,7 +776,6 @@ def ensure_docker_sandbox(
     container_name = sandbox_container_name(workspace.id)
     shadow = sandbox_shadow_path(workspace.id)
     docker = docker_caller(probe.binary)
-    networked = workspace.sandbox_network != "off"
     if rebuild:
         _remove_container(probe.binary, container_name)
         sandbox_egress.remove_gate(docker, workspace.id)
@@ -783,6 +783,10 @@ def ensure_docker_sandbox(
     if not shadow.exists():
         _prepare_shadow_workspace(workspace.id, host_root)
 
+    # Before the sandbox starts: its only way out is the gate (sandbox_egress). When the gate
+    # can't start, the sandbox runs with its network off, never on Docker's default network.
+    workspace = _behind_gate_or_offline(docker, workspace, probe.binary)
+    networked = workspace.sandbox_network != "off"
     exists, running = _container_state(probe.binary, container_name)
     if exists and _container_network_mismatch(probe.binary, container_name, workspace):
         logger.info(
@@ -795,9 +799,6 @@ def ensure_docker_sandbox(
             sandbox_egress.remove_gate(docker, workspace.id)
         exists = False
         running = False
-    if networked:
-        # Before the sandbox starts: its only way out is the gate (sandbox_egress).
-        sandbox_egress.ensure_gate(docker, workspace.id, workspace_image=workspace.sandbox_image, binary=probe.binary)
     if exists and running:
         return container_name, shadow
     if exists:
@@ -830,6 +831,40 @@ def ensure_docker_sandbox(
     return container_name, shadow
 
 
+# Why a networked sandbox is running with its network off, per code folder (empty when it isn't).
+_NETWORK_PROBLEMS: dict[str, str] = {}
+
+
+def _behind_gate_or_offline(docker: sandbox_egress.Docker, workspace: DeveloperWorkspace, binary: str) -> DeveloperWorkspace:
+    """The workspace as the sandbox runs it: behind a running gate, or with its network off and the reason kept."""
+    if workspace.sandbox_network == "off":
+        _NETWORK_PROBLEMS.pop(workspace.id, None)
+        return workspace
+    try:
+        sandbox_egress.ensure_gate(docker, workspace.id, binary=binary)
+    except sandbox_egress.GateUnavailable as exc:
+        logger.warning("Developer sandbox for workspace %s runs with its network off: %s", workspace.id, exc)
+        _NETWORK_PROBLEMS[workspace.id] = str(exc)
+        return dataclasses.replace(workspace, sandbox_network="off")
+    _NETWORK_PROBLEMS.pop(workspace.id, None)
+    return workspace
+
+
+def network_problem(workspace_id: str) -> str:
+    """A line for the person and the agent when a networked sandbox is running with its network off, else ``""``."""
+    reason = " ".join(_NETWORK_PROBLEMS.get(workspace_id, "").split())
+    if not reason:
+        return ""
+    if not reason.endswith((".", "!", "?")):
+        reason += "."
+    return f"The sandbox's network is off for now. {reason} Row-Bot tries again with the next command."
+
+
+def _with_network_note(workspace_id: str, stderr: str) -> str:
+    note = network_problem(workspace_id)
+    return "\n".join(part for part in (note, stderr) if part)
+
+
 def rebuild_docker_sandbox(workspace: DeveloperWorkspace) -> SandboxStatus:
     ensure_docker_sandbox(workspace, rebuild=True)
     return get_docker_sandbox_status(workspace)
@@ -841,6 +876,7 @@ def cleanup_workspace_sandbox(workspace_id: str) -> bool:
     if probe.binary:
         _remove_container(probe.binary, container_name)
         sandbox_egress.remove_gate(docker_caller(probe.binary), workspace_id)
+    _NETWORK_PROBLEMS.pop(workspace_id, None)
     _clear_sandbox_processes(workspace_id)
     target = SANDBOX_ROOT / workspace_id
     resolved = target.resolve()
@@ -917,6 +953,7 @@ def start_docker_sandbox_process(
         cwd="/workspace",
         returncode=0,
         stdout=f"Started sandbox PID {pid}" if pid else "Started sandbox process",
+        stderr=_with_network_note(workspace.id, ""),
         sandbox_workspace=str(shadow),
         container_name=container_name,
     )

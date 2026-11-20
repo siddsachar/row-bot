@@ -294,6 +294,45 @@ export interface ClientTransport {
     body: Wire.BrowserPaneAction,
     signal?: AbortSignal,
   ): Promise<Wire.BrowserPaneState>;
+  /** Show Row-Bot how (C3): the person's steps in the pane, recorded in memory. */
+  browserDemo?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  startBrowserDemo?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  controlBrowserDemo?(
+    conversation: string,
+    demo: string,
+    action: 'stop' | 'undo' | 'discard',
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  setBrowserDemoAlways?(
+    conversation: string,
+    demo: string,
+    step: number,
+    always: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  /** One narration clip, transcribed on this computer only. */
+  sendBrowserDemoNarration?(
+    conversation: string,
+    demo: string,
+    offset: number,
+    audio: Blob,
+    signal?: AbortSignal,
+  ): Promise<Wire.BrowserDemoPage>;
+  /** Draft a skill from a stopped demo, for review in the skill sheet. */
+  draftDemoSkill?(
+    conversation: string,
+    demo: string,
+    body: Wire.SkillDemoDraftRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** Try it: a new chat with a saved skill pinned and its request in the composer. */
+  trySkill?(name: string, signal?: AbortSignal): Promise<Wire.SkillTryResult>;
   /** Sites with saved sign-ins in Row-Bot's browser (Settings › Browser). */
   browserSites?(signal?: AbortSignal): Promise<Wire.BrowserSitePage>;
   clearBrowserSites?(
@@ -1034,6 +1073,45 @@ export interface ClientTransport {
     conversationId: string,
     signal?: AbortSignal,
   ): Promise<Wire.ConversationLinkPage>;
+  /** The person's ticks and sent choices on a chat's answer components (F3). */
+  answerState?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AnswerStateView>;
+  saveAnswerState?(
+    conversationId: string,
+    change: Wire.AnswerStateChange,
+    signal?: AbortSignal,
+  ): Promise<Wire.AnswerStateView>;
+  /** "Save as a skill" (C1): a chat's offers and drafts. */
+  skillOffers?(
+    conversationId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** Draft a skill from one reply's turn, on the chat's own model. */
+  draftSkill?(
+    conversationId: string,
+    body: Wire.SkillDraftRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** "Not now" on an offer. */
+  dismissSkillOffer?(
+    conversationId: string,
+    offerId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SkillOfferPage>;
+  /** One frame address for a visual in a reply (F3), served once, no network. */
+  createVisualFrame?(
+    conversationId: string,
+    request: Wire.VisualFrameRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.VisualFrame>;
+  /** The person's "Open as page" on a visual in a reply (F3). */
+  createVisualPage?(
+    conversationId: string,
+    request: Wire.VisualPageRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.PageView>;
   /** One frame address for a page in this theme, loaded once in a sandbox. */
   pageFrame?(
     pageId: string,
@@ -1079,6 +1157,14 @@ export interface ClientTransport {
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;
   stopWait?(waitId: string): Promise<Wire.WaitPage>;
+  controlWatch?(
+    waitId: string,
+    body: Wire.WatchControl,
+  ): Promise<Wire.WaitPage>;
+  setWatch?(
+    conversationId: string,
+    body: Wire.WatchCreate,
+  ): Promise<Wire.WaitPage>;
   /** Proactive Row-Bot: moments, "Why this?", feedback, Activity, settings, rules, drafts. */
   proactiveMoments?(signal?: AbortSignal): Promise<Wire.ProactiveMomentPage>;
   proactiveMoment?(
@@ -1094,6 +1180,31 @@ export interface ClientTransport {
     limit?: number,
     signal?: AbortSignal,
   ): Promise<Wire.ProactiveActivityPage>;
+  /** The activity log (D1): Settings › System › Activity and Monitor's line. */
+  activity?(
+    filters: Wire.ActivityFilters,
+    signal?: AbortSignal,
+  ): Promise<Wire.ActivityPage>;
+  activitySummary?(
+    since: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ActivitySummary>;
+  exportActivity?(body: Wire.ActivityExportRequest): Promise<Wire.SaveOffer>;
+  clearActivity?(): Promise<Wire.ActivityCleared>;
+  /** Always allow (D1): standing rules, made only from a card; "Would this have asked?". */
+  approvalRules?(signal?: AbortSignal): Promise<Wire.ApprovalRulePage>;
+  createApprovalRule?(
+    body: Wire.ApprovalRuleCreate,
+  ): Promise<Wire.ApprovalRuleView>;
+  updateApprovalRule?(
+    ruleId: string,
+    body: Wire.ApprovalRuleUpdate,
+  ): Promise<Wire.ApprovalRuleView>;
+  deleteApprovalRule?(ruleId: string): Promise<Wire.ApprovalRulePage>;
+  dryRunApprovalRule?(
+    body: Wire.ApprovalRuleDryRunRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ApprovalRuleDryRun>;
   proactiveSettings?(signal?: AbortSignal): Promise<Wire.ProactiveSettingsView>;
   changeProactiveSettings?(
     change: Wire.ProactiveSettingsChange,
@@ -1220,6 +1331,26 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.OnboardingReceipt>;
   localRuntime?(signal?: AbortSignal): Promise<Wire.LocalRuntimeSnapshot>;
+  localServers?(signal?: AbortSignal): Promise<Wire.LocalServersSnapshot>;
+  connectLocalServer?(
+    body: Wire.LocalServerConnectRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalServerConnection>;
+  localModelRuntime?(signal?: AbortSignal): Promise<Wire.LocalModelRuntimeView>;
+  installLocalModel?(
+    body: Wire.LocalModelInstallRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  stopLocalModelRuntime?(
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  removeLocalModelRuntime?(
+    body: Wire.LocalModelRemoveRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
+  repairLocalModelRuntime?(
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelRuntimeView>;
   testChosenModel?(signal?: AbortSignal): Promise<Wire.ModelTestResult>;
   checkProviderKey?(
     body: Wire.ProviderKeyCheckRequest,

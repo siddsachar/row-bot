@@ -31,7 +31,7 @@ export const settingsGroups = [
   {
     id: 'system',
     label: 'System',
-    leaves: ['system', 'access', 'updates', 'data'],
+    leaves: ['system', 'activity', 'access', 'updates', 'data'],
   },
 ] as const;
 
@@ -58,6 +58,7 @@ const leafLabels: Record<ListedLeafId, string> = {
   skills: 'Skills',
   apps: 'Apps',
   system: 'System',
+  activity: 'Activity',
   access: 'Devices & remote access',
   updates: 'Updates',
   data: 'Data',
@@ -86,6 +87,8 @@ export const settingsKeywords: Record<ListedLeafId, string> = {
   apps: 'integrations mcp plugins packages connectors servers marketplace discover connect catalogs runtimes accounts github google gmail calendar x twitter outlook microsoft office 365 oauth channels telegram discord slack sms whatsapp messaging',
   system:
     'shell commands browser computer use workspace folder logging logs files blocked privacy telemetry',
+  activity:
+    'actions audit log history approvals approved denied blocked reviewer hands-off who allowed export csv clear always allow rules standing',
   access:
     'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
   updates: 'version upgrade release channel beta',
@@ -318,6 +321,12 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'window_mode',
     label: 'Open Row-Bot in',
     keywords: 'window mode app native browser launch',
+  },
+  {
+    leaf: 'preferences',
+    anchor: 'desktop_notifications',
+    label: 'Desktop notifications',
+    keywords: 'notify alerts sound toast workflow finished timer approval',
   },
   {
     leaf: 'preferences',
@@ -734,6 +743,12 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'devices',
     label: 'Your devices',
     keywords: 'sessions signed in sign out phones computers',
+  },
+  {
+    leaf: 'access',
+    anchor: 'notifications',
+    label: 'Notifications on this device',
+    keywords: 'phone push notifications tablet iphone android',
   },
   {
     leaf: 'access',

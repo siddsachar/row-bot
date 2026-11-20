@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "description": "The watch card's Pause, Resume, Check now and Extend (B4).",
+  "properties": {
+    "action": {
+      "enum": [
+        "pause",
+        "resume",
+        "check_now",
+        "extend"
+      ],
+      "title": "Action",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "title": "WatchControl",
+  "type": "object"
+}

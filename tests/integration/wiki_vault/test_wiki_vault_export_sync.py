@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import time
 from typing import Any
 
@@ -233,6 +234,40 @@ def test_wiki_vault_parse_check_sync_and_import(wiki_stack: dict[str, Any]) -> N
     if isinstance(props, str):
         props = json.loads(props)
     assert props["status"] == "active"
+
+
+def test_the_sync_check_rehashes_only_files_whose_size_or_time_moved(wiki_stack: dict[str, Any], monkeypatch) -> None:
+    kg = wiki_stack["kg"]
+    wiki_vault = wiki_stack["wiki_vault"]
+    wiki_vault.set_enabled(True)
+    first = kg.save_entity("person", "HashCarol", "HashCarol has enough deterministic content for an article.")
+    kg.save_entity("person", "HashDave", "HashDave has enough deterministic content for an article too.")
+    wiki_vault.rebuild_vault()
+    md_path = wiki_vault.export_entity(kg.get_entity(first["id"]))
+    read: list[str] = []
+    real_read_bytes = pathlib.Path.read_bytes
+
+    def reading(path: pathlib.Path) -> bytes:
+        if path.suffix == ".md":
+            read.append(path.name)
+        return real_read_bytes(path)
+
+    monkeypatch.setattr(pathlib.Path, "read_bytes", reading)
+
+    assert wiki_vault.check_vault_sync() == []
+    assert {"HashCarol.md", "HashDave.md"} <= set(read), "the first check reads every exported file"
+    read.clear()
+    assert wiki_vault.check_vault_sync() == []
+    assert read == [], "an unchanged vault is not read again"
+
+    text = md_path.read_text(encoding="utf-8")
+    md_path.write_text(text.replace("HashCarol has", "HashCarol had"), encoding="utf-8")  # the same size
+    future = time.time() + 10
+    os.utime(md_path, (future, future))
+
+    edited = wiki_vault.check_vault_sync()
+    assert [item["entity_id"] for item in edited] == [first["id"]], "the hash is still the truth"
+    assert read == ["HashCarol.md"], "only the edited file is read again"
 
 
 def test_wiki_tool_contract_and_removed_search_tool(wiki_stack: dict[str, Any]) -> None:

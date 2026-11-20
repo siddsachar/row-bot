@@ -78,7 +78,8 @@ def proactive(tmp_path, monkeypatch, reload_for_data_dir):
     monkeypatch.setattr(triage, "_call", model)
     sent: list[tuple[str, str]] = []
     real_send = deliver.send
-    monkeypatch.setattr(deliver, "send", lambda surface, moment, chosen: sent.append((surface, moment["id"])) or True)
+    monkeypatch.setattr(deliver, "send",
+                        lambda surface, moment, chosen, now=None: sent.append((surface, moment["id"])) or True)
     monkeypatch.setattr(deliver, "buddy_on", lambda: True)
     monkeypatch.setattr(deliver, "push_ready", lambda: False)
     monkeypatch.setattr(deliver, "channel_ready", lambda chosen: False)

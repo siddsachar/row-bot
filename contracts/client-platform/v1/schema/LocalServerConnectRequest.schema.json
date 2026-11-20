@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "ollama",
+        "lmstudio",
+        "vllm",
+        "llama_cpp"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "port": {
+      "maximum": 65535,
+      "minimum": 1,
+      "title": "Port",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "kind",
+    "port"
+  ],
+  "title": "LocalServerConnectRequest",
+  "type": "object"
+}

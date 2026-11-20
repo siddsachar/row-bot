@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "description": "Memories brought over from another app on this computer (Settings \u203a Data), still to review.",
+  "properties": {
+    "batch_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "conversations": {
+      "minimum": 0,
+      "title": "Conversations",
+      "type": "integer"
+    },
+    "found": {
+      "minimum": 0,
+      "title": "Found",
+      "type": "integer"
+    },
+    "keep_until": {
+      "maxLength": 40,
+      "title": "Keep Until",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "maxLength": 80,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Sources",
+      "type": "array"
+    },
+    "staged_at": {
+      "maxLength": 40,
+      "title": "Staged At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "batch_id",
+    "sources",
+    "found",
+    "conversations",
+    "staged_at",
+    "keep_until"
+  ],
+  "title": "MemoryImportWaiting",
+  "type": "object"
+}

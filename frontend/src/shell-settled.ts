@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useClientState } from './runtime';
+import { useClientState, useRuntime } from './runtime';
 
 /** Shell reads start anyway if a snapshot has not been confirmed by then. */
 const SETTLE_FALLBACK_MS = 3000;
@@ -31,6 +31,29 @@ export function useShellSettled(): boolean {
     return () => window.clearTimeout(timer);
   }, [handshake, ready, confirmed]);
   return Boolean(handshake) && settled === handshake;
+}
+
+/**
+ * True once the window's first screen is up (`controller.afterFirstScreen`):
+ * the list and the open conversation are read, and a moment has passed. Reads
+ * for what the first screen doesn't show (the sidebar's Monitor counts, Buddy,
+ * Proactive, voice, profiles) wait for it, so the first screen's own reads
+ * never queue behind them; a screen showing them reads at once.
+ */
+export function useBackgroundReady(): boolean {
+  const { controller } = useRuntime();
+  const [ready, setReady] = useState(() => controller.firstScreenSettled);
+  useEffect(() => {
+    if (ready) return;
+    let alive = true;
+    void controller.afterFirstScreen().then(() => {
+      if (alive) setReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [controller, ready]);
+  return ready;
 }
 
 /**

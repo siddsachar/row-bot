@@ -33,7 +33,7 @@ import {
   editTitle,
   useVideoEdits,
 } from './video-edits';
-import { useWaits } from './Waits';
+import { useWaits, waitHow, WatchCard } from './Waits';
 
 /**
  * What a conversation has going on beside its turns, in Conversation details
@@ -53,8 +53,10 @@ export function ContextLive({ conversationId }: { conversationId: string }) {
 }
 
 function WaitingSection({ conversationId }: { conversationId: string }) {
-  const { waits, stop } = useWaits();
-  const mine = waits.filter((wait) => wait.conversation_id === conversationId);
+  const { waits, ended, stop, control } = useWaits();
+  const mine = [...waits, ...ended].filter(
+    (wait) => wait.conversation_id === conversationId,
+  );
   if (!mine.length) return null;
   return (
     <section
@@ -63,22 +65,32 @@ function WaitingSection({ conversationId }: { conversationId: string }) {
     >
       <h3 id="context-waiting">Waiting</h3>
       <ul className="context-live-list">
-        {mine.map((wait) => (
-          <li key={wait.wait_id} className="context-live-item">
-            <Hourglass size={14} aria-hidden />
-            <span className="context-live-text">
-              <span className="context-live-name">{wait.label}</span>
-              <span className="context-live-meta">{wait.how}</span>
-            </span>
-            <IconButton
-              size="sm"
-              label="Stop waiting"
-              onClick={() => void stop(wait.wait_id)}
-            >
-              <X size={14} aria-hidden />
-            </IconButton>
-          </li>
-        ))}
+        {mine.map((wait) =>
+          wait.kind === 'watch' && wait.watch ? (
+            // A watch keeps its card here too (B4).
+            <WatchCard
+              key={wait.wait_id}
+              wait={wait}
+              stop={stop}
+              control={control}
+            />
+          ) : (
+            <li key={wait.wait_id} className="context-live-item">
+              <Hourglass size={14} aria-hidden />
+              <span className="context-live-text">
+                <span className="context-live-name">{wait.label}</span>
+                <span className="context-live-meta">{waitHow(wait)}</span>
+              </span>
+              <IconButton
+                size="sm"
+                label="Stop waiting"
+                onClick={() => void stop(wait.wait_id)}
+              >
+                <X size={14} aria-hidden />
+              </IconButton>
+            </li>
+          ),
+        )}
       </ul>
     </section>
   );

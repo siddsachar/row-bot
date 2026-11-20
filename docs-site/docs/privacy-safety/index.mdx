@@ -35,7 +35,7 @@ Row-Bot also contacts these on its own, as Settings › System › Privacy lists
 
 | What | Where it goes | When | What it carries |
 | --- | --- | --- | --- |
-| The models you choose | That provider (OpenAI, Anthropic, Google, OpenRouter, Ollama on this computer, and others) | When a chat, workflow or background job uses the model | Your prompts, files you attach, and tool results for that request |
+| The models you choose | That provider (OpenAI, Anthropic, Google, OpenRouter, Ollama or Row-Bot's own model on this computer, and others) | When a chat, workflow or background job uses the model | Your prompts, files you attach, and tool results for that request |
 | Claude with your Claude plan | Anthropic, through your own Claude Code | When a chat uses a Claude plan model | The request. Row-Bot runs Claude Code with its telemetry, error reports and own auto-updates turned off |
 | Installing Claude Code | Anthropic's release location (`downloads.claude.ai`), then Claude Code's own installer | When you choose **Use my Claude plan** without Claude Code, or **Update Claude Code**; and about once a day while your Claude plan is set up, to look for a newer version, which Row-Bot installs while Claude isn't answering | Nothing personal; checked against Anthropic's published checksum before it runs |
 | Claude's sign-in | Anthropic, through Claude Code's own sign-in | When you sign in to your Claude plan | What you enter in Claude's sign-in. Row-Bot only carries it to Claude Code and keeps none of it |
@@ -44,6 +44,7 @@ Row-Bot also contacts these on its own, as Settings › System › Privacy lists
 | Apps and accounts (GitHub, Google, Outlook through Microsoft Graph, X, MCP servers, plugins) | That service | When a tool of the app runs | What that action needs |
 | Messaging channels | Telegram, Discord, Slack, WhatsApp or your SMS provider | When you or a workflow send through them | The message |
 | Install stats | Row-Bot's stats service (Cloudflare) | About once a day | A random ID, the version and the system. See [Install Stats](#install-stats) |
+| Finding local model servers | This computer only (127.0.0.1): Ollama's, LM Studio's, vLLM's and llama.cpp's usual ports | When you open **On this computer** in Setup, or choose Check again | A request for the model list; nothing leaves this computer |
 | Updates | GitHub, and when libraries change, the Python Package Index and PyTorch | About once a day, and when downloading an update | Nothing personal. See [Updates](/docs/operations/updates#what-updates-contact) |
 | Connection checks | Cloudflare's 1.1.1.1, Ollama and your connected accounts | Every hour, while **Check connections every hour** is on in Monitor | A simple reachability check |
 | Model lists | Your connected model providers, OpenRouter's public model list, models.dev's model catalogue (at most hourly) | About a minute after start-up and every six hours when older than six hours, while a cloud provider is connected; and when you connect a provider or refresh | Nothing personal: no prompt, no tokens |
@@ -51,6 +52,7 @@ Row-Bot also contacts these on its own, as Settings › System › Privacy lists
 | ffmpeg, for video editing | The Python Package Index (`files.pythonhosted.org`) | Once, after you approve its card | Nothing personal; checked against its fingerprint |
 | Cua Driver, for computer use | GitHub (the Cua project's releases) | When you choose Install or Repair | Nothing personal; then Cua Driver's own telemetry, described below |
 | The browser runtime | Playwright's download servers | When you choose Install browser runtime | Nothing personal |
+| Download with Row-Bot (llama.cpp) | GitHub (llama.cpp's official releases) and Hugging Face (the Qwen3.8 and Qwen3.5 model files) | When you press **Download** (the button names the size), or **Update** in Settings › Models | Nothing personal; every file is checked against its pinned fingerprint. The model then runs on this computer, offline, and is never sent anything from outside |
 | Notifications on a phone | That phone's browser push service: Google (Chrome, Edge on Android), Apple (an installed iPhone app), Mozilla (Firefox) or Microsoft (Edge on Windows) | Only while **Notifications on this device** is on, when Row-Bot starts waiting for you (an approval or a question) | A short notice, end-to-end encrypted for that phone: a title and one line saying what it's about (or only "Row-Bot is waiting for you" with **Show details in notifications** off). The push service can't read it. See [Notifications On A Phone](#notifications-on-a-phone) |
 
 Computer use is a distinct opt-in boundary: Row-Bot works in an app with your real mouse and keyboard while a Stop bar shows on screen, and it asks before the first use of each app in a chat and before paying, sending, deleting or changing settings. Row-Bot downloads the pinned Cua Driver only after an explicit Install or Repair action, verifies the selected archive, and requires the current telemetry disclosure before any executable invocation. The reviewed 0.20.0 upstream telemetry includes pseudonymous identifiers and bounded product, platform, client, tool/outcome, duration/output, aggregate usage, permission, and lifecycle categories; its tagged event builders exclude prompts, tool arguments/results, typed text, screenshots, accessibility trees, app/window names, URLs, paths, raw values, and raw errors. See [Computer Use](/docs/computer-use/) for the full boundary.
@@ -108,6 +110,17 @@ Use approvals to review file writes, command execution, browser actions, account
 Approvals wait until you answer; they no longer expire on their own, unless a workflow step sets its own time limit. Every waiting approval shows in its conversation, in the sidebar's attention indicator and on Overview, with **Approve** and **Deny** in place, so background work can't slip past you. Each tool result records whether approval was needed, given or denied, and a denied action never runs.
 
 Approval level is policy: blocked actions stay blocked, **Ask** waits for you, **Auto**'s reviewer approves only what clearly matches your own request (it never sees tool results, files or web pages, and asks you when unsure), and **Hands-off** runs every action and records it. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled. [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds) tells the whole story, including what is not a boundary.
+
+### Activity Log
+
+**Settings › System › Activity** lists every action Row-Bot took with a tool, in chats, workflows, helper agents, goals, channels, Proactive Row-Bot and Developer Studio: when, which tool or app, a short summary, and its outcome with who decided: it ran without needing approval, you approved, the reviewer approved (with its reason), Hands-off allowed it, it was allowed in this chat, you said no, it changed after you approved and didn't run, it was blocked, or it didn't work. Filter by **Needed approval**, **You said no** or **Blocked**, by where it ran, or search; **Export as CSV** saves the list you see as a file. Monitor shows today's count, with a link to the page.
+
+- **What a row holds**: the tool, the words on its approval card or a few reviewed safe details, with keys and tokens removed. Never what a tool read or returned, page text or file contents. An incognito chat's actions are listed, with the summary "In an incognito chat" instead of their words.
+- **What it leaves out**: actions you start yourself with a button in the app.
+- **Where it's kept**: in `activity.db` in the Row-Bot data folder, on this computer only. Nothing is sent anywhere.
+- **For how long**: 90 days, at most 200,000 actions (the oldest go first). Deleting a conversation deletes its actions, its helpers' too, and **Clear activity** deletes them all.
+- **Who can change it**: only you, in the app. No tool, agent or workflow can read, change or clear it.
+- **Your Always allow rules** live in the same file. Only you make one, from an approval card, and only you switch, edit or delete one; clearing the activity keeps them. See [Always Allow](/docs/chat/tools-approvals-and-terminal#always-allow).
 
 ### Programs On This Computer Can't Act As You
 

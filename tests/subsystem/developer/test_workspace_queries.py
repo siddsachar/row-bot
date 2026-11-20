@@ -263,7 +263,7 @@ def test_plain_folder_ignores_global_filters_but_actual_repository_remains_guard
     monkeypatch.setattr(inspector_snapshot, "request_snapshot_refresh", lambda *args, **kwargs: requested.append(args))
     async def snapshot(*_):
         return SimpleNamespace(version=1, error="", git_summary={"is_git": False},
-            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], command_specs=[], todos=[])
+            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], command_specs=[], todos=[], project_notes=())
     monkeypatch.setattr(inspector_snapshot, "wait_for_snapshot_refresh", snapshot)
     result = asyncio.run(service.get_workspace_inspector(choice.resource_id, "chat-a"))
     assert not result.is_git and requested
@@ -347,7 +347,7 @@ def test_inspector_reports_each_detected_check_command_for_a_reviewed_run(domain
 
     async def snapshot(*_):
         return SimpleNamespace(version=1, error="", git_summary={"is_git": False},
-            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], todos=[],
+            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], todos=[], project_notes=(),
             command_specs=[CommandSpec("pytest", "python -m pytest"),
                            CommandSpec("Django tests", "python manage.py test")])
 
@@ -358,3 +358,27 @@ def test_inspector_reports_each_detected_check_command_for_a_reviewed_run(domain
         ("Django tests", "python manage.py test"),
     ]
     assert all(item.status == "not_run" for item in result.commands)
+
+
+@pytest.mark.parametrize(("execution_mode", "network", "shown"), [
+    ("docker", "on", True), ("docker", "ask", True), ("docker", "off", False), ("local", "on", False)])
+def test_inspector_says_when_the_sandbox_network_is_off_for_now(domain, tmp_path, monkeypatch, execution_mode,
+                                                                network, shown):
+    import asyncio
+    from types import SimpleNamespace
+    from row_bot import conversation_resources
+    from row_bot.developer import inspector_snapshot, review, sandbox_runtime
+
+    service, storage, _ = domain
+    choice = register(domain, tmp_path).workspace
+    conversation_resources.bind("chat-a", "workspace", choice.resource_id, expected_revision=0)
+    storage.set_workspace_execution_settings(choice.resource_id, execution_mode=execution_mode,
+                                             sandbox_network=network)
+    note = "The sandbox's network is off for now. Docker didn't answer. Row-Bot tries again with the next command."
+    monkeypatch.setattr(sandbox_runtime, "network_problem", lambda workspace_id: note)
+    monkeypatch.setattr(inspector_snapshot, "get_snapshot", lambda *_: SimpleNamespace(
+        version=1, error="", git_summary={"is_git": False}, diff_stats=review.DiffStats(0, 0, 0),
+        changed_files=[], todos=[], project_notes=(), command_specs=[]))
+    monkeypatch.setattr(inspector_snapshot, "get_snapshot_refresh_error", lambda *_: "")
+    result = asyncio.run(service.get_workspace_inspector(choice.resource_id, "chat-a"))
+    assert result.sandbox_network_note == (note if shown else "")

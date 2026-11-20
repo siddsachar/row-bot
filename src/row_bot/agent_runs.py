@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Iterable, Mapping, Sequence
 from row_bot.agent_settings import MAX_ROUNDS
-from row_bot.application.live_updates import publishes as _publishes_live
+from row_bot.application.live_updates import publish as _publish_live, publishes as _publishes_live
 
 
 _SCHEMA_LOCK = threading.RLock()
@@ -366,6 +366,16 @@ _COLUMN_DEFINITIONS: dict[str, dict[str, str]] = {
         # tokens_used when the goal's token budget window began (Resume at the
         # budget starts a new window, like the time limit's window_started_at).
         "token_window_start": "INTEGER DEFAULT 0",
+        # What "done" means in the person's words, and the command they set that must exit 0 before the
+        # goal counts as done (B3): the code folder it runs in ('' = the default workspace), the person's
+        # approval of it (JSON: level, classification, approved_by, at), its state ('', pending, running,
+        # passed, failed, error) and its last result (JSON: exit code, times, output tail).
+        "done_means": "TEXT DEFAULT ''",
+        "check_command": "TEXT DEFAULT ''",
+        "check_workspace_id": "TEXT DEFAULT ''",
+        "check_approval": "TEXT DEFAULT ''",
+        "check_state": "TEXT DEFAULT ''",
+        "check_result_json": "TEXT DEFAULT ''",
     },
     "agent_orchestrations": {
         "id": "TEXT PRIMARY KEY",
@@ -995,7 +1005,7 @@ def append_agent_event(
     }
 
 
-@_publishes_live("helpers", "conversations")
+@_publishes_live("helpers")
 def update_agent_status(
     run_id: str,
     status: str,
@@ -1003,12 +1013,19 @@ def update_agent_status(
     *,
     append_event: bool = True,
 ) -> dict[str, Any] | None:
-    """Update an Agent Run status without marking it finished."""
+    """Update an Agent Run status without marking it finished.
+
+    The conversation list shows a run's state, never its progress line: only a
+    status that moves on publishes ``conversations`` (a goal's every update and
+    a helper's progress keep their own ``helpers`` topic).
+    """
     ensure_agent_run_schema()
     status = _normalize_status(status)
     now = _now()
     conn = _get_conn()
     try:
+        before = conn.execute("SELECT status FROM agent_runs WHERE id = ?", (str(run_id),)).fetchone()
+        moved = before is not None and str(before[0]) != status
         conn.execute(
             "UPDATE agent_runs SET status = ?, status_message = ?, "
             "updated_at = ? WHERE id = ?",
@@ -1020,20 +1037,24 @@ def update_agent_status(
         conn.close()
     if not changed:
         return None
-    if append_event:
-        append_agent_event(
-            run_id,
-            "run.status",
-            {"status": status, "status_message": status_message},
-            visibility="internal",
-        )
     try:
-        from row_bot.agent_orchestrator import handle_run_status
+        if append_event:
+            append_agent_event(
+                run_id,
+                "run.status",
+                {"status": status, "status_message": status_message},
+                visibility="internal",
+            )
+        try:
+            from row_bot.agent_orchestrator import handle_run_status
 
-        handle_run_status(run_id, status)
-    except Exception:
-        pass
-    return get_agent_run(run_id)
+            handle_run_status(run_id, status)
+        except Exception:
+            pass
+        return get_agent_run(run_id)
+    finally:
+        if moved:
+            _publish_live("conversations")
 
 
 def save_agent_resume_state(

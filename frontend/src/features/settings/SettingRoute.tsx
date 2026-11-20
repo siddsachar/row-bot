@@ -33,6 +33,8 @@ import {
 import Preferences from './Preferences';
 import LearningSettings from '../learning/LearningSettings';
 import ProactiveSettings from './ProactiveSettings';
+import ActivitySettings from './ActivitySettings';
+import ApprovalRulesSettings from './ApprovalRulesSettings';
 import { useLearning, useLearningPreview } from '../learning/learning-state';
 import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
@@ -537,6 +539,11 @@ export default function SettingRoute() {
           )
         ) : leaf.id === 'proactive' ? (
           <ProactiveSettings />
+        ) : leaf.id === 'activity' ? (
+          <>
+            <ApprovalRulesSettings />
+            <ActivitySettings />
+          </>
         ) : leaf.id === 'appearance' ? (
           <AppearanceSettings />
         ) : leaf.id === 'preferences' ||

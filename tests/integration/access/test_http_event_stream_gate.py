@@ -8,9 +8,11 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI, Request
-from starlette.responses import StreamingResponse
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.testclient import TestClient
 
 from row_bot.access.config import AccessConfig
@@ -23,11 +25,13 @@ from row_bot.api.v1.security import ProtocolError
 class FakeSessionAuthenticator:
     def __init__(self) -> None:
         self.active = {"owner-token": "owner-session"}
+        self.calls = 0
 
     def revoke(self, token: str) -> None:
         self.active.pop(token, None)
 
     def authenticate_scope(self, scope, provenance):  # noqa: ARG002
+        self.calls += 1
         headers = {
             bytes(name).lower(): bytes(value).decode("latin-1")
             for name, value in scope.get("headers", [])
@@ -50,7 +54,8 @@ class FakeSessionAuthenticator:
         )
 
 
-def _build_app(authenticator: FakeSessionAuthenticator) -> TestClient:
+def _build_app(authenticator: FakeSessionAuthenticator, clock: dict | None = None) -> TestClient:
+    clock = clock if clock is not None else {"now": 0.0}
     app = FastAPI()
 
     @app.get("/")
@@ -78,6 +83,36 @@ def _build_app(authenticator: FakeSessionAuthenticator) -> TestClient:
                 return
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.get("/api/v1/live")
+    async def live(request: Request):
+        # As the live stream does: checks that deliver nothing, reusing a recent answer.
+        for _tick in range(3):
+            await v1_routes._context(request, reuse=True)
+        return {"ok": True}
+
+    async def outcome(request: Request, *, reuse: bool) -> str:
+        try:
+            await v1_routes._context(request, reuse=reuse)
+        except ProtocolError:
+            return "refused"
+        return "allowed"
+
+    @app.get("/api/v1/live-signed-out")
+    async def live_signed_out(request: Request):
+        authenticator.revoke("owner-token")  # signed out while the stream is open
+        ticks = [await outcome(request, reuse=True)]
+        clock["now"] += 0.5
+        ticks.append(await outcome(request, reuse=True))
+        clock["now"] += 0.5  # a second after the last check: the tick reads the store again
+        ticks.append(await outcome(request, reuse=True))
+        return JSONResponse({"ticks": ticks})
+
+    @app.get("/api/v1/data-signed-out")
+    async def data_signed_out(request: Request):
+        first = await outcome(request, reuse=True)  # the route's first check
+        authenticator.revoke("owner-token")  # signed out while the route read its data
+        return JSONResponse({"checks": [first, await outcome(request, reuse=False)]})
 
     middleware = AccessMiddleware(
         app,
@@ -130,6 +165,47 @@ def test_revocation_blocks_http_immediately_and_ends_an_open_stream_within_bound
     assert ": heartbeat" in stream.text  # it streamed while the session was valid
     assert revoked_at and ended_at - revoked_at[0] < 1.0
     assert client.get("/api/private", headers=cookie_header).status_code == 401
+
+
+@pytest.fixture
+def clock(monkeypatch) -> dict:
+    """The access middleware's monotonic clock, moved on by hand."""
+    from row_bot.access import middleware
+
+    now = {"now": 1000.0}
+    monkeypatch.setattr(middleware, "time", SimpleNamespace(monotonic=lambda: now["now"]))
+    return now
+
+
+def test_a_live_streams_ticks_reuse_the_requests_session_check(clock) -> None:
+    authenticator = FakeSessionAuthenticator()
+    client = _build_app(authenticator, clock)
+    cookie_header = {"cookie": "row_bot_test=owner-token"}
+
+    assert client.get("/api/v1/live", headers=cookie_header).status_code == 200
+    assert authenticator.calls == 1  # admission's check, reused by the three ticks
+    assert client.get("/api/v1/live", headers=cookie_header).status_code == 200
+    assert authenticator.calls == 2  # the next request checks again
+
+
+def test_a_signed_out_devices_live_stream_ends_within_a_second(clock) -> None:
+    authenticator = FakeSessionAuthenticator()
+    client = _build_app(authenticator, clock)
+    cookie_header = {"cookie": "row_bot_test=owner-token"}
+
+    response = client.get("/api/v1/live-signed-out", headers=cookie_header)
+
+    assert response.json() == {"ticks": ["allowed", "allowed", "refused"]}
+    assert client.get("/api/private", headers=cookie_header).status_code == 401
+
+
+def test_a_signed_out_device_gets_no_data_from_a_request_under_way(clock) -> None:
+    authenticator = FakeSessionAuthenticator()
+    client = _build_app(authenticator, clock)
+
+    response = client.get("/api/v1/data-signed-out", headers={"cookie": "row_bot_test=owner-token"})
+
+    assert response.json() == {"checks": ["allowed", "refused"]}
 
 
 def test_phone_session_can_use_owner_management_routes() -> None:

@@ -84,6 +84,11 @@ Priorities, in order:
   and `application/client_learning.py`. The training engine is its own locked project
   (`src/row_bot/learning_engine/`), downloaded only when the person agrees into the
   data folder's `runtimes/learning/`, never into Row-Bot's environment or installers.
+- `src/row_bot/local_runtime/`: Run on this computer (E1): the pinned official
+  llama.cpp builds and Qwen3.5 models, downloaded only after the person presses
+  Download into the data folder's `runtimes/llamacpp/` and `local_models/`, and
+  the loopback `llama-server` behind the `llamacpp` endpoint
+  (`docs/LOCAL_RUNTIME.md`). It imports nothing from Learning.
 - `frontend/`: the React client (the only UI), served at `/app-v2/`.
 - `src/row_bot/server.py` and `src/row_bot/app.py`: the FastAPI app, its
   routes, middleware and start-up sequence, run by uvicorn.

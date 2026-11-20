@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
-import { useShellSettled } from '../../shell-settled';
+import { useBackgroundReady } from '../../shell-settled';
 import { Button, EmptyState } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import BuddyPanel, { type BuddyPanelSession } from './BuddyPanel';
@@ -54,7 +54,10 @@ function GlobalBuddy() {
   const [pack, setPack] = useState<BuddyPack | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // Buddy's reads wait until the first screen is up (B29).
+  const ready = useBackgroundReady();
   useEffect(() => {
+    if (!ready) return;
     const request = new AbortController();
     let timer = 0;
     const load = async () => {
@@ -82,7 +85,7 @@ function GlobalBuddy() {
       request.abort();
       window.clearTimeout(timer);
     };
-  }, [attempt, controller]);
+  }, [attempt, controller, ready]);
   if (snapshot && !snapshot.preferences.visible) return null;
   if (buddyPlacement.placement === 'desktop' && buddyPlacement.visible)
     return <BuddyDockButton dock={buddyPlacement.dock} />;
@@ -147,7 +150,9 @@ function GlobalPortrait() {
     snapshot: BuddySnapshot;
     pack: BuddyPack | null;
   } | null>(null);
+  const ready = useBackgroundReady();
   useEffect(() => {
+    if (!ready) return;
     const request = new AbortController();
     void (async () => {
       try {
@@ -162,7 +167,7 @@ function GlobalPortrait() {
       }
     })();
     return () => request.abort();
-  }, [controller]);
+  }, [controller, ready]);
   if (!view) return <PortraitGlyph />;
   if (!view.snapshot.preferences.visible) return null;
   return (
@@ -178,7 +183,7 @@ function SessionPortrait({
   session: BuddyPanelSession;
 }) {
   const view = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  const settled = useShellSettled();
+  const settled = useBackgroundReady();
   useEffect(() => {
     if (!settled) return;
     let stop: () => void;
@@ -325,8 +330,8 @@ export default function BuddySurface({
 }) {
   const { buddyOwner } = useRuntime();
   const state = useClientState();
-  // Buddy's reads wait until the open conversation is confirmed (B29).
-  const shellSettled = useShellSettled();
+  // Buddy's reads wait until the first screen is up (B29).
+  const shellSettled = useBackgroundReady();
   const [search] = useSearchParams();
   const conversation =
     (settings ? (search.get('conversation') ?? conversationId) : null) ||

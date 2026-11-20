@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { GoalPage, GoalSummary } from '../../api/types';
+import { setServerUtcOffset } from '../../ui/format';
 import ContextGoal, {
   goalState,
   goalTurn,
@@ -31,9 +33,19 @@ const goal: GoalSummary = {
   evidence: [],
   blockers: [],
   active_profile_id: '',
+  done_means: '',
+  check: null,
 };
 
-function page(items: GoalSummary[] = [goal], defaultTurns = 0): GoalPage {
+function page(
+  items: GoalSummary[] = [goal],
+  defaultTurns = 0,
+  place: GoalPage['check_place'] = {
+    available: true,
+    runs_in: "Row-Bot's workspace",
+    suggestions: [],
+  },
+): GoalPage {
   return {
     schema_version: 1,
     scope: 'conversation',
@@ -45,6 +57,7 @@ function page(items: GoalSummary[] = [goal], defaultTurns = 0): GoalPage {
     total: items.length,
     next_cursor: null,
     default_max_turns: defaultTurns,
+    check_place: place,
   };
 }
 
@@ -351,6 +364,26 @@ it('shows the time running and the tokens used, with the time limit (B244)', asy
   expect(
     goalUsage({ ...running, status: 'paused', tokens_used: 950 }, now),
   ).toEqual(['950 tokens']);
+  // M11: a goal started a minute ago on a server eight hours behind is a minute old, not "7 h 59 min",
+  // whether its time says its offset or is the server's own clock.
+  const minuteOld = new Date('2026-11-16T17:03:00Z');
+  const fresh = {
+    ...running,
+    tokens_used: 0,
+    started_at: '2026-11-16T17:01:58+00:00',
+  };
+  expect(goalUsage(fresh, minuteOld)).toEqual(['1 min']);
+  setServerUtcOffset(-480);
+  try {
+    expect(
+      goalUsage(
+        { ...fresh, started_at: '2026-11-16T09:01:58.325300' },
+        minuteOld,
+      ),
+    ).toEqual(['1 min']);
+  } finally {
+    setServerUtcOffset(null);
+  }
   render(
     <ContextGoal
       conversationId="conversation-a"
@@ -390,4 +423,220 @@ it('starts a goal with an optional time limit in hours', async () => {
     'conversation-a',
     expect.objectContaining({ max_turns: null, max_minutes: 480 }),
   );
+});
+
+// B3: "Done means…" and a check that must pass.
+
+const objectiveBox = () =>
+  screen.getByRole('textbox', {
+    name: 'What should this conversation achieve?',
+  });
+
+it('reviews a goal with a check first, and Start goal confirms that review', async () => {
+  const api = io(
+    page([], 0, {
+      available: true,
+      runs_in: 'row-bot (Docker sandbox, network off)',
+      suggestions: ['npm test', 'npm run lint'],
+    }),
+  );
+  api.review.mockImplementationOnce(async (_conversation, payload) => ({
+    ...payload,
+    schema_version: 1 as const,
+    action_digest: 'digest',
+    disclosures: [
+      'Each time Row-Bot thinks the goal is done, it runs `npm test` in row-bot (Docker sandbox, network off). The goal counts as done only when it exits 0.',
+    ],
+    review_id: 'review-check',
+  }));
+  const done = vi.fn();
+  show(api, { compose: true, onComposeDone: done });
+  await waitFor(() => expect(api.load).toHaveBeenCalled());
+  fireEvent.change(objectiveBox(), { target: { value: 'Fix the docs' } });
+  // Collapsed until opened: most goals need neither.
+  const disclosure = screen.getByText('Done means and check', {
+    selector: 'summary',
+  });
+  expect(screen.getByLabelText('Check with')).not.toBeVisible();
+  fireEvent.click(disclosure);
+  fireEvent.change(screen.getByLabelText('Done means…'), {
+    target: { value: 'Every link works' },
+  });
+  expect(
+    screen.getByText(/Runs in row-bot \(Docker sandbox, network off\)/),
+  ).toBeVisible();
+  // The project's own commands fill the field.
+  fireEvent.click(screen.getByRole('button', { name: 'npm test' }));
+  expect(screen.getByLabelText('Check with')).toHaveValue('npm test');
+  expect(screen.getByRole('button', { name: 'npm test' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Start goal' }));
+  const review = await screen.findByRole('group', { name: 'Before it starts' });
+  expect(review).toHaveTextContent(
+    'it runs npm test in row-bot (Docker sandbox, network off)',
+  );
+  expect(review.querySelector('code')).toHaveTextContent('npm test');
+  expect(api.execute).not.toHaveBeenCalled();
+  expect(api.review).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({
+      done_means: 'Every link works',
+      check_command: 'npm test',
+    }),
+  );
+
+  api.push(page([{ ...goal, objective: 'Fix the docs' }]));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm and start' }));
+  await waitFor(() => expect(done).toHaveBeenCalledOnce());
+  expect(api.review).toHaveBeenCalledOnce();
+  expect(api.execute).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({
+      payload: expect.objectContaining({
+        check_command: 'npm test',
+        review_id: 'review-check',
+      }),
+    }),
+  );
+});
+
+it('asks for a fresh review after the form changes', async () => {
+  const api = io(page([]));
+  show(api, { compose: true });
+  await waitFor(() => expect(api.load).toHaveBeenCalled());
+  fireEvent.change(objectiveBox(), { target: { value: 'Fix the docs' } });
+  fireEvent.click(
+    screen.getByText('Done means and check', { selector: 'summary' }),
+  );
+  fireEvent.change(screen.getByLabelText('Check with'), {
+    target: { value: 'npm test' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Start goal' }));
+  await screen.findByRole('button', { name: 'Confirm and start' });
+  fireEvent.change(screen.getByLabelText('Check with'), {
+    target: { value: 'npm run build' },
+  });
+  expect(screen.getByRole('button', { name: 'Start goal' })).toBeVisible();
+  expect(screen.queryByRole('group', { name: 'Before it starts' })).toBeNull();
+});
+
+it('shows a refused check inline, in the field', async () => {
+  const api = io(page([]));
+  api.review.mockRejectedValueOnce({ code: 'goal_check_read_only' });
+  show(api, { compose: true });
+  await waitFor(() => expect(api.load).toHaveBeenCalled());
+  fireEvent.change(objectiveBox(), { target: { value: 'Fix the docs' } });
+  fireEvent.click(
+    screen.getByText('Done means and check', { selector: 'summary' }),
+  );
+  fireEvent.change(screen.getByLabelText('Check with'), {
+    target: { value: 'npm test' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Start goal' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'This chat is on Block, which only allows checks that just read.',
+  );
+  expect(screen.getByLabelText('Check with')).toHaveAttribute(
+    'aria-invalid',
+    'true',
+  );
+  expect(api.execute).not.toHaveBeenCalled();
+});
+
+function checked(
+  state: NonNullable<GoalSummary['check']>['state'],
+  extra: Partial<GoalSummary> = {},
+): GoalSummary {
+  return {
+    ...goal,
+    done_means: 'Every link works',
+    check: {
+      command: 'npm test',
+      runs_in: "Row-Bot's workspace",
+      state,
+      result:
+        state === 'passed' || state === 'failed' || state === 'error'
+          ? {
+              exit_code: state === 'passed' ? 0 : state === 'failed' ? 1 : null,
+              started_at: '2026-11-15T14:02:00',
+              finished_at: '2026-11-15T14:05:00',
+              duration_seconds: 180,
+              output_tail: state === 'failed' ? 'FAIL docs/index.md' : '',
+            }
+          : null,
+    },
+    ...extra,
+  };
+}
+
+it.each([
+  ['', 'active', 'Checks with npm test'],
+  ['running', 'active', 'Checking with npm test…'],
+  ['passed', 'completed', /^Verified by npm test · /],
+  ['failed', 'active', 'npm test failed · Row-Bot is fixing it'],
+  ['failed', 'paused', 'npm test failed'],
+  ['error', 'paused', "Couldn't run npm test"],
+] as const)(
+  'shows the check line for a %s check on a %s goal',
+  async (state, status, line) => {
+    show(io(page([checked(state, { status })])));
+    expect(
+      await screen.findByText('Done means: Every link works'),
+    ).toBeVisible();
+    const status_ = screen
+      .getAllByRole('status')
+      .find((node) => node.classList.contains('context-goal-check'))!;
+    expect(status_.textContent).toMatch(line);
+  },
+);
+
+it('keeps the reason off the card while the check says it, but shows why it paused', async () => {
+  show(
+    io(
+      page([checked('running', { last_reason: 'Checking with `npm test`…' })]),
+    ),
+  );
+  await screen.findByText('Checking with', { exact: false });
+  expect(screen.queryByText('Checking with `npm test`…')).toBeNull();
+  resetContextGoals();
+  show(
+    io(
+      page([
+        checked('error', {
+          status: 'paused',
+          last_reason: "`npm test` didn't finish in 10 minutes.",
+        }),
+      ]),
+    ),
+  );
+  expect(
+    await screen.findByText("`npm test` didn't finish in 10 minutes."),
+  ).toBeVisible();
+});
+
+it('opens the check output by keyboard, with Copy', async () => {
+  show(io(page([checked('failed')])));
+  const info = await screen.findByRole('button', {
+    name: "Show the check's output",
+  });
+  info.focus();
+  await userEvent.keyboard('{Enter}');
+  const output = await screen.findByRole('dialog', {
+    name: "The check's output",
+  });
+  expect(output).toHaveTextContent('FAIL docs/index.md');
+  expect(output).toHaveTextContent('exit 1');
+  expect(screen.getByRole('button', { name: 'Copy the output' })).toBeVisible();
+});
+
+it('says an earlier goal was verified by its check', async () => {
+  const done = { ...checked('passed', { status: 'completed' }), id: 'goal-0' };
+  show(
+    io({ ...page([done]), current_goal_id: null, current_revision: 'none' }),
+  );
+  fireEvent.click(await screen.findByText('Earlier goals'));
+  expect(screen.getByText(/Done · 3 of 10 turns · Verified by/)).toBeVisible();
 });

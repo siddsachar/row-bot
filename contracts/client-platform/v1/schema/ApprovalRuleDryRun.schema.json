@@ -1,0 +1,196 @@
+{
+  "$defs": {
+    "ApprovalRuleCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_in_chat": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Allowed In Chat",
+          "type": "integer"
+        },
+        "approved_by_reviewer": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Approved By Reviewer",
+          "type": "integer"
+        },
+        "approved_by_you": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Approved By You",
+          "type": "integer"
+        },
+        "asked": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Asked",
+          "type": "integer"
+        },
+        "changed": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Changed",
+          "type": "integer"
+        },
+        "denied": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Denied",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "approved_by_you",
+        "denied",
+        "approved_by_reviewer",
+        "allowed_in_chat",
+        "changed",
+        "asked"
+      ],
+      "title": "ApprovalRuleCounts",
+      "type": "object"
+    },
+    "ApprovalRuleDraft": {
+      "additionalProperties": false,
+      "description": "What one \"Always allow\" rule covers, in words and in its parts (each shown by name, never a path).",
+      "properties": {
+        "app_name": {
+          "maxLength": 128,
+          "title": "App Name",
+          "type": "string"
+        },
+        "command": {
+          "maxLength": 500,
+          "title": "Command",
+          "type": "string"
+        },
+        "folder_name": {
+          "maxLength": 260,
+          "title": "Folder Name",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "app",
+            "command",
+            "move"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool_title": {
+          "maxLength": 96,
+          "title": "Tool Title",
+          "type": "string"
+        },
+        "words": {
+          "maxLength": 800,
+          "title": "Words",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "words",
+        "app_name",
+        "tool_title",
+        "command",
+        "folder_name"
+      ],
+      "title": "ApprovalRuleDraft",
+      "type": "object"
+    },
+    "ApprovalRuleExample": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maxLength": 40,
+          "title": "At",
+          "type": "string"
+        },
+        "conversation_title": {
+          "maxLength": 160,
+          "title": "Conversation Title",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "approved_by_you",
+            "denied",
+            "approved_by_reviewer",
+            "allowed_in_chat",
+            "changed",
+            "asked"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 300,
+          "title": "Summary",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "conversation_title",
+        "title",
+        "summary",
+        "outcome"
+      ],
+      "title": "ApprovalRuleExample",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Would this have asked? What the draft rule would have allowed in the last 30 days (the activity log).",
+  "properties": {
+    "counts": {
+      "$ref": "#/$defs/ApprovalRuleCounts"
+    },
+    "days": {
+      "maximum": 90,
+      "minimum": 1,
+      "title": "Days",
+      "type": "integer"
+    },
+    "examples": {
+      "items": {
+        "$ref": "#/$defs/ApprovalRuleExample"
+      },
+      "maxItems": 5,
+      "title": "Examples",
+      "type": "array"
+    },
+    "rule": {
+      "$ref": "#/$defs/ApprovalRuleDraft"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "total": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "rule",
+    "days",
+    "total",
+    "counts",
+    "examples"
+  ],
+  "title": "ApprovalRuleDryRun",
+  "type": "object"
+}

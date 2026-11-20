@@ -19,6 +19,10 @@ import {
   checksStatus,
   type WorkspaceInspectorProps,
 } from './WorkspaceInspector';
+import {
+  requestWorkspaceFile,
+  takeWorkspaceFile,
+} from './workspace-file-requests';
 
 const fixture: Inspector = {
   resource_id: 'workspace',
@@ -356,6 +360,42 @@ function pending<T>() {
 }
 
 describe('Developer inspector', () => {
+  it('opens a file asked for from the details card in Files, before or after it has loaded', async () => {
+    const options = props();
+    requestWorkspaceFile({ resourceId: 'workspace', path: 'AGENTS.md' });
+    render(<WorkspaceInspector {...options} />);
+
+    expect(
+      await screen.findByRole('region', { name: 'File text' }),
+    ).toBeVisible();
+    expect(options.file).toHaveBeenCalledWith(
+      'AGENTS.md',
+      0,
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(screen.getByRole('tab', { name: /^Files/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    act(() =>
+      requestWorkspaceFile({ resourceId: 'workspace', path: 'CLAUDE.md' }),
+    );
+    await waitFor(() =>
+      expect(options.file).toHaveBeenLastCalledWith(
+        'CLAUDE.md',
+        0,
+        undefined,
+        expect.any(AbortSignal),
+      ),
+    );
+    // Another folder's request waits for that folder's inspector.
+    act(() => requestWorkspaceFile({ resourceId: 'other', path: 'AGENTS.md' }));
+    expect(options.file).toHaveBeenCalledTimes(2);
+    expect(takeWorkspaceFile('other')).toBe('AGENTS.md');
+  });
+
   it('shows a status strip and opens on Changes when a repository has changes', async () => {
     const options = props();
     render(
@@ -384,6 +424,42 @@ describe('Developer inspector', () => {
       'aria-selected',
       'true',
     );
+  });
+
+  it('says when a networked sandbox is running with its network off, and why', async () => {
+    const note =
+      "The sandbox's network is off for now. Row-Bot couldn't start the sandbox's network gate: no python3. Row-Bot tries again with the next command.";
+    const docker = {
+      ...fixture,
+      policy: {
+        ...fixture.policy,
+        execution_mode: 'docker' as const,
+        sandbox_network: 'on' as const,
+      },
+    };
+    const options = props();
+    options.load = vi.fn(async () => ({
+      ...docker,
+      sandbox_network_note: note,
+    }));
+    const { unmount } = render(<WorkspaceInspector {...options} />);
+    const strip = await screen.findByRole('group', {
+      name: 'Repository status',
+    });
+    expect(strip).toHaveTextContent('Docker sandbox · network off for now');
+    expect(
+      screen.getByText(note, { selector: '.dev-network-note span' }),
+    ).toBeInTheDocument();
+    unmount();
+
+    // With its gate running there is no line, and the strip shows the setting.
+    const running = props();
+    running.load = vi.fn(async () => docker);
+    render(<WorkspaceInspector {...running} />);
+    expect(
+      await screen.findByRole('group', { name: 'Repository status' }),
+    ).toHaveTextContent('Docker sandbox · network on');
+    expect(screen.queryByText(/network is off for now/)).toBeNull();
   });
 
   it('opens on Changes for agent changes in a folder without Git (U34)', async () => {

@@ -35,7 +35,7 @@ vi.mock('../../runtime', () => {
   return { useRuntime: () => runtime };
 });
 vi.mock('../../shell-settled', () => ({
-  useShellSettled: () => mock.settled,
+  useBackgroundReady: () => mock.settled,
 }));
 
 const pack = (id: string) => ({

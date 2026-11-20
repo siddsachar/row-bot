@@ -45,13 +45,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function workspace(width: number) {
+async function workspace(width: number, { terminal = true } = {}) {
   vi.stubGlobal('innerWidth', width);
   vi.stubGlobal('innerHeight', 900);
-  const controller = new ClientController(
-    new FixtureTransport({ conversationCount: 2 }),
-    () => 1,
-  );
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  if (!terminal) {
+    // A browser away from the computer: the server offers no terminal.
+    const connect = transport.connect.bind(transport);
+    transport.connect = async (signal) => {
+      const handshake = await connect(signal);
+      return {
+        ...handshake,
+        application_capabilities: (
+          handshake.application_capabilities ?? []
+        ).filter((item) => item !== 'native:terminal'),
+      };
+    };
+  }
+  const controller = new ClientController(transport, () => 1);
   clients.push(controller);
   await controller.start();
   await controller.selectConversation('conversation-a');
@@ -161,6 +172,17 @@ it(
     await user.click(screen.getByRole('button', { name: 'Close terminal' }));
     expect(dock()).toBeNull();
     expect(screen.getByRole('region', { name: 'Conversation' })).toBeVisible();
+  },
+  HEAVY,
+);
+
+it(
+  'offers no Open panel menu when a chat has nothing to open, rather than an empty one (W10)',
+  async () => {
+    await workspace(1440, { terminal: false });
+    expect(screen.getByRole('region', { name: 'Conversation' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open panel' })).toBeNull();
   },
   HEAVY,
 );

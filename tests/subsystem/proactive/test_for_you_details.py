@@ -81,6 +81,24 @@ def test_the_preview_says_what_each_level_would_have_brought_up_today(proactive)
     assert [item["where"] for item in result["levels"][3]["items"]] == ["buddy"] * 5
 
 
+def test_the_preview_says_where_a_moment_really_went_and_never_a_bubble_it_never_reached(proactive):
+    # Found in the 5.3.4 Windows retest (R5): a meeting held while the person was away, then opened from Home,
+    # was listed as "Buddy's bubble".
+    from row_bot.proactive import preview
+
+    away = _moment(proactive, "meeting:a", kind="meeting_prep", urgency="urgent", made="2026-11-16 09:30")
+    proactive.feedback.act(away["id"], now=at("2026-11-16 09:38"))  # Opened from Home; it never went out.
+    noticed = _moment(proactive, "meeting:b", kind="meeting_prep", urgency="urgent", made="2026-11-16 10:30")
+    proactive.store.move(noticed["id"], "shown", from_states=("pending",), now=at("2026-11-16 10:31"),
+                         surface="desktop", shown_at=at("2026-11-16 10:31"))
+
+    result = preview.preview(at("2026-11-16 12:00"))
+    where = {level["level"]: [(item["title"], item["where"], bool(item["at"])) for item in level["items"]]
+             for level in result["levels"] if level["level"] != "off"}
+    for level, items in where.items():
+        assert items == [("meeting:a", "home", False), ("meeting:b", "notification", True)], level
+
+
 def test_settings_say_which_sources_are_connected_and_each_kinds_last_30_days(proactive):
     from types import SimpleNamespace
 

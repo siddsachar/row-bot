@@ -901,6 +901,21 @@ def test_an_accounts_recent_posts_come_with_their_numbers_and_totals(x):
     assert "340 views · 1 like · 2 reposts · 1 reply" in read
 
 
+def test_a_read_for_fewer_posts_than_x_allows_returns_that_many(x):
+    """S4 (18 Nov): a search for 8 and a timeline of 4 came back "X API error (400): One or more parameters to
+    your request was invalid": X takes 10 to 100 for a search and 5 to 100 for a timeline or mentions."""
+    fake, tool = x
+    x_accounts.add(fake.sign_in(*ROWBOT))
+    for index in range(12):
+        fake.post("111", f"Release note {index}")
+
+    timeline = tool._x_read("timeline", account="@rowbot_ai", max_results=4)
+    search = tool._x_read("search", query="release note", account="@rowbot_ai", max_results=8)
+
+    assert "recent tweets (4)" in timeline and "Release note 11" in timeline and "Release note 7" not in timeline
+    assert search.startswith("Found 8 tweet(s)")
+
+
 # ── X's reply rule (23 Feb 2026) ─────────────────────────────────────────────
 # X's self-serve API takes a reply or quote only where the post's author summoned the account: mentioned it, quoted
 # one of its posts, or is the account. Row-Bot checks by the posting account's own user ID, before any card.

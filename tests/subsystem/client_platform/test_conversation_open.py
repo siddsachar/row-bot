@@ -55,6 +55,48 @@ def test_open_rejects_deletion_during_composition_without_returning_draft(servic
         read_open(service, conversation)
 
 
+def test_a_slow_model_check_holds_no_other_chat_back_and_is_reused(service, monkeypatch):
+    """Opening a chat checks its model (an Ollama model connects to Ollama, a second or more when it isn't
+    running) without the command lock every other chat's reads and turns wait on; opens soon after reuse it."""
+    import threading
+    from types import SimpleNamespace
+    from row_bot import threads
+    from row_bot.application.conversation_open import read_open
+
+    service.readiness_factory = None
+    checking, answer = threading.Event(), threading.Event()
+    checks = []
+
+    def readiness(model_ref, **_options):
+        checks.append(model_ref)
+        checking.set()
+        assert answer.wait(10)
+        ready = SimpleNamespace(ready=True, credential_status="configured", errors=[])
+        return SimpleNamespace(agent=ready, chat=ready)
+
+    monkeypatch.setattr("row_bot.providers.readiness.evaluate_runtime_readiness", readiness)
+    monkeypatch.setattr("row_bot.models.get_current_model", lambda: "model:ollama:qwen3.8:27b")
+    opening = threads.create_thread("Waits on its model", seed_default_skills=False)
+    other = threads.create_thread("Another chat", seed_default_skills=False)
+    opened, read = {}, {}
+    worker = threading.Thread(target=lambda: opened.update(read_open(service, opening)))
+    reader = threading.Thread(target=lambda: read.update(service.snapshot(other)))
+    worker.start()
+    try:
+        assert checking.wait(10)
+        reader.start()  # the snapshot takes the command lock
+        reader.join(10)
+        assert read.get("conversation_id") == other, "another chat's read waited on this chat's model check"
+        assert not opened
+    finally:
+        answer.set()
+        worker.join(10)
+    assert opened["workspace"]["model_status"]["state"] == "ready"
+    again = read_open(service, opening)
+    assert again["workspace"]["model_status"]["state"] == "ready"
+    assert checks == ["model:ollama:qwen3.8:27b"]
+
+
 @pytest.mark.parametrize("limit", [0, 101, True])
 def test_open_rejects_unbounded_page_request(service, limit):
     from row_bot.application.conversation_open import read_open

@@ -31,6 +31,24 @@ def default_workspace_root() -> Path:
     return Path(configured).expanduser() if configured else Path.home() / "Documents" / DEFAULT_WORKSPACE_DIR_NAME
 
 
+def workspace_folder(*, create: bool = True) -> Path:
+    """The person's workspace folder, where the file tools work and the shell starts outside a code folder.
+
+    It's the folder chosen in Settings (``filesystem.workspace_root``) while it exists, else Row-Bot's default
+    workspace, created if need be (``create``), never the home folder. The shell, the turn context, goal checks
+    and watches all resolve it here, so a command runs in the folder the person was told.
+    """
+    from row_bot.tools import registry
+
+    configured = str(registry.get_tool_config("filesystem", "workspace_root", "") or "")
+    if configured and Path(configured).expanduser().is_dir():
+        return Path(configured).expanduser()
+    default = default_workspace_root()
+    if create:
+        default.mkdir(parents=True, exist_ok=True)
+    return default
+
+
 def display_path(path: Path | str) -> str:
     """*path* as the model is told it: ``~/…`` under the home folder, so the account name isn't sent with it.
 
@@ -139,6 +157,12 @@ def get_usage_db_path(*, create_parent: bool = True) -> Path:
     """Return the local model-usage ledger path (token counts only)."""
     data_dir = get_row_bot_data_dir(create=create_parent)
     return data_dir / "usage.db"
+
+
+def get_activity_db_path(*, create_parent: bool = True) -> Path:
+    """Return the activity log's path (every tool action, its outcome and who decided)."""
+    data_dir = get_row_bot_data_dir(create=create_parent)
+    return data_dir / "activity.db"
 
 
 def get_access_db_path(*, create_parent: bool = True) -> Path:
