@@ -12,7 +12,7 @@ import {
   stableConversationMarker,
   type FixtureWindow,
 } from './fixture';
-import { headerAction } from './unified-helpers';
+import { commandsDialog, openCommands } from './unified-helpers';
 
 test('workspace command shortcut focuses search and ignores IME composition', async ({
   page,
@@ -31,13 +31,9 @@ test('workspace command shortcut focuses search and ignores IME composition', as
   );
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.keyboard.press('Control+k');
-  await expect(
-    page.getByRole('dialog', { name: 'Workspace commands', exact: true }),
-  ).toBeVisible();
-  const search = page.getByRole('searchbox', {
-    name: 'Find a workspace command',
-    exact: true,
-  });
+  // A phone opens its Search (D15).
+  const { dialog: commands, field: search } = commandsDialog(page);
+  await expect(commands).toBeVisible();
   await expect(search).toBeFocused();
   // Preferences moved from a header dialog to the unified settings route.
   await search.fill('preferences');
@@ -56,13 +52,9 @@ test('workspace commands dialog traps focus, locks background scroll and restore
 }, testInfo) => {
   await openFixture(page);
   await stableConversationMarker(page);
-  // Phones reach Workspace commands from the header's menu; focus returns
-  // to that menu's trigger.
-  const opener = await headerAction(page, 'Workspace commands');
-  const dialog = page.getByRole('dialog', {
-    name: 'Workspace commands',
-    exact: true,
-  });
+  // Phones reach Search from the header's menu; focus returns to that
+  // menu's trigger.
+  const { dialog, opener } = await openCommands(page);
   await expect(dialog).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(1);
   for (let index = 0; index < 30; index += 1) {

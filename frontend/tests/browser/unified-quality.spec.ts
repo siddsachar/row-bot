@@ -12,6 +12,7 @@ import {
   fixtureState,
   markWorkspaceIdentity,
   newConversation,
+  openCommands,
   releaseProducer,
   addReviewResourcePair,
   captureActualResourcePanels,
@@ -353,15 +354,11 @@ test('reduced motion and forced colours preserve a usable single conversation', 
     page.getByRole('status').filter({ hasText: /^Connected$/ }),
   ).toBeVisible();
   await assertControlTextUnclipped(send);
-  // Settings is a navigation link; the navigation is collapsed at this width.
-  const settings = page.getByRole('link', { name: 'Settings', exact: true });
-  if (!(await settings.isVisible()))
-    await page
-      .getByRole('button', { name: 'Toggle navigation', exact: true })
-      .click();
-  await settings.click();
-  // At phone width Settings opens on its list of pages (D6).
-  await expect(page).toHaveURL(/\/settings$/);
+  // At phone width a chat reaches Settings through Search in its menu (D15).
+  const { field } = await openCommands(page);
+  await field.fill('Models settings');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/settings\/models$/);
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
   await expect(composer(page)).toHaveValue('Accessible unsent draft');

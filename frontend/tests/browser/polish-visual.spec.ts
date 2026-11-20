@@ -62,6 +62,13 @@ test('conversation and Home keep their primary actions readable at every target 
         'Monitor',
         'Insights',
       ]) {
+        // On a phone Workflows is a place of its own, without the sub-tabs
+        // (D1): the tab bar's Home brings them back.
+        if (!(await page.getByRole('tab', { name: tab }).isVisible()))
+          await page
+            .getByRole('navigation', { name: 'Main' })
+            .getByRole('link', { name: 'Home' })
+            .click();
         await page.getByRole('tab', { name: tab }).click();
         await page.locator('.home-view').evaluate((element) => {
           element.scrollTop = 0;

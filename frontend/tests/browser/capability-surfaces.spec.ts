@@ -15,6 +15,7 @@ import {
   openConversation,
   clickNewChat,
   headerAction,
+  openCommands,
   revealContextControl,
 } from './unified-helpers';
 import { captureBrowserDownload } from './download-helpers';
@@ -83,17 +84,8 @@ async function openSettingThroughCommands(
   route: { label: string; path: string },
 ) {
   const navigated = page.waitForURL((url) => url.pathname === route.path);
-  await headerAction(page, 'Workspace commands');
-  const commands = page.getByRole('dialog', {
-    name: 'Workspace commands',
-    exact: true,
-  });
-  await commands
-    .getByRole('searchbox', {
-      name: 'Find a workspace command',
-      exact: true,
-    })
-    .fill(`Open ${route.label} settings`);
+  const { field } = await openCommands(page);
+  await field.fill(`Open ${route.label} settings`);
   await page.keyboard.press('Enter');
   await navigated;
   await expect(
@@ -227,12 +219,13 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
   await expect(page).toHaveURL(`/app-v2/conversations/${conversation}`);
 
   // Agent profiles live in the sidebar's Agents dialog, which the commands
-  // open too (B260).
-  await headerAction(page, 'Workspace commands');
-  await page
-    .getByRole('dialog', { name: 'Workspace commands', exact: true })
-    .getByRole('searchbox', { name: 'Find a workspace command', exact: true })
-    .fill('Agent profiles');
+  // open too (B260); a phone's Search finds it as Settings does.
+  const { field } = await openCommands(page);
+  await field.fill(
+    page.viewportSize()!.width < 768
+      ? 'Agent profile library'
+      : 'Agent profiles',
+  );
   await page.keyboard.press('Enter');
   const owner = page
     .getByRole('dialog', { name: 'Agents', exact: true })
@@ -962,6 +955,10 @@ test('Conversation actions rename, pin, and export through one recoverable overl
 test('profile library manages profiles and starts a selected chat', async ({
   page,
 }, info) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    'A phone has no sidebar or drawer (D1); its Search opens the library.',
+  );
   await openFixture(page);
   if (page.viewportSize()!.width < 1024)
     await page.getByRole('button', { name: 'Toggle navigation' }).click();

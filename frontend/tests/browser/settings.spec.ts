@@ -71,10 +71,15 @@ async function chooseFromMenu(scope: Locator, trigger: string, item: string) {
 
 async function openHomeThroughNavigation(page: Page) {
   // A phone moves between its places with the tab bar (D1); a conversation
-  // hides it, and its header's navigation button opens the drawer instead.
+  // hides it, and its header's ‹ goes back to a tab first.
   const tabHome = page
     .getByRole('navigation', { name: 'Main', exact: true })
     .getByRole('link', { name: 'Home', exact: true });
+  const back = page.getByRole('button', { name: 'Back', exact: true });
+  if (await back.isVisible()) {
+    await back.click();
+    await expect(tabHome).toBeVisible();
+  }
   if (await tabHome.isVisible()) {
     await tabHome.click();
     await expect(page).toHaveURL(/\/app-v2\/?$/);
@@ -122,6 +127,25 @@ async function openSettingsRouteFromHome(
   page: Page,
   route: { linkName: string; path: string; headingName: string },
 ) {
+  if ((page.viewportSize()?.width ?? 0) < 768) {
+    // A phone's tab bar opens Settings on its list of pages, one tap from
+    // each (D1, D6).
+    await activateRoute(
+      page,
+      page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('link', { name: 'Settings', exact: true }),
+      { path: '/app-v2/settings', headingName: 'Settings' },
+    );
+    await activateRoute(
+      page,
+      page
+        .getByRole('navigation', { name: 'Settings sections' })
+        .getByRole('link', { name: route.linkName, exact: true }),
+      route,
+    );
+    return;
+  }
   const navigation = page.getByRole('navigation', {
     name: 'Workspace navigation',
     exact: true,
@@ -138,21 +162,6 @@ async function openSettingsRouteFromHome(
     name: 'Settings',
     exact: true,
   });
-  if ((page.viewportSize()?.width ?? 0) < 768) {
-    // A phone opens Settings on its list of pages, one tap from each (D6).
-    await activateRoute(page, settings, {
-      path: '/app-v2/settings',
-      headingName: 'Settings',
-    });
-    await activateRoute(
-      page,
-      page
-        .getByRole('navigation', { name: 'Settings sections' })
-        .getByRole('link', { name: route.linkName, exact: true }),
-      route,
-    );
-    return;
-  }
   await activateRoute(page, settings, {
     path: '/app-v2/settings/models',
     headingName: 'Models',
@@ -342,9 +351,12 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
 
   await page.goto('/app-v2/tasks');
   await expect(page).toHaveURL(/\/app-v2\/?\?tab=workflows$/);
+  // A phone's Workflows is its own tab (D1).
   await expect(
-    page.getByRole('tab', { name: 'Workflows', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+    page
+      .getByRole('navigation', { name: 'Main' })
+      .getByRole('link', { name: 'Workflows', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
 });
 
 test('Owner-review phone Settings reach representative owners from one list of pages', async ({
@@ -1316,6 +1328,10 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
 test('Buddy keeps appearance edits through navigation and serves bundled media with reduced motion', async ({
   page,
 }, info) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    "A phone has no sidebar or drawer (D1), where Buddy's avatar lives.",
+  );
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
     Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
@@ -1455,6 +1471,10 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
 test('Buddy draws its bundled look from this server and holds still for reduced motion', async ({
   page,
 }, info) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    "A phone has no sidebar or drawer (D1), where Buddy's avatar lives.",
+  );
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
     Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
@@ -2342,6 +2362,10 @@ test('A ready update says Restart to update and restarts from Settings', async (
   page,
   context,
 }) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    'A phone has no sidebar or drawer (D1), where the indicator lives.',
+  );
   await blockFixtureServiceWorkers(context);
   const engine = {
     phase: 'ready',

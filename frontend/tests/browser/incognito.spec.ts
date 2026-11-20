@@ -53,6 +53,18 @@ async function everywhere(
   await resize(page, DESKTOP);
 }
 
+/** Evidence at desktop size only: a phone has no sidebar or drawer (D1). */
+async function onDesktop(
+  page: Page,
+  info: TestInfo,
+  name: string,
+  reach: () => Promise<void>,
+) {
+  await resize(page, DESKTOP);
+  await reach();
+  await views(page, info, name);
+  await closeOverlays(page);
+}
 /** A new size, once its layout has rendered: just after a resize the desktop
  *  sidebar can still be showing before the phone's drawer replaces it. */
 async function resize(page: Page, size: { width: number; height: number }) {
@@ -173,7 +185,7 @@ test('New chat ▾ starts an incognito chat that says so in its header, composer
     'Here are three quiet places for a weekend away: Hay-on-Wye, Whitby and the Lake District.',
   );
 
-  await everywhere(page, info, 'new-chat-menu', async () => {
+  await onDesktop(page, info, 'new-chat-menu', async () => {
     const nav = await showNavigation(page);
     await nav
       .getByRole('button', { name: 'New chat options', exact: true })
@@ -193,7 +205,7 @@ test('New chat ▾ starts an incognito chat that says so in its header, composer
     await placeholderOnOneLine(page);
   });
 
-  await everywhere(page, info, 'sidebar-row', async () => {
+  await onDesktop(page, info, 'sidebar-row', async () => {
     const nav = await showNavigation(page);
     await expect(
       nav.getByRole('button', {

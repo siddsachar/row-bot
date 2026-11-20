@@ -170,14 +170,14 @@ test('Train now, progress, pause on use, it continues, Stop; Row-Bot closing mid
   await row.evaluate((element) => element.scrollIntoView({ block: 'center' }));
   await shoot(page, info, 'monitor-training');
 
-  if (phone(info))
-    await page.getByRole('button', { name: 'Toggle navigation' }).click();
-  const buddy = page.getByRole('complementary', { name: 'Buddy companion' });
-  await expect(buddy.getByRole('status')).toHaveText(LINE, {
-    timeout: 15_000,
-  });
-  await shoot(page, info, 'buddy-training');
-  if (phone(info)) await page.keyboard.press('Escape');
+  // Buddy's line shows in the sidebar; a phone has no sidebar or drawer (D1).
+  if (!phone(info)) {
+    const buddy = page.getByRole('complementary', { name: 'Buddy companion' });
+    await expect(buddy.getByRole('status')).toHaveText(LINE, {
+      timeout: 15_000,
+    });
+    await shoot(page, info, 'buddy-training');
+  }
 
   // Pause on use: "Pausing after this step…" until it really has paused.
   await openModel(page);
