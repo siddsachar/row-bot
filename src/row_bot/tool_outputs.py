@@ -12,6 +12,8 @@ by the agent's own trimming as before.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import hashlib
 import json
 import logging
@@ -20,7 +22,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -47,6 +49,33 @@ _SAFE_SEGMENT = re.compile(r"[A-Za-z0-9_.-]{1,96}")
 # Results Row-Bot reads back from the conversation as JSON (agent orchestration); bounding child
 # results belongs to the orchestrator, so these are never cut here.
 _PARSED_RESULT_TOOLS = frozenset({"delegate_work", "agent_wait"})
+# The conversations a tool result quotes (past-conversation search): kept on the stored result for
+# Learning, which never keeps a chat's words that the person excluded from it. Never sent to the model.
+QUOTED_CONVERSATIONS_KEY = "row_bot_quoted_conversations"
+_quoted_conversations: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
+    "row_bot_quoted_conversations", default=None)
+
+
+# ── What a result quotes ────────────────────────────────────────────────────
+
+def note_quoted_conversations(thread_ids: Iterable[str]) -> None:
+    """Record the conversations this tool call's result quotes (a no-op outside a collecting call)."""
+
+    found = _quoted_conversations.get()
+    if found is not None:
+        found.extend(str(thread) for thread in thread_ids if thread)
+
+
+@contextlib.contextmanager
+def collect_quoted_conversations() -> Iterator[list[str]]:
+    """Collect what one tool call notes with :func:`note_quoted_conversations`, for its stored result."""
+
+    found: list[str] = []
+    token = _quoted_conversations.set(found)
+    try:
+        yield found
+    finally:
+        _quoted_conversations.reset(token)
 
 
 # ── Where saved outputs live ────────────────────────────────────────────────

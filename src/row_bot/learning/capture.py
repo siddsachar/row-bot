@@ -115,6 +115,22 @@ def _message_dict(message: Any) -> Any:
     return message
 
 
+def _quoted(messages: Iterable[Any], own: Iterable[str]) -> tuple[str, ...]:
+    """The other conversations these messages quote: a past-conversation search's matches, stamped on its
+    stored result (``tool_outputs.QUOTED_CONVERSATIONS_KEY``). They own the record too, so it is never kept
+    from a chat the person excluded, and excluding one later purges it."""
+
+    from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY
+
+    found: set[str] = set()
+    for message in messages:
+        extra = getattr(message, "additional_kwargs", None)
+        quoted = extra.get(QUOTED_CONVERSATIONS_KEY) if isinstance(extra, Mapping) else None
+        if isinstance(quoted, (list, tuple)):
+            found.update(str(thread) for thread in quoted if valid_thread_id(str(thread)))
+    return tuple(sorted(found - set(own)))
+
+
 def _is_untrusted(message: Any) -> bool:
     """A tool or web result stamped untrusted when it was stored, or fenced as external content: a tool's
     result, or a message Row-Bot sends as the turn's prompt that quotes outside text in the fence (a goal
@@ -923,6 +939,7 @@ class Capture:
             conversation_id=turn.conversation_id,
             fidelity=fidelity,
             untrusted=any(_is_untrusted(message) for message in item.messages),
+            quoted_thread_ids=_quoted(item.messages, (turn.thread_id, turn.conversation_id)),
             status=item.status,
             model_ref=model_ref,
             tool_schema_hash=tools_sha,
@@ -999,6 +1016,8 @@ class Capture:
             conversation_id=turn.conversation_id,
             fidelity=fidelity,
             untrusted=item.untrusted or (item.result is not None and _is_untrusted(item.result)),
+            quoted_thread_ids=_quoted([item.result] if item.result is not None else [],
+                                      (turn.thread_id, turn.conversation_id)),
             status=item.status,
             tool_name=_text(item.runtime_name or name) or "tool",
             tool_call_id=_text(item.call.get("id")),

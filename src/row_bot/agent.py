@@ -7833,8 +7833,9 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
     if handle is not None:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
+    from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY, collect_quoted_conversations
     from row_bot.tools.approval_gate import collect_activity
-    with tool_attachment_scope() as caches, collect_activity() as decisions:
+    with tool_attachment_scope() as caches, collect_activity() as decisions, collect_quoted_conversations() as quoted:
         try:
             result = execute(request)
         except BaseException as exc:
@@ -7879,6 +7880,11 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         if stamp is not None:
             result = result.model_copy(update={
                 "additional_kwargs": {**dict(result.additional_kwargs), _UNTRUSTED_RESULT_KEY: stamp},
+            })
+        if quoted:
+            # Past conversations the result quotes: Learning keeps none of an excluded chat's words.
+            result = result.model_copy(update={
+                "additional_kwargs": {**dict(result.additional_kwargs), QUOTED_CONVERSATIONS_KEY: sorted(set(quoted))},
             })
         if learning_turn is not None:
             # Undecided counts as untrusted for Learning: the request fences it anyway.
