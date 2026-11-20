@@ -549,7 +549,8 @@ export const LESSON_STATUS: Record<
   | 'tested_better'
   | 'tested_not_better'
   | 'in_use'
-  | 'off',
+  | 'off'
+  | 'removed',
   { tone: 'neutral' | 'success' | 'info'; label: string }
 > = {
   not_tested: { tone: 'neutral', label: 'Not tested' },
@@ -558,6 +559,7 @@ export const LESSON_STATUS: Record<
   tested_not_better: { tone: 'neutral', label: 'Tested: no help' },
   in_use: { tone: 'success', label: 'In use' },
   off: { tone: 'neutral', label: 'Off' },
+  removed: { tone: 'neutral', label: 'Memory removed' },
 };
 
 /** Why a change isn't used. */
@@ -643,7 +645,7 @@ export const HF_NEEDS =
 
 /** What the sign-in lets Row-Bot do (its scopes, in words). */
 export const HF_ACCESS =
-  'Row-Bot can run training jobs and make private repositories in your account for them, nothing else. The sign-in stays in this computer’s keychain.';
+  'Row-Bot can see your account’s name and whether it can pay for jobs, run training jobs, and make private repositories in your account for them. Nothing else. The sign-in stays in this computer’s keychain.';
 
 /** A Hugging Face run's stage, while it runs. */
 export const HF_STAGES: Record<string, string> = {
