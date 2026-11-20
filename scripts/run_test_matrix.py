@@ -143,6 +143,8 @@ BROWSER_SMOKE_SPECS = (
     "phone-shell",
     # The phone's Chats tab (A2): Chats | Files, labelled chips, long-press and Select, no checkboxes. Appended likewise.
     "phone-chats",
+    # The phone's conversation header (B1): the model under the title, New chat, ⋯, long-press for older messages. Appended likewise.
+    "phone-conversation",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

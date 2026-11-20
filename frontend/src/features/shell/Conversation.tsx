@@ -2419,7 +2419,7 @@ export default function Conversation({
     overlay.close();
   }
   // On a phone the deck or folder this chat works on is one tap from its
-  // header (D7): a small pill saying what it is, or a list when several.
+  // header (D7): a pill under it with its name, or a list when several.
   const workingOnResources = resources.filter((resource) => resource.available);
   const workingOnGlyph = (resource: ResourceView) =>
     resource.binding.kind === 'artifact' ? (
@@ -2438,7 +2438,9 @@ export default function Conversation({
         onClick={() => resourcePanel(workingOnResources[0])}
       >
         {workingOnGlyph(workingOnResources[0])}
-        {workingOnKind(workingOnResources[0])}
+        <span className="working-on-label">
+          Working on · {workingOnResources[0].title}
+        </span>
       </Button>
     ) : headerMenu && workingOnResources.length > 1 ? (
       <Menu
@@ -2453,7 +2455,9 @@ export default function Conversation({
         }))}
       >
         <Layers size={16} aria-hidden />
-        Work
+        <span className="working-on-label">
+          Working on · {workingOnResources.length} items
+        </span>
       </Menu>
     ) : undefined;
   function useOutputInCode(output: { reference: string; mime: string }) {
@@ -2961,6 +2965,19 @@ export default function Conversation({
       lastAssistant = index;
       break;
     }
+  // A phone shows message icons only under the newest answer and the
+  // person's last message; the others open theirs with a long-press (D14).
+  let lastOwn = -1;
+  for (let index = items.length - 1; index >= 0; index -= 1)
+    if (
+      items[index].row.role === 'user' &&
+      (!items[index].row.note || items[index].row.note === 'page')
+    ) {
+      lastOwn = index;
+      break;
+    }
+  const pressOnly = (index: number) =>
+    Boolean(headerMenu) && index !== lastAssistant && index !== lastOwn;
   // Actions show once per assistant turn (its last row) and copy the turn.
   const turns = useMemo(() => {
     const starts = turnStarts(items);
@@ -3652,6 +3669,11 @@ export default function Conversation({
                   [modelName, ownRun?.reasoning].filter(Boolean).join(' · ')
                 : undefined
             }
+            onModel={
+              id && controls ? () => setModelPickerOpen(true) : undefined
+            }
+            modelDisabled={isRunning || busy || talkBusy || composerBusy}
+            onNewChat={onNewChat}
             onFind={id ? findConversation : undefined}
             onShare={id ? manageConversation : undefined}
             onContext={
@@ -3664,12 +3686,15 @@ export default function Conversation({
             incognito={incognito}
             workingOn={workingOn}
             menuActions={
+              // Incognito stays in ⋯ until Chat settings takes it (B2).
               headerMenu && id && state.conversation?.id === id
                 ? [
-                    ...headerMenu,
-                    incognitoAction(state.conversation, turnIncognito, {
-                      separatorBefore: headerMenu.length > 0,
-                    }),
+                    incognitoAction(state.conversation, turnIncognito),
+                    ...headerMenu.map((action, index) =>
+                      index === 0
+                        ? { ...action, separatorBefore: true }
+                        : action,
+                    ),
                   ]
                 : headerMenu
             }
@@ -3805,6 +3830,7 @@ export default function Conversation({
                               turnStart={turns.starts[index]}
                               offerBrowser={turns.browser[index]}
                               toolbar={turns.ends[index]}
+                              pressOnly={Boolean(headerMenu)}
                               usedTools={turns.tools[index]}
                               copyText={turns.texts[index]}
                               onRecover={recoverTurn}
@@ -3838,6 +3864,7 @@ export default function Conversation({
                             !(browserLive && index > turns.lastUser)
                           }
                           toolbar={turns.ends[index]}
+                          pressOnly={pressOnly(index)}
                           usedTools={turns.tools[index]}
                           copyText={turns.texts[index]}
                           onRecover={recoverTurn}

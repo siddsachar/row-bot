@@ -4593,6 +4593,51 @@ it('lists every piece of work under Working on when a chat has several (D7)', as
   );
 });
 
+it('on a phone the header switches the model and starts a new chat, and only the newest messages keep their icons (D8, D14)', async () => {
+  idleConversation();
+  mock.state.handshake.models = [
+    {
+      provider_id: 'fixture',
+      model_ref: 'fixture/model',
+      label: 'Current model',
+      available: true,
+    },
+  ];
+  settledRows([
+    row('u1', 'user', 'Plan the launch.'),
+    row('a1', 'assistant', 'Here is a plan.'),
+    row('u2', 'user', 'Add a timeline.'),
+    row('a2', 'assistant', 'Here is the timeline.'),
+  ]);
+  const onNewChat = vi.fn();
+  await act(async () => {
+    render(
+      <ConversationView
+        onPanel={vi.fn()}
+        headerMenu={[]}
+        onNewChat={onNewChat}
+      />,
+    );
+  });
+  const header = screen
+    .getAllByRole('banner')
+    .find((element) => element.dataset.layout === 'phone')!;
+  fireEvent.click(within(header).getByRole('button', { name: 'New chat' }));
+  expect(onNewChat).toHaveBeenCalledOnce();
+
+  await act(async () =>
+    fireEvent.click(within(header).getByRole('button', { name: /^Model: / })),
+  );
+  expect(screen.getByRole('dialog', { name: 'Choose a model' })).toBeVisible();
+
+  // Icons under the person's last message and the newest answer only.
+  expect(
+    screen
+      .getAllByRole('toolbar')
+      .map((bar) => bar.closest('article')?.getAttribute('data-message-id')),
+  ).toEqual(['u2', 'a2']);
+});
+
 function forkable() {
   idleConversation();
   settledRows([
