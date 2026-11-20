@@ -151,6 +151,86 @@ def test_after_three_silent_tool_rounds_the_next_request_asks_for_one_line(tmp_p
     assert noted(_request(agent, _rounds(agent, 8))), "still silent: asked again"
 
 
+def _graph_run(agent, replies: list) -> tuple[list, list]:
+    """A real agent graph (Row-Bot's hooks) on scripted replies: the stored messages and every request sent."""
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.tools import tool
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.prebuilt import create_react_agent
+
+    from row_bot.agent_budget import RowBotAgentState
+
+    sent: list[list] = []
+
+    class Recording(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            sent.append(list(messages))
+            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    @tool
+    def read_file(path: str) -> str:
+        """Read a file."""
+        return f"rows of {path}"
+
+    graph = create_react_agent(model=Recording(responses=replies), tools=[read_file], state_schema=RowBotAgentState,
+                               pre_model_hook=agent._pre_model_trim, post_model_hook=agent._post_model_hook,
+                               checkpointer=InMemorySaver(), version="v2")
+    agent._set_active_runtime_context(thread_id="progress-line", runtime_surface="normal_chat",
+                                      requested_runtime_mode="agent", selected_runtime_mode="agent",
+                                      enabled_tool_names=[])
+    config = {"configurable": {"thread_id": "progress-line"}, "recursion_limit": 60}
+    graph.invoke({"messages": [HumanMessage(content="Check the four order files.", id="h1")],
+                  "execution_budget": agent.new_execution_budget("progress-line")}, config)
+    return graph.get_state(config).values["messages"], sent
+
+
+def _calls(count: int, first: int = 0) -> list:
+    return [AIMessage(content="", tool_calls=[{"id": f"c{index}", "name": "read_file", "args": {"path": f"{index}.csv"},
+                                               "type": "tool_call"}]) for index in range(first, first + count)]
+
+
+def test_a_line_answering_the_progress_note_is_shown_and_the_turn_goes_on_once(tmp_path, monkeypatch,
+                                                                               reload_for_data_dir):
+    """Lane E's τ²-bench traces (19 Nov): the model answered the note with a line and no tool call, which ended the
+    turn mid-work. The line stays in the conversation, and the turn carries on once, on a request-only note."""
+    agent = _fresh_agent(tmp_path, reload_for_data_dir)
+    _quiet_prompt_dependencies(agent, monkeypatch)
+    line = "Three of the four files are read; next I'll check the last one."
+    stored, sent = _graph_run(agent, [*_calls(3), AIMessage(content=line), *_calls(1, first=3),
+                                      AIMessage(content="All four files are checked: the totals match.")])
+    assert [message.type for message in stored if message.type != "system"][-4:] == ["ai", "ai", "tool", "ai"]
+    shown = next(message for message in stored if getattr(message, "content", "") == line)
+    assert shown.additional_kwargs.get(agent.PROGRESS_LINE_KEY) is True
+    assert stored[-1].content == "All four files are checked: the totals match."
+    assert len(sent) == 6, "one more model call than the turn would have had"
+    after_line = sent[4]
+    assert after_line[-1].content == agent.PROGRESS_CONTINUE_NOTE  # never a request that ends on the assistant
+    assert after_line[-1].additional_kwargs == {"ephemeral": True, "row_bot_note": "progress_continue"}
+    assert after_line[-2].content == line
+    assert not any((message.additional_kwargs or {}).get("ephemeral") for message in stored), "never stored"
+
+
+def test_a_line_that_asks_the_person_or_says_it_is_done_ends_the_turn(tmp_path, monkeypatch, reload_for_data_dir):
+    agent = _fresh_agent(tmp_path, reload_for_data_dir)
+    _quiet_prompt_dependencies(agent, monkeypatch)
+    for reply in ("Three files are read. Shall I check the last one too?",
+                  "All the files are read and the totals match."):
+        stored, sent = _graph_run(agent, [*_calls(3), AIMessage(content=reply), AIMessage(content="unused")])
+        assert stored[-1].content == reply and len(sent) == 4, reply
+
+
+def test_the_turn_goes_on_at_most_once_per_progress_note(tmp_path, monkeypatch, reload_for_data_dir):
+    agent = _fresh_agent(tmp_path, reload_for_data_dir)
+    _quiet_prompt_dependencies(agent, monkeypatch)
+    first, second = "Three files read; next I'll check the last one.", "Still going; next I'll check the last one."
+    stored, sent = _graph_run(agent, [*_calls(3), AIMessage(content=first), AIMessage(content=second),
+                                      AIMessage(content="unused")])
+    assert stored[-1].content == second and len(sent) == 5, "a second text-only reply ends the turn"
+
+
 def test_a_channel_chat_never_takes_a_claim_to_be_someone_else_as_the_person(tmp_path, monkeypatch, reload_for_data_dir):
     """R14 (12 Nov): on the owner's paired Telegram, "Hi, it's <their wife>, remember me?" was answered by
     confirming the relationship; only the paired person is the person."""
