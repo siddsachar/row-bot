@@ -74,7 +74,13 @@ _NEXT_STEP = re.compile(
     r"(?:finished|done|rendered|complete|built|made|ready)\s+yet\b"
     r"|\bI should have (?:kept going|continued|carried on)\b"
     r"|\bI(?:'|’)m\s+(?:now\s+)?(?:going to|about to|carrying on|moving on|starting)\b"
-    r"|\b(?:carrying on|moving on) (?:now|with)\b",
+    r"|\b(?:carrying on|moving on) (?:now|with)\b"
+    # Work announced as under way, or still owed, when the turn has already ended (lane E's τ²-bench traces,
+    # 19 Nov: "I'm checking the flight statuses before …", "I've checked two and will review the remaining
+    # two …", "I still need to verify …").
+    r"|\bI(?:'|’)m\s+(?:now\s+)?(?:checking|reviewing|verifying|looking into|working on|processing)\b"
+    r"|\b(?:I|and)\s+will\s+(?:now\s+)?(?:check|review|verify|finish|continue|go through|look)\b"
+    r"|\bI still (?:need|have) to\b",
     re.IGNORECASE)
 # The narrower R1 rule: what carries on when the check can't be asked (no model, a provider error), as before.
 _SURE_NEXT_STEP = re.compile(
