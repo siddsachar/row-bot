@@ -3690,6 +3690,37 @@ def named_conversation(title: str, x_fixture_token: str = Header(default="")) ->
     return {"conversation_id": threads.create_thread(title, name_source="manual", seed_default_skills=False)}
 
 
+_A2_SEEDED: dict = {}
+
+
+@app.post("/__a2_fixture/seed")
+def a2_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """The phone's Chats tab (A2), once per backend: Library › Media's chat, a pinned chat, and chats with the
+    fixture's deck, its code folder and (newest) a page, for Chats › Files."""
+    predecessor._authorize(x_fixture_token)
+    if _A2_SEEDED:
+        return _A2_SEEDED
+    from row_bot import pages, threads
+    from row_bot.conversation_resources import bind, list_bindings
+
+    media_seed(x_fixture_token)
+    pinned = "a2-pinned-chat"
+    threads._save_thread_meta(pinned, "Book club questions", allow_recreate=True)
+    threads.pin_thread(pinned)
+    state = json.loads((predecessor.DATA / "docs_real_ui_demo_state.json").read_text(encoding="utf-8"))
+    for thread, title, kind, resource in (
+        ("a2-design-chat", "Community workshop deck", "artifact", state["designer"]["project_id"]),
+        ("a2-code-chat", "Release notes cleanup", "workspace", state["developer"]["workspace_id"]),
+    ):
+        threads._save_thread_meta(thread, title, allow_recreate=True)
+        bind(thread, kind, resource, expected_revision=list_bindings(thread).revision, role="primary")
+    chat = "a2-page-chat"
+    threads._save_thread_meta(chat, "Beta launch notes", allow_recreate=True)
+    pages.create(chat, "Beta launch plan", "<h1>Beta launch plan</h1><p>Three steps to approve.</p>")
+    _A2_SEEDED.update(pinned=pinned, page_chat=chat, design_chat="a2-design-chat")
+    return _A2_SEEDED
+
+
 @app.post("/__p3_fixture/large-library")
 def large_library(x_fixture_token: str = Header(default="")) -> dict:
     """Seed 1,001 ordinary conversations and 10,001 durable messages once."""

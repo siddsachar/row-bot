@@ -507,6 +507,7 @@ export default function Workspace() {
     binding: string;
   } | null>(null);
   const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
+  const [phoneSlot, setPhoneSlot] = useState<HTMLElement | null>(null);
   const autoOpenDesign = useEffectEvent(
     (
       panel: (typeof samplePanels)[number],
@@ -557,6 +558,14 @@ export default function Workspace() {
       });
   });
   useEffect(() => onResourcePanelRequest(openRequestedPanel), []);
+  // Chats › Files opens a design or code folder with its chat (A2).
+  const requestedResource = (
+    location.state as { openResource?: unknown } | null
+  )?.openResource;
+  useEffect(() => {
+    if (conversationId && typeof requestedResource === 'string')
+      openRequestedPanel({ conversationId, resourceRef: requestedResource });
+  }, [conversationId, requestedResource]);
   // The live browser step or an approval's picture opens the Browser pane (N12-A).
   const openBrowserPane = useEffectEvent((conversation: string) => {
     if (conversation === conversationId)
@@ -1803,6 +1812,7 @@ export default function Workspace() {
           onStartProfileChat: (profile) => void creation.newChat('', profile),
         });
     },
+    phoneHeaderSlot: phoneSlot,
     // A phone has no drawer (D1): its tab bar goes to each place.
     compactControls: desktop
       ? undefined
@@ -1982,7 +1992,10 @@ export default function Workspace() {
                       {PHONE_TITLES[phoneTab]}
                     </span>
                   )}
-                  {searchButton}
+                  <span className="phone-header-end">
+                    {searchButton}
+                    <span className="phone-header-slot" ref={setPhoneSlot} />
+                  </span>
                 </>
               ) : (
                 <>

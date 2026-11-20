@@ -413,10 +413,32 @@ test('the conversation library keeps its selection bar in view over a long list 
     name: 'Conversation library',
     exact: true,
   });
+  const bar = library.getByRole('toolbar', { name: 'Selected conversations' });
+  if (page.viewportSize()!.width < 768) {
+    // A phone has no checkboxes: ⋯ › Select, then a tap ticks a row (D10).
+    await page.getByRole('button', { name: 'More for Chats' }).click();
+    await page.getByRole('menuitem', { name: 'Select' }).click();
+    for (const number of ['002', '005'])
+      await library
+        .getByRole('button', {
+          name: new RegExp(`^Library conversation ${number}`),
+        })
+        .click();
+    await expect(bar.getByText('2 selected')).toBeVisible();
+    await library
+      .getByRole('button', { name: /^Library conversation 090/ })
+      .scrollIntoViewIfNeeded();
+    const view = (await page.locator('.routed-view').boundingBox())!;
+    const barBox = (await bar.boundingBox())!;
+    expect(barBox.y).toBeGreaterThanOrEqual(view.y - 1);
+    expect(barBox.y).toBeLessThanOrEqual(view.y + 8);
+    await screenshot(page, info, 'b270-library-selection-scrolled');
+    await assertNoOverflow(page);
+    return;
+  }
   await expect(
     library.getByText('150 conversations · newest first'),
   ).toBeVisible();
-  const bar = library.getByRole('toolbar', { name: 'Selected conversations' });
   await expect(bar).toHaveCount(0);
 
   // Ticking starts a selection; Shift extends it.

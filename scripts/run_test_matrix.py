@@ -141,6 +141,8 @@ BROWSER_SMOKE_SPECS = (
     "phone-foundations",
     # The phone's navigation (A1): four tabs and no drawer, ‹ back, Workflows' own header, one Search. Appended likewise.
     "phone-shell",
+    # The phone's Chats tab (A2): Chats | Files, labelled chips, long-press and Select, no checkboxes. Appended likewise.
+    "phone-chats",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
