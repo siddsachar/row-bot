@@ -8,11 +8,11 @@ import {
   settingsGroups,
   settingsHref,
   settingsLeaves,
+  settingsLink,
   settingsRedirects,
   settingsRowHref,
   settingsRows,
   THREAD_SETTINGS,
-  visibleLeaves,
 } from './model';
 
 describe('settings navigation metadata', () => {
@@ -34,6 +34,7 @@ describe('settings navigation metadata', () => {
       'Preferences',
       'Appearance',
       'Buddy',
+      'Learning',
       'Proactive',
       'Models',
       'Voice',
@@ -199,9 +200,9 @@ describe('settings navigation metadata', () => {
   });
 });
 
-describe('Learning (preview)', () => {
+describe('Learning', () => {
   it('is a page after Buddy, and "Learn new skills" lives there (D29)', () => {
-    const ids = visibleLeaves().map((leaf) => leaf.id);
+    const ids = settingsLeaves.map((leaf) => leaf.id);
     expect(ids[ids.indexOf('buddy') + 1]).toBe('learning');
     expect(searchSettings('learning').map((leaf) => leaf.id)).toContain(
       'learning',
@@ -215,5 +216,17 @@ describe('Learning (preview)', () => {
     expect(searchSettingsRows('personal model').map((row) => row.leaf)).toEqual(
       ['learning'],
     );
+  });
+
+  it('names the switch Row-Bot links to by its Learning row, not the old Preferences one', () => {
+    expect(
+      settingsLink('/settings/learning#identity.self_improvement_enabled'),
+    ).toEqual({
+      to: '/settings/learning#identity.self_improvement_enabled',
+      label: 'Learning › Create skills while chatting',
+    });
+    expect(
+      settingsLink('/settings/preferences#identity.self_improvement_enabled'),
+    ).toBeNull();
   });
 });

@@ -10,7 +10,7 @@ import {
 } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { setPlace } from '../../api/place';
-import { resolveSetting, settingsGroups, visibleLeaves } from './model';
+import { resolveSetting, settingsGroups, settingsLeaves } from './model';
 import SettingsShell from './SettingsShell';
 import {
   SettingsAdvanced,
@@ -131,16 +131,14 @@ it('lists every group with its leaves and marks the open page', () => {
       .map((list) => list.getAttribute('aria-label')),
   ).toEqual(settingsGroups.map((group) => group.label));
   expect(within(navigation).getAllByRole('link')).toHaveLength(
-    visibleLeaves().length,
+    settingsLeaves.length,
   );
   for (const group of settingsGroups)
     expect(
       within(
         within(navigation).getByRole('list', { name: group.label }),
       ).getAllByRole('link'),
-    ).toHaveLength(
-      visibleLeaves().filter((item) => item.group === group.id).length,
-    );
+    ).toHaveLength(group.leaves.length);
   expect(
     within(within(navigation).getByRole('list', { name: 'General' })).getByRole(
       'link',
@@ -422,7 +420,7 @@ it('on a phone opens on the list of pages, and each page has its way back to it 
     );
     const list = screen.getByRole('navigation', { name: 'Settings sections' });
     expect(within(list).getAllByRole('link')).toHaveLength(
-      visibleLeaves().length,
+      settingsLeaves.length,
     );
     // The tab bar takes Close's place; no page shows beside the list.
     expect(screen.queryByRole('link', { name: 'Close settings' })).toBeNull();

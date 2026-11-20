@@ -43,8 +43,8 @@ import {
   searchSettings,
   searchSettingsRows,
   settingsGroups,
+  settingsLeaves,
   settingsRowHref,
-  visibleLeaves,
   type SettingsLeaf,
 } from './model';
 import {
@@ -167,7 +167,6 @@ export default function SettingsShell({
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, []);
-  const leaves = visibleLeaves();
   const searching = Boolean(query.trim());
   const pages = searching ? searchSettings(query) : [];
   // A hosted Row-Bot's host runs its network: Devices has no Network or
@@ -180,7 +179,7 @@ export default function SettingsShell({
   );
   const profileLibrary = searching && searchFindsAgentProfiles(query);
   const leafLabel = (id: string) =>
-    leaves.find((item) => item.id === id)?.label ?? id;
+    settingsLeaves.find((item) => item.id === id)?.label ?? id;
   // Every result in reading order: pages, then rows, then the Agents dialog.
   const results = [
     ...pages.map((item) => item.href),
@@ -269,7 +268,7 @@ export default function SettingsShell({
               >
                 {settingsGroups.map((group) => (
                   <optgroup key={group.id} label={group.label}>
-                    {leaves
+                    {settingsLeaves
                       .filter((item) => item.group === group.id)
                       .map((item) => (
                         <option value={item.id} key={item.id}>
@@ -402,7 +401,7 @@ export default function SettingsShell({
                     {group.label}
                   </span>
                   <ul aria-label={group.label}>
-                    {leaves
+                    {settingsLeaves
                       .filter((item) => item.group === group.id)
                       .map((item) => (
                         <li key={item.id}>

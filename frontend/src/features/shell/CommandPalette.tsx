@@ -43,11 +43,11 @@ const KIND_WORDS: Record<ConversationKind, string> = {
   workflow: 'workflow workflows',
 };
 import {
-  keywordsOf,
-  visibleLeaves,
-  visibleSettingsRows,
+  settingsKeywords,
+  settingsLeaves,
   settingsRedirects,
   settingsRowHref,
+  settingsRows,
 } from '../settings/model';
 
 export type PaletteGroup =
@@ -400,7 +400,7 @@ export default function CommandPalette({
             run: command.run,
           });
       }
-      for (const leaf of visibleLeaves()) {
+      for (const leaf of settingsLeaves) {
         const legacy = LEGACY_SETTING_NAMES[leaf.id];
         const aliases = Object.entries(settingsRedirects)
           .filter(([, target]) => target.leaf === leaf.id)
@@ -411,7 +411,7 @@ export default function CommandPalette({
           leaf.label,
           `Open ${leaf.label} settings`,
           legacy ? `Open ${legacy} settings` : undefined,
-          `${leaf.category} ${keywordsOf(leaf.id)} ${aliases}`,
+          `${leaf.category} ${settingsKeywords[leaf.id]} ${aliases}`,
         );
         if (score !== null)
           results.push({
@@ -426,10 +426,10 @@ export default function CommandPalette({
           });
       }
       // Individual settings rows, below pages that match as well.
-      for (const row of visibleSettingsRows()) {
+      for (const row of settingsRows) {
         const score = fuzzyScore(trimmed, row.label, row.keywords);
         if (score !== null && score >= LITERAL_SCORE) {
-          const page = visibleLeaves().find((leaf) => leaf.id === row.leaf);
+          const page = settingsLeaves.find((leaf) => leaf.id === row.leaf);
           results.push({
             id: `setting-row:${row.leaf}:${row.anchor}`,
             group: 'Settings',

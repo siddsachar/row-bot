@@ -25,7 +25,7 @@ import { setPlace } from '../../api/place';
 import { setMemoryLimit } from '../../api/server-memory';
 import { OverlayProvider } from '../../ui/overlays';
 import { ThemeProvider } from '../../ui/theme';
-import { visibleSettingsRows, type SettingsLeafId } from './model';
+import { settingsRows, type SettingsLeafId } from './model';
 import SettingRoute from './SettingRoute';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
@@ -2473,7 +2473,7 @@ it.each<SettingsLeafId>([
         </ThemeProvider>
       </RuntimeContext.Provider>,
     );
-    const wanted = visibleSettingsRows()
+    const wanted = settingsRows
       .filter((row) => row.leaf === leaf && !row.href)
       .map((row) => row.anchor);
     expect(wanted.length).toBeGreaterThan(0);
