@@ -36,7 +36,7 @@ def desktop(monkeypatch):
 def budget_gate(monkeypatch):
     """The worker's per-task token gate on the usage ledger's callback (undone afterwards)."""
 
-    for name in ("on_chat_model_start", "on_llm_end", "raise_error"):
+    for name in ("on_chat_model_start", "on_llm_end", "on_llm_error", "raise_error"):
         monkeypatch.setattr(usage_ledger.UsageLedgerCallback, name, getattr(usage_ledger.UsageLedgerCallback, name))
     gate = eval_worker._TaskGate()  # noqa: SLF001 - the worker's own gate
     eval_worker._install_gate(gate)  # noqa: SLF001
@@ -56,6 +56,25 @@ def test_a_turn_refused_by_its_token_budget_ends_quietly_as_out_of_budget(learni
     assert errors == ["learning evaluation budget: the task's token budget is spent"]
     assert model.seen == [] and budget_gate.refused == "task"  # nothing was sent; the worker counts it as budget
     assert desktop == []  # no notification, no sound
+
+
+def test_a_summary_prepared_ahead_is_refused_before_it_is_sent_and_is_no_tasks_cost(learning_dir, budget_gate):
+    from langchain_core.messages import HumanMessage
+
+    from row_bot import agent
+
+    model = ScriptedModel(responses=[says("Done.")], seen=[])
+    usage_ledger.attach_usage_ledger(model, provider_id="ollama", model_name="row-bot-personal-v1")
+    budget_gate.reset(100_000, None)
+    # The mark a summary prepared after a turn settles carries (B6), as the agent's compaction sends it.
+    prepared = agent._with_call_metadata(model, {agent._PREPARED_COMPACTION_KEY: True})  # noqa: SLF001
+
+    with pytest.raises(RuntimeError, match="no compaction is prepared ahead"):
+        prepared.invoke([HumanMessage(content="Summarize the aged range.")])
+
+    assert model.seen == [] and budget_gate.spent == 0 and budget_gate.refused == "" and budget_gate.errors == []
+    model.invoke([HumanMessage(content="What is the dinner limit?")])  # the task's own call goes on as before
+    assert len(model.seen) == 1
 
 
 def test_a_refused_call_is_its_own_kind_of_failure_never_an_api_error():
