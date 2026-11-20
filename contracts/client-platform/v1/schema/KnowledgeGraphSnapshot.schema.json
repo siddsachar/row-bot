@@ -90,9 +90,15 @@
             "extraction",
             "document",
             "wiki",
+            "import",
             "other"
           ],
           "title": "Source",
+          "type": "string"
+        },
+        "source_label": {
+          "maxLength": 128,
+          "title": "Source Label",
           "type": "string"
         },
         "status": {
@@ -138,7 +144,8 @@
         "orphan",
         "is_user",
         "status",
-        "tier"
+        "tier",
+        "source_label"
       ],
       "title": "KnowledgeGraphNode",
       "type": "object"
@@ -255,11 +262,12 @@
           "extraction",
           "document",
           "wiki",
+          "import",
           "other"
         ],
         "type": "string"
       },
-      "maxItems": 5,
+      "maxItems": 6,
       "title": "Sources",
       "type": "array"
     },

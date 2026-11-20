@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { DraftsList, SAVE_AFTER_MS } from './Drafts';
+import { DraftsDrawer, DraftsList, SAVE_AFTER_MS } from './Drafts';
 import { proactiveStore } from './proactive-state';
 import { draft, fakeIO } from './test-data';
 
@@ -105,6 +105,37 @@ describe('Drafts', () => {
     open(io);
     expect(await screen.findByText('Sign in to Gmail to send.')).toBeVisible();
     expect(screen.getByRole('button', { name: /Send…/ })).toBeDisabled();
+  });
+
+  it('shows a meeting brief’s Markdown as text, under a brief’s own heading (R4)', async () => {
+    const brief = draft({
+      kind: 'brief',
+      title: 'Venue walkthrough',
+      body: "**Who's coming:** One guest, **sam@example.com**.\n\n**Open items:** Confirm the shortlist reached Sam.",
+      reply_to: '',
+      subject: '',
+      thread: '',
+      app: '',
+    });
+    const io = fakeIO({ drafts: [brief] });
+    render(
+      <DraftsDrawer
+        store={proactiveStore(io)}
+        open
+        draftId="fedcba9876543210"
+        onOpenDraft={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    const panel = await screen.findByRole('dialog', { name: 'Meeting brief' });
+    expect(panel).toHaveAccessibleDescription(
+      /It only read; nothing was sent\./,
+    );
+    expect(panel).not.toHaveTextContent(/Replies Row-Bot wrote/);
+    const who = await within(panel).findByText("Who's coming:");
+    expect(who.tagName).toBe('STRONG');
+    expect(panel).not.toHaveTextContent('**');
+    expect(within(panel).queryByRole('textbox')).toBeNull();
   });
 
   it('says so when there are none', async () => {

@@ -1,0 +1,303 @@
+{
+  "$defs": {
+    "SkillDraftOverlap": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "maxLength": 128,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "display_name",
+        "score"
+      ],
+      "title": "SkillDraftOverlap",
+      "type": "object"
+    },
+    "SkillDraftView": {
+      "additionalProperties": false,
+      "description": "A skill drafted from a chat, for the review sheet: its fields and the SKILL.md they make.",
+      "properties": {
+        "checks": {
+          "items": {
+            "maxLength": 600,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Checks",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "display_name": {
+          "maxLength": 128,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "errors": {
+          "items": {
+            "maxLength": 240,
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Errors",
+          "type": "array"
+        },
+        "icon": {
+          "maxLength": 32,
+          "title": "Icon",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "maxLength": 600,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "instructions": {
+          "maxLength": 16400,
+          "title": "Instructions",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "title": "Name",
+          "type": "string"
+        },
+        "overlaps": {
+          "items": {
+            "$ref": "#/$defs/SkillDraftOverlap"
+          },
+          "maxItems": 3,
+          "title": "Overlaps",
+          "type": "array"
+        },
+        "proposal_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "proposal_status": {
+          "maxLength": 64,
+          "title": "Proposal Status",
+          "type": "string"
+        },
+        "shown": {
+          "items": {
+            "maxLength": 400,
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Shown",
+          "type": "array"
+        },
+        "source_title": {
+          "maxLength": 200,
+          "title": "Source Title",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "maxLength": 600,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Steps",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "maxLength": 240,
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Warnings",
+          "type": "array"
+        },
+        "when_to_use": {
+          "maxLength": 1200,
+          "title": "When To Use",
+          "type": "string"
+        },
+        "why": {
+          "maxLength": 400,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "proposal_status",
+        "name",
+        "display_name",
+        "icon",
+        "description",
+        "when_to_use",
+        "inputs",
+        "steps",
+        "checks",
+        "instructions",
+        "why",
+        "source_title",
+        "overlaps",
+        "errors",
+        "warnings"
+      ],
+      "title": "SkillDraftView",
+      "type": "object"
+    },
+    "SkillOfferView": {
+      "additionalProperties": false,
+      "description": "\"Save as a skill\" under one reply (C1): offered, drafted, saved, rejected or dismissed.",
+      "properties": {
+        "created_at": {
+          "maxLength": 64,
+          "title": "Created At",
+          "type": "string"
+        },
+        "draft": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SkillDraftView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "message_id": {
+          "maxLength": 256,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "offered",
+            "manual",
+            "demo"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "proposal_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Proposal Id"
+        },
+        "skill_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Skill Id"
+        },
+        "status": {
+          "enum": [
+            "offered",
+            "drafted",
+            "saved",
+            "rejected",
+            "dismissed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "task_name": {
+          "maxLength": 80,
+          "title": "Task Name",
+          "type": "string"
+        },
+        "why": {
+          "maxLength": 400,
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "message_id",
+        "origin",
+        "status",
+        "task_name",
+        "why",
+        "created_at",
+        "proposal_id",
+        "skill_id",
+        "draft"
+      ],
+      "title": "SkillOfferView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/SkillOfferView"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "revision",
+    "items"
+  ],
+  "title": "SkillOfferPage",
+  "type": "object"
+}

@@ -25,7 +25,7 @@ import { clientError } from '../../api/errors';
 import { useLiveUpdate } from '../../live';
 import { writeClipboardText } from '../../platform/clipboard';
 import { useDialogFooter } from '../../ui/dialog-footer';
-import { parseTimestamp } from '../../ui/format';
+import { clockTime, parseTimestamp } from '../../ui/format';
 import {
   Button,
   CopyGlyph,
@@ -130,14 +130,14 @@ export function goalUsage(
   now: Date,
 ) {
   const parts: string[] = [];
-  const began = Date.parse(
+  // A server time, read in the server's offset when it has none (M11).
+  const began = parseTimestamp(
     goal.max_minutes ? goal.window_started_at : goal.started_at,
   );
-  if (
-    ['active', 'waiting_approval'].includes(goal.status) &&
-    !Number.isNaN(began)
-  ) {
-    const elapsed = span(Math.max(0, (now.getTime() - began) / 60_000));
+  if (['active', 'waiting_approval'].includes(goal.status) && began) {
+    const elapsed = span(
+      Math.max(0, (now.getTime() - began.getTime()) / 60_000),
+    );
     parts.push(
       goal.max_minutes ? `${elapsed} of ${span(goal.max_minutes)}` : elapsed,
     );
@@ -166,14 +166,6 @@ export function WithCode({ text }: { text: string }) {
   );
 }
 
-/** "14:05" (the device's own clock style) for a server time. */
-function clock(value: string) {
-  const date = parseTimestamp(value);
-  return date
-    ? new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(date)
-    : '';
-}
-
 /**
  * The goal's check in one line (B3): what it checks with, that it is
  * checking, "Verified by `npm test` · 14:05", that it failed and Row-Bot is
@@ -195,7 +187,7 @@ export function goalCheckLine(
         busy: true,
       };
     case 'passed': {
-      const at = check.result ? clock(check.result.finished_at) : '';
+      const at = check.result ? clockTime(check.result.finished_at) : '';
       return {
         icon: CircleCheck,
         tone: 'success',

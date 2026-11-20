@@ -270,6 +270,7 @@ xcrun clang \
     -fobjc-arc \
     -fblocks \
     -framework Cocoa \
+    -framework Security \
     -mmacosx-version-min=14.0 \
     "$HOST_SOURCE" \
     -o "$MACOS_DIR/row-bot"

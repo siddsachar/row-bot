@@ -1,10 +1,24 @@
-import { expect, test, type Page } from '@playwright/test';
-import { screenshot } from './evidence';
+import type { Page, TestInfo } from '@playwright/test';
+import { expect, screenshot, test } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
+import { fixtureHeaders } from './surface-helpers';
+import {
+  composer,
+  dismissNotices,
+  newConversation,
+  reloadDocument,
+} from './unified-helpers';
+
+/*
+ * F3 · Answer components. Markdown tables sort and task lists tick in any
+ * answer; a reply's rowbot-* fences become a table, chart, checklist,
+ * figures, progress and choices through the real server's projection, and a
+ * reply button sends its words as the person's own message, nothing else.
+ */
 
 type Block = { id: string; type: string; [key: string]: unknown };
 
-/** Shows one assistant answer made of these blocks in the open conversation. */
+/** Shows one assistant answer made of these blocks in the open fixture conversation. */
 async function showAnswer(page: Page, blocks: Block[]) {
   await page.evaluate((answer) => {
     const { controller } = (window as FixtureWindow).__ROW_BOT_FIXTURE__;
@@ -25,10 +39,10 @@ async function showAnswer(page: Page, blocks: Block[]) {
   }, blocks);
 }
 
-/** Desktop and phone, light and dark, of what is on screen. */
+/** Desktop and phone, light and dark, of what is on screen; never wider than the screen. */
 async function screens(
   page: Page,
-  info: Parameters<typeof screenshot>[1],
+  info: TestInfo,
   name: string,
   target: () => ReturnType<Page['locator']>,
 ) {
@@ -52,6 +66,251 @@ async function screens(
   await page.emulateMedia({ colorScheme: 'light' });
 }
 
+/** The turn has finished: no Stop in the composer, every chart drawn. */
+async function settled(page: Page) {
+  await expect(
+    page.getByRole('button', { name: 'Stop', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('.rich-chart-plot:not([data-status="ready"])'),
+  ).toHaveCount(0);
+  // The last message is confirmed: the composer (and so a reply button) can send.
+  await expect(
+    page.getByRole('button', { name: 'Check message', exact: true }),
+  ).toHaveCount(0);
+}
+
+/** Sends a message from the composer, as the person does. */
+async function ask(page: Page, text: string) {
+  await composer(page).fill(text);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+}
+
+// The scripted turns end with each test, and leave no provider work behind on the
+// shared fixture server: a later spec (the real-host bootstrap) checks nothing ran.
+test.afterEach(async ({ page }) => {
+  const reset = await page.request.post('/__f3_fixture/reset', {
+    headers: fixtureHeaders(),
+  });
+  expect(reset.ok(), await reset.text()).toBe(true);
+});
+
+test('a reply’s components render from the server, and a choice sends the person’s words', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium pass',
+  );
+  const submitted: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'POST' || !request.url().endsWith('/commands'))
+      return;
+    const body = request.postDataJSON() as {
+      type?: string;
+      payload?: { text?: string; tapped_choice?: { label?: string } };
+    };
+    const tap = body.payload?.tapped_choice;
+    submitted.push(
+      `${body.type}:${body.payload?.text ?? ''}${tap ? ` [tap: ${tap.label}]` : ''}`,
+    );
+  });
+  await newConversation(page);
+  await ask(page, 'f3 components fixture');
+  const log = page.getByRole('log', { name: 'Conversation' });
+
+  const figures = log.getByRole('region', { name: 'October spend' });
+  await expect(figures.getByRole('definition').first()).toHaveText(
+    '£2,140-8% vs Sep',
+  );
+  // The chart is the existing chart card, drawn from the inline data.
+  await expect(log.locator('.rich-chart .rich-block-title')).toHaveText(
+    'Spend by month',
+  );
+  const table = log.getByRole('region', { name: 'Biggest costs' });
+  await table.getByRole('button', { name: 'Cost' }).click();
+  expect(
+    await table.locator('tbody tr td:nth-child(2)').allTextContents(),
+  ).toEqual(['£186', '£238', '£512', '£1,200']);
+  await expect(
+    log.getByRole('progressbar', { name: 'Emergency fund' }),
+  ).toHaveAttribute('aria-valuenow', '100');
+  const checklist = log.getByRole('region', { name: 'This week' });
+  await expect(checklist.getByText('1 of 3 done')).toBeVisible();
+  await checklist
+    .getByRole('checkbox', { name: 'Check the energy bill' })
+    .click();
+  await expect(checklist.getByText('2 of 3 done')).toBeVisible();
+  // Every picture is of the settled turn: no Stop, the chart drawn.
+  await settled(page);
+  await dismissNotices(page);
+  await screens(page, info, 'components-figures-table', () => figures);
+  await screens(page, info, 'components-chart', () =>
+    log.locator('.rich-chart'),
+  );
+  await screens(page, info, 'components-progress-checklist', () => checklist);
+
+  const choices = log.getByRole('group', {
+    name: 'What should I look at next?',
+  });
+  await screens(page, info, 'choices-before', () => choices);
+  const before = submitted.length;
+  // Like the composer's Send, the buttons wait for the turn; once it has
+  // settled one tap sends, with no refusal notice.
+  await choices.getByRole('button', { name: 'Subscriptions' }).click();
+  await expect(
+    choices.getByRole('button', { name: /Subscriptions/ }),
+  ).toContainText('Sent');
+  await expect(page.getByText(/can.t take that reply/)).toHaveCount(0);
+  // The words went as the person's own message, and Row-Bot answered them.
+  await expect(
+    log.getByText('You pay for three: music, cloud storage and a news site.'),
+  ).toBeVisible();
+  await expect(log.getByText('List my subscriptions')).toBeVisible();
+  expect(submitted.slice(before)).toEqual([
+    'conversation.submit:List my subscriptions [tap: Subscriptions]',
+  ]);
+  const picked = choices.getByRole('button', { name: /Subscriptions/ });
+  await expect(picked).toHaveAttribute('aria-pressed', 'true');
+  await expect(picked).toContainText('Sent');
+  await expect(
+    choices.getByRole('button', { name: 'Groceries' }),
+  ).toBeDisabled();
+  await settled(page);
+  await dismissNotices(page);
+  await screens(page, info, 'choices-after', () => choices);
+
+  // The ticks and the sent choice are kept with the chat: a reload shows them.
+  await reloadDocument(page);
+  await expect(
+    log
+      .getByRole('region', { name: 'This week' })
+      .getByRole('checkbox', { name: 'Check the energy bill' }),
+  ).toBeChecked();
+  await expect(log.getByText('2 of 3 done')).toBeVisible();
+  await expect(
+    log
+      .getByRole('group', { name: 'What should I look at next?' })
+      .getByRole('button', { name: /Subscriptions/ }),
+  ).toContainText('Sent');
+});
+
+test('a visual draws in its sandbox with no network, expands, and opens as a page', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium pass',
+  );
+  // The browser says what it refused the visual's network probe (Chromium's words).
+  const probe = 'https://example.com/f3-visual-probe';
+  for (const signature of [
+    `Connecting to '${probe}' violates the following Content Security Policy directive: "connect-src 'none'". The action has been blocked.`,
+    `Fetch API cannot load ${probe}. Refused to connect because it violates the document's Content Security Policy.`,
+  ])
+    info.annotations.push({
+      type: 'expected-console-error',
+      description: JSON.stringify({
+        owner: 'answer components',
+        fixture: 'interactive visual network probe',
+        signature,
+        count: 1,
+        upTo: true,
+      }),
+    });
+  const outside: string[] = [];
+  page.on('request', (request) => {
+    if (!new URL(request.url()).hostname.match(/^(127\.0\.0\.1|localhost)$/))
+      outside.push(request.url());
+  });
+  await newConversation(page);
+  await ask(page, 'f3 visuals fixture');
+  const log = page.getByRole('log', { name: 'Conversation' });
+  const visuals = log.locator('.answer-visual');
+  await expect(visuals).toHaveCount(2);
+  const diagram = visuals.first();
+  await expect(diagram.locator('.rich-block-title')).toHaveText(
+    'The water cycle',
+  );
+  await expect(diagram.getByText('Made by Row-Bot')).toBeVisible();
+  const frames = log.locator('iframe.answer-visual-frame');
+  for (const index of [0, 1]) {
+    await expect(frames.nth(index)).toHaveAttribute('sandbox', 'allow-scripts');
+    // A document Row-Bot serves once, under its own no-network policy.
+    await expect(frames.nth(index)).toHaveAttribute(
+      'src',
+      /^\/page-frames\/[0-9a-f]{32}$/,
+    );
+  }
+  const svg = page.frameLocator('iframe[title="The water cycle"]');
+  await expect(svg.getByText('Clouds')).toBeVisible();
+
+  // The interactive one runs its own script; its network probe is refused.
+  const slider = page.frameLocator('iframe[title="Compound interest"]');
+  await expect(slider.locator('#probe')).toHaveAttribute(
+    'data-network',
+    'blocked',
+  );
+  await expect(slider.locator('#total')).toHaveText('£1,629');
+  await slider.getByRole('slider', { name: 'Years' }).fill('20');
+  await expect(slider.locator('#total')).toHaveText('£2,653');
+  // The frame grew to its content, within bounds.
+  const height = await frames
+    .nth(1)
+    .evaluate((element) => element.getBoundingClientRect().height);
+  expect(height).toBeGreaterThanOrEqual(120);
+  expect(height).toBeLessThanOrEqual(900);
+  expect(outside).toEqual([]);
+  // The base look: the controls take Row-Bot's accent, not the browser's.
+  const accent = await slider
+    .getByRole('slider', { name: 'Years' })
+    .evaluate((element) => getComputedStyle(element).accentColor);
+  expect(accent).not.toBe('auto');
+  await slider
+    .getByRole('slider', { name: 'Years' })
+    .evaluate((element) => (element as HTMLElement).blur());
+  // Each frame hugs its content: no empty band under the diagram.
+  for (const index of [0, 1]) {
+    const fit = await frames.nth(index).evaluate((element) => {
+      const frame = element as HTMLIFrameElement;
+      return { frame: frame.getBoundingClientRect().height };
+    });
+    const content = await page
+      .frameLocator('iframe.answer-visual-frame')
+      .nth(index)
+      .locator('html')
+      .evaluate((root) => root.getBoundingClientRect().height);
+    expect(Math.abs(fit.frame - Math.max(120, content))).toBeLessThanOrEqual(2);
+  }
+
+  await dismissNotices(page);
+  await screens(page, info, 'visual-diagram', () => diagram);
+  await screens(page, info, 'visual-slider', () => visuals.nth(1));
+
+  await diagram.getByRole('button', { name: 'Expand' }).click();
+  const dialog = page.getByRole('dialog', { name: 'The water cycle' });
+  await expect(dialog.locator('iframe.answer-visual-frame')).toHaveAttribute(
+    'sandbox',
+    'allow-scripts',
+  );
+  await screens(page, info, 'visual-expanded', () => dialog);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  await diagram.getByRole('button', { name: 'Open as page' }).click();
+  const panel = page.getByRole('region', { name: 'The water cycle page' });
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('iframe')).toHaveAttribute(
+    'sandbox',
+    'allow-scripts',
+  );
+  await expect(
+    page.frameLocator('iframe.page-frame').getByText('Clouds'),
+  ).toBeVisible();
+  await screenshot(page, info, 'visual-open-as-page');
+  expect(outside).toEqual([]);
+});
+
 const TABLE = [
   'Here is the budget:',
   '',
@@ -62,6 +321,71 @@ const TABLE = [
   '| Phone | £45 | 2% | 9 Nov 2026 |',
   '| Travel | £380 | 19% | 20 Nov 2026 |',
 ].join('\n');
+
+test('a wide table component scrolls in its own box, never widening the transcript (W16)', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium pass',
+  );
+  await openFixture(page);
+  const city = (name: string) =>
+    `${name}, the capital and largest city of its country by population`;
+  await showAnswer(page, [
+    {
+      id: 'wide',
+      type: 'table',
+      title: 'Capital cities',
+      columns: [
+        { key: 'city', label: 'City', type: 'text' },
+        { key: 'population', label: 'Population (millions)', type: 'number' },
+        { key: 'region', label: 'Region', type: 'text' },
+        { key: 'note', label: 'Note', type: 'text' },
+      ],
+      rows: [
+        [city('Tokyo'), '37.4', 'East Asia', 'Largest metropolitan area'],
+        [city('Jakarta'), '33.8', 'South-East Asia', 'Coastal megacity'],
+        [city('Mexico City'), '22.1', 'North America', 'High altitude'],
+      ],
+      note: '',
+      actions: [],
+      text: '',
+    },
+  ]);
+  const table = page.getByRole('region', { name: 'Capital cities' });
+  await expect(table).toBeVisible();
+  for (const [width, height] of [
+    [1280, 900],
+    [375, 812],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await table.scrollIntoViewIfNeeded();
+    const sizes = await page.evaluate(() => {
+      const transcript = document.querySelector('.transcript')!;
+      const scroll = document.querySelector(
+        '.answer-component .markdown-table-scroll',
+      )!;
+      return {
+        transcript: [transcript.scrollWidth, transcript.clientWidth],
+        table: [scroll.scrollWidth, scroll.clientWidth],
+      };
+    });
+    // The transcript keeps its width; the table scrolls inside its own box.
+    expect(sizes.transcript[0]).toBeLessThanOrEqual(sizes.transcript[1] + 1);
+    expect(sizes.table[0]).toBeGreaterThan(sizes.table[1]);
+    // Copy as CSV never covers a header (M14).
+    const copy = await table
+      .getByRole('button', { name: 'Copy as CSV' })
+      .boundingBox();
+    const header = await table.locator('thead').boundingBox();
+    expect(copy && header).toBeTruthy();
+    if (width < 768)
+      expect(copy!.y + copy!.height).toBeLessThanOrEqual(header!.y + 1);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await screens(page, info, 'wide-table', () => table);
+});
 
 test('a Markdown table sorts by pointer and keyboard, and a task list ticks', async ({
   page,

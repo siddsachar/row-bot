@@ -835,6 +835,54 @@ def test_an_update_check_finishing_does_not_make_a_channel_switch_stale(api):
     assert json.loads((data / "update_config.json").read_text(encoding="utf-8"))["channel"] == "beta"
 
 
+def _desktop_notices(monkeypatch) -> list[tuple[str, str]]:
+    from row_bot import notifications
+
+    shown: list[tuple[str, str]] = []
+    monkeypatch.setattr(notifications, "_desktop_notify", lambda title, message: shown.append((title, message)))
+    return shown
+
+
+def test_desktop_notifications_switch_saves_and_turns_desktop_notices_off(api, monkeypatch):
+    from row_bot import notifications
+
+    client, headers, data, _ = api
+    _write(data / "user_config.json", {"identity": {"name": "Synthetic"}})
+    monkeypatch.delenv(notifications.DESKTOP_SWITCH, raising=False)
+    shown = _desktop_notices(monkeypatch)
+    before = client.get(BASE, headers=headers).json()
+    assert before["preferences"]["desktop_notifications"] is True
+    notifications.notify("Digest finished", "3 new items.")
+    assert [title for title, _ in shown] == ["Digest finished"]
+
+    request = {"settings_revision": before["revision"], "page": "preferences", "field": "desktop_notifications",
+               "value": False}
+    response = _execute(client, headers, request, _review(client, headers, request))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshot"]["preferences"]["desktop_notifications"] is False
+    assert client.get(BASE, headers=headers).json()["preferences"]["desktop_notifications"] is False
+    saved = json.loads((data / "user_config.json").read_text(encoding="utf-8"))
+    assert saved == {"identity": {"name": "Synthetic"}, "desktop_notifications": False}
+    notifications.notify("Digest finished", "3 new items.")
+    notifications.desktop_alert("Meeting in 5 minutes", "Design review.")
+    assert len(shown) == 1
+
+
+def test_the_environment_still_turns_desktop_notices_off_with_the_switch_on(api, monkeypatch):
+    from row_bot import notifications
+
+    _client, _headers, data, _ = api
+    _write(data / "user_config.json", {"desktop_notifications": True})
+    shown = _desktop_notices(monkeypatch)
+    monkeypatch.setenv(notifications.DESKTOP_SWITCH, "off")
+
+    notifications.notify("Digest finished", "3 new items.")
+    notifications.desktop_alert("Meeting in 5 minutes", "Design review.")
+
+    assert shown == []
+
+
 def test_tracker_delete_all_review_is_passive_and_describes_exact_scope(api):
     client, headers, data, _ = api
     _seed_tracker(data)

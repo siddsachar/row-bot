@@ -416,6 +416,8 @@ def _run_command(command: str, timeout: int = 120, approval_reason: str = "") ->
             "description": f"Run in {workspace.name}: {command}",
             "approval_reason": approval_reason,
             "args": {"workspace": workspace.name, "command": command},
+            # Where it runs, for a standing rule's scope (never shown, never to the reviewer).
+            "folder_path": str(workspace.path),
         })
         if not approval:
             return "Command cancelled by user."

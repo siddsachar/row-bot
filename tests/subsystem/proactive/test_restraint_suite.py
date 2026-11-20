@@ -76,7 +76,7 @@ def test_a_cancelled_meeting_drops_its_prep_moment_silently(proactive):
 
     assert after["sent"] == [] and proactive.sent == []
     assert _keys(proactive)[f"meeting:ev1:{int(at('2026-11-16 10:12'))}"] == "dropped_stale"
-    assert any(entry["summary"].startswith("Dropped “Design review in 12 minutes”")
+    assert any(entry["summary"].startswith("Dropped “Design review”")
                for entry in proactive.store.activity())
 
 
@@ -252,10 +252,32 @@ def test_a_phone_push_says_the_moments_title_and_line_only_when_the_desktop_is_i
 
     [moment] = proactive.store.list_moments()
     if pushed:
-        assert notices == [(moment["title"], moment["body"].splitlines()[0], "")]
+        assert notices == [("Design review in 12 minutes", moment["body"].splitlines()[0], "")]
         assert moment["surface"] == "push"
     else:
         assert notices == [] and moment["surface"] == "desktop", "at the desk it never goes to the phone"
+
+
+def test_a_meeting_held_for_a_while_says_how_soon_it_starts_when_shown_not_when_it_was_made(proactive, monkeypatch):
+    # Found in the 5.3.4 Windows retest (R3): "in 14 minutes" was baked into the title and still showed 7 minutes on.
+    import row_bot.notifications as notifications
+
+    alerts: list[tuple[str, str]] = []
+    monkeypatch.setattr(notifications, "desktop_alert", lambda title, body="", **_: alerts.append((title, body)))
+    monkeypatch.setattr(proactive.deliver, "send", proactive.real_send)
+    monkeypatch.setattr(proactive.deliver, "buddy_on", lambda: False)
+    calendar = FakeCalendar()
+    proactive.watchers.register(CalendarWatcher([calendar]))
+    start_day(proactive)
+    calendar.add(meeting("ev1", at("2026-11-16 17:00"), title="Venue walkthrough"))
+
+    held = proactive.engine.tick(at("2026-11-16 16:46"), desktop=Desktop(idle_seconds=900, locked=False))
+    assert held["moments"] and held["sent"] == [], "away, with nothing reaching them there: it waits"
+    proactive.engine.tick(at("2026-11-16 16:53"), desktop=AT_DESK)
+
+    [moment] = proactive.store.list_moments()
+    assert moment["title"] == "Venue walkthrough", "the stored title says no time that goes stale"
+    assert [title for title, _body in alerts] == ["Venue walkthrough in 7 minutes"]
 
 
 def test_triage_that_stays_silent_makes_no_moment_but_the_pass_is_logged(proactive):
@@ -270,6 +292,33 @@ def test_triage_that_stays_silent_makes_no_moment_but_the_pass_is_logged(proacti
         entry["summary"] for entry in proactive.store.activity()]
     proactive.engine.tick(at("2026-11-16 09:31"), desktop=AT_DESK)
     assert len(proactive.model.prompts) == 1, "a change triage silenced isn't asked about again"
+
+
+@pytest.mark.parametrize("answer", [
+    json.dumps({"decisions": [{"id": "c1", "keep": False, "title": "", "body": ""}]}), RuntimeError("down")])
+def test_a_meeting_ten_minutes_away_surfaces_at_quiet_whatever_triage_says(proactive, answer):
+    # Found in the 5.3.4 Windows test (W22): a real meeting 10 minutes out was judged "0 worth a mention".
+    calendar = FakeCalendar()
+    proactive.watchers.register(CalendarWatcher([calendar]))
+    start_day(proactive)
+    calendar.add(meeting("ev1", at("2026-11-16 16:55"), title="Autumn launch sync"))
+
+    def silent(case: dict) -> str:
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    proactive.model.answer = silent
+    result = proactive.engine.tick(at("2026-11-16 16:45"), desktop=AT_DESK)
+
+    assert proactive.settings.load()["level"] == "quiet"
+    [moment] = proactive.store.list_moments()
+    assert moment["kind"] == "meeting_prep" and moment["title"] == "Autumn launch sync"
+    assert result["sent"] == [moment["id"]] and proactive.sent == [("buddy", moment["id"])]
+    assert [moment_id for moment_id, _untrusted in proactive.prepared] == [moment["id"]], "its brief is prepared"
+    assert proactive.model.prompts == [], "triage never judged it"
+    assert "Checked calendar: 1 change, 1 worth a mention." in [
+        entry["summary"] for entry in proactive.store.activity()]
 
 
 @pytest.mark.parametrize("answer", ["not json at all", json.dumps({"decisions": "yes"}), RuntimeError("down")])

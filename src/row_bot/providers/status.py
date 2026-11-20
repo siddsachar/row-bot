@@ -97,8 +97,17 @@ def _provider_catalog_stats(provider_id: str) -> dict[str, object]:
     }
 
 
+def _key_refused(status: dict, refused_fingerprint: str | None) -> bool:
+    """The saved key is the one the provider refused at its last model-list read (T10)."""
+    return bool(status.get("configured") and refused_fingerprint
+                and str(status.get("fingerprint") or "") == refused_fingerprint)
+
+
 def provider_status_cards(*, refresh_tokens: bool = False) -> list[dict]:
+    from row_bot.providers.client_status import refused_keys
+
     cards: list[dict] = []
+    refused = refused_keys()
     for definition in list_provider_definitions():
         try:
             status = provider_status(definition.id, refresh_tokens=refresh_tokens)
@@ -153,6 +162,7 @@ def provider_status_cards(*, refresh_tokens: bool = False) -> list[dict]:
             "cli_installed": bool(status.get("cli_installed")),
             "cli_version": status.get("cli_version") or "",
             "runtime_enabled": bool(status.get("runtime_enabled")),
+            "key_refused": _key_refused(status, refused.get(definition.id)),
             "token_health": status.get("token_health") or "",
             "token_health_detail": status.get("token_health_detail") or "",
             "last_runtime_probe": dict(status.get("last_runtime_probe") or {}),
@@ -220,13 +230,28 @@ def sign_in_problems() -> list[dict[str, str]]:
             problems.append(_sign_in_problem(definition.id, name, "error",
                                              f"Your {name} sign-in has expired. Sign in again to use its models."))
         elif health == "error":
+            # The model check's words for the same state (W3): one wording wherever it shows.
             problems.append(_sign_in_problem(definition.id, name, "warn",
-                                             f"Row-Bot couldn't read your {name} sign-in. Open it to check."))
+                                             f"{name} isn't connected. Reconnect it to use its models."))
+    # An API key the provider refused at its last model-list read, while it is still the key saved (T10).
+    from row_bot.providers.auth_store import provider_secret_status
+    from row_bot.providers.catalog import PROVIDER_DEFINITIONS
+    from row_bot.providers.client_status import refused_keys
+
+    for provider_id, fingerprint in sorted(refused_keys().items()):
+        definition = PROVIDER_DEFINITIONS.get(provider_id)
+        if definition is None or not _key_refused(provider_secret_status(provider_id, "api_key"), fingerprint):
+            continue
+        name = short_provider_name(definition.display_name)
+        problems.append(_sign_in_problem(provider_id, name, "warn",
+                                         f"{name} refused its API key. Check the key to use its models.",
+                                         title=f"{name} API key"))
     return problems
 
 
-def _sign_in_problem(provider_id: str, name: str, status: str, detail: str) -> dict[str, str]:
-    return {"provider_id": provider_id, "name": name, "status": status, "detail": detail}
+def _sign_in_problem(provider_id: str, name: str, status: str, detail: str, *, title: str = "") -> dict[str, str]:
+    return {"provider_id": provider_id, "name": name, "status": status, "detail": detail,
+            "title": title or f"{name} sign-in"}
 
 
 def summarize_providers() -> str:

@@ -37,13 +37,14 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from row_bot.approval_policy import normalize_approval_mode
+from row_bot.approval_rules import COMMAND_RISK
 from row_bot.brand import APP_DATA_DIR_ENV, DEFAULT_DATA_DIR_NAME
 from row_bot.data_paths import (
-    default_workspace_root,
     get_row_bot_data_dir,
     own_workspaces,
     private_data_dirs,
     shared_data_folder,
+    workspace_folder,
 )
 from row_bot.process_cancellation import run_cancellable_subprocess
 from row_bot.secret_store import SERVER_SECRETS_DIR_ENV
@@ -958,12 +959,7 @@ class ShellTool(BaseTool):
         )
         if developer_root:
             return developer_root
-        root = str(registry.get_tool_config("filesystem", "workspace_root", "") or "")
-        if root and os.path.isdir(root):
-            return root
-        default = default_workspace_root()
-        default.mkdir(parents=True, exist_ok=True)
-        return str(default)
+        return str(workspace_folder())
 
     def _get_runtime_configurable(
         self,
@@ -1119,7 +1115,7 @@ class ShellTool(BaseTool):
         if classification != "private_data" and names_private_data(command, session.cwd):
             classification = "private_data"
 
-        risks: tuple[str, ...] = ("runs a command that can change things on this computer",)
+        risks: tuple[str, ...] = (COMMAND_RISK,)
         if background:
             risks += (_BACKGROUND_RISK,)
         if _sets_git_identity(command):
@@ -1138,6 +1134,8 @@ class ShellTool(BaseTool):
                 "args": {"command": command},
                 # Where it runs, by the folder's name only, as Settings names it (U7).
                 "folder": Path(session.cwd).name or session.cwd,
+                # And the folder itself, for a standing rule's scope (never shown, never to the reviewer).
+                "folder_path": str(session.cwd),
             },
             risks=risks,
             private_description=(
@@ -1244,7 +1242,7 @@ class ShellTool(BaseTool):
             classification=classification,
             payload=start_process_approval(command, str(where), variables, label, approval_reason),
             risks=(
-                "runs a command that can change things on this computer",
+                COMMAND_RISK,
                 _BACKGROUND_RISK,
                 *((approval_gate.GIT_IDENTITY_RISK,) if _sets_git_identity(command) else ()),
             ),
@@ -1314,8 +1312,6 @@ class ShellTool(BaseTool):
 
     def as_langchain_tools(self) -> list:
         """Return ``run_command``, ``read_terminal`` and the background process tools."""
-        from row_bot.background_processes import MAX_RUNNING_PER_CONVERSATION
-
         tool_instance = self
 
         def guarded(call):
@@ -1406,17 +1402,11 @@ class ShellTool(BaseTool):
                 func=run_command,
                 name="run_command",
                 description=(
-                    "Execute a shell command on the user's computer. "
-                    "Commands run in a persistent session — cd persists "
-                    "across calls. Safe commands (ls, pwd, git status, etc.) "
-                    "run automatically; other commands require user approval. "
-                    "When approval may be needed, include approval_reason as "
-                    "one short sentence explaining why the command is needed. "
-                    "Returns the command output and exit code. A command still "
-                    "running after 2 minutes (or started with background=true) "
-                    "carries on as a background process: the result names its "
-                    "process_id for check_process and stop_process. For a server "
-                    "or watcher that should keep running, use start_process."
+                    "Run a shell command on this computer, in a persistent session (cd persists). Safe "
+                    "commands run at once; others ask the person, so give approval_reason, one short "
+                    "sentence. Returns the output and exit code. One still running after 2 minutes (or "
+                    "background=true) carries on in the background, with a process_id. For a server or "
+                    "watcher, use start_process."
                 ),
             ),
             StructuredTool.from_function(
@@ -1424,13 +1414,9 @@ class ShellTool(BaseTool):
                 name="start_process",
                 args_schema=_StartProcessInput,
                 description=(
-                    "Start a program that keeps running (a dev server, file server or watcher) in "
-                    "any folder (the workspace by default), with extra environment variables; "
-                    "use it, not run_command, for anything that serves or watches. Asks like "
-                    "run_command. Returns its process_id, first output and any local address. "
-                    "It belongs to this conversation and stops when Row-Bot quits; at most "
-                    f"{MAX_RUNNING_PER_CONVERSATION} run at once here. Stop one started only to "
-                    "preview or record a page once done."
+                    "Start a program that keeps running (a dev server or watcher): use it, not run_command, for "
+                    "anything that serves or watches. Asks like run_command. Returns its process_id, first output "
+                    "and local address. Stop one used for a preview when done."
                 ),
             ),
             StructuredTool.from_function(
@@ -1438,10 +1424,8 @@ class ShellTool(BaseTool):
                 name="check_process",
                 args_schema=_CheckProcessInput,
                 description=(
-                    "Check a background process of this conversation: running or not, its "
-                    "exit code, how long it ran, the local address it serves and the last lines "
-                    "of its output (the rest through read_tool_output). Without a process_id, "
-                    "list this conversation's background processes."
+                    "A background process of this conversation: running or not, exit code, run time, local "
+                    "address and last output lines. Without a process_id, all of them."
                 ),
             ),
             StructuredTool.from_function(
@@ -1478,23 +1462,20 @@ _TAIL_CHARS = 6_000
 
 
 class _StartProcessInput(BaseModel):
-    command: str = Field(description="The command to run, as you would type it in the shell (e.g. 'npm run dev').")
-    folder: str = Field(default="", description="The folder to run it in; empty for the shell's current folder.")
-    env: dict[str, str] = Field(default_factory=dict, description="Extra environment variables, e.g. {\"PORT\": \"3000\"}.")
-    name: str = Field(default="", description="A short name people see, e.g. 'Dev server'.")
-    approval_reason: str = Field(
-        default="",
-        description="One short user-facing sentence explaining why it is needed if approval is required.",
-    )
+    command: str = Field(description="As typed in the shell, e.g. 'npm run dev'.")
+    folder: str = Field(default="", description="Empty: the shell's current folder.")
+    env: dict[str, str] = Field(default_factory=dict, description="Extra environment variables.")
+    name: str = Field(default="", description="e.g. 'Dev server'.")
+    approval_reason: str = Field(default="", description="One short sentence for the person, if it asks.")
 
 
 class _CheckProcessInput(BaseModel):
-    process_id: str = Field(default="", description="The process_id (proc-…); empty to list this conversation's.")
-    lines: int = Field(default=40, description="How many of the last output lines to show (at most 200).")
+    process_id: str = Field(default="", description="proc-…; empty lists them.")
+    lines: int = Field(default=40, description="Last output lines, at most 200.")
 
 
 class _StopProcessInput(BaseModel):
-    process_id: str = Field(description="The process_id (proc-…) to stop.")
+    process_id: str = Field(description="proc-…")
 
 
 def start_process_approval(

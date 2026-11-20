@@ -76,7 +76,7 @@ When a run stops, it says why: the upload or the start didn't work, so nothing w
 
 - **Uploaded**, only after you agree to a quote: the training examples that run uses, in a private dataset repository in your account, and Row-Bot's own training files. Never your chat history, memories, files or anything else.
 - **Made**: a private model repository for the results, and one job on Hugging Face.
-- **Deleted**: both repositories, once the trained model is downloaded and checked, or when the run is cancelled or fails. **Last run** says "its uploaded examples and files are deleted from Hugging Face", or that deleting didn't work yet and Row-Bot tries again.
+- **Deleted**: both repositories, once the trained model is downloaded and checked, or when the run is cancelled or fails before training finished. A run that finished training (and was billed) but stopped before its model was downloaded deletes only the uploaded examples: the model stays in your account, and **Last run** says so with an **Open it** link, to download or delete it there. Otherwise **Last run** says "its uploaded examples and files are deleted from Hugging Face", or that deleting didn't work yet and Row-Bot tries again.
 
 Before a run, Row-Bot also downloads the model's small tokenizer files (never its weights) to count the examples exactly, and reads Hugging Face's public price list. The training itself runs with no network access.
 

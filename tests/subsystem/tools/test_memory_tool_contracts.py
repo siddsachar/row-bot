@@ -33,19 +33,23 @@ def test_memory_tool_exposes_expected_subtools_and_delete_is_destructive(tmp_pat
     assert "save_memory" in tool.execute("anything")
 
 
-def test_optional_tool_import_failures_are_isolated(monkeypatch) -> None:
+def test_optional_tool_import_failure_drops_only_what_it_left_broken(monkeypatch, request) -> None:
+    """A failed optional tool drops its orphans, never a module another thread imported meanwhile (RM4)."""
     import row_bot.tools as tools_pkg
 
+    meanwhile, orphan = "row_bot.tools.imported_meanwhile", "rm4_failed_optional_dependency.part"
+    request.addfinalizer(lambda: [sys.modules.pop(name, None) for name in (meanwhile, orphan)])
+
     def fail_import(_module_name: str) -> None:
-        sys.modules["row_bot.tools.partial_optional_dependency"] = ModuleType(
-            "row_bot.tools.partial_optional_dependency"
-        )
+        sys.modules[meanwhile] = ModuleType(meanwhile)  # Its package is loaded: another thread's import.
+        sys.modules[orphan] = ModuleType(orphan)  # Its package failed with the optional tool.
         raise RuntimeError("optional dependency exploded")
 
     monkeypatch.setattr(tools_pkg.importlib, "import_module", fail_import)
 
     tools_pkg._import_tool_module("row_bot.tools.optional_broken", optional=True)
-    assert "row_bot.tools.partial_optional_dependency" not in sys.modules
+    assert meanwhile in sys.modules
+    assert orphan not in sys.modules
     with pytest.raises(RuntimeError, match="optional dependency exploded"):
         tools_pkg._import_tool_module("row_bot.tools.required_broken", optional=False)
 
@@ -238,3 +242,26 @@ def test_memory_tool_missing_link_endpoint_is_reported_without_raising(tmp_path,
 
     assert memory_tool._link_memories("missing", "also missing", "related_to").startswith("Error: source entity")
     assert memory_tool._explore_connections("missing").startswith("Entity 'missing' not found")
+
+
+def test_linking_to_the_user_links_to_the_persons_own_entity_made_once(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    """M15: in a plain chat 3 of 4 link_memories calls failed with "target entity 'User' not found": nothing had
+    made the person's own entity yet. "User" (or "me") is the person: the first link makes their entity, and
+    later links, under either name, reach the same one."""
+    stack = fresh_memory_stack(tmp_path, monkeypatch, reload_for_data_dir)
+    memory_tool = stack["memory_tool"]
+    monkeypatch.setattr(memory_tool, "_check_contradiction", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    memory_tool._save_memory("person", "Dana", "Dana is starting a new job at a design studio.")
+    memory_tool._save_memory("event", "Multnomah Falls hike", "Hiked at Multnomah Falls last Friday.")
+
+    friend = memory_tool._link_memories("User", "Dana", "friend_of")
+    hike = memory_tool._link_memories("Multnomah Falls hike", "me", "attended_by")
+
+    assert friend.startswith("Relationship created successfully") and "User --[friend_of]--> Dana" in friend
+    assert hike.startswith("Relationship created successfully") and "--> User" in hike
+    users = [entity for entity in json.loads(memory_tool._list_memories("person")) if entity["subject"] == "User"]
+    assert len(users) == 1
+    assert "Relationships (2):" in memory_tool._explore_connections("User")
+    # Anyone else who isn't saved is still reported, never made up.
+    assert memory_tool._link_memories("User", "Sam", "knows").startswith("Error: target entity 'Sam' not found")

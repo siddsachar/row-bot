@@ -72,6 +72,15 @@ def buddy_payload(moment: dict[str, Any]) -> dict[str, Any]:
             "urgency": moment["urgency"], "actions": list(moment["actions"][:2]), "label": moment["title"]}
 
 
+def _shown(moment: dict[str, Any], now: float | None) -> dict[str, Any]:
+    """The moment as it reads now: a meeting's title says how soon it starts, counted as it goes out (R3)."""
+    import time
+
+    from row_bot.proactive.meetings import shown_title
+
+    return {**moment, "title": shown_title(moment, time.time() if now is None else now)}
+
+
 def _push(moment: dict[str, Any]) -> None:
     """The phone notice: the moment's title and its one line; tapping it opens the chat it came from, if any."""
     from row_bot.access.push import notify_soon
@@ -83,8 +92,9 @@ def _push(moment: dict[str, Any]) -> None:
     notify_soon(moment["title"], line, conversation_id=conversation)
 
 
-def send(surface: str, moment: dict[str, Any], settings: dict[str, Any]) -> bool:
+def send(surface: str, moment: dict[str, Any], settings: dict[str, Any], *, now: float | None = None) -> bool:
     """Put a moment on its surface; False when that surface couldn't take it (it waits for the next tick)."""
+    moment = _shown(moment, now)
     try:
         if surface == "buddy":
             from row_bot.buddy.events import BuddyEventType, emit_buddy_event

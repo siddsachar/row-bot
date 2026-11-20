@@ -52,6 +52,7 @@ function sources(over: Partial<MemoryImportSources> = {}): MemoryImportSources {
     character_limit: 400000,
     model: { name: 'qwen3:8b', provider: 'Local', on_this_computer: true },
     recent: [],
+    waiting: [],
     ...over,
   };
 }
@@ -521,5 +522,81 @@ describe('Import memories', () => {
     unmount();
     await Promise.resolve();
     expect(io.discard).not.toHaveBeenCalled();
+  });
+
+  it('lists memories brought over from another app to review later, or let go', async () => {
+    const KEPT = 'c'.repeat(32);
+    const OTHER = 'd'.repeat(32);
+    const io = fakeIO({
+      sources: vi.fn(async () =>
+        sources({
+          waiting: [
+            {
+              batch_id: KEPT,
+              sources: ['Hermes Agent'],
+              found: 6,
+              conversations: 3,
+              staged_at: '2026-11-16T10:00:00',
+              keep_until: '2026-11-23T10:00:00',
+            },
+            {
+              batch_id: OTHER,
+              sources: ['OpenClaw'],
+              found: 0,
+              conversations: 2,
+              staged_at: '2026-11-15T10:00:00',
+              keep_until: '2026-11-22T10:00:00',
+            },
+          ],
+        }),
+      ),
+      batch: vi.fn(async () =>
+        batch({
+          batch_id: KEPT,
+          scanned: true,
+          found: 3,
+          job: null,
+        }),
+      ),
+    });
+    const { unmount } = show(io);
+    const waiting = await screen.findByRole('list', {
+      name: 'Waiting for you to check',
+    });
+    expect(within(waiting).getByText('From Hermes Agent')).toBeVisible();
+    expect(within(waiting).getByText(/6 memories waiting/)).toBeVisible();
+    expect(
+      within(waiting).getByText(/2 past chats to look through/),
+    ).toBeVisible();
+
+    fireEvent.click(
+      within(waiting).getByRole('button', {
+        name: 'Let go of the memories from OpenClaw',
+      }),
+    );
+    expect(
+      await screen.findByText(
+        'Let go of the memories from OpenClaw. Nothing was saved from them.',
+      ),
+    ).toBeVisible();
+    expect(io.discard).toHaveBeenCalledWith(OTHER);
+    expect(within(waiting).queryByText('From OpenClaw')).toBeNull();
+
+    fireEvent.click(
+      within(waiting).getByRole('button', {
+        name: 'Review the memories from Hermes Agent',
+      }),
+    );
+    const list = await screen.findByRole('list', { name: 'Memories found' });
+    expect(
+      within(list).getByText('Lives in a canal boat near Leeds'),
+    ).toBeVisible();
+    expect(io.batch).toHaveBeenCalledWith(KEPT);
+    expect(io.candidates).toHaveBeenCalledWith(KEPT);
+    expect(io.begin).not.toHaveBeenCalled();
+    // Closing keeps it waiting for next time.
+    unmount();
+    await Promise.resolve();
+    expect(io.discard).toHaveBeenCalledTimes(1);
   });
 });

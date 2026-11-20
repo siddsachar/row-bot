@@ -1,0 +1,243 @@
+/* "Save as a skill" (C1): the offer under a reply and the review sheet. */
+
+.skill-offer-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  max-width: 100%;
+}
+.skill-offer-hint-icon {
+  flex: none;
+  color: var(--accent-solid);
+}
+.skill-offer-hint-text {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.skill-offer-hint-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.drawer-panel.skill-draft-sheet {
+  width: min(560px, calc(100vw - 24px));
+}
+.skill-draft-sheet .drawer-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.skill-draft-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.skill-draft-body section {
+  display: grid;
+  gap: var(--space-2);
+}
+.skill-draft-body h3 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+.skill-draft-body p {
+  margin: 0;
+}
+.skill-draft-markdown {
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.skill-draft-markdown > :first-child {
+  margin-top: 0;
+}
+.skill-draft-markdown > :last-child {
+  margin-bottom: 0;
+}
+.skill-draft-markdown h2 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-14);
+}
+.skill-draft-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+}
+.skill-draft-note svg {
+  flex: none;
+  margin-top: 2px;
+}
+.skill-draft-file-body {
+  position: relative;
+}
+.skill-draft-copy {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+}
+.skill-draft-file pre {
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  padding: var(--space-3) calc(var(--space-3) + 32px) var(--space-3)
+    var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-size: var(--text-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.skill-draft-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  color: var(--text-secondary);
+}
+.skill-draft-skeleton {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+}
+.skill-draft-skeleton span {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+}
+.skill-draft-skeleton span:nth-child(2) {
+  width: 80%;
+}
+.skill-draft-skeleton span:nth-child(3) {
+  width: 60%;
+}
+.skill-draft-form {
+  display: grid;
+  gap: var(--space-3);
+}
+.skill-draft-form textarea {
+  resize: vertical;
+  min-height: 3.5rem;
+  font: inherit;
+}
+.skill-draft-reason-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.skill-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-overlay);
+}
+.skill-draft-footnote {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+@media (max-width: 767px) {
+  .drawer-panel.skill-draft-sheet {
+    inset: 0;
+    width: 100vw;
+    border-radius: 0;
+  }
+  .skill-draft-actions {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+  }
+  .skill-draft-actions .button {
+    min-height: 44px;
+  }
+}
+
+/* Settings › Skills: drafts from chats waiting for review. */
+.skill-drafts-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.skill-drafts-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.skill-drafts-icon {
+  flex: none;
+  color: var(--accent-solid);
+}
+.skill-drafts-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.skill-drafts-text strong {
+  overflow-wrap: anywhere;
+}
+.skill-proposal-source {
+  color: var(--text-secondary);
+}
+
+/* Show Row-Bot how (C3): the steps the person showed, and the saved skill with Try it. */
+.skill-draft-shown-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) 0 var(--space-2) var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.skill-draft-saved {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-success-border);
+  border-radius: var(--radius-control);
+  background: var(--status-success-background);
+}
+.skill-draft-saved > svg {
+  flex: none;
+  color: var(--status-success-text);
+}
+.skill-draft-saved strong {
+  color: var(--text-primary);
+}
+.skill-draft-saved p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+}

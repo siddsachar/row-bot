@@ -167,6 +167,7 @@ class FakeDocker:
         self.started = threading.Event()
         self.runs: list[list[str]] = []
         self.start_error: Exception | None = None
+        self.gate_error = ""
 
     def install(self, monkeypatch, module) -> None:
         monkeypatch.setattr(module, "_runtime", lambda: SimpleNamespace(
@@ -186,7 +187,10 @@ class FakeDocker:
         if args[0] == "rm" and self.rm_works:
             self.containers.discard(args[-1])
         if args[0] == "run":
-            self.containers.add(args[args.index("--name") + 1])
+            name = args[args.index("--name") + 1]
+            if self.gate_error and name.startswith("row-bot-egress-"):
+                return SimpleNamespace(returncode=125, stdout="", stderr=self.gate_error)
+            self.containers.add(name)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     def start(self, job, argv, folder, name):
@@ -306,6 +310,28 @@ def test_a_failed_install_still_turns_the_network_off(sandbox):
     assert job.status == "failed" and job.problem == "install_failed"
     assert "No matching distribution found for tide-private" in job.detail
     _network_off_again(env, job)
+
+
+@pytest.mark.parametrize("missing_image", [False, True])
+def test_without_its_network_gate_the_install_never_runs(sandbox, missing_image):
+    """Prepare's install goes through the gate or not at all: never on Docker's own network."""
+    env = sandbox
+    if missing_image:
+        # The gate runs from the default image only; the folder's own image isn't enough.
+        env.docker.images = {"local/custom:latest"}
+        env.storage.set_workspace_execution_settings(env.workspace.id, execution_mode="docker",
+                                                     sandbox_network="off", sandbox_image="local/custom:latest")
+        workspace = env.storage.get_workspace(env.workspace.id)
+    else:
+        env.docker.gate_error = "Cannot connect to the Docker daemon"
+        workspace = env.workspace
+    job = env.module.start(workspace, env.thread_id)
+    assert env.module.wait(job, 5)
+    assert job.status == "failed" and job.problem == "install_failed"
+    assert job.detail.startswith("The install didn't start:")
+    assert ("docker pull " + IMAGE if missing_image else "Cannot connect to the Docker daemon") in job.detail
+    assert env.docker.runs == [] and job.network_on_at is None
+    assert env.gate not in env.docker.containers
 
 
 def test_stop_ends_the_install_and_turns_the_network_off(sandbox):

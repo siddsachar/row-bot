@@ -23,7 +23,7 @@ CSV_COLUMNS = ("Time", "Chat", "Where", "Tool", "App", "What", "Level", "Outcome
 
 OUTCOME_WORDS = {
     "ran": "Ran", "asked": "Waiting for you", "approved_by_you": "You approved",
-    "approved_by_reviewer": "Reviewer approved", "hands_off": "Hands-off", "allowed_by_rule": "Your rule",
+    "approved_by_reviewer": "Reviewer approved", "hands_off": "Hands-off", "allowed_by_rule": "Allowed by your rule",
     "allowed_in_chat": "Allowed in this chat", "denied": "You said no",
     "changed": "Changed after you approved — didn't run", "blocked": "Blocked", "failed": "Didn't work",
 }
@@ -63,11 +63,15 @@ def _entry(row: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
         "entry_id": int(row["id"]),
         "at": _when(row["at"]),
         "conversation_id": str(row["conversation_id"] or "")[:256],
-        "conversation_title": titles.get(str(row["conversation_id"] or ""), "")[:160],
+        "conversation_title": (f"Watch: {row['watch_label']}" if row.get("watch_label")
+                               else titles.get(str(row["conversation_id"] or ""), ""))[:160],
         "surface": row["surface"] if row["surface"] in activity_log.SURFACES else "chat",
         "source_id": str(row["source_id"] or "")[:256],
         "tool": str(row["tool"] or "")[:180],
-        "title": str(row["title"] or "")[:160],
+        # A title that is only the tool's own name is left to the client, which says it the way chat steps
+        # do ("Read page", not "Read url") (W19).
+        "title": "" if str(row["title"] or "") == activity_log.tool_words(str(row["tool"] or ""))
+        else str(row["title"] or "")[:160],
         "app_id": str(row["app_id"] or "")[:256],
         "app_name": str(row["app_name"] or "")[:128],
         "summary": str(row["summary"] or "")[:activity_log.SUMMARY_MAX],
@@ -77,6 +81,7 @@ def _entry(row: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
         "reason": str(row["reason"] or "")[:activity_log.REASON_MAX],
         "risk": row["risk"] if row["risk"] in activity_log.RISKS else "unknown",
         "pending": row["status"] == "pending",
+        "rule_id": str(row.get("rule_id") or "")[:32],
     }
 
 
@@ -90,8 +95,29 @@ def read_activity(*, before: int = 0, limit: int = 50, **filters: Any) -> dict[s
 
     rows, next_before = activity_log.query(before=before, limit=max(1, min(int(limit), MAX_PAGE)),
                                            **_filters(filters))
+    rows = _watch_checks(rows)
     titles = _titles({str(row["conversation_id"] or "") for row in rows})
     return {"schema_version": 1, "items": [_entry(row, titles) for row in rows], "next_before": next_before}
+
+
+def _watch_checks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A judged watch's check runs in a hidden thread of its own (B4): its actions read "Watch: <label>" and
+    link to the watch's chat, never as Proactive Row-Bot's."""
+    try:
+        from row_bot import waits
+
+        owners = waits.check_thread_owners({str(row["conversation_id"] or "") for row in rows
+                                            if row["surface"] == "proactive"})
+    except Exception:
+        return rows
+    if not owners:
+        return rows
+    found = []
+    for row in rows:
+        owner = owners.get(str(row["conversation_id"] or "")) if row["surface"] == "proactive" else None
+        found.append({**row, "conversation_id": owner[0], "surface": "chat", "watch_label": owner[1]}
+                     if owner else row)
+    return found
 
 
 def read_summary(*, since: float) -> dict[str, Any]:
@@ -117,6 +143,7 @@ def export_csv(**filters: Any) -> bytes:
     while written < MAX_EXPORT:
         rows, before_next = activity_log.query(before=before, limit=min(MAX_PAGE * 5, MAX_EXPORT - written),
                                                **_filters(filters))
+        rows = _watch_checks(rows)
         titles = _titles({str(row["conversation_id"] or "") for row in rows})
         for row in rows:
             entry = _entry(row, titles)
@@ -124,7 +151,8 @@ def export_csv(**filters: Any) -> bytes:
             if entry["outcome"] == "asked" and not entry["pending"]:
                 outcome = _UNANSWERED
             writer.writerow([_cell(item) for item in (
-                entry["at"], entry["conversation_title"], SURFACE_WORDS[entry["surface"]], entry["title"],
+                entry["at"], entry["conversation_title"], SURFACE_WORDS[entry["surface"]],
+                entry["title"] or activity_log.tool_words(entry["tool"]),
                 entry["app_name"], entry["summary"], LEVEL_WORDS.get(entry["level"], ""), outcome,
                 DECIDER_WORDS[entry["decided_by"]], entry["reason"],
             )])

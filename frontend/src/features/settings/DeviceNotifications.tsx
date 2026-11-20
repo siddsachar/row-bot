@@ -49,6 +49,30 @@ export const browserPush: PushBrowser = {
   },
 };
 
+/** What a notification on this device is for and what it sends. */
+export const DEVICE_NOTICE_WORDS =
+  'When Row-Bot needs you, such as for an approval or a question, this device shows a notice. It travels encrypted: only this device can read it.';
+
+/**
+ * Turn notifications on for this device: the browser asks the person first
+ * (call it from their tap, so the browser shows its prompt), then Row-Bot
+ * keeps the device's encrypted address. False when they didn't allow it.
+ */
+export async function turnOnDeviceNotifications(
+  client: AccessPushClient,
+  browser: PushBrowser,
+  publicKey: string,
+): Promise<boolean> {
+  const subscription = await browser.subscribe(publicKey);
+  if (!subscription) return false;
+  await client.subscribe(subscription);
+  return true;
+}
+
+/** Said when the browser's permission was refused. */
+export const NOT_ALLOWED =
+  'Notifications weren’t allowed, so nothing was turned on.';
+
 /**
  * Notifications on this device (D8). When Row-Bot needs the person (an
  * approval or a question), a device with this on shows a notice saying what
@@ -160,12 +184,12 @@ export default function DeviceNotifications({
     setError('');
     try {
       if (next) {
-        const subscription = await browser.subscribe(status.publicKey);
-        if (!subscription) {
-          setError('Notifications weren’t allowed, so nothing was turned on.');
+        if (
+          !(await turnOnDeviceNotifications(client, browser, status.publicKey))
+        ) {
+          setError(NOT_ALLOWED);
           return;
         }
-        await client.subscribe(subscription);
       } else {
         await browser.unsubscribe();
         await client.unsubscribe();
@@ -183,10 +207,7 @@ export default function DeviceNotifications({
       <SettingRow
         label="Notifications on this device"
         htmlFor={id}
-        description={
-          why ||
-          'When Row-Bot needs you, such as for an approval or a question, this device shows a notice. It travels encrypted: only this device can read it.'
-        }
+        description={why || DEVICE_NOTICE_WORDS}
         control={
           <Toggle
             id={id}

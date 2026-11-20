@@ -49,30 +49,71 @@ export function pictureWords(data: LearningSnapshot['data']): string {
   return `, including ${sizeWords(data.picture_bytes)} of browser and computer pictures (up to ${sizeWords(data.picture_cap_bytes)}; the oldest go first)`;
 }
 
-/** The monthly limit's choices; the saved value shows even when it isn't one of them. */
+/** The monthly limit's fixed choices; beside them a custom amount, no limit (null) and no model calls (0). */
 export const LIMIT_CHOICES = [
   500_000, 1_000_000, 2_000_000, 5_000_000, 10_000_000, 20_000_000, 50_000_000,
 ];
 
-export function limitOptions(saved: number) {
-  const values = LIMIT_CHOICES.includes(saved)
-    ? LIMIT_CHOICES
-    : [...LIMIT_CHOICES, saved].sort((left, right) => left - right);
+/** A custom amount, in millions of tokens (Row-Bot saves up to 1,000M). */
+export const CUSTOM_LIMIT_MILLIONS = { min: 0.1, max: 1_000 };
+
+/** The limit's menu value: a choice, "0", "none" (no limit) or "custom" (any other saved amount). */
+export function limitChoice(limit: number | null): string {
+  if (limit === null) return 'none';
+  return limit === 0 || LIMIT_CHOICES.includes(limit)
+    ? String(limit)
+    : 'custom';
+}
+
+export function limitOptions() {
   return [
-    ...values.map((value) => ({
+    ...LIMIT_CHOICES.map((value) => ({
       value: String(value),
-      label: value === 0 ? 'No model calls' : `${tokenWords(value)} tokens`,
+      label: `${tokenWords(value)} tokens`,
     })),
-    ...(values.includes(0) ? [] : [{ value: '0', label: 'No model calls' }]),
+    { value: 'custom', label: 'Custom amount…' },
+    { value: 'none', label: 'No limit' },
+    { value: '0', label: 'No model calls' },
   ];
 }
 
+/** 75,000,000 → "75", 2,500,000 → "2.5": an amount as the custom field shows it, in millions. */
+export function millionsText(tokens: number): string {
+  return String(Math.round(tokens / 100_000) / 10);
+}
+
+/** "75" → 75,000,000 tokens, "2.5" → 2,500,000 (to the nearest 0.1M); null when it isn't an amount in bounds. */
+export function customLimit(text: string): number | null {
+  const typed = text.trim().replace(/m$/i, '').trim();
+  const millions = Math.round(Number(typed) * 10) / 10;
+  if (!typed || !Number.isFinite(millions)) return null;
+  if (
+    millions < CUSTOM_LIMIT_MILLIONS.min ||
+    millions > CUSTOM_LIMIT_MILLIONS.max
+  )
+    return null;
+  return Math.round(millions * 10) * 100_000;
+}
+
+/** "240K of 2M tokens this month"; with no limit "3M tokens this month (no limit)": what was used always shows. */
+export function spendingWords(
+  spending: Pick<LearningSnapshot['spending'], 'used_tokens' | 'limit_tokens'>,
+  when = 'this month',
+): string {
+  const used = tokenWords(spending.used_tokens);
+  return spending.limit_tokens === null
+    ? `${used} tokens ${when} (no limit)`
+    : `${used} of ${tokenWords(spending.limit_tokens)} tokens ${when}`;
+}
+
 /** "About 20 tests of a change" (a change's test takes about 100K tokens). */
-export function limitMeaning(limit: number): string {
+export function limitMeaning(limit: number | null): string {
+  if (limit === null)
+    return "No monthly cap: nothing limits Learning's spending, comparing methods included. What it spends still shows each month. Local models don't count.";
   if (limit <= 0)
     return 'Learning makes no model calls. Local models still work.';
   const tests = Math.max(1, Math.round(limit / 100_000));
-  return `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change. Local models don't count.`;
+  return `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change. A fifth of it is kept for comparing methods. Local models don't count.`;
 }
 
 /** "1:00 AM" (the reader's own clock), as Dream Cycle's hours show. */
@@ -374,6 +415,7 @@ export function overnightLines(night: LearningOvernight): OvernightLine[] {
     case 'nothing':
       return [
         { text: 'Looked for things to improve: nothing new.' },
+        ...practiceLines(night),
         ...methodLines(night),
       ];
     default:
@@ -408,6 +450,7 @@ export function overnightLines(night: LearningOvernight): OvernightLine[] {
     lines.push({
       text: `Left out ${plural(night.left_out, 'idea')}: Learning needs your feedback first, and never adds addresses, links, passwords or permissions`,
     });
+  lines.push(...practiceLines(night));
   if (night.tested)
     lines.push({
       text: `Tested ${plural(night.tested, 'idea')}: ${
@@ -432,6 +475,33 @@ export function overnightLines(night: LearningOvernight): OvernightLine[] {
       text: 'Stopped when you came back to Row-Bot; it carries on when you’re away.',
     });
   return [...lines, ...methodLines(night)];
+}
+
+/** What a practice task of each kind of work is called inside "Practised 12 … tasks it made up". */
+const PRACTICE_NOUNS: Record<string, string> = {
+  document_lookups: 'document',
+  structured_transforms: 'data',
+  small_coding: 'coding',
+  tool_workflows: 'app',
+};
+
+/** The night's practice (designs §3, L4b): "Practised 40 document tasks it made up: 33 passed". */
+function practiceLines(night: LearningOvernight): OvernightLine[] {
+  const lines: OvernightLine[] = [];
+  const ran = night.practised ?? 0;
+  if (ran > 0) {
+    const noun = night.practice_kind ? PRACTICE_NOUNS[night.practice_kind] : '';
+    lines.push({
+      text: `Practised ${plural(ran, noun ? `${noun} task` : 'task')} it made up: ${(
+        night.practised_passed ?? 0
+      ).toLocaleString()} passed`,
+    });
+  }
+  if (night.practice_needs_container)
+    lines.push({
+      text: 'Coding practice needs Docker or Podman, so none was made.',
+    });
+  return lines;
 }
 
 /** The night's comparison of learning methods (designs §9): a switch is shown with its Undo apart. */
@@ -508,7 +578,8 @@ export const LESSON_STATUS: Record<
   | 'tested_better'
   | 'tested_not_better'
   | 'in_use'
-  | 'off',
+  | 'off'
+  | 'removed',
   { tone: 'neutral' | 'success' | 'info'; label: string }
 > = {
   not_tested: { tone: 'neutral', label: 'Not tested' },
@@ -517,6 +588,7 @@ export const LESSON_STATUS: Record<
   tested_not_better: { tone: 'neutral', label: 'Tested: no help' },
   in_use: { tone: 'success', label: 'In use' },
   off: { tone: 'neutral', label: 'Off' },
+  removed: { tone: 'neutral', label: 'Memory removed' },
 };
 
 /** Why a change isn't used. */
@@ -602,7 +674,7 @@ export const HF_NEEDS =
 
 /** What the sign-in lets Row-Bot do (its scopes, in words). */
 export const HF_ACCESS =
-  'Row-Bot can run training jobs and make private repositories in your account for them, nothing else. The sign-in stays in this computer’s keychain.';
+  'Row-Bot can see your account’s name and whether it can pay for jobs, run training jobs, and make private repositories in your account for them. Nothing else. The sign-in stays in this computer’s keychain.';
 
 /** A Hugging Face run's stage, while it runs. */
 export const HF_STAGES: Record<string, string> = {

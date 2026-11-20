@@ -103,6 +103,9 @@ def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[s
         card = _setting_change_card(change)
         if card:  # The change in words, with its row (self system).
             projected["setting_change"] = card
+    price = _price_card(item.get("price")) if len(items) == 1 else None
+    if price:  # A paid picture or video: what it costs, roughly (D4).
+        projected["price"] = price
     setup = item.get("setup")
     if isinstance(setup, Mapping) and len(items) == 1:
         projected_setup = _setup_card(setup)
@@ -181,6 +184,21 @@ def _setting_change_card(change: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"label": label, "where": _text(change.get("where"), 200),
             "href": href if _SETTINGS_HREF.fullmatch(href) else "",
             "before": _text(change.get("before"), 240), "after": after}
+
+
+def _price_card(price: Any) -> dict[str, Any] | None:
+    """A paid call's price as its card shows it, checked; None when there is none to show."""
+    if not isinstance(price, Mapping):
+        return None
+    if price.get("status") == "unknown":
+        return {"status": "unknown"}
+    low, high = price.get("low_usd"), price.get("high_usd")
+    if price.get("status") != "known" or not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 100_000
+            for value in (low, high)) or low > high:
+        return None
+    return {"status": "known", "low_usd": float(low), "high_usd": float(high),
+            "basis": _text(price.get("basis"), 160)}
 
 
 def _setup_card(setup: Mapping[str, Any]) -> dict[str, Any] | None:

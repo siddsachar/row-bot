@@ -72,6 +72,15 @@ test('Row-Bot asks with options, the answer goes on, and the card collapses to t
   ).toHaveAccessibleDescription('Ship the current build to testers today.');
   await expect(group.getByText('Recommended', { exact: true })).toBeVisible();
   await expect(card.getByRole('button', { name: 'Answer' })).toBeDisabled();
+  // A question reads as one, on the step line and in what a screen reader
+  // hears: never an approval (R7).
+  await expect(
+    page
+      .getByRole('log', { name: 'Conversation' })
+      .getByText('Waiting for your answer')
+      .first(),
+  ).toBeVisible();
+  await expect(page.getByText(/Waiting for your approval/)).toHaveCount(0);
   await everywhere(page, info, 'question-card');
 
   // Other… opens a text field for the person's own words.

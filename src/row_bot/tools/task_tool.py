@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import datetime
 from typing import Literal
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from row_bot.tools.base import BaseTool
+from row_bot.tools.base import BaseTool, NullMeansUnset
 from row_bot.tools import registry
 import row_bot.tasks as tasks_db
 from row_bot.approval_policy import approval_label, legacy_safety_mode_to_approval_mode
@@ -32,69 +33,35 @@ _FULL_AUTONOMY_REFUSAL = (
 # An agent never chooses Hands-off for a workflow: only the person does, in the app.
 ApprovalModeChoice = Literal["block", "approve", "auto"]
 _SCHEDULE_FORMATS = (
-    "'daily:HH:MM', 'weekly:DAY:HH:MM' (e.g. 'weekly:monday:09:00'), 'interval:H' (every H hours), "
-    "'interval_minutes:M' (every M minutes, 1 or more) or 'cron:EXPR' (e.g. 'cron:0 9 * * mon-fri')"
+    "'daily:HH:MM', 'weekly:monday:09:00', 'interval:H' (hours), 'interval_minutes:M' or 'cron:0 9 * * mon-fri'"
 )
-_TEMPLATE_VARIABLES = "{{date}}, {{day}}, {{time}}, {{month}}, {{year}} and {{task_id}} (this task's own id)"
+_TEMPLATE_VARIABLES = "{{date}}, {{day}}, {{time}}, {{month}}, {{year}}, {{task_id}}"
 _TASK_LIST_CHARS = 30_000  # Beyond this the list is saved, and read on with read_tool_output.
 # Why a workflow is off when Row-Bot switched it off (D5), so it isn't turned back on without the person.
 _OFF_AFTER_FAILURES = f"failed {tasks_db.FAILURES_BEFORE_OFF} times in a row"
 
 
-class _TaskCreateInput(BaseModel):
-    name: str = Field(description="Short name, e.g. 'Morning Briefing' or 'Call Mom'.")
+class _TaskCreateInput(NullMeansUnset):
+    # Icon, description and notification text keep their defaults here; task_update sets them.
+    # An empty field is unset.
+    name: str
     prompts: list[str] = Field(
         default=[],
-        description=(
-            "The messages each run sends, in order, as chat turns in the workflow's own conversation "
-            "(usually one). Say any branching in words ('if nothing is new, stop and say so'). Empty for a "
-            f"notify-only reminder. Template variables: {_TEMPLATE_VARIABLES}."
-        ),
+        description=f"What each run sends (usually one); none for a reminder. Variables: {_TEMPLATE_VARIABLES}.",
     )
-    description: str = Field(default="", description="Optional longer description.")
-    icon: str = Field(default="⚡", description="One emoji, e.g. '📰'.")
-    schedule: str | None = Field(
-        default=None,
-        description=f"Recurring schedule: {_SCHEDULE_FORMATS}. Not with delay_minutes or run_at.",
-    )
-    delay_minutes: float | None = Field(
-        default=None,
-        description="One-shot timer after this many minutes; the task deletes itself after firing.",
-    )
-    run_at: str | None = Field(
-        default=None,
-        description="One-off local date and time 'YYYY-MM-DDTHH:MM', in the future.",
-    )
-    notify_only: bool = Field(
-        default=False,
-        description="Only notify (desktop and in-app); no agent run. For plain reminders and timers.",
-    )
-    notify_label: str = Field(default="", description="Notification text for notify-only tasks (default: the name).")
-    delivery_channel: str | None = Field(
-        default=None,
-        description=(
-            "Also send the output through this channel, e.g. 'telegram' (no target needed) or 'email'. "
-            "Desktop and in-app notifications always fire."
-        ),
-    )
-    delivery_target: str | None = Field(
-        default=None,
-        description="Chat id or email address for delivery_channel. Ask the person for an email address; never guess.",
-    )
-    model: str | None = Field(
-        default=None,
-        description="Model for this task: provider-qualified or pinned. Empty uses the current Brain model.",
-    )
-    agent_profile: str | None = Field(default=None, description="Agent Profile slug or id (default: Default).")
+    schedule: str = Field(default="", description=f"Recurring: {_SCHEDULE_FORMATS}.")
+    delay_minutes: float = 0
+    run_at: str = Field(default="", description="Local 'YYYY-MM-DDTHH:MM'.")
+    notify_only: bool = False
+    delivery_channel: str = Field(default="", description="Also send results: 'telegram', 'email'…")
+    delivery_target: str = Field(default="", description="Chat id or email; ask, never guess.")
+    model: str = Field(default="", description="Provider-qualified; empty: the Brain model.")
+    agent_profile: str = ""
     approval_mode: ApprovalModeChoice | None = Field(
         default=None,
-        description=(
-            "What its runs may do, as a chat's approval level: block (default: reads only), approve (each "
-            "action asks the person on its card) or auto (a reviewer approves what matches the workflow; "
-            "otherwise it asks the person)."
-        ),
+        description="block (default: reads only), approve (asks the person) or auto (a reviewer approves).",
     )
-    timezone: str | None = Field(default=None, description="IANA zone, e.g. 'Europe/London' (default: local).")
+    timezone: str = Field(default="", description="IANA zone.")
 
 
 class _TaskListInput(BaseModel):
@@ -110,33 +77,31 @@ class _TaskDeleteInput(BaseModel):
     task_id: str = Field(description="Task id from task_list.")
 
 
-class _TaskUpdateInput(BaseModel):
-    task_id: str = Field(description="Task id from task_list.")
-    name: str | None = Field(default=None, description="New name.")
-    schedule: str | None = Field(
-        default=None,
-        description="New schedule, in task_create's formats; '' clears it (run manually).",
-    )
-    run_at: str | None = Field(
-        default=None,
-        description="Move the task to one new local time 'YYYY-MM-DDTHH:MM'; replaces any schedule.",
-    )
-    prompts: list[str] | None = Field(default=None, description="New messages (replaces all of them).")
-    approval_mode: ApprovalModeChoice | None = Field(default=None, description="New approval mode.")
-    enabled: bool | None = Field(default=None, description="false pauses the task, true resumes it.")
-    model: str | None = Field(default=None, description="New model; '' uses the default model.")
-    agent_profile: str | None = Field(
-        default=None,
-        description="Agent Profile slug or id; '' uses the Default profile.",
-    )
-    notes: str | None = Field(
-        default=None,
-        description="A workflow's notes for its next run, replacing the old ones; '' clears them.",
-    )
-    timezone: str | None = Field(default=None, description="IANA zone, e.g. 'Europe/London' (default: local).")
+class _TaskUpdateInput(NullMeansUnset):
+    # A field left out stays as it is; '' clears the ones that say so (the others: empty is left out).
+    task_id: str
+    name: str = ""
+    icon: str = ""
+    description: str | None = None
+    schedule: str | None = Field(default=None, description="'' runs it only by hand.")
+    run_at: str = Field(default="", description="Replaces the schedule.")
+    prompts: list[str] | None = Field(default=None, description="Replaces all its messages.")
+    notify_label: str = Field(default="", description="A reminder's text.")
+    approval_mode: ApprovalModeChoice | None = Field(default=None)
+    enabled: bool | None = Field(default=None, description="false pauses it.")
+    model: str | None = Field(default=None, description="'' uses the Brain model.")
+    agent_profile: str | None = Field(default=None, description="'' uses Default.")
+    notes: str | None = Field(default=None, description="For its next run, replacing the old; '' clears.")
+    timezone: str | None = None
 
 
 # ── Tool functions ───────────────────────────────────────────────────────────
+
+def _device_zone() -> str:
+    """The zone of the device the person sent this turn from; "" when none said (a channel, a workflow)."""
+    agent = sys.modules.get("row_bot.agent")  # a turn runs in it; nothing else has a device
+    return agent.current_device_zone() if agent is not None else ""
+
 
 def _local_run_at(value: str) -> str:
     """A one-off time as the scheduler stores it: local, to the minute, in the future (B291)."""
@@ -187,18 +152,19 @@ def _task_create(
             prompts=prompts or [],
             description=description,
             icon=icon,
-            schedule=schedule,
+            schedule=schedule or None,
             at=at,
-            delay_minutes=delay_minutes,
+            delay_minutes=delay_minutes or None,
             notify_only=notify_only,
             notify_label=notify_label,
-            delivery_channel=delivery_channel,
-            delivery_target=delivery_target,
+            delivery_channel=delivery_channel or None,
+            delivery_target=delivery_target or None,
             model_override=model or None,
             safety_mode=effective_approval_mode,
             agent_profile_id=agent_profile or tasks_db.DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
             apply_default_skills=False,
-            timezone=timezone or None,
+            # A schedule keeps the person's own time: their device's zone unless they named one (M10).
+            timezone=timezone or (_device_zone() if schedule else "") or None,
         )
 
         task = tasks_db.get_task(task_id)
@@ -355,6 +321,9 @@ def _task_update(
     run_at: str | None = None,
     notes: str | None = None,
     timezone: str | None = None,
+    icon: str | None = None,
+    description: str | None = None,
+    notify_label: str | None = None,
 ) -> str:
     """Update fields on an existing task."""
     task = tasks_db.get_task(task_id)
@@ -370,8 +339,13 @@ def _task_update(
                  + (f" (cut to {workflow_turns.NOTES_LIMIT:,})" if len(notes.strip()) > len(kept) else "")
                  if kept else "  Notes: cleared")
     updates: dict = {}
-    if name is not None:
+    if name:
         updates["name"] = name
+    for field, value in (("icon", icon), ("notify_label", notify_label)):
+        if value:
+            updates[field] = value
+    if description is not None:
+        updates["description"] = description
     if schedule is not None:
         updates["schedule"] = schedule if schedule else None
     if run_at:
@@ -402,8 +376,8 @@ def _task_update(
     if not updates:
         if noted:
             return f"Updated task '{task['icon']} {task['name']}'.\n{noted}"
-        return ("No fields to update. Provide at least one of: name, schedule, prompts, approval_mode, enabled, "
-                "model, notes, timezone.")
+        return ("No fields to update. Provide at least one of: name, icon, description, schedule, run_at, prompts, "
+                "notify_label, approval_mode, enabled, model, agent_profile, notes, timezone.")
 
     try:
         tasks_db.update_task(task_id, **updates)
@@ -515,23 +489,13 @@ class TaskTool(BaseTool):
             StructuredTool.from_function(
                 func=_task_create,
                 name="task_create",
-                # The one home for scheduling guidance; the system prompt only points here.
+                # The decision rules; how workflows run and are written is in workflow_guide (skill_load).
                 description=(
-                    "Create a reminder, timer, scheduled task or monitor. To come back to THIS conversation "
-                    "later ('check back in 10 minutes and tell me…', 'look again at 3pm'), use wait_for instead: "
-                    "a task runs in its own conversation. "
-                    "Reminders: 'remind me in N minutes' uses delay_minutes; a stated time uses run_at in local time "
-                    "('remind me at 9am on 8 October' -> run_at='2026-10-08T09:00'), never minutes worked out "
-                    "from now; add notify_only=true for a plain notification. To move a reminder, use "
-                    "task_update with run_at instead of deleting and re-creating it. "
-                    "Recurring work (a workflow): a schedule plus prompts, the messages each run sends. "
-                    "A run is a chat turn in the workflow's own conversation, so it sees earlier runs, has "
-                    "every tool, and its approval level decides what it may do. Say branching in words. "
-                    "Posting, emailing or any other action asks the person on its own card with the exact "
-                    "account, recipient and text, so don't ask for approval in the message. notify_only is "
-                    "only for passive reminders. Monitoring ('alert me if W changes'): "
-                    "schedule='interval_minutes:M' and a prompt that ends it with "
-                    "task_update(task_id='{{task_id}}', enabled=false) once done."
+                    "Create a reminder, timer or workflow (a scheduled chat in its own conversation); to come "
+                    "back to THIS conversation, use wait_for. In N minutes: delay_minutes. A stated time: run_at, "
+                    "never minutes worked out. Plain reminder: notify_only. Recurring: schedule and prompts. "
+                    "Monitoring: interval_minutes and a prompt ending with task_update(task_id='{{task_id}}', "
+                    "enabled=false) once done. More: workflow_guide."
                 ),
                 args_schema=_TaskCreateInput,
             ),

@@ -37,6 +37,7 @@ import time
 from typing import Any, Awaitable, Callable
 import uuid
 
+from row_bot.browser import demo as _demo
 from row_bot.browser import guard as _guard
 from row_bot.browser.local_access import (
     GRANT_SOURCES,
@@ -1013,6 +1014,7 @@ class BrowserEngine:
             "sign_in": (chat.secret if chat else "") or "",
             "tabs": [tab for tab in tabs],
             "recording": bool(chat and chat.id in self._recorders),
+            "demo": _demo.summary(str(chat_id or "default")),
             "revision": self._revision,
         }
 
@@ -1265,9 +1267,17 @@ class BrowserEngine:
             return "no_page"
         page = tab.page
         copied = ""
+        # Show Row-Bot how (C3): while a demo records, each event is described before it plays.
+        demo = _demo.observer(chat.id)
+        stepped = False
         for event in events:
             kind = event.get("type")
             try:
+                if demo is not None:
+                    try:
+                        stepped = await _demo.before_event(demo, event, page) or stepped
+                    except Exception:
+                        logger.debug("A demo step was skipped", exc_info=True)
                 if kind == "copy":
                     copied = str(await page.evaluate(_SELECTION_SCRIPT) or "")[:COPY_LIMIT]
                     continue
@@ -1307,6 +1317,8 @@ class BrowserEngine:
                     # a long typed password can take longer to play than the wait itself.
                     chat.person_at = time.monotonic()
         chat.last_used = time.monotonic()
+        if stepped:
+            self._publish(chat.id)
         return {"status": "ok", "copied": copied}
 
     def person_action(self, chat_id: str, action: str, *, url: str = "", tab: str = "") -> None:
@@ -1358,6 +1370,12 @@ class BrowserEngine:
             finally:
                 self._soon(self._finish_loading(chat))
         await self._refresh_titles(chat)
+        if chat.active is not None:
+            try:
+                url = str(chat.active.page.url or "")
+            except Exception:
+                url = ""
+            _demo.navigated(chat.id, action, url=url, title=self._title_cache(chat.active))
         self._publish(chat.id)
 
     async def _finish_loading(self, chat: _Chat) -> None:

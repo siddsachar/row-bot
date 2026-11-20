@@ -17,6 +17,7 @@ import {
   Laptop,
   MoreHorizontal,
   PictureInPicture2,
+  Presentation,
   RotateCw,
   Square,
   UserRoundCheck,
@@ -43,6 +44,8 @@ import {
   type WaitingQuestion,
 } from '../shell/answer-question';
 import { BrowserSites } from './BrowserSites';
+import BrowserDemo, { demoBlocked } from './BrowserDemo';
+import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
 import {
   BUTTONS,
   createInputQueue,
@@ -229,6 +232,34 @@ export default function BrowserPane({
   const signIn = state?.sign_in || '';
   const tabs = state?.tabs ?? [];
   const page = status === 'running' && tabs.length > 0;
+  // Show Row-Bot how (C3): the person does a task; Row-Bot keeps the steps.
+  const phone = useMedia(PHONE_LAYOUT);
+  const demo = state?.demo ?? null;
+  const incognito = useClientSelector(
+    (value) =>
+      value.conversation?.id === conversationId &&
+      Boolean(value.conversation.incognito),
+  );
+  const chatTitle = useClientSelector((value) =>
+    value.conversation?.id === conversationId ? value.conversation.title : '',
+  );
+  // The steps panel floats over the page, beside it rather than inside it (the page takes the input).
+  const [stage, setStage] = useState<HTMLDivElement | null>(null);
+  const blocked = demoBlocked({
+    page: page && Boolean(state?.url),
+    acting: Boolean(acting),
+    incognito,
+  });
+  const startDemo = useCallback(async () => {
+    setBusy(true);
+    try {
+      await controller.startBrowserDemo(conversationId);
+    } catch (cause) {
+      notify(clientError(cause).message, 'warning');
+    } finally {
+      setBusy(false);
+    }
+  }, [controller, conversationId, notify]);
 
   function point(
     event: { clientX: number; clientY: number },
@@ -358,8 +389,23 @@ export default function BrowserPane({
   }
 
   const menu = [
+    // On a phone the pane is touch-first: Show Row-Bot how lives here.
+    ...(phone && !demo
+      ? [
+          {
+            label: 'Show Row-Bot how',
+            description:
+              blocked ||
+              'Do a task yourself and Row-Bot turns your steps into a skill',
+            icon: <Presentation size={16} aria-hidden />,
+            disabled: Boolean(blocked) || busy,
+            onSelect: () => void startDemo(),
+          },
+        ]
+      : []),
     {
       label: 'Paste into the page',
+      separatorBefore: phone && !demo,
       icon: <ClipboardPaste size={16} aria-hidden />,
       disabled: !page,
       onSelect: () => void pasteFromMenu(),
@@ -477,6 +523,20 @@ export default function BrowserPane({
           />
         </form>
         <div className="browser-tools">
+          {!phone && !demo && (
+            <IconButton
+              label={
+                blocked ||
+                'Show Row-Bot how: do a task yourself and Row-Bot turns your steps into a skill'
+              }
+              size="sm"
+              className="browser-demo-start"
+              disabled={Boolean(blocked) || busy}
+              onClick={() => void startDemo()}
+            >
+              <Presentation aria-hidden />
+            </IconButton>
+          )}
           {mode === 'docked' && (
             <IconButton
               label="Pop out"
@@ -522,118 +582,130 @@ export default function BrowserPane({
           ))}
         </div>
       )}
-      <PaneStatus
-        status={status}
-        acting={acting}
-        waiting={turn ? waiting : ''}
-        signIn={signIn}
-        asked={asked}
-        busy={busy}
-        running={running && Boolean(generation?.can_stop)}
-        onAnswer={(choice) => asked && void answer(asked, choice)}
-        onStop={() => void stop()}
-      />
-      <div
-        ref={viewport}
-        className="browser-viewport"
-        data-driving={driving ? 'agent' : undefined}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onWheel={onWheel}
-        onContextMenu={(event) => page && event.preventDefault()}
-      >
-        {state?.loading && (
-          <span
-            className="browser-loading"
-            role="progressbar"
-            aria-label="Loading the page"
-          />
-        )}
-        {status === 'crashed' ? (
-          <div className="browser-state" role="alert">
-            <strong>Row-Bot&apos;s browser stopped. Restart it?</strong>
-            <p>
-              Signed-in sites stay signed in. Row-Bot opens the page again when
-              it carries on.
-            </p>
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => void act({ action: 'restart' })}
-            >
-              Restart
-            </Button>
-          </div>
-        ) : status === 'starting' ? (
-          <div className="browser-state">
-            <Skeleton label="Starting Row-Bot's browser" />
-            <p>Starting Row-Bot&apos;s browser…</p>
-          </div>
-        ) : !page || !frame ? (
-          state && connection !== 'offline' ? (
-            <div className="browser-state">
-              <Globe size={28} aria-hidden className="browser-state-icon" />
-              <strong>Nothing open yet</strong>
-              <p>
-                Row-Bot opens pages here as it works, and you stay signed in to
-                sites. Type an address above to open one yourself.
-              </p>
-            </div>
-          ) : (
-            <div className="browser-state">
-              <Skeleton label="Connecting to Row-Bot's browser" />
-            </div>
-          )
-        ) : (
-          <img
-            ref={picture}
-            className="browser-picture"
-            src={frame.src}
-            alt={`Live page: ${state?.title || state?.site || 'the page'}`}
-            draggable={false}
-          />
-        )}
-        {page && frame && connection === 'offline' && (
-          <span className="browser-reconnecting" role="status">
-            Reconnecting…
-          </span>
-        )}
-        <textarea
-          ref={keys}
-          className="browser-keys"
-          aria-label={`Type into the page${state?.title ? `: ${state.title}` : ''}`}
-          tabIndex={page ? 0 : -1}
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          onKeyDown={(event) => onKey(event, 'down')}
-          onKeyUp={(event) => onKey(event, 'up')}
-          onPaste={(event) => {
-            event.preventDefault();
-            paste(event.clipboardData.getData('text/plain'));
-          }}
-          onInput={(event) => {
-            const target = event.currentTarget;
-            const native = event.nativeEvent as InputEvent;
-            if (native.inputType === 'deleteContentBackward') {
-              input.push({ type: 'key', action: 'down', key: 'Backspace' });
-              input.push({ type: 'key', action: 'up', key: 'Backspace' });
-            } else if (
-              native.inputType?.startsWith('insert') &&
-              !native.isComposing &&
-              target.value
-            ) {
-              // Phone keyboards send text, not keys.
-              onText(target.value);
-            }
-            target.value = '';
-          }}
-          onCompositionEnd={(event) => {
-            onText(event.data);
-            event.currentTarget.value = '';
-          }}
+      {!demo && (
+        <PaneStatus
+          status={status}
+          acting={acting}
+          waiting={turn ? waiting : ''}
+          signIn={signIn}
+          asked={asked}
+          busy={busy}
+          running={running && Boolean(generation?.can_stop)}
+          onAnswer={(choice) => asked && void answer(asked, choice)}
+          onStop={() => void stop()}
         />
+      )}
+      <BrowserDemo
+        conversationId={conversationId}
+        current={demo}
+        signIn={Boolean(signIn)}
+        chatTitle={chatTitle}
+        stage={stage}
+      />
+      <div className="browser-stage" ref={setStage}>
+        <div
+          ref={viewport}
+          className="browser-viewport"
+          data-driving={driving ? 'agent' : undefined}
+          data-demo={demo?.status === 'recording' ? 'recording' : undefined}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onWheel={onWheel}
+          onContextMenu={(event) => page && event.preventDefault()}
+        >
+          {state?.loading && (
+            <span
+              className="browser-loading"
+              role="progressbar"
+              aria-label="Loading the page"
+            />
+          )}
+          {status === 'crashed' ? (
+            <div className="browser-state" role="alert">
+              <strong>Row-Bot&apos;s browser stopped. Restart it?</strong>
+              <p>
+                Signed-in sites stay signed in. Row-Bot opens the page again
+                when it carries on.
+              </p>
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() => void act({ action: 'restart' })}
+              >
+                Restart
+              </Button>
+            </div>
+          ) : status === 'starting' ? (
+            <div className="browser-state">
+              <Skeleton label="Starting Row-Bot's browser" />
+              <p>Starting Row-Bot&apos;s browser…</p>
+            </div>
+          ) : !page || !frame ? (
+            state && connection !== 'offline' ? (
+              <div className="browser-state">
+                <Globe size={28} aria-hidden className="browser-state-icon" />
+                <strong>Nothing open yet</strong>
+                <p>
+                  Row-Bot opens pages here as it works, and you stay signed in
+                  to sites. Type an address above to open one yourself.
+                </p>
+              </div>
+            ) : (
+              <div className="browser-state">
+                <Skeleton label="Connecting to Row-Bot's browser" />
+              </div>
+            )
+          ) : (
+            <img
+              ref={picture}
+              className="browser-picture"
+              src={frame.src}
+              alt={`Live page: ${state?.title || state?.site || 'the page'}`}
+              draggable={false}
+            />
+          )}
+          {page && frame && connection === 'offline' && (
+            <span className="browser-reconnecting" role="status">
+              Reconnecting…
+            </span>
+          )}
+          <textarea
+            ref={keys}
+            className="browser-keys"
+            aria-label={`Type into the page${state?.title ? `: ${state.title}` : ''}`}
+            tabIndex={page ? 0 : -1}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onKeyDown={(event) => onKey(event, 'down')}
+            onKeyUp={(event) => onKey(event, 'up')}
+            onPaste={(event) => {
+              event.preventDefault();
+              paste(event.clipboardData.getData('text/plain'));
+            }}
+            onInput={(event) => {
+              const target = event.currentTarget;
+              const native = event.nativeEvent as InputEvent;
+              if (native.inputType === 'deleteContentBackward') {
+                input.push({ type: 'key', action: 'down', key: 'Backspace' });
+                input.push({ type: 'key', action: 'up', key: 'Backspace' });
+              } else if (
+                native.inputType?.startsWith('insert') &&
+                !native.isComposing &&
+                target.value
+              ) {
+                // Phone keyboards send text, not keys.
+                onText(target.value);
+              }
+              target.value = '';
+            }}
+            onCompositionEnd={(event) => {
+              onText(event.data);
+              event.currentTarget.value = '';
+            }}
+          />
+        </div>
       </div>
     </section>
   );

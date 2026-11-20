@@ -15,10 +15,13 @@ const SOURCES: Record<string, string> = {
   extraction: 'From conversations',
   document: 'From documents',
   wiki: 'Wiki and Dream Cycle',
+  import: 'Imported from other assistants',
   other: 'Other',
 };
 
-export function sourceWords(source: string) {
+/** Where a memory came from; an imported one names its app ("Imported from ChatGPT"). */
+export function sourceWords(source: string, label = '') {
+  if (source === 'import' && label) return `Imported from ${label}`;
   return SOURCES[source] ?? humanizeToken(source);
 }
 
@@ -218,7 +221,7 @@ export default function KnowledgeList({
                   {humanizeToken(node.entity_type)}
                 </span>
               </td>
-              <td>{sourceWords(node.source)}</td>
+              <td>{sourceWords(node.source, node.source_label)}</td>
               <td data-numeric="true">{node.relation_count}</td>
               <td>
                 <When value={node.updated_at} fallback="" />

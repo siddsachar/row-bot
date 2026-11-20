@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 import json
+import time
 
 import pytest
 
 from row_bot.providers import client_status as status
 from row_bot.providers import config, model_catalog, model_catalog_cache as cache
+
+pytestmark = pytest.mark.platform  # a key saved through the secret store (P10)
 
 
 @pytest.fixture
@@ -164,7 +167,7 @@ def test_models_scoped_readiness_and_category_cursor_leave_passive_status_alone(
     assert [len(first.items), len(second.items)] == [80, 10]
     assert first.items[0].runtime_state == "ready"
     assert first.items[0].selection_ref.startswith("model:openai:")
-    assert len(calls) == 2
+    assert len(calls) == 1  # the second page reuses the first's rows: nothing they're read from changed
     with pytest.raises(status.ProviderStatusError, match="cursor_expired"):
         status.list_cached_models(surface="vision", readiness=True, cursor=first.next_cursor)
 
@@ -262,4 +265,80 @@ def test_each_request_reads_saved_owners_once(saved, monkeypatch):
     assert reads == ["cache", "config"]
     reads.clear()
     status.read_provider_snapshot()
+    assert reads == []  # P10: unchanged files are not read again
+    saved(cloud={"test": _model(), "added": _model()})
+    assert status.read_provider_snapshot().total_models == 2
     assert reads == ["cache", "config"]
+
+
+def test_the_handshake_reads_the_catalog_once_and_not_again_until_it_changes(saved, monkeypatch):
+    saved(cloud={"test": _model()}, generated=1)
+    reads = []
+    read = status.read_model_catalog_cache
+
+    def cache_read(**kwargs):
+        reads.append("cache")
+        return read(**kwargs)
+
+    monkeypatch.setattr(status, "read_model_catalog_cache", cache_read)
+
+    def handshake() -> bool:  # what cached_choices asks of the catalog
+        status.picker_choices("chat", "")
+        return status.catalog_is_stale()
+
+    assert handshake() is True  # saved long ago
+    assert reads == ["cache"]
+    assert handshake() is True
+    assert reads == ["cache"]
+    saved(cloud={"test": _model()}, generated=time.time())
+    assert handshake() is False
+    assert reads == ["cache", "cache"]
+
+
+def test_a_key_saved_or_set_in_the_environment_shows_at_once(saved, monkeypatch):
+    from row_bot import api_keys, secret_store
+    from row_bot.providers import auth_store
+
+    class MemorySecrets(dict):
+        def get_password(self, service, account):
+            return self.get((service, account))
+
+        def set_password(self, service, account, value):
+            self[service, account] = value
+
+        def delete_password(self, service, account):
+            self.pop((service, account), None)
+
+    monkeypatch.setattr(secret_store, "_backend_override", MemorySecrets())
+    monkeypatch.setattr(api_keys, "KEYS_PATH", api_keys.KEYS_PATH.parent / "lane-keys.json")
+    monkeypatch.setattr(api_keys, "_session_keys", {})
+    monkeypatch.setattr(auth_store, "_session_provider_secrets", {})
+    for name in auth_store.PROVIDER_API_KEY_ENV.values():
+        monkeypatch.delenv(name, raising=False)
+    saved(cloud={"gpt-test": _model(), "claude-test": _model("anthropic")})
+
+    def configured() -> dict[str, bool]:
+        return {row.provider_id: row.configured for row in status.list_cached_models(readiness=True).items}
+
+    assert configured() == {"openai": False, "anthropic": False}
+    auth_store.set_provider_secret("openai", "api_key", "synthetic-openai-key")
+    assert configured() == {"openai": True, "anthropic": False}
+    monkeypatch.setenv(auth_store.PROVIDER_API_KEY_ENV["anthropic"], "synthetic-anthropic-key")
+    assert configured() == {"openai": True, "anthropic": True}
+
+
+def test_learnings_personal_model_endpoint_is_listed_by_its_name_not_its_id(saved, monkeypatch):
+    from row_bot import learning
+
+    endpoint = {"id": "row-bot-personal-row-bot", "name": "Personal model (Row-Bot)",
+                "base_url": "http://127.0.0.1:8190/v1", "enabled": True}
+    provider_id = "custom_openai_row-bot-personal-row-bot"
+    ref = f"model:{provider_id}:personal-v1"
+    saved(cloud={ref: _model(provider_id, label="personal-v1")}, settings={"custom_endpoints": [endpoint]})
+    monkeypatch.setattr(learning, "offered_personal_models", lambda: {ref: "Personal model v1"})
+
+    snapshot = status.read_provider_snapshot()
+    names = {row.provider_id: row.display_name for row in snapshot.providers}
+    assert names[provider_id] == "Personal model (Row-Bot)"  # T11: the filter and the provider list
+    (row,) = status.list_cached_models(provider_id=provider_id).items
+    assert (row.display_name, row.provider_display_name) == ("Personal model v1", "Personal model (Row-Bot)")

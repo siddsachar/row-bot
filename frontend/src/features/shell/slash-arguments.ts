@@ -4,7 +4,13 @@ type SlashCommandSpec = ConversationComposer['commands'][number];
 type Selection = ReasoningView['selection'];
 
 /** Commands the composer runs itself when they carry an argument (B112). */
-const WITH_ARGUMENT = new Set(['goal', 'reasoning', 'profile', 'agent']);
+const WITH_ARGUMENT = new Set([
+  'goal',
+  'reasoning',
+  'profile',
+  'agent',
+  'watch',
+]);
 
 export type SlashArgument = { command: SlashCommandSpec; argument: string };
 
@@ -30,7 +36,71 @@ export function slashArgument(
   );
   if (!command || !argument || !WITH_ARGUMENT.has(command.handler_kind))
     return null;
+  // "/watch the deploy and tell me when it's live" is a message: the model
+  // sets the watch (B4).
+  if (
+    command.handler_kind === 'watch' &&
+    watchRequest(argument).kind === 'model'
+  )
+    return null;
   return { command, argument };
+}
+
+export type WatchRequest =
+  | {
+      kind: 'direct';
+      mode: 'page' | 'command';
+      target: string;
+      /** 0: it paces itself. */
+      everyMinutes: number;
+    }
+  | { kind: 'model' }
+  | { kind: 'invalid'; message: string };
+
+const INTERVAL =
+  /^(?:every\s+)?(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?|h|hr|hrs|hours?)$/i;
+const LEADING = /^((?:every\s+)?\d+(?:\.\d+)?\s*[a-z]+)\s+/i;
+const TRAILING = /\s+((?:every\s+)?\d+(?:\.\d+)?\s*[a-z]+)$/i;
+
+/**
+ * "/watch 10m https://status.example.com" and "/watch 5m `gh pr checks 590`"
+ * are set directly, with no model call (B4). The interval is optional and
+ * may come first or last ("10m", "2h", "every 10 minutes"). Anything else
+ * ("/watch the deploy", a question) goes to the model.
+ */
+export function watchRequest(argument: string): WatchRequest {
+  let rest = argument.trim();
+  let everyMinutes = 0;
+  for (const piece of [LEADING, TRAILING]) {
+    const found = piece.exec(rest);
+    const interval = found ? INTERVAL.exec(found[1].trim()) : null;
+    if (!found || !interval) continue;
+    const amount = Number(interval[1]);
+    everyMinutes = interval[2].toLowerCase().startsWith('h')
+      ? amount * 60
+      : amount;
+    rest = (
+      rest.slice(0, found.index) + rest.slice(found.index + found[0].length)
+    ).trim();
+    if (everyMinutes < 1 || everyMinutes > 1440)
+      return {
+        kind: 'invalid',
+        message:
+          'A watch checks at most once a minute and at least once a day.',
+      };
+    break;
+  }
+  if (/^https?:\/\/\S+$/i.test(rest))
+    return { kind: 'direct', mode: 'page', target: rest, everyMinutes };
+  const command = /^`([^`]+)`$/.exec(rest);
+  if (command && command[1].trim())
+    return {
+      kind: 'direct',
+      mode: 'command',
+      target: command[1].trim(),
+      everyMinutes,
+    };
+  return { kind: 'model' };
 }
 
 const words = (value: string) =>

@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -29,7 +30,7 @@ import { usePlace } from '../../api/place';
 import { unbindWithUndo } from './resource-unbind';
 import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
-import { useSettledIdentity } from '../../shell-settled';
+import { useBackgroundReady, useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
@@ -89,6 +90,7 @@ import {
   type PendingCommand,
 } from './command-receipts';
 import SafeMarkdown from './chat-parity-markdown';
+import { SkillOfferContext, useChatSkillOffers } from '../skills/skill-offers';
 import TranscriptTrace from './TranscriptTrace';
 import { writingLabel } from './tool-activity';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
@@ -100,6 +102,7 @@ import {
   profileChoice,
   reasoningChoice,
   slashArgument,
+  watchRequest,
   type SlashArgument,
 } from './slash-arguments';
 import { GoalCheckConfirm, resetContextGoals } from './ContextGoal';
@@ -140,7 +143,11 @@ import { useBuddyStill } from '../buddy/BuddyStill';
 import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import { ComputerStep, useComputerUse } from './ComputerStep';
 import { BrowserStep } from '../browser/BrowserThumbnail';
-import { registerPromptSender } from './composer-bridge';
+import {
+  registerPromptSender,
+  setPromptReady,
+  type TappedChoice,
+} from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
 import {
   INCOGNITO_PLACEHOLDER,
@@ -189,6 +196,29 @@ import {
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
 const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
+
+/**
+ * A press on one of the composer's buttons while the message field has focus
+ * leaves the focus there, as Enter does. On a phone, the field losing focus on
+ * the press closed the keyboard, and the composer dropped to the bottom of the
+ * screen before the tap's click landed: the click fell on whatever was then
+ * under the finger (a new chat's prompt suggestion, or nothing), so Send took
+ * two taps. A menu trigger still opens on its press; whatever a button opens
+ * takes focus itself.
+ */
+function keepFieldFocus(event: MouseEvent<HTMLElement>) {
+  const button =
+    event.target instanceof Element ? event.target.closest('button') : null;
+  const field = document.activeElement;
+  if (
+    !button ||
+    !(field instanceof HTMLTextAreaElement) ||
+    !event.currentTarget.contains(field) ||
+    (event.type === 'pointerdown' && button.hasAttribute('aria-haspopup'))
+  )
+    return;
+  event.preventDefault();
+}
 
 /** Below 740px Context floats; a floating chat docks it again from 780px. */
 /** Too narrow for the details rail beside a comfortable reading column (U3). */
@@ -382,12 +412,13 @@ export default function Conversation({
     dictateReason: 'Voice capability is unavailable.',
     talkReason: 'Voice capability is unavailable.',
   });
-  // Read once per settled server identity, after the conversation snapshot
-  // is confirmed, so it never competes with open or subscribe (B29).
+  // Read once per settled server identity, once the first screen is up, so
+  // it never competes with open, subscribe or the conversation's reads (B29).
   const settledIdentity = useSettledIdentity();
+  const backgroundReady = useBackgroundReady();
   useEffect(() => {
     const handshake = controller.getSnapshot().handshake;
-    if (!settledIdentity || !handshake) return;
+    if (!settledIdentity || !backgroundReady || !handshake) return;
     const voiceHostKey = `${handshake.client_session_id}:${handshake.server_epoch}`;
     const abort = new AbortController();
     void controller
@@ -421,7 +452,7 @@ export default function Conversation({
           });
       });
     return () => abort.abort();
-  }, [controller, settledIdentity]);
+  }, [controller, settledIdentity, backgroundReady]);
   const [busy, setBusy] = useState(false);
   // A message answering Row-Bot's waiting question is on its way.
   const answeringQuestion = useRef(false);
@@ -481,6 +512,10 @@ export default function Conversation({
     value: ReturnType<typeof controller.getDraft>;
   } | null>(null);
   const firstPromptSent = useRef<string | null>(null);
+  const [openingPrompt, setOpeningPrompt] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
   // Edit and resend (B5): the edited text, sent once the new conversation is open.
   const [forkPrompt, setForkPrompt] = useState<{
     conversationId: string;
@@ -813,15 +848,27 @@ export default function Conversation({
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   // A helper this chat started waits on an approval: its card shows here
   // even when no notice reached the transcript, so no helper waits on an
-  // approval nobody can see (B348).
-  const approvalsFeed = usePendingApprovals(controller.pendingApprovals);
+  // approval nobody can see (B348). So does this chat's own agent work
+  // waiting in the background: no notice is written on its paused turn
+  // (R15). Read once the first screen is up.
+  const approvalsFeed = usePendingApprovals(
+    backgroundReady ? controller.pendingApprovals : undefined,
+  );
   const helperApprovals = useMemo(
     () =>
-      (approvalsFeed.page?.items ?? []).filter(
-        (item) =>
-          item.parent_conversation_id === id &&
-          !rows.some((row) => row.approval_id === item.id),
-      ),
+      (approvalsFeed.page?.items ?? [])
+        .filter(
+          (item) =>
+            (item.parent_conversation_id === id ||
+              (item.source === 'agent' &&
+                !item.parent_conversation_id &&
+                item.conversation_id === id)) &&
+            !rows.some((row) => row.approval_id === item.id),
+        )
+        // A helper asks by its name; this chat's own work asks as Row-Bot.
+        .map((item) =>
+          item.parent_conversation_id ? item : { ...item, title: 'Row-Bot' },
+        ),
     [approvalsFeed.page, id, rows],
   );
   const lastAgentActivity =
@@ -890,6 +937,18 @@ export default function Conversation({
         record.event.type === 'approval.required' &&
         record.event.payload.approval_id === generation?.approval_id,
     );
+  // The turn waits on Row-Bot's question card: it reads as a question, never
+  // an approval (R7). The live event says so; after a reload the waiting list does.
+  const waitingOnQuestion = Boolean(
+    generation?.status === 'waiting_approval' &&
+    generation.approval_id &&
+    ((approvalEvent?.event.type === 'approval.required' &&
+      (approvalEvent.event.payload.questions?.length ?? 0) > 0) ||
+      approvalsFeed.page?.items.some(
+        (item) =>
+          item.id === generation.approval_id && item.kind === 'question',
+      )),
+  );
   // Row-Bot's browser shows as a live step while the turn uses it, on every
   // signed-in device; tapping it opens the Browser pane (N12-A).
   // The turn's tool steps settle into the transcript as they're saved, so this
@@ -1263,6 +1322,34 @@ export default function Conversation({
           return;
         }
         await apply();
+      } else if (command.handler_kind === 'watch') {
+        // A public page or a command that only reads is set here, with no
+        // model call; a command that needs approval goes to the model, whose
+        // card asks (B4).
+        const request = watchRequest(argument);
+        if (request.kind === 'invalid') {
+          setError(request.message);
+          return;
+        }
+        if (request.kind !== 'direct') return;
+        try {
+          await controller.setWatch(target, {
+            mode: request.mode,
+            target: request.target,
+            every_minutes: request.everyMinutes,
+          });
+        } catch (cause) {
+          if (clientError(cause).code !== 'watch_needs_approval') throw cause;
+          const text = `/watch ${argument}`;
+          clear();
+          setBusy(false);
+          send(text, true);
+          return;
+        }
+        clear();
+        overlay.notify(
+          'Watching. Row-Bot speaks up here only when it changes.',
+        );
       } else if (command.handler_kind === 'agent') {
         await controller.intent(
           target,
@@ -1468,6 +1555,7 @@ export default function Conversation({
     capturedDraft?: ReturnType<typeof controller.getDraft>,
     selectedVersion = controller.getSelectionVersion(),
     retry = false,
+    tapped?: TappedChoice,
   ) {
     if (
       !id ||
@@ -1600,6 +1688,8 @@ export default function Conversation({
               write_targets: targets,
               // Retry runs the last message again in place, never a second copy of it.
               ...(retry ? { retry: true } : {}),
+              // A reply button's words: marked as the person's tap on that reply (never a note from Row-Bot).
+              ...(tapped ? { tapped_choice: tapped } : {}),
             },
             sendRevision,
             claim.commandId,
@@ -1659,6 +1749,7 @@ export default function Conversation({
     attachments: typeof draft.attachments = [],
     retry = false,
     questionChecked = false,
+    tapped?: TappedChoice,
   ) {
     const outgoing = example ? { text: example, attachments } : draft;
     // A message typed while Row-Bot's turn waits on one question answers it,
@@ -1672,6 +1763,37 @@ export default function Conversation({
       outgoing.text.trim().length <= 500
     ) {
       void answerOrSend(waiting, outgoing.text.trim(), keepTargets, retry);
+      return;
+    }
+    // Enter while the chat is still opening (its controls not read yet) is
+    // kept and sent once it has opened, never dropped (R2).
+    if (
+      !example &&
+      id &&
+      outgoing.text.trim() &&
+      (!historyReady || state.workspace?.conversation_id !== id)
+    ) {
+      setOpeningPrompt({ conversationId: id, text: outgoing.text });
+      return;
+    }
+    // "/goal Ship the docs", "/reasoning high", "/profile writer",
+    // "/agent <task>" run here instead of reaching the model as text (B112).
+    const withArgument = example
+      ? null
+      : slashArgument(outgoing.text, composerSnapshot?.commands ?? []);
+    // A watch on a public page or a command needs no model (W8): it is set
+    // even while the chat's model can't answer. One the model must set (a
+    // question, or a command that needs approval) still waits for it.
+    if (
+      id &&
+      withArgument?.command.handler_kind === 'watch' &&
+      watchRequest(withArgument.argument).kind !== 'model' &&
+      state.status === 'ready' &&
+      !pendingSteering &&
+      !pendingSubmit &&
+      !pendingResume
+    ) {
+      void runSlashArgument(withArgument);
       return;
     }
     const modelStatus = state.workspace?.model_status;
@@ -1705,11 +1827,6 @@ export default function Conversation({
       !sendActionReady
     )
       return;
-    // "/goal Ship the docs", "/reasoning high", "/profile writer",
-    // "/agent <task>" run here instead of reaching the model as text (B112).
-    const withArgument = example
-      ? null
-      : slashArgument(outgoing.text, composerSnapshot?.commands ?? []);
     if (withArgument) {
       void runSlashArgument(withArgument);
       return;
@@ -1762,7 +1879,7 @@ export default function Conversation({
       }));
     const text = outgoing.text;
     const selectedVersion = controller.getSelectionVersion();
-    void dispatch(text, targets, outgoing, selectedVersion, retry);
+    void dispatch(text, targets, outgoing, selectedVersion, retry, tapped);
   }
   /** The waiting approval is one question: the message answers it; else it goes as usual. */
   async function answerOrSend(
@@ -1793,6 +1910,23 @@ export default function Conversation({
     }
     if (!answered) send(undefined, keepTargets, [], retry, true);
   }
+  // A message sent while the chat was opening goes once it has opened, unless
+  // it was changed meanwhile or the person left the chat (R2).
+  const sendOpeningPrompt = useEffectEvent(() => send());
+  const workspaceOpen = Boolean(id) && state.workspace?.conversation_id === id;
+  useEffect(() => {
+    if (!openingPrompt) return;
+    if (
+      openingPrompt.conversationId !== id ||
+      draft.text !== openingPrompt.text
+    ) {
+      setOpeningPrompt(null);
+      return;
+    }
+    if (!historyReady || !workspaceOpen) return;
+    setOpeningPrompt(null);
+    sendOpeningPrompt();
+  }, [openingPrompt, id, draft.text, historyReady, workspaceOpen]);
   const sendFirstPrompt = useEffectEvent(() => send());
   useEffect(() => {
     if (
@@ -1868,27 +2002,35 @@ export default function Conversation({
   // Side panels (the Design panel's "Ask Row-Bot to change this…") hand a
   // short request to this composer, which sends it with its model and write
   // targets, queued behind a running turn like any other message.
-  const sendPanelPrompt = useEffectEvent((text: string) => {
-    if (
-      !id ||
-      !historyReady ||
-      state.status !== 'ready' ||
-      !sendActionReady ||
-      !controls?.model_selection ||
-      busy ||
-      talkBusy ||
-      pendingSubmit ||
-      pendingSteering ||
-      pendingResume
-    )
-      return false;
-    send(text, true);
-    return true;
-  });
+  // The composer can take a request from a panel or a reply button now (no turn or send in flight).
+  const promptReady = Boolean(
+    id &&
+    historyReady &&
+    state.status === 'ready' &&
+    sendActionReady &&
+    controls?.model_selection &&
+    !busy &&
+    !talkBusy &&
+    !pendingSubmit &&
+    !pendingSteering &&
+    !pendingResume,
+  );
+  const sendPanelPrompt = useEffectEvent(
+    (text: string, tapped?: TappedChoice) => {
+      if (!promptReady) return false;
+      send(text, true, [], false, false, tapped);
+      return true;
+    },
+  );
   useEffect(() => {
     if (!id) return;
-    return registerPromptSender(id, (text) => sendPanelPrompt(text));
+    return registerPromptSender(id, (text, tapped) =>
+      sendPanelPrompt(text, tapped),
+    );
   }, [id]);
+  useEffect(() => {
+    if (id) setPromptReady(id, promptReady);
+  }, [id, promptReady]);
   async function action(
     type: 'conversation.stop' | 'conversation.steer' | 'conversation.resume',
   ) {
@@ -2632,6 +2774,16 @@ export default function Conversation({
   // The latest turn is still in flight while it waits for an approval, even
   // though the worker is parked: no actions until it settles.
   const turnInFlight = isRunning || generation?.status === 'waiting_approval';
+  // Save as a skill (C1): this chat's offers, read again as each turn settles.
+  const skillOffers = useChatSkillOffers(id, {
+    refreshKey: [
+      generation?.generation_id ?? '',
+      generation?.status ?? '',
+      String(Boolean(generation?.quiesced)),
+    ].join(':'),
+    incognito,
+    title: state.conversation?.id === id ? state.conversation.title : '',
+  });
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   // Elapsed time for the live activity row, as this client observed it.
   const [runStartedAt, setRunStartedAt] = useState<number | undefined>();
@@ -2814,12 +2966,21 @@ export default function Conversation({
     const starts = turnStarts(items);
     const ends: boolean[] = [];
     const texts: (string | undefined)[] = [];
+    // An assistant turn's last row, when the turn used tools: it can be saved as a skill.
+    const tools: boolean[] = [];
     let start = 0;
     items.forEach((item, index) => {
       const next = items[index + 1];
       const end =
         item.row.role !== 'assistant' || next?.row.role !== 'assistant';
       ends.push(end);
+      tools.push(
+        end &&
+          item.row.role === 'assistant' &&
+          items
+            .slice(start, index + 1)
+            .some((part) => Boolean(part.traces?.length)),
+      );
       if (item.row.role !== 'assistant') {
         texts.push(undefined);
         start = index + 1;
@@ -2842,6 +3003,7 @@ export default function Conversation({
       starts,
       ends,
       texts,
+      tools,
       browser: browserOffers(items),
       lastUser: items.map((item) => item.row.role).lastIndexOf('user'),
     };
@@ -3446,7 +3608,9 @@ export default function Conversation({
         running: 'Row-Bot is working.',
         stopping: 'Stopping — waiting for the worker to finish.',
         stopped: 'Stopped.',
-        waiting_approval: 'Waiting for your approval.',
+        waiting_approval: waitingOnQuestion
+          ? 'Waiting for your answer.'
+          : 'Waiting for your approval.',
         completed: 'Response complete.',
         interrupted: claudeSignedOut
           ? 'Claude signed you out.'
@@ -3622,77 +3786,83 @@ export default function Conversation({
                 <Skeleton label="Opening conversation" />
               ) : items.length || pending?.conversation === id ? (
                 <TeachContext.Provider value={learningChat.teach}>
-                  {earlierIds.size > 0 && (
-                    // Loaded history is not announced as new conversation.
-                    <div className="transcript-earlier" aria-live="off">
-                      {shown.items.map((item, index) =>
-                        earlierIds.has(item.row.id) ? (
-                          <TranscriptMessage
-                            key={`${id}:${item.row.id}`}
-                            row={item.row}
-                            conversationId={id}
-                            traces={item.traces}
-                            embeds={item.embeds}
-                            media={item.media}
-                            cards={item.cards}
-                            earlierCards={item.earlier}
-                            agents={item.agents}
-                            turnStart={turns.starts[index]}
-                            offerBrowser={turns.browser[index]}
-                            toolbar={turns.ends[index]}
-                            copyText={turns.texts[index]}
-                            onRecover={recoverTurn}
-                            onEditResend={
-                              turnInFlight ? undefined : editAndResend
-                            }
-                            onFork={turnInFlight ? undefined : forkFromHere}
-                          />
-                        ) : null,
-                      )}
-                    </div>
-                  )}
-                  {shown.items.map((item, index) =>
-                    earlierIds.has(item.row.id) ? null : (
-                      <TranscriptMessage
-                        key={`${id}:${item.row.id}`}
-                        row={item.row}
-                        conversationId={id}
-                        traces={item.traces}
-                        embeds={item.embeds}
-                        media={item.media}
-                        cards={item.cards}
-                        earlierCards={item.earlier}
-                        agents={item.agents}
-                        turnStart={turns.starts[index]}
-                        latest={index === lastAssistant && !turnInFlight}
-                        computer={computerLine}
-                        // The live browser step stands in for it while this turn runs.
-                        offerBrowser={
-                          turns.browser[index] &&
-                          !(browserLive && index > turns.lastUser)
-                        }
-                        toolbar={turns.ends[index]}
-                        copyText={turns.texts[index]}
-                        onRecover={recoverTurn}
-                        streaming={
-                          turnInFlight &&
-                          index === items.length - 1 &&
-                          item.row.role === 'assistant'
-                        }
-                        onRetry={
-                          index === lastAssistant &&
-                          !turnInFlight &&
-                          !state.history &&
-                          lastUserText &&
-                          sendActionReady
-                            ? retryLast
-                            : undefined
-                        }
-                        onEditResend={turnInFlight ? undefined : editAndResend}
-                        onFork={turnInFlight ? undefined : forkFromHere}
-                      />
-                    ),
-                  )}
+                  <SkillOfferContext.Provider value={skillOffers.value}>
+                    {earlierIds.size > 0 && (
+                      // Loaded history is not announced as new conversation.
+                      <div className="transcript-earlier" aria-live="off">
+                        {shown.items.map((item, index) =>
+                          earlierIds.has(item.row.id) ? (
+                            <TranscriptMessage
+                              key={`${id}:${item.row.id}`}
+                              row={item.row}
+                              conversationId={id}
+                              traces={item.traces}
+                              embeds={item.embeds}
+                              media={item.media}
+                              cards={item.cards}
+                              earlierCards={item.earlier}
+                              agents={item.agents}
+                              turnStart={turns.starts[index]}
+                              offerBrowser={turns.browser[index]}
+                              toolbar={turns.ends[index]}
+                              usedTools={turns.tools[index]}
+                              copyText={turns.texts[index]}
+                              onRecover={recoverTurn}
+                              onEditResend={
+                                turnInFlight ? undefined : editAndResend
+                              }
+                              onFork={turnInFlight ? undefined : forkFromHere}
+                            />
+                          ) : null,
+                        )}
+                      </div>
+                    )}
+                    {shown.items.map((item, index) =>
+                      earlierIds.has(item.row.id) ? null : (
+                        <TranscriptMessage
+                          key={`${id}:${item.row.id}`}
+                          row={item.row}
+                          conversationId={id}
+                          traces={item.traces}
+                          embeds={item.embeds}
+                          media={item.media}
+                          cards={item.cards}
+                          earlierCards={item.earlier}
+                          agents={item.agents}
+                          turnStart={turns.starts[index]}
+                          latest={index === lastAssistant && !turnInFlight}
+                          computer={computerLine}
+                          // The live browser step stands in for it while this turn runs.
+                          offerBrowser={
+                            turns.browser[index] &&
+                            !(browserLive && index > turns.lastUser)
+                          }
+                          toolbar={turns.ends[index]}
+                          usedTools={turns.tools[index]}
+                          copyText={turns.texts[index]}
+                          onRecover={recoverTurn}
+                          streaming={
+                            turnInFlight &&
+                            index === items.length - 1 &&
+                            item.row.role === 'assistant'
+                          }
+                          onRetry={
+                            index === lastAssistant &&
+                            !turnInFlight &&
+                            !state.history &&
+                            lastUserText &&
+                            sendActionReady
+                              ? retryLast
+                              : undefined
+                          }
+                          onEditResend={
+                            turnInFlight ? undefined : editAndResend
+                          }
+                          onFork={turnInFlight ? undefined : forkFromHere}
+                        />
+                      ),
+                    )}
+                  </SkillOfferContext.Provider>
                 </TeachContext.Provider>
               ) : (
                 <ChatEmpty
@@ -3779,6 +3949,7 @@ export default function Conversation({
                           waiting:
                             generation?.status === 'waiting_approval' &&
                             !computerPause,
+                          asking: waitingOnQuestion,
                           paused: computerPause,
                           stopping: generation?.status === 'stopping',
                           startedAt: runStartedAt,
@@ -4017,6 +4188,7 @@ export default function Conversation({
             </div>
           </div>
           {learningChat.sheet}
+          {skillOffers.sheet}
           {(state.history || showLatest) && (
             <button
               type="button"
@@ -4100,6 +4272,9 @@ export default function Conversation({
               className="composer-field"
               ref={composerFieldRef}
               data-dragging={dragging ? 'true' : undefined}
+              // Before the buttons' own handlers, which focus the button.
+              onPointerDownCapture={keepFieldFocus}
+              onMouseDownCapture={keepFieldFocus}
               onDragEnter={(event) => {
                 if (!hasFiles(event)) return;
                 event.preventDefault();

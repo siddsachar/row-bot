@@ -7,6 +7,12 @@ import { CodeBlock } from './CodeBlock';
 import { GuideLink } from './GuideSheet';
 import MathTex from './MathTex';
 import { SortableTable } from './SortableTable';
+import { useOptionalRuntime } from '../../runtime';
+import { useNotify } from '../../ui/overlays';
+import {
+  changeAnswerState,
+  useAnswerState,
+} from './answer-components/answer-state';
 
 // Underscore emphasis never starts or ends inside a word, so snake_case
 // names such as workspace_file_delete stay literal (as in CommonMark).
@@ -124,7 +130,7 @@ function mathToken(part: string): { tex: string; display: boolean } | null {
   return null;
 }
 
-function inline(text: string): ReactNode[] {
+function inline(text: string, links = true): ReactNode[] {
   return text.split(INLINE).map((part, index) => {
     if (!part) return null;
     if (part.startsWith('`') && part.endsWith('`'))
@@ -132,6 +138,7 @@ function inline(text: string): ReactNode[] {
     const math = mathToken(part);
     if (math?.tex) return <MathTex key={index} {...math} />;
     const link = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(part);
+    if (link && !links) return <Fragment key={index}>{link[1]}</Fragment>;
     if (link) {
       const place = inAppLink(link[1], link[2], index);
       if (place) return place;
@@ -153,7 +160,7 @@ function inline(text: string): ReactNode[] {
         <Fragment key={index}>{part}</Fragment>
       );
     }
-    if (/^https?:\/\//i.test(part)) {
+    if (links && /^https?:\/\//i.test(part)) {
       // A bare URL is a source: a compact chip, the full address on hover.
       const href = safeHref(part);
       return href ? (
@@ -176,14 +183,14 @@ function inline(text: string): ReactNode[] {
       (part.startsWith('**') && part.endsWith('**')) ||
       (part.startsWith('__') && part.endsWith('__'))
     )
-      return <strong key={index}>{inline(part.slice(2, -2))}</strong>;
+      return <strong key={index}>{inline(part.slice(2, -2), links)}</strong>;
     if (part.startsWith('~~') && part.endsWith('~~'))
-      return <del key={index}>{inline(part.slice(2, -2))}</del>;
+      return <del key={index}>{inline(part.slice(2, -2), links)}</del>;
     if (
       (part.startsWith('*') && part.endsWith('*')) ||
       (part.startsWith('_') && part.endsWith('_'))
     )
-      return <em key={index}>{inline(part.slice(1, -1))}</em>;
+      return <em key={index}>{inline(part.slice(1, -1), links)}</em>;
     return <Fragment key={index}>{part}</Fragment>;
   });
 }
@@ -221,6 +228,19 @@ function tableColumns(lines: string[], index: number) {
     : 0;
 }
 
+// What an answer component's placeholder says while its reply streams in.
+const PENDING: Record<string, string> = {
+  'rowbot-table': 'Preparing a table…',
+  'rowbot-chart': 'Preparing a chart…',
+  'rowbot-checklist': 'Preparing a checklist…',
+  'rowbot-figures': 'Preparing figures…',
+  'rowbot-progress': 'Preparing progress…',
+  'rowbot-choices': 'Preparing choices…',
+  'rowbot-visual': 'Drawing a visual…',
+};
+
+type TaskOwner = { conversationId?: string; blockId: string };
+
 // A task list item: "- [ ] open" or "- [x] done".
 const TASK = /^\[([ xX])\]\s+(.+)$/;
 
@@ -228,15 +248,40 @@ const TASK = /^\[([ xX])\]\s+(.+)$/;
  * A task from a Markdown task list, as a real checkbox the person can tick.
  * The tick is theirs: it changes what they see, never the answer's text.
  */
-function TaskItem({ done, text }: { done: boolean; text: string }) {
-  const [checked, setChecked] = useState(done);
+function TaskItem({
+  done,
+  text,
+  id,
+  tasks,
+}: {
+  done: boolean;
+  text: string;
+  /** The item's place in its block: "task-<line>". */
+  id: string;
+  tasks?: TaskOwner;
+}) {
+  const controller = useOptionalRuntime()?.controller;
+  const notify = useNotify();
+  const state = useAnswerState(controller, tasks?.conversationId);
+  const [local, setLocal] = useState<boolean | null>(null);
+  const kept = tasks ? state.ticks[tasks.blockId]?.[id] : undefined;
+  const checked = local ?? kept ?? done;
+  async function tick(value: boolean) {
+    if (!tasks) return setLocal(value);
+    const saved = await changeAnswerState(controller, tasks.conversationId, {
+      block_id: tasks.blockId,
+      item_id: id,
+      done: value,
+    });
+    if (!saved) notify('Couldn’t save that tick. Try again.', 'warning');
+  }
   return (
     <li className="task-item" data-done={checked ? 'true' : undefined}>
       <label>
         <input
           type="checkbox"
           checked={checked}
-          onChange={(event) => setChecked(event.currentTarget.checked)}
+          onChange={(event) => void tick(event.currentTarget.checked)}
         />
         <span>{inline(text)}</span>
       </label>
@@ -319,15 +364,29 @@ function quoteLines(lines: string[]) {
 }
 
 /**
+ * One line's inline Markdown (bold, italics, code, maths) and nothing else:
+ * no blocks, and a link shows as its words, so the line stays in its card.
+ */
+export function SafeInlineMarkdown({ text }: { text: string }) {
+  return <>{inline(text, false)}</>;
+}
+
+/**
  * A deliberately small, text-only Markdown projection. React owns escaping;
  * raw HTML is never parsed and only allow-listed link protocols become links.
  */
 export default function SafeMarkdown({
   text,
   copyText,
+  streaming = false,
+  tasks,
 }: {
+  /** Where this block's task-list ticks are kept; without it they stay on screen only. */
+  tasks?: { conversationId?: string; blockId: string };
   text: string;
   copyText?: (value: string) => Promise<boolean>;
+  /** The reply is still arriving: an answer component's fence shows as a placeholder. */
+  streaming?: boolean;
 }) {
   const lines = withoutBlankRuns(text.replaceAll('\r\n', '\n').split('\n'));
   const blocks: ReactNode[] = [];
@@ -350,6 +409,15 @@ export default function SafeMarkdown({
       )
         content.push(lines[index++]);
       if (index < lines.length) index++;
+      if (streaming && language.startsWith('rowbot-')) {
+        // A component still being written: its block shows once the reply is saved.
+        blocks.push(
+          <p className="answer-pending" role="status" key={`code-${start}`}>
+            {PENDING[language] ?? 'Preparing…'}
+          </p>,
+        );
+        continue;
+      }
       blocks.push(
         <CodeBlock
           copyText={copyText}
@@ -409,21 +477,27 @@ export default function SafeMarkdown({
       const ordered = Boolean(list[2]);
       const items: ReactNode[] = [];
       const pattern = ordered ? /^\s*\d+[.)]\s+(.+)$/ : /^\s*[-*+]\s+(.+)$/;
-      let tasks = false;
+      let hasTasks = false;
       while (index < lines.length) {
         const item = pattern.exec(lines[index]);
         if (!item) break;
         const task = TASK.exec(item[1]);
-        tasks ||= Boolean(task);
+        hasTasks ||= Boolean(task);
         items.push(
           task ? (
-            <TaskItem key={index++} done={task[1] !== ' '} text={task[2]} />
+            <TaskItem
+              key={index}
+              id={`task-${index++}`}
+              done={task[1] !== ' '}
+              text={task[2]}
+              tasks={tasks?.blockId ? tasks : undefined}
+            />
           ) : (
             <li key={index++}>{inline(item[1])}</li>
           ),
         );
       }
-      const className = tasks ? 'task-list' : undefined;
+      const className = hasTasks ? 'task-list' : undefined;
       blocks.push(
         ordered ? (
           // A list split by a paragraph goes on from its own first number.

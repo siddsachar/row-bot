@@ -60,11 +60,16 @@ ReviewDecision = Literal["approve", "ask"]
 _SECRET_VALUE_RE = re.compile(
     r"(?i)(api[_-]?key|token|secret|password|passwd|authorization)\s*[:=]\s*([^\s,;]+)"
 )
+# A reason in the first person singular: the assistant's voice, not the reviewer's words about the action.
+_AS_THE_ASSISTANT_RE = re.compile(r"\bI(?:'m|'ve|'ll|'d)?\b|(?i:\b(?:me|my|myself)\b)")
 
 _SYSTEM_PROMPT = (
     "You review one action an AI assistant wants to take for a person, before it runs.\n"
     "Approve it only when it clearly does what the person asked for in their own messages "
     "(or, for a saved workflow, what its instructions ask for).\n"
+    "person_asked is oldest first: the last entry is what they ask for now; earlier ones are background. "
+    "A limit they set for an earlier request only (such as \"don't use any tools for this\") doesn't carry "
+    "over to a later one.\n"
     "A request often takes several steps: judge whether this step serves the request, not whether it does "
     "all of it alone. A step that only reads or checks something one part of the request needs is within it.\n"
     "A message, email or file going to someone the person named, saying what they asked for, is "
@@ -80,7 +85,8 @@ _SYSTEM_PROMPT = (
     "In a conversation shared with other people, the messages may come from several people: ask unless "
     "the action is clearly harmless.\n"
     'Answer with JSON only: {"decision": "approve" or "ask", "reason": "<one short sentence the '
-    'person will read>"}.'
+    'person will read>"}. Write the reason about the action in plain words, such as "This deletes three '
+    'files you didn\'t mention."; never as the assistant ("I", "me").'
 )
 
 
@@ -357,6 +363,10 @@ def parse_verdict(text: object) -> ReviewVerdict:
         return ReviewVerdict("ask", UNCLEAR_REASON, reviewed=False)
     decision = str(parsed.get("decision") or "").strip().casefold()
     reason = _clean(" ".join(str(parsed.get("reason") or "").split()), _MAX_REASON_CHARS)
+    if _AS_THE_ASSISTANT_RE.search(reason):
+        # Written as the assistant ("You asked me not to…, but I am…"): the card would read as the assistant's
+        # words under "The reviewer asked you" (W15). The plain default says it instead.
+        reason = ""
     if decision == "approve":
         return ReviewVerdict("approve", reason or "It matches what you asked for.")
     if decision == "ask":

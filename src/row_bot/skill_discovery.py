@@ -268,13 +268,13 @@ def read_skill_reference(root: Path | None, relative_path: str) -> str:
 
 
 class _SkillSearchInput(BaseModel):
-    query: str = Field(description="Workflow or expertise needed. Must not be empty.")
-    limit: int = Field(default=3, description="Number of results, clamped from 1 through 5.")
+    query: str = Field(description="The workflow or expertise needed.")
+    limit: int = Field(default=3, description="1 to 5.")
 
 
 class _SkillLoadInput(BaseModel):
-    name: str = Field(description="Exact canonical id or unique alias returned by skill_search.")
-    relative_path: str | None = Field(default=None, description="Optional reference file within the skill root.")
+    name: str = Field(description="Its exact id or alias.")
+    relative_path: str | None = Field(default=None, description="A reference file inside the skill.")
 
 
 _REFERENCE_CHARS = 40_000
@@ -433,8 +433,7 @@ def build_skill_discovery_tools(
         else " Skills teach workflows and never grant tools or relax runtime policy."
     )
     search_description = (
-        "Search enabled manual and plugin skills. Results contain bounded metadata, not instructions."
-        + boundary
+        "Find a skill (a workflow or expertise) to load with skill_load. Results are metadata only." + boundary
     )
     if manifest:
         search_description += "\nEnabled skill catalog:\n" + manifest
@@ -449,8 +448,8 @@ def build_skill_discovery_tools(
             func=_load,
             name="skill_load",
             description=(
-                "Activate one exact skill for this task, optionally reading a UTF-8 reference inside its root. "
-                "The result carries the skill's full instructions; follow them." + boundary
+                "Load one skill (or a tool guide) for this task, or a reference file inside it; follow the "
+                "instructions it returns." + boundary
             ),
             args_schema=_SkillLoadInput,
         ),

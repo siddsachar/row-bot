@@ -434,6 +434,11 @@
           "title": "Status",
           "type": "string"
         },
+        "summary_ready": {
+          "default": false,
+          "title": "Summary Ready",
+          "type": "boolean"
+        },
         "usable_input_tokens": {
           "anyOf": [
             {
@@ -1171,6 +1176,7 @@
             "agents",
             "agent",
             "goal",
+            "watch",
             "status",
             "tools",
             "export",

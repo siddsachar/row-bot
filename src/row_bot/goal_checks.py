@@ -9,9 +9,10 @@ command again and refuses it when the chat moved to Block, the folder changed or
 changed (``preflight``).
 
 When the goal looks done (``goals.request_completion``) the check runs once, on a worker thread: in the
-conversation's code folder (its Docker sandbox when it uses one), else in Row-Bot's default workspace, for at
-most ten minutes. ``goals.finish_check`` turns the result into the goal's next step: exit 0 completes it,
-another exit code gives Row-Bot a turn to fix what it reported, and a check that couldn't run pauses it.
+conversation's code folder (its Docker sandbox when it uses one), else in the person's workspace folder, the one
+the file tools and the shell use (``data_paths.workspace_folder``), for at most ten minutes.
+``goals.finish_check`` turns the result into the goal's next step: exit 0 completes it, another exit code gives
+Row-Bot a turn to fix what it reported, and a check that couldn't run pauses it.
 """
 from __future__ import annotations
 
@@ -56,8 +57,9 @@ class Place:
     """Where a goal's check runs."""
 
     folder: str
-    workspace_id: str  # The conversation's code folder; '' for Row-Bot's default workspace.
-    runs_in: str  # "row-bot (Docker sandbox, network off)", "row-bot", "Row-Bot's workspace".
+    workspace_id: str  # The conversation's code folder; '' for the person's workspace folder.
+    # "row-bot (Docker sandbox, network off)", "row-bot", "Row-Bot's workspace (~/Work)": what the person approves.
+    runs_in: str
     docker: bool = False
     network: str = ""
 
@@ -75,11 +77,13 @@ class CheckRun:
 
 
 _NETWORK_WORDS = {"off": "network off", "ask": "network asks first", "on": "network on"}
+_FOLDER_CHARS = 200
 
 
 def place_for(conversation_id: str) -> Place:
-    """The conversation's code folder (its Docker sandbox when it uses one), else Row-Bot's default workspace."""
-    from row_bot.data_paths import default_workspace_root
+    """The conversation's code folder (its Docker sandbox when it uses one), else the person's workspace folder,
+    named as ``~/…`` under the home folder."""
+    from row_bot.data_paths import display_path, workspace_folder
 
     try:
         from row_bot.developer import tool_context
@@ -96,7 +100,11 @@ def place_for(conversation_id: str) -> Place:
         name = str(workspace.name or Path(workspace.path).name)
         runs_in = f"{name} (Docker sandbox, {_NETWORK_WORDS.get(network, 'network off')})" if docker else name
         return Place(str(Path(workspace.path)), str(workspace.id), runs_in, docker, network)
-    return Place(str(default_workspace_root()), "", "Row-Bot's workspace")
+    folder = workspace_folder()
+    shown = display_path(folder)
+    if len(shown) > _FOLDER_CHARS:  # The review names at most 300 characters; a deep folder shows its end.
+        shown = "…" + shown[-(_FOLDER_CHARS - 1):]
+    return Place(str(folder), "", f"Row-Bot's workspace ({shown})")
 
 
 def suggestions(place: Place) -> list[str]:
@@ -175,23 +183,34 @@ def preflight(goal: Mapping[str, Any]) -> str:
     """Why the goal's check may not run now ('' when it may): each run checks the level and classification
     again."""
     from row_bot import goals
-    from row_bot.approval_policy import normalize_approval_mode
 
     command = str(goal.get("check_command") or "")
     approval = goals.check_approval(goal)
     if approval.get("approved_by") != "person":
         return f"No one approved `{command}`. Set the check again."
-    conversation_id = str(goal.get("thread_id") or "")
+    return recheck(str(goal.get("thread_id") or ""), command, str(goal.get("check_workspace_id") or ""),
+                   approval.get("classification"), runs_in=str(approval.get("runs_in") or ""))
+
+
+def recheck(conversation_id: str, command: str, workspace_id: str, approved_kind: Any, *, runs_in: str) -> str:
+    """Why an approved command may not run now ('' when it may): the conversation's code folder, or outside one
+    the workspace folder (``runs_in`` names it), is still the one it was approved for, the level allows it (Block:
+    only commands that just read) and it still counts as what was approved. A goal's check and a watch's command
+    (B4) are both checked here before each run."""
+    from row_bot.approval_policy import normalize_approval_mode
+
     place = place_for(conversation_id)
-    if place.workspace_id != str(goal.get("check_workspace_id") or ""):
+    if place.workspace_id != workspace_id:
         return "The conversation's code folder changed since you set the check. Set the check again."
+    if not place.workspace_id and place.runs_in != runs_in:
+        return "Row-Bot's workspace folder changed since you set the check. Set the check again."
     level = normalize_approval_mode(conversation_level(conversation_id))
     kind = classification(command, place)
     refused = _refusal(place, level, kind)
     if refused is not None:
         return ("This chat is on Block now, which only allows checks that just read." if refused.code == READ_ONLY
                 else refused.words)
-    if kind != approval.get("classification"):
+    if kind != approved_kind:
         return f"`{command}` counts as a different kind of command than when you set it. Set the check again."
     return ""
 

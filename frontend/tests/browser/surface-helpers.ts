@@ -1,4 +1,4 @@
-import type { Page, TestInfo } from '@playwright/test';
+import type { Page, Request, TestInfo } from '@playwright/test';
 import {
   accessibility,
   assertNoOverflow,
@@ -12,7 +12,14 @@ export function fixtureHeaders(): Record<string, string> {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
   const base = process.env.ROW_BOT_BROWSER_BASE_URL;
   if (!token || !base) throw new Error('Use the isolated browser runner');
-  return { 'X-Fixture-Token': token, Origin: new URL(base).origin };
+  return {
+    'X-Fixture-Token': token,
+    Origin: new URL(base).origin,
+    // A fresh connection each time: a kept-alive socket the server closes
+    // after its idle timeout (5 s) can be reused at that moment, and the
+    // fixture call then fails with ECONNRESET.
+    Connection: 'close',
+  };
 }
 
 /**
@@ -103,6 +110,51 @@ export async function installDesktopFolderBridge(page: Page) {
       },
     });
   }, path);
+}
+
+/**
+ * Watches the page's API reads from now on. `settled()` waits until none is
+ * in flight and none has started for a second: by then the reads the first
+ * screen doesn't show (Buddy, Proactive, voice, Monitor), which start a
+ * moment after it, have answered. The open streams and Buddy's steady
+ * 2-second status read never settle, so they are not counted.
+ */
+export function watchReads(page: Page): { settled(): Promise<void> } {
+  const inFlight = new Set<Request>();
+  let lastStart = Date.now();
+  const counted = (request: Request) => {
+    const path = new URL(request.url()).pathname;
+    return (
+      path.startsWith('/api/v1/') &&
+      !['/api/v1/events', '/api/v1/live'].includes(path) &&
+      !/^\/api\/v1\/conversations\/[^/]+\/buddy$/.test(path)
+    );
+  };
+  page.on('request', (request) => {
+    if (!counted(request)) return;
+    inFlight.add(request);
+    lastStart = Date.now();
+  });
+  const end = (request: Request) => inFlight.delete(request);
+  page.on('requestfinished', end);
+  page.on('requestfailed', end);
+  return {
+    async settled() {
+      // Unsettled, it names the reads still in flight.
+      await expect
+        .poll(
+          () =>
+            inFlight.size
+              ? [...inFlight].map(
+                  (request) =>
+                    `${request.method()} ${new URL(request.url()).pathname}`,
+                )
+              : Date.now() - lastStart >= 1_000,
+          { timeout: 15_000, intervals: [250] },
+        )
+        .toBe(true);
+    },
+  };
 }
 
 export async function openHome(page: Page): Promise<void> {

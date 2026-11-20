@@ -362,6 +362,46 @@ def test_claude_is_checked_once_it_was_used_here(monkeypatch, state, status, det
     assert result.metadata == {"provider_id": "claude_subscription"}
 
 
+def test_a_sign_in_problem_clears_once_the_sign_in_works_again(profile, monkeypatch):
+    """W18: "couldn't read your ChatGPT sign-in" stayed in For you after the person signed in again.
+    W3: an unreadable sign-in reads as the model check says it, "isn't connected", wherever it shows."""
+    health = {"codex": "error"}
+    _subscriptions(monkeypatch, health)
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_sign_ins,))
+    client_diagnosis.run_local_checks()
+    kept = _by_id(client_diagnosis.read_system_health())["sign-in:codex"]
+    assert (kept["status"], kept["detail"]) == ("warn", "ChatGPT isn't connected. Reconnect it to use its models.")
+
+    health["codex"] = "valid"  # Signed in again: the sign-in is saved, which asks for the sign-ins' check now.
+    scheduler = FakeScheduler()
+    monkeypatch.setattr(client_diagnosis, "_scheduler", scheduler)
+    client_diagnosis.recheck_sign_ins()
+    scheduler.jobs[client_diagnosis.SIGN_INS_JOB].func()
+    assert "sign-in:codex" not in _by_id(client_diagnosis.read_system_health())
+
+    health["codex"] = "expired"  # The scheduled run settles it too, both ways.
+    client_diagnosis.run_local_checks()
+    assert _by_id(client_diagnosis.read_system_health())["sign-in:codex"]["status"] == "error"
+    health["codex"] = "valid"
+    client_diagnosis.run_local_checks()
+    assert "sign-in:codex" not in _by_id(client_diagnosis.read_system_health())
+
+
+def test_a_sign_in_check_that_fails_keeps_the_problems_it_last_saw(profile, monkeypatch):
+    from row_bot.providers import status as provider_status
+
+    _subscriptions(monkeypatch, {"codex": "expired"})
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (status_checks.check_sign_ins,))
+    client_diagnosis.run_local_checks()
+
+    def broken():
+        raise OSError("keychain locked")
+
+    monkeypatch.setattr(provider_status, "sign_in_problems", broken)
+    client_diagnosis.run_local_checks()
+    assert _by_id(client_diagnosis.read_system_health())["sign-in:codex"]["status"] == "error"
+
+
 def test_working_sign_ins_say_nothing(monkeypatch):
     _subscriptions(monkeypatch, {"codex": "valid", "xai_oauth": "refresh_due"}, claude_used=True)
 
@@ -369,31 +409,35 @@ def test_working_sign_ins_say_nothing(monkeypatch):
 
 
 def test_the_model_check_says_when_the_main_model_cant_use_tools_or_cant_run(monkeypatch):
-    """G25: "Model: OK" while the chosen model could only chat."""
+    """G25: "Model: OK" while the chosen model could only chat. W3: by its name and in plain words, never its
+    ref or the readiness check's own text."""
     from row_bot import models
-    from row_bot.providers import readiness, resolution
+    from row_bot.providers import backup, readiness, resolution
 
     seen: list[bool] = []
-    verdict = {"mode": "chat_only", "reason": ""}
+    verdict = {"mode": "chat_only"}
 
     def evaluate(resolved, *, refresh_provider_status=True, **_kwargs):
         seen.append(refresh_provider_status)
-        return SimpleNamespace(selected_mode=verdict["mode"], selection_reason=verdict["reason"])
+        side = SimpleNamespace(ready=False, credential_status="missing", errors=["provider credentials missing"])
+        return SimpleNamespace(selected_mode=verdict["mode"], agent=side, chat=side,
+                               selection_reason="gpt-test via openai is not chat-ready: provider credentials missing")
 
     monkeypatch.setattr(models, "get_current_model", lambda: "model:openai:gpt-test")
+    monkeypatch.setattr(backup, "model_name", lambda ref: "GPT Test" if ref == "model:openai:gpt-test" else ref)
     monkeypatch.setattr(resolution, "resolve_provider_config",
                         lambda value, *args, **kwargs: SimpleNamespace(provider_id="openai"))
     monkeypatch.setattr(readiness, "evaluate_runtime_readiness", evaluate)
 
     chat_only = status_checks.check_active_model()
-    verdict.update(mode="blocked", reason="Sign in to OpenAI first.")
+    verdict.update(mode="blocked")
     blocked = status_checks.check_active_model()
     verdict.update(mode="agent")
     ready = status_checks.check_active_model()
 
-    assert (chat_only.status, chat_only.detail) == ("warn", "model:openai:gpt-test can chat, but tools and actions are off.")
-    assert (blocked.status, blocked.detail) == ("error", "model:openai:gpt-test can't run: Sign in to OpenAI first.")
-    assert (ready.status, ready.detail) == ("ok", "model:openai:gpt-test")
+    assert (chat_only.status, chat_only.detail) == ("warn", "GPT Test can chat, but tools and actions are off.")
+    assert (blocked.status, blocked.detail) == ("error", "GPT Test can't run: OpenAI API isn't connected.")
+    assert (ready.status, ready.detail) == ("ok", "GPT Test")
     assert seen == [False, False, False]  # Nothing renewed or probed by a local check.
 
 

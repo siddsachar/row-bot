@@ -260,3 +260,38 @@ test('the reviewer’s decisions are visible but quiet', async ({
   await page.setViewportSize(PHONE);
   await views(page, info, 'activity-decided-without-asking-phone');
 });
+
+test('a paid picture asks with its price, or says the price is unknown (D4)', async ({
+  page,
+}, info) => {
+  const card = page.getByRole('complementary', {
+    name: /^Approval required/,
+  });
+  for (const [prompt, price, basis, name] of [
+    [
+      'Draw a lighthouse paid picture fixture',
+      'About $0.05',
+      "(OpenAI's list price, checked 15 Nov 2026)",
+      'paid-picture-card',
+    ],
+    [
+      'Draw a lighthouse paid picture fixture unknown price',
+      'Price unknown',
+      '(Row-Bot has no list price for this model)',
+      'paid-picture-unknown-card',
+    ],
+  ] as const) {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await newConversation(page);
+    await send(page, prompt);
+    await expect(card).toContainText('It costs money on your');
+    await expect(card.getByText(price, { exact: true })).toBeVisible();
+    await expect(card.getByText(basis, { exact: true })).toBeVisible();
+    await views(page, info, name);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect(card.getByText(price, { exact: true })).toBeVisible();
+    await views(page, info, `${name}-phone`);
+    await card.getByRole('button', { name: 'Deny', exact: true }).click();
+    await expect(card).toHaveCount(0);
+  }
+});

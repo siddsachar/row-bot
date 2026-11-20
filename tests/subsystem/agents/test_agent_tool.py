@@ -70,8 +70,8 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch,
             "profile_slug": "review",
             "profile_display_name": "Review",
             "workspace_id": kwargs.get("developer_workspace_id", ""),
-            "workspace_path": "D:/tmp/repo-wt" if kwargs.get("use_worktree") else "",
-            "workspace_mode": "worktree" if kwargs.get("use_worktree") else "auto",
+            "workspace_path": "D:/tmp/repo-wt" if kwargs.get("workspace_mode") == "worktree" else "",
+            "workspace_mode": kwargs.get("workspace_mode") or "auto",
         }
 
     monkeypatch.setattr(agent_tool.agent_runner, "spawn_agent_run", fake_spawn)
@@ -81,8 +81,8 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch,
         profile="quality_reviewer",
         context="Changed files: app.py",
         parent_thread_id="parent-thread",
-        developer_workspace_id="dev_parent",
-        use_worktree=True,
+        code_folder="dev_parent",
+        workspace_mode="worktree",
         wait=False,
     ))
 
@@ -98,8 +98,8 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch,
     from row_bot.models import get_current_model
 
     assert calls["kwargs"]["model_override"] == get_current_model()
-    assert calls["kwargs"]["developer_workspace_id"] == "dev_parent"
-    assert calls["kwargs"]["use_worktree"] is True
+    assert calls["kwargs"]["developer_workspace_id"] == "dev_parent"  # a code folder id passes as it is
+    assert calls["kwargs"]["workspace_mode"] == "worktree"
     assert payload["run"]["workspace"]["mode"] == "worktree"
     assert payload["run"]["workspace"]["id"] == "dev_parent"
     assert "agent_wait(orchestration_id=" in payload["next_action"]
@@ -187,7 +187,7 @@ def test_checkpoint_repair_closes_only_orphaned_tool_calls() -> None:
         def get_state(self, _config):
             return SimpleNamespace(values={"messages": messages})
 
-        def update_state(self, _config, values):
+        def update_state(self, _config, values, as_node=None):
             self.updates.append(values)
 
     graph = FakeGraph()
@@ -263,7 +263,7 @@ def test_delegate_work_registers_workspace_path_and_forwards_id(tmp_path, monkey
 
     payload = json.loads(agent_tool._delegate_work(
         objective="Write into the assigned folder.",
-        developer_workspace_path=str(workspace_folder),
+        code_folder=str(workspace_folder),
         wait=True,
     ))
 
@@ -275,36 +275,7 @@ def test_delegate_work_registers_workspace_path_and_forwards_id(tmp_path, monkey
     assert workspace is not None
     assert workspace.path == str(workspace_folder.resolve())
     assert payload["run"]["workspace"]["id"] == workspace_id
-    assert calls["kwargs"]["use_worktree"] is False
-
-
-def test_delegate_work_rejects_conflicting_workspace_inputs_without_spawning(
-    tmp_path,
-    monkeypatch,
-    reload_for_data_dir,
-):
-    agent_tool, _agent_runs = _fresh_agent_tool_modules(tmp_path, monkeypatch, reload_for_data_dir)
-    workspace_folder = tmp_path / "conflicting-child"
-    workspace_folder.mkdir()
-    calls = {"count": 0}
-
-    def fake_spawn(objective, **kwargs):
-        calls["count"] += 1
-        return {}
-
-    monkeypatch.setattr(agent_tool.agent_runner, "spawn_agent_run", fake_spawn)
-
-    payload = json.loads(agent_tool._delegate_work(
-        objective="Do not start.",
-        developer_workspace_id="dev-existing",
-        developer_workspace_path=str(workspace_folder),
-        wait=True,
-    ))
-
-    assert payload["ok"] is False
-    assert "mutually exclusive" in payload["message"]
-    assert payload["run"] == {}
-    assert calls["count"] == 0
+    assert calls["kwargs"]["workspace_mode"] == ""
 
 
 def test_delegate_work_rejects_missing_workspace_path_without_spawning(
@@ -324,7 +295,7 @@ def test_delegate_work_rejects_missing_workspace_path_without_spawning(
 
     payload = json.loads(agent_tool._delegate_work(
         objective="Do not start.",
-        developer_workspace_path=str(missing_folder),
+        code_folder=str(missing_folder),
         wait=True,
     ))
 
@@ -419,49 +390,13 @@ def test_delegate_work_rejects_unpinned_canonical_model_without_spawning(tmp_pat
     assert calls["count"] == 0
 
 
-def test_delegate_work_schema_is_async_first() -> None:
-    from row_bot.tools.agent_tool import _DelegateWorkInput, AgentsTool
+def test_delegate_work_starts_helpers_in_the_background_by_default() -> None:
+    """Async first: a helper runs in the background and its work is joined before the answer."""
+    from row_bot.tools.agent_tool import _DelegateWorkInput
 
-    wait_description = str(_DelegateWorkInput.model_fields["wait"].description or "").lower()
-    assert "prefer false" in wait_description
-    assert "asynchronously" in wait_description
-    assert "explicitly asks" in wait_description
-    worktree_description = str(
-        _DelegateWorkInput.model_fields["use_worktree"].description or ""
-    ).lower()
-    workspace_path_description = str(
-        _DelegateWorkInput.model_fields["developer_workspace_path"].description or ""
-    ).lower()
-    assert "local git worktree" in worktree_description
-    assert "existing local folder" in workspace_path_description
-    assert "distinct folder paths" in workspace_path_description
-    assert "mutually exclusive" in workspace_path_description
-    context_description = str(
-        _DelegateWorkInput.model_fields["context"].description or ""
-    ).lower()
-    dependency_description = str(
-        _DelegateWorkInput.model_fields["depends_on"].description or ""
-    ).lower()
-    assert "complete material" in context_description
-    assert "artifact path" in context_description
-    assert "launch order only" in dependency_description
-    assert "never transfers" in dependency_description
+    defaults = _DelegateWorkInput.model_validate({"objective": "Review the diff."})
 
-    delegate_tool = next(
-        tool
-        for tool in AgentsTool().as_langchain_tools()
-        if tool.name == "delegate_work"
-    )
-    assert "async background" in str(delegate_tool.description).lower()
-    assert "continue useful independent work" in str(delegate_tool.description).lower()
-
-    wait_tool = next(
-        tool
-        for tool in AgentsTool().as_langchain_tools()
-        if tool.name == "agent_wait"
-    )
-    assert "required cohort" in str(wait_tool.description).lower()
-    assert "before final" in str(wait_tool.description).lower()
+    assert defaults.wait is False and defaults.required is True and defaults.depends_on == []
 
 
 def test_agent_wait_schema_accepts_exactly_one_target() -> None:

@@ -42,6 +42,9 @@ _SAFE_NAME_RE = re.compile(r"[^a-z0-9_.-]+")
 # Import memories takes 20 files at a time; MEMORY.md and USER.md come first.
 _DAILY_NOTES_KEPT = 18
 _ELSEWHERE = "Leave Target folder empty to bring them into this Row-Bot."
+# Scheduled jobs (Hermes's cron folder, OpenClaw's cron store) have no converter.
+_CRON = frozenset({"cron", "cron-store.json"})
+CRON_NOTE = "Cron jobs aren't converted: make a workflow for each one in Workflows."
 
 
 @dataclass(frozen=True)
@@ -103,9 +106,13 @@ def build_hermes_plan(
         ("memories/MEMORY.md", "Memories from MEMORY.md"),
         ("memories/USER.md", "About you, from USER.md"),
     )))
+    chats = _chats_items(app, "state.db")
+    items.extend(chats)
     items.extend(_skill_items(app.source_root / "skills", target / "skills", MigrationProvider.HERMES))
     items.extend(_secret_items(app.source_root / ".env", target, include_secrets=include_secrets))
-    items.extend(_archive_items(scan, target / "archive" / MigrationProvider.HERMES.value))
+    # A database copied into the report is no use to read; the chats item brings its chats instead.
+    items.extend(_archive_items(scan, target / "archive" / MigrationProvider.HERMES.value,
+                                leave_out=frozenset({"state.db"}) if chats else frozenset()))
 
     return _plan_from_items(scan, items, warnings, target, include_secrets)
 
@@ -194,6 +201,8 @@ def _plan_from_items(
     target_root: Path,
     include_secrets: bool,
 ) -> MigrationPlan:
+    if any(entry.relative_path in _CRON for entry in scan.entries):
+        warnings.append(CRON_NOTE)
     if any(item.status == MigrationStatus.CONFLICT for item in items):
         warnings.append("Some items would replace what you already have. Turn on Replace what you already have to bring them over.")
     return MigrationPlan(
@@ -528,6 +537,27 @@ def _memory_items(app: _App, mappings: tuple[tuple[str, str], ...]) -> list[Migr
     return items
 
 
+def _chats_items(app: _App, relative: str) -> list[MigrationItem]:
+    """Past chats, offered unticked: in Import memories the person may look in what they wrote for memories."""
+    path = app.source_root / relative
+    count = stores.count_chats(path) if path.is_file() and not path.is_symlink() else 0
+    if count == 0:
+        return []
+    item_id = make_item_id(MigrationCategory.MEMORIES, "past-chats")
+    label = f"Past chats from {path.name}: {count} {'conversation' if count == 1 else 'conversations'}"
+    if not app.live:
+        return [_not_brought_over(item_id, MigrationCategory.MEMORIES, path, label,
+                                  f"Past chats are read in this Row-Bot's own Import memories. {_ELSEWHERE}")]
+    return [_store_item(
+        id=item_id, category=MigrationCategory.MEMORIES, action=MigrationAction.CREATE, status=MigrationStatus.PLANNED,
+        source=path, target=app.target / "memory_import", label=label,
+        reason=(f"They wait in {stores.PLACES[stores.MEMORY_REVIEW]}, where Row-Bot can look in what you wrote for "
+                "memories if you turn that on. Nothing is saved until you check it."),
+        store=stores.MEMORY_REVIEW, details={"files": [relative], "chats": count},
+        sensitivity=MigrationSensitivity.SENSITIVE, selected=False,
+    )]
+
+
 def _daily_notes_items(app: _App, relative: str) -> list[MigrationItem]:
     folder = app.source_root / relative
     if not folder.is_dir():
@@ -590,10 +620,10 @@ def _secret_items(env_path: Path, target_root: Path, *, include_secrets: bool) -
     return items
 
 
-def _archive_items(scan: MigrationScan, archive_root: Path) -> list[MigrationItem]:
+def _archive_items(scan: MigrationScan, archive_root: Path, *, leave_out: frozenset[str] = frozenset()) -> list[MigrationItem]:
     items: list[MigrationItem] = []
     for entry in scan.entries:
-        if not entry.archive_only:
+        if not entry.archive_only or entry.relative_path in leave_out:
             continue
         items.append(
             MigrationItem(
@@ -604,7 +634,8 @@ def _archive_items(scan: MigrationScan, archive_root: Path) -> list[MigrationIte
                 source=scan.source.root / entry.relative_path,
                 target=archive_root / entry.relative_path,
                 label=f"Archive: {entry.relative_path}",
-                reason=entry.reason,
+                reason=f"{CRON_NOTE} Tick this to copy them into the report to look at." if entry.relative_path in _CRON
+                else entry.reason,
                 details={"relative_path": entry.relative_path, "size_bytes": entry.size_bytes},
                 sensitivity=MigrationSensitivity.RISKY,
                 selected=False,

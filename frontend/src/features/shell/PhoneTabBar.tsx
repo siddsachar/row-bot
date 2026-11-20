@@ -1,6 +1,7 @@
 import { Home, MessagesSquare, Settings, Workflow } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useClientState, useRuntime } from '../../runtime';
+import { useBackgroundReady } from '../../shell-settled';
 import { AppLink } from '../../ui/app-link';
 import { needsCount, useAttention } from './needs';
 import { usePendingApprovals } from './pending-approvals';
@@ -48,8 +49,14 @@ const TABS: { id: PhoneTab; label: string; to: string; icon: ReactNode }[] = [
 export default function PhoneTabBar({ current }: { current: PhoneTab }) {
   const { controller } = useRuntime();
   const state = useClientState();
-  const attention = useAttention(controller.attention).value;
-  const approvals = usePendingApprovals(controller.pendingApprovals).page;
+  // Home's count is read once the first screen is up.
+  const ready = useBackgroundReady();
+  const attention = useAttention(
+    ready ? controller.attention : undefined,
+  ).value;
+  const approvals = usePendingApprovals(
+    ready ? controller.pendingApprovals : undefined,
+  ).page;
   const needs = needsCount({
     approvals,
     problems: attention?.problems ?? [],

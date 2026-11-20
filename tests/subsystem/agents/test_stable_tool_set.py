@@ -178,6 +178,16 @@ def test_the_turn_context_says_what_the_turn_leaves_out(conversation):
     assert "NOT IN THIS TURN: nothing" in fields["turn_scope"].cleared  # said once the next turn has no scope
 
 
+def test_a_new_run_names_its_own_tools_not_the_last_graphs_on_demand_ones(conversation):
+    agent = conversation.agent
+    agent._current_on_demand_tools_var.set({"browser_open": ("browser", object())})  # a run before, on this thread
+
+    agent._set_active_runtime_context()
+    fields = {field.key: field for field in agent._runtime_turn_fields(["filesystem", "row_bot_status"])}
+
+    assert "filesystem" in fields["tools"].text and "browser" not in fields["tools"].text
+
+
 def test_the_mcp_guide_the_index_names_loads_with_skill_load(conversation, monkeypatch):
     """29 Oct: a workflow run read mcp_guide in the tool-guide index and skill_load refused it (unknown_skill).
     MCP tools come as external tools, so their group named the guide in the index but never reached the skills

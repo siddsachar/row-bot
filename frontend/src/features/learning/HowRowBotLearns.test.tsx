@@ -171,3 +171,34 @@ it('before any comparison it says when one runs, in counts', async () => {
   ).toBeVisible();
   expect(within(sheet).queryByRole('button', { name: /^Undo/ })).toBeNull();
 });
+
+it('when the month’s limit is used up it says so, not that comparing used its share', async () => {
+  show(
+    fakeIO(
+      on({
+        spending: {
+          used_tokens: 2_000_000,
+          limit_tokens: 2_000_000,
+          resets_on: '2026-12-01',
+          model_name: 'GPT-5.6 Sol',
+          limit_reached: true,
+        },
+        method: learningMethod({
+          trials: [],
+          next_trial: { state: 'limit', fresh: 41, needed: 30 },
+        }),
+      }),
+    ),
+  );
+  await userEvent.click(
+    screen.getByRole('button', { name: 'How Row-Bot learns: details' }),
+  );
+  const sheet = await screen.findByRole('dialog', {
+    name: 'How Row-Bot learns',
+  });
+
+  expect(
+    within(sheet).getByText(/this month’s Learning limit is used up/),
+  ).toBeVisible();
+  expect(within(sheet).queryByText(/share for comparing methods/)).toBeNull();
+});

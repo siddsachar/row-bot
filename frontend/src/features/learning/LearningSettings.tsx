@@ -33,23 +33,25 @@ import {
 import { DownloadAsk, LearningSetupSheet } from './LearningSetup';
 import { CancelDownload, downloadView } from './PersonalModelDownload';
 import { HuggingFaceSignIn } from './HuggingFace';
+import { OTHER_MODELS_WORDS, OtherModels } from './OtherModels';
 import { StartingModelSheet } from './StartingModelSheet';
+import { MonthlyLimitPicker } from './MonthlyLimit';
 import {
   HF_ACCESS,
   limitMeaning,
-  limitOptions,
   moneyWords,
   percentWords,
   pictureWords,
   quietHoursWords,
   sizeWords,
+  spendingWords,
   tokenWords,
 } from './words';
 import { usePhone } from './use-phone';
 import './learning.css';
 
 const TURN_OFF_WORDS =
-  'Row-Bot stops recording, testing and training. Changes and models in use stay in use (undo them in Learning). Your learning data is kept until you delete it.';
+  'Row-Bot stops recording, testing and training. Changes and models in use stay in use: to take one out, undo it in Learning first, or turn Learning on again later. Your learning data is kept until you delete it.';
 
 /** "Create skills while chatting": the same setting as Preferences' old "Learn new skills" (D29). */
 function SkillsWhileChatting({
@@ -68,7 +70,7 @@ function SkillsWhileChatting({
         mutation={mutation}
         field="identity.self_improvement_enabled"
         label="Create skills while chatting"
-        hint={`${preferences.identity.name || 'Row-Bot'} writes and improves its own skills as it works. This works with Learning on or off.`}
+        hint={`${preferences.identity.name || 'Row-Bot'} offers to save multi-step work as a skill, and suggests improvements to the skills it uses. Nothing is saved until you approve. This works with Learning on or off.`}
         value={preferences.identity.self_improvement_enabled}
       />
     </SettingsGroup>
@@ -114,7 +116,9 @@ function HuggingFaceSettings({
   hugging: LearningHuggingFace;
 }) {
   const notify = useNotify();
+  const phone = usePhone();
   const [busy, setBusy] = useState(false);
+  const [othersOpen, setOthersOpen] = useState(false);
   const signedIn = hugging.sign_in.state === 'signed_in';
   const choices = hugging.cap_choices ?? [10, 20, 50, 100];
   const caps =
@@ -154,6 +158,16 @@ function HuggingFaceSettings({
           label="Model on Hugging Face"
           anchor="learning-hugging-face-model"
           help="Only models this computer can run afterwards are offered."
+          trailing={
+            <Button
+              className="small"
+              disabled={busy}
+              aria-label="Other models on Hugging Face"
+              onClick={() => setOthersOpen(true)}
+            >
+              Other models…
+            </Button>
+          }
           control={
             <Select
               aria-label="Model on Hugging Face"
@@ -166,7 +180,11 @@ function HuggingFaceSettings({
               {(hugging.models ?? []).map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
-                  {item.recommended ? ' (recommended)' : ''}
+                  {item.recommended
+                    ? ' (recommended)'
+                    : item.certified
+                      ? ''
+                      : ' (not certified)'}
                 </option>
               ))}
             </Select>
@@ -174,6 +192,23 @@ function HuggingFaceSettings({
           bind={false}
         />
       )}
+      <ModalTask
+        open={othersOpen}
+        onOpenChange={setOthersOpen}
+        title="Other models"
+        description={OTHER_MODELS_WORDS}
+        kind={phone ? 'sheet' : 'dialog'}
+        className="learning-starting-model"
+      >
+        <div className="learning-sheet">
+          <OtherModels io={io} titled={false} />
+          <div className="learning-sheet-actions">
+            <Button onClick={() => setOthersOpen(false)} data-initial-focus>
+              Done
+            </Button>
+          </div>
+        </div>
+      </ModalTask>
       {signedIn && (
         <SettingsItem
           label="Monthly spending cap"
@@ -439,9 +474,7 @@ export default function LearningSettings({
       {sheets}
       <SettingsStatus
         tone={paused ? 'neutral' : 'success'}
-        more={[
-          `${tokenWords(spending.used_tokens)} of ${tokenWords(spending.limit_tokens)} tokens this month`,
-        ]}
+        more={[spendingWords(spending)]}
       >
         {paused ? 'Learning paused' : 'Learning on'}
       </SettingsStatus>
@@ -558,29 +591,29 @@ export default function LearningSettings({
           row={{
             status: (
               <StatusLine tone={spending.limit_reached ? 'warning' : undefined}>
-                {tokenWords(spending.used_tokens)} of{' '}
-                {tokenWords(spending.limit_tokens)} tokens used this month
+                {spendingWords(spending, 'used this month')}
               </StatusLine>
             ),
           }}
+          confirm={(value) =>
+            value === null
+              ? "With no limit, nothing caps what Learning spends each month, comparing methods included: it can use as many of your default model's tokens as it needs. What it spends still shows here each month."
+              : ''
+          }
           savedMessage={(value) =>
-            Number(value) === 0
-              ? 'Learning makes no model calls now'
-              : `Monthly limit set to ${tokenWords(Number(value))} tokens`
+            value === null
+              ? 'Learning has no monthly limit now'
+              : Number(value) === 0
+                ? 'Learning makes no model calls now'
+                : `Monthly limit set to ${tokenWords(Number(value))} tokens`
           }
         >
           {({ value, setValue, disabled }) => (
-            <Select
-              value={String(value)}
+            <MonthlyLimitPicker
+              value={typeof value === 'number' ? value : null}
               disabled={disabled}
-              onChange={(event) => setValue(Number(event.target.value))}
-            >
-              {limitOptions(Number(value)).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+              onChange={setValue}
+            />
           )}
         </SavedSetting>
         <SettingsItem

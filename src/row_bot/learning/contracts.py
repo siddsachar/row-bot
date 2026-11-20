@@ -481,6 +481,9 @@ class Decision(Record):
     """
 
     KIND: ClassVar[str] = "decision"
+    # v2: the past conversations its request or result quotes (``quoted_thread_ids``); v1 reads as none.
+    SCHEMA_VERSION: ClassVar[int] = 2
+    MIGRATIONS: ClassVar[Mapping[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {1: lambda data: data}
     FORM: ClassVar[Literal["jsonl", "manifest"]] = "jsonl"
 
     id: str = _field(pattern="id")
@@ -511,6 +514,9 @@ class Decision(Record):
     retry_of: str | None = _field(None, pattern="id")
     ledger_call_id: str | None = _field(None, text=256)
     incomplete: bool = False
+    # Other conversations whose words it holds (a past-conversation search's matches): each owns it too, so
+    # excluding or deleting one of them purges it (``owner_threads``).
+    quoted_thread_ids: tuple[str, ...] = _field((), pattern="thread", items=500)
 
     def __post_init__(self) -> None:
         if self.conversation_id == "":
@@ -975,7 +981,9 @@ def owner_threads(record: Record) -> tuple[str, ...]:
     """The conversations a record belongs to: deleting or excluding one of them
     purges it. Empty for records that are only *derived* from conversations."""
 
-    if isinstance(record, (Episode, Decision, Signal)):
+    if isinstance(record, Decision):
+        return tuple(dict.fromkeys((record.thread_id, record.conversation_id, *record.quoted_thread_ids)))
+    if isinstance(record, (Episode, Signal)):
         return tuple(dict.fromkeys((record.thread_id, record.conversation_id)))
     if isinstance(record, TaskFixture) and record.thread_id is not None:
         return tuple(dict.fromkeys((record.thread_id, record.conversation_id or record.thread_id)))

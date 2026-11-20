@@ -8,8 +8,25 @@ from typing import Any
 
 from langchain_core.documents import Document
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, model_validator
 
 logger = logging.getLogger(__name__)
+
+
+class NullMeansUnset(BaseModel):
+    """Tool arguments where ``null`` means the field was left out (B1).
+
+    Optional fields are plain in the schema (``"default": ""``, no null branch, so every call carries
+    fewer characters), but models and strict callers often send ``null`` for a field they don't use.
+    It is dropped before validation, so the field keeps its default, as when it is left out.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_nulls(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            return {key: value for key, value in data.items() if value is not None}
+        return data
 
 
 class BaseTool(ABC):

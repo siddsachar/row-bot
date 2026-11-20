@@ -70,6 +70,50 @@ test('Providers live on Models: a tile per connection, each with its sheet', asy
   await accessibility(page, info, 'providers-sheet');
 });
 
+test('A key the provider refused says Check key on its tile and in its sheet', async ({
+  page,
+}, info) => {
+  await fixture(page, 'provider-key-refused/on');
+  try {
+    for (const [width, height, size] of [
+      [1280, 800, 'desktop'],
+      [375, 812, 'phone'],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      for (const colorScheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme });
+        await page.goto('/app-v2/settings/models#connections');
+        const tile = page
+          .getByRole('region', { name: 'Connected' })
+          .locator('.settings-provider-tile', { hasText: 'OpenAI API' });
+        await expect(tile).toContainText('Check key');
+        await assertNoOverflow(page);
+        await screenshot(page, info, `key-refused-${size}-${colorScheme}`);
+        await tile.click();
+        const sheet = page.getByRole('dialog', { name: 'OpenAI API' });
+        await expect(sheet).toContainText(
+          'OpenAI API refused this key. Check it, or save a new one',
+        );
+        await screenshot(
+          page,
+          info,
+          `key-refused-sheet-${size}-${colorScheme}`,
+        );
+        await accessibility(
+          page,
+          info,
+          `key-refused-sheet-${size}-${colorScheme}`,
+        );
+        await sheet.getByRole('button', { name: 'Close OpenAI API' }).click();
+        await expect(sheet).toBeHidden();
+      }
+    }
+  } finally {
+    await page.emulateMedia({ colorScheme: 'light' });
+    await fixture(page, 'provider-key-refused/off');
+  }
+});
+
 test('A provider sheet refreshes its own catalog and reports the outcome', async ({
   page,
 }) => {
