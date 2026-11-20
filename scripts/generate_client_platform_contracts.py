@@ -2292,7 +2292,7 @@ def outputs() -> dict[Path, str]:
             if suffix.endswith("/entities"):
                 query_parameters += [
                     ("status", False, {"type": "string", "enum": ["active", "needs_review", "superseded", "archived"]}),
-                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "other"]}),
+                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "import", "other"]}),
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
         elif suffix == "/knowledge/review/overview":

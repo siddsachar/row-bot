@@ -653,7 +653,7 @@ class KnowledgeEntityDetail(WireModel):
     status: Literal["active", "needs_review", "superseded", "archived"]
     tier: Literal["core", "semantic", "episodic", "resource"]
     source: str = Field(max_length=4096)
-    source_bucket: Literal["manual", "extraction", "document", "wiki", "other"]
+    source_bucket: Literal["manual", "extraction", "document", "wiki", "import", "other"]
     confidence: float | None = Field(ge=0, le=1)
     aliases: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
         max_length=12
@@ -684,6 +684,8 @@ class KnowledgeEntityDetail(WireModel):
     can_archive: bool
     can_restore: bool
     can_resolve: bool
+    # The app an imported memory came from ("ChatGPT"); empty for any other source.
+    source_label: str = Field(max_length=128)
 
 
 class KnowledgeRecallCandidate(WireModel):
@@ -2140,13 +2142,15 @@ class KnowledgeGraphNode(WireModel):
     subject: str = Field(max_length=256)
     description: str = Field(max_length=1024)
     entity_type: str = Field(max_length=64)
-    source: Literal["manual", "extraction", "document", "wiki", "other"]
+    source: Literal["manual", "extraction", "document", "wiki", "import", "other"]
     updated_at: str = Field(max_length=128)
     relation_count: int = Field(ge=0, le=9007199254740991)
     orphan: bool
     is_user: bool
     status: Literal["active", "needs_review", "superseded", "archived"]
     tier: Literal["core", "semantic", "episodic", "resource"]
+    # The app an imported memory came from ("ChatGPT"); empty for any other source.
+    source_label: str = Field(max_length=128)
 
 
 class KnowledgeGraphEdge(WireModel):
@@ -2172,8 +2176,8 @@ class KnowledgeGraphSnapshot(WireModel):
     entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
         max_length=64
     )
-    sources: list[Literal["manual", "extraction", "document", "wiki", "other"]] = Field(
-        max_length=5
+    sources: list[Literal["manual", "extraction", "document", "wiki", "import", "other"]] = Field(
+        max_length=6
     )
     # Every saved memory's status, not only the shown ones (B264).
     status_counts: KnowledgeStatusCounts

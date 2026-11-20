@@ -125,6 +125,8 @@ export type KnowledgeGraphNode = {
   is_user: boolean;
   status: KnowledgeStatus;
   tier: KnowledgeTier;
+  /** The app an imported memory came from ("ChatGPT"). */
+  source_label?: string;
 };
 
 export type KnowledgeGraphEdge = {
@@ -177,6 +179,7 @@ export type KnowledgeNodeDetail = {
   relations?: KnowledgeNodeRelation[];
   source_context?: string[];
   source_bucket?: string;
+  source_label?: string;
   created_at?: string;
   last_user_modified_at?: string;
   last_evolved_at?: string;
@@ -253,7 +256,7 @@ type DetailRecord = {
 };
 
 type SourceFilter =
-  '' | 'manual' | 'extraction' | 'document' | 'wiki' | 'other';
+  '' | 'manual' | 'extraction' | 'document' | 'wiki' | 'import' | 'other';
 
 type KnowledgeView = 'graph' | 'list' | 'review' | 'activity';
 
@@ -1320,7 +1323,7 @@ export default function KnowledgeHome({
             }
             description={
               selectedNode
-                ? `${humanizeToken(selectedDetail?.value?.entity_type ?? selectedNode.entity_type)} · ${sourceWords(selectedValue?.source_bucket ?? selectedNode.source)}`
+                ? `${humanizeToken(selectedDetail?.value?.entity_type ?? selectedNode.entity_type)} · ${sourceWords(selectedValue?.source_bucket ?? selectedNode.source, selectedValue?.source_label ?? selectedNode.source_label)}`
                 : undefined
             }
             closeLabel="Close memory detail"

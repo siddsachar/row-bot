@@ -14346,6 +14346,7 @@
                 "extraction",
                 "document",
                 "wiki",
+                "import",
                 "other"
               ],
               "type": "string"
