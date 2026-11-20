@@ -705,6 +705,24 @@ const CATALOG: Record<string, Entry> = {
     "That edit can't be saved: the post is empty or longer than the account can post.",
     'none',
   ],
+  rule_not_eligible: [
+    'Always allow isn’t offered for this action. Approve it on its card.',
+    'none',
+  ],
+  rules_full: [
+    'You have 100 Always allow rules, the most there can be. Delete one in Settings › Activity first.',
+    'none',
+  ],
+  rule_exists: ['You already have a rule for exactly that command.', 'none'],
+  rule_command_refused: [
+    'A rule can only cover one plain command that doesn’t install, delete, use the network, commit, push or start a server.',
+    'review',
+  ],
+  rule_not_editable: ['Only a command rule’s command can be changed.', 'none'],
+  rules_unavailable: [
+    'Your Always allow rules couldn’t be read, so every action asks as usual.',
+    'retry',
+  ],
   approval_edit_invalid: [
     "That edit can't be used for this post. Close it and edit the post on its current card.",
     'review',
@@ -2262,6 +2280,39 @@ const CATALOG: Record<string, Entry> = {
   invalid_browser_url: [
     "That web address isn't valid. Check it and try again.",
     'review',
+  ],
+  // Show Row-Bot how (C3)
+  demo_private: [
+    "This chat is or was incognito, so Row-Bot doesn't keep steps from it.",
+    'none',
+  ],
+  demo_no_page: ['Open a page first, then show Row-Bot how.', 'none'],
+  demo_browser_busy: [
+    'Wait for Row-Bot to finish in the browser, then show it how.',
+    'retry',
+    RETRY,
+  ],
+  demo_recording: ['Row-Bot is already recording your steps here.', 'none'],
+  demo_missing: ['These steps are no longer here.', 'none'],
+  demo_changed: [
+    'These steps changed in another window. Look at them again.',
+    'retry',
+    RETRY,
+  ],
+  demo_no_steps: ['There are no steps yet.', 'none'],
+  demo_step_missing: ['That step is no longer here.', 'none'],
+  narration_no_model: [
+    'Install a speech model in Settings › Voice to narrate.',
+    'none',
+    VOICE,
+  ],
+  narration_no_ffmpeg: [
+    "Narration needs Row-Bot's audio support (ffmpeg). Your steps are still kept.",
+    'none',
+  ],
+  narration_unavailable: [
+    "Narration isn't available right now. Your steps are still kept.",
+    'none',
   ],
 
   // Computer use (the step in the conversation)

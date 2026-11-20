@@ -1,4 +1,5 @@
 import * as Popover from '@radix-ui/react-popover';
+import { Check } from 'lucide-react';
 import { useRef, type RefObject } from 'react';
 import type {
   ContextBreakdown,
@@ -353,6 +354,12 @@ function ContextDetails({ usage }: { usage: ContextUsageView }) {
     <>
       <strong className="context-meter-title">{label}</strong>
       <p>{summary}</p>
+      {/* Prepared while the chat was idle, so reaching the point won't pause the reply (B6). */}
+      {usage.summary_ready && (
+        <p className="context-summary-ready">
+          <Check size={12} aria-hidden />A summary of older messages is ready.
+        </p>
+      )}
       {usage.breakdown && (
         <ContextBreakdownSection
           breakdown={usage.breakdown}

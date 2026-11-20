@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "LocalServerFound": {
+      "additionalProperties": false,
+      "description": "A local model server that answered on its usual loopback port when \"On this computer\" opened.",
+      "properties": {
+        "base_url": {
+          "maxLength": 128,
+          "title": "Base Url",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "ollama",
+            "lmstudio",
+            "vllm",
+            "llama_cpp"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        },
+        "models": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Models",
+          "type": "array"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Id"
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "port",
+        "base_url",
+        "models"
+      ],
+      "title": "LocalServerFound",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "servers": {
+      "items": {
+        "$ref": "#/$defs/LocalServerFound"
+      },
+      "maxItems": 8,
+      "title": "Servers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "servers"
+  ],
+  "title": "LocalServersSnapshot",
+  "type": "object"
+}

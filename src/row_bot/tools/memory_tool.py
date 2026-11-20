@@ -34,18 +34,15 @@ _LIST_MEMORIES_CHARS = 40_000  # Beyond this the list is saved, and read on with
 
 
 class _SaveMemoryInput(BaseModel):
-    category: MemoryCategory = Field(description="Memory category.")  # type: ignore[valid-type]
-    subject: str = Field(description="Short name or title, e.g. 'Mom', 'Coffee', 'Python 3.13'.")
-    content: str = Field(description="What to remember, e.g. 'Mom's birthday is March 15'.")
-    tags: str = Field(default="", description="Optional comma-separated tags.")
+    category: MemoryCategory  # type: ignore[valid-type]
+    subject: str = Field(description="Short name, e.g. 'Mom', 'Python 3.13'.")
+    content: str = Field(description="e.g. 'Mom's birthday is March 15'.")
+    tags: str = Field(default="", description="Comma-separated.")
 
 
 class _SearchMemoryInput(BaseModel):
-    query: str = Field(description="Words or a phrase to search for.")
-    category: MemoryCategory | None = Field(  # type: ignore[valid-type]
-        default=None,
-        description="Only this category. Omit to search all.",
-    )
+    query: str
+    category: MemoryCategory | None = Field(default=None, description="Only this category.")  # type: ignore[valid-type]
 
 
 class _ListMemoriesInput(BaseModel):
@@ -56,19 +53,17 @@ class _ListMemoriesInput(BaseModel):
 
 
 class _UpdateMemoryInput(BaseModel):
-    memory_id: str = Field(description="ID from recalled memories, search_memory or list_memories.")
-    content: str = Field(description="New content; replaces the old.")
-    subject: str | None = Field(default=None, description="New subject. Omit to keep.")
-    entity_type: MemoryCategory | None = Field(  # type: ignore[valid-type]
-        default=None,
-        description="New category. Omit to keep.",
-    )
-    aliases: str | None = Field(default=None, description="Comma-separated aliases. Omit to keep.")
-    tags: str | None = Field(default=None, description="Comma-separated tags. Omit to keep.")
+    # A field left out keeps its value (the tool description says so).
+    memory_id: str = Field(description="From recall, search_memory or list_memories.")
+    content: str = Field(description="Replaces the old.")
+    subject: str | None = None
+    entity_type: MemoryCategory | None = None  # type: ignore[valid-type]
+    aliases: str | None = Field(default=None, description="Comma-separated.")
+    tags: str | None = Field(default=None, description="Comma-separated.")
 
 
 class _DeleteMemoryInput(BaseModel):
-    memory_id: str = Field(description="ID from search_memory or list_memories.")
+    memory_id: str = Field(description="From recall or search_memory.")
 
 
 class _LinkMemoriesInput(BaseModel):
@@ -393,6 +388,19 @@ def _resolve_entity(name_or_id: str) -> dict | None:
     return None
 
 
+# Names for the person themselves. Linking to one links to the canonical "User" entity, made the first
+# time it is needed, as document and chat extraction make it (M15).
+_USER_NAMES = frozenset({"user", "the user", "me", "myself"})
+
+
+def _resolve_end(name_or_id: str) -> dict | None:
+    """One end of a link: an entity by name or ID, or the person's own entity for "User" or "me"."""
+    entity = _resolve_entity(name_or_id)
+    if entity is None and kg._normalize_subject(str(name_or_id)) in _USER_NAMES:  # noqa: SLF001
+        entity = kg.get_entity(kg._ensure_user_entity())  # noqa: SLF001
+    return entity
+
+
 def _link_memories(source_id: str, target_id: str, relation_type: str) -> str:
     """Create a relationship between two memories in the knowledge graph."""
     import time
@@ -404,20 +412,20 @@ def _link_memories(source_id: str, target_id: str, relation_type: str) -> str:
         return held
     try:
         # Resolve by name or ID
-        source_entity = _resolve_entity(source_id)
-        target_entity = _resolve_entity(target_id)
+        source_entity = _resolve_end(source_id)
+        target_entity = _resolve_end(target_id)
         if not source_entity:
             # Retry once after a short delay — the entity may have been
             # created by a parallel tool call in the same batch.
             time.sleep(0.5)
-            source_entity = _resolve_entity(source_id)
+            source_entity = _resolve_end(source_id)
         if not source_entity:
             return f"Error: source entity '{source_id}' not found. Use search_memory or list_memories to find the correct name or ID."
         if not target_entity:
             # Retry once after a short delay — the entity may have been
             # created by a parallel tool call in the same batch.
             time.sleep(0.5)
-            target_entity = _resolve_entity(target_id)
+            target_entity = _resolve_end(target_id)
         if not target_entity:
             return f"Error: target entity '{target_id}' not found. Use search_memory or list_memories to find the correct name or ID."
 
@@ -528,10 +536,7 @@ class MemoryTool(BaseTool):
             StructuredTool.from_function(
                 func=_search_memory,
                 name="search_memory",
-                description=(
-                    "Search memories (semantic, keyword and graph) for a deeper or more focused look than "
-                    "the memories recalled each turn."
-                ),
+                description="Search memories for a deeper or more focused look than each turn's recall.",
                 args_schema=_SearchMemoryInput,
             ),
             StructuredTool.from_function(
@@ -543,7 +548,7 @@ class MemoryTool(BaseTool):
             StructuredTool.from_function(
                 func=_update_memory,
                 name="update_memory",
-                description="Correct or extend an existing memory by its ID.",
+                description="Correct or extend a memory by its ID; fields left out stay as they are.",
                 args_schema=_UpdateMemoryInput,
             ),
             StructuredTool.from_function(

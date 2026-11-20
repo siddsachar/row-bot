@@ -48,6 +48,12 @@ const platform = vi.hoisted(() => ({
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({ controller: runtime, platform }),
 }));
+// Proactive on: For you takes Today's place. Off unless a test turns it on.
+const proactive = vi.hoisted(() => ({ on: false }));
+vi.mock('../proactive/proactive-state', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../proactive/proactive-state')>()),
+  useProactiveOn: () => proactive.on,
+}));
 
 /** Friday 26 September 2026, 9:30 local time. */
 const now = new Date(2026, 8, 26, 9, 30, 0);
@@ -483,6 +489,55 @@ it('all quiet: names the next workflow run instead', async () => {
     expect(summary()).toBe('Next: Morning digest in 30 minutes.'),
   );
   expect(screen.queryByRole('region', { name: /^Needs you/ })).toBeNull();
+});
+
+it('For you puts a workflow run on a later day under that day, at its time', async () => {
+  // Found in the 5.3.4 Windows test (W23): tomorrow's 08:00 run sat under "Later today".
+  proactive.on = true;
+  const forYou: OverviewHomeProps['forYou'] = ({ rows, ahead }) => (
+    <>
+      <ul aria-label="Later today">{rows}</ul>
+      {ahead.map(({ at: day, row }) => (
+        <ul key={day.toISOString()} aria-label={day.toDateString()}>
+          {row}
+        </ul>
+      ))}
+    </>
+  );
+  try {
+    const { unmount } = show({
+      forYou,
+      loadTasks: vi
+        .fn()
+        .mockResolvedValue(
+          page([task('plan', 'Weekday plan', { next_run: at(27, 8) })]),
+        ),
+    });
+    const tomorrow = await screen.findByRole('list', {
+      name: new Date(2026, 8, 27).toDateString(),
+    });
+    expect(
+      within(tomorrow).getByText(/^Weekday plan runs at 0?8:00/),
+    ).toBeVisible();
+    expect(within(list('Later today')).queryAllByRole('listitem')).toEqual([]);
+    unmount();
+
+    show({
+      forYou,
+      loadTasks: vi
+        .fn()
+        .mockResolvedValue(
+          page([task('digest', 'Morning digest', { next_run: at(26, 10) })]),
+        ),
+    });
+    expect(
+      await within(list('Later today')).findByText(
+        'Morning digest runs in 30 minutes',
+      ),
+    ).toBeVisible();
+  } finally {
+    proactive.on = false;
+  }
 });
 
 it('a run about to start is "in under a minute", never "just now"', async () => {

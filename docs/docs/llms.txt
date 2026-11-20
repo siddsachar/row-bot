@@ -16,6 +16,8 @@ Public documentation index for Row-Bot.
   Route: /docs/getting-started/on-railway. Run your own Row-Bot in your own Railway account and open it from any browser: Continue with Railway or the template, sign in, updates, spending, backups, and what it costs.
 - [First Launch](/docs/getting-started/first-launch)
   Route: /docs/getting-started/first-launch. Answer "How should Row-Bot think?" to choose your first model, then finish the rest at your own pace in Setup Center.
+- [Coming From Hermes?](/docs/getting-started/coming-from-hermes)
+  Route: /docs/getting-started/coming-from-hermes. Bring your Hermes Agent memories, persona, skills, MCP servers and model into Row-Bot, see what doesn't come over, and how Hermes's ideas map to Row-Bot's.
 - [Your First Tasks](/docs/getting-started/first-tasks)
   Route: /docs/getting-started/first-tasks. Five things to try in your first ten minutes with Row-Bot, each in plain words.
 - [Models And Providers](/docs/configuration/models-and-providers)
@@ -26,14 +28,20 @@ Public documentation index for Row-Bot.
   Route: /docs/app-shell/navigation. Find your way around Row-Bot: the sidebar, Home, a conversation and its details card, panels, the terminal, the command palette and Settings.
 - [Home: Overview](/docs/home/overview)
   Route: /docs/home/overview. Start from Home Overview: ask Row-Bot anything, answer what needs you, and pick up recent work, in one calm column.
+- [Proactive Row-Bot](/docs/guides/proactive)
+  Route: /docs/guides/proactive. How Row-Bot speaks first: what it brings up, the four levels, when it speaks, privacy, Why this?, your rules, the activity log, and turning it down or off.
+- [Your Morning Brief](/docs/guides/morning-brief)
+  Route: /docs/guides/morning-brief. Row-Bot's morning brief: when it appears, what it covers, how it ends, how to change it, and the optional end-of-day wrap-up.
 - [Chat](/docs/chat/)
-  Route: /docs/chat/. Use Row-Bot conversations: the composer, models, incognito chats, attachments, pages, questions, context and token usage, apps and skills in a chat, approvals, the details card, and the conversation library.
+  Route: /docs/chat/. Use Row-Bot conversations: the composer, models, incognito chats, attachments, tables, charts, choices and visuals in answers, pages, questions, context and token usage, apps and skills in a chat, approvals, the details card, and the conversation library.
 - [Model Picker](/docs/chat/model-picker)
   Route: /docs/chat/model-picker. Choose a conversation's model from one list across local, subscription, pay-per-use and custom providers, and troubleshoot missing models.
 - [Reasoning Controls](/docs/chat/reasoning-controls)
   Route: /docs/chat/reasoning-controls. Choose provider-aware reasoning effort, thinking toggles, and token budgets for the active Row-Bot model.
 - [Tools, Approvals And Background Work](/docs/chat/tools-approvals-and-terminal)
   Route: /docs/chat/tools-approvals-and-terminal. Row-Bot's tools and tool steps, the approval levels, background processes, Row-Bot's browser, video editing, images, sending files, and the terminal.
+- [Ask Row-Bot About Row-Bot](/docs/chat/about-row-bot)
+  Route: /docs/chat/about-row-bot. Ask Row-Bot how to do something in Row-Bot, what it is running now, or what's wrong: it answers from its own guides, offline, shows each setting, changes some for you with your approval, and can undo them.
 - [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills)
   Route: /docs/guides/progressive-tools-and-skills. Understand how Row-Bot discovers external tools and task-specific skills without loading every capability into every prompt.
 - [Profiles, Goals, And Agents](/docs/profiles-goals-agents/)
@@ -132,6 +140,8 @@ Public documentation index for Row-Bot.
   Route: /docs/operations/hosting. Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes, memory and updates.
 - [Privacy And Safety](/docs/privacy-safety/)
   Route: /docs/privacy-safety/. Understand local data, provider calls, credentials, approvals, channels, MCP, plugins, and sharing.
+- [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds)
+  Route: /docs/privacy-safety/agent-in-bounds. What Row-Bot's agent can and can't do, why outside text can't approve its own actions, what is not a boundary, and how to report a security problem.
 - [What Your Host Can See](/docs/privacy-safety/what-your-host-can-see)
   Route: /docs/privacy-safety/what-your-host-can-see. When a hosting service runs your Row-Bot: what the host can reach, what Row-Bot keeps encrypted and where the key lives, and how to protect yourself.
 - [Troubleshooting](/docs/troubleshooting/)

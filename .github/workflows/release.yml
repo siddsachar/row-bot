@@ -104,7 +104,7 @@ jobs:
   #  Release only a commit CI has already passed, from its tag (no re-testing)
   # ---------------------------------------------------------------------------
   release-gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -123,7 +123,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.2.0
         with:
-          version: ">=0.7,<1.0"
+          version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
           python-version: ${{ steps.python.outputs.python-path }}
 
       - name: Verify locked dependency files
@@ -166,7 +166,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-parts:
     needs: release-gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -182,7 +182,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.2.0
         with:
-          version: ">=0.7,<1.0"
+          version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
           python-version: ${{ steps.python.outputs.python-path }}
 
       # The same payload the installers ship: scripts/app_payload_manifest.py
@@ -371,7 +371,7 @@ jobs:
   build-linux:
     if: ${{ always() && needs.release-gate.result == 'success' && (needs.nightly.result == 'success' || needs.nightly.result == 'skipped') && needs.build-parts.result == 'success' && inputs.build_linux }}
     needs: [release-gate, nightly, build-parts]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:
@@ -610,7 +610,7 @@ jobs:
   checksums-and-manifest:
     if: ${{ always() && !cancelled() && needs.build-parts.result == 'success' }}
     needs: [build-parts, build-windows, build-linux, build-macos]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -695,7 +695,7 @@ jobs:
   draft-release:
     if: ${{ always() && !cancelled() && !inputs.dry_run && needs.checksums-and-manifest.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-macos.result == 'success' }}
     needs: [checksums-and-manifest, build-windows, build-linux, build-macos]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write
@@ -744,6 +744,8 @@ jobs:
               exit 1
             fi
             release_id="$(jq -r '.[0].id' <<<"$releases")"
+            # A draft from an earlier run (a moved tag) gets this run's title and notes too, not only its files.
+            gh release edit "$TAG" --title "$(cat title.txt)" --notes-file notes.md
           else
             flags=(--draft --verify-tag --title "$(cat title.txt)" --notes-file notes.md)
             case "$ROW_BOT_VERSION" in *-*) flags+=(--prerelease) ;; esac

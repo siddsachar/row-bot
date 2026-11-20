@@ -178,6 +178,42 @@ describe('Buddy shared companion and preferences', () => {
     );
   });
 
+  it('orders built-in and generated looks by the names shown on their tiles (W20)', () => {
+    const look = (id: string, name: string, generated = false) => ({
+      ...page.packs[0],
+      id,
+      name,
+      generated,
+    });
+    render(
+      <BuddyControls
+        {...props()}
+        packs={{
+          ...page,
+          total: 4,
+          next_cursor: null,
+          packs: [
+            look('woolly', 'Buddy Woolly'),
+            look('glyph', 'Buddy Glyph'),
+            look('hatch-2', 'Small mystical fox', true),
+            look('hatch-1', 'cheerful heron', true),
+          ],
+        }}
+      />,
+    );
+    const looks = screen.getByRole('group', { name: 'Buddy looks' });
+    expect(
+      within(looks)
+        .getAllByRole('button')
+        .map((tile) => tile.getAttribute('aria-label')),
+    ).toEqual([
+      'cheerful heron · Ready',
+      'Glyph · Ready',
+      'Small mystical fox · Ready',
+      'Woolly · Ready',
+    ]);
+  });
+
   it('ends the looks with a New look tile that opens the generation flow (B258)', () => {
     const input = props();
     const onNewLook = vi.fn();

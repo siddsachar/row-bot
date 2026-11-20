@@ -8,12 +8,14 @@ it over the event stream).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pathlib
 import subprocess
 import sys
 
+from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.runtime_paths import sounds_dir
 
 logger = logging.getLogger(__name__)
@@ -23,11 +25,24 @@ _LEVELS = {"negative": "error", "warning": "warning"}
 #: live eval's worker run Row-Bot's real runtime in a throwaway profile, and a failed test turn there is not
 #: the person's to hear about (no desktop notification, no sound; the in-app notice stays in that process).
 DESKTOP_SWITCH = "ROW_BOT_DESKTOP_NOTIFICATIONS"
+#: The person's Desktop notifications switch (Settings › Preferences › Notifications), on unless turned off.
+SAVED_SWITCH = "desktop_notifications"
+
+
+def _saved_on() -> bool:
+    try:
+        saved = json.loads((get_row_bot_data_dir(create=False) / "user_config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    return not isinstance(saved, dict) or saved.get(SAVED_SWITCH) is not False
 
 
 def desktop_enabled() -> bool:
-    """Whether this process may show desktop notifications and play sounds (read on every call)."""
-    return os.environ.get(DESKTOP_SWITCH, "").strip().lower() not in {"off", "0", "false", "no"}
+    """Whether this process may show desktop notifications and play sounds (read on every call): the
+    person's switch, unless the environment turns them off."""
+    if os.environ.get(DESKTOP_SWITCH, "").strip().lower() in {"off", "0", "false", "no"}:
+        return False
+    return _saved_on()
 
 # ── Sound files ──────────────────────────────────────────────────────────────
 _SOUNDS_DIR = sounds_dir()

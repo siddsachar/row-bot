@@ -8946,6 +8946,19 @@
           "title": "Text",
           "type": "string"
         },
+        "time_zone": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time Zone"
+        },
         "write_targets": {
           "anyOf": [
             {

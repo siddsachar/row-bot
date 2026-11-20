@@ -202,6 +202,25 @@ Compaction does what Claude Code does (`models.context_reserves`,
    (`thread_meta.compaction_failure_json`) names the summary in force, a digest
    of every older complete group, the model and the policy. A new turn, or new
    input to age, gets one more attempt.
+5. **Prepared ahead (B6).** When a turn settles at 85% or more of the
+   compaction point on a cloud model, the next summary is written in the
+   background (`agent._prepare_summary_ahead`) by the same boundary choice and
+   summarizer a compaction in the turn uses, so it is the same summary. It is
+   kept per mode in `thread_meta.prepared_summary_json`, saved only while the
+   summary in force is still the one it builds on. When a request reaches the
+   point, the turn uses it, inside the compaction lock and before
+   `compaction_started`: no summarizer call and no pause. It is used only while
+   the mode, model, provider, policy, the summary under it and the digest of
+   the messages before its boundary all match; otherwise it is dropped and
+   compaction runs as above. If it leaves too little room, compaction starts
+   from it and summarizes only the newer range. The preparation takes the lock
+   without waiting and skips when a compaction or another turn of the chat
+   runs. A failed one stores nothing and sets no failure marker. Local models
+   (Ollama, custom endpoints, or a compaction route to one) never prepare. Its
+   summarizer calls are counted as `compaction` in the usage ledger, outside
+   any turn, with `row_bot_compaction_prepared` in their run metadata. This
+   changes when a summary is made, not what it says: the summarizer prompt and
+   the way the summary is placed in the request are unchanged.
 
 **Calibrated estimate.** Requests are sized at about four characters a token
 (thinking blocks by their text, not their signatures), then scaled per provider
@@ -351,8 +370,27 @@ message says changes it.
   sign-in leaves them out, until a new sign-in.
 - **Developer tools come with a code folder.** Without one every Developer
   tool fails, so none of them (nor the Developer guide) is bound. The setup
-  tools stay, and the runtime guidance says a code folder brings the Developer
-  tools. Binding a folder adds them from the next turn.
+  tools stay offered, and the runtime guidance says a code folder brings the
+  Developer tools. Binding a folder adds them from the next turn.
+- **Less-used tools are offered on demand on every window** (B1):
+  `agent.RARELY_USED_TOOL_GROUPS` and `RARELY_USED_TOOLS`. They are not bound;
+  `tool_search` lists them by group (`group: tool_a, tool_b`, names only, at
+  most 1,500 characters) and returns a tool's whole input schema. Each one runs
+  when called by its own name or through `tool_invoke`, wrapped before it is
+  bridged, so its approval, profile limits and repeat guard are unchanged; under
+  Block a destructive one is not offered at all. A profile with its own tool
+  list binds exactly that list. App, plugin, Custom Tool and channel tools keep
+  their descriptions in the catalog.
+- **A null means left out.** Optional fields that an empty value already
+  leaves unset are plain in the schema (`"default": ""`, no null branch);
+  `tools.base.NullMeansUnset` drops a `null` a model sends for one before
+  validation, so it behaves as the field left out.
+- **The plain-chat tool block has a budget**: 38,000 provider-facing characters
+  (about 9,500 tokens; about 36,000 are used) for a 200K cloud chat with no code
+  folder and no apps
+  (`tests/subsystem/agents/test_default_tool_budget.py`, snapshot
+  `tests/snapshots/tools/plain_chat_tool_set.txt`). Raising it is a deliberate
+  edit of the number in that test.
 
 The tool list is rebuilt only on a real configuration change, which costs one
 cache reset each: an MCP server connecting or disconnecting, tool settings or a
@@ -381,8 +419,14 @@ Larger windows keep the prompt as described above.
 Every bound tool's schema is part of each request's prefix, so each topic has
 one home:
 
-- scheduling guidance is in the `task_create` description; the system prompt
-  only points to it;
+- scheduling decision rules (which field for which request) are in the
+  `task_create` description; how workflows run and are written, the schedule
+  formats in full and the reminder examples are in `workflow_guide`, read with
+  `skill_load`; the system prompt only points to them;
+- the workspace scope is said once: the turn context names the workspace folder
+  and says a file tool asks before it uses a full path elsewhere
+  (`workspace_write_file` keeps its own note); listing and searching are one
+  tool, `workspace_find`;
 - status categories and settings are enums on `row_bot_status` and
   `row_bot_update_setting`, explained in `row_bot_status_guide`;
 - memory rules are in the system prompt, not repeated in each memory tool;

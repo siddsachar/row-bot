@@ -150,3 +150,57 @@ def test_a_zone_that_isnt_one_is_refused(tasks):
 
     assert refused.value.code == "invalid_task_schedule"
     assert tasks.get_task("digest") is None
+
+
+# RM3: a Mac in Los Angeles, a workflow made from a London browser at 07:30 London on weekdays.
+LONDON_MORNING = "cron:30 7 * * mon-fri"
+MONDAY_EVENING = datetime(2026, 11, 16, 21, 30, tzinfo=UTC)  # 21:30 in London, 13:30 in Los Angeles.
+TUESDAY_0730_LONDON = datetime(2026, 11, 17, 7, 30, tzinfo=UTC)  # London is on UTC in November.
+
+
+def _london_workflow(tasks, monkeypatch) -> str:
+    from row_bot import schedule_zones
+
+    monkeypatch.setattr(schedule_zones, "local_zone_name", lambda: "America/Los_Angeles")
+    return tasks.create_task("Sydney weather", prompts=["Sydney's weather today."], schedule=LONDON_MORNING,
+                             timezone="Europe/London")
+
+
+def test_the_scheduler_fires_at_the_workflows_zone_not_the_servers(tasks, monkeypatch):
+    task_id = _london_workflow(tasks, monkeypatch)
+    jobs: dict[str, object] = {}
+
+    class Scheduler:  # Holds the jobs the real sync adds; nothing runs.
+        def add_job(self, func, *, trigger, id, **_kwargs):
+            jobs[id] = trigger
+
+        def remove_job(self, job_id):
+            jobs.pop(job_id, None)
+
+    monkeypatch.setattr(tasks, "_get_scheduler", lambda: Scheduler())
+    tasks.sync_all_jobs()
+
+    trigger = jobs[tasks._job_id(task_id)]
+    first = trigger.get_next_fire_time(None, MONDAY_EVENING)
+    assert first == TUESDAY_0730_LONDON, "07:30 in London, about 10 hours away, not 07:30 in Los Angeles"
+    friday = trigger.get_next_fire_time(None, datetime(2026, 11, 20, 8, 0, tzinfo=UTC))  # After Friday 07:30
+    assert friday is not None and friday.isoformat() == "2026-11-23T07:30:00+00:00", "weekdays only"
+
+
+def test_every_next_run_shown_is_at_the_workflows_zone_with_its_offset(tasks, monkeypatch):
+    """The Workflows page, Home and For you read the saved list's next run; it said "in 18 hours" and
+    "runs at 3:30 PM", the London time read as the server's."""
+    from row_bot import task_views
+
+    task_id = _london_workflow(tasks, monkeypatch)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return MONDAY_EVENING if tz is None else MONDAY_EVENING.astimezone(tz)
+
+    monkeypatch.setattr(tasks, "datetime", Clock)
+    [item] = [item for item in task_views.list_saved_tasks().items if item.id == task_id]
+
+    assert item.next_run == "2026-11-17T07:30:00+00:00"
+    assert datetime.fromisoformat(item.next_run) - MONDAY_EVENING == timedelta(hours=10)

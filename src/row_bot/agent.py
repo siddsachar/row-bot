@@ -10,6 +10,7 @@ import threading
 import time
 import re
 import uuid
+from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Iterator
 
@@ -112,6 +113,8 @@ class ContextUsage:
     status: str = "ready"
     # What fills the context, in the estimate's tokens (see _context_breakdown); settled snapshots only.
     breakdown: dict[str, int] | None = None
+    # A summary of older messages is prepared ahead and still valid (B6); settled snapshots only.
+    summary_ready: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1270,18 +1273,10 @@ def _is_browser_tool_name(tool_name: str) -> bool:
     return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
 
 
-# How many browser actions one turn may take before it is stopped as a runaway loop; filming a demo (its browser
-# recording) is a long run of deliberate page actions, so it may take more.
-BROWSER_TOOL_LIMIT = 80
-RECORDING_BROWSER_TOOL_LIMIT = 400
-
-
-def _browser_tool_limit(thread_id: str) -> int:
-    """The browser actions this turn may take: more while this chat's browser is being recorded."""
-    from row_bot import recordings
-
-    recording = bool(thread_id) and recordings.active_for(thread_id, "browser") is not None
-    return RECORDING_BROWSER_TOOL_LIMIT if recording else BROWSER_TOOL_LIMIT
+# How many browser actions one turn may take before it is stopped as a runaway loop. A long task (a growth
+# workflow, filming a demo) takes a hundred or more deliberate page actions; a real loop is caught sooner by the
+# stuck check (only looking, many times in a row).
+BROWSER_TOOL_LIMIT = 400
 
 
 def _browser_action_name(tool_name: str) -> str:
@@ -1417,15 +1412,29 @@ def _code_folder() -> str:
 
 def _workspace_line() -> str:
     """Where the file tools and the shell start, ``~/…`` under the home folder so the account name isn't sent."""
-    from row_bot.data_paths import default_workspace_root, display_path
+    from row_bot.data_paths import display_path, workspace_folder
 
-    configured = str(tool_registry.get_tool_config("filesystem", "workspace_root", "") or "")
-    workspace = display_path(configured if configured and os.path.isdir(configured) else default_workspace_root())
+    workspace = display_path(workspace_folder(create=False))
     code_folder = _code_folder()
     if code_folder:
         return (f"Code folder: {display_path(code_folder)} (the shell and Developer tools start here). "
                 f"Workspace folder for other files: {workspace}.")
-    return f"Workspace folder: {workspace}. File tools and the shell start here; relative paths are inside it."
+    return (f"Workspace folder: {workspace}. File tools and the shell start here; relative paths are inside it, "
+            "and a file tool asks the person before it uses a full path elsewhere.")
+
+
+def _device_zone_line() -> str:
+    """The person's device zone when it isn't this computer's (M10): their "local time" is its time."""
+    from zoneinfo import ZoneInfo
+
+    from row_bot.schedule_zones import local_zone_name
+
+    zone = _current_device_zone_var.get("")
+    if not zone or zone == local_zone_name():
+        return ""
+    offset = _datetime.now(ZoneInfo(zone)).isoformat(timespec="minutes")[-6:]
+    return (f"The person's device is in {zone} (UTC{offset}), not this computer's time zone: their \"local "
+            "time\" is that zone's, and a new workflow schedule keeps it.")
 
 
 def _runtime_turn_fields(tool_names: list[str]) -> list:
@@ -1469,6 +1478,7 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
         ContextField("workspace", _workspace_line()),
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
+        ContextField("device_zone", _device_zone_line(), "The person's device is in this computer's time zone."),
     ]
     off: list[str] = []
     switched_off: list[str] = []
@@ -3775,6 +3785,22 @@ def _turn_usage_tagged(runnable: Any, purpose: str) -> Any:
     )
 
 
+# Run-config metadata of a summarizer call made ahead of the compaction point (B6); its ledger
+# purpose stays ``compaction``.
+_PREPARED_COMPACTION_KEY = "row_bot_compaction_prepared"
+
+
+def _with_call_metadata(runnable: Any, metadata: dict[str, Any]) -> Any:
+    """Add run-config metadata to a LangChain runnable; anything else is returned unchanged."""
+    from langchain_core.runnables import Runnable
+
+    if not isinstance(runnable, Runnable):
+        return runnable
+    # A bound runnable's config is replaced key by key: keep the metadata it already has (its purpose).
+    existing = dict((getattr(runnable, "config", None) or {}).get("metadata") or {})
+    return runnable.with_config(metadata={**existing, **metadata})
+
+
 def _compaction_model(inputs: PreparationInputs, output_tokens: int):
     # The thread's own model at the lowest reasoning effort (WP C1): on Ollama
     # the same model and context allocation, with thinking off, so nothing reloads.
@@ -3818,7 +3844,10 @@ def _invoke_compaction_model(
         provider_id=None,
         ttl=CACHE_TTL_LOOP,
     )
-    result = _turn_usage_tagged(_compaction_model(inputs, output_tokens), "compaction").invoke(summary_messages)
+    model = _turn_usage_tagged(_compaction_model(inputs, output_tokens), "compaction")
+    if _current_compaction_prepared_var.get():
+        model = _with_call_metadata(model, {_PREPARED_COMPACTION_KEY: True})
+    result = model.invoke(summary_messages)
     if stop_event and stop_event.is_set():
         raise TaskStoppedError("Stopped during context compaction.")
     return _validate_summary_text(_content_to_str(getattr(result, "content", result)), output_tokens)
@@ -4202,6 +4231,250 @@ def _with_status(prepared: PreparedModelInput, status: str) -> PreparedModelInpu
     )
 
 
+def _summary_state_for(inputs: PreparationInputs, boundary: int, summary: str) -> dict:
+    """The summary state a compaction stores for *summary* of everything before *boundary*."""
+    from row_bot.threads import context_boundary_digest
+
+    return {
+        "schema_version": _SUMMARY_STATE_SCHEMA_VERSION,
+        "mode": inputs.mode,
+        "model_ref": inputs.model_ref,
+        "provider_id": inputs.provider_id,
+        "source_revision": inputs.checkpoint_revision or "",
+        "boundary_message_count": boundary,
+        "boundary_digest": context_boundary_digest(list(inputs.raw_messages), boundary, inputs.mode),
+        "summary": summary,
+        "prompt_fingerprint": inputs.prompt_fingerprint,
+        "tool_fingerprint": inputs.tool_fingerprint,
+        "policy_fingerprint": inputs.policy_fingerprint,
+        # The kept turns already complete lose their (now unbound) thinking blocks.
+        "thinking_strip": _thinking_strip_anchor(inputs, boundary),
+        "created_at": _context_datetime.now().isoformat(),
+    }
+
+
+def _save_summary_state(thread_id: str, inputs: PreparationInputs, state: dict) -> bool:
+    from row_bot.threads import save_summary_state_cas
+
+    return save_summary_state_cas(
+        thread_id,
+        state,
+        expected_revision=inputs.checkpoint_revision or "",
+        # This turn's own checkpoint, written in the background, may land meanwhile.
+        messages=list(inputs.raw_messages),
+    )
+
+
+def _compaction_succeeded(
+    inputs: PreparationInputs,
+    state: dict,
+    rebuilt: PreparedModelInput,
+    *,
+    prepared: bool = False,
+) -> PreparedModelInput:
+    """Record and announce a summary now in force; *prepared*: it was written ahead (B6)."""
+    event = _record_compaction_event(
+        inputs,
+        event_type="context_compacted",
+        boundary=int(state.get("boundary_message_count") or 0),
+        boundary_digest=str(state.get("boundary_digest") or ""),
+    )
+    _emit_context_event("compaction_succeeded", {
+        **_usage_event_payload(rebuilt.usage),
+        "event_id": event.get("id"),
+        "event_type": "context_compacted",
+        "display_copy": str((event.get("payload") or {}).get("display_copy") or ""),
+        **({"prepared": True} if prepared else {}),
+    })
+    # The Agent pre-model hook then shows this turn a full turn-context snapshot.
+    _current_compaction_succeeded_var.set(True)
+    _clear_compaction_failure(_current_thread_id_var.get() or "", inputs.mode)
+    return rebuilt
+
+
+# ── Prepared compaction (B6) ─────────────────────────────────────────────────────────────────
+# When a turn settles at 85% or more of the compaction point, a cloud chat's next summary is written
+# in the background by the same functions a compaction in the turn uses, and kept beside the summary
+# in force. When the point is reached, the turn uses it instead of pausing to summarize. It is used
+# only while it still fits: the same mode, model, provider and policy, the same summary in force
+# under it, and the same messages before its boundary. A failed preparation leaves nothing behind.
+_PREPARE_AT_SHARE = 0.85
+# At most two preparations run at once in the process; a third is skipped (it may prepare after its
+# next turn, or compacts at the point as before).
+_PREPARATION_SLOTS = threading.BoundedSemaphore(2)
+
+
+def _prepared_summary_fits(slot: dict, inputs: PreparationInputs, summary_state: dict | None) -> bool:
+    from row_bot.threads import context_boundary_digest, summary_text_digest
+
+    previous = int((summary_state or {}).get("boundary_message_count") or 0)
+    count = int(slot.get("boundary_message_count") or 0)
+    return (
+        int(slot.get("schema_version") or 0) == _SUMMARY_STATE_SCHEMA_VERSION
+        and bool(str(slot.get("summary") or "").strip())
+        and slot.get("mode") == inputs.mode
+        and slot.get("model_ref") == inputs.model_ref
+        and slot.get("provider_id") == inputs.provider_id
+        and slot.get("policy_fingerprint") == inputs.policy_fingerprint
+        and slot.get("base_summary_digest") == summary_text_digest(summary_state)
+        and previous < count <= len(inputs.raw_messages)
+        and context_boundary_digest(list(inputs.raw_messages), count, inputs.mode) == slot.get("boundary_digest")
+    )
+
+
+def _usable_prepared_summary(inputs: PreparationInputs, summary_state: dict | None) -> dict | None:
+    """The summary prepared ahead for this conversation, while it still fits *inputs*, or None."""
+    thread_id = _current_thread_id_var.get() or ""
+    if not thread_id:
+        return None
+    try:
+        from row_bot.threads import load_prepared_summary
+
+        slot = load_prepared_summary(thread_id, inputs.mode)
+    except Exception:
+        logger.debug("Prepared summary unavailable", exc_info=True)
+        return None
+    return slot if slot is not None and _prepared_summary_fits(slot, inputs, summary_state) else None
+
+
+def _take_prepared_summary(inputs: PreparationInputs, summary_state: dict | None) -> dict | None:
+    """At the point: the prepared summary as the state this turn would store, or None. The slot goes."""
+    slot = _usable_prepared_summary(inputs, summary_state)
+    try:
+        from row_bot.threads import clear_prepared_summary
+
+        # Used, the base of a new summary, or no longer valid: either way it is not kept.
+        clear_prepared_summary(_current_thread_id_var.get() or "", inputs.mode)
+    except Exception:
+        logger.debug("Prepared summary was not cleared", exc_info=True)
+    if slot is None:
+        return None
+    return _summary_state_for(inputs, int(slot["boundary_message_count"]), str(slot["summary"]))
+
+
+def _is_cloud_model_ref(model_ref: str) -> bool:
+    from row_bot.providers.custom import CUSTOM_OPENAI_PREFIX
+    from row_bot.providers.selection import parse_model_ref
+
+    parsed = parse_model_ref(model_ref)
+    if parsed is None:
+        return bool(model_ref) and is_cloud_model(model_ref)
+    # A custom endpoint is often a model on this computer (LM Studio, llama.cpp): treated as local.
+    return parsed[0] not in {"ollama", "local"} and not parsed[0].startswith(CUSTOM_OPENAI_PREFIX)
+
+
+def _prepares_ahead(inputs: PreparationInputs) -> bool:
+    """Cloud models only: on a local model the summary would hold the GPU the next turn needs."""
+    from row_bot.providers.background import background_model_ref
+
+    return _is_cloud_model_ref(inputs.model_ref) and _is_cloud_model_ref(
+        background_model_ref("compaction", thread_model=inputs.model_ref)
+    )
+
+
+def _should_prepare(inputs: PreparationInputs, summary_state: dict | None, usage: ContextUsage) -> bool:
+    thread_id = _current_thread_id_var.get() or ""
+    compact_at = usage.compact_at_tokens
+    if not thread_id or not compact_at or usage.status == "unavailable":
+        return False
+    if usage.estimated_input_tokens < compact_at * _PREPARE_AT_SHARE or not _prepares_ahead(inputs):
+        return False
+    # The last compaction of this very input failed: it is not tried again ahead of the point.
+    marker = _compaction_failure_marker(thread_id, inputs.mode)
+    attempt = _compaction_attempt(inputs, summary_state)
+    return not marker or any(marker.get(key) != value for key, value in attempt.items())
+
+
+def _submit_preparation(job: Any) -> None:
+    threading.Thread(target=job, name="row-bot-prepared-compaction", daemon=True).start()
+
+
+def _start_preparation(inputs: PreparationInputs, usage: ContextUsage) -> None:
+    """Prepare the next summary in the background; the turn that settled never waits for it."""
+    from row_bot.runtime.executions import current_execution
+
+    own = current_execution()
+    context = _contextvars.copy_context()
+
+    def run() -> None:
+        if not _PREPARATION_SLOTS.acquire(blocking=False):
+            return
+        try:
+            context.run(_prepare_summary_ahead, inputs, usage, own)
+        finally:
+            _PREPARATION_SLOTS.release()
+
+    _submit_preparation(run)
+
+
+def _another_turn_runs(thread_id: str, own: Any) -> bool:
+    from row_bot.runtime.executions import generation_registry
+
+    return any(handle is not own for handle in generation_registry.active(thread_id))
+
+
+def _prepare_summary_ahead(inputs: PreparationInputs, usage: ContextUsage, own: Any) -> None:
+    """Write the summary a compaction at the point would write, and keep it for then.
+
+    Runs in a copy of the settled turn's context. It skips when another turn of the chat runs or a
+    compaction holds the chat's lock (it never waits for one), and any failure stores nothing: no
+    summary, no failure marker. The reactive path at the point is then exactly as before.
+    """
+    from row_bot.cancellation import use_cancellation_scope
+
+    thread_id = _current_thread_id_var.get() or ""
+    # Nothing of the finished turn carries over: its stop button, cancellation, turn id, Learning turn.
+    _current_stop_event_var.set(None)
+    _current_generation_id_var.set("")
+    _current_learning_turn_var.set(None)
+    _current_compaction_prepared_var.set(True)
+    if not thread_id or _another_turn_runs(thread_id, own):
+        return
+    lock = _compaction_lock(thread_id)
+    if not lock.acquire(blocking=False):
+        return
+    try:
+        with use_cancellation_scope(None):
+            from row_bot.threads import save_context_usage_cas, save_prepared_summary_cas, summary_text_digest
+
+            summary_state = _validated_summary_for_inputs(inputs)
+            if _usable_prepared_summary(inputs, summary_state) is not None:
+                return
+            boundary = _choose_compaction_boundary(inputs, summary_state)
+            summary = _summarize_aged_range(
+                inputs,
+                previous_state=summary_state,
+                boundary=boundary,
+                compactable_tokens=_count_prepared_tokens(list(inputs.raw_messages[:boundary]), ()),
+            )
+            state = {
+                **_summary_state_for(inputs, boundary, summary),
+                "base_summary_digest": summary_text_digest(summary_state),
+            }
+            if not save_prepared_summary_cas(thread_id, state, messages=list(inputs.raw_messages)):
+                return
+            ready = {**usage.to_dict(), "summary_ready": True}
+            # Only while the conversation is still where it settled: a newer turn reports for itself.
+            if save_context_usage_cas(thread_id, ready):
+                _publish_context_update(thread_id, ready)
+    except Exception:
+        logger.debug("Prepared compaction skipped", exc_info=True)
+    finally:
+        lock.release()
+
+
+def _publish_context_update(thread_id: str, usage: dict) -> None:
+    try:
+        from row_bot.application.context_status import project_live_usage
+        from row_bot.projection.conversation import conversation_projection
+
+        conversation_projection.publish(
+            thread_id, "context.updated", project_live_usage(thread_id, usage, "context_usage")
+        )
+    except Exception:
+        logger.debug("Context update was not published", exc_info=True)
+
+
 def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) -> PreparedModelInput:
     """The next request, compacted first when it reaches the compaction point (D2).
 
@@ -4264,6 +4537,16 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
         if not force and prepared.usage.estimated_input_tokens < compact_at:
             _emit_context_event("context_usage", _usage_event_payload(prepared.usage))
             return prepared
+        ahead = _take_prepared_summary(inputs, summary_state)
+        if ahead is not None:
+            rebuilt = _prepare_model_input(inputs.raw_messages, inputs, ahead, mode=inputs.mode)
+            if rebuilt.usage.estimated_input_tokens >= min(compact_at, usable):
+                # Not enough room on its own (the chat grew a lot since): today's path starts from
+                # it, so only the newer range is summarized.
+                summary_state = ahead
+            elif thread_id and _save_summary_state(thread_id, inputs, ahead):
+                # Ready before the point: no summarizer call in this turn, and no pause.
+                return _compaction_succeeded(inputs, ahead, rebuilt, prepared=True)
         _emit_context_event("compaction_started", _usage_event_payload(prepared.usage))
         try:
             stop_event = _current_stop_event_var.get()
@@ -4279,29 +4562,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
             )
             if stop_event and stop_event.is_set():
                 raise TaskStoppedError("Stopped during context compaction.")
-            from row_bot.threads import context_boundary_digest, save_summary_state_cas
-
-            boundary_digest = context_boundary_digest(
-                list(inputs.raw_messages),
-                boundary,
-                inputs.mode,
-            )
-            next_state = {
-                "schema_version": _SUMMARY_STATE_SCHEMA_VERSION,
-                "mode": inputs.mode,
-                "model_ref": inputs.model_ref,
-                "provider_id": inputs.provider_id,
-                "source_revision": inputs.checkpoint_revision or "",
-                "boundary_message_count": boundary,
-                "boundary_digest": boundary_digest,
-                "summary": summary,
-                "prompt_fingerprint": inputs.prompt_fingerprint,
-                "tool_fingerprint": inputs.tool_fingerprint,
-                "policy_fingerprint": inputs.policy_fingerprint,
-                # The kept turns already complete lose their (now unbound) thinking blocks.
-                "thinking_strip": _thinking_strip_anchor(inputs, boundary),
-                "created_at": _context_datetime.now().isoformat(),
-            }
+            next_state = _summary_state_for(inputs, boundary, summary)
             rebuilt = _prepare_model_input(
                 inputs.raw_messages,
                 inputs,
@@ -4328,20 +4589,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
                     if stop_event and stop_event.is_set():
                         raise TaskStoppedError("Stopped during context compaction.")
                     boundary = fallback_boundary
-                    summary = fallback_summary
-                    boundary_digest = context_boundary_digest(
-                        list(inputs.raw_messages),
-                        boundary,
-                        inputs.mode,
-                    )
-                    next_state = {
-                        **next_state,
-                        "boundary_message_count": boundary,
-                        "boundary_digest": boundary_digest,
-                        "summary": summary,
-                        "thinking_strip": _thinking_strip_anchor(inputs, boundary),
-                        "created_at": _context_datetime.now().isoformat(),
-                    }
+                    next_state = _summary_state_for(inputs, boundary, fallback_summary)
                     rebuilt = _prepare_model_input(
                         inputs.raw_messages,
                         inputs,
@@ -4353,20 +4601,12 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
                 or rebuilt.usage.estimated_input_tokens >= usable
             ):
                 raise ContextCompactionError("Compaction did not create enough safe input slack.")
-            if not thread_id or not save_summary_state_cas(
-                thread_id,
-                next_state,
-                expected_revision=inputs.checkpoint_revision or "",
-                # This turn's own checkpoint, written in the background, may land meanwhile.
-                messages=list(inputs.raw_messages),
-            ):
+            if not thread_id or not _save_summary_state(thread_id, inputs, next_state):
                 # A concurrent winner may already have produced a valid state.
                 concurrent = _validated_summary_for_inputs(inputs)
                 if not concurrent:
                     raise ContextCompactionError("Conversation changed while compaction was finishing.")
                 next_state = concurrent
-                boundary = int(next_state.get("boundary_message_count") or 0)
-                boundary_digest = str(next_state.get("boundary_digest") or "")
                 rebuilt = _prepare_model_input(
                     inputs.raw_messages,
                     inputs,
@@ -4378,22 +4618,7 @@ def _prepare_with_compaction(inputs: PreparationInputs, *, force: bool = False) 
                     or rebuilt.usage.estimated_input_tokens >= usable
                 ):
                     raise ContextCompactionError("Concurrent compaction did not create safe input slack.")
-            event = _record_compaction_event(
-                inputs,
-                event_type="context_compacted",
-                boundary=boundary,
-                boundary_digest=boundary_digest,
-            )
-            _emit_context_event("compaction_succeeded", {
-                **_usage_event_payload(rebuilt.usage),
-                "event_id": event.get("id"),
-                "event_type": "context_compacted",
-                "display_copy": str((event.get("payload") or {}).get("display_copy") or ""),
-            })
-            # The Agent pre-model hook then shows this turn a full turn-context snapshot.
-            _current_compaction_succeeded_var.set(True)
-            _clear_compaction_failure(thread_id, inputs.mode)
-            return rebuilt
+            return _compaction_succeeded(inputs, next_state, rebuilt)
         except TaskStoppedError:
             raise
         except Exception as exc:
@@ -4487,16 +4712,23 @@ def _persist_settled_context_usage(
         summary_state,
         mode=settled_inputs.mode,
     )
+    summary_ready = _usable_prepared_summary(settled_inputs, summary_state) is not None
     usage = ContextUsage(**{
         **prepared.usage.to_dict(),
         "snapshot_kind": "settled",
         "checkpoint_message_digest": checkpoint_message_digest,
         "last_confirmed_input_tokens": last_confirmed_input_tokens,
         "breakdown": _context_breakdown(settled_inputs, prepared),
+        "summary_ready": summary_ready,
     })
     _current_last_preparation_var.set(settled_inputs)
     _persist_context_usage(thread_id, usage)
     _emit_context_event("context_usage", _usage_event_payload(usage))
+    try:
+        if not summary_ready and _should_prepare(settled_inputs, summary_state, usage):
+            _start_preparation(settled_inputs, usage)
+    except Exception:
+        logger.debug("Prepared compaction was not considered", exc_info=True)
     return usage
 
 
@@ -4847,8 +5079,11 @@ class _AgentModelCall:
         return RunnableLambda(call, name="row_bot_model_call")
 
 
-# Cache compiled agent graphs keyed by frozenset of enabled tool names
-_agent_cache: dict[frozenset[str], object] = {}
+# Compiled agent graphs by their cache key (tools, model, context, approval mode, fingerprints...), the
+# most recently used last. Each holds its tools and their schemas, a few MB; every workflow configuration
+# and fingerprint change added one for good (P5), so only the newest few stay.
+AGENT_CACHE_SIZE = 8
+_agent_cache: OrderedDict[frozenset[str], object] = OrderedDict()
 _agent_cache_metadata: dict[frozenset[str], dict[str, Any]] = {}
 
 # Thread-local storage for misc flags; background flag uses ContextVar
@@ -4861,6 +5096,32 @@ _tlocal = _threading.local()
 # threads racing during warm-up share one compilation instead of
 # duplicating the work.
 _agent_cache_lock = _threading.Lock()
+# Guards the two dicts above together: a hit reorders them, a build may evict.
+_agent_cache_entries_lock = _threading.Lock()
+
+
+def _cached_agent(cache_key: frozenset[str]) -> tuple[object, dict[str, Any]] | None:
+    with _agent_cache_entries_lock:
+        agent = _agent_cache.get(cache_key)
+        if agent is None:
+            return None
+        _agent_cache.move_to_end(cache_key)
+        return agent, _agent_cache_metadata.get(cache_key, {})
+
+
+def _remember_agent(cache_key: frozenset[str], agent: object, metadata: dict[str, Any]) -> None:
+    with _agent_cache_entries_lock:
+        _agent_cache[cache_key] = agent
+        _agent_cache.move_to_end(cache_key)
+        _agent_cache_metadata[cache_key] = metadata
+        while len(_agent_cache) > AGENT_CACHE_SIZE:
+            evicted, _graph = _agent_cache.popitem(last=False)
+            _agent_cache_metadata.pop(evicted, None)
+
+
+def agent_graph_cache_size() -> int:
+    """How many compiled agent graphs are kept (the hourly perf line reports it)."""
+    return len(_agent_cache)
 
 # ContextVar for background workflow flag — MUST be ContextVar (not
 # threading.local) because LangGraph runs tools in executor threads
@@ -4901,6 +5162,10 @@ _current_last_preparation_var: _contextvars.ContextVar[PreparationInputs | None]
 # Set when a compaction summary was saved during the current Agent preparation.
 _current_compaction_succeeded_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
     "current_compaction_succeeded", default=False
+)
+# The summarizer runs ahead of the point, while the chat is idle (B6): its calls say so in their metadata.
+_current_compaction_prepared_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
+    "current_compaction_prepared", default=False
 )
 # (section id, text) of the system sections the last Agent request was built from; filled only
 # while the DEBUG prefix diff runs (see prompt_prefix_diff).
@@ -4983,6 +5248,16 @@ def current_person_rules() -> dict | None:
     """The running workflow's "Always ask me" rules (N9), for an agent it starts: they go with it."""
     rules = _current_person_rules_var.get(None)
     return dict(rules) if rules else None
+
+
+# The IANA zone of the device that sent this turn's message (M10): "local time" means it. "" when no
+# device said (a channel, a workflow run): the computer's own zone.
+_current_device_zone_var: _contextvars.ContextVar[str] = _contextvars.ContextVar("current_device_zone", default="")
+
+
+def current_device_zone() -> str:
+    """The zone of the device the person sent this turn from, or "" when no device said."""
+    return _current_device_zone_var.get("")
 
 
 # ── Learning (preview) seams ────────────────────────────────────────────────────────────────────
@@ -5259,6 +5534,7 @@ def _set_active_runtime_context(
     external_discovery_active: bool = False,
     app_scope: dict | None = None,
     person_rules: dict | None = None,
+    device_zone: str = "",
 ) -> None:
     _current_thread_id_var.set(thread_id or "")
     _current_runtime_surface_var.set(runtime_surface or "")
@@ -5283,6 +5559,7 @@ def _set_active_runtime_context(
     _current_external_discovery_active_var.set(bool(external_discovery_active))
     _current_app_scope_var.set(dict(app_scope) if isinstance(app_scope, dict) else None)
     _current_person_rules_var.set(dict(person_rules) if isinstance(person_rules, dict) else None)
+    _current_device_zone_var.set(str(device_zone or ""))
     _current_authorized_skill_records_var.set(None)
     _current_effective_tool_parent_names_var.set(())
     _current_bound_tool_schema_tokens_var.set(0)
@@ -5443,15 +5720,21 @@ def is_background_workflow() -> bool:
 _DESTRUCTIVE_LABELS: dict[str, str] = {
     "workspace_file_delete": "Delete file",
     "workspace_move_file": "Move / rename file",
-    "delete_calendar_event": "Delete calendar event",
-    "move_calendar_event": "Move calendar event",
+    # Each calendar change in the words its step and card use, so the activity log reads alike (R1).
+    "create_calendar_event": "Create an event",
+    "create_calendar_events": "Create events",
+    "update_calendar_event": "Change an event",
+    "delete_calendar_event": "Delete an event",
+    "move_calendar_event": "Move an event",
     "send_gmail_message": "Send email",
     "outlook_send_mail": "Send email",
     "outlook_reply_mail": "Reply to email",
     "outlook_forward_mail": "Forward email",
     "outlook_delete_mail": "Delete email",
-    "outlook_cancel_event": "Cancel event",
-    "outlook_respond_event": "Answer invitation",
+    "outlook_create_event": "Add an event",
+    "outlook_update_event": "Change an event",
+    "outlook_cancel_event": "Cancel an event",
+    "outlook_respond_event": "Answer an invitation",
     "delete_memory": "Delete memory",
     "tracker_delete": "Delete tracker / entry",
     "task_delete": "Delete task",
@@ -5495,18 +5778,58 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
     return f"{label}: {args_str}"
 
 
+# An app's arguments that invite people or tell an event's guests (any app's calendar tool), as lowercase letters.
+_GUEST_ARGUMENTS = frozenset({"attendees", "guests", "invitees", "requiredattendees", "optionalattendees"})
+_TELL_GUEST_ARGUMENTS = frozenset({"sendupdates", "sendnotifications", "sendinvitations", "notifyattendees",
+                                   "notifyguests"})
+
+
+def _tells_guests(value) -> bool:
+    """Whether a call's own arguments invite people or tell an event's guests (W21), nested ones included."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            word = "".join(ch for ch in str(key).lower() if ch.isalpha())
+            if word in _GUEST_ARGUMENTS and item:
+                return True
+            if word in _TELL_GUEST_ARGUMENTS and item and str(item).strip().casefold() not in {"none", "false", "no"}:
+                return True
+            if _tells_guests(item):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_tells_guests(item) for item in value)
+    return False
+
+
+def _own_approval_card(tool_name: str, given: dict) -> tuple[str, str, bool] | None:
+    """A calendar or Outlook action's own card: its question, what it will do, and whether it invites other people
+    or tells an event's guests; None for other tools, or when it can't be written (the call itself asks)."""
+    from row_bot.tools import calendar_tool
+
+    if tool_name.startswith("outlook_"):
+        from row_bot.tools.outlook_tool import approval_card
+    elif tool_name in calendar_tool.CHANGE_OPERATIONS:
+        approval_card = calendar_tool.approval_card
+    else:
+        return None
+    try:
+        return approval_card(tool_name, given)
+    except Exception:
+        logger.warning("%s's approval card couldn't be written; it asks with the call itself", tool_name, exc_info=True)
+        return None
+
+
 def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
     """Keep sync and async targets behind the same current approval decision, resolved by the approval level
     (``approval_gate``): the person under Ask, the reviewer first under Auto, the level itself under Hands-off.
     ``always_ask``: an app tool its app's access says to ask about (a routine change without Full access, or a
-    high-impact one); the reviewer is told so, and decides as for any other action."""
+    high-impact one); the reviewer is told so, and decides as for any other action. A calendar change that invites
+    other people or tells an event's guests is the person's own to approve under Auto (``CALENDAR_GUESTS_RISK``)."""
     from functools import wraps
-    from row_bot.tools.approval_gate import resolve_approval_line, with_approval
+    from row_bot.approval_rules import APP_ASKS_RISK, CHANGE_RISK
+    from row_bot.tools.approval_gate import CALENDAR_GUESTS_RISK, resolve_approval_line, with_approval
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
-    risks = ("changes or deletes something",) + (
-        ("its app's access says to ask first (a high-impact change, or one without Full access)",)
-        if always_ask else ())
+    risks = (CHANGE_RISK,) + ((APP_ASKS_RISK,) if always_ask else ())
     # BaseTool's default async implementation delegates to its own _run. Keep
     # that delegate on an unwrapped copy so async calls ask exactly once.
     original = tool.model_copy()
@@ -5516,6 +5839,8 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
         mode = get_approval_mode()
         decision = decision_for_action(mode)
         if decision == "block":
+            # Noted as Block's decision, for the activity log.
+            resolve_approval_line({"tool": tool.name, "label": label, "args": kwargs}, approval_mode=mode)
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
                     "tool. Inform the user that this action was skipped "
@@ -5542,14 +5867,13 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                 if given:
                     args_str += ", " + ", ".join(f"{key}={_argument(value)}" for key, value in given.items())
             description = _enrich_description(tool.name, label, args_str, kwargs)
-        if tool.name.startswith("outlook_"):
-            # Outlook's card names who it goes to and what it says, or the event's time, attendees and place.
-            try:
-                from row_bot.tools.outlook_tool import approval_card
-
-                question, description = approval_card(tool.name, given)
-            except Exception:
-                logger.warning("Outlook's approval card couldn't be written; it asks with the call itself", exc_info=True)
+        # Outlook's and Google Calendar's own cards name who it goes to and what it says, or the event's time,
+        # guests and place; without one, the call's own arguments say whether it reaches other people.
+        card = _own_approval_card(tool.name, given)
+        if card is not None:
+            question, description, guests = card
+        else:
+            guests = _tells_guests(given) or _tells_guests(list(args))
         try:
             from row_bot.tools.discovery import is_external_discovery_invocation
             external_discovery_active = is_external_discovery_invocation()
@@ -5561,9 +5885,10 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
                 "args": kwargs or (args[0] if args else {}),
                 "external_discovery_active": external_discovery_active,
                 **({"question": question} if question else {}),
+                **({"risk_class": "high"} if guests else {}),
             },
             approval_mode=mode,
-            risks=risks,
+            risks=risks + ((CALENDAR_GUESTS_RISK,) if guests else ()),
             # This module's own name, so a test can stand in for the person.
             approval_callback=lambda payload: interrupt(payload),
         )
@@ -5594,10 +5919,29 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
         tool._arun = gated_async
 
 
+def _gate_changes(lc_tools: list, destructive_names: set[str], approval_mode: str,
+                  app_asks: set[str] | frozenset[str] = frozenset()) -> list:
+    """The tools a graph offers at this level, each change behind the approval gate.
+
+    Workflows and chats gate alike: Block leaves the changes out; every other level wraps them, and the gate
+    resolves each call by the level (the person under Ask, the reviewer first under Auto, the level itself under
+    Hands-off). A workflow run pauses when the person is asked. run_command self-gates at runtime via
+    classify_command, and a tool marked row_bot_gates_itself (x_post) asks with its own card, bound to exactly
+    what it sends.
+    """
+    if approval_mode == "block":
+        return [t for t in lc_tools if t.name not in destructive_names]
+    for t in lc_tools:
+        if t.name in destructive_names and not (t.metadata or {}).get("row_bot_gates_itself"):
+            _wrap_with_interrupt_gate(t, always_ask=t.name in app_asks)
+    return lc_tools
+
+
 def clear_agent_cache():
     """Clear the cached agent graphs so tools are rebuilt on next call."""
-    _agent_cache.clear()
-    _agent_cache_metadata.clear()
+    with _agent_cache_entries_lock:
+        _agent_cache.clear()
+        _agent_cache_metadata.clear()
     _TOOL_DISPLAY_NAMES.clear()
 
 
@@ -5896,14 +6240,20 @@ LOCAL_MIDDLE_CONTEXT_TOKENS = 131_072
 ON_DEMAND_TOOL_GROUPS = frozenset({"row_bot_status"})
 # Rarely used on any window: offered through tool search (and by name), not bound to every call.
 # Pages, questions, helpers, processes, tasks, memory and web stay bound: Row-Bot uses them unasked.
+# B1: the plain-chat tool block stays within its budget (tests/subsystem/agents/test_default_tool_budget.py).
 RARELY_USED_TOOL_GROUPS = frozenset({
     "row_bot_updater", "custom_tool_builder", "video_editing", "file_delivery", "tracker", "wiki", "goal",
     "youtube", "arxiv", "system_info",
+    "sound", "media", "weather", "wikipedia", "linked_conversations", "chart",
 })
 RARELY_USED_TOOLS = frozenset({
     "agent_profiles", "agent_profile_save", "agent_promote", "agent_retry",
     "row_bot_create_skill", "row_bot_patch_skill", "row_bot_send_feedback", "row_bot_apply_proposal",
     "row_bot_reject_proposal", "row_bot_verify_proposal", "row_bot_review_skill_library", "row_bot_fix",
+    "browser_record", "sandbox", "browser_viewport", "browser_upload", "browser_download", "browser_select",
+    "row_bot_update_setting", "agent_message", "agent_stop", "read_terminal", "clone_repository",
+    "link_memories", "explore_connections", "list_memories", "task_run_now", "task_delete", "export_to_pdf",
+    "list_conversations",
 })
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
     "current_on_demand_tools", default={}
@@ -5933,7 +6283,10 @@ def _has_code_folder() -> bool:
 
 
 def _activate_agent_cache_metadata(cache_key: frozenset[str]) -> None:
-    metadata = _agent_cache_metadata.get(cache_key, {})
+    _activate_cached_metadata(_agent_cache_metadata.get(cache_key, {}))
+
+
+def _activate_cached_metadata(metadata: dict[str, Any]) -> None:
     _current_on_demand_tools_var.set(dict(metadata.get("on_demand_tools") or {}))
     deferred_tools.offer(metadata.get("deferred_tool_names") or ())
     _current_effective_tool_parent_names_var.set(tuple(metadata.get("tool_parents") or ()))
@@ -6508,29 +6861,20 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             f"tool_allow:{name}" for name in sorted(normalized_allowlist)
         )
 
-    if cache_key not in _agent_cache:
+    cached = _cached_agent(cache_key)
+    if cached is None:
         with _agent_cache_lock:
-            if cache_key in _agent_cache:
-                _activate_agent_cache_metadata(cache_key)
-                return _agent_cache[cache_key]
+            cached = _cached_agent(cache_key)
+            if cached is not None:
+                _activate_cached_metadata(cached[1])
+                return cached[0]
             # Collect LangChain tool wrappers for enabled tools.
             eager_core_tools = [entry["tool"] for entry in eager_core_entries]
             external_tools = [entry["tool"] for entry in external_entries]
             lc_tools = eager_core_tools + external_tools
 
             # Append tools from enabled plugins (totally separate registry)
-            # Workflows and chats gate alike: block=strip destructive tools; every other level wraps them,
-            # and the gate resolves each call by the level (the person under Ask, the reviewer first under
-            # Auto, the level itself under Hands-off). A workflow run pauses when the person is asked.
-            # run_command self-gates at runtime via classify_command, and a tool marked
-            # row_bot_gates_itself (x_post) asks with its own card, bound to exactly what it sends.
-            if approval_mode == "block":
-                lc_tools = [t for t in lc_tools
-                            if t.name not in destructive_names]
-            else:
-                for t in lc_tools:
-                    if t.name in destructive_names and not (t.metadata or {}).get("row_bot_gates_itself"):
-                        _wrap_with_interrupt_gate(t, always_ask=t.name in app_asks)
+            lc_tools = _gate_changes(lc_tools, destructive_names, approval_mode, app_asks)
 
             lc_tools = _apply_provider_tool_schema_compatibility(
                 lc_tools,
@@ -6757,9 +7101,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 state_schema=RowBotAgentState,
                 version="v2",
             )
-            _agent_cache[cache_key] = agent
             bound_names = {str(getattr(tool, "name", "") or "") for tool in lc_tools}
-            _agent_cache_metadata[cache_key] = {
+            metadata = {
                 "on_demand_tools": {
                     str(getattr(entry["tool"], "name", "") or ""): (str(entry["parent"]), entry["tool"])
                     for entry in on_demand_entries
@@ -6776,9 +7119,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 ),
                 "skill_records": tuple(authorized_skill_records),
             }
+            _remember_agent(cache_key, agent, metadata)
+            cached = agent, metadata
 
-    _activate_agent_cache_metadata(cache_key)
-    return _agent_cache[cache_key]
+    _activate_cached_metadata(cached[1])
+    return cached[0]
 
 
 def _paused_at_a_question(state: Any) -> bool:
@@ -6941,6 +7286,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     _log_runtime_decision(
@@ -7472,6 +7818,14 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         target = _current_on_demand_tools_var.get().get(str((request.tool_call or {}).get("name") or ""))
         if target is not None:
             request = request.override(tool=target[1])
+    if getattr(request, "tool", None) is not None:
+        # A "null" for an optional argument, or an object as JSON text, is what the model meant (S5, S6).
+        from row_bot.tools.argument_repair import repaired_arguments
+
+        call = dict(request.tool_call or {})
+        repaired = repaired_arguments(request.tool, call.get("args"))
+        if repaired != call.get("args"):
+            request = request.override(tool_call={**call, "args": repaired})
     if handle is not None:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
@@ -7832,6 +8186,7 @@ def _stream_chat_only_events(
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(model_label)
     _current_prompt_cache_ttl_var.set(_prompt_cache_ttl_for(configurable))
@@ -8285,6 +8640,7 @@ def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     # A chat on another of the owner's devices runs like one on this computer.
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "remote_client", "channel"}
@@ -8390,6 +8746,7 @@ def stream_agent_without_backup(user_input: str, enabled_tool_names: list[str], 
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     _graph_build_started = time.perf_counter()
@@ -8458,11 +8815,14 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
                                config: dict | None = None,
                                *, agent_graph=None,
                                orphan_message: str = "[Cancelled by user]",
-                               marker_message: str = "\u23f9\ufe0f *[Stopped]*") -> int | None:
+                               marker_message: str | None = "\u23f9\ufe0f *[Stopped]*",
+                               as_node: str | None = None) -> int | None:
     """Patch the checkpoint so every AIMessage tool_call has a ToolMessage.
 
     Called after stop-generation to prevent
-    ``INVALID_CHAT_HISTORY`` errors on the next query.
+    ``INVALID_CHAT_HISTORY`` errors on the next query. ``marker_message=None`` adds no stop marker, so the
+    conversation ends on the patched results; ``as_node`` saves them as that node's output (``"tools"``: the
+    model runs next, as after any tool step).
     """
     if config is None:
         return 0
@@ -8503,11 +8863,10 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
             logger.warning("Repairing %d orphaned tool_call(s): %s",
                            len(patches),
                            [p.tool_call_id for p in patches])
-            agent.update_state(config, {"messages": patches})
-            # Add a visible stop marker so the conversation reloads correctly
-            agent.update_state(config, {"messages": [
-                AIMessage(content=str(marker_message or "\u23f9\ufe0f *[Stopped]*"))
-            ]})
+            agent.update_state(config, {"messages": patches}, as_node=as_node)
+            if marker_message is not None:
+                # Add a visible stop marker so the conversation reloads correctly
+                agent.update_state(config, {"messages": [AIMessage(content=str(marker_message))]})
             logger.warning("repair_orphaned_tool_calls: checkpoint patched successfully")
         else:
             logger.debug("repair_orphaned_tool_calls: no orphaned tool_calls in %d messages", len(msgs))
@@ -8515,6 +8874,24 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
     except Exception:
         logger.warning("repair_orphaned_tool_calls failed", exc_info=True)
         return None
+
+
+def _save_stopped_browser_step(agent, config: dict, stream_iter) -> None:
+    """Save a turn stopped at its browser limit so the conversation ends on the stopped step's result.
+
+    The turn broke out of its stream as soon as the model asked for the step, before LangGraph saved that
+    model step: the request is only a pending write of the open run. Ending the run first lets its background
+    checkpoint writes land; settling keeps the finished request and drops the step that would run next; the
+    result is then saved as the tools' output, so Resume runs the model on a history every provider accepts.
+    """
+    from langgraph.graph import END
+
+    stream_iter.close()
+    agent.update_state(config, None, as_node=END)
+    # Its unfinished step says why it stopped: not the person.
+    repair_orphaned_tool_calls(config=config, agent_graph=agent,
+                               orphan_message="[Stopped: too many browser actions in one turn]",
+                               marker_message=None, as_node="tools")
 
 
 def _resume_value(approved: bool, interrupt_ids: list[str] | None,
@@ -8601,6 +8978,7 @@ def _resume_stream_agent_turn(enabled_tool_names: list[str], config: dict, appro
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     try:
@@ -8698,6 +9076,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
         external_discovery_active=bool(configurable.get("external_discovery_active")),
         app_scope=configurable.get("app_scope"),
         person_rules=configurable.get("person_rules"),
+        device_zone=str(configurable.get("device_time_zone") or ""),
     )
     set_active_model_override(_model_ov or "")
     try:
@@ -9264,7 +9643,6 @@ def _stream_graph(agent, input_data, config: dict,
     # (a multi-step form) takes dozens of page actions; this only stops a
     # runaway loop.
     _loop_detected = False
-    _browser_thread = str((config.get("configurable") or {}).get("thread_id") or "")
     _browser_tool_count = 0
     _recent_browser_actions: list[str] = []
     _browser_budget_exceeded = False
@@ -9437,8 +9815,7 @@ def _stream_graph(agent, input_data, config: dict,
                                     action in {"snapshot", "take_screenshot", "screenshot"}
                                     for action in _recent_browser_actions[-8:]
                                 )
-                                if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
-                                                       >= _browser_tool_limit(_browser_thread)):
+                                if _snapshot_heavy or _browser_tool_count >= BROWSER_TOOL_LIMIT:
                                     _browser_budget_exceeded = True
 
                     # Tool result returned
@@ -9725,11 +10102,9 @@ def _stream_graph(agent, input_data, config: dict,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
-            # Its unfinished step says why it stopped: not the person.
-            repair_orphaned_tool_calls(config=config, agent_graph=agent,
-                                       orphan_message="[Stopped: too many browser actions in one turn]")
+            _save_stopped_browser_step(agent, config, stream_iter)
         except Exception:
-            pass
+            logger.warning("The stopped browser step was not saved", exc_info=True)
         _browser_msg = (
             "⚠️ I took a long run of browser steps in this turn without settling, so I stopped to check "
             "with you before going round again. Say carry on and I'll pick up from here, or tell me what to change."

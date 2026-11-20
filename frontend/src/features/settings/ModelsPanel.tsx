@@ -49,6 +49,7 @@ import { type DefaultModelSession } from './DefaultModelSettings';
 import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
 import YourModels from './YourModels';
+import LocalModelsSettings from '../local-runtime/LocalModelsSettings';
 
 /** A star puts a model in your models, which every picker lists; the Catalog below has the rest. */
 const LISTED_NOTE =
@@ -675,8 +676,7 @@ export default function ModelsPanel({
           status={
             state.brain.warning || brainNote ? (
               <StatusLine tone="warning">
-                {brainNote ||
-                  state.brain.warning?.replace('Chat', 'Main model')}
+                {brainNote || state.brain.warning}
               </StatusLine>
             ) : undefined
           }
@@ -910,6 +910,7 @@ export default function ModelsPanel({
           </SettingsItem>
         </Disclosure>
       </SettingsGroup>
+      <LocalModelsSettings controller={controller} />
       <YourModels
         controller={controller}
         pickers={{

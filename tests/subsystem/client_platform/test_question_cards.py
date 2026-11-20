@@ -274,3 +274,13 @@ def test_no_approval_level_answers_a_question(platform, monkeypatch, level):
     assert second.status == "waiting_approval"
     assert platform.get_approval(second.approval_id)["questions"][0]["header"] == "Pages"
     assert len(_cards(platform)) == 2
+
+
+@pytest.mark.parametrize("header, chip", [("Posting slot today", "Posting slot"), ("Supercalifragilistic", "Supercalifr…")])
+def test_a_header_longer_than_its_chip_is_shortened_not_refused(header, chip):
+    """S8 (18 Nov): ask_person refused a whole question because its header ran past 12 characters."""
+    from row_bot import questions
+
+    [question] = questions.normalize([{"header": header, "question": "When should it go out?",
+                                       "options": [{"label": "10:30"}, {"label": "16:00"}]}])
+    assert question["header"] == chip

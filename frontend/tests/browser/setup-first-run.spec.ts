@@ -57,6 +57,8 @@ test('no runtime yet: Setup opens, Ollama appears by itself, the pick becomes th
   });
   await expect(choices).toContainText("Ollama isn't installed yet");
   await choices.getByRole('button', { name: /On this computer/ }).click();
+  // Ollama is one of the equal rows; its Set up shows its steps.
+  await page.getByRole('button', { name: 'Set up Ollama' }).click();
   await expect(
     page.getByRole('heading', { name: 'Install Ollama' }),
   ).toBeVisible();
@@ -81,7 +83,11 @@ test('no runtime yet: Setup opens, Ollama appears by itself, the pick becomes th
     page,
     '/__p10_fixture/first-run/runtime?runtime=running&models=fixture-local:8b,fixture-local:27b',
   );
-  const models = page.getByRole('list', { name: 'Models on this computer' });
+  // Exact: "Ways to run models on this computer" is a list too.
+  const models = page.getByRole('list', {
+    name: 'Models on this computer',
+    exact: true,
+  });
   await expect(models.getByRole('button')).toHaveCount(2, { timeout: 10_000 });
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
   await expect(choices).toContainText('Ollama is running · 2 models');

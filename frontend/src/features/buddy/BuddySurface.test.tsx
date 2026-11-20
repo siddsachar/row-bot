@@ -58,6 +58,8 @@ const surface = vi.hoisted(() => {
     buddyPlacement,
     platform: { buddyPlacement },
     controller: {
+      // The first screen is up: Buddy reads at once.
+      firstScreenSettled: true,
       globalBuddy,
       globalBuddyPack,
       globalBuddyMedia,
@@ -480,6 +482,68 @@ it('reuses pack media across conversations for the same pack revision', async ()
     signal,
   );
   expect(load).toHaveBeenCalledTimes(4);
+});
+
+it('shares one download between callers asking at once, whoever gives up', async () => {
+  let finish!: (blob: Blob) => void;
+  const load = vi.fn<BuddyMediaLoader>(
+    () => new Promise<Blob>((resolve) => (finish = resolve)),
+  );
+  const remembered = rememberBuddyMedia({}, load);
+  const leaving = new AbortController();
+  const signal = new AbortController().signal;
+  const asks = [
+    remembered(null, 'glyph', 'art', 'r1', leaving.signal),
+    remembered(null, 'glyph', 'art', 'r1', signal),
+    remembered('conversation', 'glyph', 'art', 'r1', signal),
+  ];
+  // One caller leaves (its avatar unmounted): the others still get the art.
+  leaving.abort();
+  await expect(asks[0]).rejects.toBeDefined();
+  const art = new Blob(['art']);
+  finish(art);
+  expect(await asks[1]).toBe(art);
+  expect(await asks[2]).toBe(art);
+  expect(load).toHaveBeenCalledTimes(1);
+  expect(load.mock.calls[0][4].aborted).toBe(false);
+});
+
+it('reads a living Buddy’s art once: no still while the living Buddy draws', async () => {
+  // A browser that can draw the living Buddy (its art still decoding).
+  vi.stubGlobal('createImageBitmap', () => new Promise(() => undefined));
+  const load = vi.fn<BuddyMediaLoader>(
+    async (_c, _p, asset) => new Blob([asset]),
+  );
+  const living = { ...pack, revision: 'living-once' };
+  const view = render(
+    <>
+      <BuddyAvatar
+        conversation={null}
+        pack={living}
+        snapshot={snapshot}
+        loadMedia={load}
+      />
+      <BuddyAvatar
+        conversation={null}
+        pack={living}
+        snapshot={snapshot}
+        loadMedia={load}
+      />
+    </>,
+  );
+  await waitFor(() =>
+    expect(load).toHaveBeenCalledWith(
+      null,
+      'luminous',
+      'rig',
+      'living-once',
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(load.mock.calls.filter((call) => call[2] === 'art')).toHaveLength(1);
+  expect(
+    view.container.querySelectorAll('.living-buddy[data-runtime="loading"]'),
+  ).toHaveLength(2);
 });
 
 describe('BuddyPortrait: Buddy beside the Overview greeting (B269)', () => {

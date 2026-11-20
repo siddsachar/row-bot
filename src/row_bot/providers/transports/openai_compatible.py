@@ -48,6 +48,22 @@ def _default_read_timeout() -> float:
     return DEFAULT_OPENAI_COMPATIBLE_READ_TIMEOUT
 
 
+def _local_runtime_unavailable() -> str:
+    """Why the model on this computer (Run on this computer) can't answer now, in words."""
+
+    try:
+        from row_bot.local_runtime import server
+
+        reason = server.failure()
+    except Exception:  # noqa: BLE001
+        reason = None
+    if reason == "card_busy":
+        return "The graphics card is busy training your personal model; this model runs again when it finishes."
+    if reason == "not_installed":
+        return "This model isn't on this computer any more. Download it again in Settings › Models."
+    return "Row-Bot couldn't start the model on this computer. Repair it in Settings › Models › This computer."
+
+
 class ChatOpenAICompatible(BaseChatModel):
     """OpenAI-compatible chat transport with endpoint-specific normalization."""
 
@@ -598,6 +614,8 @@ class ChatOpenAICompatible(BaseChatModel):
 
         found = managed_connection(self.endpoint)
         if found is None:
+            if self.endpoint.get("managed") == "local":
+                raise RuntimeError(_local_runtime_unavailable())
             raise RuntimeError("Row-Bot couldn't start the server that runs your personal model.")
         return found
 

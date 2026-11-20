@@ -33,7 +33,7 @@ import {
   editTitle,
   useVideoEdits,
 } from './video-edits';
-import { useWaits, WatchCard } from './Waits';
+import { useWaits, waitHow, WatchCard } from './Waits';
 
 /**
  * What a conversation has going on beside its turns, in Conversation details
@@ -79,7 +79,7 @@ function WaitingSection({ conversationId }: { conversationId: string }) {
               <Hourglass size={14} aria-hidden />
               <span className="context-live-text">
                 <span className="context-live-name">{wait.label}</span>
-                <span className="context-live-meta">{wait.how}</span>
+                <span className="context-live-meta">{waitHow(wait)}</span>
               </span>
               <IconButton
                 size="sm"

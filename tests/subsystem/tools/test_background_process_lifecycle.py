@@ -175,3 +175,30 @@ def test_a_server_is_verified_by_the_port_it_listens_on(tmp_path):
     processes.stop(record.process_id)
     assert processes.wait(record, 30)
     assert not processes.owns_local_origin(origin)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Stop ends a process group only outside Windows")
+def test_stop_finishes_when_macos_refuses_to_signal_a_group_that_already_ended(tmp_path, monkeypatch):
+    """The nightly macOS suite (18 Nov): a stopped server stayed running and kept its address for good, because
+    macOS answers killpg on a group of ended, unreaped processes with EPERM, not ESRCH."""
+    from row_bot.developer import runtime
+
+    record = _start(tmp_path, _python(tmp_path, "server", SERVER))
+    deadline = time.monotonic() + 30
+    while not record.urls and time.monotonic() < deadline:
+        time.sleep(0.1)
+    real_killpg = os.killpg
+
+    def killpg_as_on_macos(pgid, sig):
+        real_killpg(pgid, sig)
+        deadline = time.monotonic() + 10
+        while runtime._group_has_live_members(pgid) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "killpg", killpg_as_on_macos)
+    processes.stop(record.process_id)
+
+    assert processes.wait(record, 30)
+    assert record.outcome == "stopped"
+    assert not processes.owns_local_origin(record.urls[0])

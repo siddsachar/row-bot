@@ -64,6 +64,8 @@ _THREAD_META_COLUMNS = {
     "chat_only_summary_state_json": "TEXT NOT NULL DEFAULT ''",
     # The compaction that last failed, per mode, so it is not retried before the turn or input changes.
     "compaction_failure_json": "TEXT NOT NULL DEFAULT ''",
+    # The next summary, per mode, written while the chat was idle near its compaction point (B6).
+    "prepared_summary_json": "TEXT NOT NULL DEFAULT ''",
     # Deleted with Undo on offer (thread_cleanup.hold_thread_deletion): hidden now, removed when Undo ends.
     "deleted_at": "TEXT NOT NULL DEFAULT ''",
     # Incognito (N11): nothing said here is read for memory, and the agent saves only what the person approves.
@@ -1613,18 +1615,101 @@ def load_validated_summary_state(
         state = _summary_state_slot(conn, thread_id, mode)
     if not isinstance(state, dict):
         return None
+    source_messages = list(messages) if messages is not None else get_latest_checkpoint_messages(thread_id)
+    return _valid_summary_state(state, mode, source_messages)
+
+
+def _valid_summary_state(state: dict | None, mode: str, messages: list) -> dict | None:
+    """*state* when its schema, mode and summary are sound and it summarizes *messages*' own prefix."""
+    if not isinstance(state, dict):
+        return None
     if int(state.get("schema_version") or 0) != SUMMARY_STATE_SCHEMA_VERSION:
         return None
     if str(state.get("mode") or "") != mode or not str(state.get("summary") or "").strip():
         return None
-    source_messages = list(messages) if messages is not None else get_latest_checkpoint_messages(thread_id)
     count = int(state.get("boundary_message_count") or 0)
-    if count <= 0 or count > len(source_messages):
+    if count <= 0 or count > len(messages):
         return None
-    expected = context_boundary_digest(source_messages, count, mode)
+    expected = context_boundary_digest(messages, count, mode)
     if expected != str(state.get("boundary_digest") or ""):
         return None
     return state
+
+
+def summary_text_digest(state: dict | None) -> str:
+    """The digest of a summary's text, or "" without one: what a prepared summary builds on (B6)."""
+    summary = str((state or {}).get("summary") or "").strip()
+    return hashlib.sha256(summary.encode("utf-8")).hexdigest() if summary else ""
+
+
+def _prepared_slots(conn: sqlite3.Connection, thread_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT COALESCE(prepared_summary_json, '') FROM thread_meta WHERE thread_id = ?", (thread_id,),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        slots = json.loads(row[0]) if row[0] else {}
+    except (TypeError, json.JSONDecodeError):
+        slots = {}
+    return slots if isinstance(slots, dict) else {}
+
+
+def load_prepared_summary(thread_id: str, mode: str) -> dict | None:
+    """The summary prepared ahead for *mode* (unvalidated: the caller checks it still fits), or None."""
+    if not thread_id or mode not in _SUMMARY_STATE_COLUMNS:
+        return None
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        slot = (_prepared_slots(conn, thread_id) or {}).get(mode)
+    return slot if isinstance(slot, dict) else None
+
+
+def save_prepared_summary_cas(thread_id: str, state: dict, *, messages: list) -> bool:
+    """Keep a summary prepared ahead, only while the summary in force is still the one it builds on.
+
+    *state* names that summary by ``base_summary_digest`` ("" when none was in force); *messages* is
+    the conversation it was prepared from, against which the summary in force is validated.
+    """
+    mode = str((state or {}).get("mode") or "")
+    if not thread_id or mode not in _SUMMARY_STATE_COLUMNS or _thread_write_blocked(thread_id):
+        return False
+    if _valid_summary_state(state, mode, list(messages)) is None:
+        return False
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        slots = _prepared_slots(conn, thread_id)
+        in_force = _valid_summary_state(_summary_state_slot(conn, thread_id, mode), mode, list(messages))
+        if slots is None or summary_text_digest(in_force) != str(state.get("base_summary_digest") or ""):
+            conn.rollback()
+            return False
+        slots[mode] = dict(state)
+        conn.execute(
+            "UPDATE thread_meta SET prepared_summary_json = ? WHERE thread_id = ?",
+            (json.dumps(slots, sort_keys=True, ensure_ascii=False), thread_id),
+        )
+        conn.commit()
+    return True
+
+
+def clear_prepared_summary(thread_id: str, mode: str) -> None:
+    """Drop the summary prepared ahead for *mode* (used, or no longer valid)."""
+    if not thread_id or mode not in _SUMMARY_STATE_COLUMNS or _thread_write_blocked(thread_id):
+        return
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        slots = _prepared_slots(conn, thread_id)
+        if not slots or mode not in slots:
+            conn.rollback()
+            return
+        slots.pop(mode, None)
+        conn.execute(
+            "UPDATE thread_meta SET prepared_summary_json = ? WHERE thread_id = ?",
+            (json.dumps(slots, sort_keys=True, ensure_ascii=False) if slots else "", thread_id),
+        )
+        conn.commit()
 
 
 def load_history_hygiene(thread_id: str) -> dict | None:
@@ -2160,6 +2245,20 @@ def get_latest_checkpoint_messages(thread_id: str) -> list:
         str(thread_id)[:8],
     )
     return []
+
+
+def paused_at_a_question(thread_id: str) -> bool:
+    """Whether the thread's latest checkpoint is a turn paused at a question (an approval, or Row-Bot's own).
+
+    The answer resumes that very checkpoint: a message written on top of it would leave the question, and
+    the results of the calls beside it, on an older checkpoint the resume never reads (R15).
+    """
+    from langgraph._internal._constants import INTERRUPT
+
+    if not thread_id:
+        return False
+    saved = checkpointer.get_tuple({"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}})
+    return bool(saved) and any(write[1] == INTERRUPT for write in saved.pending_writes or ())
 
 
 def get_latest_checkpoint_revision(thread_id: str) -> str:
@@ -2715,13 +2814,20 @@ def _write_fork(source: str, new_id: str, meta: dict, messages: list, cut: int, 
         valid = (state is not None and count <= len(kept)
                  and context_boundary_digest(kept, count, mode) == str(state.get("boundary_digest") or ""))
         summaries[mode] = {**state, "source_revision": get_latest_checkpoint_revision(new_id)} if valid else None
+    # A summary prepared ahead goes with the fork by the same rule, while it still builds on the fork's summary.
+    prepared = {
+        mode: slot for mode in ("agent", "chat_only")
+        if (slot := load_prepared_summary(source, mode)) is not None
+        and _valid_summary_state(slot, mode, kept) is not None
+        and str(slot.get("base_summary_digest") or "") == summary_text_digest(summaries[mode])
+    }
     shown = summaries["agent"] or summaries["chat_only"]
     with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
         conn.execute(
             "UPDATE thread_meta SET reasoning_selections_json = ?, skills_override = ?, apps_off_json = ?, "
             "client_runtime_mode = ?, incognito_boundary_json = ?, summary_state_json = ?, "
             "chat_only_summary_state_json = ?, summary = ?, summary_msg_count = ?, context_usage_json = '', "
-            "forked_from_id = ?, forked_at_message_id = ? WHERE thread_id = ?",
+            "prepared_summary_json = ?, forked_from_id = ?, forked_at_message_id = ? WHERE thread_id = ?",
             (
                 str(meta.get("reasoning_selections_json") or ""), str(meta.get("skills_override") or ""),
                 str(meta.get("apps_off_json") or ""), str(meta.get("client_runtime_mode") or "agent"),
@@ -2730,6 +2836,7 @@ def _write_fork(source: str, new_id: str, meta: dict, messages: list, cut: int, 
                 *(json.dumps(summaries[mode], sort_keys=True, ensure_ascii=False) if summaries[mode] else ""
                   for mode in ("agent", "chat_only")),
                 str((shown or {}).get("summary") or ""), int((shown or {}).get("boundary_message_count") or 0),
+                json.dumps(prepared, sort_keys=True, ensure_ascii=False) if prepared else "",
                 source, message_id, new_id,
             ),
         )

@@ -121,5 +121,40 @@ for (const appearance of ['light', 'dark'] as const) {
       dialog.getByLabel('Also look in past conversations'),
     ).not.toBeChecked();
     await shoot(page, info, 'c-review', appearance);
+
+    // Leaving the panel keeps them waiting in Settings › Memory › Import
+    // memories, to review later (W13).
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await page.goto('/app-v2/settings/memory');
+    await page.getByRole('button', { name: 'Import memories' }).click();
+    const later = page.getByRole('dialog', { name: 'Import memories' });
+    const waiting = later.getByRole('list', {
+      name: 'Waiting for you to check',
+    });
+    await expect(waiting.getByText('From Hermes Agent')).toBeVisible();
+    await expect(waiting.getByText(/6 memories waiting/)).toBeVisible();
+    await shoot(page, info, 'd-waiting', appearance);
+    await waiting
+      .getByRole('button', { name: 'Review the memories from Hermes Agent' })
+      .click();
+    await expect(
+      later
+        .getByRole('list', { name: 'Memories found' })
+        .getByText(
+          'User prefers local-first tools unless cloud is explicitly faster.',
+        ),
+    ).toBeVisible();
+    // Let them go, so the fixture's later specs find none waiting.
+    await later.getByRole('button', { name: 'Back to where from' }).click();
+    await waiting
+      .getByRole('button', { name: 'Let go of the memories from Hermes Agent' })
+      .click();
+    await expect(
+      later.getByText(
+        'Let go of the memories from Hermes Agent. Nothing was saved from them.',
+      ),
+    ).toBeVisible();
+    await expect(waiting).toBeHidden();
   });
 }

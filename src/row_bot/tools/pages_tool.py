@@ -16,7 +16,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from row_bot.tools import registry
-from row_bot.tools.base import BaseTool
+from row_bot.tools.base import BaseTool, NullMeansUnset
 
 Library = Literal["charts", "rowbot-style"]
 _REMOTE = re.compile(r"<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)\s*=\s*['\"]?(?:https?:)?//", re.IGNORECASE)
@@ -67,6 +67,8 @@ def _page_update(page: str, html: str | None = None, data: Any = None, title: st
     found = pages.find(conversation, page) if conversation else None
     if found is None:
         return f"There's no page {page!r} in this chat. Use its id (page-…) from page_create."
+    # An empty title or HTML is left as it is, like one left out.
+    title, html = title or None, html or None
     try:
         updated = pages.update(found, title=title, html=html, data=data, libraries=libraries,
                                data_given=data is not None)
@@ -78,6 +80,7 @@ def _page_update(page: str, html: str | None = None, data: Any = None, title: st
 def _page_read(page: str, version: int | None = None, include_html: bool = False) -> str:
     from row_bot import pages
 
+    version = version or None  # 0, like one left out, is the current version
     conversation = _conversation()
     found = pages.find(conversation, page) if conversation else None
     if found is None:
@@ -103,27 +106,26 @@ def _page_read(page: str, version: int | None = None, include_html: bool = False
 
 
 class _CreateInput(BaseModel):
-    title: str = Field(description="A short title, shown on the card and above the page.")
-    html: str = Field(description=(
-        "One HTML document with inline CSS and JS (up to 1 MB). No network: nothing loads from the internet. "
-        "Use window.rowbot for data, state and decisions."))
-    data: Any = Field(default=None, description="JSON the page reads with rowbot.data() (up to 1 MB).")
+    title: str
+    html: str = Field(description="One document, CSS and JS inline, no network; window.rowbot for data and state.")
+    data: Any = Field(default=None, description="JSON for rowbot.data().")
     libraries: list[Library] = Field(default_factory=list, description=(
-        "charts: Chart.js 4 as window.Chart. rowbot-style: Row-Bot's look in light and dark (rb- classes)."))
+        "charts: Chart.js 4 (window.Chart). rowbot-style: Row-Bot's look (rb- classes)."))
 
 
-class _UpdateInput(BaseModel):
-    page: str = Field(description="The page's id (page-…), or its exact title.")
-    html: str | None = Field(default=None, description="The whole new HTML document, if it changes.")
-    data: Any = Field(default=None, description="The whole new data, if it changes (progress, new numbers).")
-    title: str | None = Field(default=None, description="A new title, if it changes.")
-    libraries: list[Library] | None = Field(default=None, description="The libraries, if they change.")
+class _UpdateInput(NullMeansUnset):
+    # Each field given replaces the whole old value; one left out (or empty) stays.
+    page: str = Field(description="Its id (page-…) or exact title.")
+    html: str = ""
+    data: Any = None
+    title: str = ""
+    libraries: list[Library] | None = None
 
 
-class _ReadInput(BaseModel):
-    page: str = Field(description="The page's id (page-…), or its exact title.")
-    version: int | None = Field(default=None, description="An earlier version to read (the last 10 are kept).")
-    include_html: bool = Field(default=False, description="Also return the HTML and data.")
+class _ReadInput(NullMeansUnset):
+    page: str = Field(description="Its id (page-…) or exact title.")
+    version: int = Field(default=0, description="An earlier one (the last 10 are kept).")
+    include_html: bool = Field(default=False, description="Also the HTML and data.")
 
 
 class PagesTool(BaseTool):
@@ -157,10 +159,9 @@ class PagesTool(BaseTool):
                 func=_page_create,
                 name="page_create",
                 description=(
-                    "Make an interactive page the person opens beside the chat: a plan with Approve / Change / "
-                    "Skip, a checklist, a dashboard, a comparison, a form or a small tool. Use it on your own, "
-                    "unasked, whenever your answer is one of these. Load the Making a page skill first for the "
-                    "templates and rules."
+                    "Make an interactive page beside the chat: a plan with Approve / Change / Skip, a checklist, "
+                    "a dashboard, a comparison, a form or a small tool; unasked, whenever your answer is one. "
+                    "skill_load('making_pages') first."
                 ),
                 args_schema=_CreateInput,
             ),
@@ -168,8 +169,8 @@ class PagesTool(BaseTool):
                 func=_page_update,
                 name="page_update",
                 description=(
-                    "Change a page: new data (progress, fresh numbers), HTML, title or libraries. A new "
-                    "version; its state and decisions stay."
+                    "Change a page (new data, HTML, title or libraries); give only what changes, whole. A new "
+                    "version: its state and decisions stay."
                 ),
                 args_schema=_UpdateInput,
             ),

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-import shutil
 import subprocess
 import threading
 import time
@@ -161,12 +160,22 @@ class BrowserLocalVoiceService:
         with self._job(session_key):
             self.tts_service.download_model(progress)
 
-    def _decode(self, audio_bytes: bytes) -> bytes:
-        executable = self._ffmpeg_path or shutil.which("ffmpeg")
-        if not executable:
+    def ffmpeg_command(self) -> list[str] | None:
+        """How to start the ffmpeg that decodes browser audio: the one on PATH, else the one Row-Bot downloaded
+        into its data folder (a Mac app's PATH has no ffmpeg; M7). None when there is neither."""
+        if self._ffmpeg_path:
+            return [self._ffmpeg_path]
+        from row_bot import ffmpeg_runtime
+
+        found = ffmpeg_runtime.find()
+        return found.command() if found else None
+
+    def _decode(self, audio_bytes: bytes, *, max_seconds: int = MAX_UTTERANCE_SECONDS) -> bytes:
+        ffmpeg = self.ffmpeg_command()
+        if not ffmpeg:
             raise BrowserVoiceError("ffmpeg_unavailable", status_code=503)
         command = [
-            executable,
+            *ffmpeg,
             "-nostdin",
             "-hide_banner",
             "-loglevel",
@@ -174,7 +183,7 @@ class BrowserLocalVoiceService:
             "-i",
             "pipe:0",
             "-t",
-            str(MAX_UTTERANCE_SECONDS),
+            str(max_seconds),
             "-vn",
             "-ac",
             "1",
@@ -200,7 +209,7 @@ class BrowserLocalVoiceService:
         if int(getattr(completed, "returncode", 1)) != 0:
             raise BrowserVoiceError("malformed_audio")
         pcm = bytes(getattr(completed, "stdout", b"") or b"")
-        max_decoded = SAMPLE_RATE * 2 * MAX_UTTERANCE_SECONDS
+        max_decoded = SAMPLE_RATE * 2 * max_seconds
         if len(pcm) < SAMPLE_RATE // 10 or len(pcm) > max_decoded:
             raise BrowserVoiceError("audio_duration_invalid")
         return pcm
