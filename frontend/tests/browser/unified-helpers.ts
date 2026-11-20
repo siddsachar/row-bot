@@ -320,7 +320,9 @@ export async function openConversation(
 
 export async function newConversation(page: Page): Promise<string> {
   await retireDocument(page);
-  await page.goto('/app-v2/');
+  // A phone has no drawer (D1): it opens the installed app's New chat link.
+  const phone = page.viewportSize()!.width < 768;
+  await page.goto(phone ? '/app-v2/?new=chat' : '/app-v2/');
   // Home no longer shows a connected label (parity slice 1); the shell's
   // announced connection status is the stable readiness signal.
   await expect(page.locator('.connection-status.connected')).toHaveText(
@@ -330,12 +332,12 @@ export async function newConversation(page: Page): Promise<string> {
     name: 'New chat',
     exact: true,
   });
-  if (!(await newChat.isVisible())) {
+  if (!phone && !(await newChat.isVisible())) {
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   }
-  await newChat.click();
+  if (!phone) await newChat.click();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
   await expect(
     page.getByLabel('Opening conversation', { exact: true }),
@@ -722,8 +724,16 @@ export async function openAddResource(page: Page): Promise<void> {
     .click();
 }
 
-/** New chat from the sidebar, opening the drawer below the desktop width. */
+/**
+ * New chat from the sidebar, opening the drawer on a tablet. A phone has no
+ * drawer (D1): it opens the installed app's New chat link.
+ */
 export async function clickNewChat(page: Page): Promise<void> {
+  if (page.viewportSize()!.width < 768) {
+    await page.goto('/app-v2/?new=chat');
+    await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
+    return;
+  }
   // The collapsed rail and the full sidebar each have one; use the shown one.
   const newChat = page
     .getByRole('button', { name: 'New chat', exact: true })
@@ -837,6 +847,37 @@ export async function leavePanels(page: Page): Promise<void> {
   });
   if (await close.isVisible()) await close.click();
   else if (await back.isVisible()) await back.click();
+}
+
+/** ⌘K's dialog and its field: Workspace commands, or a phone's Search (D15). */
+export function commandsDialog(page: Page): {
+  dialog: Locator;
+  field: Locator;
+} {
+  const phone = page.viewportSize()!.width < 768;
+  const dialog = page.getByRole('dialog', {
+    name: phone ? 'Search' : 'Workspace commands',
+    exact: true,
+  });
+  const field = dialog.getByRole('searchbox', {
+    name: phone
+      ? 'Search chats, files and settings'
+      : 'Find a workspace command',
+    exact: true,
+  });
+  return { dialog, field };
+}
+
+/** Opens ⌘K from the conversation header; returns the control focus goes back to. */
+export async function openCommands(
+  page: Page,
+): Promise<{ dialog: Locator; field: Locator; opener: Locator }> {
+  const phone = page.viewportSize()!.width < 768;
+  const opener = await headerAction(
+    page,
+    phone ? 'Search' : 'Workspace commands',
+  );
+  return { ...commandsDialog(page), opener };
 }
 
 /**

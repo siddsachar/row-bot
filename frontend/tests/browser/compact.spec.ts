@@ -7,6 +7,7 @@ import {
   openSeedConversation,
   setVisualViewportHeight,
 } from './surface-helpers';
+import { commandsDialog } from './unified-helpers';
 
 test.beforeEach(async ({ page }) => {
   await installVisualViewportFixture(page);
@@ -27,6 +28,10 @@ test.beforeEach(async ({ page }) => {
 test('compact navigation drawer opens the selected conversation without rolling history back', async ({
   page,
 }) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    'A phone has no drawer (D1): phone-shell.spec.ts covers its Chats tab.',
+  );
   await openHome(page);
   await page
     .getByRole('button', { name: 'Toggle navigation', exact: true })
@@ -177,7 +182,14 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   });
   if (await settingsLink.first().isVisible())
     await settingsLink.first().click();
-  else {
+  else if (page.viewportSize()!.width < 768) {
+    // A phone: ‹ to a tab, then the tab bar's Settings (D1).
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Main' })
+      .getByRole('link', { name: 'Settings', exact: true })
+      .click();
+  } else {
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
@@ -280,7 +292,12 @@ test('compact themes, accents and accessibility preferences retain one mounted w
       : /\/app-v2\/settings\/models$/,
   );
   await page.goBack();
-  await expect(page).toHaveURL(/\/app-v2\/conversations\/p1-browser-a$/);
+  // A phone left the chat by ‹, which went to Chats in its place.
+  await expect(page).toHaveURL(
+    page.viewportSize()!.width < 768
+      ? /\/app-v2\/library$/
+      : /\/app-v2\/conversations\/p1-browser-a$/,
+  );
   await expect(workspace).toHaveAttribute('data-phase5-retained', 'true');
 });
 
@@ -306,12 +323,10 @@ test('touch screens say what Home’s quick starts make and show no keyboard hin
 
   await page
     .getByRole('button', { name: 'Workspace commands', exact: true })
+    .or(page.getByRole('button', { name: 'Search', exact: true }))
     .first()
     .click();
-  const search = page.getByPlaceholder(
-    'Search conversations, commands, settings…',
-  );
-  await expect(search).toBeVisible();
+  await expect(commandsDialog(page).field).toBeVisible();
   const visibleKeycaps = await page
     .locator('.kbd, .command-palette-footer')
     .evaluateAll(
@@ -439,36 +454,6 @@ test('a phone reaches Home, Chats, Workflows and Settings from a tab bar that a 
 
   await openSeedConversation(page);
   await expect(tabs).toHaveCount(0);
-});
-
-test('a phone opens the conversation list with a swipe in from the left edge', async ({
-  page,
-}) => {
-  const viewport = page.viewportSize();
-  test.skip(
-    !viewport || viewport.width >= 768,
-    'Tablets keep the button only.',
-  );
-  await openSeedConversation(page);
-  const touch = await page.context().newCDPSession(page);
-  const y = Math.round(viewport!.height / 2);
-  await touch.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [{ x: 4, y }],
-  });
-  for (let step = 1; step <= 5; step += 1) {
-    await touch.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [{ x: 4 + step * 30, y }],
-    });
-  }
-  await touch.send('Input.dispatchTouchEvent', {
-    type: 'touchEnd',
-    touchPoints: [],
-  });
-  await expect(
-    page.getByRole('dialog', { name: 'Conversations' }),
-  ).toBeVisible();
 });
 
 test('a phone opens Settings on its list of pages, and each page goes back to it', async ({

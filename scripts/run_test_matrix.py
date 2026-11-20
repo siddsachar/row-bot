@@ -139,6 +139,8 @@ BROWSER_SMOKE_SPECS = (
     "phone-composer",
     # The phone helpers (a paired phone's handshake, tap paths) the phone specs build on. Appended likewise.
     "phone-foundations",
+    # The phone's navigation (A1): four tabs and no drawer, ‹ back, Workflows' own header, one Search. Appended likewise.
+    "phone-shell",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

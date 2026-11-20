@@ -124,12 +124,8 @@ test('a background workflow run reaches the sidebar and Home at once (B407)', as
   await writeEvidence(info, 'background-run-timing', inSidebar);
   await views(page, info, 'background-run');
   await page.setViewportSize(PHONE);
-  await page
-    .getByRole('button', { name: 'Toggle navigation', exact: true })
-    .click();
-  await expect(
-    page.getByRole('dialog').getByRole('button', { name: RUN }).first(),
-  ).toBeVisible();
+  // A phone has no drawer (D1): Home's Needs you shows the run's approval.
+  await expect(needs.getByText(ASK)).toBeVisible();
   await views(page, info, 'background-run-phone');
 });
 
