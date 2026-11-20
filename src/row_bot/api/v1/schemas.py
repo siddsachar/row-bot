@@ -5274,6 +5274,10 @@ class LearningHuggingFaceLastRun(WireModel):
     # O133: its uploaded examples and the run's files are deleted from Hugging Face (or couldn't be yet).
     cleaned: bool
     cleanup_failed: bool
+    # Training finished (and was paid for) but the run ended before its outputs were downloaded: the model stays
+    # in the person's Hugging Face account, at ``model_url``, to download or delete there.
+    model_kept: bool = False
+    model_url: str | None = Field(default=None, max_length=256)
 
 
 class LearningHuggingFace(WireModel):

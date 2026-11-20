@@ -366,6 +366,12 @@ def test_a_finished_run_that_ends_before_its_download_keeps_its_model_and_delete
     assert record.output_repo in world.hub.repos and world.hub.deleted == [record.dataset_repo]
     assert jobs_module.sweep_runs(world.jobs) == 0  # its record is the only note of that model: kept at start-up
     assert remote_training.read_record(job.id, world.root).model_kept
+    # The Hugging Face panel says so, with a link to it in the person's account.
+    from row_bot.application import learning_hugging_face
+
+    shown = learning_hugging_face.last_run(world.jobs.all())
+    assert (shown["model_kept"], shown["model_url"], shown["cleaned"]) == (
+        True, f"https://huggingface.co/{record.output_repo}", False)
 
 
 def test_a_failed_deletion_is_tried_again_and_still_keeps_the_finished_model(world):
@@ -425,6 +431,9 @@ def test_a_downloaded_run_that_is_stopped_deletes_both_repositories(world, caplo
     assert _deletion_lines(caplog) == [
         "Learning deleted a Hugging Face dataset repository (stopped_after_completion)",
         "Learning deleted a Hugging Face model repository (stopped_after_completion)"]
+    from row_bot.application import learning_hugging_face
+
+    assert learning_hugging_face.last_run(world.jobs.all())["model_kept"] is False
     assert jobs_module.sweep_runs(world.jobs) == 1  # nothing left there: the stopped run's folder goes
 
 
