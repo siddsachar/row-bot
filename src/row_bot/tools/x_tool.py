@@ -819,6 +819,9 @@ class XTool(BaseTool):
 
         # A model sends null for "the default": that was a TypeError on every read (R7).
         max_results = max(1, min(int(max_results or 10), 100))
+        # X refuses fewer than 10 for a search and 5 for a timeline or mentions ("One or more parameters …
+        # invalid", S4): ask for at least that, then keep what was asked for.
+        asked = max_results
 
         if action == "search":
             if not self._is_op_enabled("x_search"):
@@ -837,7 +840,7 @@ class XTool(BaseTool):
 
             params: dict = {
                 "query": clean_query,
-                "max_results": max_results,
+                "max_results": max(10, asked),
                 "tweet.fields": _TWEET_FIELDS,
                 "expansions": "author_id",
                 "user.fields": "username",
@@ -856,7 +859,7 @@ class XTool(BaseTool):
                     "GET", "tweets/search/recent", token,
                     params=params,
                 )
-                tweets = data.get("data", [])
+                tweets = data.get("data", [])[:asked]
                 if not tweets:
                     return f"No tweets found for: {query}"
                 includes = data.get("includes", {})
@@ -905,13 +908,13 @@ class XTool(BaseTool):
                 data = self._api_request(
                     "GET", f"users/{uid}/tweets", token,
                     params={
-                        "max_results": max_results,
+                        "max_results": max(5, asked),
                         "tweet.fields": _TWEET_FIELDS,
                         "expansions": "author_id",
                         "user.fields": "username",
                     },
                 )
-                tweets = data.get("data", [])
+                tweets = data.get("data", [])[:asked]
                 who = f"@{username}" if username else chosen.handle
                 if not tweets:
                     return f"No tweets found in {who}'s timeline."
@@ -929,13 +932,13 @@ class XTool(BaseTool):
                 data = self._api_request(
                     "GET", f"users/{chosen.id}/mentions", token,
                     params={
-                        "max_results": max_results,
+                        "max_results": max(5, asked),
                         "tweet.fields": _TWEET_FIELDS,
                         "expansions": "author_id",
                         "user.fields": "username",
                     },
                 )
-                tweets = data.get("data", [])
+                tweets = data.get("data", [])[:asked]
                 if not tweets:
                     return f"No recent mentions of {chosen.handle} found."
                 includes = data.get("includes", {})

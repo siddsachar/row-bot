@@ -339,3 +339,36 @@ def test_programs_row_bot_starts_find_the_ffmpeg_it_downloaded(monkeypatch, tmp_
     assert env["Path"].split(os.pathsep) == [tools, system, str(folder)]
     monkeypatch.setattr(ffmpeg_runtime, "installed", lambda: None)
     assert api_keys.child_environment({"PATH": "/usr/bin"}) == {"PATH": "/usr/bin"}
+
+
+def test_narration_and_browser_dictation_decode_with_the_ffmpeg_row_bot_downloaded(index):
+    """M7: a Mac app's PATH has no ffmpeg, so Show Row-Bot how said narration "needs Row-Bot's audio support"
+    although Row-Bot had downloaded one into its data folder. The browser's audio decoder (Dictate and
+    narration) finds ffmpeg as everything else does: PATH first, then Row-Bot's own."""
+    from row_bot.voice import browser_local, narration
+    from row_bot.voice.browser_local import BrowserLocalVoiceService, BrowserVoiceError
+    from tests.subsystem.voice.test_browser_local_voice import _TTS, _Voice
+
+    decoded: list[list[str]] = []
+
+    def runner(command, **_options):
+        decoded.append(command)
+        return SimpleNamespace(returncode=0, stdout=b"\0" * 3_200, stderr=b"")
+
+    service = BrowserLocalVoiceService(voice_service=_Voice(), tts_service=_TTS(), runner=runner)
+    browser_local._set_browser_local_voice_service_for_tests(service)
+    try:
+        # Neither on PATH nor downloaded: no narration, and Dictate can't decode.
+        assert narration.status() == {"ready": False, "code": "narration_no_ffmpeg"}
+        with pytest.raises(BrowserVoiceError) as missing:
+            service.transcribe("session-a", b"encoded", "audio/webm;codecs=opus")
+        assert missing.value.code == "ffmpeg_unavailable" and decoded == []
+
+        index.serve(_wheel())
+        downloaded = ffmpeg_runtime.install()
+
+        assert narration.status() == {"ready": True, "code": ""}
+        assert service.transcribe("session-a", b"encoded", "audio/webm;codecs=opus") == "hello browser"
+        assert decoded[0][0] == downloaded.executable
+    finally:
+        browser_local._set_browser_local_voice_service_for_tests(None)

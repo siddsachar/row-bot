@@ -190,3 +190,20 @@ def test_a_script_that_wont_run_is_named_with_where_so_its_fixed_first(chat):
 def test_scripts_that_run_raise_no_warning(chat, html):
     tool, _pages, _current = chat
     assert "Warning" not in tool._page_create(title="Fine", html=html)
+
+
+def test_a_null_or_empty_field_in_an_update_or_read_leaves_it_as_it_is(chat):
+    """B1: page_update's title and HTML and page_read's version carry no null branch; a model's null (or an
+    empty value) is the field left out, through the tools' own schemas."""
+    tool, pages, _current = chat
+    tools = {item.name: item for item in tool.PagesTool().as_langchain_tools()}
+    page_id = _page_id(tool._page_create(title="Launch plan", html=PLAN, data=STEPS))
+
+    tools["page_update"].invoke({"page": page_id, "title": None, "html": None, "data": {"steps": []}})
+    tools["page_update"].invoke({"page": page_id, "title": "", "html": "", "data": {"steps": [1]}})
+    page = pages.get(page_id)
+    read = json.loads(tools["page_read"].invoke({"page": page_id, "version": None}))
+
+    assert (page.title, page.version) == ("Launch plan", 3)
+    assert "rowbot.data().steps" in pages.read_html(page) and pages.read_data(page) == {"steps": [1]}
+    assert "html" not in read and "shown_version" not in read

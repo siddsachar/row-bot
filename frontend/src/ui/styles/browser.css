@@ -442,6 +442,211 @@
   font-size: var(--text-13);
 }
 
+/* The page, and what floats over it (Show Row-Bot how's steps). */
+.browser-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Show Row-Bot how (C3): recording is always visible, with an obvious Done. */
+.browser-demo-bar {
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+.browser-demo-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--status-danger-text);
+  box-shadow: 0 0 0 3px var(--status-danger-background);
+  animation: browser-demo-pulse 1.6s var(--ease-standard) infinite;
+}
+@keyframes browser-demo-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-demo-dot {
+    animation: none;
+  }
+}
+.browser-demo-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.browser-demo-actions .browser-demo-done {
+  margin-left: var(--space-1);
+}
+/* The composer's Stop square, small, before "Done". */
+.browser-status .browser-demo-done svg {
+  width: 10px;
+  height: 10px;
+}
+.browser-demo-meta {
+  margin-left: var(--space-1);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.browser-viewport[data-demo='recording']::after {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--status-danger-text);
+  content: '';
+  pointer-events: none;
+}
+.browser-demo-panel {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  bottom: var(--space-2);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100% - 2 * var(--space-2)));
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-raised);
+}
+.browser-demo-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.browser-demo-panel h3 {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+.browser-demo-panel .browser-demo-steps,
+.browser-demo-panel .browser-demo-empty {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+}
+.browser-demo-steps {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.browser-demo-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.browser-demo-step-number {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.browser-demo-step-words {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.browser-demo-step-text {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.browser-demo-step-site,
+.browser-demo-step-note,
+.browser-demo-step-said {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.browser-demo-step-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.browser-demo-step-note svg {
+  flex: none;
+  color: var(--accent-solid);
+}
+.browser-demo-step-said {
+  font-style: italic;
+}
+.browser-demo-value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: 2px;
+}
+.browser-demo-value code {
+  overflow: hidden;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-demo-value-kind {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+.browser-demo-empty,
+.browser-demo-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.browser-demo-finish-body {
+  display: grid;
+  gap: var(--space-4);
+}
+.browser-demo-finish-body h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+.browser-demo-finish-body .browser-demo-steps {
+  margin-top: var(--space-3);
+}
+
+@media (max-width: 640px) {
+  .browser-demo-panel {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-height: 55%;
+    border-radius: 16px 16px 0 0;
+  }
+  .browser-demo-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
 @media (max-width: 640px) {
   /* A phone shows the pane full screen already. */
   .browser-pop-out {

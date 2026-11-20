@@ -279,10 +279,11 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-# Local servers Row-Bot runs itself, by owner (Learning's llama.cpp server for personal models, O75). Such
-# a server runs only while it is needed, on a loopback port with a key it is given at each start, so
-# requests and probes ask its owner for the address and key each time (the owner starts it then).
-MANAGED_SERVERS = {"learning": "row_bot.learning.training.llama_server"}
+# Local servers Row-Bot runs itself, by owner (Learning's llama.cpp server for personal models, O75; the
+# llama.cpp server of Run on this computer, E1). Such a server runs only while it is needed, on a loopback
+# port with a key it is given at each start, so requests and probes ask its owner for the address and key
+# each time (the owner starts it then).
+MANAGED_SERVERS = {"learning": "row_bot.learning.training.llama_server", "local": "row_bot.local_runtime.server"}
 # A managed server runs several models (a version, the starting model, older versions), so each model keeps
 # its own probe evidence (``model_probes``) beside the endpoint's last probe; the newest few are kept.
 MODEL_PROBES_KEPT = 16
@@ -1322,6 +1323,32 @@ def _custom_endpoint_headers(endpoint: dict[str, Any]) -> dict[str, str]:
     return headers
 
 
+def store_managed_endpoint_models(endpoint_id: str, models: list[tuple[str, str, int]]) -> None:
+    """A managed endpoint's models as its owner knows them (id, name, context), before any probe."""
+
+    endpoint = get_custom_endpoint(endpoint_id)
+    if endpoint is None or not endpoint.get("managed"):
+        raise ValueError("not_found")
+    payload = {"data": [{"id": model_id, "name": name, "context_window": int(context)}
+                        for model_id, name, context in models]}
+    _store_custom_endpoint_models(endpoint_id, model_infos_from_openai_compatible_catalog(endpoint, payload))
+
+
+def remove_managed_endpoint(endpoint_id: str) -> bool:
+    """Remove a managed endpoint its owner no longer runs (its models were removed). True when it was saved."""
+
+    with provider_config_transaction():
+        cfg = load_provider_config(strict=True)
+        revision = provider_config_revision(cfg)
+        endpoints = [item for item in cfg.get("custom_endpoints", []) if isinstance(item, dict)]
+        kept = [item for item in endpoints if not (item.get("id") == endpoint_id and item.get("managed"))]
+        if len(kept) == len(endpoints):
+            return False
+        cfg["custom_endpoints"] = kept
+        save_provider_config(cfg, expected_revision=revision)
+        return True
+
+
 def _store_custom_endpoint_models(endpoint_or_provider_id: str, infos: list[ModelInfo], *,
                                   validate: Callable[[], None] = lambda: None,
                                   record_commit: Callable[[dict], None] | None = None) -> None:
@@ -1420,13 +1447,23 @@ def model_infos_from_openai_compatible_catalog(
             str(normalized["provider_id"]),
             model_id,
             metadata,
-            display_name=str(item.get("name") or item.get("id") or model_id),
+            display_name=str(item.get("name") or _managed_model_name(normalized, model_id) or model_id),
             context_window=context_window,
             transport=transport,
             risk_label=str(normalized.get("risk_label") or "custom_endpoint"),
             source="custom_openai_catalog",
         ))
     return results
+
+
+def _managed_model_name(endpoint: dict[str, Any], model_id: str) -> str | None:
+    """The name Run on this computer gives its model (W12): llama.cpp lists only the id ("qwen3.5-4b")."""
+
+    if endpoint.get("managed") != "local":
+        return None
+    from row_bot import local_runtime
+
+    return local_runtime.model_label(model_id)
 
 
 def _catalog_model_items(payload: dict[str, Any]) -> list[Any]:

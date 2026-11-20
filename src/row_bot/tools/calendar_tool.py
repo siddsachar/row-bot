@@ -14,7 +14,7 @@ import time
 import uuid
 from contextlib import nullcontext
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
@@ -43,6 +43,11 @@ _WRITE_OPS = [
 _DESTRUCTIVE_OPS = ["move_calendar_event", "delete_calendar_event"]
 ALL_OPERATIONS = _READ_OPS + _WRITE_OPS + _DESTRUCTIVE_OPS
 DEFAULT_OPERATIONS = _READ_OPS + _WRITE_OPS
+# Every change asks first, by the approval level (W21); one that invites or tells guests is the person's own to
+# approve even under Auto (``approval_card``).
+CHANGE_OPERATIONS = frozenset(_WRITE_OPS + _DESTRUCTIVE_OPS)
+# The send_updates values that email an event's guests.
+_TELLS_GUESTS = {"all", "externalOnly"}
 
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
@@ -403,6 +408,175 @@ def _existing_fingerprint(event: dict[str, Any]) -> str:
     )
 
 
+# ── Approval cards ───────────────────────────────────────────────────────────
+
+
+def _today(zone: str) -> date:
+    """Today where the event is (a test stands in here)."""
+    try:
+        return datetime.now(ZoneInfo(zone)).date()
+    except (KeyError, ValueError):
+        return datetime.now().date()
+
+
+def _day(day: date, zone: str) -> str:
+    today = _today(zone)
+    if day == today:
+        return "today"
+    if day == today + timedelta(days=1):
+        return "tomorrow"
+    return f"{day:%a} {day.day} {day:%b %Y}"
+
+
+def _span(start: str, end: str, zone: str) -> str:
+    """An event's time in words ("today 16:55–17:25", "Fri 23 Oct 2026, all day"); as given when it can't be read."""
+    try:
+        first, last = date.fromisoformat(start), date.fromisoformat(end) - timedelta(days=1)  # Google's end is the next day.
+        return f"{_day(first, zone)}, all day" if last <= first else f"{_day(first, zone)} – {_day(last, zone)}, all day"
+    except ValueError:
+        pass
+    try:
+        begins, ends = datetime.fromisoformat(start), datetime.fromisoformat(end)
+    except ValueError:
+        return " – ".join(part for part in (start, end) if part)
+    if begins.date() == ends.date():
+        return f"{_day(begins.date(), zone)} {begins:%H:%M}–{ends:%H:%M}"
+    return f"{_day(begins.date(), zone)} {begins:%H:%M} – {_day(ends.date(), zone)} {ends:%H:%M}"
+
+
+def _event_span(event: dict[str, Any]) -> str:
+    start, end = event.get("start") or {}, event.get("end") or {}
+    first = str(start.get("dateTime") or start.get("date") or "")
+    last = str(end.get("dateTime") or end.get("date") or first)
+    return _span(first, last, str(start.get("timeZone") or "UTC")) if first else ""
+
+
+def _guests(event: dict[str, Any]) -> list[str]:
+    """An event's guests: everyone on it but the person themselves."""
+    return [str(item["email"]) for item in event.get("attendees") or []
+            if isinstance(item, dict) and item.get("email") and not item.get("self")]
+
+
+def _people(emails: list[str]) -> str:
+    shown = list(dict.fromkeys(emails))
+    return ", ".join(shown[:5]) + (f" and {len(shown) - 5} more" if len(shown) > 5 else "")
+
+
+def _short(text: Any, limit: int = 120) -> str:
+    words = " ".join(str(text or "").split())
+    return words if len(words) <= limit else words[: limit - 1].rstrip() + "…"
+
+
+def _named(title: Any) -> str:
+    return f"“{_short(title)}”" if str(title or "").strip() else "this event"
+
+
+def _current(calendar_id: str, event_id: str) -> dict[str, Any]:
+    """The event a card names, read from Google; empty when it can't be read (the card still asks)."""
+    if not event_id:
+        return {}
+    try:
+        service = registry.get_tool("calendar")._build_api_resource()
+        return dict(service.events().get(calendarId=calendar_id, eventId=event_id).execute() or {})
+    except Exception as exc:  # noqa: BLE001 -- the card still asks, with less detail
+        logger.debug("The approval card couldn't read the Calendar event (%s)", type(exc).__name__)
+        return {}
+
+
+_EMAILS_GUESTS = {"all": "Yes", "externalOnly": "Only guests outside your organisation", "none": "No"}
+
+
+def _created(event: dict[str, Any]) -> tuple[str, dict[str, Any], list[str]]:
+    """One new event's time in words, its card fields and its guests."""
+    zone = str(event.get("timezone") or "UTC")
+    when = _span(str(event.get("start_datetime") or ""), str(event.get("end_datetime") or ""), zone)
+    guests = [str(email) for email in event.get("attendees") or []]
+    calendar_id = str(event.get("calendar_id") or "primary")
+    return when, {
+        "Event": event.get("summary"), "When": f"{when} ({zone})", "Where": event.get("location"),
+        "Calendar": calendar_id if calendar_id != "primary" else None, "Guests": ", ".join(guests) or None,
+        "Video call": "Google Meet" if event.get("conference_data") else None,
+        "Repeats": event.get("recurrence") or None, "Description": event.get("description"),
+    }, guests
+
+
+def approval_card(tool: str, kwargs: dict[str, Any]) -> tuple[str, str, bool]:
+    """A Google Calendar change's approval card: its question, what it will do as labelled fields, and whether it
+    invites other people or tells an event's guests, which only the person approves (W21). Reads Google for the
+    event an id names."""
+    from row_bot.approval_messages import approval_fields
+
+    given = {key: value for key, value in kwargs.items() if value is not None}
+    calendar_id = str(given.get("calendar_id") or "primary")
+    emails = given.get("send_updates") in _TELLS_GUESTS
+    if tool == "create_calendar_events":
+        events = [item.model_dump() if isinstance(item, BaseModel) else dict(item) for item in given.get("events") or []]
+        if len(events) == 1:
+            return approval_card("create_calendar_event", events[0])
+        guests: list[str] = []
+        fields: dict[str, Any] = {}
+        for number, event in enumerate(events, 1):
+            when, _fields, invited = _created(event)
+            guests += invited
+            fields[f"Event {number}"] = " · ".join(part for part in (
+                f"{_named(event.get('summary'))} {when}", str(event.get("location") or ""),
+                f"guests {_people(invited)}" if invited else "") if part)
+        question = f"Create {len(events)} events" + (f" and send invitations to {_people(guests)}" if guests else "")
+        tells = bool(guests)
+    elif tool == "create_calendar_event":
+        when, fields, guests = _created(given)
+        question = f"Create {_named(given.get('summary'))} {when}" + (
+            f" and send an invitation to {_people(guests)}" if guests else "")
+        tells = bool(guests)
+    else:
+        event_id = str(given.get("event_id") or "")
+        source = str(given.get("origin_calendar_id") or calendar_id)
+        current = _current(source, event_id)
+        title, before = current.get("summary"), _guests(current)
+        # Asked to email guests but the event couldn't be read: it may have some.
+        told = emails and (bool(before) or not current)
+        if tool == "update_calendar_event":
+            after = [str(email) for email in given["attendees"]] if "attendees" in given else before
+            invited = [email for email in after if email not in before]
+            told = emails and (bool(before or after) or not current)
+            new_time = "start_datetime" in given and "end_datetime" in given
+            zone = str(given.get("timezone") or (current.get("start") or {}).get("timeZone") or "UTC")
+            fields = {
+                "Event": title or event_id, "New title": given.get("summary") if given.get("summary") != title else None,
+                "New time" if new_time else "When": (
+                    f"{_span(str(given['start_datetime']), str(given['end_datetime']), zone)} ({zone})"
+                    if new_time else _event_span(current)),
+                "Where": given.get("location") or current.get("location"), "Guests": ", ".join(after) or None,
+                "Emails guests": _EMAILS_GUESTS.get(str(given.get("send_updates") or "")),
+                "Repeats": given.get("recurrence") or None, "Description": given.get("description"),
+            }
+            if told:
+                question = f"Change {_named(title)} and email the change to {_people(before + after) or 'its guests'}"
+            elif invited:
+                question = f"Change {_named(title)} and invite {_people(invited)}"
+            else:
+                question = f"Change {_named(title)}"
+            tells = told or bool(invited)
+        elif tool == "move_calendar_event":
+            destination = str(given.get("destination_calendar_id") or "")
+            fields = {"Event": title or event_id, "When": _event_span(current), "From calendar": source,
+                      "To calendar": destination, "Guests": ", ".join(before) or None,
+                      "Emails guests": _EMAILS_GUESTS.get(str(given.get("send_updates") or ""))}
+            question = f"Move {_named(title)} to the calendar {destination}" + (
+                f" and tell {_people(before) or 'its guests'}" if told else "")
+            tells = told
+        else:
+            when = _event_span(current)
+            fields = {"Event": title or event_id, "When": when, "Calendar": calendar_id,
+                      "Guests": ", ".join(before) or None,
+                      "Emails guests": _EMAILS_GUESTS.get(str(given.get("send_updates") or ""))}
+            question = f"Delete {_named(title)}" + (f" {when}" if when else "") + (
+                f" and email {_people(before) or 'its guests'} that it's cancelled" if told else "")
+            tells = told
+    question = question[:239] + "?"
+    return question, approval_fields({key: value for key, value in fields.items() if value}) or question, tells
+
+
 class CalendarTool(BaseTool):
     @property
     def name(self) -> str:
@@ -445,7 +619,7 @@ class CalendarTool(BaseTool):
 
     @property
     def destructive_tool_names(self) -> set[str]:
-        return {"move_calendar_event", "delete_calendar_event"}
+        return set(CHANGE_OPERATIONS)
 
     @property
     def untrusted_tool_names(self) -> set[str]:

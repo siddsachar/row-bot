@@ -206,6 +206,30 @@ const EXACT: Record<string, Verb> = {
   outlook_forward_mail: verb('Forwarded an email', 'Forwarding an email', Mail),
   outlook_update_mail: verb('Filed an email', 'Filing an email', Mail),
   outlook_delete_mail: verb('Deleted an email', 'Deleting an email', Mail),
+  // Google Calendar's tools, each in its own card's words ("Create …", "Change …", "Move …", "Delete …"),
+  // never the family's "Check the calendar" (R1).
+  search_events: verb(
+    'Searched the calendar',
+    'Searching the calendar',
+    Calendar,
+  ),
+  create_calendar_event: verb(
+    'Created an event',
+    'Creating an event',
+    Calendar,
+  ),
+  create_calendar_events: verb('Created events', 'Creating events', Calendar),
+  update_calendar_event: verb(
+    'Changed an event',
+    'Changing an event',
+    Calendar,
+  ),
+  move_calendar_event: verb('Moved an event', 'Moving an event', Calendar),
+  delete_calendar_event: verb(
+    'Deleted an event',
+    'Deleting an event',
+    Calendar,
+  ),
   outlook_list_events: verb(
     'Checked the calendar',
     'Checking the calendar',
@@ -256,10 +280,15 @@ const EXACT: Record<string, Verb> = {
   write_file: verb('Wrote a file', 'Writing a file', FilePen),
   list_directory: verb('Listed files', 'Listing files', Folder),
   file_search: verb('Searched files', 'Searching files', Search),
+  find: verb('Looked for files', 'Looking for files', Search),
   copy_file: verb('Copied a file', 'Copying a file', Folder),
   move_file: verb('Moved a file', 'Moving a file', Folder),
   file_delete: verb('Deleted a file', 'Deleting a file', Folder),
   tool_search: verb('Found tools', 'Finding tools', Wrench),
+  // Said the same in chat steps and Settings › Activity (W19).
+  skill_search: verb('Looked for a skill', 'Looking for a skill', BookOpen),
+  skill_load: verb('Read a skill', 'Reading a skill', BookOpen),
+  agent_wait: verb('Waited for a helper', 'Waiting for a helper', Bot),
   x_post: verb('Posted on X', 'Posting on X', Globe),
   x_read: verb('Read X', 'Reading X', Globe),
   x_engage: verb('Engaged on X', 'Engaging on X', Globe),
@@ -431,6 +460,10 @@ export function splitApproval(text: string): {
 export function approvedWithoutYou(approval: string): string | null {
   if (/^approved by the reviewer\b/i.test(approval)) return 'Reviewer approved';
   if (/^allowed by hands-off\b/i.test(approval)) return 'Hands-off';
+  // What the person allowed beforehand (D1): one of their Always allow rules, or for this chat.
+  if (/^allowed by your rule\b/i.test(approval)) return 'Your rule';
+  if (/^allowed by you for this chat\b/i.test(approval))
+    return 'Allowed in this chat';
   return null;
 }
 
@@ -524,6 +557,7 @@ const SETTING_NAMES: Record<string, string> = {
   live_captions: 'Live captions',
   log_detail: 'Log detail',
   notification_details: 'Notification details',
+  desktop_notifications: 'Desktop notifications',
 };
 
 export function keyArgument(safeInput: string | undefined): string {
@@ -722,7 +756,11 @@ export function imperative(participle: string): string {
   let stem = first.slice(0, -3);
   const lower = stem.toLowerCase();
   if (SILENT_E.has(lower)) stem += 'e';
-  else if (/([bdgmnprt])\1$/i.test(stem)) stem = stem.slice(0, -1);
+  // "Cancelling" doubles its "l"; most "-lling" words don't ("Telling").
+  else if (lower === 'cancell') stem = stem.slice(0, -1);
+  // A consonant doubled after one short vowel ("Running" → "Run"), never a word's own ("Adding" → "Add").
+  else if (/[^aeiou][aeiou]([bdgmnprt])\1$/i.test(stem))
+    stem = stem.slice(0, -1);
   return [stem, ...rest].join(' ');
 }
 

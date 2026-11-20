@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "description": "Draft a skill from the steps the person showed (C3), with their optional \"What is this for?\".",
+  "properties": {
+    "purpose": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "title": "SkillDemoDraftRequest",
+  "type": "object"
+}

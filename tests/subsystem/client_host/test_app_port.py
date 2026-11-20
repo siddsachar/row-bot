@@ -427,6 +427,50 @@ def test_row_bot_process_stop_closes_parent_log_handle(monkeypatch, tmp_path):
     assert log_handle.closed
 
 
+@pytest.mark.parametrize(("platform", "killed"), [("darwin", False), ("linux", False), ("win32", True)])
+def test_a_server_finishing_its_own_shutdown_after_sigterm_is_not_killed(monkeypatch, tmp_path, platform, killed):
+    """RM6: when the shutdown request failed, SIGTERM made the server wait 5 s for open browser connections and
+    then clean up, but the launcher killed it at 5 s, so its clean-up never ran. On Windows terminate is a kill."""
+    signals: list[str] = []
+
+    class _Server:
+        pid = 4242
+
+        def __init__(self):
+            self._alive = True
+
+        def poll(self):
+            return None if self._alive else 0
+
+        def terminate(self):
+            signals.append("term")
+
+        def wait(self, timeout=None):
+            if self._alive and signals == ["term"]:
+                # 5 s for the open connections, then its clean-up.
+                if timeout is not None and timeout < 7:
+                    raise launcher.subprocess.TimeoutExpired("server", timeout)
+                self._alive = False
+            return 0
+
+        def kill(self):
+            signals.append("kill")
+            self._alive = False
+
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda cmd, **kwargs: _Server())  # noqa: ARG005
+    monkeypatch.setattr(launcher.subprocess, "run", lambda *args, **kwargs: None)  # noqa: ARG005
+    monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(launcher._RowBotProcess, "_request_graceful_shutdown", lambda self: False)
+    monkeypatch.setattr(launcher, "_process_tree", lambda pid: {pid})
+    process = launcher._RowBotProcess(port=8125, host="127.0.0.1")
+    process.start()
+    monkeypatch.setattr(launcher.sys, "platform", platform)
+
+    process.stop()
+
+    assert ("kill" in signals) is killed
+
+
 def test_launcher_display_detection_on_headless_linux(monkeypatch):
     monkeypatch.setattr(launcher.sys, "platform", "linux")
     monkeypatch.delenv("DISPLAY", raising=False)

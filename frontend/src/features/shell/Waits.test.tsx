@@ -16,9 +16,15 @@ const CI: WaitView = {
   kind: 'check',
   label: 'CI on PR 590 is green',
   how: 'checks every 2 min',
-  until: '2026-10-28T15:00',
+  until: '2026-10-28T15:00:00+00:00',
   status: 'waiting',
 };
+
+/** A server time as this device writes it: its own zone and clock style (M5). */
+const clock = (iso: string) =>
+  new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(
+    new Date(iso),
+  );
 
 const WATCH: WaitView = {
   wait_id: 'b1b2c3d4e5f6',
@@ -27,7 +33,7 @@ const WATCH: WaitView = {
   kind: 'watch',
   label: 'PR 590 is ready',
   how: 'every 30 min',
-  until: '2026-10-29T15:00',
+  until: '2026-10-29T15:00:00+00:00',
   status: 'waiting',
   watch: {
     mode: 'judged',
@@ -35,7 +41,7 @@ const WATCH: WaitView = {
     checks: 3,
     changes: 1,
     max_changes: 20,
-    checked_at: '2026-10-28T14:20:00',
+    checked_at: '2026-10-28T14:20:00+00:00',
     result: 'Checks still running (3 of 5).',
     trouble: false,
     checking: false,
@@ -114,6 +120,22 @@ it('shows what this conversation waits for, and Stop ends it (5.3.1)', async () 
   );
 });
 
+it("says when a time wait carries on in this device's zone and clock style (M5)", async () => {
+  setup([
+    {
+      ...CI,
+      kind: 'time',
+      label: 'the deploy has had time to finish',
+      how: '',
+      at: '2026-10-28T08:25:00+00:00',
+    },
+  ]);
+  const strip = await screen.findByRole('region', { name: 'Waiting' });
+  expect(strip).toHaveTextContent(
+    `Waiting for the deploy has had time to finishat ${clock('2026-10-28T08:25:00Z')}`,
+  );
+});
+
 it('shows nothing when this conversation waits for nothing', async () => {
   const { controller } = setup([{ ...CI, conversation_id: 'conversation-b' }]);
   await waitFor(() => expect(controller.waits).toHaveBeenCalled());
@@ -128,7 +150,7 @@ it('shows a watch as a card with its last check and what it used, and its contro
     'every 30 min · 1 of 20 changes · 12k tokens · $0.04',
   );
   expect(card).toHaveTextContent(
-    'Checked 14:20: Checks still running (3 of 5).',
+    `Checked ${clock('2026-10-28T14:20:00Z')}: Checks still running (3 of 5).`,
   );
   expect(
     screen.queryByRole('button', { name: 'Make this a workflow' }),

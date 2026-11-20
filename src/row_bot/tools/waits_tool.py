@@ -22,28 +22,26 @@ logger = logging.getLogger(__name__)
 
 
 class _WaitForInput(BaseModel):
+    # The kind says once which fields it reads.
     kind: Literal["process", "check", "time", "conversation", "watch"] = Field(
-        description=("process: a background process ends or prints `text`. check: `command` or `url` every "
-                     "`every_minutes` until it shows `text` (a command without text: exits 0). time: `in_minutes` or "
-                     "`at`. conversation: it, or a workflow, finishes. watch: `command`, `url` or `question` "
-                     "checked again and again; a turn starts here only when the result changes."),
+        description=("process: process_id ends or prints text. check: command or url until it shows text (a "
+                     "command without text: exits 0). time: in_minutes or at. conversation: it or a workflow "
+                     "finishes. watch: command, url or question, checked again and again; a turn starts only on "
+                     "a change."),
     )
-    label: str = Field(description="What it waits for, as the person sees it: 'CI on PR 590 is green'.")
+    label: str = Field(description="As the person sees it: 'CI on PR 590 is green'.")
     then: str = Field(default="", description="What to do then.")
-    process_id: str = Field(default="", description="process: from start_process.")
-    command: str = Field(default="", description="check, watch: a read-only command, e.g. 'gh pr checks 590'.")
-    url: str = Field(default="", description="check, watch: a page instead of a command.")
-    question: str = Field(default="", description=(
-        "watch: instead, a question needing judgement, self-contained: a read-only check with no chat answers it "
-        "each time ('Is PR 590 in org/app approved with checks green?')."))
-    text: str = Field(default="", description="process, check: text to watch for. watch: ends it once shown.")
-    focus: str = Field(default="", description="watch: only lines with this text count.")
-    every_minutes: float = Field(default=0, description=(
-        "Minutes between checks. check: 1 or more (5 if 0). watch: 0 paces itself; a question, 15 or more."))
-    in_minutes: float = Field(default=0, description="time: minutes from now.")
-    at: str = Field(default="", description="time: local '14:00' or '2026-10-29T09:30'.")
-    conversation: str = Field(default="", description="conversation: name or id (a workflow's too).")
-    hours: float = Field(default=0, description="At most this long: 2 h if 0 (up to 24); a watch 24 h (up to 168).")
+    process_id: str = ""
+    command: str = Field(default="", description="Read-only, e.g. 'gh pr checks 590'.")
+    url: str = ""
+    question: str = Field(default="", description="watch: self-contained, answered by a read-only check.")
+    text: str = Field(default="", description="watch: ends it once shown.")
+    focus: str = Field(default="", description="watch: only lines with this count.")
+    every_minutes: float = Field(default=0, description="check: 5 if 0. watch: 0 paces itself; a question 15+.")
+    in_minutes: float = 0
+    at: str = Field(default="", description="Local '14:00' or '2026-10-29T09:30'.")
+    conversation: str = Field(default="", description="Name or id.")
+    hours: float = Field(default=0, description="Longest: 2 if 0 (max 24); a watch 24 (max 168).")
 
 
 class _WaitStopInput(BaseModel):
@@ -72,12 +70,12 @@ def _when(at: str, in_minutes: float) -> datetime | None:
 
 def _check_approval(command: str, every_minutes: float, label: str) -> str | None:
     """A check's command is classified as run_command classifies it, once, when the wait is set; the refusal or None."""
-    from row_bot.data_paths import default_workspace_root
+    from row_bot.data_paths import workspace_folder
     from row_bot.tools import approval_gate
     from row_bot.tools.shell_tool import classify_command
 
-    # A check runs in the default workspace (waits.py): a relative path counts from there (F5).
-    kind = classify_command(command, cwd=default_workspace_root())
+    # A check runs in the person's workspace folder (waits.py): a relative path counts from there (F5).
+    kind = classify_command(command, cwd=workspace_folder())
     if kind == "blocked":
         return f"BLOCKED: that command can't run: {command}"
     if kind == "private_data":
@@ -112,7 +110,8 @@ def _watch_approval(here: str, command: str, every_minutes: float, hours: float)
     every = f"every {every_minutes:g} min" if every_minutes else "every 5–60 min"
     refusal, _line = approval_gate.approval_check(
         {"tool": "wait_for", "label": "Watch with a command",
-         "description": f"Run `{command}` {every} while it watches (up to {hours or waits.WATCH_HOURS:g} h)",
+         "description": (f"Run `{command}` {every} in {approval['runs_in']} while it watches "
+                         f"(up to {hours or waits.WATCH_HOURS:g} h)"),
          "args": {"command": command, "every_minutes": every_minutes}},
         risks=("runs a command again and again while it watches",),
         blocked_message=f"BLOCKED: watching with a command needs approval, and this chat is on Block: {command}",
@@ -163,9 +162,9 @@ def _wait_for(kind: str, label: str, then: str = "", process_id: str = "", comma
                 refusal = _check_approval(command, every_minutes or 5, label)
                 if refusal:
                     return refusal
-                from row_bot.data_paths import default_workspace_root
+                from row_bot.data_paths import workspace_folder
 
-                spec.update(command=command, text=text, folder=str(default_workspace_root()))
+                spec.update(command=command, text=text, folder=str(workspace_folder()))
             else:
                 spec.update(url=url, text=text)
         elif kind == "time":
@@ -239,11 +238,10 @@ class WaitsTool(BaseTool):
                 func=_wait_for,
                 name="wait_for",
                 description=(
-                    "Wait for something, then carry on here: a process ends, a check (CI, a deploy, a page) shows "
-                    "a text, a time comes ('check back in 10 minutes'), or another conversation finishes. Use it "
-                    "instead of polling or a one-time task. Nothing runs while it waits; when it happens a turn "
-                    "starts here. A watch keeps checking and speaks up only on a change (the person's /watch or "
-                    "/loop). Then end this turn."
+                    "Carry on here when something happens: a process ends, a check (CI, a deploy, a page) shows a "
+                    "text, a time comes ('check back in 10 minutes'), a conversation finishes, or a watch sees a "
+                    "change (/watch, /loop). Use it, not polling or a task. Nothing runs meanwhile. Then end "
+                    "this turn."
                 ),
                 args_schema=_WaitForInput,
             ),

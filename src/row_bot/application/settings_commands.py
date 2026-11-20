@@ -147,6 +147,7 @@ _BOOL_FIELDS = {
     ("accounts", "outlook_calendar.enabled"),
     ("preferences", "identity.self_improvement_enabled"),
     ("preferences", "dream_cycle.enabled"),
+    ("preferences", "desktop_notifications"),
     ("learning", "enabled"),
     ("learning", "paused"),
     ("learning", "sources.my_chats"),
@@ -628,6 +629,8 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         path, keys = root / "user_config.json", ("identity", key)
     elif page == "preferences" and field == "window_mode":
         path, keys = root / "app_config.json", ("window_mode",)
+    elif page == "preferences" and field == "desktop_notifications":
+        path, keys = root / "user_config.json", ("desktop_notifications",)
     elif page == "preferences" and field.startswith("dream_cycle."):
         path, keys = root / "dream_config.json", (field.split(".", 1)[1],)
     elif page == "preferences" and field == "updates.channel":

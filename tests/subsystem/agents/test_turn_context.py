@@ -52,6 +52,7 @@ class Env:
         self.dynamic = "Current state:\n- Current model: gpt-4.1"
         self.groups: tuple[str, ...] = ("filesystem", "web_search")
         self.approval = "approve"
+        self.device_zone = ""
         self.recalls = 0
         self.touches = 0
         self.traces = 0
@@ -94,7 +95,7 @@ class Env:
         self.agent._set_active_runtime_context(
             thread_id=THREAD_ID, runtime_surface="normal_chat", requested_runtime_mode="agent",
             selected_runtime_mode="agent", generation_id=turn, approval_mode=self.approval,
-            enabled_tool_names=self.groups,
+            enabled_tool_names=self.groups, device_zone=self.device_zone,
         )
         self.agent._current_authorized_skill_records_var.set(())
 
@@ -281,6 +282,27 @@ def test_after_the_first_the_turn_context_says_only_what_changed(env):
     assert "Approval mode" not in fourth
 
 
+def test_a_device_in_another_zone_is_named_so_local_time_means_its_zone(env, monkeypatch):
+    """M10: asked from a London browser, "your local time" was the Mac's Los Angeles. The person's device zone is
+    named when it isn't the computer's, once, and again only when it changes."""
+    from row_bot import schedule_zones
+
+    monkeypatch.setattr(schedule_zones, "local_zone_name", lambda: "America/Los_Angeles")
+    env.device_zone = "Europe/London"
+    state = env.new_turn(None, "Every weekday at 8, tell me Sydney's weather.", "t1")
+    assert ("The person's device is in Europe/London (UTC+01:00), not this computer's time zone: their "
+            "\"local time\" is that zone's, and a new workflow schedule keeps it.") in _block(env.call(state, "t1"))
+
+    state["messages"] = [*state["messages"], AIMessage(content="Done.")]
+    state = env.new_turn(state, "Thanks.", "t2")
+    assert "device is in" not in _block(env.call(state, "t2"))  # unchanged, so not repeated
+
+    state["messages"] = [*state["messages"], AIMessage(content="Done.")]
+    env.device_zone = "America/Los_Angeles"
+    state = env.new_turn(state, "Now from the computer itself.", "t3")
+    assert "The person's device is in this computer's time zone." in _block(env.call(state, "t3"))
+
+
 def test_a_compaction_summary_brings_back_a_full_snapshot(env, monkeypatch):
     env.memories = [MEMORY_A]
     state = env.new_turn(None, "Summarise notes.txt.", "t1")
@@ -402,7 +424,7 @@ def test_the_turn_context_names_the_workspace_under_home_without_the_account_nam
     first = _block(env.call(state, "t1"))
 
     assert ("Workspace folder: ~/Documents/Row-Bot. File tools and the shell start here; relative paths are "
-            "inside it.") in first
+            "inside it, and a file tool asks the person before it uses a full path elsewhere.") in first
     assert "jane-account" not in first and str(home) not in first
 
     state["messages"] = [*state["messages"], AIMessage(content="Done.")]

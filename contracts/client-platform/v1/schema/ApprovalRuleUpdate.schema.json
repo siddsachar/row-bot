@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "description": "Switch a rule on or off, or change a command rule's exact command (checked again).",
+  "properties": {
+    "command": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Command"
+    },
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Enabled"
+    }
+  },
+  "title": "ApprovalRuleUpdate",
+  "type": "object"
+}

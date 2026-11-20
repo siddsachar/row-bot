@@ -503,28 +503,23 @@ def clone_repository(repo_url: str = "") -> str:
 class _DesignInput(BaseModel):
     design_type: DesignType = Field(
         default="deck",
-        description="deck (slides, presentation), document (report, one-pager), landing (web page), "
-                    "app_mockup (app screens, poster, social post) or storyboard.",
+        description="app_mockup also covers a poster or social post.",
     )
-    name: str = Field(default="", description="A short human name from the request, e.g. "
-                                               "“Harbour cleanup deck”.")
-    brief: str = Field(default="", description="What it should contain; drafted in the next step.")
+    name: str = Field(default="", description="Short, from the request, e.g. “Harbour cleanup deck”.")
+    brief: str = Field(default="", description="What it should contain.")
 
 
 class _CodeFolderInput(BaseModel):
-    name: str = Field(default="", description="A short folder name from the request, e.g. “Tiny date app”.")
+    name: str = Field(default="", description="Short, from the request, e.g. “Tiny date app”.")
 
 
 class _AppsInput(BaseModel):
-    need: str = Field(max_length=200, description="What the person wants done or the service they named, e.g. "
-                                                  "'read my calendar' or 'Notion'.")
-    changes: bool = Field(default=False, description="True when the work creates, edits, sends or deletes something "
-                                                     "in the app; false when it only reads.")
+    need: str = Field(max_length=200, description="The work or the service named, e.g. 'read my calendar', 'Notion'.")
+    changes: bool = Field(default=False, description="True when it creates, edits, sends or deletes in the app.")
 
 
 class _UseFolderInput(BaseModel):
-    name: str = Field(default="", description="The folder's name as the person calls it, e.g. “tide-app”; "
-                                               "empty to let them choose. Never a path.")
+    name: str = Field(default="", description="As the person calls it, e.g. “tide-app”; empty: they choose. Never a path.")
 
 
 class _CloneInput(BaseModel):
@@ -560,10 +555,8 @@ class ConversationSetupTool(BaseTool):
                 func=create_design,
                 name="create_design",
                 description=(
-                    "Create a design (deck, document, landing page, app mockup or storyboard) for this "
-                    "conversation when the person asks for one. It appears as a card with Open, Rename "
-                    "and Undo; the drafting continues by itself in the next step. Not for images, "
-                    "charts or answers that belong in the chat."
+                    "Create a design when the person asks for one: a card with Open, Rename and Undo; drafting "
+                    "goes on by itself next step."
                 ),
                 args_schema=_DesignInput,
             ),
@@ -571,11 +564,9 @@ class ConversationSetupTool(BaseTool):
                 func=create_code_folder,
                 name="create_code_folder",
                 description=(
-                    "Create a code folder (in Drafts) for this conversation when the person asks you to "
-                    "build or make an app, site, script or other code project. It appears as a card "
-                    "with Open, Rename and Undo; the building continues by itself in the next step. "
-                    "Not for questions, a short snippet in the chat, workflows, results they want "
-                    "in the chat or app only, a file in their workspace, or a folder they already have."
+                    "Create a code folder (in Drafts) when the person asks you to build an app, site, script "
+                    "or other code project: a card with Open, Rename and Undo; building goes on by itself next "
+                    "step."
                 ),
                 args_schema=_CodeFolderInput,
             ),
@@ -583,11 +574,8 @@ class ConversationSetupTool(BaseTool):
                 func=use_code_folder,
                 name="use_code_folder",
                 description=(
-                    "Work on a folder or project the person already has, in this conversation. With "
-                    "its name, a code folder they added before with exactly that name is used at once; "
-                    "otherwise they get a card to pick it (or choose the folder on this computer) and "
-                    "the work goes on in it. Use this instead of asking for a path or reading folders "
-                    "with the shell."
+                    "Work on a folder or project the person already has. One they added before with exactly "
+                    "that name is used at once; otherwise they pick it on a card."
                 ),
                 args_schema=_UseFolderInput,
             ),
@@ -606,11 +594,10 @@ class ConversationSetupTool(BaseTool):
                 func=suggest_apps,
                 name="suggest_apps",
                 description=(
-                    "When the work needs an app or service you have no tool for (email, a calendar, "
-                    "Notion, Linear, a messaging channel), or a change in an app you have that only looks "
-                    "things up, look it up in Row-Bot's own catalog and show the person a card to connect it "
-                    "or allow changes. It never installs or connects anything; the person decides. Use it "
-                    "instead of sending them to Settings or to a website."
+                    "When the work needs an app or service you have no tool for (email, a calendar, Notion, a "
+                    "channel), or changes in an app you can only read, show the person a card from Row-Bot's "
+                    "catalog to connect it or allow changes; they decide. Use it instead of sending them to "
+                    "Settings or a website."
                 ),
                 args_schema=_AppsInput,
             ),

@@ -322,6 +322,71 @@ const TABLE = [
   '| Travel | £380 | 19% | 20 Nov 2026 |',
 ].join('\n');
 
+test('a wide table component scrolls in its own box, never widening the transcript (W16)', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium pass',
+  );
+  await openFixture(page);
+  const city = (name: string) =>
+    `${name}, the capital and largest city of its country by population`;
+  await showAnswer(page, [
+    {
+      id: 'wide',
+      type: 'table',
+      title: 'Capital cities',
+      columns: [
+        { key: 'city', label: 'City', type: 'text' },
+        { key: 'population', label: 'Population (millions)', type: 'number' },
+        { key: 'region', label: 'Region', type: 'text' },
+        { key: 'note', label: 'Note', type: 'text' },
+      ],
+      rows: [
+        [city('Tokyo'), '37.4', 'East Asia', 'Largest metropolitan area'],
+        [city('Jakarta'), '33.8', 'South-East Asia', 'Coastal megacity'],
+        [city('Mexico City'), '22.1', 'North America', 'High altitude'],
+      ],
+      note: '',
+      actions: [],
+      text: '',
+    },
+  ]);
+  const table = page.getByRole('region', { name: 'Capital cities' });
+  await expect(table).toBeVisible();
+  for (const [width, height] of [
+    [1280, 900],
+    [375, 812],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await table.scrollIntoViewIfNeeded();
+    const sizes = await page.evaluate(() => {
+      const transcript = document.querySelector('.transcript')!;
+      const scroll = document.querySelector(
+        '.answer-component .markdown-table-scroll',
+      )!;
+      return {
+        transcript: [transcript.scrollWidth, transcript.clientWidth],
+        table: [scroll.scrollWidth, scroll.clientWidth],
+      };
+    });
+    // The transcript keeps its width; the table scrolls inside its own box.
+    expect(sizes.transcript[0]).toBeLessThanOrEqual(sizes.transcript[1] + 1);
+    expect(sizes.table[0]).toBeGreaterThan(sizes.table[1]);
+    // Copy as CSV never covers a header (M14).
+    const copy = await table
+      .getByRole('button', { name: 'Copy as CSV' })
+      .boundingBox();
+    const header = await table.locator('thead').boundingBox();
+    expect(copy && header).toBeTruthy();
+    if (width < 768)
+      expect(copy!.y + copy!.height).toBeLessThanOrEqual(header!.y + 1);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await screens(page, info, 'wide-table', () => table);
+});
+
 test('a Markdown table sorts by pointer and keyboard, and a task list ticks', async ({
   page,
 }, info) => {

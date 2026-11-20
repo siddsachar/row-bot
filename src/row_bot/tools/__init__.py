@@ -12,28 +12,41 @@ import logging
 import os
 import sys
 
+from row_bot import startup_imports
 from row_bot.tools import registry  # noqa: F401 - make registry accessible as tools.registry
 
 logger = logging.getLogger(__name__)
 
 
-def _import_tool_module(module_name: str, *, optional: bool = False) -> None:
+def _drop_orphans(modules_before: set[str]) -> None:
+    """Drop what a failed optional import left behind: submodules whose package failed with it.
+
+    Python already removes each module whose own import failed. Only orphans go here, never a module
+    whose package is loaded, so a module another thread imported meanwhile stays (RM4).
+    """
+    for name in sorted(set(sys.modules) - modules_before):  # A package sorts before its submodules.
+        parent = name.rpartition(".")[0]
+        if parent and parent not in sys.modules:
+            sys.modules.pop(name, None)
+
+
+def _import_tool_module(module_name: str, *, optional: bool = False, retry: bool = True) -> None:
     modules_before = set(sys.modules) if optional else set()
     try:
         importlib.import_module(module_name)
     except ImportError as exc:
         if optional:
-            for imported_name in set(sys.modules) - modules_before:
-                sys.modules.pop(imported_name, None)
-            sys.modules.pop(module_name, None)
+            _drop_orphans(modules_before)
+            if retry and not startup_imports.package_missing(exc):  # Installed but failed: once more (RM4).
+                logger.warning("Optional tool module %s failed to load; trying again: %s", module_name, exc)
+                _import_tool_module(module_name, optional=True, retry=False)
+                return
             logger.info("Optional tool module skipped: %s (%s)", module_name, exc)
             return
         raise
     except Exception as exc:
         if optional:
-            for imported_name in set(sys.modules) - modules_before:
-                sys.modules.pop(imported_name, None)
-            sys.modules.pop(module_name, None)
+            _drop_orphans(modules_before)
             logger.warning("Optional tool module skipped after import failure: %s (%s)", module_name, exc)
             return
         raise

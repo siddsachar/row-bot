@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Callable
@@ -75,6 +76,11 @@ def _is_document(source: str) -> bool:
 
 def _is_user(subject: str) -> bool:
     return _norm(subject) in _USER_SUBJECTS
+
+
+def _is_lesson(category: str) -> bool:
+    """A self_knowledge memory: Learning's lessons point at these, and only Learning changes one."""
+    return _norm(category) == "self_knowledge"
 
 
 def candidates_for(memory: NewMemory) -> list[dict]:
@@ -155,7 +161,7 @@ def _shown(text: str) -> str:
     return text if len(text) <= MEMORY_TEXT_CHARS else text[:MEMORY_TEXT_CHARS].rstrip() + " … (shortened)"
 
 
-def _prompt(batch: list[tuple[NewMemory, list[dict]]]) -> str:
+def _prompt(batch: list[tuple[NewMemory, list[dict]]], today: date | None = None) -> str:
     from row_bot.prompts import MEMORY_RECONCILE_PROMPT
 
     items = []
@@ -174,19 +180,19 @@ def _prompt(batch: list[tuple[NewMemory, list[dict]]]) -> str:
             } for entity in candidates],
         })
     return MEMORY_RECONCILE_PROMPT.format(
-        today=date.today().isoformat(),
+        today=(today or date.today()).isoformat(),
         limit=MEMORY_TEXT_CHARS,
         items=json.dumps(items, ensure_ascii=False, indent=1),
     )
 
 
 def _decide(batch: list[tuple[NewMemory, list[dict]]], *, invoke: Callable[[str], str] | None,
-            purpose: str) -> dict[int, dict]:
+            purpose: str, today: date | None = None) -> dict[int, dict]:
     """The model's decision for each fact of *batch*, by its number (1-based). Raises when it can't answer."""
     from langchain_core.messages import HumanMessage
     from row_bot.providers.background import active_turn_ids, invoke_background, list_field
 
-    prompt = _prompt(batch)
+    prompt = _prompt(batch, today)
     try:
         if invoke is not None:
             raw = invoke(prompt) or ""
@@ -222,6 +228,84 @@ def _longer_than_shown(entity: dict) -> bool:
     return len(entity.get("description") or "") > MEMORY_TEXT_CHARS
 
 
+# Near-duplicates (P2: memories 1.2-4x as many, and a near neighbour outranked the right one). One fact
+# covers another when it says everything the other says: every word of the other (after common words
+# and simple endings), numbers included, and the other has enough words to tell. Kept strict on purpose:
+# two facts that each say something the other doesn't ("painted a horse", "painted a sunset") never
+# cover each other, so distinct facts are never merged; only a fact that adds nothing, or one that
+# says all the other does and more, is merged.
+NEAR_DUPLICATE_MIN_WORDS = 3
+_FACT_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "been", "by", "for", "from", "has", "have", "he", "her", "his",
+    "in", "is", "it", "its", "of", "on", "or", "she", "that", "the", "their", "they", "this", "to", "was",
+    "were", "with", "user", "users",
+})
+
+
+def fact_words(text: str) -> frozenset[str]:
+    """The words a fact is compared by: lower case, without common words, simple endings stripped
+    ("attends" and "attending" are one word); numbers kept whole."""
+    words: set[str] = set()
+    for word in re.findall(r"[a-z0-9]+", str(text or "").lower()):
+        if word in _FACT_STOPWORDS:
+            continue
+        if not word.isdigit():
+            for ending in ("ing", "ed", "s"):
+                if len(word) > len(ending) + 2 and word.endswith(ending):
+                    word = word[: -len(ending)]
+                    break
+        words.add(word)
+    return frozenset(words)
+
+
+def covers(fuller: str, other: str) -> bool:
+    """Whether the fact *fuller* says what *other* says (the same fact, as specific or more)."""
+    other_words = fact_words(other)
+    return len(other_words) >= NEAR_DUPLICATE_MIN_WORDS and other_words <= fact_words(fuller)
+
+
+def _same_entity(subject: str, other_subject: str) -> bool:
+    """Two subjects of one thing: the same name, or names sharing a word ("Painting", "Melanie's painting")."""
+    return _norm(subject) == _norm(other_subject) or bool(fact_words(subject) & fact_words(other_subject))
+
+
+def _near_duplicate(memory: NewMemory, candidates: list[dict]) -> tuple[str, dict] | None:
+    """("skip", saved) when a saved memory of the same kind and thing already says the fact, or ("update",
+    saved) when the fact says all the saved one does and more; None otherwise. A saved memory longer than
+    the model is shown is never rewritten here."""
+    for entity in candidates:
+        if (str(entity.get("entity_type") or "") != memory.category or _is_user(entity.get("subject", ""))
+                or _is_lesson(memory.category) or _is_lesson(entity.get("entity_type", ""))):
+            continue
+        if not _same_entity(memory.subject, entity.get("subject", "")):
+            continue
+        saved = entity.get("description") or ""
+        if covers(saved, memory.content):
+            return "skip", entity
+        if covers(memory.content, saved) and not _longer_than_shown(entity):
+            return "update", entity
+    return None
+
+
+def _without_batch_duplicates(memories: list[NewMemory]) -> list[NewMemory]:
+    """The batch's facts, a fact another of the same kind and thing in the batch covers left out
+    (the fuller one is kept; of two that say the same, the first)."""
+    kept: list[NewMemory] = []
+    for memory in memories:
+        if _is_user(memory.subject) or _is_lesson(memory.category):
+            kept.append(memory)
+            continue
+        twin = next((other for other in kept if other.category == memory.category and not _is_user(other.subject)
+                     and not _is_lesson(other.category)
+                     and _same_entity(other.subject, memory.subject)
+                     and (covers(other.content, memory.content) or covers(memory.content, other.content))), None)
+        if twin is None:
+            kept.append(memory)
+        elif covers(memory.content, twin.content) and not covers(twin.content, memory.content):
+            kept[kept.index(twin)] = memory  # this one says more
+    return kept
+
+
 def _fuller(memory: NewMemory, candidates: list[dict]) -> dict | None:
     """A saved memory with the fact's name whose whole text the fact repeats and adds to."""
     content = _words(memory.content)
@@ -233,31 +317,42 @@ def _fuller(memory: NewMemory, candidates: list[dict]) -> dict | None:
 
 
 def plan(memories: list[NewMemory], *, invoke: Callable[[str], str] | None = None,
-         purpose: str = "memory_reconcile") -> list[tuple[str, NewMemory, dict | None, str]]:
+         purpose: str = "memory_reconcile", today: date | None = None) -> list[tuple[str, NewMemory, dict | None, str]]:
     """What to do with each new fact, without writing: (action, fact, saved memory, text or subject).
 
     For ``add`` the last item is the subject to save under; for ``update`` the rewritten text. A reply that
     names a memory that was not offered, or an action it can't do, adds the fact as its own memory: nothing
     the person said is dropped. Raises ``ReconcileUnavailable`` when the model gives no usable reply, before
-    anything is written, so the caller can try again later.
+    anything is written, so the caller can try again later. *today* is the date the facts were said
+    (a conversation's own date, for extraction); today's when not given.
     """
     planned: list[tuple[str, NewMemory, dict | None, str]] = []
     pending: list[tuple[NewMemory, list[dict]]] = []
-    for memory in memories:
+    for memory in _without_batch_duplicates(memories):
+        if _is_lesson(memory.category):
+            # A self_knowledge memory (Learning's lessons point at them) is never merged into another, so it is
+            # added as it is; only Learning changes one. Nothing is merged into one either (candidates_for).
+            planned.append(("add", memory, None, memory.subject.strip()))
+            continue
         candidates = candidates_for(memory)
         same = _contained(memory, candidates)
         fuller = _fuller(memory, candidates)
+        near = None if same is not None or fuller is not None else _near_duplicate(memory, candidates)
         if same is not None:
             planned.append(("skip", memory, same, ""))
         elif fuller is not None:
             planned.append(("update", memory, fuller, memory.content))
+        elif near is not None:
+            # Very close to a saved memory of the same thing: merged into it, not added beside it.
+            action, target = near
+            planned.append((action, memory, target, memory.content if action == "update" else ""))
         elif not candidates and not _is_user(memory.subject):
             planned.append(("add", memory, None, memory.subject.strip()))
         else:
             pending.append((memory, candidates))
     for start in range(0, len(pending), RECONCILE_BATCH):
         batch = pending[start:start + RECONCILE_BATCH]
-        decisions = _decide(batch, invoke=invoke, purpose=purpose)
+        decisions = _decide(batch, invoke=invoke, purpose=purpose, today=today)
         for number, (memory, candidates) in enumerate(batch, 1):
             decision = decisions.get(number) or {}
             action = str(decision.get("action") or "").strip().lower()
@@ -340,6 +435,7 @@ def _merged_aliases(old: str, new: str) -> str:
 
 
 def reconcile(memories: list[NewMemory], *, actor: str = "extraction", invoke: Callable[[str], str] | None = None,
-              purpose: str = "memory_reconcile", validate: Callable[[], None] | None = None) -> list[Outcome]:
+              purpose: str = "memory_reconcile", validate: Callable[[], None] | None = None,
+              today: date | None = None) -> list[Outcome]:
     """Decide and write: ``plan`` then ``apply``."""
-    return apply(plan(memories, invoke=invoke, purpose=purpose), actor=actor, validate=validate)
+    return apply(plan(memories, invoke=invoke, purpose=purpose, today=today), actor=actor, validate=validate)

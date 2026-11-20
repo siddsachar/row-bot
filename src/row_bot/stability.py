@@ -9,7 +9,9 @@ browser-side JavaScript errors reported by the UI.
 from __future__ import annotations
 
 import asyncio
+import collections
 import faulthandler
+import gc
 import json
 import logging
 import os
@@ -98,6 +100,7 @@ def start_performance_monitor(
     lag_warn_s: float = 1.0,
     interval_s: float = 2.0,
     memory_interval_s: float = 60.0,
+    objects_interval_s: float = 3600.0,
 ) -> None:
     """Start lightweight local event-loop and memory diagnostics."""
     global _PERF_MONITOR_TASK
@@ -109,9 +112,44 @@ def start_performance_monitor(
         return
     _PERF_STOP.clear()
     _PERF_MONITOR_TASK = loop.create_task(
-        _performance_monitor_loop(lag_warn_s, interval_s, memory_interval_s),
+        _performance_monitor_loop(lag_warn_s, interval_s, memory_interval_s, objects_interval_s),
         name="row-bot-performance-monitor",
     )
+
+
+def freeze_start_up_heap() -> None:
+    """Keep what start-up made out of every later full garbage collection (P2).
+
+    A full collection stops every thread for as long as it walks the heap, and start-up's objects (modules,
+    catalogs, registries) live as long as the app. Collected once first, so no garbage is frozen with them.
+    """
+    started = time.perf_counter()
+    gc.collect()
+    gc.freeze()
+    logger.info("perf: start-up heap frozen objects=%d duration_ms=%.1f",
+                gc.get_freeze_count(), (time.perf_counter() - started) * 1000.0)
+
+
+def log_object_counts(top: int = 8) -> None:
+    """One line of what the heap holds, to find what grows on a long-running app (P11).
+
+    It walks every tracked object, so the performance monitor runs it hourly, on a worker thread.
+    The conversation projection's events are not counted here: it has no public reader of its totals.
+    """
+    try:
+        objects = gc.get_objects()
+        tracked = len(objects)
+        counts = collections.Counter(type(item).__qualname__ for item in objects)
+        del objects
+        agent = sys.modules.get("row_bot.agent")
+        graphs = agent.agent_graph_cache_size() if agent is not None else 0
+        logger.info(
+            "perf: objects tracked=%d frozen=%d agent_graphs=%d top=%s",
+            tracked, gc.get_freeze_count(), graphs,
+            ",".join(f"{name}:{count}" for name, count in counts.most_common(top)),
+        )
+    except Exception:
+        logger.debug("Object counts unavailable", exc_info=True)
 
 
 def stop_performance_monitor() -> None:
@@ -210,8 +248,10 @@ async def _performance_monitor_loop(
     lag_warn_s: float,
     interval_s: float,
     memory_interval_s: float,
+    objects_interval_s: float,
 ) -> None:
     last_memory = 0.0
+    last_objects = time.monotonic()  # The first count an interval after start, once start-up's churn is gone.
     expected = time.monotonic() + interval_s
     while not _PERF_STOP.is_set():
         try:
@@ -224,6 +264,10 @@ async def _performance_monitor_loop(
             if now - last_memory >= memory_interval_s:
                 last_memory = now
                 _log_memory_snapshot()
+            if now - last_objects >= objects_interval_s:
+                last_objects = now
+                await asyncio.to_thread(log_object_counts)
+                expected = time.monotonic() + interval_s  # The count's own time is not the loop's lag.
         except asyncio.CancelledError:
             raise
         except Exception:

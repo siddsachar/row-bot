@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { ProactiveMomentView } from '../../api/types';
 import { relativeTime } from '../../ui/format';
+import { SafeInlineMarkdown } from '../shell/chat-parity-markdown';
 import {
   IconButton,
   Menu,
@@ -17,6 +18,8 @@ import {
   actionIcon,
   briefLines,
   currentBrief,
+  dayTitle,
+  daysAhead,
   groupMoments,
   momentTime,
   preparedWords,
@@ -126,7 +129,8 @@ export function MomentRow({
  * Home › For you, in place of Today while Proactive is on: the morning brief
  * first, expanded, then Now / Later today / Ready when you are, ending with
  * "That's everything for today." Today's fact rows (an agent at work, the
- * next workflow) join Later today; its memories line is the footer. Expired
+ * next workflow) join Later today, or their own day's heading ("Tomorrow")
+ * when they happen on a later day; its memories line is the footer. Expired
  * moments leave quietly; with nothing at all, it doesn't render.
  */
 export default function ForYou({
@@ -134,6 +138,7 @@ export default function ForYou({
   now: fixedNow,
   order = 3,
   today = [],
+  ahead = [],
   footer,
 }: {
   io?: ProactiveIO | null;
@@ -142,6 +147,8 @@ export default function ForYou({
   order?: number;
   /** Today's plain fact rows, shown under Later today. */
   today?: ReactNode[];
+  /** Fact rows on a later day (the next workflow runs tomorrow), under that day's heading. */
+  ahead?: { at: Date; row: ReactNode }[];
   /** One quiet line under the closing line ("12 memories saved this week"). */
   footer?: string;
 }) {
@@ -230,13 +237,32 @@ export default function ForYou({
   );
   if (!later && today.length)
     shown.push({ id: 'later', title: 'Later today', moments: [] });
+  // A later day's fact rows under that day's own heading, soonest first.
+  const days: { id: string; title: string; rows: ReactNode[] }[] = [];
+  for (const { at, row } of [...ahead].sort(
+    (left, right) => left.at.getTime() - right.at.getTime(),
+  )) {
+    const id = `day-${daysAhead(at, now)}`;
+    const day = days.find((item) => item.id === id);
+    if (day) day.rows.push(row);
+    else days.push({ id, title: dayTitle(at, now), rows: [row] });
+  }
   const drafts = view.drafts?.length ?? 0;
-  const empty = !brief && !shown.length;
+  const empty = !brief && !shown.length && !days.length;
   if (empty && !intro) return <>{actions.sheets}</>;
   const lines = brief ? briefLines(brief.body) : [];
-  const ordered = ['now', 'later', 'ready']
-    .map((id) => shown.find((group) => group.id === id))
-    .filter((group): group is (typeof shown)[number] => Boolean(group));
+  const ordered = [
+    ...['now', 'later']
+      .map((id) => shown.find((group) => group.id === id))
+      .filter((group): group is (typeof shown)[number] => Boolean(group)),
+    ...days.map((day) => ({
+      id: day.id,
+      title: day.title,
+      moments: [],
+      rows: day.rows,
+    })),
+    ...shown.filter((group) => group.id === 'ready'),
+  ];
   return (
     <section
       id="for-you"
@@ -289,11 +315,12 @@ export default function ForYou({
           {lines.length > 0 && (
             <ul className="proactive-brief-lines">
               {lines.map((line, index) => (
-                <li key={index}>{line}</li>
+                <li key={index}>
+                  <SafeInlineMarkdown text={line} />
+                </li>
               ))}
             </ul>
           )}
-          <p className="proactive-brief-end">That’s everything for today.</p>
         </div>
       )}
       {ordered.map((group) => (
@@ -319,6 +346,7 @@ export default function ForYou({
               />
             ))}
             {group.id === 'later' && today}
+            {'rows' in group && group.rows}
           </ul>
         </div>
       ))}

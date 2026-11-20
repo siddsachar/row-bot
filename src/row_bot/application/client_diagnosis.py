@@ -34,6 +34,7 @@ NETWORK_JOB = "system_health_network"
 MODEL_JOB = "system_health_model"
 CHANNELS_JOB = "system_health_channels"
 DEFAULT_MODEL_JOB = "system_health_default_model"
+SIGN_INS_JOB = "system_health_sign_ins"
 # The first runs wait for start-up to settle.
 _LOCAL_AFTER_START = timedelta(seconds=30)
 _NETWORK_AFTER_START = timedelta(minutes=5)
@@ -189,12 +190,28 @@ def _results(checks: Checks, *, network: bool) -> dict[str, dict[str, Any]]:
     }
 
 
-def _record(results: dict[str, dict[str, Any]], *, replace: bool = False) -> None:
+# A check that reports only what is wrong (one result per sign-in that needs the person), by the prefix its
+# results are kept under. Once it has run, a kept problem it no longer reports was put right (W18).
+_PROBLEMS_ONLY: dict[Callable[[], Any], str] = {status_checks.check_sign_ins: "sign-in:"}
+# The id a problems-only check's result gets when the check itself failed: then nothing is settled.
+_FAILED_SIGN_IN_CHECK = "sign-in:provider"
+
+
+def _settled(checks: Checks, results: dict[str, dict[str, Any]]) -> tuple[str, ...]:
+    """The id prefixes whose kept problems this run of *checks* settles."""
+    return tuple(prefix for fn, prefix in _PROBLEMS_ONLY.items()
+                 if fn in checks and _FAILED_SIGN_IN_CHECK not in results)
+
+
+def _record(results: dict[str, dict[str, Any]], *, replace: bool = False, settled: tuple[str, ...] = ()) -> None:
     """Keep each result unless a newer one for that check is already kept.
-    ``replace`` (a full diagnosis) also drops checks that no longer exist."""
+    ``replace`` (a full diagnosis) also drops checks that no longer exist; ``settled`` drops the kept
+    problems under those prefixes that this run no longer reported."""
     with _lock:
         state = _load()
         checks = {} if replace else state["checks"]
+        for check_id in [check_id for check_id in checks if check_id.startswith(settled) and check_id not in results]:
+            del checks[check_id]
         for check_id, entry in results.items():
             kept = checks.get(check_id)
             if kept is None or kept["checked_at"] <= entry["checked_at"]:
@@ -317,7 +334,8 @@ def run_local_checks() -> None:
     checks = tuple(
         fn for fn in status_checks.LOCAL_CHECKS if idle or fn not in status_checks.SLOW_CHECKS
     )
-    _record(_results(checks, network=False))
+    results = _results(checks, network=False)
+    _record(results, settled=_settled(checks, results))
 
 
 def run_connection_checks() -> None:
@@ -412,6 +430,19 @@ def recheck_default_model() -> None:
 
 def _recheck_default_model() -> None:
     _record(_results((status_checks.check_active_model,), network=False))
+
+
+def recheck_sign_ins() -> None:
+    """A subscription sign-in was saved, removed or restored: check the sign-ins again now, so Home and For you
+    don't keep "couldn't read your ChatGPT sign-in" once it works (W18)."""
+    if _scheduler is not None:
+        _scheduler.add_job(_recheck_sign_ins, id=SIGN_INS_JOB, replace_existing=True)
+
+
+def _recheck_sign_ins() -> None:
+    checks = (status_checks.check_sign_ins,)
+    results = _results(checks, network=False)
+    _record(results, settled=_settled(checks, results))
 
 
 def attention_problems() -> list[dict[str, str]]:

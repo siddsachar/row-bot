@@ -11,7 +11,10 @@ from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import math
+import os
+import pathlib
 import re
+import threading
 import time
 from typing import Literal
 
@@ -168,7 +171,92 @@ def _public_model(row: CatalogModelRow, *, provider_label: str, installed: bool 
     )
 
 
+@dataclass(frozen=True)
+class _Built:
+    revision: str
+    generated_at: float | None
+    providers: tuple[ProviderStatusRow, ...]
+    models: tuple[CachedModelRow, ...]
+    catalog_empty: bool
+    refused_keys: dict[str, str]
+
+
+# What _read built, per readiness, with what it was built from (P10). The handshake and every Models read
+# parsed the whole saved catalog and read every provider's key; now only a change does: the catalog or
+# provider settings file, a saved or removed secret, a provider key in the environment, the models
+# topic (a disconnect), or the personal-model versions Learning offers. Sign-ins kept outside Row-Bot (Codex's, Claude Code's) and a token's expiry
+# change none of these, so nothing built is older than _BUILT_MAX_AGE_SECONDS.
+_built: dict[bool, tuple[tuple, float, _Built]] = {}
+_built_lock = threading.Lock()
+_BUILT_MAX_AGE_SECONDS = 30.0
+
+
+def _file_stamp(path: pathlib.Path) -> tuple[int, int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size, stat.st_ino  # a file replaced whole is a new one
+
+
+def _sources() -> tuple:
+    from row_bot import learning, secret_store
+    from row_bot.application.live_updates import live_updates
+    from row_bot.providers import config, model_catalog_cache
+    from row_bot.providers.auth_store import PROVIDER_API_KEY_ENV
+
+    return (
+        str(model_catalog_cache.CATALOG_CACHE_PATH), _file_stamp(model_catalog_cache.CATALOG_CACHE_PATH),
+        str(config.CONFIG_PATH), _file_stamp(config.CONFIG_PATH),
+        secret_store.change_count(),
+        live_updates.frame()["topics"]["models"],
+        tuple(bool(os.environ.get(name)) for name in PROVIDER_API_KEY_ENV.values()),
+        # The personal-model versions Learning offers now (one path check while there are none).
+        tuple(sorted(learning.offered_personal_models().items())),
+    )
+
+
+def forget_saved_reads() -> None:
+    """The next read builds from the files again (tests that fake what they're read from)."""
+    with _built_lock:
+        _built.clear()
+
+
 def _read(now: float | None, *, include_readiness: bool = False) -> tuple[ProviderStatusSnapshot, tuple[CachedModelRow, ...]]:
+    built = _built_for(include_readiness)
+    clock = time.time() if now is None else now
+    generated = built.generated_at
+    freshness: Freshness = "unavailable" if generated is None else "stale" if clock - generated >= CATALOG_CACHE_TTL_SECONDS else "fresh"
+    return ProviderStatusSnapshot(1, built.revision, generated, freshness, is_model_catalog_refresh_running(),
+                                  built.providers, len(built.models)), built.models
+
+
+def _built_for(include_readiness: bool) -> _Built:
+    sources = _sources()
+    with _built_lock:
+        kept = _built.get(include_readiness)
+        if kept is not None and kept[0] == sources and time.monotonic() - kept[1] < _BUILT_MAX_AGE_SECONDS:
+            return kept[2]
+        built = _build(include_readiness)
+        _built[include_readiness] = (sources, time.monotonic(), built)
+        return built
+
+
+def refused_keys() -> dict[str, str]:
+    """Providers whose last model-list read refused their key: provider id -> that key's fingerprint (T10).
+
+    A later read that the provider answers clears it, and a key saved since is not the refused one.
+    """
+    return dict(_built_for(False).refused_keys)
+
+
+def catalog_is_stale() -> bool:
+    """Whether the saved catalog is empty or older than its refresh interval (the handshake says so)."""
+    built = _built_for(True)
+    return built.catalog_empty or built.generated_at is None or time.time() - built.generated_at >= CATALOG_CACHE_TTL_SECONDS
+
+
+def _build(include_readiness: bool) -> _Built:
     saved = read_model_catalog_cache(allow_runtime_bootstrap=False)
     config = load_provider_config()
     rows = build_saved_model_catalog_rows(
@@ -195,6 +283,9 @@ def _read(now: float | None, *, include_readiness: bool = False) -> tuple[Provid
         kept.append(row)
     rows = kept
     endpoints = {}
+    # Learning's personal-model endpoint is no provider of its own, but its offered models are listed
+    # under its name, never its id (T11).
+    withheld_names: dict[str, str] = {}
     for raw in config.get("custom_endpoints", []):
         if not isinstance(raw, dict):
             continue
@@ -202,15 +293,20 @@ def _read(now: float | None, *, include_readiness: bool = False) -> tuple[Provid
             endpoint = normalize_custom_endpoint(raw)
         except (ValueError, TypeError, OverflowError):
             continue
-        if _provider_identity(endpoint["provider_id"]) and not withheld(endpoint["provider_id"]):
-            endpoint["display_name"] = _label(raw.get("name") or raw.get("display_name"), endpoint["provider_id"])
-            endpoints[endpoint["provider_id"]] = endpoint
+        if not _provider_identity(endpoint["provider_id"]):
+            continue
+        name = _label(raw.get("name") or raw.get("display_name"), endpoint["provider_id"])
+        if withheld(endpoint["provider_id"]):
+            withheld_names[endpoint["provider_id"]] = name
+            continue
+        endpoint["display_name"] = name
+        endpoints[endpoint["provider_id"]] = endpoint
     labels = {key: definition.display_name for key, definition in PROVIDER_DEFINITIONS.items()}
     labels.update({key: _label(item["display_name"], key) for key, item in endpoints.items()})
     counts: dict[str, int] = {}
     for row in rows:
         counts[row.provider_id] = counts.get(row.provider_id, 0) + 1
-        labels.setdefault(row.provider_id, row.provider_id)
+        labels.setdefault(row.provider_id, withheld_names.get(row.provider_id, row.provider_id))
     local_install = {item["model_id"]: _boolean(item.get("installed")) for item in saved.ollama_rows if isinstance(item.get("model_id"), str)}
     models = tuple(sorted((
         _public_model(row, provider_label=labels[row.provider_id], include_readiness=include_readiness,
@@ -238,11 +334,11 @@ def _read(now: float | None, *, include_readiness: bool = False) -> tuple[Provid
             state, count, enabled,
         ))
     generated = saved.generated_at if math.isfinite(saved.generated_at) and saved.generated_at > 0 else None
-    clock = time.time() if now is None else now
-    freshness: Freshness = "unavailable" if generated is None else "stale" if clock - generated >= CATALOG_CACHE_TTL_SECONDS else "fresh"
     public = {"generated_at": generated, "providers": [asdict(row) for row in providers], "models": [asdict(row) for row in models]}
     revision = hashlib.sha256(json.dumps(public, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
-    return ProviderStatusSnapshot(1, revision, generated, freshness, is_model_catalog_refresh_running(), tuple(providers), len(models)), models
+    refused = {key: str(status["refused_key"]) for key, status in saved.provider_status.items()
+               if isinstance(status.get("refused_key"), str) and status["refused_key"]}
+    return _Built(revision, generated, tuple(providers), models, saved.is_empty, refused)
 
 
 def read_provider_snapshot(*, now: float | None = None) -> ProviderStatusSnapshot:

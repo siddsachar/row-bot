@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "model_refs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Model Refs",
+      "type": "array"
+    },
+    "provider_id": {
+      "maxLength": 160,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "provider_id",
+    "model_refs"
+  ],
+  "title": "LocalServerConnection",
+  "type": "object"
+}

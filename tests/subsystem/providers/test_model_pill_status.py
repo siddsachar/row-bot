@@ -34,6 +34,7 @@ def _no_vision_lookup(monkeypatch, tmp_path):
 
 def _status(monkeypatch, service, readiness, *, provider="ollama", model="qwen3.8:27b", mode="agent"):
     monkeypatch.setattr("row_bot.providers.readiness.evaluate_runtime_readiness", lambda *_a, **_k: readiness)
+    workspace_setup.forget_model_readiness()  # the model's readiness changed: reads check it again
     controls = {"model_selection": {"provider_id": provider, "model_ref": f"model:{provider}:{model}"},
                 "runtime_mode": mode}
     return workspace_setup.model_status(service, controls)
@@ -81,6 +82,7 @@ def _main_down_backup_ready(monkeypatch, *, backup_ready=True):
                                                                                          chat=backup_ready)
     monkeypatch.setattr("row_bot.providers.readiness.evaluate_runtime_readiness",
                         lambda ref, **_k: ready if ref == BACKUP else down)
+    workspace_setup.forget_model_readiness()
 
 
 def test_an_unavailable_model_names_the_backup_that_answers_instead(monkeypatch, service):

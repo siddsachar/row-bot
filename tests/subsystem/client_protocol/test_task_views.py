@@ -403,6 +403,8 @@ def test_response_and_sqlite_batches_remain_bounded_with_large_saved_metadata(
         "active_run_json",
         # Why it is off, when Row-Bot switched it off (D5).
         "disabled_reason",
+        # The schedule's own zone, for its next run (RM3).
+        "timezone",
     }
 
     class ObservedCursor:

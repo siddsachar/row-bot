@@ -82,6 +82,19 @@ const SWITCHES: readonly SwitchDefinition[] = [
         : null,
   },
   {
+    id: 'desktop-notifications',
+    label: 'Desktop notifications',
+    verb: 'are',
+    phrases: ['desktop notifications', 'notification sounds'],
+    href: '/settings/preferences#desktop_notifications',
+    page: 'preferences',
+    field: 'desktop_notifications',
+    read: (snapshot) =>
+      snapshot.preferences.availability === 'available'
+        ? snapshot.preferences.desktop_notifications !== false
+        : null,
+  },
+  {
     id: 'self-improvement',
     label: 'Learning new skills',
     verb: 'is',
