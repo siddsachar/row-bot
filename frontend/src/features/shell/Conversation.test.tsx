@@ -4545,11 +4545,78 @@ it('on a phone opens the folder or deck the chat works on from one tap in its he
     }),
   );
 
-  // A wide layout keeps it in Conversation details.
+  // Working on names it, so the composer has no target chip on a phone (B2).
+  expect(
+    screen.queryByRole('group', { name: 'Resource write targets' }),
+  ).not.toBeInTheDocument();
+
+  // A wide layout keeps it in Conversation details, and the chip.
   rendered.rerender(<Conversation onPanel={onPanel} />);
   expect(
     screen.queryByRole('button', { name: /^Working on/ }),
   ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('group', { name: 'Resource write targets' }),
+  ).toBeVisible();
+});
+
+it("on a phone Incognito moves from the chat's ⋯ to + › Chat settings, and the details lead with the context line (B2)", async () => {
+  idleConversation();
+  await act(async () => {
+    render(
+      <Conversation
+        onPanel={vi.fn()}
+        headerMenu={[]}
+        contextPlacement="compact"
+      />,
+    );
+  });
+  const header = screen
+    .getAllByRole('banner')
+    .find((element) => element.dataset.layout === 'phone')!;
+  await userEvent.click(
+    within(header).getByRole('button', { name: 'Conversation menu' }),
+  );
+  const menu = screen.getByRole('menu');
+  expect(
+    within(menu).queryByRole('menuitem', { name: /Incognito/ }),
+  ).toBeNull();
+  expect(
+    within(menu).queryByRole('menuitemcheckbox', { name: /Incognito/ }),
+  ).toBeNull();
+  await userEvent.click(
+    within(menu).getByRole('menuitem', { name: 'Conversation details' }),
+  );
+  // The details sheet (the overlay is a test double here) leads with it.
+  const sheet = mock.open.mock.calls.find(
+    ([overlay]) => overlay.key === 'conversation-context',
+  )![0];
+  const details = render(<>{sheet.content}</>);
+  expect(
+    within(details.container).getByRole('region', { name: 'Context' }),
+  ).toHaveTextContent('Context will appear after the next response');
+  details.unmount();
+
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Add files and more' }),
+  );
+  // The + sheet has no context line or model on a phone.
+  expect(
+    screen.queryByText('Context will appear after the next response'),
+  ).toBeNull();
+  await userEvent.click(
+    screen.getByRole('menuitem', { name: /^Chat settings/ }),
+  );
+  mock.intent.mockResolvedValue({ status: 'completed' });
+  await userEvent.click(
+    screen.getByRole('menuitemcheckbox', { name: /^Incognito/ }),
+  );
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.incognito',
+    { incognito: true },
+    expect.any(String),
+  );
 });
 
 it('lists every piece of work under Working on when a chat has several (D7)', async () => {

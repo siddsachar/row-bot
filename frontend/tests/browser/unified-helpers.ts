@@ -705,7 +705,9 @@ export async function captureActualResourcePanels(
 
 /**
  * Add resource: the Context card's button where Context is on screen, else
- * the composer's + menu (tablets and phones show Context as a sheet).
+ * the composer's + menu (tablets and phones show Context as a sheet). A
+ * phone's is in + › Chat settings › Work in a folder or design (B2): the row
+ * itself, or "Add a folder or design…" under it once one is bound.
  */
 export async function openAddResource(page: Page): Promise<void> {
   const inline = page.getByRole('button', {
@@ -719,9 +721,27 @@ export async function openAddResource(page: Page): Promise<void> {
   await page
     .getByRole('button', { name: 'Add files and more', exact: true })
     .click();
+  const plusItem = page.getByRole('menuitem', {
+    name: 'Add resource…',
+    exact: true,
+  });
+  const chatSettings = page.getByRole('menuitem', { name: /^Chat settings/ });
+  await expect(plusItem.or(chatSettings)).toBeVisible();
+  if (await plusItem.isVisible()) {
+    await plusItem.click();
+    return;
+  }
+  await chatSettings.click();
   await page
-    .getByRole('menuitem', { name: 'Add resource…', exact: true })
+    .getByRole('menuitem', { name: /^Work in a folder or design/ })
     .click();
+  const add = page.getByRole('menuitem', {
+    name: 'Add a folder or design…',
+    exact: true,
+  });
+  const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
+  await expect(add.or(setup)).toBeVisible();
+  if (await add.isVisible()) await add.click();
 }
 
 /**
@@ -873,6 +893,15 @@ export async function openCommands(
   page: Page,
 ): Promise<{ dialog: Locator; field: Locator; opener: Locator }> {
   const phone = page.viewportSize()!.width < 768;
+  const search = page.getByRole('button', { name: 'Search', exact: true });
+  if (phone && !(await search.isVisible())) {
+    // A phone chat has no Search entry (D15: Search lives in the tabs); the
+    // shortcut opens the same phone Search from the composer.
+    const opener = composer(page);
+    await opener.focus();
+    await page.keyboard.press('ControlOrMeta+k');
+    return { ...commandsDialog(page), opener };
+  }
   const opener = await headerAction(
     page,
     phone ? 'Search' : 'Workspace commands',

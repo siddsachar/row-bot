@@ -52,8 +52,8 @@ test('workspace commands dialog traps focus, locks background scroll and restore
 }, testInfo) => {
   await openFixture(page);
   await stableConversationMarker(page);
-  // Phones reach Search from the header's menu; focus returns to that
-  // menu's trigger.
+  // A phone chat opens Search by its shortcut; focus returns to the
+  // composer.
   const { dialog, opener } = await openCommands(page);
   await expect(dialog).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(1);

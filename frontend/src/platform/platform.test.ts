@@ -100,6 +100,47 @@ describe('browser capabilities', () => {
     await single;
   });
 
+  it("offers the phone tiles' types and camera to the file input (B2)", async () => {
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(
+      () => undefined,
+    );
+    const adapter = createBrowserPlatform(media());
+    const intent = {
+      intentId: 'intent-b',
+      intent: 'attachment',
+      conversationId: 'conversation-a',
+      destination: 'composer',
+    };
+    const pick = async (
+      picker: Parameters<typeof adapter.selectFile>[2],
+    ): Promise<{ accept: string; capture: string | null }> => {
+      const picked = adapter.selectFile(undefined, intent, picker);
+      const input = document.querySelector('input')!;
+      const seen = {
+        accept: input.accept,
+        capture: input.getAttribute('capture'),
+      };
+      const photo = new File(['png'], 'photo.png', { type: 'image/png' });
+      Object.defineProperty(input, 'files', { value: [photo] });
+      input.dispatchEvent(new Event('change'));
+      expect(await picked).toEqual({
+        status: 'ok',
+        value: { kind: 'file', files: [photo] },
+      });
+      return seen;
+    };
+    // Camera, Photos, Files.
+    expect(await pick({ accept: 'image/*', capture: 'environment' })).toEqual({
+      accept: 'image/*',
+      capture: 'environment',
+    });
+    expect(await pick({ accept: 'image/*' })).toEqual({
+      accept: 'image/*',
+      capture: null,
+    });
+    expect(await pick(undefined)).toEqual({ accept: '', capture: null });
+  });
+
   it('bounds pending selection and supports abort without a file or OS window', async () => {
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(
       () => undefined,

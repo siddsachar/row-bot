@@ -7,7 +7,7 @@ import {
   openSeedConversation,
   setVisualViewportHeight,
 } from './surface-helpers';
-import { commandsDialog } from './unified-helpers';
+import { commandsDialog, openAddResource } from './unified-helpers';
 
 test.beforeEach(async ({ page }) => {
   await installVisualViewportFixture(page);
@@ -66,18 +66,13 @@ test('compact setup, panel sheets, Back and virtual keyboard preserve the conver
   const draft = `Retained ${testInfo.project.name} draft`;
   await composer.fill(draft);
 
-  // Add resource lives in the composer's + menu; closing the setup returns
-  // focus to +.
+  // Add resource lives in the composer's + menu (a phone's in + › Chat
+  // settings, B2); closing the setup returns focus to +.
   const addResource = page.getByRole('button', {
     name: 'Add files and more',
     exact: true,
   });
-  const openSetup = async () => {
-    await addResource.click();
-    await page
-      .getByRole('menuitem', { name: 'Add resource…', exact: true })
-      .click();
-  };
+  const openSetup = () => openAddResource(page);
   await openSetup();
   const setup = page.getByRole('dialog', {
     name: 'Add resource',
