@@ -6,6 +6,7 @@ const installationUrl = 'https://row-bot.ai/#install';
 const marketingSitemapUrls = [
   'https://row-bot.ai/features.html',
   'https://row-bot.ai/architecture.html',
+  'https://row-bot.ai/research.html',
   'https://row-bot.ai/contact.html',
 ];
 
