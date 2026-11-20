@@ -223,6 +223,15 @@ def _memory(spec: dict[str, Any], runtime: Any, trajectory: Any, run_dir: Path, 
                 trajectory.steps.append(adapter.dream(runtime, task))
         if spec.get("stage") == "build":
             return 0
+        if spec.get("mode") == "controller":
+            from .memory import controller
+
+            def context(step: Any, row: dict[str, Any]) -> None:
+                trajectory.steps.append(step)
+                _append(run_dir / "contexts.jsonl", [row], redact)
+
+            controller.ask(runtime, task, stop=stop, on_context=context)
+            return 0
         adapter.ask(runtime, task, template=spec.get("question_template") or adapter.QUESTION_TEMPLATE,
                     stop=stop, on_step=answered)
     except adapter.StopRequested as exc:
