@@ -185,6 +185,10 @@ def test_every_arm_gets_the_same_budget_within_the_trials_share(world, store, cl
     save_learning_settings(store.root, enabled=True, monthly_token_limit=1_000_000_000)
     found = meta.plan(store)
     assert found.state == "ready" and found.arms == 2 and found.arm_tokens == meta.ARM_TOKENS_MAX
+    # With no limit only each arm's equal budget bounds the trial (it runs so below).
+    save_learning_settings(store.root, enabled=True, monthly_token_limit=None)
+    unlimited = meta.plan(store)
+    assert (unlimited.state, unlimited.arms, unlimited.arm_tokens) == ("ready", 2, meta.ARM_TOKENS_MAX)
     client = ScriptedClient(model)
 
     report = trial(store, client, clock)
@@ -207,6 +211,27 @@ def test_an_arm_stops_at_its_equal_budget():
     assert arm.allows(400, local=True)
     arm.charge_gpu(11.0)
     assert not arm.allows(1, local=True) and arm.exhausted
+
+
+def test_with_no_limit_a_trial_still_stops_each_arm_at_its_equal_budget(store):
+    from row_bot.learning import spending
+
+    save_learning_settings(store.root, enabled=True, monthly_token_limit=None)
+    room = meta.trial_room(store)
+    assert room == spending.UNLIMITED_TOKENS
+    trial_meter = TokenMeter(room)  # the trial's own meter, as run_trial makes it
+    # Each arm's budget with no limit (the plan's, test_every_arm_gets_the_same_budget_within_the_trials_share).
+    arm = meta.ArmMeter(trial_meter, meta.ARM_TOKENS_MAX)
+
+    calls = 0
+    while arm.allows(150_000):
+        arm.charge(150_000)
+        calls += 1
+
+    # The month never refuses; the arm's equal budget does, before the call that would pass it.
+    assert calls == 13 and arm.used == 1_950_000 <= meta.ARM_TOKENS_MAX
+    assert arm.exhausted and arm.note() == "Stopped: this method's share of the trial was spent."
+    assert trial_meter.spent == 1_950_000 and trial_meter.refused == 0 and not trial_meter.exhausted
 
 
 def test_an_arm_never_tests_on_the_problems_that_judge_it_and_never_shows_its_drafts(world, store, clock, monkeypatch):

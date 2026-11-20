@@ -779,10 +779,17 @@
           "type": "boolean"
         },
         "monthly_token_limit": {
-          "maximum": 1000000000,
-          "minimum": 0,
-          "title": "Monthly Token Limit",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 1000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Monthly Token Limit"
         },
         "paused": {
           "title": "Paused",

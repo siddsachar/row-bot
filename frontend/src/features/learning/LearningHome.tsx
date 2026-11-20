@@ -68,6 +68,7 @@ import {
   plural,
   quietHoursWords,
   sizeWords,
+  spendingWords,
   timesWords,
   tokenWords,
 } from './words';
@@ -98,7 +99,7 @@ function headerLine(snapshot: LearningSnapshot) {
   const when = hours.next_look_at
     ? nextLookWords(hours.next_look_at)
     : `Quiet hours ${quietHoursWords(hours.window_start, hours.window_end)}`;
-  return `${when} · ${tokenWords(spending.used_tokens)} of ${tokenWords(spending.limit_tokens)} tokens this month`;
+  return `${when} · ${spendingWords(spending)}`;
 }
 
 /** Paused, limit reached and reading past chats: one line each, with the way out. */
@@ -132,7 +133,9 @@ function Banners({
           <p>
             {snapshot.spending.limit_tokens === 0
               ? 'Your monthly limit is 0, so Learning makes no model calls. Local training continues.'
-              : `Monthly limit reached. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`}
+              : (snapshot.spending.kept_for_comparing ?? 0) > 0
+                ? `Monthly limit reached, apart from ${tokenWords(snapshot.spending.kept_for_comparing ?? 0)} tokens kept for comparing methods. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`
+                : `Monthly limit reached. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`}
           </p>
           <Button className="small" onClick={onRaiseLimit}>
             Raise limit
