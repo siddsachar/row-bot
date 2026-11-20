@@ -4835,7 +4835,7 @@ def _silent_rounds(messages: list) -> int:
 # the assistant's line (no assistant prefill), and it is request-only like PROGRESS_NOTE.
 PROGRESS_LINE_KEY = "row_bot_progress_line"
 PROGRESS_CONTINUE_NOTE = ("Row-Bot note, not from the person: your line was shown to the person. Carry on with "
-                          "the work now.")
+                          "the work now. If it's done, or you need the person, say so in a line.")
 
 
 def _text_of(message: Any) -> str:
