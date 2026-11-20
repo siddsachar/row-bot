@@ -136,18 +136,12 @@ def _persons_id(message: Any) -> str | None:
     page's picture or a compaction summary (they have no id), an event Row-Bot added or a delegated agent's
     task."""
 
-    from row_bot.learning.corrections import is_row_bot_note
+    from row_bot.learning.corrections import is_row_bot_note, is_row_bot_prompt
     from row_bot.turn_context import MESSAGE_ID_PREFIX, is_person_message
 
     message_id = str(getattr(message, "id", "") or "")
     if (not message_id or message_id.startswith(MESSAGE_ID_PREFIX) or not is_person_message(message)
-            or is_row_bot_note(message)):
-        return None
-    extra = getattr(message, "additional_kwargs", None)
-    extra = extra if isinstance(extra, Mapping) else {}
-    ui = extra.get("row_bot_ui")
-    if extra.get("row_bot_internal_event") or extra.get("platform_note") or (
-            isinstance(ui, Mapping) and ui.get("thread_event")):
+            or is_row_bot_note(message) or is_row_bot_prompt(message)):
         return None
     return message_id
 
