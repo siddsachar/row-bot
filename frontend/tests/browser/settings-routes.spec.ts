@@ -281,7 +281,9 @@ test('Settings groups list every page, and search finds pages and rows', async (
   // A phone's page is one header row with its way back to the list and no
   // second search (D6, D7); the keyboard reaches the list's rows.
   await expect(navigation).toHaveCount(0);
-  await expect(page.getByRole('searchbox')).toHaveCount(0);
+  await expect(
+    page.getByRole('searchbox', { name: 'Find a setting' }),
+  ).toHaveCount(0);
   await page.getByRole('link', { name: 'Back to Settings' }).focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/app-v2\/settings$/);

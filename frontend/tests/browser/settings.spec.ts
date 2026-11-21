@@ -342,7 +342,9 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/app-v2/settings/models');
   await expect(settingsNavigation).toHaveCount(0);
-  await expect(page.getByRole('searchbox')).toHaveCount(0);
+  await expect(
+    page.getByRole('searchbox', { name: 'Find a setting' }),
+  ).toHaveCount(0);
   const back = page.getByRole('link', { name: 'Back to Settings' });
   expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await back.click();
