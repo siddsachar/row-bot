@@ -28,6 +28,10 @@ OPENAI_COMPATIBLE_CONNECT_TIMEOUT = 10.0
 OPENAI_COMPATIBLE_WRITE_TIMEOUT = 120.0
 OPENAI_COMPATIBLE_POOL_TIMEOUT = 10.0
 OPENAI_COMPATIBLE_STREAM_ATTEMPTS = 2
+# llama-server's own default is no limit, so a local model caught in a loop can write until its window
+# is full (one wrote 49K tokens and the server ran out of memory). Qwen's guidance for its thinking
+# models is 32,768 output tokens for most work; a caller's or the endpoint's own max_tokens wins.
+LLAMA_CPP_REPLY_TOKEN_LIMIT = 32_768
 
 
 def _default_read_timeout() -> float:
@@ -419,6 +423,8 @@ class ChatOpenAICompatible(BaseChatModel):
         for key in ("temperature", "top_p", "max_tokens", "presence_penalty", "frequency_penalty"):
             if key in kwargs and kwargs[key] is not None:
                 body[key] = kwargs[key]
+        if str(self.endpoint.get("profile") or "").lower() == "llama_cpp":
+            body.setdefault("max_tokens", LLAMA_CPP_REPLY_TOKEN_LIMIT)
         if stream and _endpoint_stream_usage_supported(self.endpoint):
             body.setdefault("stream_options", {"include_usage": True})
         _apply_dynamic_reasoning_plan(body, self.reasoning_plan)
