@@ -6711,14 +6711,11 @@ def _l4b_question() -> None:
 
 
 def _l4b_restore() -> None:
-    import os as _os
-
-    from row_bot import learning
+    from row_bot.application.settings_commands import write_learning_settings
     from row_bot.learning import practice, question
     from row_bot.learning.store import LearningStore
 
-    _os.environ.pop(learning.PRACTICE_ENV, None)
-    _os.environ.pop(learning.QUICK_QUESTION_ENV, None)
+    write_learning_settings({"experimental": False})
     store = LearningStore()
     if store.exists():
         store.set_meta_values({practice.NIGHT_KEY: "", question.OPEN_KEY: "", question.ANSWERS_KEY: "",
@@ -6727,16 +6724,14 @@ def _l4b_restore() -> None:
 
 @app.post("/__l4b_fixture/learning/{action}")
 def l4b_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
-    """Learning (preview) for the L4b spec: a build with practice and the quick question on, a night that practised,
-    and a quick question waiting. Nothing reaches a model: the night and the question are written directly."""
-    import os as _os
-
-    from row_bot import learning
+    """Learning for the L4b spec: experimental learning on (practice and the quick question, O195), a night that
+    practised, and a quick question waiting. Nothing reaches a model: the night and the question are written
+    directly."""
+    from row_bot.application.settings_commands import write_learning_settings
 
     predecessor._authorize(x_fixture_token)
     if action == "on":
-        _os.environ[learning.PRACTICE_ENV] = "1"
-        _os.environ[learning.QUICK_QUESTION_ENV] = "1"
+        write_learning_settings({"experimental": True})
     elif action == "practised":
         _l4b_night()
     elif action == "question":
@@ -6779,13 +6774,15 @@ def l4c_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     from row_bot import learning
 
     predecessor._authorize(x_fixture_token)
+    from row_bot.application.settings_commands import write_learning_settings
+
     if action == "jobs":
         _os.environ[learning.JOBS_ENV] = "1"
-        _os.environ[learning.PRACTICE_ENV] = "1"
+        write_learning_settings({"experimental": True})  # practice is experimental learning (O195)
         _l4c_jobs()
     elif action == "restore":
         _os.environ.pop(learning.JOBS_ENV, None)
-        _os.environ.pop(learning.PRACTICE_ENV, None)
+        write_learning_settings({"experimental": False})
         from row_bot.learning.improver import jobs
         from row_bot.learning.store import LearningStore
 

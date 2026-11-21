@@ -1,6 +1,6 @@
 """Practice (L4b; D6, D15, D17, O18, O21): tasks Row-Bot makes up from its own mistakes.
 
-In a build with practice on (:func:`row_bot.learning.practice_enabled`), once a night after the look for things to
+With Learning's experimental parts on (:func:`row_bot.learning.experimental_enabled`, O195), once a night after the look for things to
 improve (``runner``), Learning
 
 1. **makes practice tasks** (``generate``) for the issues in a kind of work the task packs cover whose evidence is
@@ -50,9 +50,9 @@ _SUMMED = ("issues", "asked", "made", "unreadable", "unverifiable", "repeats", "
 
 
 def enabled() -> bool:
-    """Whether this build practises (its switch, L4b)."""
+    """Whether Learning practises: the person turned on its experimental parts (L4b, O195)."""
 
-    return gate.practice_enabled()
+    return gate.experimental_enabled()
 
 
 def _meta(store: Any, key: str, default: Any) -> Any:

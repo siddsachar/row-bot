@@ -30,6 +30,14 @@ def learning_on(data_dir):
 
 
 @pytest.fixture
+def learning_off(data_dir):
+    """The data folder with Learning turned off by the person: it is on by default (O195)."""
+
+    save_learning_settings(data_dir, enabled=False)
+    return data_dir
+
+
+@pytest.fixture
 def clock():
     return FakeClock()
 

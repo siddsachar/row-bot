@@ -202,3 +202,32 @@ it('when the month’s limit is used up it says so, not that comparing used its 
   ).toBeVisible();
   expect(within(sheet).queryByText(/share for comparing methods/)).toBeNull();
 });
+
+it('while experimental learning is off, comparing methods says so and links to the switch (O195)', async () => {
+  show(
+    fakeIO(
+      on({
+        method: learningMethod({
+          trials: [],
+          next_trial: { state: 'off', fresh: 0, needed: 30 },
+        }),
+      }),
+    ),
+  );
+  await userEvent.click(
+    screen.getByRole('button', { name: 'How Row-Bot learns: details' }),
+  );
+  const sheet = await screen.findByRole('dialog', {
+    name: 'How Row-Bot learns',
+  });
+
+  expect(
+    within(sheet).getByText(
+      /Comparing ways of learning is experimental and off\./,
+    ),
+  ).toBeVisible();
+  expect(
+    within(sheet).getByRole('link', { name: 'Turn it on in Settings' }),
+  ).toHaveAttribute('href', '/settings/learning#learning-experimental');
+  expect(within(sheet).queryByText(/new problems have built up/)).toBeNull();
+});

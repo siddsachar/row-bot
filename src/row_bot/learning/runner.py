@@ -216,7 +216,7 @@ class NightLook:
             return True
 
     def practised_tonight(self) -> bool:
-        """Tonight's practice finished, or this build doesn't practise (L4b)."""
+        """Tonight's practice finished, or practice is off (L4b)."""
 
         from row_bot.learning import practice
 
@@ -227,10 +227,12 @@ class NightLook:
         return bool(night and found and found.get("night") == night and found.get("state") != "stopped")
 
     def tried_tonight(self) -> bool:
-        """Tonight's strategy trial finished, or none could run (L4a)."""
+        """Tonight's strategy trial finished, none could run, or the trials are off (L4a, O195)."""
 
         from row_bot.learning.improver import meta
 
+        if not gate.experimental_enabled(self._root):
+            return True
         night = self.tonight()
         found = meta.last_night(self._store()) if gate.store_exists(self._root) else None
         return bool(night and found and found.get("night") == night and found.get("state") != "stopped")

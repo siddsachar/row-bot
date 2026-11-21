@@ -42,10 +42,10 @@ def _vault_file(root: Path) -> Path:
     return Path(root) / "learning" / "audit.db"
 
 
-def test_the_vault_is_its_own_file_made_only_while_learning_is_on(data_dir, monkeypatch):
+def test_the_vault_is_its_own_file_made_only_while_learning_is_on(data_dir, learning_off, monkeypatch):
     with pytest.raises(evaluation.EvaluationError, match="learning_off"):
         evaluation.refresh_audit(asked_by="test")
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == ["learning_config.json"]  # only the person's "off"
 
     from tests.fixtures.learning import save_learning_settings
 

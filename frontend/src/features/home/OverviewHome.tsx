@@ -111,6 +111,8 @@ export type OverviewHomeProps = {
   buddy?: ReactNode;
   /** A phone's one-time "Get a notification…?" offer, under the greeting. */
   notificationsOffer?: ReactNode;
+  /** Learning's one-time note that it is on (O195), under the greeting. */
+  learningIntro?: ReactNode;
   /**
    * Proactive's For you, in place of Today while Proactive is on: it gets
    * Today's fact rows (for Later today), those on a later day (`ahead`, under
@@ -475,6 +477,7 @@ export default function OverviewHome({
   loadAttention,
   buddy,
   notificationsOffer,
+  learningIntro,
   forYou,
   onAsk,
   asking = false,
@@ -1100,6 +1103,8 @@ export default function OverviewHome({
       </header>
 
       {!needsModel && notificationsOffer}
+
+      {!needsModel && learningIntro}
 
       {!needsModel && needRows.length > 0 && (
         <Section

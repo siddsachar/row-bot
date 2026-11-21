@@ -18,15 +18,17 @@ pages:
     screenshot_id: settings-buddy
     dependencies: Desktop overlay behaviour depends on native-window support.
   learning:
-    description: Turn Learning on, pause it or turn it off; choose what it learns from,
-      how changes are used, its monthly limit, the personal model and where it trains,
-      and delete learning data. Create skills while chatting is here too, with Learning
-      on or off.
+    description: Turn Learning off, pause it or turn it on again; choose what it learns
+      from, how changes are used, its monthly limit, experimental learning, the personal
+      model and where it trains, and delete learning data. Create skills while chatting
+      is here too, with Learning on or off.
     # The Settings overview until Settings › Learning has its own guide page.
     docs_route: /docs/settings/
-    security: Learning is off until you turn it on. Its records, tests and models stay
-      on this computer; its own model calls go to your default model's provider, and
-      Hugging Face is used only if you choose it.
+    security: Learning is on from the start, for learning from your corrections;
+      experimental learning, reading past chats and the personal model are off until you
+      turn them on. Its records, tests and models stay on this computer; its own model
+      calls go to your default model's provider, and Hugging Face is used only if you
+      choose it.
     dependencies: Training needs the training engine and a starting model, downloaded
       only after you agree.
   proactive:

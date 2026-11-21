@@ -47,6 +47,7 @@ import LearningHome, {
   type LearningView,
 } from '../learning/LearningHome';
 import { learningIsOn, useLearning } from '../learning/learning-state';
+import { LearningIntro } from '../learning/LearningIntro';
 
 const homeTabs = [
   'overview',
@@ -608,6 +609,7 @@ export default function Home({
                 notificationsOffer={
                   identity ? <PhoneNotificationsOffer /> : null
                 }
+                learningIntro={<LearningIntro io={learning} />}
                 forYou={({ rows, ahead, footer }) => (
                   <ForYou today={rows} ahead={ahead} footer={footer} />
                 )}

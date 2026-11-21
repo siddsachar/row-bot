@@ -64,6 +64,7 @@ import {
   LESSON_STATUS,
   memoryAdvice,
   memoryNeedWords,
+  roomWords,
   nextLookWords,
   overnightLines,
   plural,
@@ -508,14 +509,7 @@ function PersonalModel({
       ));
   let state: ReactNode;
   if (showTraining) state = <TrainingProgress io={io} snapshot={snapshot} />;
-  else if (!model.train_in_quiet_hours)
-    state = (
-      <EmptyState title="Training is off" action={settings}>
-        Turn on Train during quiet hours to train a model of your own on your
-        work.
-      </EmptyState>
-    );
-  else if (model.train_where === 'hugging_face')
+  else if (model.train_in_quiet_hours && model.train_where === 'hugging_face')
     state = null; // the Hugging Face card below: guided start, sign-in, model, spending (C1)
   else if (hardware?.state === 'old_driver')
     state = (
@@ -563,6 +557,14 @@ function PersonalModel({
           ? 'You can train one on Hugging Face instead (your own account, priced before each run) and run it here. '
           : ''}
         Learning still improves Row-Bot with lessons and ways of working.
+      </EmptyState>
+    );
+  // Off by default (O195): what this computer can't do is said first, then how to start.
+  else if (!model.train_in_quiet_hours)
+    state = (
+      <EmptyState title="Training is off" action={settings}>
+        Turn on Train during quiet hours to train a model of your own on your
+        work. Row-Bot asks before downloading anything.
       </EmptyState>
     );
   else if (!download && !downloaded)
@@ -685,6 +687,18 @@ function PersonalModel({
                   : ''}
               </span>
             )}
+            {hardware?.state === 'gpu' && roomWords(hardware) && (
+              <span className="learning-muted learning-fact-note">
+                {roomWords(hardware)}
+              </span>
+            )}
+            {hardware?.state === 'gpu' &&
+              hardware.memory &&
+              hardware.memory_short?.[0] && (
+                <span className="learning-muted learning-fact-note">
+                  {`Larger models need about ${hardware.memory_short[0].system_memory_gb} GB of RAM and virtual memory to train, and this computer has ${hardware.memory.limit_gb} GB. ${memoryAdvice(hardware.memory.system)}`}
+                </span>
+              )}
             {hardware?.state === 'low_memory' && hardware.tier && (
               <span className="learning-muted learning-fact-note">
                 Its memory can’t hold training yet.

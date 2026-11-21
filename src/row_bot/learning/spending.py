@@ -113,9 +113,12 @@ def used_this_month(
 
 
 def kept_for_trials(limit: int | None, *, now: float | None = None) -> int:
-    """Tokens of a fixed limit kept for comparing methods now: the trials' share less what they used this month."""
+    """Tokens of a fixed limit kept for comparing methods now: the trials' share less what they used this month.
+    Nothing while the trials are off (Learning's experimental parts, O195)."""
 
-    if limit is None or limit <= 0:
+    from row_bot import learning
+
+    if limit is None or limit <= 0 or not learning.experimental_enabled():
         return 0
     return max(0, int(limit * TRIAL_SHARE) - used_this_month(now=now, purposes=(TRIAL_PURPOSE,)))
 

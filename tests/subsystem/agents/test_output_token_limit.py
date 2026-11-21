@@ -138,7 +138,7 @@ def _chat_only(monkeypatch, tmp_path, response_metadata: dict) -> tuple[list, li
     monkeypatch.setattr(models, "_current_model", "model:ollama:fixture-model")
 
     class FakeLLM:
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             yield AIMessageChunk(content="The first half")
             yield AIMessageChunk(content="", response_metadata=response_metadata)
 

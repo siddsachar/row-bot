@@ -77,9 +77,12 @@ Priorities, in order:
   records, the `learning.db` store and blobs, scope (what may be recorded), capture
   (the seams' queue and writer, with redaction), the past-chat import, evaluation
   (replay, task packs in throwaway sandboxes, equal-budget arms), the sealed audit
-  vault (only `evaluation` reads it) and the task packs. Off by default; while off
-  or paused its seams cost one check, and it creates no file and imports nothing
-  beyond the switch. Its surfaces live in `frontend/src/features/learning/`
+  vault (only `evaluation` reads it) and the task packs. On by default for learning
+  from the person's corrections; its experimental parts (practice, the quick
+  question, the strategy trials) and the personal model are off until the person
+  turns them on (O195). Turned off or paused, its seams cost one check, and it
+  creates no file beyond its setting and imports nothing beyond the switch. Its
+  surfaces live in `frontend/src/features/learning/`
   and `application/client_learning.py`. The training engine is its own locked project
   (`src/row_bot/learning_engine/`), downloaded only when the person agrees into the
   data folder's `runtimes/learning/`, never into Row-Bot's environment or installers.

@@ -17,7 +17,7 @@ from row_bot.learning.runner import LearningRunner
 from row_bot.learning.store import LearningStore
 from row_bot.learning.training.supervisor import TrainingSupervisor
 from tests.e2e.learning.seeded.clock import NIGHT_STEPS, Night, SimClock, sim_quiet_hours
-from tests.fixtures.learning import FakeDataset, FakeEngine
+from tests.fixtures.learning import FakeDataset, FakeEngine, save_learning_settings
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
@@ -104,6 +104,7 @@ def test_a_night_runs_dream_then_the_vault_then_the_look_then_learning_and_goes_
 
 
 def test_training_waits_for_the_nights_dream_step_and_for_nobody_using_row_bot(learning_on, clock):
+    save_learning_settings(learning_on, train_in_quiet_hours=True)  # off by default (O195)
     LearningStore(learning_on).create()
     sim = SimClock(FIRST)
     lease = ResourceLease(generations=lambda: (), workflows=lambda: False, indexing=lambda: False,

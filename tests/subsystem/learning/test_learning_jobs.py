@@ -16,7 +16,7 @@ from row_bot.learning import corrections, diagnosis
 from row_bot.learning.improver import jobs, strategy
 from row_bot.learning.spending import TokenMeter
 from row_bot.learning.store import MARK_HELD_OUT, LearningStore
-from tests.fixtures.learning import CapturedWork, signal
+from tests.fixtures.learning import CapturedWork, save_learning_settings, signal
 from tests.fixtures.learning_eval import ScriptedClient
 from tests.subsystem.learning.test_learning_meta import challenger_says, model, quiet_first, templates, trial, world
 
@@ -240,7 +240,7 @@ def test_the_personal_model_drafts_in_a_trial_but_never_tests_or_judges(world, s
 def test_making_practice_tasks_qualifies_on_tasks_kept_by_the_same_checks(work, store, clock, jobs_on, monkeypatch):
     from tests.subsystem.learning.test_learning_practice import lookup_task
 
-    monkeypatch.setenv(learning.PRACTICE_ENV, "1")
+    save_learning_settings(learning.data_dir(), experimental=True)
     feedback(work, store, clock, 20)
 
     def respond(messages, tools, model_ref):
