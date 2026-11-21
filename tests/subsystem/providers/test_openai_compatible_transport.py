@@ -710,6 +710,46 @@ def test_llamacpp_transport_never_sends_request_time_n_ctx(monkeypatch):
     assert "n_ctx" not in client.calls[0][1]["json"]
 
 
+def _llamacpp_model(client, **endpoint):
+    return ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:8080/v1",
+        endpoint={"provider_id": "custom_openai_llamacpp", "profile": "llama_cpp", **endpoint},
+        http_client=client,
+    )
+
+
+def test_llamacpp_reply_has_an_output_limit():
+    client = _Client()
+
+    _llamacpp_model(client).invoke([HumanMessage(content="hi")])
+
+    assert client.calls[0][1]["json"]["max_tokens"] == 32_768
+
+
+def test_llamacpp_output_limit_yields_to_the_caller_and_the_endpoint():
+    client = _Client()
+
+    _llamacpp_model(client).invoke([HumanMessage(content="hi")], max_tokens=256)
+    _llamacpp_model(client, extra_body={"max_tokens": 4096}).invoke([HumanMessage(content="hi")])
+
+    assert [call[1]["json"]["max_tokens"] for call in client.calls] == [256, 4096]
+
+
+def test_other_openai_compatible_profiles_send_no_output_limit():
+    client = _Client()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"provider_id": "custom_openai_lmstudio", "profile": "lmstudio"},
+        http_client=client,
+    )
+
+    model.invoke([HumanMessage(content="hi")])
+
+    assert "max_tokens" not in client.calls[0][1]["json"]
+
+
 def test_documented_context_param_is_not_sent_when_capacity_is_unknown(monkeypatch):
     monkeypatch.setattr(
         "row_bot.models.get_context_policy",
