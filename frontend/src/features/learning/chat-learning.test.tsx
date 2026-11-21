@@ -17,13 +17,11 @@ import {
   useLearningChatMenu,
   useTeach,
 } from './chat-learning';
-import { LEARNING_CAPABILITY } from './learning-state';
 import { learningSnapshot } from './test-data';
 
 function controllerFor(
   snapshot: LearningSnapshot,
   options: {
-    preview?: boolean;
     conversation?: LearningConversation['state'];
   } = {},
 ) {
@@ -33,8 +31,7 @@ function controllerFor(
     handshake: {
       instance_id: 'instance',
       client_session_id: 'session',
-      application_capabilities:
-        options.preview === false ? [] : [LEARNING_CAPABILITY],
+      application_capabilities: [],
     },
   };
   const executeLearning = vi.fn(
@@ -195,20 +192,11 @@ it.each([
   expect(screen.queryByRole('button', { name: 'Teach Row-Bot' })).toBeNull();
 });
 
-it('without Learning (no preview flag, or off) a chat shows nothing of it', async () => {
-  const off = controllerFor(learningSnapshot({ state: 'on' }), {
-    preview: false,
-  });
-  const { unmount } = show(off.controller);
-  await act(async () => undefined);
-  expect(screen.queryByRole('button', { name: 'Chat menu' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Teach Row-Bot' })).toBeNull();
-  expect(off.controller.learning).not.toHaveBeenCalled();
-  unmount();
-
+it('with Learning off a chat shows nothing of it', async () => {
   show(controllerFor(learningSnapshot({ state: 'off' })).controller);
   await act(async () => undefined);
   expect(screen.queryByRole('button', { name: 'Chat menu' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Teach Row-Bot' })).toBeNull();
 });
 
 it('Don’t learn from this chat is a check item; ticking it confirms that it deletes what was recorded', async () => {

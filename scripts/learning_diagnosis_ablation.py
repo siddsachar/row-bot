@@ -98,7 +98,6 @@ def boot(data: Path, profile: Path) -> Any:
     """Bind Row-Bot to ``data`` with the ChatGPT lane's sign-in in memory; returns the main model's ref."""
 
     os.environ["ROW_BOT_DATA_DIR"] = str(data)
-    os.environ["ROW_BOT_LEARNING_PREVIEW"] = "1"
     os.environ["ROW_BOT_DESKTOP_NOTIFICATIONS"] = "off"
     os.environ.setdefault("ROW_BOT_AUTO_START_OLLAMA", "0")
     from row_bot import learning, models

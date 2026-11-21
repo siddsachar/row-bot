@@ -106,7 +106,7 @@ def profile(writer, chats, clock, learning_on):
 def folders(tmp_path, monkeypatch):
     """--scratch and --out, and the process environment put back after the script changes it."""
 
-    for name in ("ROW_BOT_LEARNING_PREVIEW", "ROW_BOT_DESKTOP_NOTIFICATIONS", "ROW_BOT_AUTO_START_OLLAMA"):
+    for name in ("ROW_BOT_DESKTOP_NOTIFICATIONS", "ROW_BOT_AUTO_START_OLLAMA"):
         monkeypatch.delenv(name, raising=False)
     import os
 

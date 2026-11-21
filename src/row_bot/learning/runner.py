@@ -24,8 +24,7 @@ looks at what is due, after Dream, in this order:
 Until the training engine and starting model are downloaded (L2b) and L2c gives it a dataset
 it finds nothing to do, and its :meth:`LearningRunner.status` says why (``no_engine``,
 ``no_data``). It never runs while
-Learning is off or paused, or in a build without the preview flag; it starts no thread
-and imports nothing until Learning is on.
+Learning is off or paused; it starts no thread and imports nothing until Learning is on.
 """
 
 from __future__ import annotations

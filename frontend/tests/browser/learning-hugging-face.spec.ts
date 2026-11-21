@@ -42,8 +42,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  // Close the app first: restoring turns Learning's start-up flag off, and a
-  // poll still due (download, training) would get a 404 a real app never sees.
+  // Close the app first: restoring deletes Learning's data and its stand-ins, and
+  // a poll still due (download, training) would read them half gone.
   await page.close();
   await c1(page, 'restore');
   await l2x(page, 'restore');
@@ -80,7 +80,7 @@ function notice(page: Page, text: string | RegExp) {
 
 /** Learning on (the download not asked), on an RTX 5090, training on Hugging Face with the fake Hub. */
 async function onHuggingFace(page: Page, signIn = 'signed_out') {
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   await l2x(page, 'card', '5090');
   await page.goto('/app-v2/settings/learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();

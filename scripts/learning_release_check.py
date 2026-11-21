@@ -5,7 +5,7 @@
     uv run python scripts/learning_release_check.py --plan --out <folder> --scratch <folder>
 
 Made-up people with scripted 30-day histories and a live stream of requests, each run through the
-real runtime in its own scratch profile (Learning's preview flag on, the main model GPT-6.1 Sol on the
+real runtime in its own scratch profile (Learning on, the main model GPT-6.1 Sol on the
 ChatGPT lane's eval profile), with a simulated person who asks, corrects, teaches, approves and stops;
 then a report of the whole Learning loop with denominators and intervals. Resumes where it stopped.
 See tests/e2e/learning/seeded/ for the harness and the people.

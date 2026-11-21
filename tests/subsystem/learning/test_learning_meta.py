@@ -21,8 +21,7 @@ from row_bot.learning.improver import archive, meta
 from row_bot.learning.improver import strategy as strategy_module
 from row_bot.learning.spending import TokenMeter
 from row_bot.learning.store import LearningStore
-from tests.fixtures.learning import (CapturedWork, FakeClock, FakeThreads, save_learning_settings,
-                                    set_learning_preview, signal)
+from tests.fixtures.learning import CapturedWork, FakeClock, FakeThreads, save_learning_settings, signal
 from tests.fixtures.learning_eval import ScriptedClient
 
 pytestmark = [pytest.mark.subsystem]
@@ -78,7 +77,6 @@ def _template(folder: Path, *, plain: int) -> float:
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("ROW_BOT_DATA_DIR", str(folder))
-        set_learning_preview(patch, True)
         save_learning_settings(folder, enabled=True, monthly_token_limit=1_000_000_000)
         clock, chats = FakeClock(), FakeThreads()
         writer = Capture(clock=clock, start_thread=False, lookup=chats)

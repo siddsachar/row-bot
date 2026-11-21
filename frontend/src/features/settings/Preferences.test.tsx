@@ -220,63 +220,6 @@ it('leaves out the desktop switch on a hosted Row-Bot, which has no desktop', ()
   }
 });
 
-it('moves Learn new skills to Settings › Learning in a Learning preview build (D29)', () => {
-  const snapshot = {
-    availability: 'available',
-    identity: {
-      name: 'Row-Bot',
-      personality: '',
-      personality_max_length: 200,
-      self_improvement_enabled: true,
-    },
-    window_mode: 'ask',
-    dream_cycle: {
-      enabled: true,
-      window_start: 1,
-      window_end: 5,
-      last_run: null,
-      last_summary: '',
-    },
-    updates: {
-      current_version: '5.4.0',
-      channel: 'stable',
-      last_check: null,
-      last_success: null,
-      runtime_state: 'cached',
-    },
-    migration: { available: false, sources: [] },
-  } satisfies SettingsSnapshot['preferences'];
-  const mutation: SettingsMutationIO = {
-    revision: 'b'.repeat(64),
-    page: 'preferences',
-    review: vi.fn(),
-    execute: vi.fn(),
-    receipt: vi.fn(),
-    drafts: new SettingsDraftOwner(),
-    onSnapshot: vi.fn(),
-  };
-  const view = (skillsMoved: boolean) => (
-    <MemoryRouter>
-      <ThemeProvider>
-        <OverlayProvider>
-          <Preferences
-            snapshot={snapshot}
-            mutation={mutation}
-            skillsMoved={skillsMoved}
-          />
-        </OverlayProvider>
-      </ThemeProvider>
-    </MemoryRouter>
-  );
-  const { rerender } = render(view(false));
-  expect(
-    screen.getByRole('switch', { name: 'Learn new skills' }),
-  ).toBeChecked();
-  rerender(view(true));
-  expect(screen.queryByRole('switch', { name: 'Learn new skills' })).toBeNull();
-  expect(screen.getByRole('switch', { name: 'Dream Cycle' })).toBeVisible();
-});
-
 /** The phone layout (C3): below 768px. */
 function onPhoneWidth() {
   vi.stubGlobal(
