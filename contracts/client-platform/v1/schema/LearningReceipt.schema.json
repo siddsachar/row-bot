@@ -1374,6 +1374,24 @@
           "title": "Minutes",
           "type": "integer"
         },
+        "model_kept": {
+          "default": false,
+          "title": "Model Kept",
+          "type": "boolean"
+        },
+        "model_url": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Url"
+        },
         "outcome": {
           "anyOf": [
             {
