@@ -73,6 +73,9 @@ LOAD_SECONDS = 600.0
 # How long a model may stay unloaded after Row-Bot asked for it before it asks again: a server still
 # unloading another model refuses the load ("model limit reached") and leaves this one unloaded.
 LOAD_RETRY_SECONDS = 2.0
+# How long a check waits, at most, for the model it unloaded to be listed as unloaded, so the next model's load
+# never comes while this one still holds the card (two 27Bs don't fit a 32 GB card together).
+UNLOAD_SECONDS = 60.0
 # A server that doesn't answer its health check this many times in a row is ended.
 MISSED_HEALTH = 3
 PROMPT_CACHE_MIB = 2048  # per loaded model, in the computer's memory
@@ -667,8 +670,10 @@ class ManagedServer:
             return None
         return [item for item in payload.get("data") or () if isinstance(item, Mapping)]
 
-    def unload(self, name: str) -> None:
-        """Give back the graphics memory ``name`` holds now (it loads again when next asked for)."""
+    def unload(self, name: str, *, wait: bool = False) -> None:
+        """Give back the graphics memory ``name`` holds now (it loads again when next asked for). With ``wait``,
+        return only once the server lists it as unloaded (at most :data:`UNLOAD_SECONDS`): a load asked for
+        while it still unloads would come while it holds the card."""
 
         connection = self._connection
         if connection is None:
@@ -678,6 +683,17 @@ class ManagedServer:
                                body={"model": name}, timeout=STOP_SECONDS + 5)
         except Exception:  # noqa: BLE001
             logger.debug("Learning couldn't unload a personal model", exc_info=True)
+        if not wait:
+            return
+        deadline = self._clock() + UNLOAD_SECONDS
+        while self.model_status(name) not in (None, "unloaded", "failed"):
+            process = self._process
+            if process is None or not process.alive():
+                return
+            if self._clock() > deadline:
+                logger.warning("Learning's model server still held a model %.0f s after its unload", UNLOAD_SECONDS)
+                return
+            time.sleep(0.25)
 
     # ── Watching it ─────────────────────────────────────────────────────
 

@@ -88,6 +88,8 @@ CHECK_ANSWER = "7006652"
 CHECK_TOOLS = ("calculator",)
 CHECK_SECONDS = 300.0
 CREATE_SECONDS = 1200.0
+# How long a check waits, at most, for Ollama to let go of the model it unloaded before the next check.
+UNLOAD_SECONDS = 60.0
 
 Outcome = Literal["ready", "waiting_for_you", "failed"]
 
@@ -185,6 +187,16 @@ def _loopback(url: str) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def _same_model(listed: str, name: str) -> bool:
+    """Whether Ollama's name for a loaded model is ``name`` (a name without a tag is ``:latest``)."""
+
+    def full(value: str) -> str:
+        value = value.strip().lower()
+        return value if ":" in value.rsplit("/", 1)[-1] else f"{value}:latest"
+
+    return full(listed) == full(name)
 
 
 def modelfile_text(gguf: Path, serve_context: int) -> str:
@@ -285,14 +297,21 @@ class OllamaRuntime:
                               "expires_at": str(item.get("expires_at") or "")})
         return found
 
-    def unload(self, name: str) -> bool:
-        """Free the graphics memory the model holds now (it loads again when next used)."""
+    def unload(self, name: str, *, wait: bool = False) -> bool:
+        """Free the graphics memory the model holds now (it loads again when next used). With ``wait``,
+        return once Ollama no longer lists it loaded (``/api/ps``, at most :data:`UNLOAD_SECONDS`)."""
 
         try:
             self._json("POST", "/api/generate", {"model": name, "keep_alive": 0})
-            return True
         except Exception:
             return False
+        deadline = time.monotonic() + UNLOAD_SECONDS
+        while wait and time.monotonic() <= deadline:
+            found = self.loaded()
+            if found is None or not any(_same_model(item["name"], name) for item in found):
+                break
+            time.sleep(0.25)
+        return True
 
     def delete(self, name: str) -> bool:
         try:
@@ -555,8 +574,9 @@ def serve(
         reason = "" if turn.get("ok") else "tool_turn_failed"
     if served and ollama is not None:
         # The checks loaded it: its graphics memory goes back now (Ollama would hold it for half an
-        # hour, and the person's own local model, or training, needs the card).
-        ollama.unload(served)
+        # hour, and the person's own local model, or training, needs the card), and only once Ollama no
+        # longer lists it loaded does the next model's check start.
+        ollama.unload(served, wait=True)
     if reason:
         if served and ollama is not None:  # nothing half-working stays in Ollama (the version's file is kept)
             _take_back(ollama, served, catalog)
@@ -595,8 +615,10 @@ def _serve_row_bot(name: str, *, gguf: Path, serve_context: int, root: Path | No
                 turn = dict(verifier.tool_turn(reference))
                 reason = "" if turn.get("ok") else "tool_turn_failed"
             # The checks loaded it: its graphics memory goes back now (training or the person's own
-            # local model may need the card; it loads again when asked for).
-            server.unload(name)
+            # local model may need the card; it loads again when asked for), and only once the server lists
+            # it unloaded does the next model's check start (a load that comes while another model unloads is
+            # refused, or two 27Bs share a card that holds one).
+            server.unload(name, wait=True)
     except llama_server.ServerError as error:
         reason = SERVER_FAILURES.get(error.code, "server_failed")
     if reason:

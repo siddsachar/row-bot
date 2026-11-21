@@ -38,7 +38,7 @@ class FakeOllama:
         self.created.append((name, Path(modelfile).read_text(encoding="utf-8")))
         return self.create_ok
 
-    def unload(self, name):
+    def unload(self, name, *, wait=False):
         self.unloaded.append(name)
         return True
 
@@ -331,7 +331,7 @@ class FakeServer:
             raise ServerError(self.load_error)
         self.loaded.append(name)
 
-    def unload(self, name):
+    def unload(self, name, *, wait=False):
         self.unloaded.append(name)
 
 
@@ -402,6 +402,84 @@ def test_the_starting_model_runs_in_row_bot_under_its_own_name_with_the_probe_on
 
     assert ready.state == "ready" and ready.model_ref.endswith(":row-bot-personal-base")
     assert [call[0] for call in verifier.calls] == ["probe"]
+
+
+def test_a_second_model_is_loaded_in_row_bot_only_once_the_first_is_listed_unloaded(tmp_path, data_dir,
+                                                                                   monkeypatch):
+    """21 Nov: the starting 27B's load most likely came while the server still unloaded the 27B checked just before
+    it, which a server refuses ("model limit reached"). Each check now waits until its model is listed unloaded."""
+
+    from tests.fixtures.learning_router import OneAtATimeRouter, managed_server
+
+    router = OneAtATimeRouter(unload_looks=3)
+    server = managed_server(router, tmp_path, monkeypatch)
+    gguf = tmp_path / "model.gguf"
+    gguf.write_bytes(b"GGUF")
+
+    start = serving.serve("row_bot", version=2, gguf=gguf, serve_context=32768, folder=tmp_path,
+                          verifier=FakeVerifier(), managed=server, tag="row-bot-personal-base", tool_turn=False)
+    personal = serving.serve("row_bot", version=2, gguf=gguf, serve_context=32768, folder=tmp_path,
+                             verifier=FakeVerifier(), managed=server, tool_turn=False)
+
+    assert (start.state, personal.state) == ("ready", "ready")
+    assert router.asked == router.accepted == ["row-bot-personal-base", "row-bot-personal-v2"]
+    assert router.refused == []  # never asked while the other still held the card
+    assert router.status == {"row-bot-personal-base": "unloaded", "row-bot-personal-v2": "unloaded"}
+
+
+class _OllamaApi:
+    """Ollama's API for one model at a time: a model it was told to unload stays in ``/api/ps`` for two looks;
+    a check's probe loads its model, and one that loads while another is still listed is kept in ``overlaps``."""
+
+    def __init__(self) -> None:
+        self.ps: dict[str, int | None] = {}
+        self.overlaps: list[str] = []
+
+    def __call__(self, method, path, body=None):
+        if path == "/api/version":
+            return {"version": "0.40.16"}
+        if path == "/api/generate" and (body or {}).get("keep_alive") == 0:
+            if body["model"] in self.ps:
+                self.ps[body["model"]] = 2
+            return {}
+        if path == "/api/ps":
+            for name, looks in list(self.ps.items()):
+                if looks is not None:
+                    if looks <= 1:
+                        del self.ps[name]
+                    else:
+                        self.ps[name] = looks - 1
+            return {"models": [{"name": name, "size_vram": 1} for name in self.ps]}
+        return {}
+
+    def load(self, name: str) -> None:
+        if any(other != name for other in self.ps):
+            self.overlaps.append(name)
+        self.ps[name] = None
+
+
+def test_a_second_model_is_loaded_in_ollama_only_once_the_first_is_no_longer_listed(version_files, data_dir,
+                                                                                   monkeypatch):
+    folder, gguf = version_files
+    api = _OllamaApi()
+    runtime = serving.OllamaRuntime("http://127.0.0.1:11434", executable="ollama",
+                                    runner=lambda *_args, **_options: SimpleNamespace(code=0))
+    monkeypatch.setattr(runtime, "_json", api)
+    monkeypatch.setattr(serving.time, "sleep", lambda _seconds: None)
+
+    class LoadingVerifier(FakeVerifier):
+        def probe(self, model_ref, *, runtime, endpoint=None, model_id=None):
+            api.load(model_id)  # the probe's request loads the model
+            return super().probe(model_ref, runtime=runtime, endpoint=endpoint, model_id=model_id)
+
+    outcomes = [serving.serve("ollama", version=2, gguf=gguf, serve_context=32768, folder=folder, ollama=runtime,
+                              verifier=LoadingVerifier(), catalog=lambda: 0,
+                              save_model_settings=lambda *_args, **_values: None, root=data_dir, tool_turn=False,
+                              **options)
+                for options in ({"tag": "row-bot-personal-base:abcd1234"}, {})]
+
+    assert [outcome.state for outcome in outcomes] == ["ready", "ready"]
+    assert api.overlaps == [] and api.ps == {}  # each loaded alone, and nothing is left loaded
 
 
 def test_new_versions_run_in_row_bot_where_it_can_and_in_ollama_where_it_cant(monkeypatch):
