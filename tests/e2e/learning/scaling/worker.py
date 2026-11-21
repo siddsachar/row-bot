@@ -437,7 +437,9 @@ class Trainer:
             providers=tuple(sorted({item.provider for item in examples})),
             measured=all(item.tokens is not None for item in examples), rendering=rendering)
 
-    def train(self, arm: str, examples: Sequence[Any], recipe: Any) -> dict[str, Any]:
+    def train(self, arm: str, examples: Sequence[Any], recipe: Any, *, version: int | None = None) -> dict[str, Any]:
+        """``version``: the version number the job makes (the profile's next one when None)."""
+
         from row_bot.learning.training import jobs as jobs_module
         from row_bot.learning.training import planner, releases, serving
 
@@ -450,7 +452,7 @@ class Trainer:
             steps = recipe.steps_for(compiled.examples)
             job = jobs.plan(steps_total=steps, checkpoint_every=recipe.checkpoint_interval(steps),
                             recipe=recipe.spec(planner._card_mib()),  # noqa: SLF001 - the planner's own card size
-                            dataset={"id": compiled.id, "examples": compiled.examples})
+                            dataset={"id": compiled.id, "examples": compiled.examples}, version=version)
             planner.lease(job, compiled, self.data)
             entry.update({"job": job.id, "version": job.version, "rows": len(examples),
                           "targets": targets_in(examples), "trained_targets": targets_in(compiled.train),
