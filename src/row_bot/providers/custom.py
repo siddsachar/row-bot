@@ -1439,8 +1439,12 @@ def model_infos_from_openai_compatible_catalog(
             metadata.update(manual)
         # A profile fallback is useful compatibility metadata, not evidence of
         # the server's loaded capacity. Auto must remain unknown until the
-        # endpoint reports a value or the user declares one manually.
-        context_window = _metadata_context_window(metadata)
+        # endpoint reports a value or the user declares one manually. A
+        # declared window wins over anything the server reports (Learning
+        # saves each endpoint at the context its model was trained for).
+        context_window = (
+            _positive_int(manual.get("context_window")) if isinstance(manual, dict) else 0
+        ) or _metadata_context_window(metadata)
         if context_window:
             metadata["context_window"] = context_window
         results.append(model_info_from_metadata(

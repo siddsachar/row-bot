@@ -212,3 +212,49 @@ def test_llamacpp_single_model_server_is_read_from_plain_props(providers, monkey
 
     assert infos[0].context_window == 49_152
     assert not any("?model=" in url for url in asked)
+
+
+# ── A manual window always wins (Learning saves each endpoint at its serve context) ──
+
+
+_LM_STUDIO_LOADED = {
+    "v1": {"/api/v1/models": {"models": [{
+        "key": "qwen/qwen3.5-9b", "max_context_length": 262_144,
+        "loaded_instances": [{"id": "qwen/qwen3.5-9b", "config": {"context_length": 16_384}}]}]}},
+    "v0": {"/api/v0/models": {"data": [{
+        "id": "qwen/qwen3.5-9b", "state": "loaded", "max_context_length": 262_144,
+        "loaded_context_length": 16_384}]}},
+}
+
+
+@pytest.mark.parametrize("api", sorted(_LM_STUDIO_LOADED))
+def test_a_manual_window_beats_lm_studios_loaded_context(providers, monkeypatch, api):
+    save_custom_endpoint({"id": "lm-studio", "base_url": "http://127.0.0.1:1234/v1", "profile": "lmstudio",
+                          "execution_location": "local", "auth_required": False,
+                          "manual_capabilities": {"context_window": 65_536}})
+    _serve(monkeypatch, {"/v1/models": {"data": [{"id": "qwen/qwen3.5-9b"}]}, **_LM_STUDIO_LOADED[api]})
+
+    infos = refresh_custom_endpoint_models("lm-studio")
+
+    assert infos[0].context_window == 65_536
+    assert get_custom_endpoint("lm-studio")["models"][0]["context_window"] == 65_536
+    assert models.get_context_size(f"model:{custom_provider_id('lm-studio')}:qwen/qwen3.5-9b") == 65_536
+
+
+def test_a_manual_window_beats_a_llamacpp_router_models_own_n_ctx(providers, monkeypatch):
+    save_custom_endpoint({"id": "router", "base_url": "http://127.0.0.1:8000/v1", "profile": "llama_cpp",
+                          "execution_location": "local", "auth_required": False,
+                          "manual_capabilities": {"context_window": 32_768}})
+    _serve(monkeypatch, {
+        "/v1/models": {"data": [{"id": "qwen3.5-9b"}]},
+        "/props": {"role": "router"},
+        "/props?model=qwen3.5-9b&autoload=false": {
+            "model_alias": "qwen3.5-9b", "context_length": 131_072,
+            "default_generation_settings": {"n_ctx": 131_072}},
+    })
+
+    infos = refresh_custom_endpoint_models("router")
+
+    assert infos[0].context_window == 32_768
+    assert get_custom_endpoint("router")["models"][0]["context_window"] == 32_768
+    assert models.get_context_size(f"model:{custom_provider_id('router')}:qwen3.5-9b") == 32_768
