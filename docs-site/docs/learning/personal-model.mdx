@@ -31,9 +31,11 @@ When the card can't train, the view says why, with the way out:
 
 ## Get It Started
 
+Until training is on, the Personal model view says "Training is off" with **Learning settings**; on a computer that can't train, it says that first.
+
 Training on this computer needs two downloads: the **training engine** and the **starting model**, the open model your personal model is trained from. Nothing downloads until you agree.
 
-- **At setup**, with **Train a personal model during quiet hours** ticked, Row-Bot asks once Learning is on.
+- **Turning on training**: a personal model is off until you turn on **Train during quiet hours** in **Settings › Learning › Personal model**. On a computer that can train one, Row-Bot asks then. Turning Learning itself on never downloads anything.
 - **Later**, the Personal model view shows "No personal model yet" with **Download…**, and Settings › Learning has **Download…** beside the training engine and the starting model.
 
 The ask, such as "Download the training engine and Qwen3.5 9B?", shows each part's size and the free space on this computer, says they're used only to train your personal model here, names the model's licence, and lists where they come from: "From PyPI, PyTorch, Hugging Face and GitHub (llama.cpp). The training engine's own usage reporting is switched off." Choose **Download** or **Not now**. If there isn't enough room, it says how much is needed.

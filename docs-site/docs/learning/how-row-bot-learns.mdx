@@ -5,7 +5,9 @@ description: "Learning's method: how Row-Bot finds and drafts improvements, how 
 
 # Learning: How Row-Bot Learns
 
-Learning follows a **learning method**: how it chooses which problems to work on, what kind of change to try, which examples to use, how to split its budget, and its own instructions for finding and drafting fixes. Methods have versions: method v1, v2 and so on. Row-Bot tries new methods against the one in use and keeps a new one only if it does better.
+Learning follows a **learning method**: how it chooses which problems to work on, what kind of change to try, which examples to use, how to split its budget, and its own instructions for finding and drafting fixes. Methods have versions: method v1, v2 and so on. With experimental learning on, Row-Bot tries new methods against the one in use and keeps a new one only if it does better.
+
+Comparing methods is part of experimental learning, off until you turn on **Try experimental learning** in [Settings › Learning](/docs/settings/learning#experimental). Until then the page says "Comparing ways of learning is experimental and off.", with **Turn it on in Settings**.
 
 ## Where To Find It
 
@@ -34,7 +36,7 @@ The newest comparison, as a table:
 
 A line under it says how many new problems it was compared on, the budget each method had, and the date. It adds "Small test, so expect some variation."
 
-Comparing methods uses at most a fifth of the **Monthly limit**. When that share is used up, it says "Not compared with another method yet: this month's share for comparing methods is used up." When the whole month's limit is used up, it says "Not compared with another method yet: this month's Learning limit is used up. Comparisons can run again from 1 Dec." With **No limit**, each method in a comparison still gets the same budget.
+Comparing methods uses at most a fifth of the **Monthly limit**, kept for it while experimental learning is on. When that share is used up, it says "Not compared with another method yet: this month's share for comparing methods is used up." When the whole month's limit is used up, it says "Not compared with another method yet: this month's Learning limit is used up. Comparisons can run again from 1 Dec." With **No limit**, each method in a comparison still gets the same budget.
 
 ## When The Method Changes
 

@@ -63,7 +63,7 @@ Computer use is a distinct opt-in boundary: Row-Bot works in an app with your re
 
 ## Learning
 
-[Learning](/docs/learning/) is off until you turn it on. When it's on:
+[Learning](/docs/learning/) is on from the start, for learning from your corrections, and Home says so once. Reading your past chats, experimental learning and a personal model stay off until you turn them on, and turning Learning off in Settings › Learning stops all of it. While it's on:
 
 - **What it keeps stays on this computer**: its record of how Row-Bot handled your own requests (`learning.db` and the `learning` folder in Row-Bot's data), its test results, the training engine, starting models and your personal-model versions. Secrets are removed before anything is stored. It never records chats with other people, incognito chats, or work Row-Bot does on its own.
 - **Its model calls go to your own provider.** Learning looks for things to improve and tests changes with your default model, so those calls go to that model's provider, like your chats do, and carry parts of what Learning recorded. With a local default model, nothing leaves this computer. Its tokens count against the monthly limit you set in Settings › Learning.
