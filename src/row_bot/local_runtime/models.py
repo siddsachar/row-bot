@@ -63,6 +63,10 @@ class Model:
     kv_cache_type: str = "f16"
     licence_id: str = "apache-2.0"
     context: int = CONTEXT
+    # Whether it thinks unless the chat says otherwise (D3). Every request says so explicitly, since the
+    # templates of both generations think by default: the 27B builds think; the 9B and 4B answer
+    # straight away, because small models with thinking on scored poorly in a 32K window (Learning's L2v).
+    thinks: bool = False
 
     @property
     def url(self) -> str:
@@ -92,7 +96,7 @@ class Model:
 
 def _qwen38(quant: str, label: str, file: str, size: int, sha256: str) -> Model:
     return Model(f"qwen3.8-27b-{quant}", "Qwen3.8 27B", QWEN38_REPO, QWEN38_REVISION, file, size, sha256, 27.0,
-                 _KV_27B_F16 // 2, quantization=label, kv_cache_type="q8_0")
+                 _KV_27B_F16 // 2, quantization=label, kv_cache_type="q8_0", thinks=True)
 
 
 # Best first: the recommendation is the first that fits the graphics card.

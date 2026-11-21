@@ -1569,7 +1569,6 @@ def is_cloud_model(model_name: str) -> bool:
 # LM Studio, llama.cpp or vLLM, ``row-bot-personal-<runtime>``) are trained in the prompt shape they are
 # served in (``learning/training/shape.py``), so they keep the tiers they have always had (Learning's L2
 # constraint, until the tier rule and the shape change together).
-_PERSONAL_MODEL_ENDPOINT_PREFIX = "row-bot-personal-"
 
 
 def is_local_custom_endpoint(model_name: str) -> bool:
@@ -1586,10 +1585,9 @@ def is_local_custom_endpoint(model_name: str) -> bool:
         return False
     if resolved.execution_location != "local":
         return False
-    endpoint = resolved.endpoint if isinstance(resolved.endpoint, dict) else {}
-    return endpoint.get("managed") != "learning" and not str(endpoint.get("id") or "").startswith(
-        _PERSONAL_MODEL_ENDPOINT_PREFIX
-    )
+    from row_bot.providers.model_visibility import is_personal_model_endpoint
+
+    return not is_personal_model_endpoint(resolved.endpoint)
 
 
 def get_cloud_provider(model_name: str) -> str | None:
