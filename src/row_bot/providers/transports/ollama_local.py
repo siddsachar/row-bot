@@ -72,10 +72,9 @@ from langchain_ollama.chat_models import _parse_arguments_from_tool_call
 from ollama import ResponseError
 from pydantic import Field, model_validator
 
+from row_bot.providers.transports import local_silence
 from row_bot.cancellation import CancellationScope, current_cancellation_scope
 from row_bot.providers import deferred_tools
-from row_bot.providers.transports import local_silence
-from row_bot.providers.transports.local_silence import LocalModelSilentError
 
 logger = logging.getLogger(__name__)
 
@@ -469,13 +468,13 @@ class RowBotChatOllama(ChatOllama):
             except Exception as error:
                 _raise_if_stopped(scope, error)
                 if isinstance(error, httpx.ReadTimeout):
-                    raise LocalModelSilentError.idle(_silent_for(error)) from error
+                    raise local_silence.LocalModelSilentError.idle(_silent_for(error)) from error
                 if asking.again_after_error(error, attempt):
                     continue
                 raise
             _raise_if_stopped(scope)
             if attempt.ran_out():
-                raise LocalModelSilentError.filled_window()
+                raise local_silence.LocalModelSilentError.filled_window()
             if asking.again_after_empty(attempt):
                 continue
             for ready in attempt.held:
@@ -500,13 +499,13 @@ class RowBotChatOllama(ChatOllama):
             except Exception as error:
                 _raise_if_stopped(scope, error)
                 if isinstance(error, httpx.ReadTimeout):
-                    raise LocalModelSilentError.idle(_silent_for(error)) from error
+                    raise local_silence.LocalModelSilentError.idle(_silent_for(error)) from error
                 if asking.again_after_error(error, attempt):
                     continue
                 raise
             _raise_if_stopped(scope)
             if attempt.ran_out():
-                raise LocalModelSilentError.filled_window()
+                raise local_silence.LocalModelSilentError.filled_window()
             if asking.again_after_empty(attempt):
                 continue
             for ready in attempt.held:
