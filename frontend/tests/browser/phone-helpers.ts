@@ -72,3 +72,27 @@ export async function tapPath(
   }
   return steps.length;
 }
+
+/** Under 768px: the phone layout. */
+export function onPhoneWidth(page: Page): boolean {
+  return page.viewportSize()!.width < 768;
+}
+
+/**
+ * Home has opened: its sub-tabs on a computer or tablet; a phone has none
+ * (C1), so there it is the page the address chose.
+ */
+export function homeOpened(page: Page): Locator {
+  return onPhoneWidth(page)
+    ? page.locator('.home-view').getByRole('tabpanel')
+    : page.getByRole('tablist', { name: 'Home capabilities' });
+}
+
+/**
+ * Opens one of Home's pages ("Knowledge", "Monitor"…): its tab on a computer
+ * or tablet; on a phone, which has no sub-tabs (C1), its address.
+ */
+export async function openHomeTab(page: Page, name: string): Promise<void> {
+  if (onPhoneWidth(page)) await page.goto(`/app-v2/?tab=${name.toLowerCase()}`);
+  else await page.getByRole('tab', { name, exact: true }).click();
+}

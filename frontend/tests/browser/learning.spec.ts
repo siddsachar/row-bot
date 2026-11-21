@@ -1,4 +1,5 @@
 import type { Page, TestInfo } from '@playwright/test';
+import { onPhoneWidth } from './phone-helpers';
 import { accessibility, assertNoOverflow, expect, test } from './evidence';
 import { fixtureHeaders } from './surface-helpers';
 import { composer, newConversation } from './unified-helpers';
@@ -160,8 +161,17 @@ test('turn Learning on, its tab appears, Teach a reply and undo it, then switch 
 
   await turnOn(page, info, true);
   await page.getByRole('button', { name: 'Open Learning' }).click();
-  const tab = page.getByRole('tab', { name: 'Learning' });
-  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  // A phone has no sub-tabs (C1): Home opens on Learning's page.
+  if (onPhoneWidth(page))
+    await expect(page.locator('.home-view')).toHaveAttribute(
+      'data-home-tab',
+      'learning',
+    );
+  else
+    await expect(page.getByRole('tab', { name: 'Learning' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
   await expect(page.getByText('Nothing learned yet.')).toBeVisible();
   await shoot(page, info, 'overview-empty');
 

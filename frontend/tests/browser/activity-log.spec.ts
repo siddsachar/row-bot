@@ -152,6 +152,15 @@ for (const size of ['desktop', 'phone'] as const) {
     }, info) => {
       await activity(page, 'seed');
       await page.goto('/app-v2/?tab=monitor');
+      if (size === 'phone') {
+        // Monitor is on the computer (D5); the whole list is in Settings › Activity.
+        await expect(
+          page.getByRole('region', { name: 'System Monitor' }),
+        ).toContainText('Open this on your computer');
+        await page.goto('/app-v2/settings/activity');
+        await expect(log(page)).toBeVisible();
+        return;
+      }
       const line = page.locator('.monitor-activity-line');
       await expect(line).toContainText(
         /Today: \d+ actions · \d+ asked you · 1 you said no to/,

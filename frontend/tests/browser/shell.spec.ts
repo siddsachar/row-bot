@@ -1,4 +1,5 @@
 import { expect, screenshot, test } from './evidence';
+import { homeOpened } from './phone-helpers';
 import { openFixture } from './fixture';
 import { openPanel } from './panel-helpers';
 import { commandsDialog } from './unified-helpers';
@@ -64,9 +65,7 @@ test('simplified shell keeps controls and Home reachable', async ({
     await nav.getByRole('link', { name: 'Home' }).click();
   }
   await expect(page).toHaveURL(/\/app-v2\/?$/);
-  await expect(
-    page.getByRole('tablist', { name: 'Home capabilities' }),
-  ).toBeVisible();
+  await expect(homeOpened(page)).toBeVisible();
   await expect(page.getByRole('region', { name: 'Start working' })).toHaveCount(
     0,
   );

@@ -151,6 +151,9 @@ BROWSER_SMOKE_SPECS = (
     # Memory on a phone (B4): Settings › Memory › Your memories, search, type chips, open, edit, delete; the
     # graph, import, clean-up and Dream Cycle stay on the computer. Appended likewise.
     "phone-memory",
+    # Home on a phone (C1): Approve and Deny on Home through the server's gate, the sheet, Now, Recent, Talk
+    # from the docked Ask box, the notifications card, and the deep links. Appended likewise.
+    "phone-home",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

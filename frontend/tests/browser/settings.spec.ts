@@ -6,6 +6,7 @@ import {
   test,
   writeEvidence,
 } from './evidence';
+import { onPhoneWidth, openHomeTab } from './phone-helpers';
 import { blockFixtureServiceWorkers } from './unified-helpers';
 import { installDesktopFolderBridge } from './surface-helpers';
 import type { Locator, Page } from '@playwright/test';
@@ -25,9 +26,16 @@ async function expectFocusedHome(page: Page) {
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('tab', { name: 'Overview', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+  // A phone has no sub-tabs (C1): Home opens on Overview's page.
+  if (onPhoneWidth(page))
+    await expect(page.locator('.home-view')).toHaveAttribute(
+      'data-home-tab',
+      'overview',
+    );
+  else
+    await expect(
+      page.getByRole('tab', { name: 'Overview', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
 }
@@ -1257,7 +1265,7 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
   await expect(dialog).toHaveCount(0);
   await openHomeThroughNavigation(page);
-  await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+  await openHomeTab(page, 'Knowledge');
   inspector = await openKnowledgeMemory(page, 'Phase 4 knowledge 000');
   await inspector
     .getByRole('button', { name: 'Edit memory', exact: true })
