@@ -733,7 +733,7 @@ def test_a_rollout_or_an_arm_gives_the_card_back_with_its_model_unloaded(tmp_pat
 # ── The pin, the draft and the folders ───────────────────────────────────────
 
 
-def test_a_real_run_is_refused_while_the_pre_registration_is_a_draft(tmp_path, home):
+def test_a_real_run_is_refused_while_the_pre_registration_is_a_draft(tmp_path, home, monkeypatch):
     profile = tmp_path / "eval-profile"
     profile.mkdir()
     started: list[list[str]] = []
@@ -741,7 +741,7 @@ def test_a_real_run_is_refused_while_the_pre_registration_is_a_draft(tmp_path, h
                         "--eval-profile", str(profile), "--gpu-booking", str(tmp_path / "booking.txt"),
                         "--out", str(tmp_path / "seeds" / "out"), "--scratch", str(tmp_path / "seeds" / "scratch")])
 
-    assert seeds.PREREG_VERSION == 0
+    monkeypatch.setattr(seeds, "PREREG_VERSION", 0)
     with pytest.raises(scratch.ScratchError, match="draft"):
         seeds.Seeds(args, runner=lambda command, env, log: started.append(command) or 0).run(["train"])
     assert started == [] and not (tmp_path / "seeds" / "out").exists()

@@ -1,4 +1,4 @@
-"""The training-seed study (``paper/PREREG-SEEDS.md``, draft version 0): does on-policy relabelling's lead over plain
+"""The training-seed study (``paper/PREREG-SEEDS.md``, version 1): does on-policy relabelling's lead over plain
 fine-tuning survive retraining? Three training seeds of each method, served at 65,536 tokens, on **fresh held-out
 tasks**: simulated days 371-450 of the same three seeded people, 485 requests in 240 person-days.
 
@@ -95,10 +95,10 @@ from tests.e2e.learning.scaling.study import (
 from tests.e2e.learning.seeded.scratch import ScratchError, check_scratch
 
 PREREG = "PREREG-SEEDS.md"
-#: Draft version 0 (Sat 21 Nov 2026), for the participant's approval. A real stage refuses until it is fixed as version
-#: 1 and this hash is replaced by version 1's.
-PREREG_VERSION = 0
-PREREG_SHA256 = "2854aaaad230b527fb6e79fbe5a5041290d03b39e6342fb8ed2a73cded83ae68"
+#: Version 1, fixed Sat 21 Nov 2026 13:12 GMT and approved by the participant; its hash filed publicly before any run.
+#: A real stage refuses while the version is below 1.
+PREREG_VERSION = 1
+PREREG_SHA256 = "df980cf7a8b8ff17f813b09d6e82f2c0088b3663ccdd4158d74f78da4cd5940a"
 AMENDMENTS: tuple[str, ...] = ()
 
 STAGES = ("train", "evaluate", "analyse")
