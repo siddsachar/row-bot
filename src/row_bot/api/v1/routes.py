@@ -6969,7 +6969,7 @@ def create_router(
         body = await _body(request, dto.LocalServerConnectRequest, 1024)
         from row_bot.application.client_local_servers import connect
 
-        return await respond(request, dto.LocalServerConnection, await call(connect, body.kind, body.port))
+        return await respond(request, dto.LocalServerConnection, await call(connect, body.kind, body.port, body.model))
 
     # Run on this computer (E1): the pinned llama.cpp build and models Row-Bot downloads and runs.
     async def local_model_runtime(request: Request, result: dict) -> JSONResponse:

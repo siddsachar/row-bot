@@ -5240,7 +5240,7 @@ def _e1_install_fakes() -> None:
             {**server, "provider_id": endpoint["provider_id"] if endpoint else None}
             for server in _e1_state["found"]]}
 
-    def connect(kind: str, port: int) -> dict:
+    def connect(kind: str, port: int, model: str | None = None) -> dict:
         from row_bot.application.client_platform import ClientPlatformError
         from row_bot.providers import custom
 

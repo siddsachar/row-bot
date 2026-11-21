@@ -18,7 +18,9 @@ from row_bot.cancellation import current_cancellation_scope
 from row_bot.prompt_cache import conversation_cache_ttl, usage_metadata_from_provider_usage
 from row_bot.providers.capabilities import PROMPT_CACHE_ROUTE_REQUESTY, prompt_cache_route
 from row_bot.providers.tool_schema import gemini_openai_tool, is_gemini_model
+from row_bot.providers.transports import local_silence
 from row_bot.providers.transports import prompt_cache_breakpoints as cache_breakpoints
+from row_bot.providers.transports.local_silence import LocalModelSilentError
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +147,17 @@ class ChatOpenAICompatible(BaseChatModel):
         run_manager: Any | None = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
+        """The reply as it streams, or through one non-stream request where streaming can't carry it.
+
+        A stream that shows nothing (no text, thinking or tool call) is asked again without streaming, for a
+        server that can't stream what it wrote (a tool call it only returns whole). For a server on this
+        computer (``execution_location: "local"``), asking again generates the whole reply a second time, so
+        it is asked again only while that can help: when the request carried tools, or no event of the
+        stream could be read. A local reply that stopped at its length limit showing nothing ends with
+        ``LocalModelSilentError`` (asked again, it fills its limit again), and one the server finished
+        empty without tools ends empty; a local stream that receives nothing for
+        ``LOCAL_CHAT_IDLE_SECONDS`` ends with the same error, never asked again.
+        """
         tools = kwargs.get("tools") or []
         if not _endpoint_streaming_supported(
             self.endpoint,
@@ -312,6 +325,9 @@ class ChatOpenAICompatible(BaseChatModel):
                     call.get("name"),
                 )
                 yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
+        local = _runs_on_this_computer(self.endpoint)
+        if local and stop_reason == "length" and not (cleaned_content.strip() or reasoning_seen or tool_seen):
+            raise LocalModelSilentError.reply_limit()
         if not content_seen and not reasoning_seen and not tool_seen:
             if payload_seen and atlas_anthropic_route:
                 raise RuntimeError(
@@ -319,14 +335,15 @@ class ChatOpenAICompatible(BaseChatModel):
                     f"{self.model_name}, but Row-Bot could not find supported text, reasoning, or tool-call deltas. "
                     "Skipped non-stream fallback to avoid a long Claude timeout."
                 )
-            logger.warning(
-                "custom_openai_stream: empty stream; retrying non-stream fallback provider=%s model=%s payload_seen=%s",
-                self.endpoint.get("provider_id") or "custom",
-                self.model_name,
-                payload_seen,
-            )
-            yield from self._stream_via_non_stream(messages, stop=stop, **kwargs)
-            return
+            if not (local and payload_seen and stop_reason and not tools):
+                logger.warning(
+                    "custom_openai_stream: empty stream; retrying non-stream fallback provider=%s model=%s payload_seen=%s",
+                    self.endpoint.get("provider_id") or "custom",
+                    self.model_name,
+                    payload_seen,
+                )
+                yield from self._stream_via_non_stream(messages, stop=stop, **kwargs)
+                return
         if not content_seen:
             logger.warning(
                 "custom_openai_stream: completed without content provider=%s model=%s reasoning_seen=%s tool_seen=%s",
@@ -372,6 +389,11 @@ class ChatOpenAICompatible(BaseChatModel):
             content = "" if content_text_calls else cleaned_content
         if content_text_calls and not tool_calls:
             tool_calls = content_text_calls
+        metadata = getattr(message, "response_metadata", None) or {}
+        finish_reason = str(metadata.get("finish_reason") or "")
+        if (finish_reason == "length" and not (content.strip() or reasoning or tool_calls)
+                and _runs_on_this_computer(self.endpoint)):
+            raise LocalModelSilentError.reply_limit()
         if reasoning:
             yield ChatGenerationChunk(message=AIMessageChunk(content="", additional_kwargs={"reasoning_content": reasoning}))
         if content or tool_calls:
@@ -384,10 +406,8 @@ class ChatOpenAICompatible(BaseChatModel):
                 bool(reasoning),
                 bool(tool_calls),
             )
-        metadata = getattr(message, "response_metadata", None) or {}
         token_usage = metadata.get("token_usage")
-        yield _final_usage_chunk(token_usage if isinstance(token_usage, dict) else {},
-                                 str(metadata.get("finish_reason") or ""))
+        yield _final_usage_chunk(token_usage if isinstance(token_usage, dict) else {}, finish_reason)
 
     def _request_body(
         self,
@@ -469,6 +489,8 @@ class ChatOpenAICompatible(BaseChatModel):
         return self._post_once(retry)
 
     def _post_once(self, body: dict[str, Any]) -> Any:
+        import httpx
+
         client = self.http_client or _new_http_client(self.timeout)
         owns_client = self.http_client is None
         request_timeout = _httpx_timeout(self.timeout)
@@ -483,6 +505,10 @@ class ChatOpenAICompatible(BaseChatModel):
             )
             _raise_for_status(response, self.endpoint)
             return response
+        except httpx.ReadTimeout as exc:
+            if _runs_on_this_computer(self.endpoint):
+                raise LocalModelSilentError.idle(self.timeout) from exc
+            raise
         finally:
             if owns_client:
                 client.close()
@@ -517,6 +543,10 @@ class ChatOpenAICompatible(BaseChatModel):
             except (httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
                 if scope is not None and scope.is_cancelled():
                     return
+                if isinstance(exc, httpx.ReadTimeout) and _runs_on_this_computer(self.endpoint):
+                    # Asked again, a local model that went silent generates the whole reply again, and the
+                    # person waits for it twice.
+                    raise LocalModelSilentError.idle(self._stream_idle_seconds()) from exc
                 if produced or attempt >= OPENAI_COMPATIBLE_STREAM_ATTEMPTS:
                     raise
                 logger.warning(
@@ -529,10 +559,19 @@ class ChatOpenAICompatible(BaseChatModel):
                     type(exc).__name__,
                 )
 
+    def _stream_idle_seconds(self) -> float:
+        """The longest a stream may receive nothing: for a server on this computer, at most
+        ``LOCAL_CHAT_IDLE_SECONDS``, as on Ollama (a non-stream request sends nothing until it is done, so it
+        keeps the whole read timeout)."""
+
+        if _runs_on_this_computer(self.endpoint):
+            return min(self.timeout, local_silence.LOCAL_CHAT_IDLE_SECONDS)
+        return self.timeout
+
     def _iter_stream_events_once(self, body: dict[str, Any]) -> Iterator[dict[str, Any]]:
         client = self.http_client or _new_http_client(self.timeout)
         owns_client = self.http_client is None
-        request_timeout = _httpx_timeout(self.timeout)
+        request_timeout = _httpx_timeout(self._stream_idle_seconds())
         scope = current_cancellation_scope()
         raw_lines = 0
         data_lines = 0
@@ -881,6 +920,12 @@ def _atlascloud_stream_error_message(model_name: str, payload: dict[str, Any]) -
 
 def _endpoint_accepts_tools(endpoint: dict[str, Any]) -> bool:
     return True
+
+
+def _runs_on_this_computer(endpoint: dict[str, Any]) -> bool:
+    """A server on this computer (llama.cpp, LM Studio, vLLM, SGLang, Run on this computer, a personal model)."""
+
+    return str(endpoint.get("execution_location") or "").strip().lower() == "local"
 
 
 def _use_native_tool_history(endpoint: dict[str, Any], model_name: str) -> bool:
