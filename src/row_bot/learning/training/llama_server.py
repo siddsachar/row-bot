@@ -45,6 +45,7 @@ import os
 import secrets
 import socket
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -167,6 +168,21 @@ def presets_text(models: Sequence[ModelEntry]) -> str:
         lines += [f"[{_ini_value(entry.name)}]", f"model = {_ini_value(entry.gguf)}",
                   f"ctx-size = {int(entry.context)}", ""]
     return "\n".join(lines)
+
+
+def release_local_model_server() -> None:
+    """Row-Bot's own local model server (Run on this computer, E1) gives the card back before Learning loads a
+    model of its own, unless it is answering the person (then the load that follows may still fail, and says so).
+    Read through ``sys.modules``: nothing is loaded when E1 never ran. Its idle stop is not relied on (it can hold
+    its model for half an hour)."""
+
+    server = sys.modules.get("row_bot.local_runtime.server")
+    if server is None:
+        return
+    try:
+        server.release_gpu()
+    except Exception:  # noqa: BLE001 - the load that follows decides
+        logger.debug("The local model server couldn't give the card back", exc_info=True)
 
 
 def free_port() -> int:
@@ -615,6 +631,7 @@ class ManagedServer:
         """Load ``name`` now and wait until it answers (a big model takes a while; the probe's own
         requests then don't wait for it). Raises :class:`ServerError`."""
 
+        release_local_model_server()
         connection = self.ensure()
         if not any(entry.name == name for entry in self.models()):
             raise ServerError("unknown_model")

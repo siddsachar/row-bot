@@ -324,3 +324,39 @@ def test_a_load_refused_while_another_model_unloads_is_asked_for_again(monkeypat
     server.load("row-bot-personal-v2")
 
     assert state["loads"] == 2 and clock.now < 1000.0 + 10  # asked again within seconds, not at 600 s
+
+
+def test_a_load_first_asks_the_built_in_local_server_to_give_the_card_back(monkeypatch):
+    # The built-in server (Run on this computer) may hold its model for half an hour after the person's last
+    # local chat: Learning asks it to let go before every load of its own, not only before training.
+    import sys
+    import types
+
+    from row_bot.learning.training.llama_server import Connection
+
+    events: list[str] = []
+    built_in = types.ModuleType("row_bot.local_runtime.server")
+    built_in.release_gpu = lambda: events.append("released") or True
+    monkeypatch.setitem(sys.modules, "row_bot.local_runtime.server", built_in)
+
+    class Http:
+        def request(self, method, url, *, key=None, body=None, timeout=None):
+            if url.endswith("/models/load"):
+                events.append("load")
+                return 200, {"success": True}
+            return 200, {"data": [{"id": "row-bot-personal-v2", "status": {"value": "loaded"}}]}
+
+    class Alive:
+        def alive(self):
+            return True
+
+    server = ManagedServer(None, http=Http(), clock=Clock(), card_bytes=lambda: None, monitor=False)
+    connection = Connection("http://127.0.0.1:1/v1", "key", 1)
+    monkeypatch.setattr(server, "ensure", lambda: connection)
+    monkeypatch.setattr(server, "models", lambda: [ModelEntry("row-bot-personal-v2", "v2.gguf", 32_768)])
+    monkeypatch.setattr(server, "_connection", connection)
+    monkeypatch.setattr(server, "_process", Alive())
+
+    server.load("row-bot-personal-v2")
+
+    assert events[:2] == ["released", "load"]
