@@ -2907,6 +2907,15 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # D1 Always allow: `npm test` through the real approval gate, which asks or finds the person's rule.
         yield from _d1_rule_stream(config)
         return
+    if text.strip() in _C2_ANSWERS:
+        # Workflows on the phone (C2): a seeded workflow's run answers at once.
+        call = predecessor._record("submit", config, "c2")
+        try:
+            yield "thinking", None
+            yield from _natural_final(call, call["conversation_id"], _C2_ANSWERS[text.strip()], "c2")
+        finally:
+            call["quiesced"] = True
+        return
     if text.strip() in _C1_PROMPTS:
         # Home on the phone (C1): a commit waiting for approval, or a turn that keeps working.
         yield from _c1_stream(text.strip(), config, stop_event)
@@ -3826,6 +3835,105 @@ def phone_c1_release(x_fixture_token: str = Header(default="")) -> dict:
     for event in released:
         event.set()
     return {"released": len(released)}
+
+
+# Workflows on the phone (C2): five workflows, one running, one failed, one off, with runs and their answers.
+_C2_PREFIX = "phone-c2-"
+_C2_BRIEF = "Summarise today's calendar, mail and news in three lines."
+_C2_DIGEST = "Find this week's papers on agent memory and summarise the three best."
+_C2_EXPENSES = "Sort this month's receipts into the expenses sheet."
+# What a run of each answers (Run now and Run again run them for real).
+_C2_ANSWERS = {
+    _C2_BRIEF: "3 items for today: the dentist at 3, a reply from Sam, rain later.",
+    _C2_DIGEST: "Three papers on agent memory, summarised.",
+    _C2_EXPENSES: "Sorted 14 receipts into the expenses sheet.",
+}
+
+
+def _phone_c2_clear() -> None:
+    from row_bot import tasks
+
+    for task in tasks.list_tasks():
+        if str(task["id"]).startswith(_C2_PREFIX):
+            tasks.delete_task(task["id"])
+    conn = tasks._get_conn()
+    try:
+        conn.execute("DELETE FROM task_runs WHERE id LIKE ? OR task_id LIKE ?", (_C2_PREFIX + "%",) * 2)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.post("/__phone_c2_fixture/workflows")
+def phone_c2_workflows(x_fixture_token: str = Header(default="")) -> dict:
+    """Seed the phone's Workflows tab (C2). Schedules fall due about a day from now, so none runs here."""
+    from datetime import datetime, timedelta
+
+    predecessor._authorize(x_fixture_token)
+    from row_bot import tasks
+
+    _phone_c2_clear()
+    now = datetime.now()
+    soon = now - timedelta(hours=1)  # Daily at an hour ago: next due in about 23 hours.
+    day = (now - timedelta(days=1)).strftime("%a").lower()  # Weekly on yesterday's day: next due in six days.
+    hour, minute = soon.hour, soon.minute
+    workflows = [
+        ("brief", "Morning Brief", f"daily:{hour:02d}:{minute:02d}", True, "📰", _C2_BRIEF),
+        ("launch", "Launch Summary", None, True, "🚀",
+         "Collect the launch checklist's status.", "Post the summary in the launch chat.",
+         "Draft tomorrow's to-do list."),
+        ("digest", "Research Digest", f"weekly:{day}:{hour:02d}:{minute:02d}", True, "🔬", _C2_DIGEST),
+        ("tidy", "Weekly Tidy-up", f"weekly:{day}:10:00", False, "🧹",
+         "Archive finished chats and list files I haven't opened in a month."),
+        ("expenses", "Expense Sorter", None, True, "🧾", _C2_EXPENSES),
+    ]
+    # A fresh id each time: a removed workflow's conversation is still being deleted.
+    seed = os.urandom(4).hex()
+    ids = {}
+    for key, name, schedule, enabled, icon, *prompts in workflows:
+        ids[key] = tasks.create_task(
+            name, prompts=list(prompts), icon=icon, schedule=schedule, enabled=enabled,
+            safety_mode="approve", apply_default_skills=False, task_id=f"{_C2_PREFIX}{key}-{seed}",
+        )
+    runs = {  # Newest first, each with the answer its row shows.
+        "brief": [("completed", timedelta(hours=1), "3 items for today: the dentist at 3, a reply from Sam, rain later."),
+                  ("completed", timedelta(days=1, hours=1), "Quiet day, nothing new."),
+                  ("expired", timedelta(days=3, hours=1), "Waited for your approval; a newer run replaced it.")],
+        "launch": [("running", timedelta(minutes=2), "")],
+        "digest": [("failed", timedelta(hours=2), "Couldn't reach the papers site. It will try again on Friday."),
+                   ("completed", timedelta(days=7, hours=2), "Three papers on agent memory, summarised.")],
+        "tidy": [("completed", timedelta(days=8), "Archived 12 chats; 4 files to look at.")],
+    }
+    # Every run is a turn of the workflow's one conversation (F31), made before the runs are written.
+    threads = {key: tasks._prepare_task_thread(tasks.get_task(ids[key])) for key in runs}
+    conn = tasks._get_conn()
+    try:
+        for key, entries in runs.items():
+            thread_id = threads[key]
+            for index, (status, ago, notice) in enumerate(entries):
+                started = now - ago
+                live = status == "running"
+                total = 3 if key == "launch" else 1
+                conn.execute(
+                    "INSERT INTO task_runs (id,task_id,thread_id,started_at,finished_at,status,status_message,"
+                    "steps_total,steps_done,task_name,task_icon,notice) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (f"{_C2_PREFIX}{key}-{seed}-{index}", ids[key], thread_id, started.isoformat(),
+                     None if live else (started + timedelta(minutes=2)).isoformat(), status, "", total,
+                     1 if live else total, key, "", notice),
+                )
+            conn.execute("UPDATE tasks SET last_run=? WHERE id=?", ((now - entries[0][1]).isoformat(), ids[key]))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"task_ids": ids}
+
+
+@app.post("/__phone_c2_fixture/reset")
+def phone_c2_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Remove the C2 workflows and their runs, so later specs find no running or failed workflow of ours."""
+    predecessor._authorize(x_fixture_token)
+    _phone_c2_clear()
+    return {"ok": True}
 
 
 @app.post("/__p3_fixture/large-library")

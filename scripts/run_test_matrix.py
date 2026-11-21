@@ -154,6 +154,9 @@ BROWSER_SMOKE_SPECS = (
     # Home on a phone (C1): Approve and Deny on Home through the server's gate, the sheet, Now, Recent, Talk
     # from the docked Ask box, the notifications card, and the deep links. Appended likewise.
     "phone-home",
+    # Workflows on a phone (C2): rows with a status line and a switch, All/Running/Failed/Off chips, the sheet's
+    # Run now, Open chat and runs, + starting the chat that sets one up, the editor on the computer. Appended likewise.
+    "phone-workflows",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
