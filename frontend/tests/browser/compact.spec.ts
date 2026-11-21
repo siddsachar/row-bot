@@ -316,17 +316,25 @@ test('touch screens say what Home’s quick starts make and show no keyboard hin
     name: 'Quick starts',
     exact: true,
   });
-  const design = quickStarts.getByRole('button', {
-    name: 'New design',
-    exact: true,
-  });
-  await expect(design).toBeVisible();
-  // No tooltip on touch, so the button carries its own word.
-  expect(
-    await design.evaluate((button) =>
-      getComputedStyle(button, '::after').content.replaceAll('"', ''),
-    ),
-  ).toBe('Design');
+  if (page.viewportSize()!.width < 768) {
+    // A phone's Home asks from its docked box, with no quick starts (C1, D2).
+    await expect(
+      page.getByRole('textbox', { name: 'Ask Row-Bot', exact: true }),
+    ).toBeVisible();
+    await expect(quickStarts).toHaveCount(0);
+  } else {
+    const design = quickStarts.getByRole('button', {
+      name: 'New design',
+      exact: true,
+    });
+    await expect(design).toBeVisible();
+    // No tooltip on touch, so the button carries its own word.
+    expect(
+      await design.evaluate((button) =>
+        getComputedStyle(button, '::after').content.replaceAll('"', ''),
+      ),
+    ).toBe('Design');
+  }
 
   await page
     .getByRole('button', { name: 'Workspace commands', exact: true })
@@ -369,6 +377,11 @@ test('a phone opens menus as bottom sheets that close with a swipe down', async 
     .click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
+  // Measure the sheet where it rests: during its rise the box is lower, and a
+  // touch aimed at its handle would land below it.
+  await menu.evaluate((node) =>
+    Promise.all(node.getAnimations().map((animation) => animation.finished)),
+  );
   const box = await menu.boundingBox();
   expect(box).not.toBeNull();
   // Full width, resting on the bottom edge, over a scrim.

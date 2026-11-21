@@ -160,6 +160,9 @@ BROWSER_SMOKE_SPECS = (
     # Settings on a phone (C3): This phone's notifications switch and theme, Row-Bot's six pages, More settings
     # with every other page, one header row "‹ Models" with no second search, deep links. Appended likewise.
     "phone-settings",
+    # Back and sheets for the native shells (A3): Back closes the open sheet or menu first, one level per Back,
+    # then leaves; theme-color follows the theme; no pull-to-refresh; the desktop unchanged. Appended likewise.
+    "phone-back",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

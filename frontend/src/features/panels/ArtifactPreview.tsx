@@ -71,6 +71,7 @@ import {
 } from './ArtifactLifecyclePanel';
 import DesignPageStrip from './DesignPageStrip';
 import { OnYourComputer, usePhone } from '../../ui/on-your-computer';
+import { useBackLayer } from '../../ui/back-stack';
 import '../../ui/styles/phone-panels.css';
 import type { DesignDrafting } from './design-drafting';
 import { registerDesignCommands } from './design-commands';
@@ -817,6 +818,8 @@ export default function ArtifactPreview({
     setSide({ resourceId, view });
     if (view) setPresenting(false);
   }
+  // On a phone the side shows as a sheet: Back closes it first (A3).
+  useBackLayer(phone && sideView !== null, () => openSide(null));
 
   function openInspector(view: InspectorView) {
     if (view === 'review' || view === 'history') setInspectorMode(view);
