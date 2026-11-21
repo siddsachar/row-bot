@@ -3210,15 +3210,16 @@ export class ClientController {
   /** Local model servers answering on their usual loopback ports, asked once when called. */
   localServers = (signal?: AbortSignal) =>
     this.query(() => this.transport.localServers?.(signal));
-  /** Use on a found local server: connect it and list its models as refs. */
+  /** Use on a found local server: connect it and list its models as refs; the chosen model is then checked. */
   connectLocalServer = (
     kind: 'ollama' | 'lmstudio' | 'vllm' | 'llama_cpp',
     port: number,
+    model?: string,
   ) =>
     this.authenticatedResult((signal) => {
       if (!this.transport.connectLocalServer)
         throw clientError({ code: 'capability_unavailable' });
-      return this.transport.connectLocalServer({ kind, port }, signal);
+      return this.transport.connectLocalServer({ kind, port, model }, signal);
     });
   /** Run on this computer (E1): this computer, the pinned models and what is installed. */
   localModelRuntime = (signal?: AbortSignal) =>

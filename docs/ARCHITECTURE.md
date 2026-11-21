@@ -606,6 +606,16 @@ read limit; invalid, non-finite, zero, or negative values log a warning and use
 900 seconds. A timeout or remote-protocol failure retries once only before the
 first stream event. After any emitted event the error propagates without replay,
 and cancellation is checked before a retry.
+For an endpoint on this computer (`execution_location: "local"`: llama.cpp, LM
+Studio, vLLM, SGLang, Run on this computer), the transport has Ollama's
+protections (`providers/transports/local_silence.py`): a stream that receives
+nothing for 600 seconds, or a non-stream request for its whole read timeout,
+ends with a plain-words `LocalModelSilentError` and is never asked again, and
+so does a reply that stopped at its length limit showing nothing. An empty
+local stream is asked again without streaming only when the request carried
+tools or none of its events could be read. Remote endpoints keep the behaviour
+above. Use on a detected local server (Setup) runs the endpoint probe for the
+chosen model in the background, as adding an endpoint by hand does.
 
 Requesty is a first-class OpenAI-compatible provider with provider id `requesty`. `providers/requesty.py` maps Requesty's live `/models` response into Row-Bot model metadata, including `context_window`, `supports_tool_calling`, `supports_reasoning`, `supports_vision`, task, modality, and nested capability fields. Requesty rows use provider-qualified refs and are filtered so embedding, image, video, audio, moderation, realtime, and other non-chat rows do not appear as Brain or agent choices.
 

@@ -2755,6 +2755,8 @@ class LocalServersSnapshot(WireModel):
 class LocalServerConnectRequest(WireModel):
     kind: LocalServerKind
     port: int = Field(ge=1, le=65535)
+    # The model the person chose, which is checked once connected (as adding the endpoint by hand does).
+    model: str | None = Field(default=None, max_length=256)
 
 
 class LocalServerConnection(WireModel):
