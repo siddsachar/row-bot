@@ -15,6 +15,8 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
         --eval-profile <eval profile> --combine-with <v1 freeze report> --judge-long-answers `
         --local-reference qwen3.8:27b --profile ... --scratch ... --out ...
     uv run python scripts/learning_paper_report.py --thinking --profile ... --scratch ... --out ...
+    uv run python scripts/learning_paper_report.py --exploratory-27b-train --paper v2 --as-of 2026-11-12 `
+        --personal-version 6 --upload-bytes 21023412 --profile ... --scratch ... --out ...
 
 - ``--health`` (any time between freezes, §10): counts and errors only, never a pass rate or a comparison.
 - ``--freeze --as-of <date>`` (§7): the pre-registered freeze evaluation on every hidden problem up to the
@@ -41,6 +43,15 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
   (``teacher_agreement`` with the main reference, ``right_tool``, and with ``--judge-long-answers``
   ``judged_long_answers``, its calibration in ``judged_long_answers``); with ``--local-reference <Ollama tag>``, one
   more reference arm (``local_large``) served as the personal arms are, the arms then run model by model.
+- ``--exploratory-27b --hugging-face-run <job> --output-repo <repo>`` (14 Nov): A10 alone, from a 27B run already
+  finished on Hugging Face: checked, downloaded after a typed ``download``, made ready, measured, its repository
+  deleted.
+- ``--exploratory-27b-train --personal-version <N> --upload-bytes <bytes>`` (21 Nov): A10 alone, trained again on
+  Hugging Face: version N's kept rows (checked against its record, and exactly that many bytes) upload after a
+  typed ``upload``, the 27B trains on the third run's card with its recipe, the uploaded rows are deleted there
+  when training ends, and the run then goes on as ``--exploratory-27b`` does (a typed ``download``, with Row-Bot
+  closed). Its model repository is deleted only once its version is ready here and the starting model the run
+  built is downloaded and checked; on any other ending it stays in the participant's account.
 
 Every mode:
 
@@ -92,6 +103,8 @@ EXPLORATORY_MODEL = "qwen3.8-27b"
 UPLOAD_WORD = "upload"
 #: ``--exploratory-27b``: the typed agreement to download a finished run and then delete its repository.
 DOWNLOAD_WORD = "download"
+#: ``--exploratory-27b-train``: the card the v2 freeze's third run trained the 27B on (the recipe's own).
+EXPLORATORY_FLAVOR = "a100-large"
 #: A Hugging Face job id and a run's own model repository (the product names it ``row-bot-personal-<job>``).
 HF_JOB_ID = re.compile(r"^[0-9A-Za-z]{6,64}$")
 HF_RUN_REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}/row-bot-personal-[0-9a-z]{1,12}$")
@@ -231,6 +244,12 @@ def check_folders(profile: Path, scratch: Path, out: Path) -> None:
             raise Refused(f"The {name} folder must be outside the profile (and not contain it).")
     if _inside(scratch, ROOT) and not any(_inside(scratch, ROOT / name) for name in IGNORED_IN_CHECKOUT):
         raise Refused("The --scratch folder must be outside the Row-Bot checkout (a copy there could be committed).")
+
+
+def row_bot_running(profile: Path, *, installed: Callable[[], bool] = installed_app_running) -> bool:
+    """Whether Row-Bot runs on the profile (its launcher's lock; for the everyday profile also the installed app)."""
+
+    return profile_in_use(profile) or (profile.resolve() == everyday_profile() and installed())
 
 
 def refuse_if_running(profile: Path, *, installed: Callable[[], bool] = installed_app_running) -> None:
@@ -496,6 +515,11 @@ EXPLORATORY_REASONS = enum("declined", "rows_not_reproducible", "rows_changed", 
                            "no_model", "over_cap", "upload_failed", "not_started", "remote_error", "no_credit",
                            "signed_out", "export_failed", "download_failed", "couldnt_start", "no_starting_model",
                            "runtime_unavailable", "stopped", "too_few_problems")
+#: Why Row-Bot deleted a run's repository on Hugging Face (the run's record, ``RunRecord.deleted``): the product's
+#: own codes, and ``after_training`` (``--exploratory-27b-train``: the uploaded rows go as soon as training ends).
+DELETION_REASONS = enum("after_training", "after_ready", "upload_failed", "submission_failed", "not_started",
+                        "remote_error", "remote_canceled", "canceled", "canceled_after_completion",
+                        "stopped_after_completion", "failed_after_completion", "other")
 RUNTIMES = enum("row_bot", "ollama", "lmstudio", "llama_cpp", "vllm")
 #: Why an arm didn't come up: serving's own reason codes (fixed words, never content), or "no_file".
 SERVE_FAILURE = Text(pattern=re.compile(r"^[a-z_]{1,40}$"))
@@ -627,7 +651,9 @@ EXPLORATORY_SECTION = Obj({
                                        "splits": Map(SPLITS, ARM_SPLIT)})),
     "contrasts": Map(EXPLORATORY_CONTRASTS, Map(SPLITS, SPLIT_ANALYSIS)),
     "serve_failures": Map(enum("start27", "personal27", "start", "personal"), SERVE_FAILURE),
-}, optional=frozenset({"serve_failures"}))
+    # What Row-Bot deleted on Hugging Face, by kind, and why (a kind not listed is still there).
+    "deleted": Map(enum("dataset", "model"), DELETION_REASONS),
+}, optional=frozenset({"serve_failures", "deleted"}))
 FREEZE = Obj({
     "format": enum(FORMAT), "schema_version": Num(integer=True, low=SCHEMA_VERSION, high=SCHEMA_VERSION),
     "mode": enum("freeze"), "run": RUN,
@@ -687,8 +713,10 @@ EXPLORATORY_REPORT = Obj({
     "design": Obj({"as_of": Text(pattern=DAY), "paper": enum("v1", "v2"), "since": Text(pattern=DAY),
                    "metric_version": COUNT, "repeats": COUNT, "task_tokens": COUNT, "container": BOOL,
                    "hours": HOURS,
-                   "vault_refresh": Obj({"considered": COUNT, "added": COUNT, "retired": COUNT, "held": COUNT})},
-                  optional=frozenset({"since"})),
+                   "vault_refresh": Obj({"considered": COUNT, "added": COUNT, "retired": COUNT, "held": COUNT}),
+                   # ``--exploratory-27b-train``: the 27B was trained by this run, on this version's kept rows.
+                   "trained": BOOL, "personal_version": COUNT},
+                  optional=frozenset({"since", "trained", "personal_version"})),
     "exploratory_27b": EXPLORATORY_SECTION,
 })
 SCHEMAS = {"health": HEALTH, "freeze": FREEZE, "thinking": THINKING, "exploratory": EXPLORATORY_REPORT}
@@ -1187,11 +1215,52 @@ class Exploratory:
     upload_bytes: int = 0
     job_id: str | None = None
     trainer: Any = None
+    # ``--exploratory-27b-train``: the run's Hub, holding its model repository (:class:`_HeldModel`).
+    held: Any = None
     section: dict[str, Any] = field(default_factory=dict)
 
     def fail(self, reason: str) -> Exploratory:
         self.state, self.reason = "not_run", reason
         return self
+
+
+class _HeldModel:
+    """``--exploratory-27b-train``: the run's Hub with its model repository held. Nothing in it is read, so nothing
+    of it is downloaded, until the participant types ``download`` (``reads``); and it isn't deleted while ``keep``
+    holds, which is until its version is made ready here and the starting model the run built is downloaded and
+    checked (14 Nov: the third run's trained 27B was lost before it was measured). Every other call (the upload,
+    the job, its log, the dataset's deletion) goes to the Hub as it is."""
+
+    def __init__(self, hub: Any) -> None:
+        self.hub = hub
+        self.reads = False
+        self.keep = True
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.hub, name)
+
+    @staticmethod
+    def _held(kind: str, held: bool) -> None:
+        from row_bot.learning.remote.hub import HubError
+
+        if kind == "model" and held:
+            raise HubError("held")
+
+    def read_text(self, repo_id: str, kind: str, path: str) -> str:
+        self._held(kind, not self.reads)
+        return self.hub.read_text(repo_id, kind, path)
+
+    def read_bytes(self, repo_id: str, kind: str, path: str) -> bytes:
+        self._held(kind, not self.reads)
+        return self.hub.read_bytes(repo_id, kind, path)
+
+    def download_address(self, repo_id: str, kind: str, path: str) -> str:
+        self._held(kind, not self.reads)
+        return self.hub.download_address(repo_id, kind, path)
+
+    def delete_repo(self, repo_id: str, kind: str) -> bool:
+        self._held(kind, self.keep)
+        return self.hub.delete_repo(repo_id, kind)
 
 
 def _hugging_face_trainer(copy: Path) -> Any:
@@ -1247,9 +1316,14 @@ def _clock(epoch: float) -> str:
 
 
 def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Hooks,
-                      rows: tuple[list[Any], list[Any], bool, str | None] | None = None) -> Exploratory:
+                      rows: tuple[list[Any], list[Any], bool, str | None] | None = None, alone: bool = False,
+                      upload_bytes: int | None = None) -> Exploratory:
     """Rebuild the rows, show exactly what would be uploaded and its price, take the typed ``upload``, then
-    submit the run on Hugging Face (it trains while the confirmatory evaluation runs here)."""
+    submit the run on Hugging Face (it trains while the confirmatory evaluation runs here).
+
+    ``alone`` (``--exploratory-27b-train``): the 27B trains on its own, on the third run's card
+    (:data:`EXPLORATORY_FLAVOR`), only from an upload of exactly ``upload_bytes``, with the run's model repository
+    held (:class:`_HeldModel`) until the participant types ``download`` after training (:func:`await_exploratory`)."""
 
     from row_bot.application.settings_commands import write_learning_settings
     from row_bot.learning.remote.training import RemoteError
@@ -1267,9 +1341,13 @@ def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Ho
         return found.fail(reason or "rows_not_reproducible")
     recipe = recipes.load("hf-27b")
     found.recipe = recipe.name
-    write_learning_settings({"hugging_face.model": EXPLORATORY_MODEL})
+    write_learning_settings({"hugging_face.model": EXPLORATORY_MODEL,
+                             **({"hugging_face.flavor": EXPLORATORY_FLAVOR} if alone else {})})
     trainer = (hooks.hugging_face or _hugging_face_trainer)(copy)
     found.trainer = trainer
+    if alone:
+        found.held = _HeldModel(trainer.hub())
+        trainer._hub = found.held  # noqa: SLF001 - every Hub call of the run goes through the hold
     from row_bot.learning.remote import training as remote_training
 
     remote_training.configure(trainer)  # the release maker downloads the version's file through this one
@@ -1286,30 +1364,50 @@ def start_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: Ho
                                          for item in items), encoding="utf-8")
     examples, size = trainer._upload_size(job)  # noqa: SLF001
     found.upload_bytes = int(size)
+
+    def not_uploaded(why: str) -> Exploratory:
+        trainer.jobs.move(job.id, "stopped", reason="you")
+        jobs_module.remove_run(job.id, copy)
+        return found.fail(why)
+
+    if upload_bytes is not None and size != upload_bytes:
+        say(f"The upload would be {size:,} bytes, not the {upload_bytes:,} given: nothing is uploaded.")
+        return not_uploaded("rows_changed")
     quote = trainer.quote(examples=examples, upload_bytes=size, steps=steps)
     write_learning_settings({"hugging_face.monthly_cap_usd": max(1, math.ceil(quote.max_cost_usd) + 1)})
     quote = trainer.quote(examples=examples, upload_bytes=size, steps=steps)
+    if alone and quote.flavor != EXPLORATORY_FLAVOR:
+        return not_uploaded("unavailable")
     say()
     say("The exploratory 27B (A10) uploads, to a new private dataset in your own Hugging Face account:")
     say(f"  {examples} training rows and {len(validation)} validation rows ({size:,} bytes): exactly the rows your")
-    say(f"  newest local personal model (v{int(newest['version'])}) was trained on, checked against its own record.")
+    number = int(newest["version"])
+    named = f"local personal model v{number}" if alone else f"newest local personal model (v{number})"
+    say(f"  {named} was trained on, checked against its own record.")
     say(f"  It trains Qwen3.8 27B there on {quote.flavor_label}: about {round(quote.seconds / 60)} minutes and about "
         f"${quote.cost_usd:.2f} (at most ${quote.max_cost_usd:.2f}), billed to your Hugging Face account.")
-    say("  The upload and the job's files are deleted once the model is downloaded and checked.")
+    if alone:
+        say("  The uploaded rows are deleted there when training ends. The model it trains stays in your account")
+        say("  until you type download (once it has trained) and it is downloaded and checked here, then it goes too.")
+    else:
+        say("  The upload and the job's files are deleted once the model is downloaded and checked.")
     try:
         answer = hooks.ask(f"Type {UPLOAD_WORD} to agree to this upload (anything else: not run): ")
     except EOFError:
         answer = ""
     if answer.strip().lower() != UPLOAD_WORD:
-        trainer.jobs.move(job.id, "stopped", reason="you")
-        jobs_module.remove_run(job.id, copy)
-        return found.fail("declined")
+        return not_uploaded("declined")
     try:
         trainer.start(job, "train_now", confirmed=True)
     except RemoteError as error:
         return found.fail(error.code if error.code in ("over_cap", "no_model", "signed_out") else "unavailable")
     found.job_id = job.id
-    say("Uploaded; the run is on Hugging Face. The confirmatory evaluation runs here meanwhile.")
+    if alone:
+        say(f"Uploaded; the 27B trains on Hugging Face now (about {round(quote.seconds / 60)} minutes). This window "
+            "says how it goes every 10 minutes: leave it open and the computer awake. You may use Row-Bot meanwhile; "
+            "quit it before you type download.")
+    else:
+        say("Uploaded; the run is on Hugging Face. The confirmatory evaluation runs here meanwhile.")
     return found
 
 
@@ -1324,7 +1422,6 @@ def attach_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: H
 
     from row_bot.application.settings_commands import write_learning_settings
     from row_bot.learning.remote import training as remote_training
-    from row_bot.learning.remote.hub import HubError
     from row_bot.learning.training import dataset as dataset_module
     from row_bot.learning.training import jobs as jobs_module
     from row_bot.learning.training import recipes
@@ -1345,27 +1442,15 @@ def attach_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: H
     remote_training.configure(trainer)  # the release maker downloads the version's file through this one
     if trainer.choice() is None or trainer.choice().id != EXPLORATORY_MODEL:
         return found.fail("no_model")
-    hub = trainer.hub()
-    try:
-        remote = hub.job(remote_id)
-        done = any(event["type"] == "done"
-                   for event in remote_training.parse_lines(hub.log_lines(remote_id, tail=400)))
-        outputs = json.loads(hub.read_text(output_repo, "model", "outputs.json"))
-    except (HubError, ValueError) as error:
-        return found.fail("signed_out" if getattr(error, "code", None) == "signed_out" else "remote_error")
-    if remote.stage != "COMPLETED" or not done or not isinstance(outputs, dict):
-        return found.fail("remote_error")
-    size = sum(int(item.get("size") or 0) for item in outputs.get("files") or [] if isinstance(item, dict))
+    failure, size = check_finished(trainer.hub(), remote_id, output_repo)
+    if failure is not None:
+        return found.fail(failure)
     say()
     say("The exploratory 27B (A10), from the run that already finished on Hugging Face:")
     say(f"  It downloads that run's model ({size / 1e9:.1f} GB), makes it ready as Row-Bot does, measures it on")
     say(f"  the same hidden problems with your newest local personal model (v{int(newest['version'])}), then")
     say("  deletes the run's model repository on Hugging Face. Nothing is uploaded or trained.")
-    try:
-        answer = hooks.ask(f"Type {DOWNLOAD_WORD} to go on (anything else: not run): ")
-    except EOFError:
-        answer = ""
-    if answer.strip().lower() != DOWNLOAD_WORD:
+    if not _typed(hooks, DOWNLOAD_WORD, f"Type {DOWNLOAD_WORD} to go on (anything else: not run): "):
         return found.fail("declined")
     steps = recipe.steps_for(len(train))
     job = trainer.jobs.plan(steps_total=steps, checkpoint_every=recipe.checkpoint_interval(steps),
@@ -1390,6 +1475,151 @@ def attach_exploratory(copy: Path, newest: Mapping[str, Any] | None, *, hooks: H
     trainer.jobs.move(job.id, "running", reason="found", remote_request_id=remote_id, started_at=time.time())
     found.job_id = job.id
     say("Checked: the run is finished and its files are there. Downloading ...")
+    return found
+
+
+def check_finished(hub: Any, remote_id: str, output_repo: str) -> tuple[str | None, int]:
+    """The check of a run finished on Hugging Face before ``download`` is asked: its job is completed, Row-Bot's
+    ``done`` is in its log's last 400 lines, and its manifest (``outputs.json``) is in its model repository.
+    ``(None, the manifest's bytes)``, or why not (``signed_out``, ``remote_error``) and 0."""
+
+    from row_bot.learning.remote import training as remote_training
+    from row_bot.learning.remote.auth import SignInError
+    from row_bot.learning.remote.hub import HubError
+
+    try:
+        remote = hub.job(remote_id)
+        done = any(event["type"] == "done"
+                   for event in remote_training.parse_lines(hub.log_lines(remote_id, tail=400)))
+        outputs = json.loads(hub.read_text(output_repo, "model", "outputs.json"))
+    except SignInError:
+        return "signed_out", 0
+    except (HubError, ValueError) as error:
+        return ("signed_out" if getattr(error, "code", None) == "signed_out" else "remote_error"), 0
+    if remote.stage != "COMPLETED" or not done or not isinstance(outputs, dict):
+        return "remote_error", 0
+    return None, sum(int(item.get("size") or 0) for item in outputs.get("files") or [] if isinstance(item, dict))
+
+
+def _typed(hooks: Hooks, word: str, prompt: str, *, keep_signed_in: Any = None) -> bool:
+    """Whether the participant typed ``word`` (an empty answer or the end of input is no). With
+    ``keep_signed_in`` (a trainer), its Hugging Face sign-in is read once a minute while the question waits, as
+    reading the run would (14 Nov: a sign-in nothing read for hours lapsed)."""
+
+    import threading
+
+    stop = threading.Event()
+
+    def keep() -> None:
+        while not stop.wait(POLL_SECONDS):
+            with contextlib.suppress(Exception):
+                keep_signed_in.sign_in().token()
+
+    if keep_signed_in is not None:
+        threading.Thread(target=keep, name="paper-report-keep-signed-in", daemon=True).start()
+    try:
+        answer = hooks.ask(prompt)
+    except EOFError:
+        answer = ""
+    finally:
+        stop.set()
+    return answer.strip().lower() == word
+
+
+def _delete_rows(found: Exploratory, copy: Path, *, hooks: Hooks) -> None:
+    """A10's uploaded rows go as soon as training ends: the run's private dataset is deleted on Hugging Face, and
+    the deletion kept in the run's record with its kind, reason and time, as the product keeps its own. One that
+    doesn't work is left to the product's clean-up, which tries it again (the end of the run says what stays)."""
+
+    from dataclasses import replace
+
+    from row_bot.learning.remote import training as remote_training
+    from row_bot.learning.remote.auth import SignInError
+    from row_bot.learning.remote.hub import HubError
+
+    trainer, job_id = found.trainer, str(found.job_id)
+    while trainer.busy():  # the product's own first look at the finished run, on its thread
+        hooks.sleep(1.0)
+    record = remote_training.read_record(job_id, copy)
+    if record is None or not record.dataset_repo or "dataset" in record.deleted:
+        return
+    try:
+        trainer.hub().delete_repo(record.dataset_repo, "dataset")
+    except (HubError, SignInError):
+        say("The uploaded rows' dataset couldn't be deleted on Hugging Face yet; Row-Bot tries again later.")
+        return
+    record = remote_training.read_record(job_id, copy) or record
+    remote_training.write_record(replace(record, deleted={**dict(record.deleted), "dataset": {
+        "at": time.time(), "reason": "after_training"}}), copy)
+    say("Deleted on Hugging Face: the private dataset with the uploaded rows (training has ended).")
+
+
+def _training_line(record: Any, polls: int) -> str:
+    """How the run on Hugging Face goes: its stage there and in the job, its step, the minutes billed and the cost
+    so far (fixed words and numbers only)."""
+
+    def word(value: Any) -> str:
+        return str(value).lower() if re.fullmatch(r"[A-Za-z_]{1,32}", str(value or "")) else "?"
+
+    waited = round(polls * POLL_SECONDS / 60)
+    if record is None:
+        return f"  Waiting for the run on Hugging Face ({waited} min) ..."
+    step = f", step {int(record.step)} of {int(record.steps_total)}" if record.steps_total else ""
+    return (f"  Training on Hugging Face ({word(record.remote_stage)}, {word(record.stage)}{step}; "
+            f"{math.ceil(int(record.running_seconds) / 60)} min billed, about ${float(record.cost_usd):.2f}; "
+            f"{waited} min waited) ...")
+
+
+def await_exploratory(copy: Path, found: Exploratory, *, hooks: Hooks, version: Mapping[str, Any],
+                      busy: Callable[[], bool] = lambda: False) -> Exploratory:
+    """``--exploratory-27b-train``, after the upload: wait while the 27B trains on Hugging Face, saying how it goes.
+    A run that fails is reported, not measured; a lost sign-in ends the wait (``signed_out``) and deletes nothing.
+    When training ends, the uploaded rows' dataset is deleted there, the finished run is checked as
+    ``--exploratory-27b`` checks one, and only a typed ``download``, with Row-Bot closed, lets anything of it be
+    read; :func:`finish_exploratory` then downloads, makes ready and measures it. Its model stays on every other
+    ending (the product keeps a finished run's model until it is downloaded, and the hold until it is ready)."""
+
+    from row_bot.learning.remote import training as remote_training
+
+    trainer, job_id, held = found.trainer, str(found.job_id), found.held
+    polls = 0
+    while True:
+        trainer.tick()
+        job = trainer.jobs.get(job_id)
+        record = remote_training.read_record(job_id, copy)
+        if record is not None and record.outcome == "completed":
+            break
+        if job is None or job.state in ("failed", "stopped"):
+            say("The 27B's run on Hugging Face ended without a trained model, so nothing is measured.")
+            return found.fail(str((job.error_code if job is not None else None) or "remote_error"))
+        if not trainer.signed_in():
+            say("The Hugging Face sign-in is gone, so the run can't be read or its files deleted from here.")
+            return found.fail("signed_out")
+        polls += 1
+        if polls % 10 == 0:
+            say(_training_line(record, polls))
+        hooks.sleep(POLL_SECONDS)
+    _delete_rows(found, copy, hooks=hooks)
+    failure, size = check_finished(held.hub, str(record.remote_id), record.output_repo)
+    if failure is not None:
+        return found.fail(failure)
+    say()
+    say("\aThe 27B finished training on Hugging Face:")
+    say(f"  It downloads that run's model ({size / 1e9:.1f} GB), makes it ready as Row-Bot does, measures it on")
+    say(f"  the same hidden problems with your local personal model v{int(version['version'])}, then deletes the")
+    say("  run's model repository on Hugging Face. Quit Row-Bot first if it is open: the measurement needs this")
+    say("  computer's graphics card to itself.")
+    while True:
+        if not _typed(hooks, DOWNLOAD_WORD, f"Type {DOWNLOAD_WORD} to go on (anything else: not run; the model "
+                      "stays in your account): ", keep_signed_in=trainer):
+            trainer.cancel(job_id)  # the product: a finished run's model stays when it isn't downloaded
+            return found.fail("declined")
+        if not busy():
+            break
+        say("Row-Bot is running on the profile. Quit it (right-click its icon by the clock, then Quit), then type "
+            f"{DOWNLOAD_WORD} again.")
+    held.reads = True
+    say("Downloading ...")
     return found
 
 
@@ -1429,14 +1659,24 @@ def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: H
     if job is None or job.state != "evaluating":
         found.section.update(_cost(record))
         return found.fail(str((job.error_code if job is not None else None) or "remote_error"))
+    while trainer.busy():  # the starting model's file the run built still downloads on the trainer's thread
+        hooks.sleep(5.0)
+    say("Making the 27B ready here (its file downloads first) ...")
     maker = releases.ReleaseMaker(copy, jobs=trainer.jobs, server=hooks.release_server, runtime=lambda: "row_bot",
                                   start_threads=False)
     maker.start(job)
+    state = releases.read_state(releases.version_dir(int(job.version), copy))
+    if found.held is not None:
+        # Only now may the run's model repository go: its version is ready here and the starting model the run
+        # built is downloaded and checked. Otherwise it stays in the participant's account.
+        found.held.keep = not (state is not None and state.phase == releases.READY and _base_here(copy, job_id))
     trainer.tick()  # the version is settled: the uploads and the job's files go (O133)
     state = releases.read_state(releases.version_dir(int(job.version), copy))
     record = remote_training.read_record(job_id, copy)
     found.section.update(_cost(record))
     if state is None or state.phase != releases.READY:
+        if state is not None and state.phase == releases.EXPORT_FAILED:
+            return found.fail("download_failed" if state.failure == "download_failed" else "export_failed")
         return found.fail("couldnt_start")
     row = next((item for item in _versions(copy) if item["version"] == int(job.version)), None)
     prepared = hooks.prepare(copy, row) if row is not None else Prepared({}, None, "row_bot", reason="no_version")
@@ -1487,6 +1727,45 @@ def _cost(record: Any) -> dict[str, Any]:
             "uploads_deleted": record.cleaned_at is not None}
 
 
+def _base_here(copy: Path, job_id: str) -> bool:
+    """Whether the untouched starting model's file the run built (when it built one) is downloaded and checked
+    here: the product writes its state only after the file matched the run's manifest."""
+
+    from row_bot.learning.remote import training as remote_training
+    from row_bot.learning.training import base_model
+
+    record = remote_training.read_record(job_id, copy)
+    if record is None or not record.base_gguf:
+        return True
+    state = base_model.read(record.model_id, copy)
+    return bool(state is not None and state.gguf and (base_model.folder(record.model_id, copy) / state.gguf).is_file())
+
+
+def _deletions(record: Any) -> dict[str, str]:
+    """What Row-Bot deleted of the run on Hugging Face, by kind, and why (its record's codes, never a name)."""
+
+    found = {}
+    for kind, item in dict(getattr(record, "deleted", None) or {}).items():
+        if kind in ("dataset", "model") and isinstance(item, Mapping):
+            reason = str(item.get("reason") or "")
+            found[kind] = reason if reason in DELETION_REASONS.values else "other"
+    return found
+
+
+def _say_deletions(record: Any) -> None:
+    """The run's log of deletions on Hugging Face, and what stays in the participant's account."""
+
+    deleted = _deletions(record)
+    for kind, repo, what in (("dataset", record.dataset_repo, "the private dataset with the uploaded rows"),
+                             ("model", record.output_repo, "the run's model repository (the trained 27B)")):
+        if not repo:
+            continue
+        if kind in deleted:
+            say(f"Deleted on Hugging Face: {what} ({deleted[kind]}).")
+        else:
+            say(f"Still on Hugging Face, in your account: {what}. Delete it there when it's no longer needed.")
+
+
 def exploratory_section(found: Exploratory) -> dict[str, Any]:
     """A10's report section: exploratory, apart from the confirmatory family."""
 
@@ -1509,16 +1788,24 @@ def exploratory_section(found: Exploratory) -> dict[str, Any]:
         "contrasts": {name: {split: _split(part) for split, part in value.items()}
                       for name, value in (result.get("contrasts") or {}).items()},
         **({"serve_failures": found.section["serve_failures"]} if found.section.get("serve_failures") else {}),
+        **({"deleted": found.section["deleted"]} if "deleted" in found.section else {}),
     }
 
 
-def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str, output_repo: str,
-                       paper: str = "v1", repeats: int = 3, cap_tokens: int = CLOUD_CAP) -> dict[str, Any]:
+def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str | None = None,
+                       output_repo: str | None = None, paper: str = "v1", repeats: int = 3,
+                       cap_tokens: int = CLOUD_CAP, train_version: int | None = None, upload_bytes: int | None = None,
+                       busy: Callable[[], bool] = lambda: False) -> dict[str, Any]:
     """``--exploratory-27b``: A10 alone, from a run already finished on Hugging Face, on the same hidden problems
-    (in v2 the same window) the freeze used; reported apart, as in the freeze report."""
+    (in v2 the same window) the freeze used; reported apart, as in the freeze report.
+
+    With ``train_version`` (``--exploratory-27b-train``), the 27B is trained again first, on that version's kept
+    rows (exactly ``upload_bytes``), after a typed ``upload``; then it goes on as above, and that version is the
+    ``personal`` arm. ``busy`` says whether Row-Bot runs on the profile (it must be closed for the measurement)."""
 
     from row_bot.learning import evaluation
     from row_bot.learning.packs import PACKS
+    from row_bot.learning.remote import training as remote_training
     from row_bot.learning.spending import TokenMeter
     from row_bot.learning.store import LearningStore
 
@@ -1526,7 +1813,10 @@ def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str,
     store = LearningStore(copy)
     candidates = [row for row in _versions(copy) if not row["pilot"] and row["_ready_once"]
                   and row["_gguf"] is not None and Path(row["_gguf"]).is_file()]
-    newest = max(candidates, key=lambda row: row["version"]) if candidates else None
+    if train_version is None:
+        newest = max(candidates, key=lambda row: row["version"]) if candidates else None
+    else:  # the version the freeze evaluated, named: a version trained since then isn't it
+        newest = next((row for row in candidates if row["version"] == train_version), None)
     # As in the freeze: the rows are rebuilt before the vault takes anything new.
     rows = rows_for_upload(copy, newest, lookup=hooks.lookup) if newest is not None else None
     refreshed = evaluation.refresh_audit(store=store, asked_by="the paper's exploratory 27B (A10)")
@@ -1534,12 +1824,23 @@ def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str,
     container = bool((hooks.container or _container)())
     packs = [pack for pack in PACKS if container or pack != "small_coding"]
     verifiers = None if container else ["answer", "json_answer", "file", "app_state"]
-    found = attach_exploratory(copy, newest, hooks=hooks, remote_id=remote_id, output_repo=output_repo, rows=rows)
-    if found.job_id is not None:
+    if train_version is None:
+        found = attach_exploratory(copy, newest, hooks=hooks, remote_id=str(remote_id),
+                                   output_repo=str(output_repo), rows=rows)
+    else:
+        found = start_exploratory(copy, newest, hooks=hooks, rows=rows, alone=True, upload_bytes=upload_bytes)
+        if found.job_id is not None and newest is not None:
+            await_exploratory(copy, found, hooks=hooks, version=newest, busy=busy)
+    if found.job_id is not None and found.reason is None:
         found.section["_newest"] = newest
         finish_exploratory(copy, found, as_of=_end_of_day(as_of), hooks=hooks, client=hooks.client,
                            budget=evaluation.Budget(task_tokens=150_000), meter=TokenMeter(cap_tokens), packs=packs,
                            verifiers=verifiers, repeats=repeats, container=container, since=since)
+    if train_version is not None and found.job_id is not None:
+        record = remote_training.read_record(found.job_id, copy)
+        if record is not None:  # the run's last record: its cost, and what was deleted on Hugging Face and why
+            found.section.update({**_cost(record), "deleted": _deletions(record)})
+            _say_deletions(record)
     return {
         "format": FORMAT, "schema_version": SCHEMA_VERSION, "mode": "exploratory",
         "design": {"as_of": as_of.isoformat(), "paper": paper,
@@ -1547,7 +1848,9 @@ def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str,
                    "metric_version": evaluation.METRIC_VERSION, "repeats": repeats, "task_tokens": 150_000,
                    "container": container, "hours": round((time.monotonic() - started) / 3600, 3),
                    "vault_refresh": {key: int(refreshed.get(key, 0)) for key in ("considered", "added", "retired",
-                                                                                  "held")}},
+                                                                                  "held")},
+                   **({"trained": True, "personal_version": int(train_version)} if train_version is not None
+                      else {})},
         "exploratory_27b": exploratory_section(found),
     }
 
@@ -2194,11 +2497,21 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     mode.add_argument("--exploratory-27b", action="store_true",
                       help="A10 alone, from a 27B run already finished on Hugging Face (--hugging-face-run, "
                            "--output-repo): downloaded, measured on the freeze's problems, then deleted there")
+    mode.add_argument("--exploratory-27b-train", action="store_true",
+                      help="A10 alone, the 27B trained again on Hugging Face from --personal-version's kept rows "
+                           "(you sign in there and type 'upload', then 'download' once it has trained), then "
+                           "downloaded, measured on the freeze's problems and deleted there")
     parser.add_argument("--as-of", help="--freeze: the freeze date, YYYY-MM-DD (problems up to the end of that day)")
     parser.add_argument("--hugging-face-run", metavar="JOB_ID",
                         help="--exploratory-27b: the finished run's Hugging Face job id (from its page)")
     parser.add_argument("--output-repo", metavar="ACCOUNT/row-bot-personal-...",
                         help="--exploratory-27b: the finished run's own model repository")
+    parser.add_argument("--personal-version", type=int, metavar="N",
+                        help="--exploratory-27b-train: the local personal model whose kept rows train the 27B, and "
+                             "its 'personal' arm (the version the freeze evaluated)")
+    parser.add_argument("--upload-bytes", type=int, metavar="BYTES",
+                        help="--exploratory-27b-train: the size the upload must have (the freeze's own upload's); "
+                             "any other size uploads nothing")
     parser.add_argument("--profile", required=True, help="the Row-Bot profile folder (read only, never written)")
     parser.add_argument("--scratch", required=True, help="where the copy goes (outside the profile and the checkout)")
     parser.add_argument("--out", required=True, help="where the JSON goes")
@@ -2241,13 +2554,13 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                      "profile's ChatGPT sign-in, never yours)")
     if args.eval_profile and not cloud:
         parser.error("--eval-profile goes with --main-reference, --h2, --h3-final or --judge-long-answers")
-    if args.freeze or args.exploratory_27b:
+    if args.freeze or args.exploratory_27b or args.exploratory_27b_train:
         try:
             args.as_of_date = date.fromisoformat(str(args.as_of or ""))
         except ValueError:
-            parser.error("--freeze and --exploratory-27b need --as-of YYYY-MM-DD")
+            parser.error("--freeze, --exploratory-27b and --exploratory-27b-train need --as-of YYYY-MM-DD")
     elif args.as_of:
-        parser.error("--as-of goes with --freeze or --exploratory-27b")
+        parser.error("--as-of goes with --freeze, --exploratory-27b or --exploratory-27b-train")
     if args.exploratory_27b:
         if not HF_JOB_ID.match(str(args.hugging_face_run or "")):
             parser.error("--exploratory-27b needs --hugging-face-run JOB_ID (the finished run's job id)")
@@ -2257,6 +2570,15 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
             parser.error("--exploratory-27b uses no cloud model: leave out --eval-profile and the cloud parts")
     elif args.hugging_face_run or args.output_repo:
         parser.error("--hugging-face-run and --output-repo go with --exploratory-27b")
+    if args.exploratory_27b_train:
+        if (args.personal_version or 0) < 1:
+            parser.error("--exploratory-27b-train needs --personal-version N (the version the freeze evaluated)")
+        if (args.upload_bytes or 0) < 1:
+            parser.error("--exploratory-27b-train needs --upload-bytes BYTES (the freeze's own upload's size)")
+        if cloud:
+            parser.error("--exploratory-27b-train uses no cloud model: leave out --eval-profile and the cloud parts")
+    elif args.personal_version is not None or args.upload_bytes is not None:
+        parser.error("--personal-version and --upload-bytes go with --exploratory-27b-train")
     for flag, given in (("--hugging-face-27b", args.hugging_face_27b), ("--judge-long-answers", args.judge_long_answers),
                         ("--local-reference", args.local_reference)):
         if given and not args.freeze:
@@ -2274,8 +2596,8 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None, *, hooks: Hooks | None = None) -> int:
     args = parse(argv)
     hooks = hooks or Hooks()
-    mode = ("health" if args.health else "freeze" if args.freeze else "exploratory" if args.exploratory_27b
-            else "thinking")
+    mode = ("health" if args.health else "freeze" if args.freeze
+            else "exploratory" if args.exploratory_27b or args.exploratory_27b_train else "thinking")
     profile, scratch, out = Path(args.profile).resolve(), Path(args.scratch).resolve(), Path(args.out).resolve()
     started = time.monotonic()
     say("Row-Bot Learning: the paper's report")
@@ -2396,6 +2718,13 @@ def _run_mode(mode: str, copy: Path, target: Path, args: argparse.Namespace, hoo
         return health_report(copy)
     if not learning.read_settings(copy).enabled:
         raise _ModeFailed("Learning is off in this profile")
+    if mode == "exploratory" and args.exploratory_27b_train:
+        say("Running the exploratory 27B: trained again on Hugging Face, then downloaded and measured here ...")
+        profile = Path(args.profile).resolve()
+        return exploratory_report(copy, args.as_of_date, hooks=hooks, paper=str(args.paper),
+                                  cap_tokens=int(args.cloud_cap), train_version=int(args.personal_version),
+                                  upload_bytes=int(args.upload_bytes),
+                                  busy=lambda: row_bot_running(profile, installed=hooks.installed))
     if mode == "exploratory":
         say("Running the exploratory 27B from the run that already finished on Hugging Face ...")
         return exploratory_report(copy, args.as_of_date, hooks=hooks, remote_id=str(args.hugging_face_run),

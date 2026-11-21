@@ -1586,3 +1586,242 @@ def test_the_exploratory_mode_needs_the_run_and_its_repository(profile, folders,
     with pytest.raises(SystemExit):
         report.main(["--freeze", "--as-of", "2030-01-01", "--output-repo", "ada/row-bot-personal-0123",
                      "--profile", str(profile), "--scratch", str(scratch), "--out", str(out)])
+
+
+# ── --exploratory-27b-train: the 27B trained again on Hugging Face (21 Nov) ──────
+
+
+class _Training(_Exploratory):
+    """The fake Hugging Face for a 27B trained again, and what happened in order: each typed question (with the
+    Hub's calls so far), the training (the job finishes while the script waits) and the measurement. ``broken``
+    names a file of the run's model repository that arrives damaged (it doesn't match the run's manifest)."""
+
+    def __init__(self, answers: list[str], *, broken: str | None = None) -> None:
+        super().__init__()
+        self.answers = list(answers)
+        self.broken = broken
+        self.events: list[str] = []
+        self.calls_at: dict[str, list[str]] = {}
+
+    def ask_next(self, prompt: str) -> str:
+        word = prompt.split()[1]  # "Type upload ..." or "Type download ..."
+        self.events.append(f"asked {word}")
+        self.calls_at.setdefault(word, list(self.hub.calls))
+        return self.answers.pop(0) if self.answers else ""
+
+    def sleep(self, seconds: float) -> None:
+        from row_bot.learning.remote import training as remote_training
+
+        if any(job.stage != "COMPLETED" for job in self.hub.jobs.values()):
+            self.events.append("trained")
+        super().sleep(seconds)
+        if self.broken:
+            for remote in self.hub.jobs.values():
+                record = remote_training.read_record(remote.labels["row-bot-job"], self.trainer.root)
+                self.hub.repos[record.output_repo]["files"][self.broken] = b"damaged on the way"
+
+    def runner(self, _arms: Any) -> Packs:
+        self.events.append("measured")
+        return Packs()
+
+
+def _train_hooks(fake: _Training, chats: Any) -> report.Hooks:
+    hooks = _exploratory_hooks(fake, "", chats)
+    hooks.ask, hooks.runner = fake.ask_next, fake.runner
+    return hooks
+
+
+def _train_argv(profile: Path, folders: tuple[Path, Path], size: int, *, version: int = 2) -> list[str]:
+    scratch, out = folders
+    return ["--exploratory-27b-train", "--as-of", "2030-01-01", "--personal-version", str(version), "--upload-bytes",
+            str(size), "--profile", str(profile), "--scratch", str(scratch), "--out", str(out), "--yes"]
+
+
+def _upload_size(profile: Path, tmp_path: Path, chats: Any) -> int:
+    """v2's upload as the script itself weighs it: a run given another size uploads nothing and says the size."""
+
+    probe = (tmp_path / "probe-scratch", tmp_path / "probe-out")
+    fake = _Training(["upload"])
+    assert report.main(_train_argv(profile, probe, 1), hooks=_train_hooks(fake, chats)) == 0
+    found = _written(probe[1])["exploratory_27b"]
+    assert (found["reason"], fake.events, fake.hub.calls) == ("rows_changed", [], [])
+    return found["upload_bytes"]
+
+
+def _model_repos(fake: _Training) -> list[str]:
+    return [name for name, repo in fake.hub.repos.items() if repo["kind"] == "model"]
+
+
+def test_the_27b_trained_again_asks_upload_then_trains_then_asks_download_then_measures(
+        profile, folders, capsys, chats, tmp_path):
+    scratch, out = folders
+    _kept(profile, chats)
+    size = _upload_size(profile, tmp_path, chats)
+    capsys.readouterr()
+    before, ids = _hashes(profile), _ids(profile)
+    fake = _Training(["upload", "download"])
+
+    code = report.main(_train_argv(profile, folders, size), hooks=_train_hooks(fake, chats))
+
+    printed = capsys.readouterr()
+    assert code == 0, printed.out
+    written = _written(out)
+    report.validate(written, report.EXPLORATORY_REPORT)
+    text = printed.out + printed.err + json.dumps(written)
+    _assert_private(text, profile, scratch, ids)
+    assert not [name for name in (*fake.hub.jobs, *fake.hub.deleted) if name in text]  # no job or repository named
+    assert fake.events == ["asked upload", "trained", "asked download", "measured"]  # each asked even with --yes
+    # Nothing leaves before "upload"; nothing of the trained model is read before "download" but its manifest.
+    assert not {"create_private_repo", "upload", "run_job"} & set(fake.calls_at["upload"])
+    assert not {"read_bytes", "download_address"} & set(fake.calls_at["download"])
+    assert fake.calls_at["download"].count("read_text") == 1
+    assert [job.flavor for job in fake.hub.jobs.values()] == ["a100-large"]  # the third run's card
+    assert (written["design"]["trained"], written["design"]["personal_version"]) == (True, 2)
+    found = written["exploratory_27b"]
+    assert (found["state"], found["reason"], found["model"], found["recipe"]) == ("run", None, "qwen3.8-27b",
+                                                                                 "hf-27b-v1")
+    assert found["rows"]["matched"] is True and found["upload_bytes"] == size
+    assert set(found["arms"]) == {"start27", "personal27", "personal"}
+    assert set(found["contrasts"]) == {"personal27 vs start27", "personal27 vs personal"}
+    assert (found["uploads_deleted"], found["minutes"], found["cost_usd"]) == (True, 90, 3.75)  # 90 min at $2.50/h
+    # Each deletion logged with its kind and reason: the rows when training ended, the model once it was ready here.
+    assert found["deleted"] == {"dataset": "after_training", "model": "after_ready"}
+    assert "Deleted on Hugging Face: the private dataset with the uploaded rows" in printed.out
+    assert not fake.hub.repos and len(fake.hub.deleted) == 2
+    assert _hashes(profile) == before
+
+
+@pytest.mark.parametrize("answers", [["y"], ["upload", "yes"]])
+def test_nothing_leaves_without_a_typed_upload_and_nothing_comes_back_without_a_typed_download(
+        profile, folders, chats, tmp_path, answers):
+    _kept(profile, chats)
+    size = _upload_size(profile, tmp_path, chats)
+    fake = _Training(answers)
+
+    assert report.main(_train_argv(profile, folders, size), hooks=_train_hooks(fake, chats)) == 0
+
+    found = _written(folders[1])["exploratory_27b"]
+    assert (found["state"], found["reason"], found["arms"]) == ("not_run", "declined", {})
+    assert "measured" not in fake.events and not {"read_bytes", "download_address"} & set(fake.hub.calls)
+    if answers == ["y"]:
+        assert fake.hub.calls == [] and not fake.hub.repos  # nothing uploaded, no job
+    else:  # trained and paid for: its rows go, the model it trained stays in the account
+        assert found["deleted"] == {"dataset": "after_training"} and found["uploads_deleted"] is False
+        assert len(_model_repos(fake)) == 1 and len(fake.hub.repos) == 1
+
+
+@pytest.mark.parametrize(("broken", "state", "reason"), [("gguf/pass-3.gguf", "not_run", "download_failed"),
+                                                          ("gguf/base.gguf", "run", None)])
+def test_a_trained_27b_is_kept_until_its_version_and_starting_model_are_downloaded_and_checked(
+        profile, folders, chats, tmp_path, broken, state, reason):
+    _kept(profile, chats)
+    size = _upload_size(profile, tmp_path, chats)
+    fake = _Training(["upload", "download"], broken=broken)
+
+    assert report.main(_train_argv(profile, folders, size), hooks=_train_hooks(fake, chats)) == 0
+
+    found = _written(folders[1])["exploratory_27b"]
+    assert (found["state"], found["reason"]) == (state, reason)
+    assert ("measured" in fake.events) is (state == "run")
+    assert found["deleted"] == {"dataset": "after_training"} and len(_model_repos(fake)) == 1
+
+
+def test_a_sign_in_lost_while_the_27b_trains_ends_signed_out_and_deletes_nothing(profile, folders, chats, tmp_path):
+    _kept(profile, chats)
+    size = _upload_size(profile, tmp_path, chats)
+    fake = _Training(["upload"])
+    hooks = _train_hooks(fake, chats)
+    hooks.sleep = lambda _seconds: fake.trainer.sign_in().sign_out()  # it never finishes; the sign-in goes
+
+    assert report.main(_train_argv(profile, folders, size), hooks=hooks) == 0
+
+    found = _written(folders[1])["exploratory_27b"]
+    assert (found["state"], found["reason"], found["deleted"]) == ("not_run", "signed_out", {})
+    assert fake.events == ["asked upload"] and not fake.hub.deleted and len(fake.hub.repos) == 2
+
+
+def test_a_27b_whose_training_fails_on_hugging_face_is_reported_and_not_measured(profile, folders, chats, tmp_path):
+    _kept(profile, chats)
+    size = _upload_size(profile, tmp_path, chats)
+    fake = _Training(["upload", "download"])
+    hooks = _train_hooks(fake, chats)
+
+    def fails(_seconds: float) -> None:
+        for remote in fake.hub.jobs.values():
+            fake.hub.say(remote.id, "error", reason="out_of_memory")
+            remote.stage = "ERROR"
+
+    hooks.sleep = fails
+
+    assert report.main(_train_argv(profile, folders, size), hooks=hooks) == 0
+
+    found = _written(folders[1])["exploratory_27b"]
+    assert (found["state"], found["reason"], found["arms"], found["contrasts"]) == ("not_run", "remote_error", {}, {})
+    assert fake.events == ["asked upload"]  # never asked to download, never measured
+    # Its rows go; a model repository is deleted only once its version is ready here.
+    assert found["deleted"] == {"dataset": "remote_error"} and len(_model_repos(fake)) == 1
+
+
+@pytest.mark.parametrize(("case", "reason"), [("tampered", "rows_changed"), ("size", "rows_changed"),
+                                              ("version", "no_version")])
+def test_the_27b_trains_only_on_the_named_versions_own_rows_at_the_given_size(profile, folders, chats, case, reason):
+    from row_bot.learning.training import kept_rows
+
+    _kept(profile, chats)
+    if case == "tampered":
+        rows = profile / "learning_models" / "versions" / "v2" / kept_rows.FOLDER / kept_rows.EXAMPLES
+        rows.write_text(rows.read_text(encoding="utf-8").replace("a", "b", 1), encoding="utf-8")
+    fake = _Training(["upload"])
+
+    code = report.main(_train_argv(profile, folders, 1, version=9 if case == "version" else 2),
+                       hooks=_train_hooks(fake, chats))
+
+    assert code == 0
+    found = _written(folders[1])["exploratory_27b"]
+    assert (found["state"], found["reason"], found["rows"]["matched"]) == ("not_run", reason, case == "size")
+    assert fake.events == [] and not {"create_private_repo", "upload", "run_job"} & set(fake.hub.calls)
+
+
+def test_the_27b_is_measured_only_with_row_bot_closed(profile, folders, capsys, chats, tmp_path):
+    from row_bot.launcher import _InstanceLock
+
+    _kept(profile, chats)
+    size = _upload_size(profile, tmp_path, chats)
+    lock = _InstanceLock(profile / "launcher.lock")
+    fake = _Training(["upload", "download", "download"])
+    hooks = _train_hooks(fake, chats)
+
+    def ask(prompt: str) -> str:
+        answer = fake.ask_next(prompt)
+        asked = fake.events.count("asked download")
+        if asked == 1:
+            assert lock.acquire()  # the participant opened Row-Bot while the 27B trained
+        elif asked == 2:
+            lock.release()
+        return answer
+
+    hooks.ask = ask
+    try:
+        assert report.main(_train_argv(profile, folders, size), hooks=hooks) == 0
+    finally:
+        lock.release()
+
+    assert fake.events == ["asked upload", "trained", "asked download", "asked download", "measured"]
+    assert "Row-Bot is running on the profile" in capsys.readouterr().out
+    assert _written(folders[1])["exploratory_27b"]["state"] == "run"
+
+
+def test_the_train_mode_needs_the_version_and_the_uploads_size_and_no_finished_run(profile, folders, capsys):
+    scratch, out = folders
+    base = ["--exploratory-27b-train", "--as-of", "2030-01-01", "--profile", str(profile), "--scratch", str(scratch),
+            "--out", str(out)]
+    for extra in ([], ["--personal-version", "2"], ["--upload-bytes", "100"],
+                  ["--personal-version", "2", "--upload-bytes", "100", "--hugging-face-run", "abc123def456",
+                   "--output-repo", "ada/row-bot-personal-0123"]):
+        with pytest.raises(SystemExit):
+            report.main(base + extra)
+    assert "--exploratory-27b-train needs" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        report.main(["--freeze", "--as-of", "2030-01-01", "--personal-version", "2", "--profile", str(profile),
+                     "--scratch", str(scratch), "--out", str(out)])
+    assert not scratch.exists() and not out.exists()
