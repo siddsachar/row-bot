@@ -1825,3 +1825,308 @@ def test_the_train_mode_needs_the_version_and_the_uploads_size_and_no_finished_r
         report.main(["--freeze", "--as-of", "2030-01-01", "--personal-version", "2", "--profile", str(profile),
                      "--scratch", str(scratch), "--out", str(out)])
     assert not scratch.exists() and not out.exists()
+
+
+# ── --exploratory-27b-kept: the two 27B files kept from the train-again run (21 Nov) ──────
+
+
+def _kept_files(tmp_path: Path) -> dict[str, tuple[Path, str]]:
+    """Two small stand-ins for the kept 27B files (outside the profile), with their SHA-256."""
+
+    folder = tmp_path / f"kept-{CANARY}" / "learning_models"
+    folder.mkdir(parents=True)
+    files = {}
+    for name in ("personal", "starting"):
+        path = folder / f"{name}-Q4_K_M.gguf"
+        path.write_bytes(b"GGUF " + name.encode())
+        files[name] = (path, hashlib.sha256(path.read_bytes()).hexdigest())
+    return files
+
+
+def _kept_argv(profile: Path, folders: tuple[Path, Path], files: dict[str, tuple[Path, str]], *, version: int = 2,
+               wrong: str | None = None) -> list[str]:
+    scratch, out = folders
+    sha = {name: ("0" * 64 if name == wrong else digest) for name, (_path, digest) in files.items()}
+    return ["--exploratory-27b-kept", "--as-of", "2030-01-01", "--personal-version", str(version),
+            "--personal-gguf", str(files["personal"][0]), "--personal-sha256", sha["personal"],
+            "--starting-gguf", str(files["starting"][0]), "--starting-sha256", sha["starting"],
+            "--profile", str(profile), "--scratch", str(scratch), "--out", str(out), "--yes"]
+
+
+class _Kept:
+    """What the kept mode did, in order: serving the kept files, the local arm, the measurement, the withdrawal."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.served: Any = None
+        self.arms: list[tuple[str, str]] = []
+
+    def serve_kept(self, copy: Path, kept: Any) -> report.Prepared:
+        self.events.append("served")
+        self.served = (copy, kept)
+        return report.Prepared({"start": "model:fake:start27", "personal": "model:fake:personal27"}, 32768, "row_bot",
+                               cleanup=lambda: self.events.append("withdrawn"))
+
+    def prepare(self, _copy: Path, version: dict[str, Any]) -> report.Prepared:
+        number = version["version"]
+        self.events.append(f"local v{number}")
+        return report.Prepared({"start": f"model:fake:start-{number}", "personal": f"model:fake:personal-{number}"},
+                               32768, "ollama")
+
+    def runner(self, arms: Any) -> Packs:
+        self.events.append("measured")
+        self.arms = [(arm.name, arm.model_ref) for arm in arms]
+        return Packs()
+
+    @staticmethod
+    def no_hugging_face(_copy: Path) -> Any:
+        raise AssertionError("the kept mode asked for Hugging Face")
+
+    def hooks(self) -> report.Hooks:
+        return report.Hooks(prepare=self.prepare, runner=self.runner, container=lambda: False,
+                            client=ScriptedClient(lambda *_: AIMessage(content="no idea"), local=True),
+                            ask=_never_asked, installed=lambda: False, serve_kept=self.serve_kept,
+                            hugging_face=self.no_hugging_face)
+
+
+@pytest.mark.parametrize("wrong", ["personal", "starting"])
+def test_a_kept_27b_file_without_its_sha256_stops_the_run_before_anything_is_copied(profile, folders, capsys,
+                                                                                    tmp_path, wrong):
+    scratch, out = folders
+    files = _kept_files(tmp_path)
+    before = _hashes(profile)
+    run = _Kept()
+
+    code = report.main(_kept_argv(profile, folders, files, wrong=wrong), hooks=run.hooks())
+
+    printed = capsys.readouterr().out
+    what = "trained" if wrong == "personal" else "starting"
+    assert code == 2 and f"The {what} 27B's file doesn't have the SHA-256 given" in printed
+    assert "Nothing was copied or written." in printed and CANARY not in printed
+    assert run.events == [] and not out.exists() and not scratch.exists()  # no copy began
+    assert _hashes(profile) == before
+
+
+def test_the_kept_27bs_are_hashed_then_the_profile_copied_then_served_then_measured(profile, folders, capsys,
+                                                                                   tmp_path, monkeypatch):
+    scratch, out = folders
+    files = _kept_files(tmp_path)
+    kept_bytes = {name: path.read_bytes() for name, (path, _digest) in files.items()}
+    before, ids = _hashes(profile), _ids(profile)
+    run = _Kept()
+    check, copy = report.check_kept, report.copy_profile
+
+    def checked(kept, where):
+        found = check(kept, where)
+        run.events.append("hashed")
+        return found
+
+    def copied(*args):
+        run.events.append("copied")
+        return copy(*args)
+
+    monkeypatch.setattr(report, "check_kept", checked)
+    monkeypatch.setattr(report, "copy_profile", copied)
+
+    code = report.main(_kept_argv(profile, folders, files), hooks=run.hooks())
+
+    printed = capsys.readouterr()
+    assert code == 0, printed.out
+    assert run.events == ["hashed", "copied", "served", "local v2", "measured", "withdrawn"]
+    copy_folder, kept = run.served
+    assert copy_folder.is_relative_to(scratch) and (kept.personal, kept.starting) == (files["personal"][0],
+                                                                                       files["starting"][0])
+    # The A10 design --exploratory-27b measures: start27 and personal27 from the kept files, the named version.
+    assert run.arms == [("start27", "model:fake:start27"), ("personal27", "model:fake:personal27"),
+                        ("personal", "model:fake:personal-2")]
+    written = _written(out)
+    report.validate(written, report.EXPLORATORY_REPORT)
+    text = printed.out + printed.err + json.dumps(written)
+    _assert_private(text, profile, scratch, ids)
+    assert str(files["personal"][0].parent) not in text and files["personal"][0].as_posix() not in text
+    design = written["design"]
+    assert (design["trained"], design["personal_version"], design["repeats"], design["task_tokens"]) == (True, 2, 3,
+                                                                                                         150_000)
+    assert design["kept"] == {
+        "source_run": "exploratory-27b-train-2026-11-21", "source_build": "caf53128a1c34c5bd978ca8c1618b4a7cd8401b7",
+        "source_report_sha256": "25d25d742f7c904cc6b3138966ba4c11d5e8fccc7c9a8fefe92e1855d07535f3",
+        "personal_sha256": files["personal"][1], "personal_bytes": len(kept_bytes["personal"]),
+        "starting_sha256": files["starting"][1], "starting_bytes": len(kept_bytes["starting"])}
+    found = written["exploratory_27b"]
+    assert (found["state"], found["reason"], found["model"], found["recipe"]) == ("run", None, "qwen3.8-27b",
+                                                                                 "hf-27b-v1")
+    assert set(found["arms"]) == {"start27", "personal27", "personal"}
+    assert set(found["contrasts"]) == {"personal27 vs start27", "personal27 vs personal"}
+    assert found["arms"]["personal27"]["splits"]["packs"]["runs"] == {"failed": 72}  # 24 tasks, 3 repeats
+    assert not {"rows", "upload_bytes", "deleted"} & set(found)  # nothing uploaded, nothing on Hugging Face
+    assert (found["cost_usd"], found["minutes"], found["uploads_deleted"]) == (None, None, None)
+    assert {name: path.read_bytes() for name, (path, _digest) in files.items()} == kept_bytes
+    assert sorted(item.name for item in files["personal"][0].parent.iterdir()) == ["personal-Q4_K_M.gguf",
+                                                                                   "starting-Q4_K_M.gguf"]
+    assert _hashes(profile) == before
+
+
+class _NoHuggingFace:
+    """An import hook that refuses Row-Bot's Hugging Face code (the remote trainer, its Hub, its sign-in)."""
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    def find_spec(self, name, path=None, target=None):
+        if name == "row_bot.learning.remote" or name.startswith("row_bot.learning.remote."):
+            self.asked.append(name)
+            raise ImportError(name)
+        return None
+
+
+def test_the_kept_mode_cannot_reach_hugging_face(profile, folders, tmp_path, monkeypatch):
+    import sys
+
+    import row_bot.learning as learning_package
+
+    for name in [name for name in sys.modules if name.startswith("row_bot.learning.remote")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.delattr(learning_package, "remote", raising=False)
+    blocker = _NoHuggingFace()
+    monkeypatch.setattr(sys, "meta_path", [blocker, *sys.meta_path])
+    run = _Kept()
+
+    code = report.main(_kept_argv(profile, folders, _kept_files(tmp_path)), hooks=run.hooks())
+
+    assert code == 0 and blocker.asked == []  # the remote trainer was never imported, so never called
+    assert _written(folders[1])["exploratory_27b"]["state"] == "run" and "measured" in run.events
+
+
+def test_a_kept_27b_that_isnt_served_is_reported_and_nothing_is_measured(profile, folders, tmp_path):
+    run = _Kept()
+    hooks = run.hooks()
+    hooks.serve_kept = lambda copy, kept: report.Prepared({}, 32768, "row_bot", reason="no_starting_model",
+                                                          failures={"start": "load_failed"})
+
+    assert report.main(_kept_argv(profile, folders, _kept_files(tmp_path)), hooks=hooks) == 0
+
+    found = _written(folders[1])["exploratory_27b"]
+    assert (found["state"], found["reason"], found["arms"]) == ("not_run", "no_starting_model", {})
+    assert found["serve_failures"] == {"start27": "load_failed"} and "measured" not in run.events
+
+
+def test_the_kept_27bs_are_measured_only_with_row_bot_closed(profile, folders, capsys, tmp_path):
+    from row_bot.launcher import _InstanceLock
+
+    lock = _InstanceLock(profile / "launcher.lock")
+    run = _Kept()
+    hooks = run.hooks()
+    hooks.container = lambda: bool(lock.acquire()) and False  # the participant opens Row-Bot after the copy
+    asked: list[str] = []
+
+    def ask(prompt: str) -> str:
+        asked.append(prompt.split()[1])
+        lock.release()
+        return "measure"
+
+    hooks.ask = ask
+    try:
+        assert report.main(_kept_argv(profile, folders, _kept_files(tmp_path)), hooks=hooks) == 0
+    finally:
+        lock.release()
+
+    assert asked == ["measure"] and run.events[:2] == ["served", "local v2"]
+    assert "Row-Bot is running on the profile" in capsys.readouterr().out
+    assert _written(folders[1])["exploratory_27b"]["state"] == "run"
+
+
+def test_both_kept_27bs_are_served_from_their_files_one_at_a_time(tmp_path, data_dir, monkeypatch):
+    """21 Nov: the starting 27B's load most likely came while the server still unloaded the trained 27B checked just
+    before it. Here a model is still unloading when the kept starting 27B is asked for: its refused load is asked
+    for again, and the trained 27B's comes only once the starting one is listed unloaded."""
+
+    from row_bot.learning.training import llama_server, serving
+    from tests.fixtures.learning_router import OneAtATimeRouter, managed_server
+
+    router = OneAtATimeRouter(unload_looks=3, unloading={"row-bot-personal-v8": 4})
+    server = managed_server(router, data_dir, monkeypatch)
+    monkeypatch.setattr(llama_server, "get", lambda root=None: server)
+
+    class Verifier:
+        def probe(self, model_ref, **_options):
+            return {"agent_ready": True}
+
+        def tool_turn(self, model_ref):
+            raise AssertionError("an untouched 27B has no tool turn to pass")
+
+    monkeypatch.setattr(serving, "RowBotVerifier", Verifier)
+    files = _kept_files(tmp_path)
+    kept = report.KeptFiles(files["personal"][0], files["personal"][1], files["starting"][0], files["starting"][1])
+
+    prepared = report.serve_kept(data_dir, kept)
+
+    start, personal = report.KEPT_START_NAME, report.KEPT_PERSONAL_NAME
+    assert prepared.refs == {"start": f"model:custom_openai_row-bot-personal-row-bot:{start}",
+                             "personal": f"model:custom_openai_row-bot-personal-row-bot:{personal}"}
+    assert prepared.serve_context == 32768 and prepared.runtime == "row_bot"
+    assert set(router.refused) == {start} and router.accepted == [start, personal]  # refused, then accepted
+    assert {entry.name: Path(entry.gguf) for entry in server.models() if entry.name in (start, personal)} == {
+        start: files["starting"][0].resolve(), personal: files["personal"][0].resolve()}  # straight from the files
+    assert sorted(item.name for item in files["personal"][0].parent.iterdir()) == ["personal-Q4_K_M.gguf",
+                                                                                   "starting-Q4_K_M.gguf"]
+    prepared.cleanup()
+    assert not {start, personal} & {entry.name for entry in server.models()}
+
+
+def test_each_arm_loads_only_once_the_last_arms_model_is_listed_unloaded(profile, folders, tmp_path, monkeypatch):
+    """Model by model, an arm's first run would ask for its model while the last arm's still held the card (the
+    server refuses it, and the run fails as a provider error): the last arm's model is let go of in between."""
+
+    from row_bot.learning.training import llama_server
+    from tests.fixtures.learning_router import OneAtATimeRouter, managed_server
+
+    router = OneAtATimeRouter(unload_looks=3)
+    server = managed_server(router, tmp_path / "server", monkeypatch)
+    monkeypatch.setattr(llama_server, "get", lambda root=None: server)
+    on_server = "model:custom_openai_row-bot-personal-row-bot:"
+    run = _Kept()
+    hooks = run.hooks()
+    hooks.serve_kept = lambda copy, kept: report.Prepared(
+        {"start": on_server + report.KEPT_START_NAME, "personal": on_server + report.KEPT_PERSONAL_NAME}, 32768,
+        "row_bot")
+    hooks.prepare = lambda copy, version: report.Prepared(
+        {"start": on_server + "row-bot-personal-base", "personal": on_server + "row-bot-personal-v2"}, 32768, "row_bot")
+
+    class Requests(Packs):
+        """Each run's request names its arm's model, which the server loads for it (or refuses)."""
+
+        def run(self, task, arm, **options):
+            name = arm.model_ref.rsplit(":", 1)[-1]
+            if router.request("POST", "http://127.0.0.1:1/models/load", body={"model": name})[0] != 200:
+                return CaseResult(task.id, "pack", task.kind_of_work, "error", "none", cause="provider_error")
+            return super().run(task, arm, **options)
+
+    hooks.runner = lambda arms: Requests()
+
+    assert report.main(_kept_argv(profile, folders, _kept_files(tmp_path)), hooks=hooks) == 0
+
+    assert router.refused == []
+    assert list(dict.fromkeys(router.accepted)) == [report.KEPT_START_NAME, report.KEPT_PERSONAL_NAME,
+                                                    "row-bot-personal-v2"]
+    arms = _written(folders[1])["exploratory_27b"]["arms"]
+    assert {name: arm["splits"]["packs"]["runs"] for name, arm in arms.items()} == {
+        "start27": {"failed": 72}, "personal27": {"failed": 72}, "personal": {"passed": 72}}
+
+
+def test_the_kept_mode_needs_both_files_their_sha256_and_the_version(profile, folders, capsys, tmp_path):
+    files = _kept_files(tmp_path)
+    argv = _kept_argv(profile, folders, files)
+    for drop in ("--personal-version", "--personal-gguf", "--starting-sha256"):
+        index = argv.index(drop)
+        with pytest.raises(SystemExit):
+            report.main(argv[:index] + argv[index + 2:])
+    with pytest.raises(SystemExit):
+        report.main([item if item != files["starting"][1] else "not-a-hash" for item in argv])
+    assert "--exploratory-27b-kept needs" in capsys.readouterr().err
+    for mode in (["--exploratory-27b-train", "--upload-bytes", "100"], ["--freeze"]):
+        with pytest.raises(SystemExit):
+            report.main([*mode, *argv[1:]])
+    assert "go with --exploratory-27b-kept" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        report.main([*argv, "--upload-bytes", "100"])
+    assert not folders[0].exists() and not folders[1].exists()

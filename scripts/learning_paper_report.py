@@ -17,6 +17,9 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
     uv run python scripts/learning_paper_report.py --thinking --profile ... --scratch ... --out ...
     uv run python scripts/learning_paper_report.py --exploratory-27b-train --paper v2 --as-of 2026-11-12 `
         --personal-version 6 --upload-bytes 21023412 --profile ... --scratch ... --out ...
+    uv run python scripts/learning_paper_report.py --exploratory-27b-kept --paper v2 --as-of 2026-11-12 `
+        --personal-version 6 --personal-gguf <file> --personal-sha256 <hex> --starting-gguf <file> `
+        --starting-sha256 <hex> --profile ... --scratch ... --out ...
 
 - ``--health`` (any time between freezes, §10): counts and errors only, never a pass rate or a comparison.
 - ``--freeze --as-of <date>`` (§7): the pre-registered freeze evaluation on every hidden problem up to the
@@ -52,6 +55,11 @@ Modes (PowerShell, from the Row-Bot checkout the Learning chat names, after ``uv
   when training ends, and the run then goes on as ``--exploratory-27b`` does (a typed ``download``, with Row-Bot
   closed). Its model repository is deleted only once its version is ready here and the starting model the run
   built is downloaded and checked; on any other ending it stays in the participant's account.
+- ``--exploratory-27b-kept --personal-version <N> --personal-gguf <file> --personal-sha256 <hex> --starting-gguf
+  <file> --starting-sha256 <hex>`` (21 Nov): A10 alone, from the two 27B files the train-again run downloaded and
+  the participant kept (its starting 27B failed to load, so it measured nothing). Both files' SHA-256 are checked
+  before anything is copied; they are served straight from where they are, on Row-Bot's own server, and measured
+  as ``--exploratory-27b`` measures (version N as ``personal``). Nothing goes to or comes from Hugging Face.
 
 Every mode:
 
@@ -105,6 +113,14 @@ UPLOAD_WORD = "upload"
 DOWNLOAD_WORD = "download"
 #: ``--exploratory-27b-train``: the card the v2 freeze's third run trained the 27B on (the recipe's own).
 EXPLORATORY_FLAVOR = "a100-large"
+#: ``--exploratory-27b-kept``: the run the kept 27B files come from (the train-again run of Sat 21 Nov, which
+#: downloaded both and then couldn't serve the starting one), named in the report by these fixed values.
+KEPT_SOURCE = {"run": "exploratory-27b-train-2026-11-21", "build": "caf53128a1c34c5bd978ca8c1618b4a7cd8401b7",
+               "report_sha256": "25d25d742f7c904cc6b3138966ba4c11d5e8fccc7c9a8fefe92e1855d07535f3"}
+#: The names the kept 27Bs run under on the copy's own server: their own, so neither replaces a model the copy
+#: lists (the local arm's starting model runs under the starting model's usual name).
+KEPT_START_NAME = "row-bot-personal-base-27b-kept"
+KEPT_PERSONAL_NAME = "row-bot-personal-27b-kept"
 #: A Hugging Face job id and a run's own model repository (the product names it ``row-bot-personal-<job>``).
 HF_JOB_ID = re.compile(r"^[0-9A-Za-z]{6,64}$")
 HF_RUN_REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}/row-bot-personal-[0-9a-z]{1,12}$")
@@ -653,7 +669,8 @@ EXPLORATORY_SECTION = Obj({
     "serve_failures": Map(enum("start27", "personal27", "start", "personal"), SERVE_FAILURE),
     # What Row-Bot deleted on Hugging Face, by kind, and why (a kind not listed is still there).
     "deleted": Map(enum("dataset", "model"), DELETION_REASONS),
-}, optional=frozenset({"serve_failures", "deleted"}))
+    # ``rows`` and ``upload_bytes`` are left out by ``--exploratory-27b-kept``, which uploads nothing.
+}, optional=frozenset({"serve_failures", "deleted", "rows", "upload_bytes"}))
 FREEZE = Obj({
     "format": enum(FORMAT), "schema_version": Num(integer=True, low=SCHEMA_VERSION, high=SCHEMA_VERSION),
     "mode": enum("freeze"), "run": RUN,
@@ -715,8 +732,14 @@ EXPLORATORY_REPORT = Obj({
                    "hours": HOURS,
                    "vault_refresh": Obj({"considered": COUNT, "added": COUNT, "retired": COUNT, "held": COUNT}),
                    # ``--exploratory-27b-train``: the 27B was trained by this run, on this version's kept rows.
-                   "trained": BOOL, "personal_version": COUNT},
-                  optional=frozenset({"since", "trained", "personal_version"})),
+                   "trained": BOOL, "personal_version": COUNT,
+                   # ``--exploratory-27b-kept``: the files measured (their SHA-256, checked first, and sizes) and
+                   # the run they come from.
+                   "kept": Obj({"source_run": enum(KEPT_SOURCE["run"]), "source_build": Text(pattern=COMMIT),
+                                "source_report_sha256": Text(pattern=SHA256), "personal_sha256": Text(pattern=SHA256),
+                                "personal_bytes": COUNT, "starting_sha256": Text(pattern=SHA256),
+                                "starting_bytes": COUNT})},
+                  optional=frozenset({"since", "trained", "personal_version", "kept"})),
     "exploratory_27b": EXPLORATORY_SECTION,
 })
 SCHEMAS = {"health": HEALTH, "freeze": FREEZE, "thinking": THINKING, "exploratory": EXPLORATORY_REPORT}
@@ -962,28 +985,40 @@ def serve_arms(copy: Path, version: Mapping[str, Any]) -> Prepared:
         return Prepared({}, context, runtime, reason="no_starting_model", failures={"start": "no_file"})
     number = int(version["version"])
     made: list[Callable[[], None]] = []
+    start = _serve_twice(runtime, version=number, gguf=base_gguf, serve_context=int(context),
+                         folder=base_model.folder(model.id, copy), root=copy, tag=base_model.tag(copy),
+                         tool_turn=False)
+    if start.state == "ready":
+        made.append(lambda: base_model.withdraw(model.id, root=copy))
+    personal = _serve_twice(runtime, version=number, gguf=Path(version["_gguf"]), serve_context=int(context),
+                            folder=Path(version["_gguf"]).parent, root=copy, tool_turn=False)
+    if personal.state == "ready":
+        made.append(lambda: serving.withdraw(runtime, number, root=copy))
+    return _pair(start, personal, int(context), runtime, made)
+
+
+def _serve_twice(runtime: str, **arguments: Any) -> Any:
+    """One arm served (``serving.serve``), and asked a second time when it didn't come up but its runtime is there:
+    a first load after a restart or a runtime update can outlast the readiness check (13 Nov: Ollama 0.40.16 loaded
+    the starting model in 20.3 s against the check's 20 s); a second load reads the cached file."""
+
+    from row_bot.learning.training import serving
+
+    outcome = serving.serve(runtime, **arguments)
+    if outcome.state != "ready" and outcome.reason not in NOT_THERE:
+        outcome = serving.serve(runtime, **arguments)
+    return outcome
+
+
+def _pair(start: Any, personal: Any, context: int, runtime: str, made: list[Callable[[], None]]) -> Prepared:
+    """The two served arms as :class:`Prepared` (``made`` undoes what serving them did), or, when either didn't
+    come up, nothing served and why each didn't."""
 
     def cleanup() -> None:
         for undo in reversed(made):
             with contextlib.suppress(Exception):
                 undo()
 
-    def serve(**arguments: Any) -> Any:
-        # A first load after a restart or a runtime update can outlast the readiness check (13 Nov: Ollama
-        # 0.40.16 loaded the starting model in 20.3 s against the check's 20 s); a second load reads the cached file.
-        outcome = serving.serve(runtime, **arguments)
-        if outcome.state != "ready" and outcome.reason not in NOT_THERE:
-            outcome = serving.serve(runtime, **arguments)
-        return outcome
-
-    start = serve(version=number, gguf=base_gguf, serve_context=int(context),
-                  folder=base_model.folder(model.id, copy), root=copy, tag=base_model.tag(copy), tool_turn=False)
-    if start.state == "ready":
-        made.append(lambda: base_model.withdraw(model.id, root=copy))
-    personal = serve(version=number, gguf=Path(version["_gguf"]), serve_context=int(context),
-                     folder=Path(version["_gguf"]).parent, root=copy, tool_turn=False)
-    if personal.state == "ready":
-        made.append(lambda: serving.withdraw(runtime, number, root=copy))
     if start.state != "ready" or personal.state != "ready" or not start.model_ref or not personal.model_ref:
         cleanup()
         reasons = {start.reason, personal.reason}
@@ -992,7 +1027,7 @@ def serve_arms(copy: Path, version: Mapping[str, Any]) -> Prepared:
         failures = {name: str(outcome.reason or "failed") for name, outcome in (("start", start), ("personal", personal))
                     if outcome.state != "ready" or not outcome.model_ref}
         return Prepared({}, context, runtime, reason=reason, failures=failures)
-    return Prepared({"start": start.model_ref, "personal": personal.model_ref}, int(context), runtime, cleanup)
+    return Prepared({"start": start.model_ref, "personal": personal.model_ref}, context, runtime, cleanup)
 
 
 def serve_local_reference(copy: Path, model: str, serve_context: int | None) -> Prepared:
@@ -1032,6 +1067,67 @@ def serve_local_reference(copy: Path, model: str, serve_context: int | None) -> 
     return Prepared({LOCAL_ARM: make_ref("ollama", model)}, context, "ollama", cleanup)
 
 
+@dataclass(frozen=True)
+class KeptFiles:
+    """``--exploratory-27b-kept``: the trained 27B and its starting 27B, as kept from the run that downloaded them,
+    with the SHA-256 each must have (and, once checked, its size)."""
+
+    personal: Path
+    personal_sha256: str
+    starting: Path
+    starting_sha256: str
+    personal_bytes: int = 0
+    starting_bytes: int = 0
+
+
+def check_kept(kept: KeptFiles, profile: Path) -> KeptFiles:
+    """Both kept files are there, outside the profile, and have exactly the SHA-256 given (read in full, nothing
+    written); otherwise the run stops before anything is copied. Returns them with their sizes."""
+
+    for path, flag in ((kept.personal, "--personal-gguf"), (kept.starting, "--starting-gguf")):
+        if not path.is_file():
+            raise Refused(f"The {flag} file isn't there. Nothing was copied or written.")
+        if _inside(path, profile):
+            raise Refused(f"The {flag} file must be outside the profile. Nothing was copied or written.")
+    if kept.personal.resolve() == kept.starting.resolve():
+        raise Refused("--personal-gguf and --starting-gguf name the same file. Nothing was copied or written.")
+    say("Checking the SHA-256 of the two kept 27B files (they are read in full: a few minutes) ...")
+    for path, want, what, flag in ((kept.personal, kept.personal_sha256, "trained", "--personal-sha256"),
+                                   (kept.starting, kept.starting_sha256, "starting", "--starting-sha256")):
+        found = _sha(path)
+        if found != want:
+            raise Refused(f"The {what} 27B's file doesn't have the SHA-256 given ({flag}): it is {found}. Nothing "
+                          "was copied or written.")
+        say(f"  The {what} 27B matches: {found}")
+    from dataclasses import replace
+
+    return replace(kept, personal_bytes=kept.personal.stat().st_size, starting_bytes=kept.starting.stat().st_size)
+
+
+def serve_kept(copy: Path, kept: KeptFiles) -> Prepared:
+    """``--exploratory-27b-kept``: the starting 27B, then the trained 27B, served straight from the kept files on
+    Row-Bot's own server (where the train-again run made its version ready), at the 27B recipe's context, thinking
+    off, with Row-Bot's probe only, as :func:`serve_arms` serves an arm pair; under names of their own on the copy's
+    server list (:data:`KEPT_START_NAME`, :data:`KEPT_PERSONAL_NAME`). Nothing is written beside the files. Each
+    check unloads its model and waits until the server lists it unloaded before the next load
+    (``ManagedServer.unload``), and a load refused while another model unloads is asked for again
+    (``ManagedServer.load``)."""
+
+    from row_bot.learning.training import llama_server, recipes, serving
+
+    context = int(recipes.load("hf-27b").serve_context)
+    made: list[Callable[[], None]] = []
+    outcomes = []
+    for name, gguf in ((KEPT_START_NAME, kept.starting), (KEPT_PERSONAL_NAME, kept.personal)):
+        # ``version`` names nothing on Row-Bot's own server when ``tag`` is given.
+        outcome = _serve_twice(serving.ROW_BOT, version=0, gguf=gguf, serve_context=context, folder=gguf.parent,
+                               root=copy, tag=name, tool_turn=False)
+        if outcome.state == "ready":
+            made.append(lambda name=name: llama_server.get(copy).unregister(name))
+        outcomes.append(outcome)
+    return _pair(*outcomes, context, serving.ROW_BOT, made)
+
+
 @dataclass
 class Hooks:
     """What a test replaces: serving the arms, the pack runner and the replay client (fakes, no GPU)."""
@@ -1056,6 +1152,8 @@ class Hooks:
     tester: Callable[[Any], Any] | None = None
     # A12 5: serving the larger local reference arm (copy, Ollama tag, serving context); a test passes a fake.
     local_reference: Callable[[Path, str, int | None], Prepared] = serve_local_reference
+    # ``--exploratory-27b-kept``: serving the two kept 27B files; a test passes a fake.
+    serve_kept: Callable[[Path, KeptFiles], Prepared] = serve_kept
 
 
 class EvalSignIn:
@@ -1630,9 +1728,7 @@ def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: H
     measure it on the same hidden problems (in v2 the same window, ``since``), checker, budget and repeats, delete
     the uploads, report apart."""
 
-    from row_bot.learning import evaluation
     from row_bot.learning.remote import training as remote_training
-    from row_bot.learning.store import LearningStore
     from row_bot.learning.training import releases
 
     trainer, job_id = found.trainer, found.job_id
@@ -1680,15 +1776,39 @@ def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: H
         return found.fail("couldnt_start")
     row = next((item for item in _versions(copy) if item["version"] == int(job.version)), None)
     prepared = hooks.prepare(copy, row) if row is not None else Prepared({}, None, "row_bot", reason="no_version")
+    if measure_exploratory(copy, found, prepared, as_of=as_of, hooks=hooks, client=client, budget=budget,
+                           meter=meter, packs=packs, verifiers=verifiers, repeats=repeats, since=since) is None:
+        return found
+    kept = dict(state.kept_pass or {})
+    found.section.update({
+        "kept_pass": int(kept["pass"]) if isinstance(kept.get("pass"), int) else None,
+        "passes": int(kept["of"]) if isinstance(kept.get("of"), int) else None,
+    })
+    return found
+
+
+def measure_exploratory(copy: Path, found: Exploratory, prepared: Prepared, *, as_of: float, hooks: Hooks,
+                        client: Any, budget: Any, meter: Any, packs: Sequence[str], verifiers: Any, repeats: int,
+                        since: float | None) -> Mapping[str, Any] | None:
+    """A10's measurement, the same in every mode: the 27B pair served (``prepared``), then the local personal model
+    (``found.section["_newest"]``, served by ``hooks.prepare``), as the arms start27, personal27 and personal, model by
+    model, on the same hidden problems (in v2 the same window, ``since``), checker, budget and repeats, with the two
+    contrasts. Returns the result (``found`` is run), or None when an arm didn't come up (``found`` says why)."""
+
+    from row_bot.learning import evaluation
+    from row_bot.learning.store import LearningStore
+
     try:
         if not prepared.refs:
             found.section["serve_failures"] = {f"{name}27": why for name, why in prepared.failures.items()}
-            return found.fail(prepared.reason or "runtime_unavailable")
+            found.fail(prepared.reason or "runtime_unavailable")
+            return None
         local = hooks.prepare(copy, found.section["_newest"])
         try:
             if not local.refs:
                 found.section["serve_failures"] = dict(local.failures)
-                return found.fail(local.reason or "runtime_unavailable")
+                found.fail(local.reason or "runtime_unavailable")
+                return None
             arms = [evaluation.Arm("start27", model_ref=prepared.refs["start"], subject_kind="baseline",
                                    serve_context=prepared.serve_context),
                     evaluation.Arm("personal27", model_ref=prepared.refs["personal"], subject_kind="release",
@@ -1700,24 +1820,22 @@ def finish_exploratory(copy: Path, found: Exploratory, *, as_of: float, hooks: H
                 # Model by model: two 27Bs and the 9B can't stay loaded together on a 32 GB card, so interleaved
                 # runs would load a model for every run (28 Oct: about 16 s a run). The same runs, budget,
                 # checker, repeats and pairing; local models spend no tokens, so no limit can stop it midway.
+                # Between arms the finished arm's model is let go of, so the next one loads alone.
+                progress = _Progress(time.monotonic(), arms=len(arms),
+                                     between=lambda index: _let_go(copy, str(arms[index].model_ref)))
                 result = evaluation.freeze_check(
                     arms, as_of=as_of, asked_by="the paper's exploratory 27B (A10)",
                     contrasts=[("start27", "personal27"), ("personal", "personal27")], client=client,
                     budget=budget, meter=meter, store=LearningStore(copy), runner=runner,
                     cache=evaluation.ArmCache(copy), packs=packs, verifiers=verifiers, repeats=repeats,
-                    on_progress=_Progress(time.monotonic()), order=EXPLORATORY_ORDER, since=since)
+                    on_progress=progress, order=EXPLORATORY_ORDER, since=since)
         finally:
             local.cleanup()
     finally:
         prepared.cleanup()
     found.state, found.reason = "run", ("stopped" if result.get("stopped") else None)
-    kept = dict(state.kept_pass or {})
-    found.section.update({
-        "kept_pass": int(kept["pass"]) if isinstance(kept.get("pass"), int) else None,
-        "passes": int(kept["of"]) if isinstance(kept.get("of"), int) else None,
-        "_result": result,
-    })
-    return found
+    found.section["_result"] = result
+    return result
 
 
 def _cost(record: Any) -> dict[str, Any]:
@@ -1804,15 +1922,13 @@ def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str 
     ``personal`` arm. ``busy`` says whether Row-Bot runs on the profile (it must be closed for the measurement)."""
 
     from row_bot.learning import evaluation
-    from row_bot.learning.packs import PACKS
     from row_bot.learning.remote import training as remote_training
     from row_bot.learning.spending import TokenMeter
     from row_bot.learning.store import LearningStore
 
     started = time.monotonic()
     store = LearningStore(copy)
-    candidates = [row for row in _versions(copy) if not row["pilot"] and row["_ready_once"]
-                  and row["_gguf"] is not None and Path(row["_gguf"]).is_file()]
+    candidates = _measurable(copy)
     if train_version is None:
         newest = max(candidates, key=lambda row: row["version"]) if candidates else None
     else:  # the version the freeze evaluated, named: a version trained since then isn't it
@@ -1820,10 +1936,7 @@ def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str 
     # As in the freeze: the rows are rebuilt before the vault takes anything new.
     rows = rows_for_upload(copy, newest, lookup=hooks.lookup) if newest is not None else None
     refreshed = evaluation.refresh_audit(store=store, asked_by="the paper's exploratory 27B (A10)")
-    since = _end_of_day(V1_FREEZE) if paper == "v2" else None
-    container = bool((hooks.container or _container)())
-    packs = [pack for pack in PACKS if container or pack != "small_coding"]
-    verifiers = None if container else ["answer", "json_answer", "file", "app_state"]
+    since, container, packs, verifiers = _exploratory_plan(hooks, paper)
     if train_version is None:
         found = attach_exploratory(copy, newest, hooks=hooks, remote_id=str(remote_id),
                                    output_repo=str(output_repo), rows=rows)
@@ -1843,16 +1956,97 @@ def exploratory_report(copy: Path, as_of: date, *, hooks: Hooks, remote_id: str 
             _say_deletions(record)
     return {
         "format": FORMAT, "schema_version": SCHEMA_VERSION, "mode": "exploratory",
-        "design": {"as_of": as_of.isoformat(), "paper": paper,
-                   **({"since": V1_FREEZE.isoformat()} if since is not None else {}),
-                   "metric_version": evaluation.METRIC_VERSION, "repeats": repeats, "task_tokens": 150_000,
-                   "container": container, "hours": round((time.monotonic() - started) / 3600, 3),
-                   "vault_refresh": {key: int(refreshed.get(key, 0)) for key in ("considered", "added", "retired",
-                                                                                  "held")},
+        "design": {**_exploratory_design(as_of, paper, since, repeats, container, started, refreshed),
                    **({"trained": True, "personal_version": int(train_version)} if train_version is not None
                       else {})},
         "exploratory_27b": exploratory_section(found),
     }
+
+
+#: ``--exploratory-27b-kept``: what the participant types, once Row-Bot is closed, when it was running on the
+#: profile as the measurement was about to start.
+MEASURE_WORD = "measure"
+
+
+def kept_report(copy: Path, as_of: date, *, hooks: Hooks, kept: KeptFiles, personal_version: int,
+                paper: str = "v1", repeats: int = 3, cap_tokens: int = CLOUD_CAP,
+                busy: Callable[[], bool] = lambda: False) -> dict[str, Any]:
+    """``--exploratory-27b-kept``: A10 alone, from the two 27B files kept from the train-again run (already checked
+    against their SHA-256 by :func:`check_kept`): served straight from those files (``hooks.serve_kept``) and
+    measured exactly as ``--exploratory-27b`` measures (:func:`measure_exploratory`), with ``personal_version`` as the
+    ``personal`` arm, on the same hidden problems (in v2 the same window). Nothing is uploaded, trained or
+    downloaded, and nothing of Hugging Face is used. ``busy`` says whether Row-Bot runs on the profile: the
+    measurement waits until it is closed (the graphics card is the measurement's alone)."""
+
+    from row_bot.learning import evaluation
+    from row_bot.learning.spending import TokenMeter
+    from row_bot.learning.store import LearningStore
+    from row_bot.learning.training import recipes
+
+    started = time.monotonic()
+    store = LearningStore(copy)
+    newest = next((row for row in _measurable(copy) if row["version"] == personal_version), None)
+    refreshed = evaluation.refresh_audit(store=store, asked_by="the paper's exploratory 27B (A10)")
+    since, container, packs, verifiers = _exploratory_plan(hooks, paper)
+    found = Exploratory(state="not_run", recipe=recipes.load("hf-27b").name)
+    if newest is None:
+        found.fail("no_version")
+    else:
+        found.section["_newest"] = newest
+        while busy():
+            say("\aRow-Bot is running on the profile. Quit it (right-click its icon by the clock, then Quit): the "
+                "measurement needs this computer's graphics card to itself.")
+            if not _typed(hooks, MEASURE_WORD, f"Type {MEASURE_WORD} once it is closed (anything else: not run): "):
+                found.fail("declined")
+                break
+        if found.reason is None:
+            say("Serving the kept starting 27B, then the kept trained 27B, from their files ...")
+            prepared = hooks.serve_kept(copy, kept)
+            measure_exploratory(copy, found, prepared, as_of=_end_of_day(as_of), hooks=hooks, client=hooks.client,
+                                budget=evaluation.Budget(task_tokens=150_000), meter=TokenMeter(cap_tokens),
+                                packs=packs, verifiers=verifiers, repeats=repeats, since=since)
+    section = exploratory_section(found)
+    for key in ("rows", "upload_bytes"):  # nothing was uploaded: the source run's report has its rows
+        section.pop(key)
+    return {
+        "format": FORMAT, "schema_version": SCHEMA_VERSION, "mode": "exploratory",
+        "design": {**_exploratory_design(as_of, paper, since, repeats, container, started, refreshed),
+                   "trained": True, "personal_version": int(personal_version),
+                   "kept": {"source_run": KEPT_SOURCE["run"], "source_build": KEPT_SOURCE["build"],
+                            "source_report_sha256": KEPT_SOURCE["report_sha256"],
+                            "personal_sha256": kept.personal_sha256, "personal_bytes": int(kept.personal_bytes),
+                            "starting_sha256": kept.starting_sha256, "starting_bytes": int(kept.starting_bytes)}},
+        "exploratory_27b": section,
+    }
+
+
+def _measurable(copy: Path) -> list[dict[str, Any]]:
+    """The versions A10's ``personal`` arm may be: not a pilot, made ready once, with their file here."""
+
+    return [row for row in _versions(copy) if not row["pilot"] and row["_ready_once"]
+            and row["_gguf"] is not None and Path(row["_gguf"]).is_file()]
+
+
+def _exploratory_plan(hooks: Hooks, paper: str) -> tuple[float | None, bool, list[str], list[str] | None]:
+    """A10's window start (v2: after the v1 freeze), whether code packs run in a container, the packs and checkers."""
+
+    from row_bot.learning.packs import PACKS
+
+    since = _end_of_day(V1_FREEZE) if paper == "v2" else None
+    container = bool((hooks.container or _container)())
+    packs = [pack for pack in PACKS if container or pack != "small_coding"]
+    verifiers = None if container else ["answer", "json_answer", "file", "app_state"]
+    return since, container, packs, verifiers
+
+
+def _exploratory_design(as_of: date, paper: str, since: float | None, repeats: int, container: bool,
+                        started: float, refreshed: Mapping[str, Any]) -> dict[str, Any]:
+    from row_bot.learning import evaluation
+
+    return {"as_of": as_of.isoformat(), "paper": paper, **({"since": V1_FREEZE.isoformat()} if since is not None else {}),
+            "metric_version": evaluation.METRIC_VERSION, "repeats": repeats, "task_tokens": 150_000,
+            "container": container, "hours": round((time.monotonic() - started) / 3600, 3),
+            "vault_refresh": {key: int(refreshed.get(key, 0)) for key in ("considered", "added", "retired", "held")}}
 
 
 def _end_of_day(day: date) -> float:
@@ -2097,17 +2291,38 @@ def _container() -> bool:
 
 
 class _Progress:
-    """Counts only: how many runs are done, every few minutes."""
+    """Counts only: how many runs are done, every few minutes. Model by model (``arms`` and ``between``), when an
+    arm's last run is done, ``between`` is told which arm it was, before the next arm's first run."""
 
-    def __init__(self, started: float) -> None:
+    def __init__(self, started: float, *, arms: int = 0, between: Callable[[int], None] | None = None) -> None:
         self.started = started
         self.last = 0.0
+        self.arms = arms
+        self.between = between
 
     def __call__(self, done: int, total: int) -> None:
         now = time.monotonic()
         if done == total or now - self.last >= 120:
             self.last = now
             say(f"  {done} of {total} runs ({round((now - self.started) / 60)} min)")
+        each = total // self.arms if self.arms and self.between is not None else 0
+        if each and done < total and done % each == 0:
+            self.between(done // each - 1)
+
+
+def _let_go(copy: Path, model_ref: str) -> None:
+    """The card an arm's model holds goes back, and this returns once its runtime lists it unloaded (Row-Bot's own
+    server, or Ollama): the next arm's first load then never comes while it still holds the card."""
+
+    from row_bot.learning.training import llama_server, serving
+    from row_bot.providers.custom import custom_provider_id
+    from row_bot.providers.selection import parse_model_ref
+
+    provider, model = parse_model_ref(model_ref) or ("", "")
+    if provider == custom_provider_id(llama_server.ENDPOINT_ID):
+        llama_server.get(copy).unload(model, wait=True)
+    elif provider == "ollama":
+        serving.OllamaRuntime().unload(model, wait=True)
 
 
 def _summary(found: Mapping[str, Any] | None) -> dict[str, Any] | None:
@@ -2501,6 +2716,10 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                       help="A10 alone, the 27B trained again on Hugging Face from --personal-version's kept rows "
                            "(you sign in there and type 'upload', then 'download' once it has trained), then "
                            "downloaded, measured on the freeze's problems and deleted there")
+    mode.add_argument("--exploratory-27b-kept", action="store_true",
+                      help="A10 alone, from the two 27B files kept from the train-again run (--personal-gguf, "
+                           "--starting-gguf, each checked against its SHA-256 first): served from those files and "
+                           "measured on the freeze's problems with --personal-version; nothing of Hugging Face")
     parser.add_argument("--as-of", help="--freeze: the freeze date, YYYY-MM-DD (problems up to the end of that day)")
     parser.add_argument("--hugging-face-run", metavar="JOB_ID",
                         help="--exploratory-27b: the finished run's Hugging Face job id (from its page)")
@@ -2508,10 +2727,19 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                         help="--exploratory-27b: the finished run's own model repository")
     parser.add_argument("--personal-version", type=int, metavar="N",
                         help="--exploratory-27b-train: the local personal model whose kept rows train the 27B, and "
-                             "its 'personal' arm (the version the freeze evaluated)")
+                             "its 'personal' arm (the version the freeze evaluated); --exploratory-27b-kept: the "
+                             "'personal' arm")
     parser.add_argument("--upload-bytes", type=int, metavar="BYTES",
                         help="--exploratory-27b-train: the size the upload must have (the freeze's own upload's); "
                              "any other size uploads nothing")
+    parser.add_argument("--personal-gguf", metavar="FILE",
+                        help="--exploratory-27b-kept: the kept trained 27B's file (read only)")
+    parser.add_argument("--personal-sha256", metavar="HEX",
+                        help="--exploratory-27b-kept: the SHA-256 the trained 27B's file must have")
+    parser.add_argument("--starting-gguf", metavar="FILE",
+                        help="--exploratory-27b-kept: the kept starting 27B's file (read only)")
+    parser.add_argument("--starting-sha256", metavar="HEX",
+                        help="--exploratory-27b-kept: the SHA-256 the starting 27B's file must have")
     parser.add_argument("--profile", required=True, help="the Row-Bot profile folder (read only, never written)")
     parser.add_argument("--scratch", required=True, help="where the copy goes (outside the profile and the checkout)")
     parser.add_argument("--out", required=True, help="where the JSON goes")
@@ -2554,13 +2782,13 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
                      "profile's ChatGPT sign-in, never yours)")
     if args.eval_profile and not cloud:
         parser.error("--eval-profile goes with --main-reference, --h2, --h3-final or --judge-long-answers")
-    if args.freeze or args.exploratory_27b or args.exploratory_27b_train:
+    if args.freeze or args.exploratory_27b or args.exploratory_27b_train or args.exploratory_27b_kept:
         try:
             args.as_of_date = date.fromisoformat(str(args.as_of or ""))
         except ValueError:
-            parser.error("--freeze, --exploratory-27b and --exploratory-27b-train need --as-of YYYY-MM-DD")
+            parser.error("--freeze and the --exploratory-27b modes need --as-of YYYY-MM-DD")
     elif args.as_of:
-        parser.error("--as-of goes with --freeze, --exploratory-27b or --exploratory-27b-train")
+        parser.error("--as-of goes with --freeze or an --exploratory-27b mode")
     if args.exploratory_27b:
         if not HF_JOB_ID.match(str(args.hugging_face_run or "")):
             parser.error("--exploratory-27b needs --hugging-face-run JOB_ID (the finished run's job id)")
@@ -2577,8 +2805,25 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
             parser.error("--exploratory-27b-train needs --upload-bytes BYTES (the freeze's own upload's size)")
         if cloud:
             parser.error("--exploratory-27b-train uses no cloud model: leave out --eval-profile and the cloud parts")
-    elif args.personal_version is not None or args.upload_bytes is not None:
-        parser.error("--personal-version and --upload-bytes go with --exploratory-27b-train")
+    elif args.upload_bytes is not None:
+        parser.error("--upload-bytes goes with --exploratory-27b-train")
+    kept = (args.personal_gguf, args.personal_sha256, args.starting_gguf, args.starting_sha256)
+    if args.exploratory_27b_kept:
+        if (args.personal_version or 0) < 1:
+            parser.error("--exploratory-27b-kept needs --personal-version N (the version the freeze evaluated)")
+        if not (args.personal_gguf and args.starting_gguf):
+            parser.error("--exploratory-27b-kept needs --personal-gguf FILE and --starting-gguf FILE (the kept 27Bs)")
+        for flag, value in (("--personal-sha256", args.personal_sha256), ("--starting-sha256", args.starting_sha256)):
+            if not SHA256.fullmatch(str(value or "").lower()):
+                parser.error(f"--exploratory-27b-kept needs {flag} HEX (64 hexadecimal digits)")
+        args.personal_sha256, args.starting_sha256 = args.personal_sha256.lower(), args.starting_sha256.lower()
+        if cloud:
+            parser.error("--exploratory-27b-kept uses no cloud model: leave out --eval-profile and the cloud parts")
+    elif any(value is not None for value in kept):
+        parser.error("--personal-gguf, --personal-sha256, --starting-gguf and --starting-sha256 go with "
+                     "--exploratory-27b-kept")
+    elif args.personal_version is not None and not args.exploratory_27b_train:
+        parser.error("--personal-version goes with --exploratory-27b-train or --exploratory-27b-kept")
     for flag, given in (("--hugging-face-27b", args.hugging_face_27b), ("--judge-long-answers", args.judge_long_answers),
                         ("--local-reference", args.local_reference)):
         if given and not args.freeze:
@@ -2597,7 +2842,8 @@ def main(argv: Sequence[str] | None = None, *, hooks: Hooks | None = None) -> in
     args = parse(argv)
     hooks = hooks or Hooks()
     mode = ("health" if args.health else "freeze" if args.freeze
-            else "exploratory" if args.exploratory_27b or args.exploratory_27b_train else "thinking")
+            else "exploratory" if args.exploratory_27b or args.exploratory_27b_train or args.exploratory_27b_kept
+            else "thinking")
     profile, scratch, out = Path(args.profile).resolve(), Path(args.scratch).resolve(), Path(args.out).resolve()
     started = time.monotonic()
     say("Row-Bot Learning: the paper's report")
@@ -2613,6 +2859,10 @@ def main(argv: Sequence[str] | None = None, *, hooks: Hooks | None = None) -> in
                                   or Path(args.eval_profile).resolve() == everyday_profile()):
             raise Refused("The --eval-profile folder must be the eval profile, not your profile.")
         refuse_if_running(profile, installed=hooks.installed)
+        # --exploratory-27b-kept: both kept files' SHA-256 are checked before anything is copied.
+        args.kept = (check_kept(KeptFiles(Path(args.personal_gguf).resolve(), args.personal_sha256,
+                                          Path(args.starting_gguf).resolve(), args.starting_sha256), profile)
+                     if args.exploratory_27b_kept else None)
         # A12 3: the v1 report is checked before anything is copied (only its H1 estimate is kept).
         args.v1_h1 = read_v1_report(Path(args.combine_with)) if args.combine_with else None
         scratch.mkdir(parents=True, exist_ok=True)
@@ -2718,6 +2968,13 @@ def _run_mode(mode: str, copy: Path, target: Path, args: argparse.Namespace, hoo
         return health_report(copy)
     if not learning.read_settings(copy).enabled:
         raise _ModeFailed("Learning is off in this profile")
+    if mode == "exploratory" and args.exploratory_27b_kept:
+        say("Running the exploratory 27B from the two kept 27B files (nothing of Hugging Face) ...")
+        profile = Path(args.profile).resolve()
+        return kept_report(copy, args.as_of_date, hooks=hooks, kept=args.kept,
+                           personal_version=int(args.personal_version), paper=str(args.paper),
+                           cap_tokens=int(args.cloud_cap),
+                           busy=lambda: row_bot_running(profile, installed=hooks.installed))
     if mode == "exploratory" and args.exploratory_27b_train:
         say("Running the exploratory 27B: trained again on Hugging Face, then downloaded and measured here ...")
         profile = Path(args.profile).resolve()
