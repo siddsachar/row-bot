@@ -1044,8 +1044,8 @@ def main(argv: list[str] | None = None) -> int:
             reconfigure(encoding="utf-8", errors="replace")
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     data = check_scratch(Path(args.data), Path(args.eval_profile))
-    if not re.search(r"(^|/)sa[23]?_", data.as_posix().lower()):
-        raise ScratchError(f"{data}: the stale-skills profiles live under an sa_, sa2_ or sa3_ folder")
+    if not re.search(r"(^|/)(sa[23]?|c1)_", data.as_posix().lower()):
+        raise ScratchError(f"{data}: the stale-skills profiles live under an sa_, sa2_, sa3_ or c1_ folder")
     run = StaleRun(args)
     run.boot()
     wanted = [stage.strip() for stage in args.stages.split(",") if stage.strip()]
