@@ -16,6 +16,7 @@ from pydantic import Field
 
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.prompt_cache import conversation_cache_ttl, usage_metadata_from_provider_usage
+from row_bot.providers import sampling_presets
 from row_bot.providers.capabilities import PROMPT_CACHE_ROUTE_REQUESTY, prompt_cache_route
 from row_bot.providers.tool_schema import gemini_openai_tool, is_gemini_model
 from row_bot.providers.transports import prompt_cache_breakpoints as cache_breakpoints
@@ -428,6 +429,7 @@ class ChatOpenAICompatible(BaseChatModel):
         if stream and _endpoint_stream_usage_supported(self.endpoint):
             body.setdefault("stream_options", {"include_usage": True})
         _apply_dynamic_reasoning_plan(body, self.reasoning_plan)
+        sampling_presets.apply_to_openai_compatible(body, self.endpoint, self.model_name)
         if self.endpoint.get("drop_unsupported_params", True):
             _drop_empty_or_unsupported(body, accepts_tools=accepts_tools)
         if self._requests_auto_cache(messages):
