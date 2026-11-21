@@ -499,6 +499,16 @@ test('the knowledge graph settles in a same-origin worker and comes back settled
     });
     await page.goto('/app-v2/?tab=knowledge');
     const graph = page.locator('.knowledge-network-shell');
+    if (page.viewportSize()!.width < 768) {
+      // A phone lists the memories instead (B4, D12 A): no graph to settle.
+      await expect(
+        page
+          .getByRole('list', { name: 'Memories' })
+          .getByRole('button', { name: /^Phase 4 knowledge 000/ }),
+      ).toBeVisible();
+      await expect(graph).toHaveCount(0);
+      return;
+    }
     // A graph whose renderer fails (no WebGL) is replaced by the memory list
     // and a note saying why, so wait for one of the two settled outcomes.
     const noWebgl = page.getByRole('status').filter({ hasText: 'needs WebGL' });

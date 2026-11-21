@@ -3749,6 +3749,34 @@ def b1_seed(x_fixture_token: str = Header(default="")) -> dict:
     return _B1_SEEDED
 
 
+_PHONE_B4_MEMORIES = (
+    ("project", "Community workshop", "Thursday 18:30 at Community Hall."),
+    ("fact", "Launch checklist", "Approve before writing."),
+    ("organisation", "Neighbourhood Makers Club", "Hosts the workshop."),
+    ("project", "Book Club", "Meets on Mondays."),
+    ("preference", "Prefers short answers", "Keep replies to a few lines."),
+    ("person", "Sam Rivera", "Runs the Book Club."),
+)
+
+
+@app.post("/__phone_b4_fixture/memories/{state}")
+def phone_b4_memories(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Memory on the phone (B4): six memories of five types, saved afresh ("seeded"), or removed ("removed").
+    Saved without indexing; every id starts "phone-b4-", so no other memory is touched."""
+    predecessor._authorize(x_fixture_token)
+    if state not in {"seeded", "removed"}:
+        raise HTTPException(status_code=422, detail="Unknown phone memory state")
+    from row_bot import knowledge_graph as kg
+
+    kg._skip_reindex = True
+    for index in range(len(_PHONE_B4_MEMORIES)):
+        kg.delete_entity(f"phone-b4-{index}")
+    if state == "seeded":
+        for index, (kind, subject, description) in enumerate(_PHONE_B4_MEMORIES):
+            kg.save_entity(kind, subject, description, source="manual", entity_id=f"phone-b4-{index}")
+    return {"state": state, "memories": len(_PHONE_B4_MEMORIES) if state == "seeded" else 0}
+
+
 @app.post("/__p3_fixture/large-library")
 def large_library(x_fixture_token: str = Header(default="")) -> dict:
     """Seed 1,001 ordinary conversations and 10,001 durable messages once."""
