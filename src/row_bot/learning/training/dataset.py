@@ -702,6 +702,10 @@ def _example(episode: Episode, book: _Book, *, roots: Sequence[str],
             pictures = sum(1 for message in sent if _page_picture(message))
             sent = [message for message in sent if not _page_picture(message)]
         person = max((index for index, message in enumerate(sent) if _is_person(message)), default=-1)
+        # A reply the model was cut off in (its output token limit) ends mid-action: never a target.
+        targets = [message for message in sent[person + 1:] if message.get("type") == "ai"]
+        if any(_cut_short(message) for message in [*targets, *([output] if held is None else [])]):
+            return None, "output_limit", 0
         messages: list[dict[str, Any]] = []
         starts: list[int] = []  # where each of the person's messages is in ``messages``
         system: list[str] = []
@@ -765,6 +769,18 @@ def _example(episode: Episode, book: _Book, *, roots: Sequence[str],
         row=row, estimated_tokens=estimate_tokens(row), derived=derived,
         quoted=tuple(sorted({thread for item in decisions for thread in item.quoted_thread_ids})),
     ), "", changed
+
+
+def _cut_short(message: Any) -> bool:
+    """Whether a stored model reply stopped at its output token limit (the stop reason its provider saved in
+    ``response_metadata``, read alike for every provider)."""
+
+    from row_bot.providers.stop_reason import stop_reason, stopped_at_output_limit
+
+    if not isinstance(message, Mapping):
+        return False
+    data = message.get("data") if isinstance(message.get("data"), Mapping) else message
+    return stopped_at_output_limit(stop_reason(data.get("response_metadata")))
 
 
 def _finish_row(system: list[str], messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *,
