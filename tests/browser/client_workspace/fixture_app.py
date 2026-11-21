@@ -6372,6 +6372,7 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
         from row_bot.application import client_learning
         client_learning.read_learning_hardware = _l1a_saved["hardware_read"]
         learning.invalidate()
+        learning.ensure_store()  # what start-up does for a profile with Learning on by default (O195)
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
     return {"action": action}

@@ -370,6 +370,20 @@ def settings_saved(field: str, value: Any) -> None:
             logger.warning("Learning could not set aside a run planned for the other place", exc_info=True)
 
 
+def ensure_store() -> None:
+    """While Learning is on its store exists, as turning it on makes it: start-up calls this for a profile that
+    has Learning on without ever turning it on (on by default, O195). Off, or already there: one check."""
+
+    if not is_enabled() or store_exists():
+        return
+    try:
+        from row_bot.learning.store import LearningStore
+
+        LearningStore().create()
+    except Exception:
+        logger.warning("Learning is on but its store could not be created yet", exc_info=True)
+
+
 def start_past_chat_import() -> None:
     """Read past chats in the background when Learning and "past chats" are on (D26).
 
@@ -569,6 +583,7 @@ __all__ = [
     "WAYS_OF_WORKING_FILE",
     "changed",
     "data_dir",
+    "ensure_store",
     "experimental_enabled",
     "folder_path",
     "invalidate",

@@ -149,6 +149,21 @@ def test_invalid_learning_changes_are_refused_without_writing(api, field, value,
     assert learning_files(data) == []
 
 
+def test_start_up_makes_the_store_while_learning_is_on_as_turning_it_on_does(data_dir):
+    # O195: a profile that never turned Learning on has it on, so start-up makes the store turning it on would.
+    learning.ensure_store()
+    assert learning.store_exists() is True and learning_files(data_dir) == ["learning", "learning.db",
+                                                                            "learning/blobs"]
+    learning.ensure_store()  # already there: nothing more
+    assert learning_files(data_dir) == ["learning", "learning.db", "learning/blobs"]
+
+
+def test_start_up_makes_nothing_while_learning_is_off(data_dir):
+    save_learning_settings(data_dir, enabled=False)
+    learning.ensure_store()
+    assert learning_files(data_dir) == ["learning_config.json"]
+
+
 def test_the_switch_follows_the_saved_file(data_dir):
     assert learning.is_enabled() is True  # nothing saved: on by default (O195)
     save_learning_settings(data_dir, apply_mode="ask_first")

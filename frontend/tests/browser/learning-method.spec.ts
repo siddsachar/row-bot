@@ -86,6 +86,11 @@ async function turnOn(page: Page) {
     .getByRole('button', { name: 'Not now', exact: true })
     .click();
   await expect(notice(page, 'Not downloading for now.')).toBeVisible();
+  // Comparing ways of learning is experimental learning, off until the person turns it on (O195).
+  await page.getByRole('switch', { name: 'Try experimental learning' }).click();
+  await expect(
+    notice(page, 'Try experimental learning turned on'),
+  ).toBeVisible();
 }
 
 async function open(page: Page) {
