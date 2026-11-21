@@ -6489,7 +6489,7 @@ def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
     return {"removed": True}
 
 
-# ── Learning (preview), L1a: the flag, the hardware check and the Overview's states ──
+# ── Learning (preview), L1a: the stand-ins, the hardware check and the Overview's states ──
 
 _l1a_saved: dict[str, object] = {}
 
@@ -6519,8 +6519,8 @@ def _l1a_stream(text: str, config: dict):
 
 @app.post("/__l1a_fixture/learning/{action}")
 def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
-    """Learning (preview) for the L1a spec: the start-up flag, a faked hardware check and the
-    Overview's states. Nothing reaches a GPU, a download or a provider."""
+    """Learning (preview) for the L1a spec: the download and free-space stand-ins, a faked hardware
+    check and the Overview's states. Nothing reaches a GPU, a download or a provider."""
     predecessor._authorize(x_fixture_token)
     import time as _time
 
@@ -6536,9 +6536,7 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
         _l1a_saved["memory_free"] = hardware.memory_free_for_training
         from row_bot.application import client_learning
         _l1a_saved["hardware_read"] = client_learning.read_learning_hardware
-    if action == "preview":
-        learning._PREVIEW = True  # the start-up flag, as if launched with ROW_BOT_LEARNING_PREVIEW=1
-        learning.invalidate()
+    if action == "stand-ins":
         # The personal model's download (L2b): a stand-in whose states the specs set; never a real one.
         from row_bot.learning.training import downloads as _downloads
         _downloads._downloads = _FixtureDownloads()
@@ -6619,8 +6617,8 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
         _downloads._downloads = None
         from row_bot.application import client_learning
         client_learning.read_learning_hardware = _l1a_saved["hardware_read"]
-        learning._PREVIEW = False
         learning.invalidate()
+        learning.ensure_store()  # what start-up does for a profile with Learning on by default (O195)
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
     return {"action": action}
@@ -6960,14 +6958,11 @@ def _l4b_question() -> None:
 
 
 def _l4b_restore() -> None:
-    import os as _os
-
-    from row_bot import learning
+    from row_bot.application.settings_commands import write_learning_settings
     from row_bot.learning import practice, question
     from row_bot.learning.store import LearningStore
 
-    _os.environ.pop(learning.PRACTICE_ENV, None)
-    _os.environ.pop(learning.QUICK_QUESTION_ENV, None)
+    write_learning_settings({"experimental": False})
     store = LearningStore()
     if store.exists():
         store.set_meta_values({practice.NIGHT_KEY: "", question.OPEN_KEY: "", question.ANSWERS_KEY: "",
@@ -6976,16 +6971,14 @@ def _l4b_restore() -> None:
 
 @app.post("/__l4b_fixture/learning/{action}")
 def l4b_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
-    """Learning (preview) for the L4b spec: a build with practice and the quick question on, a night that practised,
-    and a quick question waiting. Nothing reaches a model: the night and the question are written directly."""
-    import os as _os
-
-    from row_bot import learning
+    """Learning for the L4b spec: experimental learning on (practice and the quick question, O195), a night that
+    practised, and a quick question waiting. Nothing reaches a model: the night and the question are written
+    directly."""
+    from row_bot.application.settings_commands import write_learning_settings
 
     predecessor._authorize(x_fixture_token)
     if action == "on":
-        _os.environ[learning.PRACTICE_ENV] = "1"
-        _os.environ[learning.QUICK_QUESTION_ENV] = "1"
+        write_learning_settings({"experimental": True})
     elif action == "practised":
         _l4b_night()
     elif action == "question":
@@ -7028,13 +7021,15 @@ def l4c_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     from row_bot import learning
 
     predecessor._authorize(x_fixture_token)
+    from row_bot.application.settings_commands import write_learning_settings
+
     if action == "jobs":
         _os.environ[learning.JOBS_ENV] = "1"
-        _os.environ[learning.PRACTICE_ENV] = "1"
+        write_learning_settings({"experimental": True})  # practice is experimental learning (O195)
         _l4c_jobs()
     elif action == "restore":
         _os.environ.pop(learning.JOBS_ENV, None)
-        _os.environ.pop(learning.PRACTICE_ENV, None)
+        write_learning_settings({"experimental": False})
         from row_bot.learning.improver import jobs
         from row_bot.learning.store import LearningStore
 
@@ -7153,7 +7148,7 @@ def l2b_learning(action: str, name: str = "", x_fixture_token: str = Header(defa
     current = downloads.loaded()
     if action == "state":
         if not isinstance(current, _FixtureDownloads):
-            raise HTTPException(409, "Turn on the preview first")
+            raise HTTPException(409, "Install the L1a stand-ins first")
         current.set(name)
     elif action == "old-driver":
         found = hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 4090 Laptop GPU", 16_376, "560.94")])
@@ -7727,7 +7722,7 @@ def l2c_learning(action: str, name: str = "", x_fixture_token: str = Header(defa
 
         current = downloads.loaded()
         if not isinstance(current, _FixtureDownloads):
-            raise HTTPException(409, "Turn on the preview first")
+            raise HTTPException(409, "Install the L1a stand-ins first")
         current.set("installed")
         planner, makes, engine = _FixturePlanner(), _FixtureReleases(), FakeEngine(seconds_per_step=_L2C_SECONDS)
         lease = FakeLease(since_activity=3600.0)

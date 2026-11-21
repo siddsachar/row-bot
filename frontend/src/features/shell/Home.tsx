@@ -51,8 +51,16 @@ import LearningHome, {
   type LearningView,
 } from '../learning/LearningHome';
 import { learningIsOn, useLearning } from '../learning/learning-state';
+import { LearningIntro } from '../learning/LearningIntro';
 
-const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
+const homeTabs = [
+  'overview',
+  'workflows',
+  'knowledge',
+  'monitor',
+  'insights',
+  'learning',
+];
 /** Snapshots read in the last few seconds are reused when switching tabs. */
 const REUSE_MS = 20_000;
 // The knowledge graph opens with every memory up to 2,000 (a phone draws that
@@ -99,10 +107,12 @@ export default function Home({
     [controller, navigate],
   );
   const [search, setSearch] = useSearchParams();
-  // A sixth tab while Learning (preview) is on (D23).
+  // Learning's tab shows only while Learning is on (D23).
   const learning = useLearning();
   const learningTab = learningIsOn(learning);
-  const tabs = learningTab ? [...homeTabs, 'learning'] : homeTabs;
+  const tabs = learningTab
+    ? homeTabs
+    : homeTabs.filter((item) => item !== 'learning');
   const requestedTab = search.get('tab')?.toLowerCase() ?? '';
   const tab = tabs.includes(requestedTab) ? requestedTab : 'overview';
   const requestedView = search.get('view') ?? '';
@@ -640,6 +650,7 @@ export default function Home({
                 }
                 processes={identity ? processes : undefined}
                 voice={voice}
+                learningIntro={<LearningIntro io={learning} />}
                 forYou={({ rows, ahead, footer }) => (
                   <ForYou today={rows} ahead={ahead} footer={footer} />
                 )}

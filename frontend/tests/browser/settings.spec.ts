@@ -268,6 +268,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'preferences',
     'appearance',
     'buddy',
+    'learning',
     'proactive',
     'models',
     'voice',

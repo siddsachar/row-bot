@@ -6,8 +6,6 @@ snapshot. Everything here is plumbing for the surfaces (L1a): turning Learning o
 sheet's choices, off, pause and resume, Teach and its Undo, "Don't learn from this chat", the
 answer to the download ask, and deleting learning data; the personal model's training (L2a) and
 its download, Remove engine and Delete starting model (L2b). Nothing here diagnoses or tests.
-
-Without the preview flag (O34) every read and command answers ``learning_unavailable``.
 """
 
 from __future__ import annotations
@@ -39,7 +37,7 @@ _ACTIONS = frozenset({
     "export_version", "delete_version", "save_advanced", "reset_advanced", "retrain_without", "dismiss",
     "review_version", "use_smaller_model", "change_starting_model",
     "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
-    "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
+    "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question", "close_intro",
 })
 # Changes Learning drafted (L3b): test, use, undo, not now, don't suggest again, edit; a lesson Row-Bot saved
 # for itself tested, or deleted. Every one is the person's own choice (D24).
@@ -124,11 +122,6 @@ _NOT_USED = {
     "background_work": "Learning doesn’t use what Row-Bot prepares on its own, such as briefs and drafts.",
 }
 _LESSON_LIMIT = 200
-
-
-def _require_preview() -> None:
-    if not learning.preview_enabled():
-        raise ClientPlatformError("learning_unavailable")
 
 
 def _text(value: object, maximum: int) -> str:
@@ -552,6 +545,8 @@ def _method_view(store: Any, now: float | None = None) -> dict[str, Any]:
     plan = meta.plan(store, quick=True)
     fresh = evaluation.fresh_count(store=store)
     state = {"resume": "running", "ready": "ready", "limit": "limit"}.get(plan.state, "waiting")
+    if not learning.experimental_enabled():
+        state = "off"  # the trials run only with Learning's experimental parts on (O195)
     return {"version": current.version if current is not None else 1, "since": _iso(since.get("at")) if since else None,
             "description": _text(method.describe(), 600), "tried": tried, "kept": kept,
             "tokens": max(0, int(spending.used_this_month(now=now))), "trials": trial_rows, "history": history[:30],
@@ -1296,7 +1291,6 @@ def _revision(settings: learning.LearningSettings, opted_out: list[str]) -> str:
 def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
     """Learning's state for Settings › Learning, the setup sheet and the Learning tab."""
 
-    _require_preview()
     validate()
     root = _root()
     settings = learning.read_settings()
@@ -1332,6 +1326,8 @@ def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
         "kinds_learning": _kinds_learning(changes) if settings.enabled else [],
         "method": _method() if settings.enabled else None,
         "quick_question": _quick_question() if settings.enabled else None,
+        # Home's one-time note (O195): Learning is on though the person never turned it on.
+        "introduce": state == "on" and not settings.introduced,
     }
     data["revision"] = _revision(settings, opted_out)
     validate()
@@ -1341,7 +1337,6 @@ def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
 def read_learning_training(*, validate: Callable[[], None]) -> dict[str, Any]:
     """Only the training run (Monitor's row and the Personal model view poll this while it runs)."""
 
-    _require_preview()
     validate()
     result = _training(learning.read_settings())
     validate()
@@ -1351,7 +1346,6 @@ def read_learning_training(*, validate: Callable[[], None]) -> dict[str, Any]:
 def read_learning_download(*, validate: Callable[[], None]) -> dict[str, Any]:
     """Only the download (Monitor's row and the Personal model view poll this while it runs)."""
 
-    _require_preview()
     validate()
     result = _download_view(_downloads_view())
     validate()
@@ -1362,7 +1356,6 @@ def read_learning_models(*, validate: Callable[[], None], query: str = "") -> di
     """Hugging Face's public search for chat models (C1 Part 4): free, no sign-in, nothing of the person's sent but
     the words searched for."""
 
-    _require_preview()
     validate()
     return _open_models.search(query)
 
@@ -1370,7 +1363,6 @@ def read_learning_models(*, validate: Callable[[], None], query: str = "") -> di
 def read_learning_hardware(*, validate: Callable[[], None], refresh: bool = False) -> dict[str, Any]:
     """What this computer can train (an ``nvidia-smi`` query, kept for the process) and its free space."""
 
-    _require_preview()
     validate()
     from row_bot.learning.training import hardware
 
@@ -1422,7 +1414,6 @@ def _hugging_face_runs_here(found: Any) -> bool:
 def read_learning_conversation(conversation_id: str, *, validate: Callable[[], None]) -> dict[str, Any]:
     """Whether Learning uses this conversation, so a chat knows to offer Teach and its menu item."""
 
-    _require_preview()
     validate()
     from dataclasses import replace
 
@@ -1475,7 +1466,6 @@ def read_learning_lessons(*, validate: Callable[[], None]) -> dict[str, Any]:
     how often recall used them this month, and those Row-Bot saved for itself during chats (its
     troubleshooting memories), marked Not tested with Test it."""
 
-    _require_preview()
     validate()
     items: list[dict[str, Any]] = []
     linked: set[str] = set()
@@ -1552,7 +1542,6 @@ def read_learning_version(version: int, *, validate: Callable[[], None]) -> dict
     providers' terms note), the method, the versions that made it, every test run (aggregates only, no
     hidden task) and its files (names belong here and in Export…, O54)."""
 
-    _require_preview()
     validate()
     from row_bot.learning import versions
     from row_bot.learning.training import releases
@@ -1666,17 +1655,6 @@ def found_job_id(found: Any) -> str:
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 
-def _trainable_models() -> set[str]:
-    """The starting models setup may choose: the certified ones this computer's card trains (the smallest
-    tier's alone before the card was read, or on a computer that can't train)."""
-
-    from row_bot.learning.training import hardware
-
-    found = hardware.peek()
-    models = {item.id for item in found.starting_models} if found is not None and found.can_train else set()
-    return models or {learning.STARTING_MODELS[0]}
-
-
 def _setup_values(setup: Any) -> dict[str, Any]:
     if not isinstance(setup, dict):
         raise ClientPlatformError("invalid_learning_command")
@@ -1690,19 +1668,16 @@ def _setup_values(setup: Any) -> dict[str, Any]:
     # None: no limit, which only an explicit null chooses (a missing limit is refused).
     limit = setup.get("monthly_token_limit", -1)
     if (setup.get("apply_mode") not in learning.APPLY_MODES
-            or setup.get("train_where") not in learning.TRAIN_PLACES
-            or setup.get("starting_model", learning.STARTING_MODELS[0]) not in _trainable_models()
-            or type(setup.get("train_in_quiet_hours")) is not bool
             or (limit is not None
                 and (type(limit) is not int or not 0 <= limit <= learning.MAX_MONTHLY_TOKEN_LIMIT))):
         raise ClientPlatformError("invalid_learning_command")
+    # The personal model's settings stay as they are: it is set up in Personal model, never here (O195).
     values.update({
         "apply_mode": setup["apply_mode"],
         "monthly_token_limit": limit,
-        "train_in_quiet_hours": setup["train_in_quiet_hours"],
-        "train_where": setup["train_where"],
-        "starting_model": setup.get("starting_model", learning.STARTING_MODELS[0]),
         "paused": False,
+        # The person turned it on: Home's note that Learning is on has nothing to tell them.
+        "introduced": True,
         # Turning on last: the store and the past-chat import see every choice.
         "enabled": True,
     })
@@ -2073,7 +2048,6 @@ def _answer_download(answer: str) -> str:
 
 
 def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], None]) -> dict:
-    _require_preview()
     action = command.get("action")
     if action not in _ACTIONS:
         raise ClientPlatformError("invalid_learning_command")
@@ -2224,6 +2198,9 @@ def _perform(
     if action == "turn_on":
         _save(setup_values)
         summary = "Learning is on."
+    elif action == "close_intro":
+        _save({"introduced": True})
+        summary = "Learning stays on. Change it in Settings › Learning."
     elif action == "turn_off":
         _save({"enabled": False, "paused": False})
         summary = "Learning is off. Your learning data is kept until you delete it."
@@ -2372,7 +2349,6 @@ def _change_action(action: str, wire: dict[str, Any]) -> str:
 
 
 def read_learning_receipt(command_id: str, *, owner_id: str, validate: Callable[[], None]) -> dict:
-    _require_preview()
     validate()
     metadata = admissions.read_command_metadata(owner_id, command_id)
     if metadata is None or not metadata["type"].startswith("learning."):

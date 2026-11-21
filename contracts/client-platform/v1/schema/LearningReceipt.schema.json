@@ -2276,7 +2276,7 @@
     },
     "LearningNextTrial": {
       "additionalProperties": false,
-      "description": "When the next strategy trial can run: once 30 new hidden problems have built up and the trials' share of\nthe month allows it.",
+      "description": "When the next strategy trial can run: once 30 new hidden problems have built up and the trials' share of\nthe month allows it; never while the person's experimental switch is off (O195).",
       "properties": {
         "fresh": {
           "minimum": 0,
@@ -2293,7 +2293,8 @@
             "waiting",
             "ready",
             "running",
-            "limit"
+            "limit",
+            "off"
           ],
           "title": "State",
           "type": "string"
@@ -3056,6 +3057,11 @@
         },
         "data": {
           "$ref": "#/$defs/LearningData"
+        },
+        "introduce": {
+          "default": false,
+          "title": "Introduce",
+          "type": "boolean"
         },
         "kinds_learning": {
           "items": {

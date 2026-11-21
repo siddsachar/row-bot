@@ -259,6 +259,15 @@ const INTENTS: {
     ran: (h) =>
       expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/apps/google'),
   },
+  {
+    // Its old name still finds it; its row is Settings › Learning's (D29).
+    query: 'turn on learn new skills',
+    first: /^Creating skills while chatting is already on/,
+    ran: (h) =>
+      expect(h.onOpenSetting).toHaveBeenCalledWith(
+        '/settings/learning#identity.self_improvement_enabled',
+      ),
+  },
 ];
 
 it.each(INTENTS)(

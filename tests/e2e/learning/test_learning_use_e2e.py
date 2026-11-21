@@ -67,7 +67,6 @@ def test_the_l2_loop_from_captured_work_to_trial_fallback_and_undo(monkeypatch):
     found = hardware.detect()
     if found.state != "gpu" or found.gpu is None:
         pytest.skip("needs an NVIDIA graphics card that can train")
-    assert learning.preview_enabled(), "start the run with ROW_BOT_LEARNING_PREVIEW=1"
     root = learning.data_dir()
     assert ".row-bot" not in str(root).lower(), "use a scratch data folder, never a profile"
     out = root.parent / "l2c2_e2e_results.json"

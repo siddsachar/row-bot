@@ -73,8 +73,7 @@ def test_the_reviewer_is_sent_the_same_thing_with_learning_data_as_without(write
     assert "Please tidy my Downloads folder" in text  # the person's own words are what it judges by
 
 
-def test_the_reviewer_never_sees_a_lesson_in_use_or_a_way_of_working_even_when_the_turn_had_them(learning_on,
-                                                                                               monkeypatch):
+def test_the_reviewer_never_sees_a_lesson_in_use_or_a_way_of_working_even_when_the_turn_had_them(learning_on):
     # L3b: a lesson in use reaches the model through the turn's recall (the turn context), a way of working
     # through the system prompt. Neither reaches the approval reviewer: it judges by the person's own words.
     from datetime import datetime, timezone
@@ -83,7 +82,6 @@ def test_the_reviewer_never_sees_a_lesson_in_use_or_a_way_of_working_even_when_t
     from row_bot.learning import behaviour
 
     canary_way = "CANARY-way-of-working-3e7d"
-    monkeypatch.setattr(learning, "_PREVIEW", True)
     behaviour.use("proposal_e8", "tool_guidance", f"{canary_way}: check the calendar first.")
     assert canary_way in learning.ways_of_working_text()
     thread_id = f"e8-{uuid.uuid4().hex[:10]}"

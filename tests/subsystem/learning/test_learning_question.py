@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage
 from row_bot.learning import corrections, diagnosis, question
 from row_bot.learning.spending import TokenMeter
 from row_bot.learning.store import LearningStore
-from tests.fixtures.learning import CapturedWork, signal
+from tests.fixtures.learning import CapturedWork, save_learning_settings, signal
 from tests.fixtures.learning_eval import ScriptedClient
 
 pytestmark = [pytest.mark.subsystem]
@@ -36,10 +36,10 @@ def store(learning_on, clock):
 
 
 @pytest.fixture
-def asking(monkeypatch):
-    from row_bot import learning
+def asking(learning_on):
+    """The person turned on Learning's experimental parts (O195)."""
 
-    monkeypatch.setenv(learning.QUICK_QUESTION_ENV, "1")
+    save_learning_settings(learning_on, experimental=True)
 
 
 def says(answer: dict) -> ScriptedClient:

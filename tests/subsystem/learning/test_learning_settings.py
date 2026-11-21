@@ -1,7 +1,7 @@
 """Learning's settings: saved through the reviewed Settings commands, read back in
-the snapshot, defaults from the setup sheet with Learning off; turning it on
-creates the store and turning it off keeps the data; the switch is cached,
-follows the file and is off when the file can't be read."""
+the snapshot; on by default with its experimental parts and the personal model
+off (O195); turning it on creates the store and turning it off keeps the data;
+the switch is cached, follows the file and is off when the file can't be read."""
 
 from __future__ import annotations
 
@@ -18,12 +18,13 @@ pytestmark = pytest.mark.subsystem
 
 DEFAULTS = {
     "availability": "available",
-    "enabled": False,
+    "enabled": True,
     "paused": False,
-    "sources": {"my_chats": True, "workflows_and_goals": True, "past_chats": True},
+    "sources": {"my_chats": True, "workflows_and_goals": True, "past_chats": False},
     "apply_mode": "ask_first",
     "monthly_token_limit": 2_000_000,
-    "train_in_quiet_hours": True,
+    "experimental": False,
+    "train_in_quiet_hours": False,
     "train_where": "this_computer",
     "has_data": False,
 }
@@ -40,22 +41,27 @@ def _save(client, headers, field, value):
     return review, receipt["snapshot"]
 
 
-def test_learning_is_off_by_default_with_the_setup_sheets_defaults(api):
+def test_learning_is_on_by_default_with_its_experimental_parts_and_the_personal_model_off(api):
+    # O195: learning from corrections is on; reading past chats, practice, the quick question, the strategy
+    # trials and training a personal model wait for the person.
     client, headers, data, _ = api
     snapshot = client.get(BASE, headers=headers).json()
     SettingsSnapshot.model_validate(snapshot)
     assert snapshot["learning"] == DEFAULTS
     assert snapshot["defaults"]["learning"] == {
-        "enabled": False,
+        "enabled": True,
         "paused": False,
         "sources.my_chats": True,
         "sources.workflows_and_goals": True,
-        "sources.past_chats": True,
+        "sources.past_chats": False,
         "apply_mode": "ask_first",
         "monthly_token_limit": 2_000_000,
-        "train_in_quiet_hours": True,
+        "experimental": False,
+        "train_in_quiet_hours": False,
         "train_where": "this_computer",
     }
+    assert learning.is_enabled() is True and learning.experimental_enabled() is False
+    # Reading creates nothing: the store comes with the first thing Learning records.
     assert learning_files(data) == []
 
 
@@ -64,18 +70,20 @@ def test_learning_is_off_by_default_with_the_setup_sheets_defaults(api):
     [
         ("sources.my_chats", False, ("sources", "my_chats")),
         ("sources.workflows_and_goals", False, ("sources", "workflows_and_goals")),
-        ("sources.past_chats", False, ("sources", "past_chats")),
+        ("sources.past_chats", True, ("sources", "past_chats")),
         ("apply_mode", "automatic", ("apply_mode",)),
         ("monthly_token_limit", 500_000, ("monthly_token_limit",)),
         ("monthly_token_limit", 0, ("monthly_token_limit",)),
         ("monthly_token_limit", 75_000_000, ("monthly_token_limit",)),
         ("monthly_token_limit", None, ("monthly_token_limit",)),
-        ("train_in_quiet_hours", False, ("train_in_quiet_hours",)),
+        ("experimental", True, ("experimental",)),
+        ("train_in_quiet_hours", True, ("train_in_quiet_hours",)),
         ("train_where", "hugging_face", ("train_where",)),
     ],
 )
 def test_each_learning_setting_round_trips_through_the_commands_and_snapshot(api, field, value, path):
     client, headers, data, _ = api
+    save_learning_settings(data, enabled=False)  # turned off, so saving a choice starts nothing
     _, snapshot = _save(client, headers, field, value)
 
     saved = json.loads((data / "learning_config.json").read_text(encoding="utf-8"))
@@ -117,6 +125,7 @@ def test_turning_learning_on_creates_its_store_and_turning_it_off_keeps_the_data
     ("field", "value", "code"),
     [
         ("enabled", "yes", "invalid_settings_command"),
+        ("experimental", "yes", "invalid_settings_command"),
         ("monthly_token_limit", -1, "invalid_settings_command"),
         ("monthly_token_limit", 1_000_000_001, "invalid_settings_command"),
         ("monthly_token_limit", 2.5, "invalid_settings_command"),
@@ -140,7 +149,26 @@ def test_invalid_learning_changes_are_refused_without_writing(api, field, value,
     assert learning_files(data) == []
 
 
+def test_start_up_makes_the_store_while_learning_is_on_as_turning_it_on_does(data_dir):
+    # O195: a profile that never turned Learning on has it on, so start-up makes the store turning it on would.
+    learning.ensure_store()
+    assert learning.store_exists() is True and learning_files(data_dir) == ["learning", "learning.db",
+                                                                            "learning/blobs"]
+    learning.ensure_store()  # already there: nothing more
+    assert learning_files(data_dir) == ["learning", "learning.db", "learning/blobs"]
+
+
+def test_start_up_makes_nothing_while_learning_is_off(data_dir):
+    save_learning_settings(data_dir, enabled=False)
+    learning.ensure_store()
+    assert learning_files(data_dir) == ["learning_config.json"]
+
+
 def test_the_switch_follows_the_saved_file(data_dir):
+    assert learning.is_enabled() is True  # nothing saved: on by default (O195)
+    save_learning_settings(data_dir, apply_mode="ask_first")
+    assert learning.is_enabled() is True  # other choices saved, the switch never: still the default
+    save_learning_settings(data_dir, enabled=False)
     assert learning.is_enabled() is False
     save_learning_settings(data_dir, enabled=True)
     assert learning.is_enabled() is True

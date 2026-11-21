@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type {
@@ -142,6 +143,15 @@ function TrackRecord({
 }) {
   const trial = (method.trials ?? []).find((item) => item.outcome !== 'final');
   const next = method.next_trial;
+  if (!trial && next.state === 'off')
+    return (
+      <p className="learning-muted">
+        Comparing ways of learning is experimental and off.{' '}
+        <Link to="/settings/learning#learning-experimental">
+          Turn it on in Settings
+        </Link>
+      </p>
+    );
   if (!trial)
     return (
       <p className="learning-muted">

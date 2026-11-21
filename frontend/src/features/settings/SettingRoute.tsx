@@ -38,7 +38,7 @@ import LearningSettings from '../learning/LearningSettings';
 import ProactiveSettings from './ProactiveSettings';
 import ActivitySettings from './ActivitySettings';
 import ApprovalRulesSettings from './ApprovalRulesSettings';
-import { useLearning, useLearningPreview } from '../learning/learning-state';
+import { useLearning } from '../learning/learning-state';
 import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
 import ToolCatalog from './ToolCatalog';
@@ -153,7 +153,6 @@ export default function SettingRoute() {
     knowledgeOwner,
   } = useRuntime();
   const state = useClientState();
-  const learningPreview = useLearningPreview();
   const learningIo = useLearning();
   const importIO = useMemo(() => memoryImportIO(controller), [controller]);
   const reviewIO = useMemo(() => memoryReviewIO(controller), [controller]);
@@ -336,9 +335,6 @@ export default function SettingRoute() {
     // Accounts and channels are apps now: their old links open the app.
     return <Navigate to={connectionHref(setting, location.hash)} replace />;
   if (!leaf) return <Navigate to="/settings/models" replace />;
-  if (leaf.id === 'learning' && !learningPreview)
-    // Learning (preview) exists only in a build with its flag (O34).
-    return <Navigate to="/settings/preferences" replace />;
   if (leaf.id !== setting.toLowerCase()) {
     // Legacy ids and moved pages land on their new home (and row).
     if (['integrations', 'plugins', 'mcp'].includes(setting.toLowerCase()))
@@ -515,7 +511,7 @@ export default function SettingRoute() {
     />
   );
   return (
-    <SettingsShell key={session} leaf={leaf} learning={learningPreview}>
+    <SettingsShell key={session} leaf={leaf}>
       <section
         className="route-surface stack capability-page"
         aria-label={leaf.label}
@@ -593,7 +589,6 @@ export default function SettingRoute() {
               snapshotState={snapshotState}
               showUpdateControls
               part={leaf.id}
-              skillsMoved={learningPreview}
               host={settingsSnapshot?.system.hosted_by}
               reviewIO={reviewIO}
             />

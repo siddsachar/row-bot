@@ -153,6 +153,7 @@ _BOOL_FIELDS = {
     ("learning", "sources.my_chats"),
     ("learning", "sources.workflows_and_goals"),
     ("learning", "sources.past_chats"),
+    ("learning", "experimental"),
     ("learning", "train_in_quiet_hours"),
 }
 _ACTION_FIELDS = {
@@ -271,9 +272,6 @@ def _uuid(value: Any) -> str:
 def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, bool]:
     if page not in _PAGES or type(field) is not str or not 1 <= len(field) <= 128:
         raise SettingsCommandError("invalid_settings_command")
-    if page == "learning" and not learning.preview_enabled():
-        # Learning (preview) exists only in a build started with its flag (O34).
-        raise SettingsCommandError("settings_action_unavailable")
     key = (page, field)
     secret = key in _SECRET_FIELDS
     if secret:

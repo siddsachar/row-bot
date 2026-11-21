@@ -17,7 +17,7 @@ from row_bot.learning.improver import strategy
 from row_bot.learning.practice import generate, sandbox
 from row_bot.learning.spending import TokenMeter
 from row_bot.learning.store import MARK_HELD_OUT, LearningStore
-from tests.fixtures.learning import CapturedWork, signal
+from tests.fixtures.learning import CapturedWork, save_learning_settings, signal
 from tests.fixtures.learning_eval import ScriptedClient, capture_decision
 
 pytestmark = [pytest.mark.subsystem]
@@ -37,10 +37,10 @@ def store(learning_on, clock):
 
 
 @pytest.fixture
-def practice_on(monkeypatch):
-    from row_bot import learning
+def practice_on(learning_on):
+    """The person turned on Learning's experimental parts (O195)."""
 
-    monkeypatch.setenv(learning.PRACTICE_ENV, "1")
+    save_learning_settings(learning_on, experimental=True)
 
 
 def lookups(work, store, clock, count: int = 3) -> list[str]:

@@ -7,7 +7,7 @@ import type {
   LearningSetupChoices,
   LearningSnapshot,
 } from '../../api/types';
-import { Button, Select } from '../../ui/primitives';
+import { Button } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import type { LearningIO } from './learning-state';
 import { MonthlyLimitPicker } from './MonthlyLimit';
@@ -15,276 +15,27 @@ import {
   ENGINE_SOURCES,
   ENGINE_TELEMETRY,
   limitMeaning,
-  memoryAdvice,
-  memoryNeedWords,
   quietHoursWords,
   sizeWords,
 } from './words';
 import { usePhone } from './use-phone';
 import './learning.css';
 
-/** The setup sheet's choices, every default filled in (designs/learning-ux.md §1). */
+/** The setup sheet's choices: what is saved now, defaults included (designs/learning-ux.md §1). */
 export function defaultChoices(
   snapshot: LearningSnapshot,
 ): LearningSetupChoices {
   return {
-    sources: {
-      my_chats: true,
-      workflows_and_goals: true,
-      // The last 30 days of chats: a ticked checkbox (D26).
-      past_chats: true,
-    },
-    apply_mode: 'ask_first',
+    sources: { ...snapshot.sources },
+    apply_mode: snapshot.apply_mode,
     monthly_token_limit: snapshot.spending.limit_tokens,
-    train_in_quiet_hours: snapshot.personal_model.train_in_quiet_hours,
-    train_where: snapshot.personal_model.train_where,
-    starting_model: 'qwen3.5-9b',
   };
 }
 
 /**
- * O112: when the card's free memory can't hold its own tier's model, say why Row-Bot recommends a
- * smaller one ("Your graphics card has about 12 GB free now…, so Row-Bot recommends Qwen3.5 9B").
- */
-function roomNote(hardware: LearningHardware): string {
-  const recommended = hardware.recommended;
-  const tier = hardware.tier;
-  if (!recommended || !tier || recommended.id === tier.id) return '';
-  const model = hardware.starting_models[0]?.name ?? 'a smaller model';
-  const free = hardware.card_free_gb ?? 0;
-  const larger = tier.card_need_gb
-    ? ` Larger models need about ${Math.ceil(tier.card_need_gb)} GB free on it.`
-    : '';
-  return `Your graphics card has about ${Math.floor(free)} GB free now (your display and other apps use the rest), so Row-Bot recommends ${model}.${larger}`;
-}
-
-/** What this computer can do, in words, while the check runs and after. */
-function HardwareRows({
-  hardware,
-  error,
-  choices,
-  onChange,
-  onCheckAgain,
-}: {
-  hardware: LearningHardware | null;
-  error: string;
-  choices: LearningSetupChoices;
-  onChange: (next: Partial<LearningSetupChoices>) => void;
-  onCheckAgain: () => void;
-}) {
-  const modelId = useId();
-  if (!hardware && !error)
-    return (
-      <p className="learning-muted" role="status">
-        Checking this computer…
-      </p>
-    );
-  if (!hardware || hardware.state === 'unknown')
-    return (
-      <div className="learning-stack-tight">
-        <p>Row-Bot couldn’t check this computer’s graphics card.</p>
-        <div className="learning-actions-inline">
-          <Button className="small" onClick={onCheckAgain}>
-            Check again
-          </Button>
-        </div>
-      </div>
-    );
-  if (hardware.state === 'low_memory' && hardware.tier) {
-    // O105: the card could train, but RAM and virtual memory together can't hold its smallest run.
-    return (
-      <div className="learning-stack-tight">
-        <p>
-          <span className="learning-label">This computer: </span>
-          {hardware.gpu?.label}
-        </p>
-        <p>
-          This computer’s memory can’t hold training yet: it needs about{' '}
-          {hardware.tier.system_memory_gb} GB of RAM and virtual memory, and
-          this computer has {hardware.memory?.limit_gb} GB.
-        </p>
-        <p className="learning-muted">
-          {memoryAdvice(hardware.memory?.system)}
-        </p>
-        <div className="learning-actions-inline">
-          <Button className="small" onClick={onCheckAgain}>
-            Check again
-          </Button>
-        </div>
-      </div>
-    );
-  }
-  if (hardware.state === 'gpu' && hardware.tier) {
-    // Every certified model this card trains, its own tier's first (the recommendation, D3).
-    const models = hardware.starting_models;
-    // O105: larger tiers the card fits but the computer's memory can't hold (the smallest one's need).
-    const short = hardware.memory_short?.[0];
-    // What the recommended model's training needs of the computer's memory (O105, O112).
-    const needs = (hardware.recommended ?? hardware.tier).system_memory_gb;
-    return (
-      <div className="learning-stack-tight">
-        <p>
-          <span className="learning-label">This computer: </span>
-          {hardware.gpu?.label}
-        </p>
-        <p>{hardware.tier.summary}</p>
-        {roomNote(hardware) && (
-          <p className="learning-muted">{roomNote(hardware)}</p>
-        )}
-        {needs && <p className="learning-muted">{memoryNeedWords(needs)}</p>}
-        {short && hardware.memory && (
-          <div className="learning-stack-tight">
-            <p className="learning-muted">
-              Larger models need about {short.system_memory_gb} GB of RAM and
-              virtual memory to train, and this computer has{' '}
-              {hardware.memory.limit_gb} GB.{' '}
-              {memoryAdvice(hardware.memory.system)}
-            </p>
-            <div className="learning-actions-inline">
-              <Button className="small" onClick={onCheckAgain}>
-                Check again
-              </Button>
-            </div>
-          </div>
-        )}
-        {hardware.larger_tiers.map((tier) => (
-          <p className="learning-muted" key={tier.id}>
-            {tier.summary}
-          </p>
-        ))}
-        {models.length > 0 && (
-          <label className="learning-field" htmlFor={modelId}>
-            <span className="learning-label">Starting model</span>
-            <Select
-              id={modelId}
-              value={choices.starting_model}
-              disabled={!choices.train_in_quiet_hours}
-              onChange={(event) =>
-                onChange({
-                  starting_model: event.target
-                    .value as LearningSetupChoices['starting_model'],
-                })
-              }
-            >
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name} · {model.licence} ·{' '}
-                  {sizeWords(model.download_bytes)} download
-                </option>
-              ))}
-            </Select>
-          </label>
-        )}
-        <label className="check-field learning-check">
-          <input
-            type="checkbox"
-            checked={choices.train_in_quiet_hours}
-            onChange={(event) =>
-              onChange({ train_in_quiet_hours: event.target.checked })
-            }
-          />
-          <span>
-            Train a personal model during quiet hours
-            <small>
-              Downloads the training engine (about{' '}
-              {sizeWords(hardware.engine_download_bytes)}) and the starting
-              model when you turn this on. Asks first.
-            </small>
-          </span>
-        </label>
-      </div>
-    );
-  }
-  if (hardware.state === 'old_driver')
-    return (
-      <div className="learning-stack-tight">
-        <p>
-          <span className="learning-label">This computer: </span>
-          {hardware.gpu?.label}
-        </p>
-        <p>Update your NVIDIA driver to train here.</p>
-        <p className="learning-muted">
-          Training needs NVIDIA driver 570 or newer. Check again once it’s
-          updated.
-        </p>
-        <div className="learning-actions-inline">
-          <Button className="small" onClick={onCheckAgain}>
-            Check again
-          </Button>
-        </div>
-      </div>
-    );
-  const hugging = choices.train_where === 'hugging_face';
-  // O131: a model trained on Hugging Face runs here after, so it is offered only where one can run.
-  if (!hardware.hugging_face)
-    return (
-      <div className="learning-stack-tight">
-        <p>
-          {hardware.gpu ? (
-            <>
-              <span className="learning-label">This computer: </span>
-              {hardware.gpu.label}. A personal model runs on an NVIDIA graphics
-              card with 8 GB or more, and trains on one with 16 GB.
-            </>
-          ) : (
-            'A personal model runs on an NVIDIA graphics card with 8 GB or more, and this computer has none.'
-          )}
-        </p>
-        <p className="learning-muted">
-          Learning still improves Row-Bot with lessons and ways of working.
-        </p>
-      </div>
-    );
-  return (
-    <div className="learning-stack-tight">
-      {hardware.gpu && (
-        <p>
-          <span className="learning-label">This computer: </span>
-          {hardware.gpu.label}. A personal model needs a graphics card with 16
-          GB to train here.
-        </p>
-      )}
-      {hugging ? (
-        <>
-          <p>
-            Your personal model will train on Hugging Face, in your own account.
-            Each run is priced before it starts, and nothing is uploaded until
-            you agree.
-          </p>
-          <div className="learning-actions-inline">
-            <Button
-              className="small"
-              variant="ghost"
-              onClick={() => onChange({ train_where: 'this_computer' })}
-            >
-              Don’t use Hugging Face
-            </Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <p>
-            You can train one on Hugging Face instead (your own account, priced
-            before each run), or skip it: Learning still improves Row-Bot with
-            lessons and ways of working.
-          </p>
-          <div className="learning-actions-inline">
-            <Button
-              className="small"
-              onClick={() => onChange({ train_where: 'hugging_face' })}
-            >
-              Use Hugging Face
-            </Button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/**
- * Turn on Learning: one sheet, every default filled in, a single tap unless
- * something should change. The personal-model part asks before any download.
+ * Turn on Learning again after it was turned off: one sheet, every choice
+ * filled in, a single tap unless something should change. The personal model
+ * is set up apart, in Personal model, so turning on never downloads (O195).
  */
 export function LearningSetupSheet({
   open,
@@ -296,46 +47,22 @@ export function LearningSetupSheet({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   io: LearningIO;
-  /** Learning is on, and the download was answered (or there was nothing to ask). */
+  /** Learning is on. */
   onTurnedOn: (receipt: LearningReceipt) => void;
   /** A link inside the sheet was followed: close it without turning on. */
   onLeave?: () => void;
 }) {
   const snapshot = io.snapshot;
-  const [hardware, setHardware] = useState<LearningHardware | null>(null);
-  const [hardwareError, setHardwareError] = useState('');
   const [choices, setChoices] = useState<LearningSetupChoices | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // After Turn on: the download ask, in the same sheet (no second dialog to juggle focus).
-  const [turnedOn, setTurnedOn] = useState<LearningReceipt | null>(null);
   const limitId = useId();
-  const phone = usePhone();
 
-  const check = (refresh = false) => {
-    setHardwareError('');
-    if (refresh) setHardware(null);
-    io.hardware(refresh).then(
-      (found) => {
-        setHardware(found);
-        // The card's own tier's model is the recommendation (D3), chosen when the card is read.
-        const recommended = found.starting_models[0]?.id as
-          LearningSetupChoices['starting_model'] | undefined;
-        if (recommended)
-          setChoices((current) =>
-            current ? { ...current, starting_model: recommended } : current,
-          );
-      },
-      (cause: unknown) => setHardwareError(clientError(cause).message),
-    );
-  };
   useEffect(() => {
     if (!open) return;
     setError('');
-    setTurnedOn(null);
     setChoices(snapshot ? defaultChoices(snapshot) : null);
-    check();
-    // The sheet reads the computer once each time it opens.
+    // The sheet starts from the saved choices each time it opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -353,14 +80,7 @@ export function LearningSetupSheet({
     setBusy(true);
     setError('');
     try {
-      const receipt = await io.run('turn_on', { setup: choices });
-      if (
-        choices.train_in_quiet_hours &&
-        choices.train_where === 'this_computer' &&
-        hardware?.state === 'gpu'
-      )
-        setTurnedOn(receipt);
-      else onTurnedOn(receipt);
+      onTurnedOn(await io.run('turn_on', { setup: choices }));
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
@@ -369,28 +89,6 @@ export function LearningSetupSheet({
   }
 
   const model = snapshot?.spending.model_name;
-  if (turnedOn) {
-    const words = downloadWords(io, hardware);
-    return (
-      <ModalTask
-        open={open}
-        onOpenChange={(next) => {
-          // Closed without an answer: Learning is on, nothing downloads.
-          if (!next) onTurnedOn(turnedOn);
-        }}
-        title={words.title}
-        description={words.description}
-        kind={phone ? 'sheet' : 'dialog'}
-        className="learning-download-ask"
-      >
-        <DownloadAskBody
-          io={io}
-          hardware={hardware}
-          onAnswered={() => onTurnedOn(turnedOn)}
-        />
-      </ModalTask>
-    );
-  }
   return (
     <ModalTask
       open={open}
@@ -468,19 +166,6 @@ export function LearningSetupSheet({
                 ))}
               </fieldset>
             </section>
-            <section
-              className="learning-section"
-              aria-labelledby={`${limitId}-model`}
-            >
-              <h3 id={`${limitId}-model`}>Personal model</h3>
-              <HardwareRows
-                hardware={hardware}
-                error={hardwareError}
-                choices={choices}
-                onChange={change}
-                onCheckAgain={() => check(true)}
-              />
-            </section>
             <section className="learning-section">
               <fieldset className="learning-fieldset">
                 <legend>
@@ -550,8 +235,8 @@ export function LearningSetupSheet({
                 </Link>
               </p>
               <p className="learning-muted">
-                Training on answers from OpenAI, Anthropic or Google models may
-                be limited by their terms. Check your provider’s terms.
+                A personal model is set up on its own, under Personal model.
+                Nothing downloads when you turn Learning on.
               </p>
             </section>
             {error && (

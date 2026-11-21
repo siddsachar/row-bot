@@ -785,14 +785,13 @@ def test_a_worker_refuses_any_environment_that_could_touch_real_data_or_learning
     good = {"ROW_BOT_DATA_DIR": str(tmp_path / "data"), "ROW_BOT_TEST_MODE": "true", "ROW_BOT_INSTALL_COUNT": "0"}
     assert check_environment(good) == tmp_path / "data"
     for change, needle in (({"ROW_BOT_INSTALL_COUNT": "1"}, "INSTALL_COUNT"),
-                           ({"ROW_BOT_LEARNING_PREVIEW": "1"}, "LEARNING_PREVIEW"),
                            ({"ROW_BOT_TEST_MODE": ""}, "TEST_MODE"),
                            ({"ROW_BOT_DATA_DIR": str(Path.home() / ".row-bot")}, "everyday"),
                            ({"ROW_BOT_LIVE_EVAL_CODEX_PROFILE": str(tmp_path)}, "eval profile")):
         with pytest.raises(BenchEnvironmentError, match=needle):
             check_environment({**good, **change})
-    env = child_env(tmp_path / "d", tmp_path / "w", {"ROW_BOT_LEARNING_PREVIEW": "1", "PATH": "x"})
-    assert env["ROW_BOT_INSTALL_COUNT"] == "0" and "ROW_BOT_LEARNING_PREVIEW" not in env
+    env = child_env(tmp_path / "d", tmp_path / "w", {"ROW_BOT_LEARNING": "1", "PATH": "x"})
+    assert env["ROW_BOT_INSTALL_COUNT"] == "0" and "ROW_BOT_LEARNING" not in env
     assert env["ROW_BOT_DATA_DIR"] == str(tmp_path / "d") and env["ROW_BOT_TEST_MODE"]
     check_environment(env)
 
@@ -922,7 +921,7 @@ def test_each_attempt_at_a_task_gets_a_fresh_scratch_folder(tmp_path, monkeypatc
     assert orchestrate.run_worker(tmp_path, spec) == 0 and orchestrate.run_worker(tmp_path, spec) == 0
     folders = [Path(env["ROW_BOT_DATA_DIR"]).name for env in started]
     assert folders == ["locomo_0_a-1", "locomo_0_a-2"]
-    assert all(env["ROW_BOT_INSTALL_COUNT"] == "0" and "ROW_BOT_LEARNING_PREVIEW" not in env for env in started)
+    assert all(env["ROW_BOT_INSTALL_COUNT"] == "0" for env in started)
     assert json.loads((tmp_path / "specs" / "locomo_0_a-2.json").read_text(encoding="utf-8"))["run_dir"] == str(tmp_path)
 
 

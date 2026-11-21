@@ -4,7 +4,7 @@
         --out <folder> --scratch <folder> --eval-profile <folder> --runtimes-from <folder>
 
 For each made-up person (``people/``) and each tier it runs ``live.py`` in its own process with its own
-scratch profile (``--scratch``/``<run>/<person>/data``, Learning's preview flag on, the main model
+scratch profile (``--scratch``/``<run>/<person>/data``, Learning on, the main model
 GPT-6.1 Sol on the ChatGPT lane from the eval profile), one person at a time, and then writes the
 report (``report.json`` and ``report.md`` in ``--out``): per person and overall, pass rates with their
 denominators and 95% intervals, the product's paired analyses, tokens, GPU-hours, time per task, the
@@ -163,14 +163,12 @@ class ReleaseCheck:
         env = {key: value for key, value in os.environ.items() if not key.startswith("ROW_BOT_")}
         if protect:
             env[PROTECT_ENV] = protect
-        env.update({"ROW_BOT_DATA_DIR": str(data), "ROW_BOT_LEARNING_PREVIEW": "1",
-                    "ROW_BOT_DESKTOP_NOTIFICATIONS": "off", "ROW_BOT_AUTO_START_OLLAMA": "0",
-                    "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"})
-        # L4b and L4c have their own switches (O179: they ship on only if the release check passes with them on).
+        env.update({"ROW_BOT_DATA_DIR": str(data), "ROW_BOT_DESKTOP_NOTIFICATIONS": "off",
+                    "ROW_BOT_AUTO_START_OLLAMA": "0", "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"})
+        # L4c has its own switch (O179); practice and the quick question are the person's Experimental
+        # setting (O195), passed as --experimental.
         from row_bot import learning
 
-        if self.args.practice:
-            env.update({learning.PRACTICE_ENV: "1", learning.QUICK_QUESTION_ENV: "1"})
         if self.args.jobs:
             env[learning.JOBS_ENV] = "1"
         return env
@@ -191,6 +189,8 @@ class ReleaseCheck:
             command += ["--gpu-booking", str(self.args.gpu_booking)]
         if self.args.crash:
             command.append("--crash")
+        if self.args.practice:
+            command.append("--experimental")
         if not self.args.gpu:
             command.append("--no-gpu")
         if self.args.pilot_compare:
@@ -370,13 +370,17 @@ def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--monthly-limit", type=int, default=100_000_000,
                         help="L4a: each person's monthly Learning limit during the generations (trials get 20%%)")
     parser.add_argument("--practice", action="store_true",
-                        help="L4b: every person's build makes practice tasks and may ask a quick question")
+                        help="every person turns on experimental learning (O195): practice tasks, the quick "
+                             "question (L4b) and the strategy trials (L4a; needed for --generations)")
     parser.add_argument("--jobs", action="store_true",
                         help="L4c: every person's build lets the personal model take over Learning's own jobs")
     parser.add_argument("--plan", action="store_true", help="print the plan and run nothing")
     parser.add_argument("--report-only", action="store_true", help="write the report from the results so far")
     parser.add_argument("--archive", default="", help="keep a person's run as <person>@<label> and stop")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.generations and not args.practice:
+        parser.error("--generations compares learning methods, which is experimental learning: add --practice")
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:

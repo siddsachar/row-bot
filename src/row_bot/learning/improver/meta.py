@@ -223,11 +223,11 @@ def _clamp(value: float, item: Any) -> Any:
 
 def mutate(parent: Strategy, rng: random.Random) -> Strategy:
     """One change to one evolvable part of ``parent`` (numbers, a preference or a switch), within bounds; its
-    practice only in a build that practises (L4b)."""
+    practice only while practice is on (L4b)."""
 
     from dataclasses import fields
 
-    parts = ("issues", "methods", "examples", "budget") + (("practice",) if gate.practice_enabled() else ())
+    parts = ("issues", "methods", "examples", "budget") + (("practice",) if gate.experimental_enabled() else ())
     for _attempt in range(20):
         part_name = rng.choice(parts)
         part = getattr(parent, part_name)

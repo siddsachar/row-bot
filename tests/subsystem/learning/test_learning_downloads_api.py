@@ -8,7 +8,6 @@ import pytest
 
 from row_bot.api.v1.schemas import LearningDownload, LearningHardware
 from row_bot.learning.training import downloads, hardware
-from tests.fixtures.learning import set_learning_preview
 from tests.fixtures.learning_engine import download_world
 from tests.subsystem.client_protocol.test_settings_snapshot_api import api
 from tests.subsystem.learning.test_learning_surfaces_api import _command, _ok, _snapshot, _turn_on, no_channels
@@ -312,10 +311,19 @@ def test_a_saved_2b_starting_model_reads_as_the_9b(world):
     assert model["starting_model"]["id"] == "qwen3.5-9b"
 
 
-def test_without_the_preview_flag_there_is_no_download(api, monkeypatch):
-    client, headers, _data, _ = api
-    set_learning_preview(monkeypatch, False)
+def test_with_learning_never_turned_on_nothing_downloads(api, no_channels, tmp_path, monkeypatch):
+    from tests.fixtures.learning import save_learning_settings
 
-    response = client.get("/api/v1/learning/download", headers=headers)
+    client, headers, data, _ = api
+    save_learning_settings(data, enabled=False)
+    with download_world(data, tmp_path, monkeypatch) as found:
+        hardware.check(refresh=True, detector=lambda: found.gpu)
+        downloads._downloads = found.downloads(start_threads=False)  # noqa: SLF001 - the app's, faked
 
-    assert response.status_code == 404 and response.json()["code"] == "learning_unavailable"
+        polled = client.get("/api/v1/learning/download", headers=headers)
+        refused = _command(client, headers, "start_download")
+
+    assert polled.status_code == 200 and polled.json()["state"] == "none"
+    _error(refused, "learning_off")
+    assert found.index.requests == []
+    assert not (data / "runtimes").exists()

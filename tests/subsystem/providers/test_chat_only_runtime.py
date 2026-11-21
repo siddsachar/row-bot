@@ -102,7 +102,7 @@ def test_stream_chat_only_streams_and_persists_without_tools(tmp_path, monkeypat
     import row_bot.threads as threads
 
     class FakeLLM:
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             self.messages = messages
             yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "thinking"})
             yield AIMessageChunk(content="hello")
@@ -227,7 +227,7 @@ def test_stream_chat_only_reasoning_only_returns_error_without_persisting(tmp_pa
     import row_bot.threads as threads
 
     class FakeLLM:
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "thinking only"})
 
     persisted = []
@@ -258,7 +258,7 @@ def test_chat_only_context_overflow_is_never_replayed(tmp_path, monkeypatch):
             self.stream_calls = 0
             self.invoke_calls = 0
 
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             self.stream_calls += 1
             if False:
                 yield None
@@ -752,7 +752,7 @@ def test_stream_graph_finalizes_reasoning_only_after_successful_tool_result(monk
             persisted.extend(update["messages"])
 
     class FakeFinalLLM:
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             final_messages["messages"] = messages
             yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "repair reasoning"})
             yield AIMessageChunk(content="The answer is 42.")
@@ -811,7 +811,7 @@ def test_stream_graph_finalization_failure_preserves_tool_result_without_fake_an
             persisted.extend(update["messages"])
 
     class FakeFinalLLM:
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "still only reasoning"})
 
     monkeypatch.setattr(agent, "_chat_only_llm", lambda model_label: FakeFinalLLM())
@@ -875,7 +875,7 @@ def test_stream_graph_finalizes_whitespace_only_answer_after_successful_tool_res
             persisted.extend(update["messages"])
 
     class FakeFinalLLM:
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "repair reasoning"})
             yield AIMessageChunk(content="Image files include heatmap_regional_sales.png and marketing_content_design.png.")
 
@@ -990,7 +990,7 @@ def test_chat_only_on_claude_caches_its_prompt_and_conversation_tail(tmp_path, m
     from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
 
     class FakeLLM:
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             self.messages = messages
             yield AIMessageChunk(content="hello")
 

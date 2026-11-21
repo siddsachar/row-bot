@@ -11,7 +11,7 @@ A strategy is a small, versioned set of choices about **how the improvement loop
 - **budget split**: how many issues a night diagnoses and how many drafts it tests, and how big each test is;
 - **its own prompts**: its own words for finding and drafting fixes, added to the diagnosis instructions;
 - **practice selection** (L4b): how many practice tasks it makes up from each issue and how many each idea's
-  test runs, in a build with practice on (``learning.practice_enabled``); otherwise it has no effect, isn't
+  test runs, while practice is on (``learning.experimental_enabled``); otherwise it has no effect, isn't
   described and is never what a new method changes.
 
 **The fixed points are absent by construction** (E4): no field can say anything about the objective, the
@@ -197,11 +197,11 @@ _PARTS: dict[str, type] = {"issues": IssuePriority, "methods": MethodChoice, "ex
 
 
 def practising(strategy: Strategy) -> bool:
-    """Whether this method practises: practice is on in this build and it makes up tasks or tests on them."""
+    """Whether this method practises: practice is on (O195) and it makes up tasks or tests on them."""
 
     from row_bot import learning as gate
 
-    return gate.practice_enabled() and bool(strategy.practice.made or strategy.practice.tested)
+    return gate.experimental_enabled() and bool(strategy.practice.made or strategy.practice.tested)
 
 
 def field_paths() -> list[str]:

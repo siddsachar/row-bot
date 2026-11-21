@@ -127,6 +127,8 @@ export type OverviewHomeProps = {
   processes?: ProcessIo;
   /** Whether this host can dictate and Talk: the phone's Ask box offers them. */
   voice?: { dictate: boolean; talk: boolean };
+  /** Learning's one-time note that it is on (O195), under the greeting. */
+  learningIntro?: ReactNode;
   /**
    * Proactive's For you, in place of Today while Proactive is on: it gets
    * Today's fact rows (for Later today), those on a later day (`ahead`, under
@@ -549,6 +551,7 @@ export default function OverviewHome({
   notificationsOffer,
   processes,
   voice,
+  learningIntro,
   forYou,
   onAsk,
   asking = false,
@@ -1210,6 +1213,8 @@ export default function OverviewHome({
       )}
 
       {!needsModel && !phone && notificationsOffer?.(attention)}
+
+      {!needsModel && learningIntro}
 
       {!needsModel && needRows.length > 0 && (
         <Section

@@ -3,7 +3,7 @@
 Two of Learning's own jobs can move from the main model to the person's personal model:
 
 - **drafting** (the night's look: one diagnosis call per issue that drafts a change, ``learning_diagnosis``);
-- **practice** (making practice tasks from mistakes, ``learning_teacher``; only in a build that practises, L4b).
+- **practice** (making practice tasks from mistakes, ``learning_teacher``; only while practice is on, L4b).
 
 **Qualifying.** A job moves only after the newest ready personal version passes that job's own test, run once a
 night when due (a new version, or :data:`RETEST_DAYS` since the last test). The test is fixed before any run:
@@ -70,7 +70,7 @@ def offered() -> tuple[str, ...]:
 
     if not enabled():
         return ()
-    return tuple(job for job in JOBS if job != PRACTICE or gate.practice_enabled())
+    return tuple(job for job in JOBS if job != PRACTICE or gate.experimental_enabled())
 
 
 @dataclass(frozen=True)

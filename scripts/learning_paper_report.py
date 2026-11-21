@@ -1625,8 +1625,8 @@ def run_ablation(copy: Path, out: Path) -> int:
     """``learning_shape_ablation.py --thinking both`` on the copy, its own output kept out of sight (it
     names models and files); only its results file is read, by :func:`thinking_report`."""
 
-    env = {**os.environ, "ROW_BOT_DATA_DIR": str(copy), "ROW_BOT_LEARNING_PREVIEW": "1",
-           "ROW_BOT_DESKTOP_NOTIFICATIONS": "off", "ROW_BOT_AUTO_START_OLLAMA": "0"}
+    env = {**os.environ, "ROW_BOT_DATA_DIR": str(copy), "ROW_BOT_DESKTOP_NOTIFICATIONS": "off",
+           "ROW_BOT_AUTO_START_OLLAMA": "0"}
     log = out / "ablation.log"
     with log.open("wb") as handle:
         process = subprocess.run([sys.executable, str(ROOT / "scripts" / "learning_shape_ablation.py"), "--data",
@@ -1880,7 +1880,6 @@ class _ModeFailed(Exception):
 def _run_mode(mode: str, copy: Path, target: Path, args: argparse.Namespace, hooks: Hooks) -> dict[str, Any]:
     # Every Row-Bot module reads this folder from here on: the copy, never the profile (O68: no notifications).
     os.environ["ROW_BOT_DATA_DIR"] = str(copy)
-    os.environ["ROW_BOT_LEARNING_PREVIEW"] = "1"
     os.environ["ROW_BOT_DESKTOP_NOTIFICATIONS"] = "off"
     os.environ.setdefault("ROW_BOT_AUTO_START_OLLAMA", "0")
     if str(ROOT / "src") not in sys.path:

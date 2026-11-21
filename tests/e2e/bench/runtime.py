@@ -131,10 +131,10 @@ class LimitWatch(logging.Handler):
 
 def child_env(data_dir: Path, workspace: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
     """The worker's environment: the live eval's (scratch data folder, keychain closed, no
-    notifications), plus the install count off, Learning's preview unset and the graphics
-    card hidden (embeddings run on the CPU; a local model runs in Ollama's own process)."""
+    notifications), plus the install count off, Learning's and the live eval's switches unset and
+    the graphics card hidden (embeddings run on the CPU; a local model runs in Ollama's own process)."""
     env = live_eval_child_env(data_dir, workspace, base)
-    for name in ("ROW_BOT_LEARNING_PREVIEW", "ROW_BOT_LEARNING", "ROW_BOT_LIVE_EVAL"):
+    for name in ("ROW_BOT_LEARNING", "ROW_BOT_LIVE_EVAL"):
         env.pop(name, None)
     env["ROW_BOT_INSTALL_COUNT"] = "0"
     env["CUDA_VISIBLE_DEVICES"] = ""
@@ -160,8 +160,6 @@ def check_environment(env: Mapping[str, str] | None = None) -> Path:
         problems.append("ROW_BOT_TEST_MODE must be set (it keeps the OS keychain closed)")
     if str(source.get("ROW_BOT_INSTALL_COUNT", "")).strip() != "0":
         problems.append("ROW_BOT_INSTALL_COUNT must be 0")
-    if str(source.get("ROW_BOT_LEARNING_PREVIEW", "") or "").strip():
-        problems.append("ROW_BOT_LEARNING_PREVIEW must be unset: benchmark data never enters Learning")
     if problems:
         raise BenchEnvironmentError("; ".join(problems))
     assert data_dir is not None
@@ -527,7 +525,7 @@ class BenchRuntime:
             raise BenchEnvironmentError("test mode is not active")
         from row_bot import learning
 
-        if learning.preview_enabled() or learning.is_enabled():
+        if learning.is_enabled():
             raise BenchEnvironmentError("Learning is on in this process; benchmark data never enters Learning")
         import row_bot.agent  # noqa: F401 - binds the runtime before the patches
         from row_bot import models

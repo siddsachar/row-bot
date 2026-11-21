@@ -9,6 +9,7 @@ import {
   downloadState,
   draftedChange,
   fakeIO,
+  GPU_16GB,
   installedModel,
   learningSnapshot,
   NO_GPU,
@@ -601,4 +602,109 @@ it('Personal model: after two nights without room on the graphics card it says s
   expect(io.run).toHaveBeenCalledWith('use_smaller_model', {
     model: 'test-small',
   });
+});
+
+it('Personal model: off by default, it says how to start and that downloads ask first (O195)', async () => {
+  const { onOpenSettings } = show(
+    fakeIO(
+      on({ personal_model: personalModel({ train_in_quiet_hours: false }) }),
+    ),
+    'model',
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'Training is off' }),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      'Turn on Train during quiet hours to train a model of your own on your work. Row-Bot asks before downloading anything.',
+    ),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Learning settings' }));
+  expect(onOpenSettings).toHaveBeenCalledWith('personal-model');
+});
+
+it('Personal model: a computer that can’t train says so before saying training is off', async () => {
+  show(
+    fakeIO(
+      on({ personal_model: personalModel({ train_in_quiet_hours: false }) }),
+      { hardware: NO_GPU },
+    ),
+    'model',
+  );
+  expect(
+    await screen.findByRole('heading', {
+      name: 'This computer can’t train a model',
+    }),
+  ).toBeVisible();
+  expect(screen.queryByRole('heading', { name: 'Training is off' })).toBeNull();
+});
+
+it('Personal model: an NVIDIA driver older than 570 says to update it, with Check again', async () => {
+  const io = fakeIO(on(), { hardware: { ...GPU_16GB, state: 'old_driver' } });
+  show(io, 'model');
+  expect(
+    await screen.findByRole('heading', {
+      name: 'Update your NVIDIA driver to train here',
+    }),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+  await act(async () => undefined);
+  expect(io.hardware).toHaveBeenLastCalledWith(true);
+});
+
+it('Personal model: this computer says why it recommends a smaller model and what larger ones need of its memory (O105, O112)', async () => {
+  show(
+    fakeIO(on(), {
+      hardware: {
+        ...GPU_16GB,
+        tier: {
+          id: '16gb',
+          label: '16 GB',
+          certified: true,
+          summary: 'Can train models up to about 9B on your tasks.',
+          card_need_gb: 15.3,
+          system_memory_gb: 30,
+        },
+        recommended: {
+          id: 'small',
+          label: 'small',
+          certified: true,
+          summary: '',
+          card_need_gb: 8,
+        },
+        card_free_gb: 9.6,
+        starting_models: [
+          {
+            id: 'test-small',
+            name: 'A small model',
+            licence: 'Apache 2.0',
+            download_bytes: 4_570_000_000,
+          },
+          GPU_16GB.starting_models[0],
+        ],
+        memory_short: [
+          {
+            id: '24gb',
+            label: '24 GB',
+            certified: true,
+            summary: 'Can train models up to about 9B on your tasks.',
+            system_memory_gb: 41,
+          },
+        ],
+        memory: { limit_gb: 36, free_gb: 20, system: 'windows' },
+      },
+    }),
+    'model',
+  );
+  const facts = screen.getByLabelText('Personal model', { selector: 'dl' });
+  expect(
+    await within(facts).findByText(
+      'Your graphics card has about 9 GB free now (your display and other apps use the rest), so Row-Bot recommends A small model. Larger models need about 16 GB free on it.',
+    ),
+  ).toBeVisible();
+  expect(
+    within(facts).getByText(
+      /^Larger models need about 41 GB of RAM and virtual memory to train, and this computer has 36 GB\. Raise Windows’ virtual memory/,
+    ),
+  ).toBeVisible();
 });

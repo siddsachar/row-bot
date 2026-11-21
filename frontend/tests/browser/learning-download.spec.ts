@@ -3,8 +3,8 @@ import { accessibility, assertNoOverflow, expect, test } from './evidence';
 import { fixtureHeaders } from './surface-helpers';
 
 // Learning (preview), L2b: the personal model's download (the training engine and the
-// starting model). The fixture flips the start-up flag, fakes the hardware check and stands
-// in for the download with states it sets; nothing reaches the network, a GPU or a provider.
+// starting model). The fixture fakes the hardware check and stands in for the download
+// with states it sets; nothing reaches the network, a GPU or a provider.
 // The ask (with where it comes from and usage reporting off), downloading, Monitor's row,
 // paused, not enough disk, failed, Ready to download, the engine and model in Settings with
 // Remove and Delete, and an NVIDIA driver too old to train. Each test puts the profile back.
@@ -41,8 +41,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  // Close the app first: restoring turns Learning's start-up flag off, and a
-  // poll still due (download, training) would get a 404 a real app never sees.
+  // Close the app first: restoring deletes Learning's data and its stand-ins, and
+  // a poll still due (download, training) would read them half gone.
   await page.close();
   await l1a(page, 'restore');
 });
@@ -76,20 +76,17 @@ function notice(page: Page, text: string | RegExp) {
   return page.locator('.toast-message').filter({ hasText: text });
 }
 
-async function turnOn(page: Page, label: string, ask = true) {
+/** Learning is on by default (O195): training is the person's own step, and it asks to download. */
+async function trainingOn(page: Page) {
   await page.goto('/app-v2/settings/learning');
-  await page.getByRole('button', { name: 'Turn on Learning' }).click();
-  const sheet = page.getByRole('dialog', { name: 'Turn on Learning' });
-  await expect(sheet.getByText(label)).toBeVisible();
-  await sheet.getByRole('button', { name: 'Turn on Learning' }).click();
-  if (ask)
-    await page
-      .getByRole('dialog', {
-        name: 'Download the training engine and Qwen3.5 9B?',
-      })
-      .getByRole('button', { name: 'Not now', exact: true })
-      .click();
-  await expect(notice(page, 'Learning is on.')).toBeVisible();
+  await page.getByRole('switch', { name: 'Train during quiet hours' }).click();
+  await page
+    .getByRole('dialog', {
+      name: 'Download the training engine and Qwen3.5 9B?',
+    })
+    .getByRole('button', { name: 'Not now', exact: true })
+    .click();
+  await expect(notice(page, 'Not downloading for now.')).toBeVisible();
 }
 
 async function openModel(page: Page, label: string) {
@@ -111,9 +108,9 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   page,
 }, info) => {
   test.setTimeout(180_000);
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   await l1a(page, 'gpu');
-  await turnOn(page, GPU);
+  await trainingOn(page);
 
   // The ask: sizes, free space, where it comes from, and the engine's usage reporting off.
   await openModel(page, GPU);
@@ -259,23 +256,13 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
   await shoot(page, info, 'model-installed');
 });
 
-test('an NVIDIA driver older than 570 says to update it, in the setup sheet and the Personal model view', async ({
+test('an NVIDIA driver older than 570 says to update it in the Personal model view', async ({
   page,
 }, info) => {
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   await l1a(page, 'gpu');
   await l2b(page, 'old-driver');
   const label = 'NVIDIA GeForce RTX 4090 Laptop (16 GB)';
-  await page.goto('/app-v2/settings/learning');
-  await page.getByRole('button', { name: 'Turn on Learning' }).click();
-  const sheet = page.getByRole('dialog', { name: 'Turn on Learning' });
-  await expect(
-    sheet.getByText('Update your NVIDIA driver to train here.'),
-  ).toBeVisible();
-  await shoot(page, info, 'setup-old-driver');
-  await sheet.getByRole('button', { name: 'Turn on Learning' }).click();
-  await expect(notice(page, 'Learning is on.')).toBeVisible();
-
   await openModel(page, label);
   await expect(
     page.getByRole('heading', {

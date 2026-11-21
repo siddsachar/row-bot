@@ -5,6 +5,7 @@
 import type {
   LearningChangeView,
   LearningCommand,
+  LearningHardware,
   LearningKindState,
   LearningOvernight,
   LearningSnapshot,
@@ -106,14 +107,34 @@ export function spendingWords(
     : `${used} of ${tokenWords(spending.limit_tokens)} tokens ${when}`;
 }
 
-/** "About 20 tests of a change" (a change's test takes about 100K tokens). */
-export function limitMeaning(limit: number | null): string {
+/**
+ * "About 20 tests of a change" (a change's test takes about 100K tokens). With experimental
+ * learning on, a fifth is kept for comparing methods (O178, O195).
+ */
+export function limitMeaning(limit: number | null, comparing = false): string {
   if (limit === null)
-    return "No monthly cap: nothing limits Learning's spending, comparing methods included. What it spends still shows each month. Local models don't count.";
+    return `No monthly cap: nothing limits Learning's spending${comparing ? ', comparing methods included' : ''}. What it spends still shows each month. Local models don't count.`;
   if (limit <= 0)
     return 'Learning makes no model calls. Local models still work.';
   const tests = Math.max(1, Math.round(limit / 100_000));
-  return `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change. A fifth of it is kept for comparing methods. Local models don't count.`;
+  return `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change.${comparing ? ' A fifth of it is kept for comparing methods.' : ''} Local models don't count.`;
+}
+
+/**
+ * O112: when the card's free memory can't hold its own tier's model, why Row-Bot recommends a
+ * smaller one ("Your graphics card has about 12 GB free now…, so Row-Bot recommends Qwen3.5 9B"),
+ * or '' when it recommends the card's own.
+ */
+export function roomWords(hardware: LearningHardware): string {
+  const recommended = hardware.recommended;
+  const tier = hardware.tier;
+  if (!recommended || !tier || recommended.id === tier.id) return '';
+  const model = hardware.starting_models[0]?.name ?? 'a smaller model';
+  const free = hardware.card_free_gb ?? 0;
+  const larger = tier.card_need_gb
+    ? ` Larger models need about ${Math.ceil(tier.card_need_gb)} GB free on it.`
+    : '';
+  return `Your graphics card has about ${Math.floor(free)} GB free now (your display and other apps use the rest), so Row-Bot recommends ${model}.${larger}`;
 }
 
 /** "1:00 AM" (the reader's own clock), as Dream Cycle's hours show. */

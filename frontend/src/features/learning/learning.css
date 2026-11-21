@@ -207,6 +207,42 @@
   padding-left: 1.25em;
 }
 
+/* Home's one-time note that Learning is on (O195), laid out as Overview's other cards. */
+.learning-intro {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px 12px;
+  padding: 14px 14px 12px;
+}
+.learning-intro .overview-row-text {
+  gap: 3px;
+}
+.learning-intro .overview-row-title,
+.learning-intro .overview-row-meta {
+  white-space: normal;
+}
+.learning-intro-privacy {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 18px;
+}
+.learning-intro-privacy svg {
+  flex: none;
+  margin-top: 2px;
+}
+.learning-intro-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* Settings › Learning ---------------------------------------------------- */
 .learning-off-card {
   display: flex;

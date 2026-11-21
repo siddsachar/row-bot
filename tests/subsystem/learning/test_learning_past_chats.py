@@ -84,6 +84,14 @@ def source(clock):
     return FakeChats()
 
 
+@pytest.fixture
+def learning_on(learning_on):
+    """Learning on, with "Also learn from the last 30 days of chats" ticked (off by default, O195)."""
+
+    save_learning_settings(learning_on, sources={"past_chats": True})
+    return learning_on
+
+
 def _run(store, source, chats, clock, **kwargs):
     kwargs.setdefault("busy", lambda: False)
     kwargs.setdefault("wait", lambda seconds: None)
