@@ -608,7 +608,13 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
     name: 'Settings sections',
     exact: true,
   });
-  for (const name of ['Preferences', 'Appearance', 'Buddy', 'Proactive']) {
+  for (const name of [
+    'Preferences',
+    'Appearance',
+    'Buddy',
+    'Learning',
+    'Proactive',
+  ]) {
     await page.keyboard.press('Tab');
     await expect(nav.getByRole('link', { name, exact: true })).toBeFocused();
   }
