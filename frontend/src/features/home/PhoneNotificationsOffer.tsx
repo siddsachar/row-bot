@@ -84,7 +84,7 @@ function useDevice(): OfferDevice {
  * Once something has waited for the person on this phone (D13), a one-line
  * card on Home offers a notification for next time. Turn on is the Settings
  * switch's own flow; Not now is remembered on this phone, and the switch stays
- * in Settings. Push works only over HTTPS, so it is never offered elsewhere;
+ * at the top of Settings, in This phone (C3). Push works only over HTTPS, so it is never offered elsewhere;
  * an iPhone browser tab is told to add Row-Bot to the Home Screen first. Never
  * offered once notifications are on.
  */
@@ -172,11 +172,7 @@ export default function PhoneNotificationsOffer({
   const words =
     state === 'on' ? (
       <>
-        Change it in{' '}
-        <Link to="/settings/access#notifications">
-          Devices &amp; remote access
-        </Link>
-        .
+        Change it in <Link to="/settings#notifications">Settings</Link>.
       </>
     ) : iphoneTab ? (
       'On iPhone, tap Share, then Add to Home Screen, and open Row-Bot from there.'

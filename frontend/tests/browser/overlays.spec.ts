@@ -145,18 +145,31 @@ test('settings aliases route to retained unified settings', async ({
   page,
 }, testInfo) => {
   await page.goto('/app-v2/settings/preferences?fixture=normal');
-  await page
-    .getByRole('searchbox', { name: 'Find a setting', exact: true })
-    .fill('gmail');
   const sections = page.getByRole('navigation', {
     name: 'Settings sections',
     exact: true,
   });
-  // Accounts are apps: the Google account row opens Google's app page.
-  await sections
-    .getByRole('list', { name: 'Matching settings', exact: true })
-    .getByRole('link', { name: 'Google account', exact: true })
-    .click();
+  // Accounts are apps: the Google account row opens Google's app page. A
+  // phone finds it with the header's Search (D7: no second search field).
+  if (page.viewportSize()!.width < 768) {
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const search = page.getByRole('dialog', { name: 'Search' });
+    await search
+      .getByRole('searchbox', { name: 'Search chats, files and settings' })
+      .fill('gmail');
+    await search
+      .getByRole('group', { name: 'Settings' })
+      .getByRole('option', { name: /^Connect Google/ })
+      .click();
+  } else {
+    await page
+      .getByRole('searchbox', { name: 'Find a setting', exact: true })
+      .fill('gmail');
+    await sections
+      .getByRole('list', { name: 'Matching settings', exact: true })
+      .getByRole('link', { name: 'Google account', exact: true })
+      .click();
+  }
   await expect(page).toHaveURL(/\/app-v2\/settings\/apps\/google$/);
   // A phone's page has its way back to the list of pages (D6); a tablet's
   // compact Settings name the current page in the section picker.
@@ -173,8 +186,13 @@ test('settings aliases route to retained unified settings', async ({
       sections.getByRole('link', { name: 'Apps', exact: true }),
     ).toHaveAttribute('aria-current', 'page');
   // The client's mock data has no apps; the route and its section are what this checks.
+  // A phone names the page once, in its header row (D7).
   await expect(
-    page.getByRole('heading', { name: 'Apps', exact: true, level: 2 }),
+    page.getByRole('heading', {
+      name: 'Apps',
+      exact: true,
+      level: page.viewportSize()!.width < 768 ? 1 : 2,
+    }),
   ).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'accounts-setting-retained');

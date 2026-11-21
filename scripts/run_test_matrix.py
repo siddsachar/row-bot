@@ -157,6 +157,9 @@ BROWSER_SMOKE_SPECS = (
     # Workflows on a phone (C2): rows with a status line and a switch, All/Running/Failed/Off chips, the sheet's
     # Run now, Open chat and runs, + starting the chat that sets one up, the editor on the computer. Appended likewise.
     "phone-workflows",
+    # Settings on a phone (C3): This phone's notifications switch and theme, Row-Bot's six pages, More settings
+    # with every other page, one header row "‹ Models" with no second search, deep links. Appended likewise.
+    "phone-settings",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

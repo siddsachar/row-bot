@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { assertNoOverflow, expect, screenshot, test } from './evidence';
+import { revealConnect } from './phone-helpers';
 
 // A hosted Row-Bot's own Settings: System names its host with the version,
 // memory and the host's pages (U5); Data downloads a fresh backup first and
@@ -82,6 +83,7 @@ test('a hosted Row-Bot names its host, moves with a backup and connects devices 
   // Devices: the code opens the pod's own address; nothing sets how it's reached.
   await fixture(page, '/__a9_fixture/pod-address/on');
   await page.goto('/app-v2/settings/access');
+  await revealConnect(page);
   await page
     .getByRole('button', { name: 'Connect a phone or computer' })
     .click();
@@ -181,6 +183,7 @@ test('the desktop shows no host card or Download a backup row, and its restore t
   ).toBeVisible();
   await expect(page.getByText('Download a backup')).toHaveCount(0);
   await page.goto('/app-v2/settings/access');
+  await revealConnect(page);
   await page
     .getByRole('button', { name: 'Connect a phone or computer' })
     .click();

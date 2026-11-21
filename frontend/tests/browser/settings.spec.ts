@@ -6,7 +6,7 @@ import {
   test,
   writeEvidence,
 } from './evidence';
-import { onPhoneWidth, openHomeTab } from './phone-helpers';
+import { onPhoneWidth, openHomeTab, phoneSettingLink } from './phone-helpers';
 import { blockFixtureServiceWorkers } from './unified-helpers';
 import { installDesktopFolderBridge } from './surface-helpers';
 import type { Locator, Page } from '@playwright/test';
@@ -136,8 +136,9 @@ async function openSettingsRouteFromHome(
   route: { linkName: string; path: string; headingName: string },
 ) {
   if ((page.viewportSize()?.width ?? 0) < 768) {
-    // A phone's tab bar opens Settings on its list of pages, one tap from
-    // each (D1, D6).
+    // A phone's tab bar opens Settings on its list: a Row-Bot page is one
+    // tap from it, the rest are in More settings (D1, D6). A page's name is
+    // its header row (D7); Buddy's page also leads to Proactive.
     await activateRoute(
       page,
       page
@@ -145,13 +146,11 @@ async function openSettingsRouteFromHome(
         .getByRole('link', { name: 'Settings', exact: true }),
       { path: '/app-v2/settings', headingName: 'Settings' },
     );
-    await activateRoute(
-      page,
-      page
-        .getByRole('navigation', { name: 'Settings sections' })
-        .getByRole('link', { name: route.linkName, exact: true }),
-      route,
-    );
+    await activateRoute(page, await phoneSettingLink(page, route.linkName), {
+      ...route,
+      headingName:
+        route.headingName === 'Buddy' ? 'Buddy & Proactive' : route.headingName,
+    });
     return;
   }
   const navigation = page.getByRole('navigation', {
@@ -338,21 +337,21 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   await expect(settingsHeading).toHaveText('Tracker');
   await expect(settingsHeading).toBeVisible();
 
-  // A phone's page keeps only the search above it and goes back to the
-  // list of pages, one tap from each (D6).
+  // A phone's page is one header row with its way back to the list, and
+  // no second search (D6, D7).
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/app-v2/settings/models');
-  await expect(settingsNavigation.getByRole('link')).toHaveCount(0);
+  await expect(settingsNavigation).toHaveCount(0);
+  await expect(page.getByRole('searchbox')).toHaveCount(0);
   const back = page.getByRole('link', { name: 'Back to Settings' });
   expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await back.click();
   await expect(page).toHaveURL(/\/app-v2\/settings$/);
-  await settingsNavigation
-    .getByRole('link', { name: 'Memory', exact: true })
-    .click();
+  await (await phoneSettingLink(page, 'Memory')).click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge$/);
-  await expect(settingsHeading).toHaveText('Memory');
-  await expect(settingsHeading).toBeFocused();
+  const phoneHeading = page.getByRole('heading', { level: 1 });
+  await expect(phoneHeading).toHaveText('Memory');
+  await expect(phoneHeading).toBeFocused();
   await assertNoOverflow(page);
   await screenshot(page, info, 'settings-shell-narrow-knowledge');
   await accessibility(page, info, 'settings-shell-narrow-knowledge');
@@ -393,11 +392,12 @@ test('Owner-review phone Settings reach representative owners from one list of p
     name: 'Settings',
     exact: true,
   });
-  const heading = settings.locator('.settings-pane-header h2');
-  const list = page.getByRole('navigation', { name: 'Settings sections' });
+  // Its name is the header row (D7); Documents and Preferences are in More
+  // settings, and go back there.
+  const heading = settings.getByRole('heading', { level: 1 });
   for (const id of ['models', 'documents', 'apps', 'preferences'] as const) {
     const label = id[0].toUpperCase() + id.slice(1);
-    const link = list.getByRole('link', { name: label, exact: true });
+    const link = await phoneSettingLink(page, label);
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`/app-v2/settings/${id}$`));
@@ -405,7 +405,14 @@ test('Owner-review phone Settings reach representative owners from one list of p
     await assertNoOverflow(page);
     await screenshot(page, info, `settings-shell-phone-${id}`);
     await accessibility(page, info, `settings-shell-phone-${id}`);
-    await page.getByRole('link', { name: 'Back to Settings' }).click();
+    const more = ['documents', 'preferences'].includes(id);
+    await page
+      .getByRole('link', {
+        name: more ? 'Back to More settings' : 'Back to Settings',
+      })
+      .click();
+    if (more)
+      await page.getByRole('link', { name: 'Back to Settings' }).click();
     await expect(page).toHaveURL(/\/app-v2\/settings$/);
   }
 });
@@ -581,6 +588,10 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
 test('Wiki uses an authorized vault and imports only the explicitly reviewed external version', async ({
   page,
 }, info) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    'The vault is a folder on the computer, chosen there (C3); a phone says so.',
+  );
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
     Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,

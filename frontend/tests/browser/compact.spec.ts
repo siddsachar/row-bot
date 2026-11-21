@@ -194,12 +194,12 @@ test('compact themes, accents and accessibility preferences retain one mounted w
       .click();
   }
   if (page.viewportSize()!.width < 768) {
-    // A phone opens Settings on its list of pages (D6).
+    // A phone opens Settings on its list; Appearance is in More settings (D6).
     await expect(page).toHaveURL(/\/app-v2\/settings$/);
     await page
-      .getByRole('navigation', { name: 'Settings sections', exact: true })
-      .getByRole('link', { name: 'Appearance', exact: true })
+      .getByRole('link', { name: 'More settings', exact: true })
       .click();
+    await page.getByRole('link', { name: 'Appearance', exact: true }).click();
   } else {
     await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
     await page
@@ -228,6 +228,13 @@ test('compact themes, accents and accessibility preferences retain one mounted w
         }[theme],
         exact: theme !== 'system',
       })
+      // A phone chooses the look from one segmented control (C3).
+      .or(
+        page.getByRole('radio', {
+          name: { light: 'Light', dark: 'Dark', system: 'System' }[theme],
+          exact: true,
+        }),
+      )
       .click();
     await accent.selectOption(colour);
     await expect(page.locator('html')).toHaveAttribute(
@@ -280,7 +287,12 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await assertCompactSurface(page, testInfo, 'compact-preferences');
   await captureSurface(page, testInfo, 'compact-theme-preferences');
   await page.goBack();
-  // Back to where Settings opened: its list of pages on a phone.
+  // Back to where Settings opened: on a phone through More settings, then
+  // its list.
+  if (page.viewportSize()!.width < 768) {
+    await expect(page).toHaveURL(/\/app-v2\/settings\?view=more$/);
+    await page.goBack();
+  }
   await expect(page).toHaveURL(
     page.viewportSize()!.width < 768
       ? /\/app-v2\/settings$/
@@ -464,20 +476,30 @@ test('a phone opens Settings on its list of pages, and each page goes back to it
     .getByRole('navigation', { name: 'Main' })
     .getByRole('link', { name: 'Settings' })
     .click();
-  const list = page.getByRole('navigation', { name: 'Settings sections' });
-  await list.getByRole('link', { name: 'Appearance' }).click();
+  // This phone, Row-Bot, and More settings for the rest (D6); each page is
+  // one header row with its way back to its list (D7).
+  await page.getByRole('link', { name: 'More settings' }).click();
+  await page.getByRole('link', { name: 'Appearance', exact: true }).click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/appearance/);
   await expect(
-    page.getByRole('heading', { name: 'Appearance', level: 2 }),
+    page.getByRole('heading', { name: 'Appearance', level: 1 }),
   ).toBeVisible();
   await expect(
     page.getByRole('combobox', { name: 'Settings section' }),
   ).toHaveCount(0);
   await page
+    .getByRole('link', { name: 'Back to More settings', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\?view=more$/);
+  await page
     .getByRole('link', { name: 'Back to Settings', exact: true })
     .click();
   await expect(page).toHaveURL(/\/app-v2\/settings$/);
-  await expect(list.getByRole('link', { name: 'Models' })).toBeVisible();
+  await expect(
+    page
+      .getByRole('list', { name: 'Row-Bot' })
+      .getByRole('link', { name: 'Models' }),
+  ).toBeVisible();
 });
 
 test('a phone opens a message’s actions when a finger rests on it', async ({

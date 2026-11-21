@@ -69,6 +69,7 @@ import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
 import { ModalTask, useNotify } from '../../ui/overlays';
+import { OnYourComputer, usePhone } from '../../ui/on-your-computer';
 import ConnectedUpdateControls from './UpdateControls';
 import ConnectedMigrationControls from './MigrationControls';
 import ConnectedDataBackup from './DataBackup';
@@ -2457,6 +2458,7 @@ export function SystemSnapshotPanel({
   pickFolder,
   writeClipboard,
   part = 'system',
+  connect,
   network,
   privacy,
 }: {
@@ -2466,6 +2468,11 @@ export function SystemSnapshotPanel({
   writeClipboard?: ClientPlatform['writeClipboard'];
   /** System: this machine's capabilities. Access: reaching it from elsewhere. */
   part?: 'system' | 'access';
+  /**
+   * Access › Advanced, first: Connect a phone or computer. A phone passes it
+   * here (C3); a computer shows it at the top of the page.
+   */
+  connect?: ReactNode;
   /** Access › Advanced › Network: listen mode, addresses, Tailscale. */
   network?: ReactNode;
   /** System › Privacy: install stats and what else Row-Bot contacts (N6). */
@@ -2505,11 +2512,24 @@ export function SystemSnapshotPanel({
             <SummaryChip tone="warning">Public link on</SummaryChip>
           )}
         </SettingsSummary>
+        {hosted && connect && (
+          <SettingsAdvanced
+            anchor="advanced"
+            meta="Connect a phone or computer"
+          >
+            {connect}
+          </SettingsAdvanced>
+        )}
         {!hosted && (
           <SettingsAdvanced
             anchor="advanced"
-            meta="Network, allowed addresses and the public link"
+            meta={
+              connect
+                ? 'Connect a device, network and the public link'
+                : 'Network, allowed addresses and the public link'
+            }
           >
+            {connect}
             <Section
               title="Network"
               description="Where Row-Bot listens and the addresses it accepts."
@@ -5753,6 +5773,7 @@ export function PreferencesSnapshotPanel({
   // The controls' own check time, newer than this page's snapshot after Check now (B373).
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const place = usePlace();
+  const phone = usePhone();
   const lastCheck = checkedAt ?? snapshot.updates.last_check;
   // The host picks the release and installs it: no channel, check time or
   // download details, only the version and who updates it.
@@ -5874,8 +5895,15 @@ export function PreferencesSnapshotPanel({
               </div>
             </div>
           )}
-          {/* Most people never import: the form opens on request (U14). */}
-          {showUpdateControls && (
+          {/* Most people never import: the form opens on request (U14). It
+              reads another assistant's folder on the computer, so a phone
+              says to open it there (C3, like Memory's import). */}
+          {showUpdateControls && phone && snapshot.migration.available && (
+            <OnYourComputer what="Importing from another assistant">
+              Importing reads another assistant’s folder on the computer.
+            </OnYourComputer>
+          )}
+          {showUpdateControls && !phone && (
             <Disclosure
               summary="Import…"
               meta={snapshot.migration.sources.join(' and ')}

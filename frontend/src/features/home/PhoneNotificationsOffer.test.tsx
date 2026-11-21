@@ -112,9 +112,11 @@ it('asks on a phone in one line and Turn on runs the device switch’s own flow'
   expect(
     await screen.findByText('Notifications are on for this phone'),
   ).toBeVisible();
-  expect(
-    screen.getByRole('link', { name: 'Devices & remote access' }),
-  ).toHaveAttribute('href', '/settings/access#notifications');
+  // Changed later with This phone's switch, at the top of Settings (C3).
+  expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute(
+    'href',
+    '/settings#notifications',
+  );
   expect(screen.queryByRole('button', { name: 'Turn on' })).toBeNull();
 });
 
