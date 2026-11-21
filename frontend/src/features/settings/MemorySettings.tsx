@@ -7,9 +7,11 @@ import type {
   WikiSettingsSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { BrushCleaning, Import } from 'lucide-react';
+import { BrushCleaning, ChevronRight, Import, Laptop } from 'lucide-react';
 import { Button, IconButton, Toggle } from '../../ui/primitives';
 import { AppLink } from '../../ui/app-link';
+import { OnYourComputer, usePhone } from '../../ui/on-your-computer';
+import '../../ui/styles/phone-memory.css';
 import { humanizeToken } from '../../ui/format';
 import { useNotify } from '../../ui/overlays';
 import {
@@ -18,6 +20,7 @@ import {
   SettingsGroup,
   SettingsItem,
   SettingsStatus,
+  useTabForAnchor,
 } from './anatomy';
 import WikiSettings, {
   type WikiSettingsSession,
@@ -47,7 +50,10 @@ export type KnowledgeMaintenanceIO = {
 
 /**
  * Settings › Memory: only settings (B264). Browsing, search, review, bulk
- * actions and the recall and change logs live in Home › Knowledge.
+ * actions and the recall and change logs live in Home › Knowledge. A phone
+ * (D12 A) opens its memory list from "Your memories"; import, clean-up and
+ * the graph's numbers stay on the computer, and a link to those numbers says
+ * so.
  */
 export default function MemorySettings({
   snapshot,
@@ -76,6 +82,11 @@ export default function MemorySettings({
   refreshToken?: number;
 }) {
   const notify = useNotify();
+  const phone = usePhone();
+  // A link to the graph's numbers (settings search's "Graph health").
+  const [linked] = useTabForAnchor<'' | 'graph'>('', {
+    'memory-graph': 'graph',
+  });
   const [catalog, setCatalog] = useState<EntitySummaryPage | null>(null);
   const [error, setError] = useState('');
   const [memoryCommand, setMemoryCommand] = useState<{
@@ -286,17 +297,37 @@ export default function MemorySettings({
               )
             }
           />
-          <SettingsItem
-            label="Knowledge"
-            help="Browse, search and edit memories, review the ones Row-Bot was unsure about, and see what recall used."
-            bind={false}
-            control={
-              <AppLink className="button secondary" to="/?tab=knowledge">
-                Open Knowledge
-              </AppLink>
-            }
-          />
-          {importIO && (
+          {phone ? (
+            <AppLink
+              className="settings-row phone-memory-link"
+              to="/?tab=knowledge"
+              aria-label={
+                snapshot.availability === 'available'
+                  ? `Your memories (${snapshot.entities.toLocaleString()})`
+                  : 'Your memories'
+              }
+            >
+              <span className="settings-row-label">Your memories</span>
+              {snapshot.availability === 'available' && (
+                <span className="phone-memory-link-count">
+                  {snapshot.entities.toLocaleString()}
+                </span>
+              )}
+              <ChevronRight size={18} aria-hidden />
+            </AppLink>
+          ) : (
+            <SettingsItem
+              label="Knowledge"
+              help="Browse, search and edit memories, review the ones Row-Bot was unsure about, and see what recall used."
+              bind={false}
+              control={
+                <AppLink className="button secondary" to="/?tab=knowledge">
+                  Open Knowledge
+                </AppLink>
+              }
+            />
+          )}
+          {importIO && !phone && (
             <SettingsItem
               label="Import memories"
               help="Bring what ChatGPT, Claude, Gemini or another assistant knows about you. You check everything before it is saved."
@@ -312,7 +343,7 @@ export default function MemorySettings({
               }
             />
           )}
-          {reviewIO && (
+          {reviewIO && !phone && (
             <SettingsItem
               label="Review memory"
               help="Row-Bot suggests what to keep, merge, rewrite or remove, each with a reason. Nothing changes until you approve, and you can undo it."
@@ -330,12 +361,26 @@ export default function MemorySettings({
           )}
         </SettingsGroup>
       )}
+      {snapshot && phone && linked !== 'graph' && (
+        <p className="phone-memory-note">
+          <Laptop size={16} aria-hidden />
+          <span>The graph, import and clean-up are on your computer.</span>
+        </p>
+      )}
       {/* Counts of nothing say nothing: shown once there are memories, or
           when they can't be read (U40). */}
       {snapshot &&
+        !phone &&
         (snapshot.availability === 'unavailable' || snapshot.entities > 0) && (
           <GraphHealth snapshot={snapshot} />
         )}
+      {phone && linked === 'graph' && (
+        <div className="phone-memory-notice" data-setting-anchor="memory-graph">
+          <OnYourComputer what="How your memories link">
+            The memory graph needs a bigger screen.
+          </OnYourComputer>
+        </div>
+      )}
       {wikiSession && (
         <WikiSettings compact session={wikiSession} snapshot={wikiSnapshot} />
       )}
@@ -405,7 +450,7 @@ export default function MemorySettings({
       )}
       {importIO && (
         <MemoryImportDialog
-          open={importing}
+          open={importing && !phone}
           onOpenChange={setImporting}
           io={importIO}
           onImported={onMutation}
@@ -421,7 +466,7 @@ export default function MemorySettings({
       )}
       {reviewIO && (
         <MemoryReviewDialog
-          open={reviewing !== null}
+          open={reviewing !== null && !phone}
           onOpenChange={(open) => {
             if (!open) setReviewing(null);
           }}

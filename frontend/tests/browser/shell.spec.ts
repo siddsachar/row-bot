@@ -1,6 +1,8 @@
 import { expect, screenshot, test } from './evidence';
+import { homeOpened } from './phone-helpers';
 import { openFixture } from './fixture';
 import { openPanel } from './panel-helpers';
+import { commandsDialog } from './unified-helpers';
 
 test('simplified shell keeps controls and Home reachable', async ({
   page,
@@ -12,17 +14,25 @@ test('simplified shell keeps controls and Home reachable', async ({
   // A conversation is one header row at every width: no separate bar.
   await expect(page.locator('.compact-controls')).toHaveCount(0);
   if (phone) {
-    // Phones fold search and the panels into the header's menu.
+    // Phones fold the panels into the header's menu (Search lives in the
+    // Chats tab, D15), and go Home by ‹ and the tab bar: no drawer (D1).
     await page
       .getByRole('button', { name: 'Conversation menu', exact: true })
       .click();
-    await expect(
-      page.getByRole('menuitem', { name: 'Workspace commands' }),
-    ).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Search' })).toHaveCount(0);
     await expect(
       page.getByRole('menuitem', { name: 'Open Workspace notes' }),
     ).toBeVisible();
     await page.keyboard.press('Escape');
+    await expect(
+      page.getByRole('button', { name: 'Toggle navigation' }),
+    ).toHaveCount(0);
+    await screenshot(page, info, 'slice1-compact-conversation');
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Main' })
+      .getByRole('link', { name: 'Home' })
+      .click();
   } else {
     await expect(
       page.getByRole('button', { name: 'Open panel' }),
@@ -30,36 +40,32 @@ test('simplified shell keeps controls and Home reachable', async ({
     await expect(
       page.getByRole('button', { name: 'Workspace commands' }),
     ).toBeVisible();
-  }
-
-  if (compact) {
-    await screenshot(page, info, 'slice1-compact-conversation');
-    await page.getByRole('button', { name: 'Toggle navigation' }).click();
-  } else {
-    await page.getByRole('button', { name: 'Toggle navigation' }).click();
+    if (compact) {
+      await screenshot(page, info, 'slice1-compact-conversation');
+      await page.getByRole('button', { name: 'Toggle navigation' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Toggle navigation' }).click();
+      await expect(
+        page.getByRole('button', { name: 'Open panel' }),
+      ).toBeVisible();
+      await page.getByRole('button', { name: 'Expand navigation' }).click();
+    }
+    const nav = page.getByRole('navigation', { name: 'Workspace navigation' });
+    await expect(nav).toBeVisible();
     await expect(
-      page.getByRole('button', { name: 'Open panel' }),
+      nav.getByRole('combobox', { name: 'Conversation group' }),
+    ).toHaveCount(0);
+    await expect(
+      nav.getByRole('list', { name: 'Recent conversations' }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Expand navigation' }).click();
+    await expect(
+      nav.getByRole('button', { name: 'New chat', exact: true }),
+    ).toBeVisible();
+    await screenshot(page, info, 'slice1-conversation-shell');
+    await nav.getByRole('link', { name: 'Home' }).click();
   }
-  const nav = page.getByRole('navigation', { name: 'Workspace navigation' });
-  await expect(nav).toBeVisible();
-  await expect(
-    nav.getByRole('combobox', { name: 'Conversation group' }),
-  ).toHaveCount(0);
-  await expect(
-    nav.getByRole('list', { name: 'Recent conversations' }),
-  ).toBeVisible();
-  await expect(
-    nav.getByRole('button', { name: 'New chat', exact: true }),
-  ).toBeVisible();
-  await screenshot(page, info, 'slice1-conversation-shell');
-
-  await nav.getByRole('link', { name: 'Home' }).click();
   await expect(page).toHaveURL(/\/app-v2\/?$/);
-  await expect(
-    page.getByRole('tablist', { name: 'Home capabilities' }),
-  ).toBeVisible();
+  await expect(homeOpened(page)).toBeVisible();
   await expect(page.getByRole('region', { name: 'Start working' })).toHaveCount(
     0,
   );
@@ -77,9 +83,7 @@ test('simplified shell keeps controls and Home reachable', async ({
   await screenshot(page, info, 'slice1-home');
 
   await page.keyboard.press('Control+k');
-  await expect(
-    page.getByRole('dialog', { name: 'Workspace commands' }),
-  ).toBeVisible();
+  await expect(commandsDialog(page).dialog).toBeVisible();
 });
 
 test('the sidebar comes back as it was after a phone-width window (B340)', async ({

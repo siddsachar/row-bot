@@ -7,6 +7,7 @@ import {
   openSeedConversation,
   setVisualViewportHeight,
 } from './surface-helpers';
+import { commandsDialog, openAddResource } from './unified-helpers';
 
 test.beforeEach(async ({ page }) => {
   await installVisualViewportFixture(page);
@@ -27,6 +28,10 @@ test.beforeEach(async ({ page }) => {
 test('compact navigation drawer opens the selected conversation without rolling history back', async ({
   page,
 }) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    'A phone has no drawer (D1): phone-shell.spec.ts covers its Chats tab.',
+  );
   await openHome(page);
   await page
     .getByRole('button', { name: 'Toggle navigation', exact: true })
@@ -61,18 +66,13 @@ test('compact setup, panel sheets, Back and virtual keyboard preserve the conver
   const draft = `Retained ${testInfo.project.name} draft`;
   await composer.fill(draft);
 
-  // Add resource lives in the composer's + menu; closing the setup returns
-  // focus to +.
+  // Add resource lives in the composer's + menu (a phone's in + › Chat
+  // settings, B2); closing the setup returns focus to +.
   const addResource = page.getByRole('button', {
     name: 'Add files and more',
     exact: true,
   });
-  const openSetup = async () => {
-    await addResource.click();
-    await page
-      .getByRole('menuitem', { name: 'Add resource…', exact: true })
-      .click();
-  };
+  const openSetup = () => openAddResource(page);
   await openSetup();
   const setup = page.getByRole('dialog', {
     name: 'Add resource',
@@ -177,7 +177,14 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   });
   if (await settingsLink.first().isVisible())
     await settingsLink.first().click();
-  else {
+  else if (page.viewportSize()!.width < 768) {
+    // A phone: ‹ to a tab, then the tab bar's Settings (D1).
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Main' })
+      .getByRole('link', { name: 'Settings', exact: true })
+      .click();
+  } else {
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
@@ -187,12 +194,12 @@ test('compact themes, accents and accessibility preferences retain one mounted w
       .click();
   }
   if (page.viewportSize()!.width < 768) {
-    // A phone opens Settings on its list of pages (D6).
+    // A phone opens Settings on its list; Appearance is in More settings (D6).
     await expect(page).toHaveURL(/\/app-v2\/settings$/);
     await page
-      .getByRole('navigation', { name: 'Settings sections', exact: true })
-      .getByRole('link', { name: 'Appearance', exact: true })
+      .getByRole('link', { name: 'More settings', exact: true })
       .click();
+    await page.getByRole('link', { name: 'Appearance', exact: true }).click();
   } else {
     await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
     await page
@@ -221,6 +228,13 @@ test('compact themes, accents and accessibility preferences retain one mounted w
         }[theme],
         exact: theme !== 'system',
       })
+      // A phone chooses the look from one segmented control (C3).
+      .or(
+        page.getByRole('radio', {
+          name: { light: 'Light', dark: 'Dark', system: 'System' }[theme],
+          exact: true,
+        }),
+      )
       .click();
     await accent.selectOption(colour);
     await expect(page.locator('html')).toHaveAttribute(
@@ -273,14 +287,24 @@ test('compact themes, accents and accessibility preferences retain one mounted w
   await assertCompactSurface(page, testInfo, 'compact-preferences');
   await captureSurface(page, testInfo, 'compact-theme-preferences');
   await page.goBack();
-  // Back to where Settings opened: its list of pages on a phone.
+  // Back to where Settings opened: on a phone through More settings, then
+  // its list.
+  if (page.viewportSize()!.width < 768) {
+    await expect(page).toHaveURL(/\/app-v2\/settings\?view=more$/);
+    await page.goBack();
+  }
   await expect(page).toHaveURL(
     page.viewportSize()!.width < 768
       ? /\/app-v2\/settings$/
       : /\/app-v2\/settings\/models$/,
   );
   await page.goBack();
-  await expect(page).toHaveURL(/\/app-v2\/conversations\/p1-browser-a$/);
+  // A phone left the chat by ‹, which went to Chats in its place.
+  await expect(page).toHaveURL(
+    page.viewportSize()!.width < 768
+      ? /\/app-v2\/library$/
+      : /\/app-v2\/conversations\/p1-browser-a$/,
+  );
   await expect(workspace).toHaveAttribute('data-phase5-retained', 'true');
 });
 
@@ -292,26 +316,32 @@ test('touch screens say what Home’s quick starts make and show no keyboard hin
     name: 'Quick starts',
     exact: true,
   });
-  const design = quickStarts.getByRole('button', {
-    name: 'New design',
-    exact: true,
-  });
-  await expect(design).toBeVisible();
-  // No tooltip on touch, so the button carries its own word.
-  expect(
-    await design.evaluate((button) =>
-      getComputedStyle(button, '::after').content.replaceAll('"', ''),
-    ),
-  ).toBe('Design');
+  if (page.viewportSize()!.width < 768) {
+    // A phone's Home asks from its docked box, with no quick starts (C1, D2).
+    await expect(
+      page.getByRole('textbox', { name: 'Ask Row-Bot', exact: true }),
+    ).toBeVisible();
+    await expect(quickStarts).toHaveCount(0);
+  } else {
+    const design = quickStarts.getByRole('button', {
+      name: 'New design',
+      exact: true,
+    });
+    await expect(design).toBeVisible();
+    // No tooltip on touch, so the button carries its own word.
+    expect(
+      await design.evaluate((button) =>
+        getComputedStyle(button, '::after').content.replaceAll('"', ''),
+      ),
+    ).toBe('Design');
+  }
 
   await page
     .getByRole('button', { name: 'Workspace commands', exact: true })
+    .or(page.getByRole('button', { name: 'Search', exact: true }))
     .first()
     .click();
-  const search = page.getByPlaceholder(
-    'Search conversations, commands, settings…',
-  );
-  await expect(search).toBeVisible();
+  await expect(commandsDialog(page).field).toBeVisible();
   const visibleKeycaps = await page
     .locator('.kbd, .command-palette-footer')
     .evaluateAll(
@@ -347,6 +377,11 @@ test('a phone opens menus as bottom sheets that close with a swipe down', async 
     .click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
+  // Measure the sheet where it rests: during its rise the box is lower, and a
+  // touch aimed at its handle would land below it.
+  await menu.evaluate((node) =>
+    Promise.all(node.getAnimations().map((animation) => animation.finished)),
+  );
   const box = await menu.boundingBox();
   expect(box).not.toBeNull();
   // Full width, resting on the bottom edge, over a scrim.
@@ -441,36 +476,6 @@ test('a phone reaches Home, Chats, Workflows and Settings from a tab bar that a 
   await expect(tabs).toHaveCount(0);
 });
 
-test('a phone opens the conversation list with a swipe in from the left edge', async ({
-  page,
-}) => {
-  const viewport = page.viewportSize();
-  test.skip(
-    !viewport || viewport.width >= 768,
-    'Tablets keep the button only.',
-  );
-  await openSeedConversation(page);
-  const touch = await page.context().newCDPSession(page);
-  const y = Math.round(viewport!.height / 2);
-  await touch.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [{ x: 4, y }],
-  });
-  for (let step = 1; step <= 5; step += 1) {
-    await touch.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [{ x: 4 + step * 30, y }],
-    });
-  }
-  await touch.send('Input.dispatchTouchEvent', {
-    type: 'touchEnd',
-    touchPoints: [],
-  });
-  await expect(
-    page.getByRole('dialog', { name: 'Conversations' }),
-  ).toBeVisible();
-});
-
 test('a phone opens Settings on its list of pages, and each page goes back to it', async ({
   page,
 }) => {
@@ -484,20 +489,30 @@ test('a phone opens Settings on its list of pages, and each page goes back to it
     .getByRole('navigation', { name: 'Main' })
     .getByRole('link', { name: 'Settings' })
     .click();
-  const list = page.getByRole('navigation', { name: 'Settings sections' });
-  await list.getByRole('link', { name: 'Appearance' }).click();
+  // This phone, Row-Bot, and More settings for the rest (D6); each page is
+  // one header row with its way back to its list (D7).
+  await page.getByRole('link', { name: 'More settings' }).click();
+  await page.getByRole('link', { name: 'Appearance', exact: true }).click();
   await expect(page).toHaveURL(/\/app-v2\/settings\/appearance/);
   await expect(
-    page.getByRole('heading', { name: 'Appearance', level: 2 }),
+    page.getByRole('heading', { name: 'Appearance', level: 1 }),
   ).toBeVisible();
   await expect(
     page.getByRole('combobox', { name: 'Settings section' }),
   ).toHaveCount(0);
   await page
+    .getByRole('link', { name: 'Back to More settings', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\?view=more$/);
+  await page
     .getByRole('link', { name: 'Back to Settings', exact: true })
     .click();
   await expect(page).toHaveURL(/\/app-v2\/settings$/);
-  await expect(list.getByRole('link', { name: 'Models' })).toBeVisible();
+  await expect(
+    page
+      .getByRole('list', { name: 'Row-Bot' })
+      .getByRole('link', { name: 'Models' }),
+  ).toBeVisible();
 });
 
 test('a phone opens a message’s actions when a finger rests on it', async ({

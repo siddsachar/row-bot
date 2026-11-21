@@ -1,4 +1,5 @@
 import type { Page, TestInfo } from '@playwright/test';
+import { onPhoneWidth } from './phone-helpers';
 import { accessibility, assertNoOverflow, expect, test } from './evidence';
 import { fixtureHeaders } from './surface-helpers';
 import { composer, newConversation } from './unified-helpers';
@@ -8,6 +9,24 @@ import { composer, newConversation } from './unified-helpers';
 // and the Overview's states. The fixture stands in for the download, fakes the
 // hardware check and scripts the reply; nothing reaches a GPU, a download or a
 // provider. Each test puts the profile back.
+
+/**
+ * Home shows Learning: its sub-tab on a computer (open when ``selected``). A phone has no
+ * sub-tabs (C1); there Home's view is Learning's when it is open.
+ */
+async function expectLearningTab(page: Page, selected = false) {
+  if (onPhoneWidth(page)) {
+    if (selected)
+      await expect(page.locator('.home-view')).toHaveAttribute(
+        'data-home-tab',
+        'learning',
+      );
+    return;
+  }
+  const tab = page.getByRole('tab', { name: 'Learning' });
+  await expect(tab).toBeVisible();
+  if (selected) await expect(tab).toHaveAttribute('aria-selected', 'true');
+}
 
 async function fixture(page: Page, action: string) {
   const response = await page.request.post(
@@ -83,8 +102,9 @@ function notice(page: Page, text: string | RegExp) {
 
 async function openSettings(page: Page, leaf: string) {
   await page.goto(`/app-v2/settings/${leaf}`);
+  // A phone's header row names the page, not Settings (C3).
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Settings' }),
+    page.getByRole('region', { name: 'Settings', exact: true }),
   ).toBeVisible();
 }
 
@@ -146,12 +166,12 @@ test('Learning is on from the start: Home says so once, Teach a reply and undo i
   });
   await expect(intro).toBeVisible();
   await expect(intro).toContainText('What it records stays on this computer.');
-  await expect(page.getByRole('tab', { name: 'Learning' })).toBeVisible();
+  await expectLearningTab(page);
   await shoot(page, info, 'home-intro');
   await intro.getByRole('button', { name: 'Got it' }).click();
   await expect(intro).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole('tab', { name: 'Learning' })).toBeVisible();
+  await expectLearningTab(page);
   await expect(
     page.getByRole('region', { name: 'Row-Bot learns from your corrections' }),
   ).toHaveCount(0);
@@ -300,10 +320,7 @@ test('Settings › Learning: on, its experimental parts and the personal model o
   await expect(notice(page, 'Learning is on.')).toBeVisible();
   await expect(page.getByRole('dialog', { name: /^Download/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Open Learning' }).click();
-  await expect(page.getByRole('tab', { name: 'Learning' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expectLearningTab(page, true);
   await expect(page.getByText('Nothing learned yet.')).toBeVisible();
   await shoot(page, info, 'overview-empty');
 });

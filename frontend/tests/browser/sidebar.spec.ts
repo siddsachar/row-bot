@@ -3,6 +3,8 @@ import { assertNoOverflow, expect, screenshot, test } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
 import { blockFixtureServiceWorkers } from './unified-helpers';
 
+const NO_SIDEBAR = 'A phone has no sidebar or drawer (D1).';
+
 /** Whether any part of the logo or name runs under the Home icon. */
 function brandUnderHome(nav: Locator): Promise<boolean> {
   return nav
@@ -23,6 +25,7 @@ test('the sidebar leads with New chat, keeps Home in its header and Agents under
   page,
 }, info) => {
   const desktop = info.project.use.viewport!.width >= 1024;
+  test.skip(page.viewportSize()!.width < 768, NO_SIDEBAR);
   await blockFixtureServiceWorkers(context);
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
@@ -197,6 +200,7 @@ test('at 200% zoom the sidebar header keeps Home beside Search and collapse, and
 test('grouped sidebar keeps pin, menu, cursor, and child navigation reachable', async ({
   page,
 }, info) => {
+  test.skip(page.viewportSize()!.width < 768, NO_SIDEBAR);
   await openFixture(page);
   await page.evaluate(async () => {
     const { controller, transport } = (window as FixtureWindow)
@@ -393,21 +397,48 @@ test('the conversation library keeps its selection bar in view over a long list 
     name: 'Workspace navigation',
     exact: true,
   });
-  if (!(await nav.isVisible()))
-    await page
-      .getByRole('button', { name: 'Toggle navigation', exact: true })
+  if (page.viewportSize()!.width < 768) {
+    // A phone: ‹ to Chats, the library (D1).
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+  } else {
+    if (!(await nav.isVisible()))
+      await page
+        .getByRole('button', { name: 'Toggle navigation', exact: true })
+        .click();
+    await nav
+      .getByRole('link', { name: 'Conversation library', exact: true })
       .click();
-  await nav
-    .getByRole('link', { name: 'Conversation library', exact: true })
-    .click();
+  }
   const library = page.getByRole('region', {
     name: 'Conversation library',
     exact: true,
   });
+  const bar = library.getByRole('toolbar', { name: 'Selected conversations' });
+  if (page.viewportSize()!.width < 768) {
+    // A phone has no checkboxes: ⋯ › Select, then a tap ticks a row (D10).
+    await page.getByRole('button', { name: 'More for Chats' }).click();
+    await page.getByRole('menuitem', { name: 'Select' }).click();
+    for (const number of ['002', '005'])
+      await library
+        .getByRole('button', {
+          name: new RegExp(`^Library conversation ${number}`),
+        })
+        .click();
+    await expect(bar.getByText('2 selected')).toBeVisible();
+    await library
+      .getByRole('button', { name: /^Library conversation 090/ })
+      .scrollIntoViewIfNeeded();
+    const view = (await page.locator('.routed-view').boundingBox())!;
+    const barBox = (await bar.boundingBox())!;
+    expect(barBox.y).toBeGreaterThanOrEqual(view.y - 1);
+    expect(barBox.y).toBeLessThanOrEqual(view.y + 8);
+    await screenshot(page, info, 'b270-library-selection-scrolled');
+    await assertNoOverflow(page);
+    return;
+  }
   await expect(
     library.getByText('150 conversations · newest first'),
   ).toBeVisible();
-  const bar = library.getByRole('toolbar', { name: 'Selected conversations' });
   await expect(bar).toHaveCount(0);
 
   // Ticking starts a selection; Shift extends it.
@@ -445,6 +476,7 @@ test('a chat deleted from the sidebar stays deleted when the page closes while U
   context,
   page,
 }, info) => {
+  test.skip(page.viewportSize()!.width < 768, NO_SIDEBAR);
   await blockFixtureServiceWorkers(context);
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,

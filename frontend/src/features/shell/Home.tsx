@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   Brain,
+  ChevronLeft,
   GitBranch,
   GraduationCap,
   LayoutGrid,
@@ -32,6 +33,9 @@ import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
 import PhoneNotificationsOffer from '../home/PhoneNotificationsOffer';
 import { BuddyPortrait } from '../buddy/BuddySurface';
+import { AppLink } from '../../ui/app-link';
+import { OnYourComputer, usePhone } from '../../ui/on-your-computer';
+import '../../ui/styles/phone-home.css';
 import ForYou from '../proactive/ForYou';
 import ResourceSetup from './ResourceSetup';
 import { setupDeferred } from './FirstRun';
@@ -40,7 +44,7 @@ import MemoryImportDialog from '../knowledge/MemoryImportDialog';
 import { memoryImportIO } from '../knowledge/memory-import-io';
 import MemoryReviewDialog from '../knowledge/MemoryReviewDialog';
 import { memoryReviewIO } from '../knowledge/memory-review-io';
-import { neverUsed } from './new-chat';
+import { neverUsed, type HomeVoice } from './new-chat';
 import { useAttention } from './needs';
 import LearningHome, {
   LEARNING_VIEWS,
@@ -71,7 +75,7 @@ export default function Home({
   onPanel,
 }: {
   /** Start a new chat from Overview's Ask box (the shell's New chat owner). */
-  onAsk?: (text: string, options?: { send: false }) => void;
+  onAsk?: (text: string, options?: { send: false; voice?: HomeVoice }) => void;
   /** A new chat is being made. */
   asking?: boolean;
   /** Show a resource's panel: a new design or code folder opens there. */
@@ -87,6 +91,8 @@ export default function Home({
   );
   const overlay = useOverlay();
   const navigate = useNavigate();
+  // A phone has no Home sub-tabs (D2): each still opens from its address.
+  const phone = usePhone();
   const processes = useMemo<BackgroundProcessesIo>(
     () => ({
       load: (conversation, signal) =>
@@ -172,6 +178,23 @@ export default function Home({
   // What the sidebar's indicator counts, listed first in Monitor (rows 12,
   // 13): the sidebar's own shared read, not a second one.
   const loadAttention = identity ? controller.attention : undefined;
+  // The phone's Ask box offers dictation and Talk where this host has them (D3).
+  const [voice, setVoice] = useState({ dictate: false, talk: false });
+  useEffect(() => {
+    if (!phone || !identity || tab !== 'overview') return;
+    const abort = new AbortController();
+    controller.dictationCapability(abort.signal).then(
+      (value) => {
+        if (!abort.signal.aborted)
+          setVoice({
+            dictate: value.browser_dictation_available,
+            talk: Boolean(value.talk_available || value.realtime_available),
+          });
+      },
+      () => undefined,
+    );
+    return () => abort.abort();
+  }, [controller, identity, phone, tab]);
   const { value: attention, refresh: refreshAttention } =
     useAttention(loadAttention);
   const reloadMonitor = () => {
@@ -241,7 +264,12 @@ export default function Home({
     return () => abort.abort();
   }, [controller, graphLimit, identity, knowledgeReload, tab]);
   useEffect(() => {
-    if (!['overview', 'monitor', 'knowledge'].includes(tab) || !identity)
+    // A phone's Home lists nothing from Monitor (its Today and Monitor stay on the computer).
+    if (
+      !['overview', 'monitor', 'knowledge'].includes(tab) ||
+      !identity ||
+      phone
+    )
       return;
     const key = `${identity}:${monitorReload}`;
     if (
@@ -280,7 +308,7 @@ export default function Home({
       },
     );
     return () => abort.abort();
-  }, [controller, identity, monitorReload, tab]);
+  }, [controller, identity, monitorReload, phone, tab]);
 
   const loadKnowledgeDetail = useCallback(
     (id: string) => controller.knowledgeEntityDetail(id),
@@ -573,6 +601,15 @@ export default function Home({
             : 'Connect to open your workflows.'}
         </p>
       )}
+      {phone && tab === 'knowledge' && (
+        // Your memories open from Settings › Memory on a phone (B4): the way back.
+        <header className="phone-home-back">
+          <AppLink to="/settings/knowledge" className="button ghost">
+            <ChevronLeft size={20} aria-hidden />
+            Memory
+          </AppLink>
+        </header>
+      )}
       <Tabs
         className="home-tabs"
         label="Home capabilities"
@@ -607,8 +644,12 @@ export default function Home({
                 onEditScheduledPost={controller.editScheduledPost}
                 buddy={<BuddyPortrait />}
                 notificationsOffer={
-                  identity ? <PhoneNotificationsOffer /> : null
+                  identity
+                    ? (waiting) => <PhoneNotificationsOffer waiting={waiting} />
+                    : undefined
                 }
+                processes={identity ? processes : undefined}
+                voice={voice}
                 learningIntro={<LearningIntro io={learning} />}
                 forYou={({ rows, ahead, footer }) => (
                   <ForYou today={rows} ahead={ahead} footer={footer} />
@@ -713,7 +754,9 @@ export default function Home({
                 Monitor
               </>
             ),
-            content: (
+            content: phone ? (
+              <OnYourComputer what="System Monitor" />
+            ) : (
               <MonitorHome
                 writeClipboard={platform.writeClipboard}
                 snapshot={monitor}
@@ -746,7 +789,9 @@ export default function Home({
                 Insights
               </>
             ),
-            content: (
+            content: phone ? (
+              <OnYourComputer what="Insights" />
+            ) : (
               <InsightsHome
                 controller={controller}
                 writeClipboard={platform.writeClipboard}

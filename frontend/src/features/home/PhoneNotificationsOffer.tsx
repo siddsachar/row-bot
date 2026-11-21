@@ -1,13 +1,13 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BellRing, Share } from 'lucide-react';
+import { BellRing, Share, X } from 'lucide-react';
 import {
   accessPushClient,
   type AccessPushClient,
   type AccessPushStatus,
 } from '../../api/access';
 import { clientError } from '../../api/errors';
-import { Button } from '../../ui/primitives';
+import { Button, IconButton } from '../../ui/primitives';
 import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
 import {
   browserPush,
@@ -28,6 +28,7 @@ export type OfferDevice = {
 };
 
 const ANSWERED = 'row-bot:phone-notifications-offer';
+const WAITED = 'row-bot:phone-notifications-waited';
 
 function answeredKey(device: OfferDevice) {
   // The Home Screen app asks again after a browser tab's "Not now": that is
@@ -43,6 +44,31 @@ function answered(device: OfferDevice) {
   }
 }
 
+/**
+ * Whether something has waited for the person on this phone (D13): the offer
+ * comes in context, the first time Home shows anything that needs them, and
+ * stays until it is answered.
+ */
+function useWaited(waiting: number): boolean {
+  const [waited, setWaited] = useState(() => {
+    try {
+      return localStorage.getItem(WAITED) === 'yes';
+    } catch {
+      return false;
+    }
+  });
+  if (waiting > 0 && !waited) setWaited(true);
+  useEffect(() => {
+    if (!waited) return;
+    try {
+      localStorage.setItem(WAITED, 'yes');
+    } catch {
+      // Private browsing: it waits for the next thing that needs the person.
+    }
+  }, [waited]);
+  return waited;
+}
+
 function useDevice(): OfferDevice {
   const narrow = useMedia(PHONE_LAYOUT);
   const touch = useMedia('(pointer: coarse)');
@@ -55,24 +81,30 @@ function useDevice(): OfferDevice {
 }
 
 /**
- * The first time Row-Bot opens on a phone, one card on Home asks whether
- * this phone should get a notification when Row-Bot needs the person. Turn
- * on is the Settings switch's own flow; Not now is remembered on this phone,
- * and the switch stays in Settings › Devices & remote access. Never offered
- * where push can't work, or once it is on.
+ * Once something has waited for the person on this phone (D13), a one-line
+ * card on Home offers a notification for next time. Turn on is the Settings
+ * switch's own flow; Not now is remembered on this phone, and the switch stays
+ * at the top of Settings, in This phone (C3). Push works only over HTTPS, so it is never offered elsewhere;
+ * an iPhone browser tab is told to add Row-Bot to the Home Screen first. Never
+ * offered once notifications are on.
  */
 export default function PhoneNotificationsOffer({
+  waiting,
   client = accessPushClient,
   browser = browserPush,
   device: given,
 }: {
+  /** How many things need the person now (Home's Needs you count). */
+  waiting: number;
   client?: AccessPushClient;
   browser?: PushBrowser;
   device?: OfferDevice;
 }) {
   const detected = useDevice();
   const device = given ?? detected;
-  const offered = device.phone && device.secure && !answered(device);
+  // Only what waited on this phone counts.
+  const waited = useWaited(device.phone ? waiting : 0);
+  const offered = waited && device.phone && device.secure && !answered(device);
   const [status, setStatus] = useState<AccessPushStatus | null>(null);
   const [state, setState] = useState<'asking' | 'busy' | 'on' | 'not-now'>(
     'asking',
@@ -135,27 +167,22 @@ export default function PhoneNotificationsOffer({
       ? 'Notifications are on for this phone'
       : iphoneTab
         ? 'Add Row-Bot to your Home Screen first'
-        : 'Get a notification when Row-Bot needs you?';
+        : 'Notify me when needed';
+  // One line, except where there is something to do first or to change later.
   const words =
     state === 'on' ? (
       <>
-        Change it in{' '}
-        <Link to="/settings/access#notifications">
-          Devices &amp; remote access
-        </Link>
-        .
+        Change it in <Link to="/settings#notifications">Settings</Link>.
       </>
     ) : iphoneTab ? (
-      'On iPhone, notifications need Row-Bot on your Home Screen: tap Share, then Add to Home Screen. Row-Bot asks again when you open it from there.'
-    ) : (
-      DEVICE_NOTICE_WORDS
-    );
+      'On iPhone, tap Share, then Add to Home Screen, and open Row-Bot from there.'
+    ) : null;
   return (
     <div
-      className="overview-card overview-cell overview-notify"
+      className="phone-notify"
       role="region"
       aria-label="Phone notifications"
-      style={{ '--overview-order': 1 } as CSSProperties}
+      aria-description={words ? undefined : DEVICE_NOTICE_WORDS}
     >
       <span className="overview-tile" data-tone="accent" aria-hidden>
         {iphoneTab && state !== 'on' ? (
@@ -166,13 +193,10 @@ export default function PhoneNotificationsOffer({
       </span>
       <span className="overview-row-text">
         <strong className="overview-row-title">{title}</strong>
-        <span className="overview-row-meta">{words}</span>
+        {words && <span className="overview-row-meta">{words}</span>}
       </span>
       {state !== 'on' && (
-        <div className="overview-notify-actions">
-          <Button variant="ghost" className="small" onClick={notNow}>
-            Not now
-          </Button>
+        <div className="phone-notify-actions">
           {!iphoneTab && (
             <Button
               variant="primary"
@@ -183,6 +207,9 @@ export default function PhoneNotificationsOffer({
               Turn on
             </Button>
           )}
+          <IconButton label="Not now" onClick={notNow}>
+            <X size={16} aria-hidden />
+          </IconButton>
         </div>
       )}
       {error && (

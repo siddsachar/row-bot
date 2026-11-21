@@ -1,0 +1,129 @@
+/*
+ * Memory on a phone (B4, D12 A): a searchable list of memories with labelled
+ * type chips; a tap opens one in the editor, the bin forgets it. The chips
+ * and rows reuse A2's phone classes (phone-chats.css). These classes only
+ * render below 768px; desktop and tablets keep the graph as it was.
+ */
+.knowledge-home.phone-memory {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px 24px;
+}
+/* The chip row scrolls inside the page instead of widening it. */
+.knowledge-home.phone-memory > * {
+  flex: none;
+  min-width: 0;
+}
+
+.phone-memory-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.phone-memory-search > svg {
+  left: 13px;
+}
+.phone-memory-search > .input {
+  min-height: 44px;
+  padding-left: 40px;
+  border-radius: 12px;
+  /* 16px keeps iOS from zooming in on focus. */
+  font-size: 16px;
+}
+.phone-memory-add.icon-action {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+/* A long list stays light: rows off screen are laid out when they come near. */
+.phone-memory-row {
+  display: flex;
+  align-items: center;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
+}
+.phone-memory-row > .phone-row-main {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 16px 4px;
+}
+.phone-memory-delete.icon-action {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin-right: 6px;
+  color: var(--text-muted);
+}
+.phone-memory-delete.icon-action:hover,
+.phone-memory-delete.icon-action:focus-visible {
+  color: var(--status-danger-text);
+}
+
+.phone-memory-none,
+.phone-memory-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.phone-memory-none {
+  padding: 24px 4px;
+  text-align: center;
+}
+.phone-memory-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 4px;
+}
+.phone-memory-note > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* Loading, a read that failed, and no memories yet. */
+.phone-memory-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin: auto 0;
+  padding: 32px 8px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.phone-memory-empty p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* Settings › Memory: the row that opens the list. */
+.settings-row.phone-memory-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.phone-memory-link > .settings-row-label {
+  flex: 1;
+}
+.phone-memory-link-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.phone-memory-link > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+/* "Open this on your computer" where the graph's numbers would be. */
+.phone-memory-notice {
+  display: grid;
+  justify-items: center;
+}

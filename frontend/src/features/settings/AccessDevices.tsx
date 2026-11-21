@@ -19,6 +19,7 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import { When } from '../../ui/When';
+import { usePhone } from '../../ui/on-your-computer';
 
 function ipv4(address: string): number[] | null {
   const parts = address.split('.').map(Number);
@@ -87,6 +88,8 @@ export default function AccessDevices({
 }) {
   const place = usePlace();
   const overlay = useOverlay();
+  // A phone keeps Connect under Advanced, below this list (C3).
+  const phone = usePhone();
   const nameId = useId();
   const [devices, setDevices] = useState<AccessDevice[] | null>(null);
   const [error, setError] = useState('');
@@ -175,7 +178,11 @@ export default function AccessDevices({
       )}
       {!devices && !error ? <Skeleton label="Loading devices" /> : null}
       {devices && listed.length === 0 && (
-        <InlineEmpty>No devices yet. Connect one above.</InlineEmpty>
+        <InlineEmpty>
+          {phone
+            ? 'No devices yet. Connect one under Advanced.'
+            : 'No devices yet. Connect one above.'}
+        </InlineEmpty>
       )}
       {listed.length > 0 && (
         <EntityList label="Your devices">

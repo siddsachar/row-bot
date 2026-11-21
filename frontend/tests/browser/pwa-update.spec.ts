@@ -40,17 +40,25 @@ test('manifest and installed service worker cache only immutable public assets',
   page,
 }, testInfo) => {
   await openHome(page);
-  expect(
-    await page.locator('meta[name="theme-color"]').evaluateAll((elements) =>
-      elements.map((element) => ({
-        media: element.getAttribute('media'),
-        content: element.getAttribute('content'),
-      })),
-    ),
-  ).toEqual([
-    { media: '(prefers-color-scheme: light)', content: '#f4f7fb' },
-    { media: '(prefers-color-scheme: dark)', content: '#101722' },
-  ]);
+  // One tag per scheme; both take the colour of the theme the app shows (A3).
+  const surface = await page.evaluate(() =>
+    getComputedStyle(document.documentElement)
+      .getPropertyValue('--surface')
+      .trim(),
+  );
+  await expect
+    .poll(() =>
+      page.locator('meta[name="theme-color"]').evaluateAll((elements) =>
+        elements.map((element) => ({
+          media: element.getAttribute('media'),
+          content: element.getAttribute('content'),
+        })),
+      ),
+    )
+    .toEqual([
+      { media: '(prefers-color-scheme: light)', content: surface },
+      { media: '(prefers-color-scheme: dark)', content: surface },
+    ]);
   const manifestHref = await page
     .locator('link[rel="manifest"]')
     .getAttribute('href');

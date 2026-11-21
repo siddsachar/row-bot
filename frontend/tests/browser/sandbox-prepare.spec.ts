@@ -227,12 +227,22 @@ test('Docker mode offers to download the image, and Safety boundaries explains t
   });
   await expect(offer).toContainText('Download the sandbox image?');
   await expect(offer).toContainText('about 570 MB from Docker Hub');
-  await everywhere(page, info, 'image-pull-offer', async () => {
+  const imageOffer = async () => {
     await sandboxSection();
     await page
       .getByRole('group', { name: 'Sandbox image', exact: true })
       .scrollIntoViewIfNeeded();
-  });
+  };
+  await expect(imageOffer).toPass();
+  await views(page, info, 'image-pull-offer');
+  // Git, and the sandbox settings in it, stay on the computer (B3, D5): a
+  // phone's inspector shows Changes and Files only.
+  await page.setViewportSize(PHONE);
+  const narrow = page.getByRole('region', { name: / inspector$/ });
+  await expect(narrow.getByRole('tab', { name: 'Files' })).toBeVisible();
+  await expect(narrow.getByRole('tab', { name: /^Git/ })).toHaveCount(0);
+  await page.setViewportSize(DESKTOP);
+  await expect(imageOffer).toPass();
   await offer
     .getByRole('button', { name: 'Download image', exact: true })
     .click();

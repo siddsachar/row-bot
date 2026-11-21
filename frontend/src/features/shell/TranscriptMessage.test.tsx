@@ -16,8 +16,14 @@ import { SpeakersContext, type Speakers } from './TurnMarker';
 const mock = vi.hoisted(() => ({
   messageText: vi.fn(),
   getSnapshot: () => ({ selectedConversationId: 'conversation-a' }),
+  writeClipboard: vi.fn(async () => ({ status: 'ok' as const })),
 }));
-vi.mock('../../runtime', () => ({ useRuntime: () => ({ controller: mock }) }));
+vi.mock('../../runtime', () => ({
+  useRuntime: () => ({
+    controller: mock,
+    platform: { writeClipboard: mock.writeClipboard },
+  }),
+}));
 
 function encode(text: string) {
   return btoa(String.fromCharCode(...new TextEncoder().encode(text)));
@@ -415,6 +421,50 @@ it('opens a message’s actions on a long-press, and Select text makes its text 
   await waitFor(() =>
     expect(window.getSelection()?.toString()).toBe('Book the hall for Friday'),
   );
+});
+
+it('a phone’s older reply has no icon row; a right-click or the long-press opens its actions (D14)', async () => {
+  const row = {
+    id: 'assistant:older',
+    message_id: 'reply-older',
+    role: 'assistant',
+    blocks: [{ id: 'b', type: 'markdown', text: 'The deck is ready.' }],
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  const onFork = vi.fn(async () => {});
+  const { rerender } = render(
+    <TranscriptMessage
+      row={row}
+      conversationId="conversation-a"
+      onFork={onFork}
+      pressOnly
+    />,
+  );
+  expect(screen.queryByRole('toolbar')).toBeNull();
+  const article = screen.getByRole('article', { name: 'Row-Bot message' });
+  fireEvent.contextMenu(article);
+  const menu = await screen.findByRole('menu');
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent),
+  ).toEqual(['Copy message', 'Select text', 'Read aloud', 'Fork from here']);
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy message' }));
+  await waitFor(() =>
+    expect(mock.writeClipboard).toHaveBeenCalledWith('The deck is ready.'),
+  );
+
+  // The newest reply keeps its icons, and the browser keeps its own menu.
+  rerender(
+    <TranscriptMessage row={row} conversationId="conversation-a" latest />,
+  );
+  await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+  expect(
+    screen.getByRole('toolbar', { name: 'Row-Bot message actions' }),
+  ).toBeVisible();
+  expect(fireEvent.contextMenu(article)).toBe(true);
+  expect(screen.queryByRole('menu')).toBeNull();
 });
 
 const mineToEdit = {

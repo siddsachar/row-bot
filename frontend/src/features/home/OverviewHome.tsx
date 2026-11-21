@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ArrowUp,
   ArrowUpRight,
+  AudioLines,
   Bot,
   Brain,
   CalendarClock,
@@ -24,9 +25,11 @@ import {
   ImageOff,
   MemoryStick,
   MessageSquare,
+  Mic,
   Palette,
   Paperclip,
   Pencil,
+  Plus,
   RotateCw,
   Send,
   ShieldAlert,
@@ -53,6 +56,8 @@ import { clientError } from '../../api/errors';
 import { writeClipboardText } from '../../platform/clipboard';
 import { useRuntime } from '../../runtime';
 import { Hint, IconButton } from '../../ui/primitives';
+import { usePhone } from '../../ui/on-your-computer';
+import { updateReminderPending, UpdateLink } from '../shell/AttentionIndicator';
 import ApprovalCard from '../shell/ApprovalCard';
 import { openMediaViewer } from '../shell/MediaPreview';
 import { MediaTile, XPostEditor } from '../shell/XPostDetails';
@@ -77,7 +82,11 @@ import {
 import { usePendingApprovals } from '../shell/pending-approvals';
 import FixAction, { RunAgain } from './FixAction';
 import MemoryNoticeActions from './MemoryNotice';
-import { setHomeDraft } from '../shell/new-chat';
+import { setHomeDraft, type HomeVoice } from '../shell/new-chat';
+import type { ProcessIo } from '../shell/background-processes';
+import PhoneApprovalCard from './PhoneApprovalCard';
+import { usePhoneNow, working } from './PhoneNow';
+import '../../ui/styles/phone-home.css';
 import { useWaits, waitHow } from '../shell/Waits';
 import { When, greeting, plural } from './home-format';
 import { useProactive, useProactiveOn } from '../proactive/proactive-state';
@@ -109,8 +118,15 @@ export type OverviewHomeProps = {
   onEditScheduledPost?: (id: string, edit: XPostEdit) => Promise<unknown>;
   /** Buddy's live avatar beside the greeting. */
   buddy?: ReactNode;
-  /** A phone's one-time "Get a notification…?" offer, under the greeting. */
-  notificationsOffer?: ReactNode;
+  /**
+   * A phone's one-time notifications offer (D13), given how many things need
+   * the person now: it comes once something has waited for them.
+   */
+  notificationsOffer?: (waiting: number) => ReactNode;
+  /** Background processes, for the phone's Now (Monitor's own read). */
+  processes?: ProcessIo;
+  /** Whether this host can dictate and Talk: the phone's Ask box offers them. */
+  voice?: { dictate: boolean; talk: boolean };
   /** Learning's one-time note that it is on (O195), under the greeting. */
   learningIntro?: ReactNode;
   /**
@@ -126,9 +142,10 @@ export type OverviewHomeProps = {
   }) => ReactNode;
   /**
    * Start a new chat with this text as its first message, or only waiting in
-   * its composer (`send: false`) to add files and more there.
+   * its composer (`send: false`) to add files and more there, or with
+   * dictation or Talk starting in it (`voice`, the phone's Ask box).
    */
-  onAsk?: (text: string, options?: { send: false }) => void;
+  onAsk?: (text: string, options?: { send: false; voice?: HomeVoice }) => void;
   /** A new chat is being made: the Ask box waits. */
   asking?: boolean;
   /** Set up a new design or code folder in a new chat. */
@@ -182,17 +199,6 @@ const SOURCE_TILES: Record<
   conversation: { tone: 'accent', icon: <MessageSquare size={16} /> },
   agent: { tone: '3', icon: <Bot size={16} /> },
 };
-
-function working(row: ConversationView) {
-  return (
-    row.activity_state === 'active' ||
-    Boolean(
-      row.generation_state?.some(
-        (state) => state.status === 'running' || state.status === 'stopping',
-      ),
-    )
-  );
-}
 
 const titleOf = (row: ConversationView) => row.title || 'Untitled conversation';
 
@@ -297,12 +303,17 @@ function ApprovalRow({
   );
 }
 
+/** Home's Ask box; the phone docks it above the tab bar with + · mic · Talk (D3). */
 function AskBox({
   onAsk,
   asking,
+  docked = false,
+  voice,
 }: {
   onAsk: NonNullable<OverviewHomeProps['onAsk']>;
   asking: boolean;
+  docked?: boolean;
+  voice?: OverviewHomeProps['voice'];
 }) {
   // Shared while Home shows: a New chat opening as the person types takes it along (M12).
   const [text, setText] = useState('');
@@ -316,6 +327,67 @@ function AskBox({
     const value = text.trim();
     if (value && !asking) onAsk(value);
   }
+  if (docked)
+    return (
+      <form className="phone-ask" onSubmit={submit}>
+        <input
+          className="phone-ask-input"
+          type="text"
+          aria-label="Ask Row-Bot"
+          placeholder="Ask Row-Bot anything"
+          enterKeyHint="send"
+          autoComplete="off"
+          value={text}
+          onChange={(event) => type(event.target.value)}
+        />
+        <div className="phone-ask-controls">
+          <IconButton
+            label="Add photos or files in a new chat"
+            className="phone-ask-plus"
+            disabled={asking}
+            onClick={() => onAsk(text, { send: false })}
+          >
+            <Plus size={20} aria-hidden />
+          </IconButton>
+          {text.trim() ? (
+            <IconButton
+              label="Start chat"
+              type="submit"
+              variant="primary"
+              className="phone-ask-voice"
+              disabled={asking}
+            >
+              <ArrowUp size={20} aria-hidden />
+            </IconButton>
+          ) : (
+            <>
+              <IconButton
+                label={
+                  voice?.dictate
+                    ? 'Dictate in a new chat'
+                    : 'Dictation is unavailable on this host.'
+                }
+                disabled={asking || !voice?.dictate}
+                onClick={() => onAsk(text, { send: false, voice: 'dictate' })}
+              >
+                <Mic size={20} aria-hidden />
+              </IconButton>
+              <IconButton
+                label={
+                  voice?.talk ? 'Talk' : 'Talk is unavailable on this host.'
+                }
+                variant="primary"
+                className="phone-ask-voice"
+                disabled={asking || !voice?.talk}
+                onClick={() => onAsk(text, { send: false, voice: 'talk' })}
+              >
+                <AudioLines size={20} aria-hidden />
+              </IconButton>
+            </>
+          )}
+        </div>
+      </form>
+    );
   return (
     <form className="overview-ask" onSubmit={submit}>
       <input
@@ -477,6 +549,8 @@ export default function OverviewHome({
   loadAttention,
   buddy,
   notificationsOffer,
+  processes,
+  voice,
   learningIntro,
   forYou,
   onAsk,
@@ -499,6 +573,8 @@ export default function OverviewHome({
   onEditScheduledPost,
 }: OverviewHomeProps) {
   const navigate = useNavigate();
+  // The phone's Home (D2): Needs you, Now and Recent over a docked Ask box.
+  const phone = usePhone();
   const [tasks, setTasks] = useState<readonly TaskSummary[] | null>(null);
   const [tasksFailed, setTasksFailed] = useState(false);
   const [health, setHealth] = useState<SystemDiagnosis | null>(null);
@@ -953,6 +1029,22 @@ export default function OverviewHome({
     healthFailed && 'health checks',
   ].filter((name): name is string => Boolean(name));
 
+  // The phone's Now (D2): what runs, each opening its chat or workflow.
+  const nowItems = usePhoneNow({
+    conversations,
+    tasks,
+    processes: phone ? (processes ?? null) : null,
+    onOpenConversation,
+    onOpenWorkflows,
+    now,
+  });
+  // The phone has no sidebar: an update shows on Home, as the sidebar shows it.
+  const available = attentionFeed.value?.update;
+  const update =
+    phone && available && !updateReminderPending(available.version)
+      ? available
+      : null;
+
   // What conversations wait for (5.3.1): nothing needs the person; they carry on by themselves.
   const { waits, stop: stopWait } = useWaits();
   const waitRows = waits.map((wait): Item => ({
@@ -1049,20 +1141,32 @@ export default function OverviewHome({
       className="overview-home"
       aria-labelledby="overview-title"
       data-entrance={reduced ? undefined : 'stagger'}
+      data-layout={phone ? 'phone' : undefined}
     >
       <header
         className="overview-hero overview-card overview-cell"
         style={{ '--overview-order': 0 } as CSSProperties}
       >
         <div className="overview-greet">
-          {buddy && (
-            <span
-              className="overview-buddy"
-              data-state={attention ? 'waiting' : 'calm'}
-            >
-              {buddy}
-            </span>
-          )}
+          {buddy &&
+            (phone ? (
+              // The phone has no sidebar card: Buddy here opens its settings.
+              <Link
+                className="overview-buddy"
+                to="/settings/buddy"
+                aria-label="Buddy settings"
+                data-state={attention ? 'waiting' : 'calm'}
+              >
+                {buddy}
+              </Link>
+            ) : (
+              <span
+                className="overview-buddy"
+                data-state={attention ? 'waiting' : 'calm'}
+              >
+                {buddy}
+              </span>
+            ))}
           <div className="overview-greet-text">
             <h2 id="overview-title">{greeting(now)}</h2>
             {!needsModel && lead && <p className="overview-summary">{lead}</p>}
@@ -1088,8 +1192,8 @@ export default function OverviewHome({
           </div>
         ) : (
           <>
-            {onAsk && <AskBox onAsk={onAsk} asking={asking} />}
-            {quickStarts.length > 0 && (
+            {onAsk && !phone && <AskBox onAsk={onAsk} asking={asking} />}
+            {quickStarts.length > 0 && !phone && (
               <div
                 className="overview-quick"
                 role="group"
@@ -1102,7 +1206,13 @@ export default function OverviewHome({
         )}
       </header>
 
-      {!needsModel && notificationsOffer}
+      {update && (
+        <div className="phone-home-notices">
+          <UpdateLink update={update} compact={false} />
+        </div>
+      )}
+
+      {!needsModel && !phone && notificationsOffer?.(attention)}
 
       {!needsModel && learningIntro}
 
@@ -1129,11 +1239,19 @@ export default function OverviewHome({
               {(needsOpen ? needRows : needRows.slice(0, NEEDS_SHOWN)).map(
                 (need) =>
                   'approval' in need ? (
-                    <ApprovalRow
-                      key={need.key}
-                      item={need.approval}
-                      onChanged={approvalsFeed.refresh}
-                    />
+                    phone ? (
+                      <PhoneApprovalCard
+                        key={need.key}
+                        item={need.approval}
+                        onChanged={approvalsFeed.refresh}
+                      />
+                    ) : (
+                      <ApprovalRow
+                        key={need.key}
+                        item={need.approval}
+                        onChanged={approvalsFeed.refresh}
+                      />
+                    )
                   ) : (
                     <Row key={need.key} item={need.item} />
                   ),
@@ -1158,6 +1276,18 @@ export default function OverviewHome({
               )}
             </button>
           )}
+        </Section>
+      )}
+
+      {!needsModel && phone && notificationsOffer?.(attention)}
+
+      {!needsModel && phone && nowItems.length > 0 && (
+        <Section id="overview-now" title="Now" order={1}>
+          <ul className="overview-rows" aria-label="Now">
+            {nowItems.map((item) => (
+              <Row key={item.key} item={item} />
+            ))}
+          </ul>
         </Section>
       )}
 
@@ -1341,6 +1471,7 @@ export default function OverviewHome({
       )}
 
       {!needsModel &&
+        !phone &&
         proactiveOn &&
         forYou?.({
           rows: today
@@ -1385,7 +1516,7 @@ export default function OverviewHome({
 
       {/* Once a model works Row-Bot is set up; the rest is optional, never
           a "needs you" item or a count of what's left (U1, U2). */}
-      {showSetup && (
+      {showSetup && !phone && (
         <Section id="overview-explore" title="Explore" order={4}>
           {showSetup && (
             <div
@@ -1424,6 +1555,7 @@ export default function OverviewHome({
       )}
 
       {!needsModel &&
+        !phone &&
         (today.length > 0 || unread.length > 0) &&
         !(proactiveOn && forYou) && (
           <Section id="overview-today" title="Today" order={3}>
@@ -1442,6 +1574,12 @@ export default function OverviewHome({
             )}
           </Section>
         )}
+
+      {phone && !needsModel && onAsk && (
+        <div className="phone-home-dock">
+          <AskBox onAsk={onAsk} asking={asking} docked voice={voice} />
+        </div>
+      )}
     </section>
   );
 }
