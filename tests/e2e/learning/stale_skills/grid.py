@@ -19,7 +19,10 @@ scored in ``stale.json``: no interim outcome before every run is done). On its e
 - a crash: resumed from the checkpoint at once (the interrupted step is logged as redone by the run); after three
   crashes without a new step done it waits 30 minutes; after six it is marked ``failed`` and left for a look.
 
-Only the main queue's processes skip the GPU booking file (they never book the card, and a run's release would
+**The confirmation** (``PREREG-DESIGN-A-CONFIRM.md``): ``--queue confirm``, the main model's arms N and R on the six
+people at the fresh world seed ``CONFIRM_SEED``, each cell ``c1_main_<arm>_<person>`` under its own ``--root``.
+
+Only the main and confirm queues' processes skip the GPU booking file (they never book the card, and a run's release would
 otherwise close the local run's booking: both write as lane B). ``status-<queue>.json`` and ``status.md`` say, per
 cell, its state, days done, ChatGPT-lane tokens and booked GPU-hours (no outcome).
 """
@@ -59,6 +62,8 @@ MODELS: dict[str, dict[str, str]] = {
 }
 #: Per-cell ChatGPT-lane caps: well above need (a main cell is expected at about 20-25M), so a cap is a stop to look.
 CAPS = {"main": 80_000_000, "local": 4_000_000}
+#: The confirmation's fresh worlds (``PREREG-DESIGN-A-CONFIRM.md`` §3), in place of Design A's ``world.SEED``.
+CONFIRM_SEED = 20261121
 
 
 @dataclass(frozen=True)
@@ -66,15 +71,23 @@ class Cell:
     model: str
     arm: str
     person: str
+    #: ``sa3``: Design A's grid (``world.SEED``); ``c1``: the confirmation (``CONFIRM_SEED``).
+    study: str = "sa3"
 
     @property
     def name(self) -> str:
-        return f"sa3_{self.model}_{self.arm}_{self.person}"
+        return f"{self.study}_{self.model}_{self.arm}_{self.person}"
+
+    @property
+    def seed(self) -> int:
+        return CONFIRM_SEED if self.study == "c1" else world.SEED
 
 
 def cells(queue: str) -> list[Cell]:
     """The queue's cells in the order they run (local: H-A1's 9B arms first, then D and A, then H-A2's models)."""
 
+    if queue == "confirm":
+        return [Cell("main", arm, person, "c1") for person in world.PEOPLE for arm in ("N", "R")]
     if queue == "main":
         return [Cell("main", arm, person) for person in world.PEOPLE for arm in ("N", "R", "D")]
     found = [Cell("q9b", arm, person) for person in world.PEOPLE for arm in ("N", "R", "F")]
@@ -94,6 +107,8 @@ def command(cell: Cell, root: Path, eval_profile: str, booking: str, night: str 
              "--model", model["lane"], "--data", str(folder / "data"), "--run-dir", str(folder / "run"),
              "--days", str(world.DAYS), "--phrasing", "main", "--sim-date", "--blind", "--eval-profile", eval_profile,
              "--cap-tokens", str(CAPS[model["lane"]])]
+    if cell.seed != world.SEED:
+        found += ["--seed", str(cell.seed)]
     if model["lane"] == "local":
         found += ["--local-model", model["local"], "--no-new-day-from", night or model["cutoff"],
                   "--block-minutes", str(BLOCK_MINUTES), "--priority-lanes", "lane-C"]
@@ -212,7 +227,7 @@ def merged(root: Path, queue: str) -> dict[str, Any] | None:
 def render(root: Path) -> str:
     lines = ["# Stale skills phase 3: run status (no outcomes)", ""]
     total_tokens, total_gpu = 0, 0.0
-    for queue in ("main", "local"):
+    for queue in ("main", "local", "confirm"):
         data = merged(root, queue)
         if data is None:
             continue
@@ -370,7 +385,7 @@ def run_cell(cell: Cell, args: argparse.Namespace, status: Status) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Phase 3's grid of stale-skills runs, one queue")
-    parser.add_argument("--queue", choices=("main", "local"), required=True)
+    parser.add_argument("--queue", choices=("main", "local", "confirm"), required=True)
     parser.add_argument("--root", required=True)
     parser.add_argument("--eval-profile", required=True)
     parser.add_argument("--gpu-booking", default="")
@@ -383,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-new-day-from", default="", help="HH:MM for every local cell instead of its model's "
                         "cut-off (05:00: no night pause, only when the person's Row-Bot is closed for the night)")
     args = parser.parse_args(argv)
-    if args.queue == "main":
+    if args.queue in ("main", "confirm"):
         args.gpu_booking = ""  # see the module's docstring
     root = Path(args.root)
     root.mkdir(parents=True, exist_ok=True)

@@ -379,6 +379,48 @@ def test_phase_3s_grid_is_the_pre_registered_one(tmp_path):
     assert night[night.index("--no-new-day-from") + 1] == "05:00"
     assert grid.progress(tmp_path / "nothing") == {"days": 0, "steps": 0, "tokens": 0, "gpu_seconds": 0.0,
                                                    "finished": False}
+    # Design A's cells run its own world (no --seed: run.py's default is world.SEED).
+    assert "--seed" not in main and "--seed" not in local
+
+
+def test_the_confirmation_runs_the_main_models_n_and_r_on_fresh_worlds(tmp_path):
+    from tests.e2e.learning.stale_skills import grid
+
+    cells = grid.cells("confirm")
+    assert {(cell.model, cell.arm, cell.person) for cell in cells} == {
+        ("main", arm, person) for person in world.PEOPLE for arm in ("N", "R")}
+    assert len(cells) == 12 and all(cell.name.startswith("c1_main_") for cell in cells)
+    assert not {cell.name for cell in cells} & {cell.name for queue in ("main", "local") for cell in grid.cells(queue)}
+    command = grid.command(cells[0], tmp_path, "profile", "booking.txt")
+    assert command[command.index("--seed") + 1] == str(grid.CONFIRM_SEED) != str(world.SEED)
+    assert "--blind" in command and "--gpu-booking" not in command
+
+
+def test_the_confirmations_worlds_follow_design_as_rule_with_new_events():
+    from tests.e2e.learning.stale_skills import confirm
+
+    person = world.PEOPLE[0]
+    fresh = confirm.timeline(person)
+    before = world.build(person=person, seed=world.SEED, days=world.DAYS)
+    # The same rule (8 changes, each on its own procedure, at least 7 days apart), new events.
+    assert len(fresh.changes) == len(before.changes) == 8
+    assert len({item.procedure for item in fresh.changes}) == 8
+    days = sorted(item.day for item in fresh.changes)
+    assert all(later - earlier >= 7 for earlier, later in zip(days, days[1:]))
+    assert [(item.procedure, item.day) for item in fresh.changes] != [(item.procedure, item.day)
+                                                                     for item in before.changes]
+
+
+def test_h_c1_holds_only_when_r_halves_n_with_an_upper_bound_below_one():
+    from tests.e2e.learning.stale_skills import confirm
+
+    n = {("ana", f"p{index}"): (3, 10) for index in range(8)}
+    r_cut = {("ana", f"p{index}"): (0 if index % 4 else 1, 10) for index in range(8)}
+    found = confirm.h_c1(r_cut, n, resamples=500)
+    assert found["point"] == (2 / 80) / (24 / 80) and found["holds"]
+    assert found["interval"][1] < 1
+    same = confirm.h_c1(n, n, resamples=500)
+    assert same["point"] == 1.0 and not same["holds"]
 
 
 def test_the_turn_context_can_say_the_simulated_date():
