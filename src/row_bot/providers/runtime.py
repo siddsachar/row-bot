@@ -1163,8 +1163,8 @@ def _validated_runtime_reasoning_plan(
 
 
 def _local_reasoning_default(runtime_model: str) -> dict[str, Any]:
-    """A local model saved as non-thinking (a personal model, O24) is asked not to think unless
-    the conversation chose otherwise (the plan's own setting is applied after this)."""
+    """A local model saved as non-thinking (a personal model, O24) is asked not to think. The transport
+    keeps it so whatever the conversation chose (``RowBotChatOllama``)."""
     try:
         from row_bot.models import local_model_settings
 

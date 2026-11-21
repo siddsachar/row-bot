@@ -248,6 +248,11 @@ def resolve_reasoning_capabilities(provider_id: str, model_id: str) -> Reasoning
         local = _local_template_thinking_capabilities(provider, model)
         if local:
             return local
+    if provider == "ollama":
+        from row_bot.models import local_model_never_thinks
+
+        if local_model_never_thinks(model):
+            return None  # served with thinking off, as trained: no choice to offer
     resolved_source = ""
     try:
         from row_bot.providers.capability_resolution import resolve_capability_metadata

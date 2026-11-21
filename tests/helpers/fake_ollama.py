@@ -6,6 +6,8 @@
 Serves ``/api/chat`` and ``/api/generate``; ``/api/tags`` lists ``server.model``. Each token is written and
 flushed as its own chunk, so a client reading the stream sees hundreds of small chunks for a long answer.
 ``tool_calls`` (Ollama's wire form) are sent in one chat chunk before the last, as the real server does.
+``show`` is what ``/api/show`` answers for ``server.model`` (``details``, ``capabilities``, ``model_info``); without
+it ``/api/show`` is a 404, as for an Ollama that says nothing.
 
 ``replies`` scripts one chat reply per request, in order (the last repeats): each a dict with ``tokens``,
 ``tool_calls``, ``eval_count``, ``prompt_eval_count`` and ``done_reason`` (on the last chunk), or ``status`` and
@@ -52,6 +54,7 @@ def fake_streaming_ollama(
     model: str = "fake-local:7b",
     tool_calls: list[dict] | None = None,
     replies: list[dict] | None = None,
+    show: dict | None = None,
 ) -> Iterator[FakeOllama]:
     state = FakeOllama(url="", model=model, tokens=list(tokens), tool_calls=list(tool_calls or ()),
                        replies=list(replies or ()))
@@ -80,6 +83,9 @@ def fake_streaming_ollama(
             length = int(self.headers.get("Content-Length") or 0)
             request = json.loads(self.rfile.read(length) or b"{}")
             state.requests.append({"path": self.path, **request})
+            if self.path == "/api/show" and show is not None and request.get("model") == state.model:
+                self._json(show)
+                return
             if self.path not in {"/api/chat", "/api/generate"}:
                 self.send_error(404)
                 return

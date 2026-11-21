@@ -1324,6 +1324,16 @@ def local_model_settings(model_name: str | None) -> dict:
     return dict(_local_model_settings.get(_ollama_tag(model_name)) or {})
 
 
+def local_model_never_thinks(model_name: str | None) -> bool:
+    """Whether a local model is served with thinking off whatever a chat chooses: one of Learning's personal
+    models (its reserved name), or a model saved as non-thinking (O24: a personal model or an evaluation arm's).
+    They are served as they were trained (Learning's L4 constraint)."""
+    from row_bot.providers.model_visibility import withheld
+
+    return bool(model_name) and (withheld("ollama", model_name) or
+                                 local_model_settings(model_name).get("reasoning") == "off")
+
+
 def set_local_model_settings(model_name: str, *, context: int | None = None, reasoning: str | None = None) -> None:
     """Serve this local model at ``context`` tokens and/or with thinking ``"off"`` (saved)."""
     from row_bot.providers.saved_model_settings import update_saved_model_settings

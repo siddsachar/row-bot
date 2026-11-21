@@ -133,3 +133,51 @@ def test_ollamas_qwen3_8_gets_its_thinking_control():
     caps = resolve_reasoning_capabilities("ollama", "qwen3.8:27b")
 
     assert caps is not None and caps.thinking_mode == "toggle" and caps.can_disable
+
+
+# ── Learning's personal models on Ollama ─────────────────────────────────────
+
+PERSONAL = "row-bot-personal-v2:abcd1234"
+PERSONAL_REF = f"model:ollama:{PERSONAL}"
+
+
+@pytest.fixture(params=["qwen3.8", "qwen3.5"])
+def personal_on_ollama(request, tmp_path, monkeypatch):
+    """A personal model served on Ollama, which reports its starting model's family and that it can think, with
+    the thinking-off setting Learning saves for it, and Row-Bot's catalog refreshed from Ollama's answer."""
+    import row_bot.models as models
+    from row_bot.providers import model_catalog_cache as cache
+    from row_bot.providers.model_catalog import load_ollama_catalog_rows
+    from tests.helpers.fake_ollama import fake_streaming_ollama
+
+    show = {"details": {"format": "gguf", "family": request.param, "families": [request.param]},
+            "capabilities": ["completion", "tools", "thinking"], "model_info": {"general.context_length": 262144}}
+    with fake_streaming_ollama(tokens=["4"], model=PERSONAL, show=show) as server:
+        monkeypatch.setenv("OLLAMA_HOST", server.url)
+        monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+        monkeypatch.setattr(models, "_local_model_settings", {})
+        monkeypatch.setattr(models, "_override_llm_cache", {})
+        monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+        rows = load_ollama_catalog_rows()
+        assert [row["model_id"] for row in rows] == [PERSONAL]
+        cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+            cache.CACHE_VERSION, 0.0, {}, rows, {}, (), "personal model"))
+        models.set_local_model_settings(PERSONAL, context=32768, reasoning="off")  # as Learning saves it
+        yield server
+
+
+def test_a_personal_model_on_ollama_never_thinks_whatever_the_chat_asks(personal_on_ollama):
+    import row_bot.models as models
+    from row_bot.providers.reasoning import ollama_thinking_capabilities
+
+    # A request cut that carries an On choice anyway (one made before the model was a personal one).
+    on = ReasoningRequestPlan(PERSONAL_REF, ReasoningSelection(kind="on"), ollama_thinking_capabilities(PERSONAL))
+    prompt = [HumanMessage(content="What is 2 + 2?")]
+    sent = []
+    for build in (lambda: models.get_llm_for(PERSONAL_REF), lambda: models.get_llm_for(PERSONAL_REF, reasoning_plan=on),
+                  lambda: create_chat_model(PERSONAL_REF), lambda: create_chat_model(PERSONAL_REF, reasoning_plan=on)):
+        build().invoke(prompt)
+        sent.append(personal_on_ollama.chat_requests()[-1].get("think"))
+
+    assert sent == [False, False, False, False]
+    assert resolve_reasoning_capabilities("ollama", PERSONAL) is None  # and no Thinking control is offered
