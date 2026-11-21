@@ -791,8 +791,12 @@ def _local_template_thinking_capabilities(provider_id: str, model_id: str) -> Re
         return None
     if endpoint is None or not takes_per_chat_thinking(endpoint):
         return None
+    from row_bot.models import local_thinking
+
     mode = str(endpoint.get("reasoning_mode") or "auto").strip().lower()
-    default = mode == "on" if mode in {"on", "off"} else built_in_model_thinks(endpoint, model_id)
+    default = local_thinking(provider_id, model_id)  # the person's Thinking for this model (U1)
+    if default is None:
+        default = mode == "on" if mode in {"on", "off"} else built_in_model_thinks(endpoint, model_id)
     return ReasoningCapabilities(
         default_enabled=True if default is None else default,  # the templates think unless told not to
         can_disable=True,

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, it } from 'vitest';
 import ContextUsage, { describeConversationUsage } from './ContextUsage';
 
@@ -337,4 +338,41 @@ it('keeps the technical lines behind Details', () => {
       )
       .closest('details'),
   ).toBeNull();
+});
+
+it('says when a local model’s window limits the chat, with the way to its settings', () => {
+  const local = {
+    ...measured,
+    estimated_input_tokens: 15_000,
+    usable_input_tokens: 27_852,
+    effective_limit_tokens: 32_768,
+    model_ref: 'model:ollama:qwen3:8b',
+  };
+  const { rerender } = render(
+    <MemoryRouter>
+      <ContextUsage usage={local} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByText('Context 54%'));
+
+  expect(screen.getByText(/This model reads 32K\./)).toBeInTheDocument();
+  expect(
+    screen.getByRole('link', { name: 'Give it more in its settings' }),
+  ).toHaveAttribute(
+    'href',
+    '/settings/models?model-settings=model%3Aollama%3Aqwen3%3A8b',
+  );
+
+  // A server the person runs sets its own window: no link that would change nothing.
+  rerender(
+    <MemoryRouter>
+      <ContextUsage
+        usage={{
+          ...local,
+          model_ref: 'model:custom_openai_lmstudio-1234:gemma-4',
+        }}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByText(/This model reads/)).toBeNull();
 });

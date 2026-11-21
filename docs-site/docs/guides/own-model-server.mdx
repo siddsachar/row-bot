@@ -74,7 +74,7 @@ vllm serve Qwen/Qwen3-8B --host 127.0.0.1 --port 8000 --max-model-len 32768 --ap
 - Start the server from LM Studio's **Developer** tab. **Base URL:** `http://127.0.0.1:1234/v1`. **Server type:** **LM Studio**.
 - For other computers on your network, turn on **Serve on Local Network** in the server settings.
 - To require a key, turn on **Require Authentication**, create a token with **Manage Tokens**, and paste the token into Row-Bot as the API key.
-- Row-Bot reads each model's context size from LM Studio.
+- Row-Bot reads each model's context size from LM Studio, as it loaded the model. To load it at another size, open the model's settings in Row-Bot (the sliders icon) and choose **Reload in LM Studio at _size_** (LM Studio 0.4 or later), or change **Context Length** in LM Studio.
 
 ## Reach It From Anywhere
 
@@ -185,7 +185,7 @@ Every request sends your prompt, files you attach and tool results to your model
 - **"The model server refused the API key":** the server turned the key down. Choose **Enter API key**, paste the key again, and Row-Bot refreshes the endpoint. **"This endpoint needs an API key"** means none is saved yet.
 - **Ollama refuses the key although it's right:** Ollama answers 403 Forbidden when a request reaches it under your public name. Send it through [the key check](#a-key-check-in-front-of-ollama), which rewrites the name.
 - **The row says Chat only:** the model or the server isn't set up for tool calls. Choose a model that supports tools, start `llama-server` with `--jinja`, or start vLLM with `--enable-auto-tool-choice` and the right `--tool-call-parser`, then **Probe** again.
-- **Answers lose track of the conversation or stop early:** the server has less context than Row-Bot thinks. Start it with more, or set **Native context limit** under **Advanced** to what the server uses.
+- **Answers lose track of the conversation or stop early:** the server has less context than Row-Bot thinks. Start it with more, or set **Native context limit** under **Advanced** to what the server uses. A model's settings sheet in **Settings › Models** shows what the server loaded and, under **More**, a **Reply length** limit for replies that run on.
 - **The first answer is slow:** the server loads the model on first use; the next answers come faster.
 
 Related: [Settings: Providers](/docs/settings/providers), [Models And Providers](/docs/configuration/models-and-providers) and [Reasoning Controls](/docs/chat/reasoning-controls) for a custom endpoint's reasoning settings.

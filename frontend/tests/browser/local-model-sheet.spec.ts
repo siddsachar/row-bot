@@ -1,0 +1,162 @@
+import type { Page, TestInfo } from '@playwright/test';
+import { accessibility, assertNoOverflow, expect, test } from './evidence';
+import { onPhone, PHONES } from './phone-helpers';
+
+// U1 and U2 of the local-models uplift: each local model has one settings
+// sheet. Row-Bot's own llama.cpp (Qwen3.5 9B on a synthetic 12 GB card) offers
+// the windows that fit, with their memory; LM Studio's window is its own,
+// shown with the way to load it again; the old "Advanced context" is now the
+// Cloud reading limit. The fixture runs nothing: a choice rewrites the
+// endpoint, as it does while no server runs. Screens at desktop and phone
+// width, light and dark, are saved for the UX review.
+
+const BUILT_IN = 'model:custom_openai_llamacpp:qwen3.5-9b';
+const STUDIO = 'model:custom_openai_lmstudio-1234:gemma-4';
+
+async function fixture(page: Page, state: 'on' | 'off') {
+  const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
+  const base = process.env.ROW_BOT_BROWSER_BASE_URL;
+  if (!token || !base) throw new Error('Use the isolated Phase 4 runner');
+  const response = await page.request.post(
+    `/__u1_fixture/local-model-sheet/${state}`,
+    { headers: { 'X-Fixture-Token': token, Origin: new URL(base).origin } },
+  );
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
+/**
+ * The same screen in light and dark, as the window shows it (a sheet is fixed
+ * to the window, which a full-page capture would stretch).
+ */
+async function bothSchemes(page: Page, testInfo: TestInfo, name: string) {
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.waitForTimeout(150);
+    const file = testInfo.outputPath(`${name}-${scheme}.png`);
+    await page.screenshot({ path: file, animations: 'disabled' });
+    await testInfo.attach(`${name}-${scheme}`, {
+      path: file,
+      contentType: 'image/png',
+    });
+  }
+  await page.emulateMedia({ colorScheme: null });
+}
+
+const sheet = (page: Page) => page.getByRole('dialog');
+
+test.beforeEach(async ({ page }) => fixture(page, 'on'));
+test.afterEach(async ({ page }) => fixture(page, 'off'));
+
+test('a model Row-Bot runs offers the windows that fit, with their memory, and saves a choice', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/app-v2/settings/models');
+  const local = page.locator('[data-setting-anchor="local-models"]');
+  await local.getByRole('button', { name: 'Settings for Qwen3.5 9B' }).click();
+
+  const dialog = sheet(page);
+  await expect(
+    dialog.getByRole('heading', { name: 'Qwen3.5 9B' }),
+  ).toBeVisible();
+  await expect(dialog).toContainText(
+    'Runs in Row-Bot (llama.cpp) on this computer.',
+  );
+  const context = dialog.getByRole('combobox', { name: 'Context' });
+  await expect(context.locator('option')).toHaveText([
+    'Automatic · 128K',
+    '32K',
+    '64K',
+    '128K',
+    '256K',
+  ]);
+  await expect(dialog).toContainText(
+    'Reads 128K now · about 2.3 GB on your card',
+  );
+  await expect(
+    dialog.getByRole('radiogroup', { name: 'Thinking' }),
+  ).toBeVisible();
+  await accessibility(page, testInfo, 'built-in-sheet-axe');
+  await bothSchemes(page, testInfo, 'desktop-built-in-sheet');
+
+  await context.selectOption('65536');
+  await expect(dialog.getByRole('status')).toHaveText(
+    'Saved. It applies from the next message.',
+  );
+  await expect(dialog).toContainText(
+    'Reads 64K now · about 1.1 GB on your card',
+  );
+  await dialog.locator('summary', { hasText: 'More' }).click();
+  await expect(
+    dialog.getByRole('combobox', { name: 'Reply length' }),
+  ).toBeVisible();
+  await bothSchemes(page, testInfo, 'desktop-built-in-sheet-saved');
+
+  // The choice is what the model reads: the Local row says so after closing.
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(local).toContainText('reads 64K');
+});
+
+test('a server the person runs shows what it loaded and how to change it', async ({
+  page,
+}, testInfo) => {
+  await page.goto(
+    `/app-v2/settings/models?model-settings=${encodeURIComponent(STUDIO)}`,
+  );
+  const dialog = sheet(page);
+  await expect(dialog.getByRole('heading', { name: 'gemma-4' })).toBeVisible();
+  await expect(dialog).toContainText('LM Studio loaded it at 32K.');
+  await expect(dialog).toContainText(
+    'Load it at another size here, or change Context Length in LM Studio.',
+  );
+  await expect(dialog.getByRole('combobox', { name: 'Context' })).toHaveCount(
+    0,
+  );
+  await expect(
+    dialog.getByRole('button', { name: 'Reload in LM Studio at 64K' }),
+  ).toBeVisible();
+  await bothSchemes(page, testInfo, 'desktop-server-sheet');
+
+  // Closing leaves Settings › Models as it was.
+  await page.keyboard.press('Escape');
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
+});
+
+test('the Cloud reading limit is for cloud models only', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/app-v2/settings/models');
+  await page.locator('summary', { hasText: 'Cloud models' }).click();
+  const row = page.locator('[data-setting-anchor="reading-limit"]');
+  await expect(row).toContainText('Cloud reading limit');
+  await expect(row).not.toContainText('what your computer can hold');
+  await row.scrollIntoViewIfNeeded();
+  await bothSchemes(page, testInfo, 'desktop-cloud-reading-limit');
+});
+
+for (const phone of PHONES.slice(0, 1)) {
+  test.describe(phone.name, () => {
+    onPhone(phone);
+
+    test('the sheet fits a phone, light and dark', async ({
+      page,
+    }, testInfo) => {
+      await page.goto(
+        `/app-v2/settings/models?model-settings=${encodeURIComponent(BUILT_IN)}`,
+      );
+      const dialog = sheet(page);
+      await expect(
+        dialog.getByRole('combobox', { name: 'Context' }),
+      ).toBeVisible();
+      await dialog.locator('summary', { hasText: 'More' }).click();
+      await assertNoOverflow(page);
+      await bothSchemes(page, testInfo, 'phone-built-in-sheet');
+
+      await page.goto(
+        `/app-v2/settings/models?model-settings=${encodeURIComponent(STUDIO)}`,
+      );
+      await expect(sheet(page)).toContainText('LM Studio loaded it at 32K.');
+      await assertNoOverflow(page);
+      await bothSchemes(page, testInfo, 'phone-server-sheet');
+    });
+  });
+}

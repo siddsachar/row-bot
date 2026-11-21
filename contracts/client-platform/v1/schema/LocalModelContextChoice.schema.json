@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "memory_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Memory Bytes"
+    },
+    "slow": {
+      "default": false,
+      "title": "Slow",
+      "type": "boolean"
+    },
+    "tokens": {
+      "maximum": 4194304,
+      "minimum": 1024,
+      "title": "Tokens",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "tokens"
+  ],
+  "title": "LocalModelContextChoice",
+  "type": "object"
+}

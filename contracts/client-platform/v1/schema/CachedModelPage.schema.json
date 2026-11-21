@@ -69,6 +69,11 @@
           "default": null,
           "title": "Installed"
         },
+        "local_settings": {
+          "default": false,
+          "title": "Local Settings",
+          "type": "boolean"
+        },
         "model_id": {
           "maxLength": 512,
           "minLength": 1,

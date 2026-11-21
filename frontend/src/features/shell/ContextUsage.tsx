@@ -1,12 +1,17 @@
 import * as Popover from '@radix-ui/react-popover';
 import { Check } from 'lucide-react';
 import { useRef, type RefObject } from 'react';
+import { Link, useInRouterContext } from 'react-router-dom';
 import type {
   ContextBreakdown,
   ContextUsageView,
   ConversationTokenUsage,
 } from '../../api/types';
 import { Disclosure, Hint } from '../../ui/primitives';
+import {
+  modelSettingsPath,
+  windowWords,
+} from '../local-runtime/LocalModelSheet';
 
 function tokens(value: number | null | undefined) {
   return value == null ? 'unknown' : value.toLocaleString('en-GB');
@@ -337,6 +342,38 @@ function measure(usage: ContextUsageView) {
   return { used, usable, percent, threshold, percentLabel, stale, label };
 }
 
+/** The largest window a local model may be given (its native 256K). */
+const LARGEST_LOCAL_WINDOW = 262_144;
+
+/**
+ * A local model whose window Row-Bot sets (Ollama, Run on this computer) and
+ * that this chat already half fills: its window is what limits the chat, so
+ * the details say so, with the way to its settings (U3).
+ */
+function LocalWindowHint({ usage }: { usage: ContextUsageView }) {
+  const routed = useInRouterContext();
+  const ref = usage.model_ref ?? '';
+  const window = usage.effective_limit_tokens;
+  const changeable =
+    (ref.startsWith('model:ollama:') && !ref.includes('row-bot-personal')) ||
+    ref.startsWith('model:custom_openai_llamacpp:');
+  const { percent } = measure(usage);
+  if (
+    !routed ||
+    !changeable ||
+    !window ||
+    window >= LARGEST_LOCAL_WINDOW ||
+    percent < 50
+  )
+    return null;
+  return (
+    <p className="context-local-hint">
+      This model reads {windowWords(window)}.{' '}
+      <Link to={modelSettingsPath(ref)}>Give it more in its settings</Link>
+    </p>
+  );
+}
+
 function ContextDetails({ usage }: { usage: ContextUsageView }) {
   const { used, stale, label } = measure(usage);
   const spent = describeConversationUsage(usage.conversation_usage);
@@ -366,6 +403,7 @@ function ContextDetails({ usage }: { usage: ContextUsageView }) {
           estimated={usage.estimated_input_tokens}
         />
       )}
+      <LocalWindowHint usage={usage} />
       {spent?.cache && <p>{spent.cache}</p>}
       {spent && <p>{spent.detail}</p>}
       <Disclosure summary="Details" className="context-meter-more">

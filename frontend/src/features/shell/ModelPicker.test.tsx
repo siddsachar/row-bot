@@ -752,3 +752,37 @@ it('gives focus back to what opened a picker over the field, such as a phone hea
     screen.getByRole('button', { name: 'Add files and more' }),
   ).not.toHaveFocus();
 });
+
+it('opens a local model’s own settings from the picker, and offers none for a cloud model', () => {
+  const onModelSettings = vi.fn();
+  const { onOpenChange, rerender } = show(
+    'model:ollama:qwen3.8:27b',
+    { state: 'ready', local: true },
+    { open: true, onModelSettings },
+  );
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Settings for qwen3.8:27b' }),
+  );
+
+  expect(onModelSettings).toHaveBeenCalledWith('model:ollama:qwen3.8:27b');
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+  rerender(
+    <ModelPicker
+      models={models}
+      current="model:codex:gpt-5.6-sol"
+      status={{ state: 'ready', local: false }}
+      disabled={false}
+      open
+      onOpenChange={vi.fn()}
+      onChoose={vi.fn()}
+      onConnect={vi.fn()}
+      onManage={vi.fn()}
+      onModelSettings={onModelSettings}
+      onThinking={vi.fn()}
+      reasoning={null}
+      thinkingLabel="Default"
+    />,
+  );
+  expect(screen.queryByRole('button', { name: /^Settings for/ })).toBeNull();
+});

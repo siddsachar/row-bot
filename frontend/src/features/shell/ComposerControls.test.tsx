@@ -35,7 +35,10 @@ vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
   useRuntime: () => ({ controller: mock.controller }),
 }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => mock.navigate }));
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => mock.navigate,
+  useInRouterContext: () => false,
+}));
 beforeEach(() => {
   vi.resetAllMocks();
   mock.version = 1;

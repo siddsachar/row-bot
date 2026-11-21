@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from row_bot import local_runtime
 from row_bot.local_runtime import hardware, install, models
 
 logger = logging.getLogger(__name__)
@@ -287,6 +288,8 @@ class LocalServer:
         self._monitor: threading.Thread | None = None
         self._wake = threading.Event()
         self._closed = False
+        # A model's window changed (U1) while a reply was being answered: the server starts again once idle.
+        self._reload_pending = False
 
     @property
     def state(self) -> State:
@@ -305,7 +308,8 @@ class LocalServer:
 
     def _entries(self) -> list[tuple[str, Path, int]]:
         found = hardware.peek()
-        return [(model.id, install.model_path(model, self.root), models.context_for(model, found))
+        return [(model.id, install.model_path(model, self.root),
+                 models.context_for(model, found, local_runtime.chosen_context(model.id)))
                 for model in install.installed_models(self.root)]
 
     # ── Running ─────────────────────────────────────────────────────────
@@ -315,6 +319,8 @@ class LocalServer:
         can't run now: nothing installed, or the card is training's and this is background work)."""
 
         with self._lock:
+            if self._reload_pending and self._process is not None and not self.busy():
+                self.stop("settings")  # the next start serves the new window
             if self._connection is not None and self._process is not None and self._process.alive():
                 self._last_active = self._clock()
                 return self._connection
@@ -445,6 +451,7 @@ class LocalServer:
         process = self._process
         self._process = None
         self._connection = None
+        self._reload_pending = False
         if process is None:
             return True
         ended = process.stop()
@@ -467,6 +474,20 @@ class LocalServer:
             if had:
                 logger.info("Row-Bot stopped the local model server (%s)", reason)
             return ended
+
+    def apply_settings(self) -> str:
+        """A model's window changed (U1): its presets are rewritten at the next start, so a running server
+        stops now when nothing is being answered, else as soon as it is idle (the next request starts it with
+        the new window). ``"next_start"`` (not running), ``"restarted"`` or ``"when_idle"``."""
+
+        with self._lock:
+            if self._process is None:
+                return "next_start"
+            if self.busy():
+                self._reload_pending = True
+                return "when_idle"
+            self.stop("settings")
+            return "restarted"
 
     def busy(self) -> bool:
         """Whether a request is being answered now (its slots say so)."""
@@ -526,6 +547,8 @@ class LocalServer:
             now = self._clock()
             if healthy and self.busy():
                 self._last_active = now
+            elif self._reload_pending:
+                self.stop("settings")
             elif now - self._last_active >= self.idle_seconds:
                 self.stop("idle")
 
@@ -587,7 +610,8 @@ def save_endpoint(root: Path | None = None, *, port: int | None = None) -> None:
     base_url = f"http://127.0.0.1:{int(port)}/v1" if port else str((current or {}).get("base_url") or
                                                                      "http://127.0.0.1/v1")
     found = hardware.peek()
-    served = sorted((model.id, model.label, models.context_for(model, found)) for model in installed)
+    served = sorted((model.id, model.label, models.context_for(model, found, local_runtime.chosen_context(model.id)))
+                    for model in installed)
     wanted = {
         "id": local_runtime.ENDPOINT_ID, "name": local_runtime.DISPLAY_NAME, "base_url": base_url,
         "profile": "llama_cpp", "execution_location": "local", "auth_required": False,
@@ -671,6 +695,15 @@ def stop(reason: str = "you") -> bool:
     return all([server.stop(reason) for server in loaded()])
 
 
+def apply_settings(root: Path | None = None) -> str:
+    """A model's window changed in its settings (U1): the endpoint lists the new window now and the server
+    serves it from its next start (:meth:`LocalServer.apply_settings`; ``"next_start"`` when none runs)."""
+
+    save_endpoint(root)
+    applied = [local.apply_settings() for local in loaded()]
+    return next((state for state in applied if state != "next_start"), "next_start")
+
+
 def release_gpu() -> bool:
     """For Learning's training: give the graphics card back now unless the person's chat is being
     answered. True when no local model server holds it any more."""
@@ -689,6 +722,7 @@ def shutdown(timeout: float = 10.0) -> None:
 __all__ = [
     "Connection",
     "IDLE_SECONDS",
+    "apply_settings",
     "LocalServer",
     "ServerError",
     "endpoint_connection",

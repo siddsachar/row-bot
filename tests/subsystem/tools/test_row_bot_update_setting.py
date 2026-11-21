@@ -241,20 +241,45 @@ def test_computer_use_is_turned_on_only_once_the_person_has_set_it_up(profile, l
     assert person["cards"] == []
 
 
-def test_the_reading_limit_can_go_back_to_auto(profile, level, person, monkeypatch):
-    """G15: only a number was accepted, so Auto was out of reach."""
-    from row_bot import models
+def _main_model_sheet(monkeypatch, view: dict | None) -> list[dict]:
+    """The main model's settings sheet (None: it has none, a cloud model), and every save to it."""
+    from row_bot.application import client_local_model_settings as sheet
 
-    calls: list[str] = []
-    monkeypatch.setattr(models, "get_local_context_mode", lambda: "fixed")
-    monkeypatch.setattr(models, "get_user_context_size", lambda: 65_536)
-    monkeypatch.setattr(models, "set_context_size_auto", lambda: calls.append("auto"))
+    saves: list[dict] = []
+
+    def read(model_ref, **_kwargs):
+        if view is None:
+            raise ValueError("model_configuration_unavailable")
+        return view
+
+    monkeypatch.setattr(sheet, "read_local_model_settings", read)
+    monkeypatch.setattr(sheet, "save_local_model_settings", lambda model_ref, **kwargs: saves.append(kwargs))
+    return saves
+
+
+def test_the_main_local_models_window_can_go_back_to_auto_by_its_old_name_too(profile, level, person,
+                                                                             monkeypatch):
+    """G15: only a number was accepted, so Auto was out of reach. U2: the window is the main model's own."""
+    saves = _main_model_sheet(monkeypatch, {
+        "name": "qwen3:8b", "context": {"editable": True, "chosen": 65_536,
+                                        "choices": [{"tokens": 32_768}, {"tokens": 65_536}]},
+        "thinking": {"value": "off"}, "reply_limit": {"value": None}})
 
     answer = self_settings.change("context_size", "auto")
 
-    assert person["cards"][0]["change"]["before"] == "65,536 tokens"
-    assert person["cards"][0]["change"]["after"] == "Auto"
-    assert calls == ["auto"] and answer.startswith("Local context size set to Auto.")
+    assert person["cards"][0]["change"]["before"] == "64K tokens"
+    assert person["cards"][0]["change"]["after"] == "Automatic"
+    assert saves == [{"context": None, "thinking": "off", "reply_limit": None, "validate": saves[0]["validate"]}]
+    assert answer.startswith("qwen3:8b now reads Automatic.")
+    assert self_settings.parse_undo(answer)["setting"] == "local_model_context"
+
+
+def test_a_window_the_main_model_cant_take_is_refused_before_anyone_is_asked(profile, level, person, monkeypatch):
+    _main_model_sheet(monkeypatch, None)  # a cloud model
+
+    answer = self_settings.change("local_model_context", "65536")
+
+    assert "cloud_reading_limit" in answer and person["cards"] == []
 
 
 def test_renaming_row_bot_keeps_learn_new_skills_as_the_person_set_it(profile, level, person, reload_for_data_dir):

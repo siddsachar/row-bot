@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "context": {
+      "anyOf": [
+        {
+          "maximum": 4194304,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Context"
+    },
+    "model_ref": {
+      "maxLength": 647,
+      "minLength": 1,
+      "title": "Model Ref",
+      "type": "string"
+    },
+    "reply_limit": {
+      "anyOf": [
+        {
+          "maximum": 262144,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reply Limit"
+    },
+    "thinking": {
+      "default": "auto",
+      "enum": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "title": "Thinking",
+      "type": "string"
+    }
+  },
+  "required": [
+    "model_ref"
+  ],
+  "title": "LocalModelSettingsMutation",
+  "type": "object"
+}

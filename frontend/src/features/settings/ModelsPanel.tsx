@@ -14,6 +14,7 @@ import {
   LifeBuoy,
   RefreshCw,
 } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { ClientController } from '../../api/controller';
 import type {
   AgentRuntimeSettingsState,
@@ -50,6 +51,11 @@ import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
 import YourModels from './YourModels';
 import LocalModelsSettings from '../local-runtime/LocalModelsSettings';
+import {
+  hasLocalModelSettings,
+  LocalModelSheet,
+  modelSettingsPath,
+} from '../local-runtime/LocalModelSheet';
 
 /** A star puts a model in your models, which every picker lists; the Catalog below has the rest. */
 const LISTED_NOTE =
@@ -211,6 +217,9 @@ export default function ModelsPanel({
   const place = usePlace();
   const notify = useNotify();
   const limitId = useId();
+  // A model's own settings sheet, opened from the model picker or the context meter (U1, U3).
+  const [search, setSearch] = useSearchParams();
+  const sheetModel = search.get('model-settings');
   const [state, setState] = useState<ModelsSettingsState | null>(null);
   const [snapshot, setSnapshot] =
     useProviderSettingsValue<DefaultModelSnapshot | null>(
@@ -458,22 +467,16 @@ export default function ModelsPanel({
   async function context(cap: number | null, undoing = false) {
     if (!state) return;
     const before = state.context.selected_cap ?? null;
-    const kind = state.context.policy_kind;
     setBusy('context');
     setError('');
     try {
-      setState(
-        await controller.updateModelContext({
-          policy_kind: kind,
-          cap,
-        }),
-      );
-      if (undoing) notify('Reading limit changed back');
+      setState(await controller.updateModelContext({ cap }));
+      if (undoing) notify('Cloud reading limit changed back');
       else
         notify(
           cap == null
-            ? 'Reading limit: automatic'
-            : `Reading limit: ${cap.toLocaleString()} tokens`,
+            ? 'Cloud reading limit: automatic'
+            : `Cloud reading limit: ${cap.toLocaleString()} tokens`,
           undefined,
           { label: 'Undo', onAction: () => void context(before, true) },
         );
@@ -834,25 +837,17 @@ export default function ModelsPanel({
         })}
         <Disclosure
           className="settings-group-disclosure settings-divided"
-          summary="Advanced context"
-          meta="How much the main model reads at once"
+          summary="Cloud models"
+          meta="How much Row-Bot sends at once"
         >
           <SettingsItem
-            label={
-              contextKind === 'local'
-                ? `Models on ${place.name}`
-                : 'Reading limit'
-            }
+            label="Cloud reading limit"
             sub
             anchor="reading-limit"
             bind={false}
             help={
               contextKind === 'local'
-                ? `Automatic gives local models what your computer can hold${
-                    state.context.effective_cap
-                      ? `: about ${state.context.effective_cap.toLocaleString()} tokens now`
-                      : ''
-                  }.`
+                ? `For cloud models only. ${brainName || 'Your main model'} runs ${place.on}: how much it reads is in its own settings.`
                 : state.context.native_max
                   ? `${brainName} can read about ${state.context.native_max.toLocaleString()} tokens at once, roughly ${pages(state.context.native_max)} pages. ${
                       state.context.selected_cap == null
@@ -862,13 +857,23 @@ export default function ModelsPanel({
                   : `Row-Bot reads as much as ${brainName} allows.`
             }
             status={
-              state.context.warning ? (
+              contextKind === 'local' &&
+              hasLocalModelSettings(state.brain.current_ref, true) ? (
+                <StatusLine>
+                  <Link
+                    className="settings-link"
+                    to={modelSettingsPath(state.brain.current_ref)}
+                  >
+                    Settings for {brainName || 'the main model'}
+                  </Link>
+                </StatusLine>
+              ) : contextKind !== 'local' && state.context.warning ? (
                 <StatusLine tone="warning">{state.context.warning}</StatusLine>
               ) : undefined
             }
             control={
               <Segmented
-                label="Reading limit"
+                label="Cloud reading limit"
                 value={limiting ? 'limit' : 'auto'}
                 onChange={(next) => {
                   if (next === 'auto') {
@@ -911,6 +916,19 @@ export default function ModelsPanel({
         </Disclosure>
       </SettingsGroup>
       <LocalModelsSettings controller={controller} />
+      {sheetModel && (
+        <LocalModelSheet
+          controller={controller}
+          modelRef={sheetModel}
+          open
+          onOpenChange={(open) => {
+            if (open) return;
+            const next = new URLSearchParams(search);
+            next.delete('model-settings');
+            setSearch(next, { replace: true });
+          }}
+        />
+      )}
       <YourModels
         controller={controller}
         pickers={{

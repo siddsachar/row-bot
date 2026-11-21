@@ -2,6 +2,7 @@
   "$defs": {
     "ModelContextState": {
       "additionalProperties": false,
+      "description": "The Cloud reading limit (U2): how much Row-Bot sends a cloud model at most; ``policy_kind`` is the main\nmodel's (a local one's window is in its own settings).",
       "properties": {
         "effective_cap": {
           "anyOf": [

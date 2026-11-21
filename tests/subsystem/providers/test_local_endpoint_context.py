@@ -104,13 +104,22 @@ def test_a_native_limit_and_server_metadata_win_over_the_fallback(providers):
 
 
 def test_a_reading_cap_still_trims_below_the_fallback_but_never_raises_it(providers, monkeypatch):
-    ref = _endpoint("capped")
+    ref = _endpoint("capped", location="remote")
 
     monkeypatch.setattr(models, "_cloud_context_override", 16_384)
     assert models.get_context_policy(ref).effective_limit_tokens == 16_384
     assert models.get_context_policy(ref).capacity_source == "advanced_override"
 
     monkeypatch.setattr(models, "_cloud_context_override", 262_144)
+    assert models.get_context_policy(ref).effective_limit_tokens == 32_768
+    assert models.get_context_policy(ref).capacity_source == "profile_default"
+
+
+def test_the_cloud_reading_limit_never_trims_a_server_on_this_computer(providers, monkeypatch):
+    ref = _endpoint("mine")
+
+    monkeypatch.setattr(models, "_cloud_context_override", 16_384)
+
     assert models.get_context_policy(ref).effective_limit_tokens == 32_768
     assert models.get_context_policy(ref).capacity_source == "profile_default"
 

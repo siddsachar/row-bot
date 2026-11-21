@@ -25,6 +25,7 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
+import { LocalModelSettingsButton } from '../local-runtime/LocalModelSheet';
 
 type Surface = 'chat' | 'vision' | 'image' | 'video' | 'voice';
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
@@ -426,6 +427,14 @@ export default function ModelCatalog({
                     </span>
                   </span>
                   <div className="settings-model-row-actions">
+                    {model.local_settings && (
+                      <LocalModelSettingsButton
+                        controller={controller}
+                        modelRef={model.selection_ref}
+                        name={model.display_name}
+                        size="sm"
+                      />
+                    )}
                     <IconButton
                       size="sm"
                       label={

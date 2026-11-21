@@ -1,0 +1,24 @@
+{
+  "additionalProperties": false,
+  "description": "Load a model in LM Studio again at another window (the person pressed it).",
+  "properties": {
+    "context": {
+      "maximum": 262144,
+      "minimum": 16384,
+      "title": "Context",
+      "type": "integer"
+    },
+    "model_ref": {
+      "maxLength": 647,
+      "minLength": 1,
+      "title": "Model Ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "model_ref",
+    "context"
+  ],
+  "title": "LocalModelReloadRequest",
+  "type": "object"
+}
