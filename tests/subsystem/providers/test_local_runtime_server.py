@@ -132,24 +132,26 @@ def test_stop_ends_the_server_and_the_model_it_loaded(installed):
     assert not local.ledger().is_file()  # its record went with it
 
 
-def test_an_idle_server_stops_and_a_busy_one_keeps_going(installed):
+def test_an_idle_server_stops_after_30_minutes_and_a_busy_one_keeps_going(installed):
+    """30 minutes, as Ollama's keep_alive: the prompt cache lives in the server, so a shorter stop makes a reply
+    after a pause read the whole conversation again."""
     now = {"t": 0.0}
-    local = _server(installed, clock=lambda: now["t"], idle_seconds=300)
+    local = _server(installed, clock=lambda: now["t"])
     connection = local.connection()
     try:
         _chat(connection, installed["model"].id)
         httpx.post(f"http://127.0.0.1:{connection.port}/__busy", json={"busy": True}, trust_env=False,
                    headers={"Authorization": f"Bearer {connection.api_key}"})
-        now["t"] = 1000.0
+        now["t"] = 3000.0
         local.check()
         assert local.state == "running"  # a reply is being written: never stopped under it
 
         httpx.post(f"http://127.0.0.1:{connection.port}/__busy", json={"busy": False}, trust_env=False,
                    headers={"Authorization": f"Bearer {connection.api_key}"})
-        now["t"] = 1200.0
+        now["t"] = 3000.0 + 29 * 60
         local.check()
-        assert local.state == "running"  # idle for 200 s only
-        now["t"] = 1300.0
+        assert local.state == "running"  # idle for 29 minutes only
+        now["t"] = 3000.0 + 30 * 60
         local.check()
         assert local.state == "stopped"
     finally:

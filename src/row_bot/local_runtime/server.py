@@ -20,10 +20,11 @@ group, plus a record (``owned_processes``) so the next start, or the next Row-Bo
 left behind. A health check runs every few seconds; a server that stopped answering is ended and
 starts again on the next request.
 
-**Idle, then gone.** After :data:`IDLE_SECONDS` (5 minutes, Ollama's own keep-alive) without a request
-and with nothing being answered, the server stops, so the graphics card's memory goes back. Five
-minutes covers a person reading an answer and replying without reloading the model (seconds to half a
-minute for a large one); training doesn't wait for it: :func:`release_gpu` stops it at once.
+**Idle, then gone.** After :data:`IDLE_SECONDS` (30 minutes, the ``keep_alive`` Row-Bot sends Ollama) without
+a request and with nothing being answered, the server stops, so the graphics card's memory goes back. The
+prompt cache lives in the server, so a reply after a shorter pause would read the whole conversation again
+(two and a half minutes for a 32K prompt on a 16 GB Mac); training doesn't wait for it: :func:`release_gpu`
+stops it at once.
 
 **Sharing the card with Learning.** :func:`release_gpu` is for Learning's training: it stops the server
 now unless a request is being answered (the person's chat comes first; Learning's lease pauses
@@ -56,7 +57,7 @@ logger = logging.getLogger(__name__)
 # Row-Bot's own idle stop, not llama.cpp's ``--sleep-idle-seconds`` (b12359 ``tools/server/README.md``, "Sleeping
 # on Idle"): sleeping unloads the model but keeps the process, its port and its key, while stopping gives back
 # all of it, and Learning's ``release_gpu`` and the "running" state need the process gone.
-IDLE_SECONDS = 300.0
+IDLE_SECONDS = 1800.0
 CHECK_EVERY_SECONDS = 5.0
 # Loading the router takes a second; a model loads on its first request (the transport waits for it).
 START_SECONDS = 60.0

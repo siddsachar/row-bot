@@ -238,15 +238,16 @@ def test_a_model_partly_on_the_card_stays_at_32k():
     assert models.context_for(models.get("qwen3.8-27b-q4"), hardware) == 32_768
 
 
-def test_a_mac_grows_the_window_in_its_shared_memory_but_a_27b_below_its_memory_line_stays_at_32k():
-    large = classify(builds.MACOS_ARM64, 48 * GIB, apple_silicon=True)
-    small = classify(builds.MACOS_ARM64, 16 * GIB, apple_silicon=True)
+@pytest.mark.parametrize(("gb", "pick"), [
+    (16, "qwen3.5-9b"), (24, "qwen3.8-27b-q2"), (32, "qwen3.8-27b-q3"), (48, "qwen3.8-27b-q4")])
+def test_a_mac_serves_every_model_at_32k_even_with_memory_to_spare(gb, pick):
+    """Sized by speed: a 16 GB M4 read a 110K prompt for 18 minutes before its first word."""
+    hardware = classify(builds.MACOS_ARM64, gb * GIB, apple_silicon=True)
 
-    assert _need("qwen3.8-27b-q4", 131_072) + 1024 * _MIB <= int(48 * GIB * 0.70)
-    assert models.context_for(models.get("qwen3.8-27b-q4"), large) == 131_072
-    # A 16 GB Mac can still choose the 27B 2-bit (it fits), but it is below that build's 24 GB line.
-    assert models.fit(models.get("qwen3.8-27b-q2"), small) == "gpu"
-    assert models.context_for(models.get("qwen3.8-27b-q2"), small) == 32_768
+    assert _pick(hardware) == pick
+    if pick == "qwen3.5-9b":  # the memory would hold 128K
+        assert _need(pick, 131_072) + 1024 * _MIB <= int(gb * GIB * 0.70)
+    assert {models.context_for(model, hardware) for model in models.CATALOG} == {32_768}
 
 
 def test_no_model_is_served_beyond_its_native_window():

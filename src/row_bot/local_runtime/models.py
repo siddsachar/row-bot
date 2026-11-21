@@ -27,7 +27,9 @@ CONTEXTS = (131_072, 65_536, CONTEXT)
 # leave less (``--fit-target``, default 1024 MiB: b12359 ``common/common.h:502``). A larger window is served
 # only with this much to spare, so it never moves part of the model off the card.
 FIT_MARGIN_BYTES = 1024 * MIB
-# Working memory a loaded model needs besides its file and its context cache (compute buffers).
+# Working memory a loaded model needs besides its file and its context cache (compute buffers). Fixed for now,
+# though the buffers grow with the window (measured on Metal for Qwen3.5 9B: 305, 497 and 881 MiB at 32K, 64K
+# and 128K); it gets modelled once the 27B is measured too.
 OVERHEAD_BYTES = 700 * MIB
 # On the processor, a model may take this share of the computer's memory.
 CPU_SHARE = 0.6
@@ -154,11 +156,16 @@ def context_for(model: Model, hardware: Hardware) -> int:
     """The window ``model`` is served at on this computer (D1), the one value its presets, its endpoint, :func:`fit`
     and Setup all use: the largest of :data:`CONTEXTS` (never above its native window) at which it still runs
     entirely on the graphics card with llama.cpp's :data:`FIT_MARGIN_BYTES` to spare. A model that runs partly on
-    the card or on the processor, or a 27B build on a Mac below :data:`MAC_RECOMMEND_RAM`, stays at
-    :data:`CONTEXT`: a longer prompt there would make the first word too slow. The models are picked at
-    :data:`CONTEXT` first, so a larger window never costs a quality level."""
+    the card or on the processor stays at :data:`CONTEXT`: a longer prompt there would make the first word too
+    slow. The models are picked at :data:`CONTEXT` first, so a larger window never costs a quality level.
 
-    if not (_on_card(model, hardware, CONTEXT) and _suits(model, hardware)):
+    A Mac stays at :data:`CONTEXT` too, sized by speed rather than memory: on an M4 Mac mini (16 GB, b12359)
+    Qwen3.5 9B read a prompt at about 200 tokens a second, falling to 101 at 110K, so a cold first word took 58 s
+    at 12K, 148 s at 27K, 407 s at 60K and 1,095 s at 110K (past the 600 s silence limit), and 128K went into
+    swap. Pro and Max chips are measured before a larger window is automatic there; a person may still choose
+    one (U1)."""
+
+    if hardware.acceleration == builds.METAL or not _on_card(model, hardware, CONTEXT):
         return CONTEXT
     return next((context for context in CONTEXTS if context <= model.native_context
                  and _on_card(model, hardware, context, FIT_MARGIN_BYTES)), CONTEXT)

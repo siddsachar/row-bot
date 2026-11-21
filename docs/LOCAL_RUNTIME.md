@@ -119,8 +119,8 @@ can still be chosen.
 128K, 64K and 32K tokens at which it still runs entirely on the card with llama.cpp's own `--fit` margin
 (1024 MiB of each card kept free) to spare, never above its native 262K. The pick comes first, so a larger
 window never costs a quality level. A model that runs partly on the card or on the processor stays at
-32K (a longer prompt there makes the first word too slow), and so does a 27B build on a Mac below its
-memory line. With the published sizes:
+32K (a longer prompt there makes the first word too slow), and so does every model on a Mac (below). With
+the published sizes:
 
 | Card | Model | Window | Loaded |
 |---|---|---|---|
@@ -132,9 +132,25 @@ memory line. With the published sizes:
 | 8 GB | Qwen3.5 9B | 32K | 6.5 GiB |
 | 6 GB | Qwen3.5 4B | 64K | 4.3 GiB |
 | none | Qwen3.5 9B or 4B on the processor | 32K | |
+| Mac, any memory | the model picked for it | 32K | |
 
-A Mac gets the same rule in its shared memory (48 GB: the 4-bit at 128K; 24 GB: the 2-bit at 128K;
-16 GB: Qwen3.5 9B at 128K). Each model on the endpoint has its own window: on a 16 GB card a downloaded
+**A Mac reads 32K**, whatever its memory holds, because its first word comes too slowly at more. On an M4 Mac
+mini (16 GB, b12359 Metal), Qwen3.5 9B read a prompt at about 200 tokens a second, falling to 101 at 110K:
+
+| Prompt | First word, cold |
+|---|---|
+| 12K | 58 s |
+| 27K | 148 s |
+| 60K | 407 s |
+| 110K | 1,095 s, past the 600 s silence limit; 128K went into swap |
+
+A follow-up turn's first word took about 0.5 s from the prompt cache. Pro and Max chips get measured before
+a larger window is automatic on a Mac; a larger window will be the person's own choice (U1).
+
+The 0.7 GB working memory is fixed for now, though the compute buffers grow with the window (Qwen3.5 9B on
+Metal: 305, 497 and 881 MiB at 32K, 64K and 128K); it gets modelled once the 27B is measured too.
+
+Each model on the endpoint has its own window: on a 16 GB card a downloaded
 Qwen3.5 4B reads 128K beside the 3-bit's 32K. Setup and Settings › Models › Local say it ("reads 64K").
 The presets file, the endpoint (`save_endpoint`, one window per model and none for the whole endpoint),
 `fit` and Setup all take it from `context_for`, with this computer's hardware as read once per run
@@ -198,9 +214,10 @@ are never passed.
 ## When it runs
 
 `llama-server` starts only when a chat (or the Setup test) asks for one of its models, and stops
-after 5 minutes without a request and with nothing being answered, so the graphics card's memory
-goes back (5 minutes is Ollama's own keep-alive: a person reading an answer and replying doesn't wait
-for the model to load again). Row-Bot stops the process itself rather than passing llama.cpp's
+after 30 minutes without a request and with nothing being answered, so the graphics card's memory
+goes back (30 minutes is the `keep_alive` Row-Bot sends Ollama). The prompt cache lives in the server, so
+a shorter stop would make any reply after a pause read the whole conversation again: two and a half
+minutes for a 32K prompt on a 16 GB Mac. Row-Bot stops the process itself rather than passing llama.cpp's
 `--sleep-idle-seconds`: sleeping unloads the model but keeps the process, its port and its key, while
 Learning's `release_gpu` and the "running" state need it gone. One model is loaded at a time. Each start
 writes the presets file and the endpoint again from the windows above, so a new card counts from the
