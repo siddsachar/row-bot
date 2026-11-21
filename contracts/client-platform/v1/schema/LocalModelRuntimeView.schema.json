@@ -133,6 +133,11 @@
       "additionalProperties": false,
       "description": "One pinned model \"Run on this computer\" can download, and how it would run here.",
       "properties": {
+        "context_tokens": {
+          "minimum": 0,
+          "title": "Context Tokens",
+          "type": "integer"
+        },
         "download_bytes": {
           "minimum": 0,
           "title": "Download Bytes",
@@ -195,6 +200,7 @@
         "model_ref",
         "size_bytes",
         "fit",
+        "context_tokens",
         "everyday",
         "quantization",
         "older",

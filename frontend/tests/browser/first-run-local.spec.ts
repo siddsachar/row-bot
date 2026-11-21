@@ -98,7 +98,7 @@ test('On this computer: what is running first, every way to run models as an equ
     .click();
   await expect(
     page.getByText(
-      'Qwen3.8 27B · 2-bit · fits your NVIDIA GeForce RTX 4070 (12 GB) · 10.6 GB download',
+      'Qwen3.8 27B · 2-bit · fits your NVIDIA GeForce RTX 4070 (12 GB) · reads 32K · 10.6 GB download',
     ),
   ).toBeVisible();
   const row = page.locator('[data-way="row_bot"]');

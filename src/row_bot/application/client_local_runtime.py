@@ -95,6 +95,8 @@ def snapshot() -> dict[str, Any]:
             "model_ref": local_runtime.model_ref(model.id),
             "size_bytes": model.size,
             "fit": models.fit(model, found),
+            # The window it is served at here (what it reads).
+            "context_tokens": models.context_for(model, found),
             "everyday": model.everyday,
             "quantization": model.quantization,
             "older": model.older,
@@ -202,12 +204,24 @@ def remove(model_id: str | None = None) -> dict[str, Any]:
     return {**snapshot(), "freed_bytes": int(freed)}
 
 
+def _windows() -> dict[str, int]:
+    found = hardware.peek()
+    return {model.id: models.context_for(model, found) for model in install.installed_models()}
+
+
 def repair() -> dict[str, Any]:
     """Read this computer's hardware again (a new card, a newer driver) and forget the last failure."""
 
     global _failure
     _failure = None
+    before = _windows()
     hardware.peek(refresh=True)
+    if _windows() != before:
+        # A new card or driver changes the windows the models are served at; the server takes them when it starts.
+        from row_bot.local_runtime import server
+
+        server.stop("repair")
+        server.save_endpoint()
     worker = installer()
     if not worker.running():
         worker.progress = None

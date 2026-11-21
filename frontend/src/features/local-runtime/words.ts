@@ -41,7 +41,12 @@ export function repairWords(mac = false): string {
     : 'Repair: check this computer’s graphics card again';
 }
 
-/** The fact line under the title: "Qwen3.5 9B · fits your RTX 4070 (12 GB) · 7.3 GB download". */
+/** What a model reads at the window it is served at here: "reads 128K". */
+export function readsWords(tokens: number): string {
+  return `reads ${Math.round(tokens / 1024)}K`;
+}
+
+/** The fact line under the title: "Qwen3.5 9B · fits your RTX 4070 (12 GB) · reads 128K · 7.3 GB download". */
 export function factLine(
   view: LocalModelRuntimeView,
   model: LocalModelOption,
@@ -55,7 +60,9 @@ export function factLine(
   const size = model.download_bytes
     ? `${sizeWords(model.download_bytes)} download`
     : 'downloaded';
-  return `${modelLabel(model)} · ${where} · ${size}`;
+  const reads =
+    model.fit === 'too_big' ? '' : ` · ${readsWords(model.context_tokens)}`;
+  return `${modelLabel(model)} · ${where}${reads} · ${size}`;
 }
 
 /** The plain fix line for a refused or failed download. */

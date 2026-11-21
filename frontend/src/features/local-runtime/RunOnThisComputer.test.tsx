@@ -43,6 +43,7 @@ function localView(
     model_ref: `model:custom_openai_llamacpp:${id}`,
     size_bytes: size,
     fit,
+    context_tokens: fit === 'gpu' && size < 6 * GB ? 131_072 : 32_768,
     everyday: size < 5 * GB,
     quantization,
     older,
@@ -101,7 +102,7 @@ it('offers Qwen3.8 27B at the build that fits, names the size and downloads noth
 
   expect(
     screen.getByText(
-      'Qwen3.8 27B · 2-bit · fits your NVIDIA GeForce RTX 4070 (12 GB) · 10.5 GB download',
+      'Qwen3.8 27B · 2-bit · fits your NVIDIA GeForce RTX 4070 (12 GB) · reads 32K · 10.5 GB download',
     ),
   ).toBeVisible();
   expect(mock.controller.installLocalModel).not.toHaveBeenCalled();

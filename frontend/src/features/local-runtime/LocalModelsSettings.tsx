@@ -18,7 +18,7 @@ import { SettingsGroup, SettingsItem, StatusLine } from '../settings/anatomy';
 import LocalWays from './LocalWays';
 import RunOnThisComputer from './RunOnThisComputer';
 import { useLocalModelRuntime } from './useLocalModelRuntime';
-import { modelLabel, repairWords, sizeWords } from './words';
+import { modelLabel, readsWords, repairWords, sizeWords } from './words';
 
 const MANAGED = 'custom_openai_llamacpp';
 
@@ -224,7 +224,10 @@ export default function LocalModelsSettings({
             <li key={model.id}>
               <span>
                 <strong>{modelLabel(model)}</strong>
-                <small>{sizeWords(model.size_bytes)}</small>
+                <small>
+                  {sizeWords(model.size_bytes)} ·{' '}
+                  {readsWords(model.context_tokens)}
+                </small>
               </span>
               {here && (
                 <IconButton
