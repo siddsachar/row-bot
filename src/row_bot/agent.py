@@ -1121,6 +1121,11 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     if "isn't available with your chatgpt plan" in s:
         # The ChatGPT transport already says it in plain words (B394).
         return f"⚠️ {exc_str}"
+    from row_bot.providers.transports.local_silence import is_local_silence
+
+    if is_local_silence(exc_str):
+        # A local model that sent nothing or ran to its reply limit: already in plain words.
+        return f"⚠️ {exc_str}"
     if "recursion" in s or "recursion limit" in s:
         return "⚠️ I got stuck in a tool loop and had to stop. Try rephrasing your request or starting a new conversation."
     if "insufficient_quota" in s or "exceeded your current quota" in s:

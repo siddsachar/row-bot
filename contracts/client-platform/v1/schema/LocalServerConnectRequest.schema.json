@@ -11,6 +11,19 @@
       "title": "Kind",
       "type": "string"
     },
+    "model": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model"
+    },
     "port": {
       "maximum": 65535,
       "minimum": 1,

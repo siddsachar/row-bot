@@ -18,8 +18,9 @@ from langchain_core.tools import StructuredTool
 
 from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers import deferred_tools
-from row_bot.providers.transports import ollama_local
-from row_bot.providers.transports.ollama_local import OllamaSilentError, RowBotChatOllama
+from row_bot.providers.transports import local_silence
+from row_bot.providers.transports.local_silence import LocalModelSilentError
+from row_bot.providers.transports.ollama_local import RowBotChatOllama
 from tests.helpers.fake_ollama import fake_streaming_ollama
 
 # How a blocked read is ended differs by OS (closing a socket doesn't wake it on Linux), so these run everywhere.
@@ -127,10 +128,10 @@ def test_a_call_stopped_before_it_starts_sends_nothing() -> None:
 
 
 def test_a_request_that_receives_nothing_gives_up_in_plain_words(monkeypatch) -> None:
-    monkeypatch.setattr(ollama_local, "LOCAL_CHAT_IDLE_SECONDS", 0.2)
+    monkeypatch.setattr(local_silence, "LOCAL_CHAT_IDLE_SECONDS", 0.2)
     with fake_streaming_ollama(tokens=[], model=MODEL, replies=[HANG, ANSWER]) as server:
         model = _model(server)
-        with pytest.raises(OllamaSilentError, match="sent nothing for 0.2 seconds"):
+        with pytest.raises(LocalModelSilentError, match="sent nothing for 0.2 seconds"):
             model.invoke(PROMPT)
 
         assert server.hung_up.wait(PROMPTLY)  # given up, the connection is closed, so Ollama stops too
@@ -147,7 +148,7 @@ def test_a_reply_that_filled_the_window_showing_nothing_ends_in_plain_words() ->
         def run() -> None:
             deferred_tools.offer(("mail_send",))
             model = RowBotChatOllama(model=MODEL, base_url=server.url, num_ctx=8_192)
-            with pytest.raises(OllamaSilentError, match="filled its whole context window"):
+            with pytest.raises(LocalModelSilentError, match="filled its whole context window"):
                 model.bind_tools([CALCULATE, TOOL_INVOKE]).invoke(PROMPT)
 
         contextvars.copy_context().run(run)
