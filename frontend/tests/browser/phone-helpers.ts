@@ -96,3 +96,44 @@ export async function openHomeTab(page: Page, name: string): Promise<void> {
   if (onPhoneWidth(page)) await page.goto(`/app-v2/?tab=${name.toLowerCase()}`);
   else await page.getByRole('tab', { name, exact: true }).click();
 }
+
+/** The pages in a phone's Settings › Row-Bot group (C3); the rest are in More settings. */
+const PHONE_ROW_BOT_PAGES = new Set([
+  'Models',
+  'Voice',
+  'Memory',
+  'Apps',
+  'Activity',
+  'Buddy & Proactive',
+]);
+
+/**
+ * A Settings page's link in a phone's lists (C3): a Row-Bot row, or one in
+ * More settings, which this opens first. "Buddy" is Buddy & Proactive's row.
+ * Call it on the Settings list.
+ */
+export async function phoneSettingLink(
+  page: Page,
+  name: string,
+): Promise<Locator> {
+  const row = name === 'Buddy' ? 'Buddy & Proactive' : name;
+  await expect(page.getByRole('list', { name: 'This phone' })).toBeVisible();
+  if (!PHONE_ROW_BOT_PAGES.has(row))
+    await page
+      .getByRole('link', { name: 'More settings', exact: true })
+      .click();
+  return page
+    .locator('.phone-settings')
+    .getByRole('link', { name: row, exact: true });
+}
+
+/**
+ * Shows Devices' "Connect a phone or computer": at the top on a computer or
+ * tablet; under Advanced on a phone (C3), which this opens first.
+ */
+export async function revealConnect(page: Page): Promise<void> {
+  if (onPhoneWidth(page))
+    await page
+      .locator('.settings-advanced summary', { hasText: 'Advanced' })
+      .click();
+}

@@ -154,6 +154,8 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
     'data',
   ];
   const headings: Record<string, string> = {
+    // A phone's header row says Buddy & Proactive (C3).
+    buddy: 'Buddy(?: & Proactive)?',
     knowledge: 'Memory',
     access: 'Devices & remote access',
   };

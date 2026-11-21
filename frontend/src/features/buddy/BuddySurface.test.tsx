@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BuddySurface, {
   BuddyAvatar,
   BuddyPortrait,
+  BuddyStatusCard,
   rememberBuddyMedia,
   type BuddyMediaLoader,
 } from './BuddySurface';
@@ -624,4 +625,33 @@ it('shows Learning’s quiet line while a personal model trains', async () => {
       'Learning: training your personal model',
     ),
   );
+});
+
+it('shows Buddy’s name and status at the top of a phone’s Buddy & Proactive, from the shared session (C3)', () => {
+  surface.state.selectedConversationId = 'conversation-a';
+  const view = {
+    snapshot: {
+      ...snapshot,
+      activity: 'approval' as const,
+      preferences: { ...snapshot.preferences, display_name: 'Pip' },
+      status: { ...snapshot.status, label: 'Needs approval' },
+    },
+    selectedPack: pack,
+    busy: false,
+    revoked: false,
+  };
+  const session = {
+    subscribe: () => () => undefined,
+    getSnapshot: () => view,
+    observe: vi.fn(() => () => undefined),
+    load: vi.fn(),
+  };
+  surface.buddyOwner = { get: () => ({ get: () => session }) };
+  render(<BuddyStatusCard conversationId="conversation-a" />);
+  const card = screen.getByRole('region', { name: 'Pip now' });
+  expect(within(card).getByRole('status')).toHaveTextContent('Needs approval');
+  // The desktop companion needs the desktop app: no Pop out on a phone.
+  expect(within(card).queryByRole('button')).toBeNull();
+  expect(session.load).not.toHaveBeenCalled();
+  expect(surface.globalBuddy).not.toHaveBeenCalled();
 });

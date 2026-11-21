@@ -150,3 +150,79 @@ it('offers only the details switch on the computer running Row-Bot', async () =>
   await waitFor(() => expect(detailsSwitch()).toBeChecked());
   expect(api.setShowDetails).toHaveBeenCalledWith(true);
 });
+
+// A phone's Settings list (C3): the same switch and flow as one row of This phone.
+const phoneSwitch = () =>
+  screen.findByRole('switch', { name: 'Notifications' });
+
+it('on This phone, turns notifications on with the same flow and off again, without the details switch', async () => {
+  const api = client(AVAILABLE);
+  const push = browser();
+  render(<DeviceNotifications client={api} browser={push} variant="row" />);
+  const toggle = await phoneSwitch();
+  expect(toggle).toHaveAccessibleDescription('When Row-Bot needs you');
+  expect(
+    screen.queryByRole('switch', { name: 'Show details in notifications' }),
+  ).toBeNull();
+
+  await userEvent.click(toggle);
+  await waitFor(() => expect(toggle).toBeChecked());
+  expect(push.subscribe).toHaveBeenCalledWith('BServerKey');
+  expect(api.subscribe).toHaveBeenCalledWith(SUBSCRIPTION);
+
+  await userEvent.click(toggle);
+  await waitFor(() => expect(toggle).not.toBeChecked());
+  expect(push.unsubscribe).toHaveBeenCalled();
+  expect(api.unsubscribe).toHaveBeenCalled();
+});
+
+it('on This phone, turns nothing on when permission is refused, and says why it can’t be on', async () => {
+  const api = client(AVAILABLE);
+  const first = render(
+    <DeviceNotifications
+      client={api}
+      browser={browser({ subscribe: vi.fn().mockResolvedValue(null) })}
+      variant="row"
+    />,
+  );
+  const toggle = await phoneSwitch();
+  await userEvent.click(toggle);
+  expect(
+    await screen.findByText(
+      'Notifications weren’t allowed, so nothing was turned on.',
+    ),
+  ).toBeInTheDocument();
+  expect(toggle).not.toBeChecked();
+  expect(api.subscribe).not.toHaveBeenCalled();
+  first.unmount();
+
+  for (const [status, push, line] of [
+    [
+      { available: false, reason: 'needs_https', showDetails: true },
+      browser(),
+      'Needs Row-Bot over HTTPS, such as through Tailscale.',
+    ],
+    [
+      AVAILABLE,
+      browser({ appleNotInstalled: true }),
+      'Add Row-Bot to your Home Screen first.',
+    ],
+    [
+      AVAILABLE,
+      browser({ permission: () => 'denied' }),
+      'Blocked in this browser’s settings.',
+    ],
+  ] as const) {
+    const view = render(
+      <DeviceNotifications
+        client={client(status)}
+        browser={push}
+        variant="row"
+      />,
+    );
+    const row = await view.findByRole('switch', { name: 'Notifications' });
+    expect(row).toBeDisabled();
+    expect(row).toHaveAccessibleDescription(line);
+    view.unmount();
+  }
+});

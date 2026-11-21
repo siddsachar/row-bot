@@ -57,11 +57,11 @@ test('real tools and media keep one composer through every colour theme and syst
     for (const appearance of ['light', 'dark']) {
       for (const accent of ['blue', 'teal', 'violet', 'amber']) {
         await page.goto('/app-v2/settings/appearance');
+        // A preview card on a computer; a phone's segmented control (C3).
+        const name = appearance === 'light' ? 'Light' : 'Dark';
         await page
-          .getByRole('button', {
-            name: appearance === 'light' ? 'Light' : 'Dark',
-            exact: true,
-          })
+          .getByRole('button', { name, exact: true })
+          .or(page.getByRole('radio', { name, exact: true }))
           .click();
         await page
           .getByRole('combobox', { name: 'Colour theme', exact: true })
@@ -104,6 +104,7 @@ test('real tools and media keep one composer through every colour theme and syst
     await page.goto('/app-v2/settings/appearance');
     await page
       .getByRole('button', { name: /^System, follows your device/ })
+      .or(page.getByRole('radio', { name: 'System', exact: true }))
       .click();
     await page.goto(`/app-v2/conversations/${conversation}`);
     for (const scheme of ['dark', 'light', 'dark'] as const) {

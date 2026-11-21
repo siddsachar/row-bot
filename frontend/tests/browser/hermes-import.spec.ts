@@ -42,6 +42,18 @@ for (const appearance of ['light', 'dark'] as const) {
     const source = await seed(page);
     await page.emulateMedia({ colorScheme: appearance });
     await page.goto('/app-v2/settings/data');
+    if (phone(info)) {
+      // It reads another assistant's folder on the computer: a phone says to
+      // open it there (C3, as Memory's import does).
+      await expect(
+        page.getByRole('region', { name: 'Importing from another assistant' }),
+      ).toContainText('Open this on your computer');
+      await expect(page.locator('summary', { hasText: 'Import…' })).toHaveCount(
+        0,
+      );
+      await shoot(page, info, 'hermes-import-on-your-computer', appearance);
+      return;
+    }
     await page.locator('summary', { hasText: 'Import…' }).click();
     await page.getByLabel('Source folder').fill(source);
     await page.getByRole('button', { name: 'Scan folders' }).click();

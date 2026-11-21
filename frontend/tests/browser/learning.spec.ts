@@ -84,8 +84,9 @@ function notice(page: Page, text: string | RegExp) {
 
 async function openSettings(page: Page, leaf: string) {
   await page.goto(`/app-v2/settings/${leaf}`);
+  // A phone's header row names the page, not Settings (C3).
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Settings' }),
+    page.getByRole('region', { name: 'Settings', exact: true }),
   ).toBeVisible();
 }
 

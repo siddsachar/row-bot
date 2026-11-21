@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react';
+import { Bell, BellRing } from 'lucide-react';
 import {
   accessPushClient,
   type AccessPushClient,
@@ -82,13 +83,19 @@ export const NOT_ALLOWED =
  * Show details in notifications is one switch for every device, so it shows
  * on this computer too: off, every notice says only "Row-Bot is waiting for
  * you".
+ *
+ * `row` is the phone's Settings list (C3, D13): the same switch and flow as
+ * one row of This phone, saying in a line why it can't be on. The details
+ * switch stays on Devices & remote access.
  */
 export default function DeviceNotifications({
   client = accessPushClient,
   browser = browserPush,
+  variant = 'page',
 }: {
   client?: AccessPushClient;
   browser?: PushBrowser;
+  variant?: 'page' | 'row';
 }) {
   const id = useId();
   const detailsId = useId();
@@ -157,6 +164,45 @@ export default function DeviceNotifications({
     </p>
   );
 
+  /** This phone's row: the switch, and one line saying what it's for or why not. */
+  const row = (line: string, on: boolean, disabled: boolean) => (
+    <div data-setting-anchor="notifications">
+      <div className="phone-settings-notify">
+        <span className="phone-row-icon" aria-hidden>
+          {on ? <BellRing size={18} /> : <Bell size={18} />}
+        </span>
+        <span className="phone-row-text">
+          <label className="phone-row-title" htmlFor={id}>
+            Notifications
+          </label>
+          <span className="phone-row-meta" id={`${id}-line`}>
+            {line}
+          </span>
+        </span>
+        <Toggle
+          id={id}
+          label="Notifications"
+          aria-describedby={`${id}-line`}
+          checked={on}
+          disabled={disabled}
+          onChange={(event) => void change(event.currentTarget.checked)}
+        />
+      </div>
+      {failure}
+    </div>
+  );
+
+  if (variant === 'row' && !status)
+    return row(error ? 'Can’t be read now.' : 'Checking…', false, true);
+  if (variant === 'row' && status && !status.available)
+    return row(
+      status.reason === 'this_computer'
+        ? 'Row-Bot’s own window shows them on this computer.'
+        : 'Needs Row-Bot over HTTPS, such as through Tailscale.',
+      false,
+      true,
+    );
+
   // The computer running Row-Bot has its own window: only the details switch.
   if (!status || (!status.available && status.reason === 'this_computer'))
     return (
@@ -201,6 +247,19 @@ export default function DeviceNotifications({
       setBusy(false);
     }
   }
+
+  if (variant === 'row')
+    return row(
+      browser.appleNotInstalled
+        ? 'Add Row-Bot to your Home Screen first.'
+        : !browser.supported
+          ? 'This browser can’t show them.'
+          : blocked
+            ? 'Blocked in this browser’s settings.'
+            : 'When Row-Bot needs you',
+      on,
+      Boolean(why) || busy,
+    );
 
   return (
     <div className="device-notifications" data-setting-anchor="notifications">
