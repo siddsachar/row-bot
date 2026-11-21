@@ -1,4 +1,5 @@
 import type { Browser, Page } from '@playwright/test';
+import { onPhoneWidth, openHomeTab } from './phone-helpers';
 import {
   accessibility,
   assertNoOverflow,
@@ -147,9 +148,16 @@ test('Home opens on Overview and New chat creates exactly once without setup', a
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
   await expect(page.locator('.home-connection-status')).toHaveCount(0);
-  await expect(
-    page.getByRole('tab', { name: 'Overview', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+  // A phone has no sub-tabs (C1): Home opens on Overview's page.
+  if (onPhoneWidth(page))
+    await expect(page.locator('.home-view')).toHaveAttribute(
+      'data-home-tab',
+      'overview',
+    );
+  else
+    await expect(
+      page.getByRole('tab', { name: 'Overview', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
   await expect(
     page.getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
   ).toBeVisible();
@@ -160,16 +168,17 @@ test('Home opens on Overview and New chat creates exactly once without setup', a
   await accessibility(page, info, 'home-overview');
   await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+  await openHomeTab(page, 'Knowledge');
   await expect(
     page.getByRole('region', { name: 'Knowledge', exact: true }),
   ).toBeVisible();
-  await page.getByRole('tab', { name: 'Monitor', exact: true }).click();
+  // A phone shows "Open this on your computer" under the same name (D5).
+  await openHomeTab(page, 'Monitor');
   await expect(
     page.getByRole('region', { name: 'System Monitor', exact: true }),
   ).toBeVisible();
   // Last: on a phone Workflows is a place of its own, without the sub-tabs.
-  await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+  await openHomeTab(page, 'Workflows');
   await expect(
     page.getByRole('heading', { name: 'Workflows', exact: true }),
   ).toBeVisible();

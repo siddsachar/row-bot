@@ -15,6 +15,30 @@ export function takeHomeDraft(): string {
   return text;
 }
 
+/** How voice starts in a chat opened from Home's mic or Talk (D3). */
+export type HomeVoice = 'dictate' | 'talk';
+
+// Home's mic or Talk opened this chat: its composer starts that voice once, when it can.
+let voiceOnOpen: { conversationId: string; voice: HomeVoice } | null = null;
+
+export function startVoiceOnOpen(conversationId: string, voice: HomeVoice) {
+  voiceOnOpen = { conversationId, voice };
+}
+
+/** Whether this chat should start this voice now; true once. */
+export function takeVoiceOnOpen(
+  conversationId: string,
+  voice: HomeVoice,
+): boolean {
+  if (
+    voiceOnOpen?.conversationId !== conversationId ||
+    voiceOnOpen.voice !== voice
+  )
+    return false;
+  voiceOnOpen = null;
+  return true;
+}
+
 /** The name the server gives a new chat; its first message renames it (B230). */
 const NEW_CHAT_TITLE = 'New conversation';
 

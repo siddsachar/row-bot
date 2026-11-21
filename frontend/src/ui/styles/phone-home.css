@@ -1,0 +1,340 @@
+/*
+ * Home on the phone below 768px (C1, D2): no sub-tabs; the greeting, Needs
+ * you with Approve and Deny on approval cards, Now and Recent, over the Ask
+ * box docked above the tab bar. Desktop and tablets are unchanged.
+ */
+@media (max-width: 767px) {
+  /* Each Home page still opens from its address; the header names the place. */
+  .home-view .home-tabs > .tabs {
+    display: none;
+  }
+  .home-view[data-home-tab='overview'] .home-tabs > .tab-content {
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px 0;
+  }
+}
+
+.overview-home[data-layout='phone'] {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 22px;
+  width: 100%;
+}
+
+/* The greeting is the page's title, not a card. */
+.overview-home[data-layout='phone'] .overview-hero {
+  gap: 12px;
+  padding: 4px 2px 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.overview-home[data-layout='phone'] .overview-greet {
+  justify-content: space-between;
+}
+.overview-home[data-layout='phone'] .overview-greet-text {
+  order: -1;
+}
+.overview-home[data-layout='phone'] .overview-greet h2 {
+  font-size: var(--text-26);
+  line-height: var(--leading-26);
+}
+.overview-home[data-layout='phone'] .overview-summary {
+  font-size: var(--text-15);
+  line-height: var(--leading-15);
+}
+
+/* Buddy, beside the greeting, opens Buddy's settings (the sidebar's card has
+   no other place on a phone). */
+.overview-home[data-layout='phone'] .overview-buddy {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+}
+.overview-home[data-layout='phone'] .overview-buddy:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ‹ Memory above Your memories, the way back to Settings › Memory. */
+.phone-home-back {
+  flex: none;
+  padding: 4px 8px 0;
+}
+.phone-home-back .button {
+  gap: 2px;
+  min-height: 44px;
+  padding-inline: 4px 10px;
+  font-size: var(--text-15);
+  font-weight: var(--weight-medium);
+}
+
+/* The update the sidebar would show ("Restart to update"): one row. */
+.phone-home-notices {
+  display: grid;
+  gap: 8px;
+}
+.phone-home-notices .nav-attention {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid
+    color-mix(in srgb, var(--status-info-text) 28%, var(--border-hairline));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--status-info-text) 7%, var(--surface));
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+.phone-home-notices .nav-attention > svg {
+  flex: none;
+  color: var(--status-info-text);
+}
+
+/* Sections: a quiet heading over one card of rows, as on the phone's lists. */
+.overview-home[data-layout='phone'] .overview-section-title h3 {
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+}
+.overview-home[data-layout='phone'] .overview-section > .overview-rows {
+  padding: 2px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.overview-home[data-layout='phone'] .overview-row {
+  min-height: 56px;
+  padding: 6px 0;
+  box-sizing: border-box;
+}
+.overview-home[data-layout='phone'] .overview-row-button {
+  grid-template-columns: 32px minmax(0, 1fr) auto 16px;
+  min-height: 48px;
+}
+.overview-home[data-layout='phone'] .overview-tile {
+  width: 32px;
+  height: 32px;
+}
+.overview-home[data-layout='phone'] .overview-row-title {
+  font-size: var(--text-15);
+  line-height: var(--leading-15);
+}
+.overview-home[data-layout='phone'] .overview-row-meta {
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+
+/* Needs you: no box around it; each thing waiting is its own card. */
+.overview-home[data-layout='phone'] .overview-needs {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.overview-home[data-layout='phone'] .overview-needs > .overview-rows {
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.overview-home[data-layout='phone'] .overview-needs .overview-row {
+  padding: 6px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+/* An approval: the action, its chat and why, then Deny and Approve. */
+.phone-approval {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid
+    color-mix(in srgb, var(--status-warning-text) 34%, var(--border-hairline));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--status-warning-text) 8%, var(--surface));
+}
+.phone-approval-open {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  margin: -6px;
+  padding: 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.phone-approval-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.phone-approval-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.phone-approval-action {
+  color: var(--text-primary);
+  font-size: var(--text-17);
+  line-height: var(--leading-17);
+  font-weight: var(--weight-semibold);
+}
+.phone-approval-where {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.phone-approval-reason {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.phone-approval-decide {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.phone-approval-decide > .button {
+  min-height: 46px;
+  font-size: var(--text-15);
+}
+.phone-approval-status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.phone-approval-status[role='alert'] {
+  color: var(--status-danger-text);
+}
+
+/* D13: the one-line notifications card, under Needs you. */
+.phone-notify {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 4px 8px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.phone-notify .overview-tile {
+  width: 32px;
+  height: 32px;
+}
+.phone-notify .overview-row-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.phone-notify .overview-row-title {
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+  white-space: normal;
+}
+.phone-notify .overview-row-meta {
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  white-space: normal;
+}
+.phone-notify-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.phone-notify-actions > .button.primary {
+  padding-inline: 12px;
+}
+.phone-notify .overview-setup-error {
+  grid-column: 2 / -1;
+}
+
+/* The Ask box, docked above the tab bar: the words, then + · mic · Talk. */
+.phone-home-dock {
+  position: sticky;
+  z-index: 2;
+  bottom: 0;
+  margin: auto -16px 0;
+  padding: 8px 16px 10px;
+  background: linear-gradient(to bottom, transparent, var(--canvas) 14px);
+}
+.phone-ask {
+  display: grid;
+  gap: 4px;
+  padding: 10px 8px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+}
+.phone-ask:focus-within {
+  border-color: color-mix(
+    in srgb,
+    var(--accent-solid) 55%,
+    var(--border-subtle)
+  );
+}
+.phone-ask-input {
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  /* 16px: a phone never zooms into the field. */
+  font-size: 16px;
+}
+.phone-ask-input:focus-visible {
+  outline: none;
+}
+.phone-ask-input::placeholder {
+  color: var(--text-muted);
+}
+.phone-ask-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.phone-ask-controls .icon-action {
+  --icon-action-size: 44px;
+  color: var(--text-secondary);
+}
+.phone-ask-controls .button.phone-ask-plus {
+  margin-inline-end: auto;
+  border-radius: 50%;
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.phone-ask-controls .phone-ask-voice.button.primary {
+  border-radius: 50%;
+  color: var(--accent-on-solid);
+}
+.phone-ask-controls .phone-ask-voice.button.primary:disabled {
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+/* Typing in the Ask box: the keyboard takes the tab bar's place, as in a chat. */
+:root[data-virtual-keyboard]
+  .workspace:has(.phone-ask-input:focus)
+  .phone-tabs {
+  display: none;
+}

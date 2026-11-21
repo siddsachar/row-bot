@@ -2907,6 +2907,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # D1 Always allow: `npm test` through the real approval gate, which asks or finds the person's rule.
         yield from _d1_rule_stream(config)
         return
+    if text.strip() in _C1_PROMPTS:
+        # Home on the phone (C1): a commit waiting for approval, or a turn that keeps working.
+        yield from _c1_stream(text.strip(), config, stop_event)
+        return
     if text.strip() in _N11_REPLIES:
         # Incognito chats (N11): a plain reply, or the real save_memory card in an incognito chat.
         yield from _n11_stream(text, config)
@@ -3775,6 +3779,53 @@ def phone_b4_memories(state: str, x_fixture_token: str = Header(default="")) -> 
         for index, (kind, subject, description) in enumerate(_PHONE_B4_MEMORIES):
             kg.save_entity(kind, subject, description, source="manual", entity_id=f"phone-b4-{index}")
     return {"state": state, "memories": len(_PHONE_B4_MEMORIES) if state == "seeded" else 0}
+
+
+_C1_PROMPTS = frozenset({"c1 commit fixture", "c1 working fixture"})
+# A "c1 working fixture" turn keeps working until its conversation is released here (or stopped).
+_C1_WORKING: dict[str, threading.Event] = {}
+
+
+def _c1_stream(text: str, config: dict, stop_event=None):
+    """Home on the phone (C1): a real approval for a commit (answered through the generic resume), or a turn
+    that keeps its conversation working, so Home's Now lists it."""
+    from row_bot.threads import append_checkpoint_messages
+
+    call = predecessor._record("submit", config, "c1")
+    thread = call["conversation_id"]
+    identity = f"c1:{call['generation_id']}"
+    try:
+        yield "thinking", None
+        if text == "c1 commit fixture":
+            tool_id = fixture_id(identity + ":tool")
+            args = {"message": "Tidy the release notes"}
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "developer_commit_changes", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "developer_commit_changes", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "developer_commit_changes", "label": "Commit changes",
+                                 "description": "Commit 3 changed files: Tidy the release notes", "args": args}]
+            return
+        release = _C1_WORKING.setdefault(thread, threading.Event())
+        yield "token", "Working through the launch checklist."
+        deadline = time.monotonic() + 180
+        while not release.wait(0.2):
+            if (stop_event is not None and stop_event.is_set()) or time.monotonic() > deadline:
+                return
+        _C1_WORKING.pop(thread, None)
+        yield from _natural_final(call, thread, "The launch checklist is done.", "c1")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__phone_c1_fixture/release")
+def phone_c1_release(x_fixture_token: str = Header(default="")) -> dict:
+    """Home on the phone (C1): every "c1 working fixture" turn finishes."""
+    predecessor._authorize(x_fixture_token)
+    released = list(_C1_WORKING.values())
+    for event in released:
+        event.set()
+    return {"released": len(released)}
 
 
 @app.post("/__p3_fixture/large-library")

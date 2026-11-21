@@ -160,15 +160,24 @@ test('Train now, progress, pause on use, it continues, Stop; Row-Bot closing mid
   await shoot(page, info, 'model-training');
 
   await page.goto('/app-v2/?tab=monitor');
-  const row = page
-    .getByRole('listitem')
-    .filter({ hasText: 'Personal model v1' });
-  await expect(row.getByText('Training · step 340 of 1,000')).toBeVisible();
-  await expect(
-    row.getByRole('button', { name: 'Stop training personal model v1' }),
-  ).toBeVisible();
-  await row.evaluate((element) => element.scrollIntoView({ block: 'center' }));
-  await shoot(page, info, 'monitor-training');
+  if (phone(info))
+    // Monitor is on the computer (D5): a phone says so.
+    await expect(
+      page.getByRole('region', { name: 'System Monitor' }),
+    ).toContainText('Open this on your computer');
+  else {
+    const row = page
+      .getByRole('listitem')
+      .filter({ hasText: 'Personal model v1' });
+    await expect(row.getByText('Training · step 340 of 1,000')).toBeVisible();
+    await expect(
+      row.getByRole('button', { name: 'Stop training personal model v1' }),
+    ).toBeVisible();
+    await row.evaluate((element) =>
+      element.scrollIntoView({ block: 'center' }),
+    );
+    await shoot(page, info, 'monitor-training');
+  }
 
   // Buddy's line shows in the sidebar; a phone has no sidebar or drawer (D1).
   if (!phone(info)) {

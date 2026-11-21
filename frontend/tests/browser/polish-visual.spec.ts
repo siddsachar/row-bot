@@ -5,6 +5,7 @@ import {
   screenshot,
   test,
 } from './evidence';
+import { openHomeTab } from './phone-helpers';
 import {
   blockFixtureServiceWorkers,
   composer,
@@ -62,14 +63,8 @@ test('conversation and Home keep their primary actions readable at every target 
         'Monitor',
         'Insights',
       ]) {
-        // On a phone Workflows is a place of its own, without the sub-tabs
-        // (D1): the tab bar's Home brings them back.
-        if (!(await page.getByRole('tab', { name: tab }).isVisible()))
-          await page
-            .getByRole('navigation', { name: 'Main' })
-            .getByRole('link', { name: 'Home' })
-            .click();
-        await page.getByRole('tab', { name: tab }).click();
+        // A phone has no sub-tabs (C1): each page opens from its address.
+        await openHomeTab(page, tab);
         await page.locator('.home-view').evaluate((element) => {
           element.scrollTop = 0;
         });
