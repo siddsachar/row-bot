@@ -46,7 +46,9 @@ for (const appearance of ['light', 'dark'] as const) {
     await fixture(page, '/__mr_fixture/seed');
     await page.emulateMedia({ colorScheme: appearance });
     if (phone(info)) {
-      await page.goto('/app-v2/settings/knowledge');
+      // Settings › Memory leaves clean-up to the computer on a phone (B4);
+      // the Dream Cycle's entry in Preferences still offers it.
+      await page.goto('/app-v2/settings/preferences');
     } else {
       // Beside the Dream Cycle's overnight tidy-up, too.
       await page.goto('/app-v2/settings/preferences');

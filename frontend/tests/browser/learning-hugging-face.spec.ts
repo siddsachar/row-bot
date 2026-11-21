@@ -325,6 +325,7 @@ test('Settings › Learning shows the account, the model and the cap', async ({
 test('Monitor shows a run on Hugging Face with its cost so far; its Cancel asks first', async ({
   page,
 }, info) => {
+  test.skip(phone(info), 'Monitor is on the computer (D5)');
   await onHuggingFace(page, 'signed_in');
   await c1(page, 'run', 'training');
   await page.goto('/app-v2/?tab=monitor');

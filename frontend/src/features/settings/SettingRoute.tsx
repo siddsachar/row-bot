@@ -1,5 +1,8 @@
 import { SandboxSettings } from './SandboxSettings';
-import BuddySurface from '../buddy/BuddySurface';
+import BuddySurface, { BuddyStatusCard } from '../buddy/BuddySurface';
+import { Lightbulb } from 'lucide-react';
+import { usePhone } from '../../ui/on-your-computer';
+import { PhoneLinkRow } from './PhoneSettingsList';
 import {
   useCallback,
   useEffect,
@@ -128,6 +131,7 @@ export default function SettingRoute() {
   const onThisComputer = useOnThisComputer();
   const [search] = useSearchParams();
   const location = useLocation();
+  const phone = usePhone();
   const leaf = resolveSetting(setting);
   const {
     controller,
@@ -497,6 +501,19 @@ export default function SettingRoute() {
       );
     return <p>These settings are unavailable. Reconnect to continue.</p>;
   };
+  const accessConnect = settingsSnapshot && mutation && (
+    <AccessConnect
+      tunnel={settingsSnapshot.system.tunnel}
+      startPublic={
+        <StartPublicLink
+          mutation={mutation}
+          description="Opens Row-Bot to the internet through your saved ngrok setup until you stop it."
+        />
+      }
+      writeClipboard={platform.writeClipboard}
+      onConnected={() => setDevicesReload((value) => value + 1)}
+    />
+  );
   return (
     <SettingsShell key={session} leaf={leaf} learning={learningPreview}>
       <section
@@ -509,18 +526,38 @@ export default function SettingRoute() {
           mutation={mutationFor('system')}
         />
         {leaf.id === 'buddy' ? (
-          settingsConversationId ? (
-            <BuddySurface
-              key={settingsConversationId}
-              settings
-              conversationId={settingsConversationId}
-              initialPrompt={settingsSnapshot?.buddy.hatch_prompt}
-            />
-          ) : (
-            <EmptyState title="Open a conversation for Buddy">
-              Buddy uses that conversation’s current profile and approvals.
-            </EmptyState>
-          )
+          <>
+            {phone && (
+              // Buddy & Proactive on a phone (C3): Buddy's status, which a
+              // computer shows in the sidebar, then the way to Proactive.
+              <>
+                <BuddyStatusCard conversationId={settingsConversationId} />
+                <ul
+                  className="phone-chat-list-rows phone-settings-proactive"
+                  aria-label="Proactive"
+                >
+                  <PhoneLinkRow
+                    to="/settings/proactive"
+                    icon={<Lightbulb size={18} />}
+                    title="Proactive"
+                    description="When Row-Bot brings something up before you ask"
+                  />
+                </ul>
+              </>
+            )}
+            {settingsConversationId ? (
+              <BuddySurface
+                key={settingsConversationId}
+                settings
+                conversationId={settingsConversationId}
+                initialPrompt={settingsSnapshot?.buddy.hatch_prompt}
+              />
+            ) : (
+              <EmptyState title="Open a conversation for Buddy">
+                Buddy uses that conversation’s current profile and approvals.
+              </EmptyState>
+            )}
+          </>
         ) : leaf.id === 'learning' ? (
           learningIo && settingsSnapshot ? (
             <LearningSettings
@@ -934,19 +971,10 @@ export default function SettingRoute() {
             <>
               {leaf.id === 'access' ? (
                 // Devices & remote access: connect, your devices, then
-                // Advanced (from the retained panel below).
+                // Advanced (from the retained panel below). A phone rarely
+                // pairs another device: Connect is under Advanced there (C3).
                 <>
-                  <AccessConnect
-                    tunnel={settingsSnapshot.system.tunnel}
-                    startPublic={
-                      <StartPublicLink
-                        mutation={mutation}
-                        description="Opens Row-Bot to the internet through your saved ngrok setup until you stop it."
-                      />
-                    }
-                    writeClipboard={platform.writeClipboard}
-                    onConnected={() => setDevicesReload((value) => value + 1)}
-                  />
+                  {!phone && accessConnect}
                   <AccessDevices reloadKey={devicesReload} />
                   <DeviceNotifications />
                 </>
@@ -969,6 +997,9 @@ export default function SettingRoute() {
                 writeClipboard={platform.writeClipboard}
                 privacy={
                   leaf.id === 'system' ? <ConnectedPrivacy /> : undefined
+                }
+                accessConnect={
+                  leaf.id === 'access' && phone ? accessConnect : undefined
                 }
                 accessNetwork={
                   leaf.id === 'access' ? (

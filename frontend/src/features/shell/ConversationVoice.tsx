@@ -5,6 +5,7 @@ import type { DictationScope } from './VoiceControls';
 import { Button, Field, Select } from '../../ui/primitives';
 import { AudioLines } from 'lucide-react';
 import TalkControls from './TalkControls';
+import { takeVoiceOnOpen } from './new-chat';
 import RealtimeTalkControls from './RealtimeTalkControls';
 
 export default function ConversationVoice(props: {
@@ -59,6 +60,20 @@ export default function ConversationVoice(props: {
     return { ...structuredClone(props.context), request_id: request };
   }
   useEffect(() => () => latest.current.onBusy(false), []);
+  // Home's Talk opened this chat (D3): Talk starts once it can, as a one-tap open does.
+  const [startNow, setStartNow] = useState(false);
+  useEffect(() => {
+    if (
+      props.available &&
+      props.context &&
+      !open &&
+      takeVoiceOnOpen(conversationId, 'talk')
+    ) {
+      setMode('talk');
+      setStartNow(true);
+      setOpen(true);
+    }
+  }, [props.available, props.context, open, conversationId]);
   useEffect(() => {
     if (!active?.run) return;
     const abort = new AbortController();
@@ -121,6 +136,7 @@ export default function ConversationVoice(props: {
           onClick={() => {
             // A one-tap open always starts the ordinary Talk.
             if (!open && props.startOnOpen) setMode('talk');
+            if (open) setStartNow(false);
             setOpen(!open);
           }}
           disabled={busy || !props.available}
@@ -183,7 +199,7 @@ export default function ConversationVoice(props: {
               scope={scope}
               available={props.available}
               disabled={props.disabled || props.running || !props.context}
-              startOnMount={props.startOnOpen}
+              startOnMount={startNow || props.startOnOpen}
               start={async (request, signal) => {
                 setError('');
                 const value = await controller.startTalk(

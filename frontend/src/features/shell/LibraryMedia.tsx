@@ -22,7 +22,7 @@ type Kind = '' | MediaItem['kind'];
 const ICONS = { image: Image, video: Film, audio: Music } as const;
 
 /** A picture's own thumbnail; a video or a sound its kind's icon. */
-function Thumb({ item }: { item: MediaItem }) {
+export function Thumb({ item }: { item: MediaItem }) {
   const { controller } = useRuntime();
   const [src, setSrc] = useState('');
   useEffect(() => {

@@ -4545,11 +4545,78 @@ it('on a phone opens the folder or deck the chat works on from one tap in its he
     }),
   );
 
-  // A wide layout keeps it in Conversation details.
+  // Working on names it, so the composer has no target chip on a phone (B2).
+  expect(
+    screen.queryByRole('group', { name: 'Resource write targets' }),
+  ).not.toBeInTheDocument();
+
+  // A wide layout keeps it in Conversation details, and the chip.
   rendered.rerender(<Conversation onPanel={onPanel} />);
   expect(
     screen.queryByRole('button', { name: /^Working on/ }),
   ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('group', { name: 'Resource write targets' }),
+  ).toBeVisible();
+});
+
+it("on a phone Incognito moves from the chat's ⋯ to + › Chat settings, and the details lead with the context line (B2)", async () => {
+  idleConversation();
+  await act(async () => {
+    render(
+      <Conversation
+        onPanel={vi.fn()}
+        headerMenu={[]}
+        contextPlacement="compact"
+      />,
+    );
+  });
+  const header = screen
+    .getAllByRole('banner')
+    .find((element) => element.dataset.layout === 'phone')!;
+  await userEvent.click(
+    within(header).getByRole('button', { name: 'Conversation menu' }),
+  );
+  const menu = screen.getByRole('menu');
+  expect(
+    within(menu).queryByRole('menuitem', { name: /Incognito/ }),
+  ).toBeNull();
+  expect(
+    within(menu).queryByRole('menuitemcheckbox', { name: /Incognito/ }),
+  ).toBeNull();
+  await userEvent.click(
+    within(menu).getByRole('menuitem', { name: 'Conversation details' }),
+  );
+  // The details sheet (the overlay is a test double here) leads with it.
+  const sheet = mock.open.mock.calls.find(
+    ([overlay]) => overlay.key === 'conversation-context',
+  )![0];
+  const details = render(<>{sheet.content}</>);
+  expect(
+    within(details.container).getByRole('region', { name: 'Context' }),
+  ).toHaveTextContent('Context will appear after the next response');
+  details.unmount();
+
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Add files and more' }),
+  );
+  // The + sheet has no context line or model on a phone.
+  expect(
+    screen.queryByText('Context will appear after the next response'),
+  ).toBeNull();
+  await userEvent.click(
+    screen.getByRole('menuitem', { name: /^Chat settings/ }),
+  );
+  mock.intent.mockResolvedValue({ status: 'completed' });
+  await userEvent.click(
+    screen.getByRole('menuitemcheckbox', { name: /^Incognito/ }),
+  );
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.incognito',
+    { incognito: true },
+    expect.any(String),
+  );
 });
 
 it('lists every piece of work under Working on when a chat has several (D7)', async () => {
@@ -4591,6 +4658,51 @@ it('lists every piece of work under Working on when a chat has several (D7)', as
       resource_ref: 'conversation-a:deck',
     }),
   );
+});
+
+it('on a phone the header switches the model and starts a new chat, and only the newest messages keep their icons (D8, D14)', async () => {
+  idleConversation();
+  mock.state.handshake.models = [
+    {
+      provider_id: 'fixture',
+      model_ref: 'fixture/model',
+      label: 'Current model',
+      available: true,
+    },
+  ];
+  settledRows([
+    row('u1', 'user', 'Plan the launch.'),
+    row('a1', 'assistant', 'Here is a plan.'),
+    row('u2', 'user', 'Add a timeline.'),
+    row('a2', 'assistant', 'Here is the timeline.'),
+  ]);
+  const onNewChat = vi.fn();
+  await act(async () => {
+    render(
+      <ConversationView
+        onPanel={vi.fn()}
+        headerMenu={[]}
+        onNewChat={onNewChat}
+      />,
+    );
+  });
+  const header = screen
+    .getAllByRole('banner')
+    .find((element) => element.dataset.layout === 'phone')!;
+  fireEvent.click(within(header).getByRole('button', { name: 'New chat' }));
+  expect(onNewChat).toHaveBeenCalledOnce();
+
+  await act(async () =>
+    fireEvent.click(within(header).getByRole('button', { name: /^Model: / })),
+  );
+  expect(screen.getByRole('dialog', { name: 'Choose a model' })).toBeVisible();
+
+  // Icons under the person's last message and the newest answer only.
+  expect(
+    screen
+      .getAllByRole('toolbar')
+      .map((bar) => bar.closest('article')?.getAttribute('data-message-id')),
+  ).toEqual(['u2', 'a2']);
 });
 
 function forkable() {

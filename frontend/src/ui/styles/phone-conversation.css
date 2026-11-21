@@ -1,0 +1,102 @@
+/*
+ * The phone's conversation header below 768px (B1, D8 A): ‹, the title with
+ * the model under it (a tap switches the model), New chat and ⋯, with the
+ * work the chat is on in a row underneath. Desktop and tablets are unchanged:
+ * every rule here is keyed on the phone layout.
+ */
+.conversation-heading[data-layout='phone'] {
+  flex-wrap: wrap;
+}
+/* The title takes what the icons leave, so only Working on wraps. */
+.conversation-heading[data-layout='phone'] > .conversation-title-block {
+  flex: 1 1 0;
+}
+.conversation-heading[data-layout='phone']
+  .conversation-title-block:has(> .conversation-model-switch) {
+  flex-wrap: wrap;
+  align-content: center;
+  column-gap: 4px;
+  row-gap: 0;
+}
+.conversation-heading[data-layout='phone']
+  .conversation-title-block:has(> .conversation-model-switch)
+  > h1 {
+  line-height: 20px;
+}
+/* The incognito mark and an agent's way back stay reachable above it. */
+.conversation-title-block:has(> .conversation-model-switch)
+  > :is(.conversation-incognito, .conversation-breadcrumb) {
+  position: relative;
+  z-index: 1;
+}
+/* The model under the title: quiet text with a chevron, as in a chat app.
+   Its button reaches up over the title (a 44px target): a tap on either
+   opens the model sheet. */
+.conversation-model-switch {
+  position: relative;
+  display: inline-flex;
+  flex: 1 0 100%;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  margin: -20px 0 0;
+  padding: 20px 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-13);
+  line-height: 18px;
+  text-align: start;
+  cursor: pointer;
+}
+/* An agent's chat stacks its way back, title and model in a column. */
+.conversation-title-block[data-breadcrumb] > .conversation-model-switch {
+  flex: none;
+  align-self: stretch;
+}
+.conversation-model-switch > svg {
+  flex: none;
+}
+.conversation-model-switch:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+.conversation-model-switch:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 0;
+}
+.conversation-model-switch:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.conversation-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Working on (D7): its own row under the header, its title in full width. */
+.conversation-working-on {
+  display: flex;
+  flex: 1 0 100%;
+  min-width: 0;
+  padding: 2px 8px 6px;
+}
+.conversation-heading[data-layout='phone']
+  .conversation-working-on
+  .working-on.button {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 36px;
+}
+.working-on-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

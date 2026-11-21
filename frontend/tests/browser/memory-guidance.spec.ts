@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { assertNoOverflow, expect, screenshot, test } from './evidence';
+import { onPhoneWidth } from './phone-helpers';
 
 // U8: on a server with a memory limit, Row-Bot says what fits. After a
 // restart for lack of memory, Home's Needs you and Monitor say why and how to
@@ -56,17 +57,24 @@ test('a 2 GB hosted server says why Row-Bot restarted, what fits and how to resi
   await screenshot(page, testInfo, 'memory-home');
 
   await page.goto('/app-v2/?tab=monitor');
-  const attention = page.getByRole('region', { name: 'Needs attention' });
-  await expect(attention).toContainText(
-    'Your server has 2 GB. Local speech-to-text together with the search model and browser needs about 3.2 GB. Make the pod 4 GB in PikaPods, or use cloud speech-to-text.',
-  );
-  await assertNoOverflow(page);
-  await screenshot(page, testInfo, 'memory-monitor');
-
-  // Voice: local speech-to-text is marked, and choosing it asks first.
-  await attention
-    .getByRole('link', { name: 'Use cloud speech-to-text' })
-    .click();
+  if (onPhoneWidth(page)) {
+    // Monitor is on the computer (D5); Home's Needs you above has the notice.
+    await expect(
+      page.getByRole('region', { name: 'System Monitor' }),
+    ).toContainText('Open this on your computer');
+    await page.goto('/app-v2/settings/voice');
+  } else {
+    const attention = page.getByRole('region', { name: 'Needs attention' });
+    await expect(attention).toContainText(
+      'Your server has 2 GB. Local speech-to-text together with the search model and browser needs about 3.2 GB. Make the pod 4 GB in PikaPods, or use cloud speech-to-text.',
+    );
+    await assertNoOverflow(page);
+    await screenshot(page, testInfo, 'memory-monitor');
+    // Voice: local speech-to-text is marked, and choosing it asks first.
+    await attention
+      .getByRole('link', { name: 'Use cloud speech-to-text' })
+      .click();
+  }
   await expect(page).toHaveURL(/\/settings\/voice/);
   await expect(page.getByText('Needs a 4 GB server').first()).toBeVisible();
   await listen.select.selectOption('openai_realtime');

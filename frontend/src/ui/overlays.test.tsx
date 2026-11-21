@@ -95,14 +95,17 @@ it('keeps the originating form mounted while confirmation cancels or confirms', 
   expect(screen.getByRole('button', { name: 'Edit' })).toHaveFocus();
 });
 
+/** The platform's Back, and the history traversal it starts, landed. */
+async function pressBack() {
+  await act(async () => {
+    window.history.back();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+}
+
 it('uses same-URL Back layers without changing the conversation task', async () => {
-  const push = vi
-    .spyOn(window.history, 'pushState')
-    .mockImplementation(() => undefined);
-  const back = vi
-    .spyOn(window.history, 'back')
-    .mockImplementation(() => undefined);
   const user = userEvent.setup();
+  const entry = () => window.history.state?.__row_bot_overlay?.id;
   render(
     <OverlayProvider>
       <Fixture confirmed={vi.fn()} />
@@ -110,21 +113,22 @@ it('uses same-URL Back layers without changing the conversation task', async () 
     </OverlayProvider>,
   );
   await user.click(screen.getByRole('button', { name: 'Edit' }));
-  expect(push).toHaveBeenCalledTimes(1);
+  const task = entry();
+  expect(task).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Reset example' }));
-  expect(push).toHaveBeenCalledTimes(2);
-  fireEvent.popState(window);
+  expect(entry()).not.toBe(task);
+  const url = window.location.href;
+  await pressBack();
+  expect(entry()).toBe(task);
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   expect(screen.getByRole('dialog')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Reset example' })).toHaveFocus();
-  fireEvent.popState(window);
+  await pressBack();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.getByTestId('conversation-identity')).toHaveTextContent(
     'conversation-a',
   );
-  expect(back).not.toHaveBeenCalled();
-  push.mockRestore();
-  back.mockRestore();
+  expect(window.location.href).toBe(url);
 });
 
 it('does not unwind a newer route when navigation closes an overlay', async () => {
@@ -175,9 +179,7 @@ function DeclarativeDialog() {
 }
 
 it('gives declarative settings tasks the shared focus, Escape and Back contract', async () => {
-  const back = vi
-    .spyOn(window.history, 'back')
-    .mockImplementation(() => undefined);
+  const go = vi.spyOn(window.history, 'go');
   const user = userEvent.setup();
   render(<DeclarativeDialog />);
   const opener = screen.getByRole('button', { name: 'Manage provider' });
@@ -190,18 +192,20 @@ it('gives declarative settings tasks the shared focus, Escape and Back contract'
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(opener).toHaveFocus();
-  expect(back).toHaveBeenCalledTimes(1);
-  // Complete the mocked same-URL history traversal before opening again.
-  fireEvent.popState(window);
+  // Escape gave its history entry back: one step, once.
+  await waitFor(() => expect(go).toHaveBeenCalledWith(-1));
+  expect(go).toHaveBeenCalledTimes(1);
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
   await user.click(opener);
-  fireEvent.popState(window);
+  await pressBack();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   await waitFor(() => expect(opener).toHaveFocus());
+  expect(go).toHaveBeenCalledTimes(1);
   await user.click(opener);
   await user.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   await waitFor(() => expect(opener).toHaveFocus());
-  back.mockRestore();
+  go.mockRestore();
 });
 
 it('shows a stable loading announcement before delaying skeleton visuals', () => {

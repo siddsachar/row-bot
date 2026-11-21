@@ -219,7 +219,7 @@ export default function AttentionIndicator({
 }
 
 /** The update, downloaded and ready ("Restart to update") or available; opens Updates. */
-function UpdateLink({
+export function UpdateLink({
   update,
   compact,
   onNavigate,

@@ -86,12 +86,24 @@ async function waitForSettings(page: Page, label: string): Promise<void> {
   await expect(
     page.getByRole('region', { name: 'Settings', exact: true }).first(),
   ).toBeVisible();
+  // A phone names the page once, in its header row (C3, D7); Buddy's page
+  // also leads to Proactive.
+  const phone = page.viewportSize()!.width < 768;
   await expect(
-    page.getByRole('heading', { name: 'Settings', exact: true, level: 1 }),
+    page.getByRole('heading', {
+      name: !phone
+        ? 'Settings'
+        : label === 'Buddy'
+          ? 'Buddy & Proactive'
+          : label,
+      exact: true,
+      level: 1,
+    }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: label, exact: true, level: 2 }).first(),
-  ).toBeVisible();
+  if (!phone)
+    await expect(
+      page.getByRole('heading', { name: label, exact: true, level: 2 }).first(),
+    ).toBeVisible();
   await expect(
     page.getByRole('region', { name: label, exact: true }).first(),
   ).toBeVisible();
@@ -266,16 +278,19 @@ test('Settings groups list every page, and search finds pages and rows', async (
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(settingsPath('models'));
   await waitForSettings(page, 'Models');
-  // A phone's page keeps the search and goes back to the list of pages
-  // (D6); the keyboard reaches both.
-  await expect(navigation.getByRole('link')).toHaveCount(0);
+  // A phone's page is one header row with its way back to the list and no
+  // second search (D6, D7); the keyboard reaches the list's rows.
+  await expect(navigation).toHaveCount(0);
   await expect(
-    navigation.getByRole('searchbox', { name: 'Find a setting' }),
-  ).toBeVisible();
+    page.getByRole('searchbox', { name: 'Find a setting' }),
+  ).toHaveCount(0);
   await page.getByRole('link', { name: 'Back to Settings' }).focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/app-v2\/settings$/);
-  await navigation.getByRole('link', { name: 'Voice', exact: true }).focus();
+  await page
+    .getByRole('list', { name: 'Row-Bot' })
+    .getByRole('link', { name: 'Voice', exact: true })
+    .focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(new RegExp(`${settingsPath('voice')}$`));
   await waitForSettings(page, 'Voice');
@@ -306,23 +321,51 @@ test('Settings shell preserves the exact owner order aliases history and reload'
     name: 'Settings sections',
     exact: true,
   });
-  await expect(navigation).toBeVisible();
-  await expect(navigation.getByRole('heading')).toHaveCount(0);
-  const groups = navigation.getByRole('list');
-  await expect(groups).toHaveCount(6);
-  expect(
-    await groups.evaluateAll((lists) =>
-      lists.map((list) => list.getAttribute('aria-label')),
-    ),
-  ).toEqual([
-    'General',
-    'Models',
-    'Knowledge',
-    'Capabilities',
-    'Connections',
-    'System',
-  ]);
-  await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
+  if (info.project.use.viewport!.width < 768) {
+    // A phone: This phone, Row-Bot's six pages, and More settings with the
+    // rest in the computer's groups and order (C3, D6).
+    await expect(
+      page.getByRole('list', { name: 'Row-Bot' }).getByRole('link'),
+    ).toHaveText([
+      'Models',
+      'Voice',
+      'Memory',
+      'Apps',
+      'Activity',
+      'Buddy & Proactive',
+    ]);
+    await page.getByRole('link', { name: 'More settings' }).click();
+    const rowBot = new Set([
+      'Models',
+      'Voice',
+      'Memory',
+      'Apps',
+      'Activity',
+      'Buddy',
+      'Proactive',
+    ]);
+    await expect(page.locator('.phone-settings').getByRole('link')).toHaveText(
+      expectedLabels.filter((label) => !rowBot.has(label)),
+    );
+  } else {
+    await expect(navigation).toBeVisible();
+    await expect(navigation.getByRole('heading')).toHaveCount(0);
+    const groups = navigation.getByRole('list');
+    await expect(groups).toHaveCount(6);
+    expect(
+      await groups.evaluateAll((lists) =>
+        lists.map((list) => list.getAttribute('aria-label')),
+      ),
+    ).toEqual([
+      'General',
+      'Models',
+      'Knowledge',
+      'Capabilities',
+      'Connections',
+      'System',
+    ]);
+    await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
+  }
 
   // The first alias is a fresh deep link; the rest redirect in the app.
   for (const [index, [alias, destination, label]] of aliases.entries()) {
@@ -406,8 +449,21 @@ for (const [id, label] of settingsRoutes) {
       const phone = info.project.use.viewport!.width === 390;
       // A phone has no Close (the tab bar), and its page goes back to the
       // list of pages instead (D6).
+      // Back to its list: More settings for the pages outside Row-Bot (C3).
+      const back = [
+        'models',
+        'voice',
+        'knowledge',
+        'apps',
+        'activity',
+        'buddy',
+      ].includes(id)
+        ? 'Back to Settings'
+        : id === 'proactive'
+          ? 'Back to Buddy & Proactive'
+          : 'Back to More settings';
       const exit = page.getByRole('link', {
-        name: phone ? 'Back to Settings' : 'Close settings',
+        name: phone ? back : 'Close settings',
         exact: true,
       });
       await exit.focus();
@@ -426,7 +482,7 @@ for (const [id, label] of settingsRoutes) {
         await expect(
           page
             .locator('.settings-shell-header')
-            .getByRole('link', { name: 'Back to Settings' }),
+            .getByRole('link', { name: back }),
         ).toBeVisible();
         await expectCoarseTargets(page, info);
       }

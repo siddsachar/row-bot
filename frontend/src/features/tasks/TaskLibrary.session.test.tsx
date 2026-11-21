@@ -376,3 +376,117 @@ it('Run on a row reviews and starts the reviewed request in one click (B254)', a
   view.unmount();
   act(() => taskEditSessions.dispose());
 });
+
+/** Phone width (below 768px) until `widen()` turns it into a computer. */
+function onPhone() {
+  let phone = true;
+  const listeners = new Set<() => void>();
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        get matches() {
+          return phone && query === '(max-width: 767px)';
+        },
+        media: query,
+        addEventListener: (_: string, listener: () => void) =>
+          listeners.add(listener),
+        removeEventListener: (_: string, listener: () => void) =>
+          listeners.delete(listener),
+      }) as unknown as MediaQueryList,
+  );
+  return {
+    widen: () =>
+      act(() => {
+        phone = false;
+        listeners.forEach((listener) => listener());
+      }),
+    restore: () => vi.mocked(window.matchMedia).mockRestore(),
+  };
+}
+
+const DIGEST: TaskSummary = {
+  id: 'task-1',
+  name: 'Morning digest',
+  description: '',
+  icon: '',
+  enabled: true,
+  notify_only: false,
+  step_count: 1,
+  schedule: 'daily:08:00',
+  at: null,
+  last_run: null,
+  last_status: null,
+  conversation_id: null,
+  agent_profile_id: 'builtin:row_bot_default',
+  approval_mode: 'approve',
+};
+
+it('on a phone lists workflows as rows and opens a ?workflow= link as its sheet (C2)', async () => {
+  const media = onPhone();
+  const { taskEditSessions, application } = harness([DIGEST]);
+  const view = render(application('/?tab=workflows&workflow=task-1'));
+  expect(
+    await screen.findByRole('dialog', { name: 'Morning digest' }),
+  ).toBeVisible();
+  // Behind the open sheet.
+  expect(
+    screen.getByRole('list', { name: 'Workflows', hidden: true }),
+  ).toBeInTheDocument();
+  // The desktop's library, search, delivery defaults and New are not on a phone.
+  expect(document.querySelector('.workflow-library')).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'New workflow', hidden: true }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Delivery defaults', hidden: true }),
+  ).toBeNull();
+  expect(screen.getByTestId('location')).toHaveTextContent('/?tab=workflows');
+  view.unmount();
+  act(() => taskEditSessions.dispose());
+  media.restore();
+});
+
+it('on a phone shows the editor on the computer, and the computer still has it (C2, D5)', async () => {
+  const media = onPhone();
+  const { taskEditSessions, application } = harness([DIGEST]);
+  const view = render(application('/?tab=workflows'));
+  await screen.findByRole('list', { name: 'Workflows' });
+  act(() => taskEditSessions.open('task'));
+  const away = screen.getByRole('region', { name: 'The workflow editor' });
+  expect(
+    within(away).getByRole('heading', { name: 'Open this on your computer' }),
+  ).toBeVisible();
+  expect(
+    within(away).getByText(/messages, schedule and delivery on your computer/),
+  ).toBeVisible();
+  expect(screen.queryByRole('form', { name: 'Create task' })).toBeNull();
+  // A wider window shows the same editor: nothing was reset.
+  media.widen();
+  expect(screen.getByRole('form', { name: 'Create task' })).toBeVisible();
+  view.unmount();
+  act(() => taskEditSessions.dispose());
+  media.restore();
+});
+
+it('on a phone ‹ Workflows leaves the editor for the list and keeps its draft (C2)', async () => {
+  const media = onPhone();
+  const { taskEditSessions, application } = harness([DIGEST]);
+  const view = render(application('/?tab=workflows'));
+  await screen.findByRole('list', { name: 'Workflows' });
+  act(() => taskEditSessions.open('settings', 'task-1', 'Morning digest'));
+  expect(
+    screen.getByRole('region', { name: 'Workflow settings' }),
+  ).toBeVisible();
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Back to workflows' }),
+  );
+  expect(
+    await screen.findByRole('list', { name: 'Workflows' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole('region', { name: 'Workflow settings' }),
+  ).toBeNull();
+  view.unmount();
+  act(() => taskEditSessions.dispose());
+  media.restore();
+});
