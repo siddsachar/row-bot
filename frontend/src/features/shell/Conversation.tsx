@@ -30,6 +30,7 @@ import { usePlace } from '../../api/place';
 import { unbindWithUndo } from './resource-unbind';
 import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
+import type { FilePickerOptions } from '../../platform/types';
 import { useBackgroundReady, useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
@@ -77,6 +78,7 @@ import WaitingMessages, {
 } from './WaitingMessages';
 import { WaitsStrip } from './Waits';
 import ContextUsage from './ContextUsage';
+import ContextLine from './ContextLine';
 import DelegatedActivity, {
   interruptedWork,
   recentReads,
@@ -149,11 +151,7 @@ import {
   type TappedChoice,
 } from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
-import {
-  INCOGNITO_PLACEHOLDER,
-  incognitoAction,
-  useIncognitoSwitch,
-} from './incognito';
+import { INCOGNITO_PLACEHOLDER } from './incognito';
 import ErrorFix from './ErrorFix';
 import { TranscriptMessage } from './TranscriptMessage';
 import {
@@ -373,11 +371,13 @@ export default function Conversation({
   const learningMenuItem = useLearningChatMenu();
   const historyReady =
     Boolean(id) && !state.loadingConversation && state.conversation?.id === id;
-  // Incognito (N11): its mark in the header, its words in the composer, its switch in the ⋯ menu.
+  // Incognito (N11): its mark in the header, its words in the composer, its
+  // switch in the drawer's ⋯ (in + › Chat settings on a phone).
   const incognito = Boolean(
     id && state.conversation?.id === id && state.conversation.incognito,
   );
-  const turnIncognito = useIncognitoSwitch();
+  // The phone layout: the workspace folds the header's actions into ⋯.
+  const phone = Boolean(headerMenu);
   const draft = controller.getDraft(id ?? 'new');
   const voiceScope = controller.dictationScope();
   const [talkBusy, setTalkBusy] = useState(false);
@@ -2334,15 +2334,19 @@ export default function Conversation({
   const pendingUploads = uploads.uploads.filter(
     (item) => item.conversation === id,
   );
-  async function attach() {
+  async function attach(picker?: FilePickerOptions) {
     if (!id) return;
     const target = id,
-      picked = await platform.selectFile(undefined, {
-        intentId: crypto.randomUUID(),
-        intent: 'attachment',
-        conversationId: target,
-        destination: 'composer',
-      });
+      picked = await platform.selectFile(
+        undefined,
+        {
+          intentId: crypto.randomUUID(),
+          intent: 'attachment',
+          conversationId: target,
+          destination: 'composer',
+        },
+        picker,
+      );
     // The desktop window falls back to the browser's own file input when its
     // picker cannot open; anything else that fails is said, never dropped
     // (B231).
@@ -2419,7 +2423,7 @@ export default function Conversation({
     overlay.close();
   }
   // On a phone the deck or folder this chat works on is one tap from its
-  // header (D7): a small pill saying what it is, or a list when several.
+  // header (D7): a pill under it with its name, or a list when several.
   const workingOnResources = resources.filter((resource) => resource.available);
   const workingOnGlyph = (resource: ResourceView) =>
     resource.binding.kind === 'artifact' ? (
@@ -2438,7 +2442,9 @@ export default function Conversation({
         onClick={() => resourcePanel(workingOnResources[0])}
       >
         {workingOnGlyph(workingOnResources[0])}
-        {workingOnKind(workingOnResources[0])}
+        <span className="working-on-label">
+          Working on · {workingOnResources[0].title}
+        </span>
       </Button>
     ) : headerMenu && workingOnResources.length > 1 ? (
       <Menu
@@ -2453,7 +2459,9 @@ export default function Conversation({
         }))}
       >
         <Layers size={16} aria-hidden />
-        Work
+        <span className="working-on-label">
+          Working on · {workingOnResources.length} items
+        </span>
       </Menu>
     ) : undefined;
   function useOutputInCode(output: { reference: string; mime: string }) {
@@ -2768,6 +2776,12 @@ export default function Conversation({
       onDismissSuggestion={(suggestion) =>
         controller.dismissSuggestion(suggestion)
       }
+      // The + sheet's context line moves here on a phone (B2).
+      contextLine={
+        phone ? (
+          <ContextLine usage={state.workspace?.context_usage} />
+        ) : undefined
+      }
     />
   ) : null;
   const isRunning = Boolean(running);
@@ -2961,6 +2975,19 @@ export default function Conversation({
       lastAssistant = index;
       break;
     }
+  // A phone shows message icons only under the newest answer and the
+  // person's last message; the others open theirs with a long-press (D14).
+  let lastOwn = -1;
+  for (let index = items.length - 1; index >= 0; index -= 1)
+    if (
+      items[index].row.role === 'user' &&
+      (!items[index].row.note || items[index].row.note === 'page')
+    ) {
+      lastOwn = index;
+      break;
+    }
+  const pressOnly = (index: number) =>
+    Boolean(headerMenu) && index !== lastAssistant && index !== lastOwn;
   // Actions show once per assistant turn (its last row) and copy the turn.
   const turns = useMemo(() => {
     const starts = turnStarts(items);
@@ -3587,12 +3614,22 @@ export default function Conversation({
       onSkillsOpenChange={setSkillsOpen}
       disabled={isRunning || busy || talkBusy || composerBusy}
       onError={setError}
-      onAttach={() => void attach()}
+      onAttach={(picker) => void attach(picker)}
       attachDisabled={busy}
       onAddResource={setup}
       modelPickerOpen={modelPickerOpen}
       onModelPickerOpenChange={setModelPickerOpen}
       singleLine={singleLine}
+      phone={phone}
+      targets={
+        phone
+          ? {
+              resources,
+              selected: id ? (targetSelection[id] ?? defaultTargetIds) : [],
+              onChange: chooseTarget,
+            }
+          : undefined
+      }
       contextUsage={state.workspace?.context_usage}
       anchor={composerFieldRef}
     />
@@ -3652,6 +3689,11 @@ export default function Conversation({
                   [modelName, ownRun?.reasoning].filter(Boolean).join(' · ')
                 : undefined
             }
+            onModel={
+              id && controls ? () => setModelPickerOpen(true) : undefined
+            }
+            modelDisabled={isRunning || busy || talkBusy || composerBusy}
+            onNewChat={onNewChat}
             onFind={id ? findConversation : undefined}
             onShare={id ? manageConversation : undefined}
             onContext={
@@ -3663,16 +3705,8 @@ export default function Conversation({
             leading={headerLeading}
             incognito={incognito}
             workingOn={workingOn}
-            menuActions={
-              headerMenu && id && state.conversation?.id === id
-                ? [
-                    ...headerMenu,
-                    incognitoAction(state.conversation, turnIncognito, {
-                      separatorBefore: headerMenu.length > 0,
-                    }),
-                  ]
-                : headerMenu
-            }
+            // Incognito is in + › Chat settings on a phone (B2).
+            menuActions={headerMenu}
             trailingMenuActions={(() => {
               const item = id
                 ? learningMenuItem({ id, title, incognito })
@@ -3805,6 +3839,7 @@ export default function Conversation({
                               turnStart={turns.starts[index]}
                               offerBrowser={turns.browser[index]}
                               toolbar={turns.ends[index]}
+                              pressOnly={Boolean(headerMenu)}
                               usedTools={turns.tools[index]}
                               copyText={turns.texts[index]}
                               onRecover={recoverTurn}
@@ -3838,6 +3873,7 @@ export default function Conversation({
                             !(browserLive && index > turns.lastUser)
                           }
                           toolbar={turns.ends[index]}
+                          pressOnly={pressOnly(index)}
                           usedTools={turns.tools[index]}
                           copyText={turns.texts[index]}
                           onRecover={recoverTurn}
@@ -4309,7 +4345,7 @@ export default function Conversation({
                   </span>
                 </div>
               )}
-              {(!!resources.length ||
+              {((!!resources.length && !phone) ||
                 !!draft.attachments.length ||
                 !!pendingUploads.length ||
                 (singleLine && needsModel) ||
@@ -4330,7 +4366,9 @@ export default function Conversation({
                   })}
                 >
                   {singleLine && needsModel && setupModelButton}
-                  {!!resources.length && (
+                  {/* A phone chooses them in + › Chat settings, and its
+                      header's Working on names the work (B2). */}
+                  {!!resources.length && !phone && (
                     <ResourceTargets
                       resources={resources}
                       selected={targetSelection[id] ?? defaultTargetIds}

@@ -5,6 +5,7 @@ import {
   BookOpen,
   BookmarkCheck,
   BookmarkPlus,
+  Copy,
   CornerDownRight,
   Cpu,
   Eye,
@@ -17,6 +18,7 @@ import {
   LoaderCircle,
   Scissors,
   SendHorizontal,
+  TextCursor,
   TriangleAlert,
   Volume2,
   VolumeX,
@@ -282,6 +284,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   onFork,
   onRecover,
   toolbar = true,
+  pressOnly = false,
   usedTools = false,
   copyText,
   children,
@@ -319,6 +322,11 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   onRecover?: (action: RecoveryAction) => void;
   /** Actions show once per turn: on user rows and at an assistant turn's end. */
   toolbar?: boolean;
+  /**
+   * A phone's older message (D14): no icon row; a long-press, a right-click
+   * or the context-menu key opens the same actions as a sheet.
+   */
+  pressOnly?: boolean;
   /** What Copy copies: the whole assistant turn at its last row. */
   copyText?: string;
   /** This row ends an assistant turn that used tools: it can be saved as a skill (C1). */
@@ -491,36 +499,74 @@ export const TranscriptMessage = memo(function TranscriptMessage({
       selection.addRange(range);
     });
   }
+  // The toolbar's actions with its icons, so the sheet reads the same.
   const pressActions: MenuAction[] = [
-    { label: 'Copy message', onSelect: () => void copy() },
+    {
+      label: 'Copy message',
+      icon: <Copy size={16} />,
+      onSelect: () => void copy(),
+    },
     ...(hasText
-      ? [{ label: 'Select text', onSelect: () => {}, afterClose: selectText }]
+      ? [
+          {
+            label: 'Select text',
+            icon: <TextCursor size={16} />,
+            onSelect: () => {},
+            afterClose: selectText,
+          },
+        ]
       : []),
     ...(row.role === 'assistant'
       ? [
           {
             label: speaking ? 'Stop reading' : 'Read aloud',
+            icon: speaking ? <VolumeX size={16} /> : <Volume2 size={16} />,
             onSelect: readAloud,
           },
         ]
       : []),
     ...(row.role === 'assistant' && onRetry
-      ? [{ label: 'Retry', onSelect: onRetry }]
+      ? [{ label: 'Retry', icon: <RotateCcw size={16} />, onSelect: onRetry }]
       : []),
     ...(canFork
-      ? [{ label: 'Fork from here', onSelect: () => void fork() }]
+      ? [
+          {
+            label: 'Fork from here',
+            icon: <GitBranch size={16} />,
+            onSelect: () => void fork(),
+          },
+        ]
       : []),
-    ...(canSaveSkill ? [{ label: saveSkillLabel, onSelect: saveSkill }] : []),
+    ...(canSaveSkill
+      ? [
+          {
+            label: saveSkillLabel,
+            icon: savedSkill ? (
+              <BookmarkCheck size={16} />
+            ) : (
+              <BookmarkPlus size={16} />
+            ),
+            onSelect: saveSkill,
+          },
+        ]
+      : []),
     ...(row.role === 'assistant' && teach && row.message_id
       ? [
           {
             label: 'Teach Row-Bot',
+            icon: <GraduationCap size={16} />,
             onSelect: () => teach({ messageId: row.message_id ?? '' }),
           },
         ]
       : []),
     ...(canEdit
-      ? [{ label: 'Edit and resend', onSelect: () => setEditing(true) }]
+      ? [
+          {
+            label: 'Edit and resend',
+            icon: <Pencil size={16} />,
+            onSelect: () => setEditing(true),
+          },
+        ]
       : []),
   ];
   if (row.note === 'continuation')
@@ -643,6 +689,16 @@ export const TranscriptMessage = memo(function TranscriptMessage({
       data-streaming={streaming ? 'true' : undefined}
       data-empty={hasText ? undefined : 'true'}
       tabIndex={-1}
+      onContextMenu={
+        pressOnly && actionable
+          ? (event) => {
+              // Text the person selected keeps the browser's own menu.
+              if (selecting || window.getSelection()?.toString()) return;
+              event.preventDefault();
+              setPressed(true);
+            }
+          : undefined
+      }
     >
       {turnStart && row.role !== 'tool' && <TurnMarker role={row.role} />}
       <div className="transcript-content">
@@ -826,7 +882,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             )}
           </div>
         )}
-        {actionable && (
+        {actionable && !pressOnly && (
           <div
             className="message-toolbar"
             role="toolbar"
@@ -923,8 +979,9 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           <SkillOfferHint offer={skillOffer} />
         )}
         {actionable && (
-          // Opened by a long-press on the message; out of the tab order,
-          // since the toolbar's buttons are the same actions.
+          // Opened by a long-press on the message (or a right-click on a
+          // phone's older one); out of the tab order, since the toolbar's
+          // buttons are the same actions.
           <Menu
             label="More for this message"
             iconOnly

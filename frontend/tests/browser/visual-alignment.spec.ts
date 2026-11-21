@@ -1,4 +1,5 @@
 import type { Browser, Page } from '@playwright/test';
+import { onPhoneWidth, openHomeTab } from './phone-helpers';
 import {
   accessibility,
   assertNoOverflow,
@@ -10,6 +11,7 @@ import {
 import {
   assertWorkspaceIdentity,
   blockFixtureServiceWorkers,
+  clickNewChat,
   composer,
   conversationState,
   fixtureResources,
@@ -53,15 +55,27 @@ async function layoutFor(page: Page, conversation: string): Promise<Layout> {
 
 async function home(page: Page): Promise<void> {
   const link = page.getByRole('link', { name: 'Home', exact: true });
-  if (!(await link.isVisible()))
-    await page
-      .getByRole('button', { name: 'Toggle navigation', exact: true })
-      .click();
-  await link.click();
+  const back = page.getByRole('button', { name: 'Back', exact: true });
+  // A phone's ‹ goes back in history to where the chat opened, here Home
+  // (D1); a tablet opens its drawer.
+  if (await back.isVisible()) await back.click();
+  else {
+    if (!(await link.isVisible()))
+      await page
+        .getByRole('button', { name: 'Toggle navigation', exact: true })
+        .click();
+    await link.click();
+  }
   await expect(page).toHaveURL(/\/app-v2\/?$/);
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
+}
+
+/** Back to the chat Home was opened from: Forward on a phone, whose ‹ went back. */
+async function backToChat(page: Page): Promise<void> {
+  if (page.viewportSize()!.width < 768) await page.goForward();
+  else await page.goBack();
 }
 
 async function addDeck(page: Page, name: string): Promise<void> {
@@ -134,9 +148,16 @@ test('Home opens on Overview and New chat creates exactly once without setup', a
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
   await expect(page.locator('.home-connection-status')).toHaveCount(0);
-  await expect(
-    page.getByRole('tab', { name: 'Overview', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
+  // A phone has no sub-tabs (C1): Home opens on Overview's page.
+  if (onPhoneWidth(page))
+    await expect(page.locator('.home-view')).toHaveAttribute(
+      'data-home-tab',
+      'overview',
+    );
+  else
+    await expect(
+      page.getByRole('tab', { name: 'Overview', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
   await expect(
     page.getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
   ).toBeVisible();
@@ -145,38 +166,28 @@ test('Home opens on Overview and New chat creates exactly once without setup', a
   ).toHaveCount(0);
   await assertNoOverflow(page);
   await accessibility(page, info, 'home-overview');
-  await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Workflows', exact: true }),
-  ).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+  await openHomeTab(page, 'Knowledge');
   await expect(
     page.getByRole('region', { name: 'Knowledge', exact: true }),
   ).toBeVisible();
-  await page.getByRole('tab', { name: 'Monitor', exact: true }).click();
+  // A phone shows "Open this on your computer" under the same name (D5).
+  await openHomeTab(page, 'Monitor');
   await expect(
     page.getByRole('region', { name: 'System Monitor', exact: true }),
   ).toBeVisible();
-  await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+  // Last: on a phone Workflows is a place of its own, without the sub-tabs.
+  await openHomeTab(page, 'Workflows');
+  await expect(
+    page.getByRole('heading', { name: 'Workflows', exact: true }),
+  ).toBeVisible();
   expect(creates).toEqual([]);
   await assertNoOverflow(page);
   await screenshot(page, info, 'home-workflows');
   await accessibility(page, info, 'home-workflows');
-  // The top sidebar action is also present in the compact navigation drawer.
-  if (
-    !(await page
-      .getByRole('navigation', { name: 'Workspace navigation' })
-      .isVisible())
-  )
-    await page
-      .getByRole('button', { name: 'Toggle navigation', exact: true })
-      .click();
-  await page
-    .getByRole('navigation', { name: 'Workspace navigation' })
-    .getByRole('button', { name: 'New chat', exact: true })
-    .click();
+  // The top sidebar action, also in the tablet drawer.
+  await clickNewChat(page);
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
   await expect(composer(page)).toBeVisible();
   await expect(composer(page)).toHaveCount(1);
@@ -220,7 +231,7 @@ test('Home and Back preserve the same running producer, mounted composer and uns
         (value) => value.generation_id === call.generation_id,
       )?.quiesced,
     ).toBe(false);
-    await page.goBack();
+    await backToChat(page);
     await expect(composer(page)).toBeVisible();
     await expect(composer(page)).toHaveValue('Unsent Home navigation draft');
     await assertWorkspaceIdentity(page);
@@ -261,7 +272,7 @@ test('explicit Deck opens automatically, persists close through revisit/reload, 
     .poll(async () => (await layoutFor(page, id)).presentation.dismissed.length)
     .toBe(1);
   await home(page);
-  await page.goBack();
+  await backToChat(page);
   await expect(composer(page)).toBeVisible();
   expect((await layoutFor(page, id)).panels).toEqual([]);
   await reloadDocument(page);
@@ -316,11 +327,20 @@ for (const zoom of [1, 2])
     await markWorkspaceIdentity(page);
     try {
       await addDeck(peer, `Background available Deck ${zoom}`);
-      // A resource bound by another client becomes a composer write target;
-      // only an explicit open creates a panel, so nothing moves focus.
-      await expect(
-        page.getByRole('group', { name: 'Resource write targets' }),
-      ).toContainText(`Design · Background available Deck ${zoom}`);
+      // A resource bound by another client becomes a composer write target
+      // (a phone names it under the header and chooses it in + › Chat
+      // settings, B2); only an explicit open creates a panel, so nothing
+      // moves focus.
+      if (page.viewportSize()!.width < 768)
+        await expect(
+          page.getByRole('button', {
+            name: `Working on Background available Deck ${zoom}`,
+          }),
+        ).toBeVisible();
+      else
+        await expect(
+          page.getByRole('group', { name: 'Resource write targets' }),
+        ).toContainText(`Design · Background available Deck ${zoom}`);
       expect((await layoutFor(page, id))?.panels.length ?? 0).toBe(0);
       await expect(composer(page)).toBeVisible();
       await expect(composer(page)).toBeFocused();
@@ -400,10 +420,16 @@ test('last explicitly opened Deck retains priority when another client adds a wo
     ).toBeVisible();
     // The background workspace is listed for this client without opening a
     // panel, so the explicitly opened Deck keeps its place. (Below 1024px the
-    // Deck is a full-height sheet over the still-mounted composer.)
-    await expect(
-      page.locator('[aria-label="Resource write targets"]'),
-    ).toContainText('Folder · Phase 1 workspace');
+    // Deck is a full-height sheet over the still-mounted composer; a phone
+    // lists both under the header's Working on, B2.)
+    if (page.viewportSize()!.width < 768)
+      await expect(
+        page.locator('.conversation-heading .working-on'),
+      ).toHaveText(/Working on · 2 items/);
+    else
+      await expect(
+        page.locator('[aria-label="Resource write targets"]'),
+      ).toContainText('Folder · Phase 1 workspace');
     const after = await layoutFor(page, id);
     expect(after.panels).toHaveLength(before.panels.length);
     expect(after.activePanelId).toBe(before.activePanelId);
@@ -434,19 +460,18 @@ test('Thinking persists its exact-model choice and changes the admitted fake req
   await restoreThinkingDefault(page);
   const id = await newConversation(page);
   // Thinking lives in the model picker's footer as a segmented choice. A
-  // one-line (phone) composer opens the picker from + › Model.
+  // phone opens the picker from the model under the chat's title (B1, B2).
   const model = page.getByRole('button', { name: 'Model', exact: true });
   // The composer controls arrive with the conversation's workspace.
   await expect(
     page.getByRole('button', { name: 'Add files and more', exact: true }),
   ).toBeVisible();
   if (await model.isVisible()) await model.click();
-  else {
+  else
     await page
-      .getByRole('button', { name: 'Add files and more', exact: true })
+      .locator('header.conversation-heading')
+      .getByRole('button', { name: /^(Model: |Choose a model$)/ })
       .click();
-    await page.getByRole('menuitem', { name: /^Model/ }).click();
-  }
   const picker = page.getByRole('dialog', {
     name: 'Choose a model',
     exact: true,

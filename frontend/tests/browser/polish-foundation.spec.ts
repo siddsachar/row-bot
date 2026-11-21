@@ -56,7 +56,10 @@ for (const appearance of ['light', 'dark'] as const) {
       await page.evaluate(() => getComputedStyle(document.body).fontFamily),
     ).toMatch(/^"?Geist"?,/);
 
-    const search = page.getByRole('button', { name: 'Search', exact: true });
+    // The gallery's own, not a phone header's Search.
+    const search = page
+      .getByRole('group', { name: 'Icon actions' })
+      .getByRole('button', { name: 'Search', exact: true });
     await expect(search).toHaveAttribute('aria-keyshortcuts', /\+K$/);
     const size = await search.evaluate(
       (element) => element.getBoundingClientRect().height,
@@ -314,7 +317,8 @@ test('compact navigation opens Settings after its drawer releases history', asyn
     info.project.name !== 'chromium-desktop',
     'One focused Chromium pass',
   );
-  await page.setViewportSize({ width: 390, height: 844 });
+  // A tablet: a phone has no drawer (D1).
+  await page.setViewportSize({ width: 820, height: 1180 });
   await openFixture(page);
   await page
     .getByRole('button', { name: 'Toggle navigation', exact: true })
@@ -325,11 +329,7 @@ test('compact navigation opens Settings after its drawer releases history', asyn
   // asynchronously, which must not undo the route the link opens.
   await drawer.getByRole('link', { name: 'Settings', exact: true }).click();
   await expect(drawer).toHaveCount(0);
-  // A phone opens Settings on its list of pages (D6).
-  await expect(
-    page.getByRole('navigation', { name: 'Settings sections', exact: true }),
-  ).toBeVisible();
-  await expect(page).toHaveURL(/\/app-v2\/settings$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/conversation-a/);
   await expect(drawer).toHaveCount(0);
@@ -499,6 +499,16 @@ test('the knowledge graph settles in a same-origin worker and comes back settled
     });
     await page.goto('/app-v2/?tab=knowledge');
     const graph = page.locator('.knowledge-network-shell');
+    if (page.viewportSize()!.width < 768) {
+      // A phone lists the memories instead (B4, D12 A): no graph to settle.
+      await expect(
+        page
+          .getByRole('list', { name: 'Memories' })
+          .getByRole('button', { name: /^Phase 4 knowledge 000/ }),
+      ).toBeVisible();
+      await expect(graph).toHaveCount(0);
+      return;
+    }
     // A graph whose renderer fails (no WebGL) is replaced by the memory list
     // and a note saying why, so wait for one of the two settled outcomes.
     const noWebgl = page.getByRole('status').filter({ hasText: 'needs WebGL' });

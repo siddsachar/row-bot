@@ -74,6 +74,8 @@ type Props = {
   onDeleteConversation: () => void;
   onOpenSuggestion: (suggestion: ClientPanelSuggestion) => void;
   onDismissSuggestion: (suggestion: ClientPanelSuggestion) => void;
+  /** A phone's context line, first in the details (B2). */
+  contextLine?: ReactNode;
 };
 
 function resourceKind(resource: ResourceView) {
@@ -109,6 +111,7 @@ export default function ConversationContextRail({
   onDeleteConversation,
   onOpenSuggestion,
   onDismissSuggestion,
+  contextLine,
 }: Props) {
   const { controller } = useRuntime();
   // Goals are read after the open settles so they never compete with it (B29).
@@ -317,6 +320,7 @@ export default function ConversationContextRail({
       </header>
 
       <div className="context-rail-body">
+        {contextLine}
         {!ready && (
           <p
             role="status"

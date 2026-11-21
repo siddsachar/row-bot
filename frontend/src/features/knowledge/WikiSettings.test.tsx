@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, onTestFinished, vi } from 'vitest';
 import { clientError } from '../../api/errors';
 import type { WikiSettingsSnapshot } from '../../api/types';
 import WikiSettings, {
@@ -387,4 +387,58 @@ it('shows when Check vault sync last read the vault, even when nothing changed',
   expect(await screen.findByText(/^Checked at/)).toBeVisible();
   expect(io.status).toHaveBeenCalledTimes(2);
   expect(io.review).not.toHaveBeenCalled();
+});
+
+it('on a phone says the vault is a folder chosen on the computer, and keeps sync and the switch (C3)', async () => {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  onTestFinished(() => {
+    vi.mocked(window.matchMedia).mockImplementation(
+      (query: string) =>
+        ({
+          matches: false,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList,
+    );
+  });
+  const { session } = setup();
+  render(
+    <WikiSettings
+      compact
+      session={session}
+      snapshot={{
+        availability: 'available',
+        enabled: true,
+        vault_path: '/srv/synthetic/wiki-vault',
+        path_state: 'available',
+        articles: 601,
+        conversations: 14,
+      }}
+    />,
+  );
+  expect(
+    screen.getByText(
+      'The vault is a folder on your computer (/srv/synthetic/wiki-vault). Choose it there.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole('textbox', { name: 'Vault path' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Browse' })).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Open vault folder' }),
+  ).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Check vault sync' }),
+  ).toBeVisible();
+  expect(
+    await screen.findByRole('switch', { name: 'Enable Wiki Vault' }),
+  ).toBeVisible();
 });

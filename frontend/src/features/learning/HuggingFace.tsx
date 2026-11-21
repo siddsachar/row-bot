@@ -539,6 +539,19 @@ export function HuggingFaceCard({
                     : last.cleanup_failed
                       ? ' · deleting its files on Hugging Face didn’t work yet; Row-Bot tries again'
                       : ''}
+                  {last.model_kept && (
+                    <>
+                      {
+                        ' · the model it trained stays in your Hugging Face account, to download or delete there'
+                      }
+                      {last.model_url && (
+                        <>
+                          {' · '}
+                          <External href={last.model_url}>Open it</External>
+                        </>
+                      )}
+                    </>
+                  )}
                 </dd>
               </div>
             )}

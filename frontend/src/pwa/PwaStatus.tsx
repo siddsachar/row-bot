@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Button } from '../ui/primitives';
-import { appPwaClient, PwaClient } from './client';
+import { appPwaClient, followThemeColor, PwaClient } from './client';
 
 export default function PwaStatus({ client }: { client?: PwaClient }) {
   const owned = client ?? appPwaClient;
@@ -20,6 +20,7 @@ export default function PwaStatus({ client }: { client?: PwaClient }) {
     void owned.start();
     return () => owned.dispose();
   }, [owned]);
+  useEffect(() => followThemeColor(), []);
   const visible =
     state.phase === 'offline' ||
     state.updateAvailable ||

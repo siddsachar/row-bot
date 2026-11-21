@@ -447,12 +447,25 @@ def sweep_runs(jobs: TrainingJobs) -> int:
     folder = runs_dir(jobs.root)
     if not folder.is_dir() or not jobs.store.exists():
         return 0
-    known = {job.id for job in jobs.all() if job.state not in ("stopped", "not_used")}
+    known = {job.id for job in jobs.all()
+             if job.state not in ("stopped", "not_used") or _keeps_hub_model(job, jobs.root)}
     removed = 0
     for entry in sorted(folder.iterdir()):
         if _ID.fullmatch(entry.name) and entry.name not in known and remove_run(entry.name, jobs.root):
             removed += 1
     return removed
+
+
+def _keeps_hub_model(job: Job, root: Path | None) -> bool:
+    """A Hugging Face run that ended after training finished but before its model was downloaded: its model
+    stays in the person's account, and its folder holds the only record of it (``remote/training.py``)."""
+
+    if job.backend != "hugging_face":
+        return False
+    from row_bot.learning.remote import training as remote_training
+
+    record = remote_training.read_record(job.id, root)
+    return record is not None and record.model_kept
 
 
 __all__ = [

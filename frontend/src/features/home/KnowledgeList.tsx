@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp, Laptop, Plus, Search, Trash2 } from 'lucide-react';
 import type { KnowledgeGraphNode } from './KnowledgeHome';
 import { typeSlot } from './knowledge-palette';
-import { When } from './home-format';
+import { When, plural } from './home-format';
 import { humanizeToken } from '../../ui/format';
+import {
+  Button,
+  IconButton,
+  Input,
+  Segmented,
+  type SegmentedOption,
+} from '../../ui/primitives';
+import '../../ui/styles/phone-chats.css';
+import '../../ui/styles/phone-memory.css';
 
 type SortKey =
   'subject' | 'entity_type' | 'source' | 'relation_count' | 'updated_at';
@@ -23,6 +32,222 @@ const SOURCES: Record<string, string> = {
 export function sourceWords(source: string, label = '') {
   if (source === 'import' && label) return `Imported from ${label}`;
   return SOURCES[source] ?? humanizeToken(source);
+}
+
+/** A phone's type chips name the kind in the plural ("People"). */
+const TYPE_CHIPS: Record<string, string> = {
+  person: 'People',
+  project: 'Projects',
+  preference: 'Preferences',
+  fact: 'Facts',
+  organisation: 'Organisations',
+  organization: 'Organizations',
+  place: 'Places',
+  location: 'Locations',
+  event: 'Events',
+  concept: 'Concepts',
+  skill: 'Skills',
+};
+
+/** "" for every memory, "type:<kind>" for one kind, "source:import" for imported ones. */
+type PhoneFilter = string;
+
+/**
+ * Memory on a phone (D12 A): a searchable list. Search on top, a labelled
+ * chip per kind (and Imported, when there are imported memories), and one
+ * row per memory: a tap opens it in the editor, the bin deletes it after the
+ * usual confirmation. The graph, import and clean-up stay on the computer.
+ */
+export function PhoneMemoryList({
+  nodes,
+  total,
+  sources,
+  onOpen,
+  onDelete,
+  onAdd,
+  onShowAll,
+}: {
+  nodes: readonly KnowledgeGraphNode[];
+  /** Every saved memory, also those not loaded. */
+  total: number;
+  /** The source buckets saved memories come from. */
+  sources: readonly string[];
+  onOpen: (id: string) => void;
+  onDelete?: (id: string, subject: string) => void;
+  onAdd?: () => void;
+  /** Load the memories not loaded yet (only some are). */
+  onShowAll?: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [chosen, setChosen] = useState<PhoneFilter>('');
+  const chips = useMemo<SegmentedOption<PhoneFilter>[]>(() => {
+    const counts = new Map<string, number>();
+    for (const node of nodes)
+      counts.set(node.entity_type, (counts.get(node.entity_type) ?? 0) + 1);
+    const kinds = [...counts]
+      .map(([kind, count]) => ({
+        kind,
+        count,
+        label: TYPE_CHIPS[kind] ?? humanizeToken(kind),
+      }))
+      .sort(
+        (left, right) =>
+          right.count - left.count || left.label.localeCompare(right.label),
+      );
+    return [
+      { value: '', label: 'All' },
+      ...kinds.map(({ kind, label }) => ({ value: `type:${kind}`, label })),
+      ...(sources.includes('import')
+        ? [{ value: 'source:import', label: 'Imported' }]
+        : []),
+    ];
+  }, [nodes, sources]);
+  // A chip whose last memory was forgotten falls back to All.
+  const filter = chips.some((chip) => chip.value === chosen) ? chosen : '';
+  const needle = query.trim().toLocaleLowerCase();
+  const rows = useMemo(
+    () =>
+      nodes
+        .filter((node) => {
+          if (filter === 'source:import' && node.source !== 'import')
+            return false;
+          if (
+            filter.startsWith('type:') &&
+            node.entity_type !== filter.slice(5)
+          )
+            return false;
+          return (
+            !needle ||
+            [
+              node.subject,
+              node.description,
+              humanizeToken(node.entity_type),
+              node.source_label ?? '',
+            ]
+              .join(' ')
+              .toLocaleLowerCase()
+              .includes(needle)
+          );
+        })
+        .sort(
+          (left, right) =>
+            right.updated_at.localeCompare(left.updated_at) ||
+            left.subject.localeCompare(right.subject),
+        ),
+    [filter, needle, nodes],
+  );
+  if (!total)
+    return (
+      <div className="phone-memory-empty">
+        <strong>No memories yet</strong>
+        <p>Row-Bot remembers what it learns about you as you chat.</p>
+        {onAdd && <Button onClick={onAdd}>Add memory</Button>}
+      </div>
+    );
+  return (
+    <>
+      <div className="phone-memory-toolbar">
+        <form
+          className="library-search phone-memory-search"
+          role="search"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          <Search size={18} aria-hidden />
+          <Input
+            type="search"
+            aria-label="Search memories"
+            placeholder={`Search ${plural(total, 'memory', 'memories')}`}
+            value={query}
+            maxLength={200}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </form>
+        {onAdd && (
+          <IconButton
+            label="Add memory"
+            variant="secondary"
+            className="phone-memory-add"
+            onClick={onAdd}
+          >
+            <Plus size={20} aria-hidden />
+          </IconButton>
+        )}
+      </div>
+      <Segmented
+        size="sm"
+        className="phone-chips"
+        label="Memory type"
+        value={filter}
+        onChange={setChosen}
+        options={chips}
+      />
+      <p className="visually-hidden" role="status">
+        {needle || filter ? plural(rows.length, 'memory', 'memories') : ''}
+      </p>
+      {rows.length > 0 ? (
+        <ul className="phone-chat-list-rows" aria-label="Memories">
+          {rows.map((node) => (
+            <li key={node.id} className="phone-row phone-memory-row">
+              <button
+                type="button"
+                className="phone-row-main"
+                onClick={() => onOpen(node.id)}
+              >
+                <span className="phone-row-text">
+                  <span className="phone-row-title">{node.subject}</span>
+                  <span className="phone-row-meta">
+                    {[
+                      humanizeToken(node.entity_type),
+                      node.status === 'active'
+                        ? ''
+                        : humanizeToken(node.status),
+                      node.source === 'import'
+                        ? sourceWords(node.source, node.source_label)
+                        : '',
+                      node.description,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </span>
+              </button>
+              {onDelete && (
+                <IconButton
+                  label={`Delete ${node.subject}`}
+                  className="phone-memory-delete"
+                  onClick={() => onDelete(node.id, node.subject)}
+                >
+                  <Trash2 size={18} aria-hidden />
+                </IconButton>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="phone-memory-none">
+          {needle
+            ? `No memory matches “${query.trim()}”.`
+            : 'No memories of this kind.'}
+        </p>
+      )}
+      {onShowAll && nodes.length < total && (
+        <p className="phone-memory-note">
+          Showing {nodes.length.toLocaleString()} of {total.toLocaleString()}.{' '}
+          <button
+            type="button"
+            className="knowledge-caption-action"
+            onClick={onShowAll}
+          >
+            Show all
+          </button>
+        </p>
+      )}
+      <p className="phone-memory-note">
+        <Laptop size={16} aria-hidden />
+        <span>The graph, import and clean-up are on your computer.</span>
+      </p>
+    </>
+  );
 }
 
 const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [

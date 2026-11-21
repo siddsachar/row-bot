@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { SettingsSnapshot } from '../../api/types';
 import MemoryReviewDialog from '../knowledge/MemoryReviewDialog';
 import type { MemoryReviewIO } from '../knowledge/memory-review-io';
+import { usePhone } from '../../ui/on-your-computer';
 import {
   PreferencesSnapshotPanel,
   type SettingsMutationIO,
@@ -31,6 +32,8 @@ export default function Preferences({
   reviewIO?: MemoryReviewIO;
 }) {
   const [reviewing, setReviewing] = useState(false);
+  // Review memory is clean-up, which is on the computer (B4, D12 A).
+  const review = usePhone() ? undefined : reviewIO;
   return (
     <div className={`stack settings-preferences settings-${part}`}>
       {snapshot && mutation ? (
@@ -40,16 +43,16 @@ export default function Preferences({
           showUpdateControls={showUpdateControls}
           part={part}
           host={host}
-          onReviewMemory={reviewIO ? () => setReviewing(true) : undefined}
+          onReviewMemory={review ? () => setReviewing(true) : undefined}
         />
       ) : (
         snapshotState
       )}
-      {reviewIO && (
+      {review && (
         <MemoryReviewDialog
           open={reviewing}
           onOpenChange={setReviewing}
-          io={reviewIO}
+          io={review}
         />
       )}
     </div>

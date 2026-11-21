@@ -70,6 +70,9 @@ import {
   type ArtifactLifecyclePanelProps,
 } from './ArtifactLifecyclePanel';
 import DesignPageStrip from './DesignPageStrip';
+import { OnYourComputer, usePhone } from '../../ui/on-your-computer';
+import { useBackLayer } from '../../ui/back-stack';
+import '../../ui/styles/phone-panels.css';
 import type { DesignDrafting } from './design-drafting';
 import { registerDesignCommands } from './design-commands';
 import DesignSelection, {
@@ -279,7 +282,11 @@ export default function ArtifactPreview({
         ? pane
         : inspectorMode;
   const [presenting, setPresenting] = useState(false);
-  const [authoring, setAuthoring] = useState(false);
+  // A phone previews and pages through a design; editing, zoom and size stay
+  // on the computer (D5), so Edit chosen on a wider screen ends here.
+  const phone = usePhone();
+  const [editChosen, setAuthoring] = useState(false);
+  const authoring = editChosen && !phone;
   const [selectedElementId, setSelectedElementId] = useState<string>();
   const [picked, setPicked] = useState<DesignSelectionState | null>(null);
   // How the element last clicked looks on the canvas, for its controls.
@@ -294,7 +301,8 @@ export default function ArtifactPreview({
   const [deleteError, setDeleteError] = useState('');
   const moreButton = useRef<HTMLButtonElement | null>(null);
   // A phone-width panel: one short toolbar row, the rest in ⋯.
-  const [compact, setCompact] = useState(false);
+  const [narrowPanel, setCompact] = useState(false);
+  const compact = narrowPanel || phone;
   // The inspector as a sheet on a narrow panel: half height or full.
   const [sheet, setSheet] = useState<'half' | 'full'>('half');
   const [sheetDrag, setSheetDrag] = useState<number | null>(null);
@@ -426,7 +434,7 @@ export default function ArtifactPreview({
   // Slides fit the stage; a tall page (a web page, a document) fits its width
   // and scrolls, like a browser would show it.
   const zoomMode =
-    zoom.resourceId === resourceId
+    zoom.resourceId === resourceId && !phone
       ? zoom.value
       : current &&
           current.mode !== 'deck' &&
@@ -810,6 +818,8 @@ export default function ArtifactPreview({
     setSide({ resourceId, view });
     if (view) setPresenting(false);
   }
+  // On a phone the side shows as a sheet: Back closes it first (A3).
+  useBackLayer(phone && sideView !== null, () => openSide(null));
 
   function openInspector(view: InspectorView) {
     if (view === 'review' || view === 'history') setInspectorMode(view);
@@ -874,7 +884,7 @@ export default function ArtifactPreview({
 
   // ------------------------------------------------ undo, redo and rename
   const chainRevision = current?.resource_revision ?? '';
-  const canHistory = !!edit && !!loadEditing && !!current;
+  const canHistory = !!edit && !!loadEditing && !!current && !phone;
   const redoId = redoTarget(chain, chainRevision);
 
   async function restoreStep(kind: 'undo' | 'redo') {
@@ -1144,16 +1154,16 @@ export default function ArtifactPreview({
     : 'Review';
   const moreActions = [
     // A phone-width toolbar keeps these here instead.
-    ...(compact && canVersions
+    ...(compact && canVersions && !phone
       ? [{ label: 'Versions', onSelect: () => openInspector('history') }]
       : []),
-    ...(compact && design
+    ...(compact && design && !phone
       ? [{ label: reviewLabel, onSelect: () => openInspector('review') }]
       : []),
-    ...(compact && hasInspector
+    ...(compact && hasInspector && !phone
       ? [{ label: 'Inspector', onSelect: () => openInspector(pane) }]
       : []),
-    ...(loadPalette && onDraftText && current
+    ...(loadPalette && onDraftText && current && !phone
       ? [
           {
             label: 'Search design tools, pages & assets',
@@ -1163,17 +1173,20 @@ export default function ArtifactPreview({
           },
         ]
       : []),
-    ...(design
+    ...(design && !phone
       ? [{ label: 'Library', onSelect: () => openInspector('library') }]
       : []),
-    ...(design && current && ['deck', 'document'].includes(current.mode)
+    ...(design &&
+    current &&
+    !phone &&
+    ['deck', 'document'].includes(current.mode)
       ? [{ label: 'Import document', onSelect: () => setImportOpen(true) }]
       : []),
     ...(duplicate && current
       ? [
           {
             label: 'Duplicate design',
-            separatorBefore: true,
+            separatorBefore: !phone,
             disabled: structureBusy || loading,
             onSelect: () => void duplicateDesign(),
           },
@@ -1203,7 +1216,7 @@ export default function ArtifactPreview({
         ]
       : []),
   ];
-  const modeSwitch = loadEditing && edit && (
+  const modeSwitch = loadEditing && edit && !phone && (
     <Segmented
       size="sm"
       label="Design mode"
@@ -1288,9 +1301,11 @@ export default function ArtifactPreview({
       aria-busy={loading}
       className="design-panel"
       data-mode={authoring ? 'edit' : 'preview'}
+      data-layout={phone ? 'phone' : undefined}
       onKeyDown={(event) => {
         const target = event.target as HTMLElement;
         if (
+          phone ||
           !(event.ctrlKey || event.metaKey) ||
           event.key.toLowerCase() !== 'z' ||
           target.closest('input, textarea, select, [contenteditable="true"]')
@@ -1306,7 +1321,7 @@ export default function ArtifactPreview({
             className="design-name"
             aria-label="Design name"
             value={nameDraft ?? displayName}
-            readOnly={!edit || !current}
+            readOnly={!edit || !current || phone}
             maxLength={200}
             title={displayName}
             onChange={(event) => setNameDraft(event.target.value)}
@@ -1784,7 +1799,7 @@ export default function ArtifactPreview({
                       selected: page.id === current?.page_id,
                       onSelect: () => goToPage(page.id),
                     })),
-                    ...(edit && current
+                    ...(edit && current && !phone
                       ? [
                           {
                             label: `Add a ${pageLabel.toLowerCase()} after this one`,
@@ -1828,7 +1843,7 @@ export default function ArtifactPreview({
                 >
                   <ChevronRight size={15} aria-hidden />
                 </IconButton>
-                {sized && edit && current && (
+                {sized && edit && current && !phone && (
                   <>
                     <ToolbarSeparator />
                     <Menu
@@ -1849,21 +1864,25 @@ export default function ArtifactPreview({
                     </Menu>
                   </>
                 )}
-                <ToolbarSeparator />
-                <Select
-                  aria-label="Preview zoom"
-                  className="design-dock-zoom"
-                  value={zoomMode}
-                  onChange={(event) =>
-                    setZoom({ resourceId, value: event.target.value })
-                  }
-                >
-                  {ZOOMS.map((value) => (
-                    <option key={value} value={value}>
-                      {zoomLabel(value)}
-                    </option>
-                  ))}
-                </Select>
+                {!phone && (
+                  <>
+                    <ToolbarSeparator />
+                    <Select
+                      aria-label="Preview zoom"
+                      className="design-dock-zoom"
+                      value={zoomMode}
+                      onChange={(event) =>
+                        setZoom({ resourceId, value: event.target.value })
+                      }
+                    >
+                      {ZOOMS.map((value) => (
+                        <option key={value} value={value}>
+                          {zoomLabel(value)}
+                        </option>
+                      ))}
+                    </Select>
+                  </>
+                )}
                 {responsive && (
                   <>
                     <ToolbarSeparator />
@@ -1930,7 +1949,23 @@ export default function ArtifactPreview({
             >
               <span aria-hidden />
             </button>
-            {showing && inspectorMode === 'panes' ? (
+            {phone && sideView === 'inspector' ? (
+              <>
+                <header className="design-side-header">
+                  <h3>Edit</h3>
+                  <IconButton
+                    size="sm"
+                    label="Close"
+                    onClick={() => openSide(null)}
+                  >
+                    <X size={15} aria-hidden />
+                  </IconButton>
+                </header>
+                <div className="design-side-body">
+                  <OnYourComputer what="Editing a design" />
+                </div>
+              </>
+            ) : showing && inspectorMode === 'panes' ? (
               <TabsPrimitive.Root
                 className="design-inspector"
                 value={pane}

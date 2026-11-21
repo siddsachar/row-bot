@@ -20,6 +20,13 @@ import {
 import { readFileSync } from 'node:fs';
 import { test as baseTest, type Page } from '@playwright/test';
 
+/** A look: its preview card on a computer, the segmented control on a phone (C3). */
+function appearanceChoice(page: Page, name: 'Light' | 'Dark') {
+  return page
+    .getByRole('button', { name, exact: true })
+    .or(page.getByRole('radio', { name, exact: true }));
+}
+
 test('system preference is applied before the first frame and updates without remounting', async ({
   page,
 }, testInfo) => {
@@ -95,11 +102,11 @@ test('all alternative accents retain readable integrated controls in both appear
   await page.goto('/app-v2/settings/appearance?fixture=normal');
   for (const appearance of ['light', 'dark']) {
     for (const accent of ['teal', 'violet', 'amber']) {
+      // A preview card on a computer; a phone's segmented control (C3).
+      const name = appearance === 'light' ? 'Light' : 'Dark';
       await page
-        .getByRole('button', {
-          name: appearance === 'light' ? 'Light' : 'Dark',
-          exact: true,
-        })
+        .getByRole('button', { name, exact: true })
+        .or(page.getByRole('radio', { name, exact: true }))
         .click();
       await page
         .getByRole('combobox', { name: 'Colour theme', exact: true })
@@ -147,7 +154,7 @@ test('unavailable or corrupt local storage leaves a usable shell', async ({
   );
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.goto('/app-v2/settings/appearance?fixture=normal');
-  await page.getByRole('button', { name: 'Dark', exact: true }).click();
+  await appearanceChoice(page, 'Dark').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.goto('/app-v2/conversations/conversation-a?fixture=normal');
   await expect(page.getByTestId('conversation-workspace')).toBeVisible();
@@ -189,9 +196,9 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
     document.documentElement.style.zoom = '2';
   });
   const headerControls = [];
-  // Phones keep search and panels in the conversation header's menu.
+  // Phones go back with ‹ and keep search and panels in the header's menu.
   for (const name of page.viewportSize()!.width < 768
-    ? ['Toggle navigation', 'Conversation menu']
+    ? ['Back', 'Conversation menu']
     : ['Workspace commands', 'Toggle navigation', 'Open panel']) {
     headerControls.push(
       await page
@@ -239,9 +246,9 @@ test('reduced motion, forced colours and narrow 200-percent layout remain operab
     document.documentElement.style.zoom = '2';
   });
   // The look is chosen from its card (U37).
-  const appearance = page.getByRole('button', { name: 'Dark', exact: true });
+  const appearance = appearanceChoice(page, 'Dark');
   await expect(appearance).toBeVisible();
-  await page.getByRole('button', { name: 'Light', exact: true }).click();
+  await appearanceChoice(page, 'Light').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await appearance.scrollIntoViewIfNeeded();
   await appearance.click();

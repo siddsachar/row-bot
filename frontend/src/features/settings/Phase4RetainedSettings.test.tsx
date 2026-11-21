@@ -2760,3 +2760,47 @@ it('shows the tool switches as saved when they change elsewhere, as after Start 
     within(setup).getByRole('switch', { name: 'Enable Browser tool' }),
   ).toBeChecked();
 });
+
+it('Devices on a phone puts Connect a phone or computer first under Advanced, hosted or not (C3, G20)', () => {
+  const connect = <section aria-label="Connect a phone or computer" />;
+  mutation.page = 'system';
+  const show = () =>
+    render(
+      <MemoryRouter>
+        <OverlayProvider>
+          <Phase4RetainedSettings
+            setting="access"
+            snapshot={snapshot}
+            mutation={mutation}
+            selectedConversationId="conversation-a"
+            accessConnect={connect}
+          />
+        </OverlayProvider>
+      </MemoryRouter>,
+    );
+  setPlace({ kind: 'server' });
+  show();
+  const advanced = screen.getByText('Advanced').closest('details')!;
+  expect(advanced).not.toHaveAttribute('open');
+  const inside = within(advanced).getByRole('region', {
+    name: 'Connect a phone or computer',
+  });
+  // First in Advanced, before Network.
+  expect(
+    inside.compareDocumentPosition(within(advanced).getByText('Network')) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    screen.getByText('Connect a device, network and the public link'),
+  ).toBeInTheDocument();
+  cleanup();
+
+  // A hosted Row-Bot has no network to set: Advanced holds Connect alone.
+  setPlace({ kind: 'hosted', host_name: 'PikaPods' });
+  show();
+  const hosted = screen.getByText('Advanced').closest('details')!;
+  expect(
+    within(hosted).getByRole('region', { name: 'Connect a phone or computer' }),
+  ).toBeInTheDocument();
+  expect(within(hosted).queryByText('Network')).toBeNull();
+});

@@ -1,13 +1,14 @@
 import {
+  Fragment,
   createContext,
   useCallback,
   useContext,
   useMemo,
   useEffect,
   useEffectEvent,
-  useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -15,7 +16,14 @@ import * as Toast from '@radix-ui/react-toast';
 import { PanelLeftClose, X } from 'lucide-react';
 import { Button, Hint, IconButton } from './primitives';
 import { DialogFooterContext, type FooterSlot } from './dialog-footer';
-import { installSheetSwipe } from './sheet-swipe';
+import {
+  installSheetBack,
+  installSheetSwipe,
+  phoneSheets,
+} from './sheet-swipe';
+import { useBackLayer, useBackLevels } from './back-stack';
+import { PHONE_LAYOUT } from './use-media';
+import './styles/phone-overlays.css';
 
 type Overlay = {
   key?: string;
@@ -31,8 +39,18 @@ type Overlay = {
   cancelLabel?: string;
   onConfirm?: () => void;
   returnFocusTo?: HTMLElement | null;
+  /**
+   * A step aside from the shown task (an approval's "Always allow…"): on a
+   * phone it opens over that task, and Back, × or Cancel return there.
+   * Otherwise a new task replaces the shown one.
+   */
+  over?: boolean;
 };
-type Task = Overlay & { opener: HTMLElement | null };
+type Task = Overlay & {
+  opener: HTMLElement | null;
+  /** A task opened over another gets its own; a replacement keeps it (and its content's state). */
+  layer: number;
+};
 export type NoticeTone = 'warning' | 'danger';
 /** One action on a notice, e.g. Undo after an easy-to-regret removal. */
 export type NoticeAction = {
@@ -54,64 +72,13 @@ type Notice = {
   tone?: NoticeTone;
   action?: NoticeAction;
 };
-let historyOwner = 0;
+/** What the provider shows: a task, tasks it opened over itself (phone), a confirmation. */
+type Shown = { below: Task[]; task: Task | null; confirmation: Task | null };
+const NOTHING: Shown = { below: [], task: null, confirmation: null };
 
-/** Same-URL history entries let platform Back dismiss modal work first. */
-function useOverlayHistoryLevel(level: number, onBack: () => void) {
-  const [owner] = useState(() => `overlay-${++historyOwner}`);
-  const armed = useRef(0);
-  const programmatic = useRef(0);
-  const handleBack = useEffectEvent(onBack);
-  useEffect(() => {
-    const popstate = () => {
-      if (programmatic.current > 0) {
-        programmatic.current -= 1;
-        return;
-      }
-      if (armed.current === 0) return;
-      armed.current -= 1;
-      handleBack();
-    };
-    window.addEventListener('popstate', popstate);
-    return () => window.removeEventListener('popstate', popstate);
-  }, []);
-  useEffect(() => {
-    while (armed.current < level) {
-      armed.current += 1;
-      const existing = window.history.state;
-      const state =
-        existing && typeof existing === 'object' && !Array.isArray(existing)
-          ? { ...existing }
-          : {};
-      window.history.pushState(
-        {
-          ...state,
-          __row_bot_overlay: { owner, depth: armed.current },
-        },
-        '',
-        window.location.href,
-      );
-    }
-    while (armed.current > level) {
-      const marker = window.history.state?.__row_bot_overlay;
-      armed.current -= 1;
-      if (!marker || marker.owner !== owner) {
-        armed.current = level;
-        break;
-      }
-      programmatic.current += 1;
-      window.history.back();
-    }
-  }, [level, owner]);
-  return () => {
-    if (armed.current === 0) return;
-    const marker = window.history.state?.__row_bot_overlay;
-    armed.current -= 1;
-    if (!marker || marker.owner !== owner) return;
-    programmatic.current += 1;
-    window.history.back();
-  };
-}
+/** Where a task opened `over` the shown one stacks on it (a phone). */
+const phoneLayout = () =>
+  typeof matchMedia === 'function' && matchMedia(PHONE_LAYOUT).matches;
 
 /** How long a notice stays (Radix holds it while hovered or focused). An Undo
  * notice goes soon after the change it offers to take back; a warning stays
@@ -123,7 +90,8 @@ export const TONED_NOTICE_MS = 8000;
 const OverlayContext = createContext<{
   open: (overlay: Overlay) => void;
   close: (returnFocusTo?: HTMLElement | null) => void;
-  dismiss: (key: string) => void;
+  /** Closes the task with this key and any opened over it; false when none is shown. */
+  dismiss: (key: string) => boolean;
   /**
    * A short notice that goes away by itself (5 s; warnings and errors 8 s
    * and announced; with an action such as Undo 6 s, run at most once).
@@ -134,9 +102,16 @@ const OverlayContext = createContext<{
 
 /** A single Radix modal focus/scroll scope; confirmation suspends a mounted task. */
 export function OverlayProvider({ children }: { children: ReactNode }) {
-  const [task, setTask] = useState<Task | null>(null);
-  const [confirmation, setConfirmation] = useState<Task | null>(null);
+  const [shownState, setShown] = useState<Shown>(NOTHING);
+  const { task, confirmation, below } = shownState;
   const [notices, setNotices] = useState<Notice[]>([]);
+  // A phone sheet (a menu, a popover) holds the notices as a task does: one
+  // would cover the sheet, and its Escape would close the notice first.
+  const sheetOpen = useSyncExternalStore(
+    phoneSheets.subscribe,
+    phoneSheets.open,
+    phoneSheets.open,
+  );
   // Content that put its own actions in the footer (useDialogFooter): they
   // render into footerHost, and the footer's Close steps aside meanwhile.
   const [footerHost, setFooterHost] = useState<HTMLElement | null>(null);
@@ -158,12 +133,17 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const current = confirmation ?? task;
   // Phone sheets close with a swipe down too (menus, popovers, sheet tasks).
   useEffect(() => installSheetSwipe(), []);
+  // Back closes a phone's menus, popovers and other dialogs too.
+  useEffect(() => installSheetBack(), []);
   // Handlers inside an overlay's content were created when it opened; closing
   // and dismissing act on the overlays shown now, not on that render's state.
-  const shown = useRef({ task, confirmation });
-  useLayoutEffect(() => {
-    shown.current = { task, confirmation };
-  });
+  // It changes at once, so a close and then an open in one handler see it.
+  const shown = useRef<Shown>(NOTHING);
+  const layers = useRef(0);
+  const show = (next: Shown) => {
+    shown.current = next;
+    setShown(next);
+  };
   const shownClass = `dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : task?.kind === 'palette' ? 'palette' : ''} ${current?.className ?? ''}`;
   // A closing surface keeps its presentation. Dropping the kind class would
   // switch it to the base dialog animation, which Radix treats as an exit
@@ -172,41 +152,70 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const [closingClass, setClosingClass] = useState(shownClass);
   if (current && closingClass !== shownClass) setClosingClass(shownClass);
   const palette = !confirmation && task?.kind === 'palette';
-  const level = confirmation ? 2 : task ? 1 : 0;
+  // One history entry per shown layer, so each Back closes one.
+  const level = below.length + (task ? 1 : 0) + (confirmation ? 1 : 0);
   const activeElement = () =>
     document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
   function open(overlay: Overlay) {
-    if (overlay.kind === 'alert')
-      setConfirmation({
-        ...overlay,
-        opener: overlay.returnFocusTo ?? activeElement(),
+    const { task, below } = shown.current;
+    if (overlay.kind === 'alert') {
+      show({
+        ...shown.current,
+        confirmation: {
+          ...overlay,
+          opener: overlay.returnFocusTo ?? activeElement(),
+          layer: 0,
+        },
       });
-    else {
-      setConfirmation(null);
-      setTask({
-        ...overlay,
-        opener: overlay.returnFocusTo ?? task?.opener ?? activeElement(),
-      });
+      return;
     }
+    const over = task !== null && overlay.over === true && phoneLayout();
+    show({
+      below: over ? [...below, task] : below,
+      task: {
+        ...overlay,
+        layer: over || !task ? (layers.current += 1) : task.layer,
+        opener:
+          overlay.returnFocusTo ??
+          (over ? activeElement() : (task?.opener ?? activeElement())),
+      },
+      confirmation: null,
+    });
   }
-  function closeInternal(returnFocusTo?: HTMLElement | null) {
-    const { task, confirmation } = shown.current;
+  function close(returnFocusTo?: HTMLElement | null) {
+    const { task, confirmation, below } = shown.current;
     if (confirmation) {
       if (task) resumeFocus.current = confirmation.opener;
       else returningTo.current = confirmation.opener;
-      setConfirmation(null);
-    } else {
+      show({ ...shown.current, confirmation: null });
+    } else if (below.length > 0)
+      // Back to the task it was opened from (which shows afresh).
+      show({ below: below.slice(0, -1), task: below.at(-1)!, confirmation });
+    else {
       returningTo.current = returnFocusTo ?? task?.opener ?? null;
-      setTask(null);
+      show(NOTHING);
     }
   }
-  const releaseHistory = useOverlayHistoryLevel(level, () => closeInternal());
-  function close(returnFocusTo?: HTMLElement | null) {
-    releaseHistory();
-    closeInternal(returnFocusTo);
+  function dismiss(key: string) {
+    const { task, below } = shown.current;
+    const tasks = task ? [...below, task] : below;
+    const at = tasks.findIndex((item) => item.key === key);
+    if (at < 0) return false;
+    if (at === tasks.length - 1) close();
+    else if (at === 0) {
+      returningTo.current = tasks[0].opener;
+      show(NOTHING);
+    } else
+      show({
+        below: tasks.slice(0, at - 1),
+        task: tasks[at - 1],
+        confirmation: null,
+      });
+    return true;
   }
+  useBackLevels(level, () => close());
   useEffect(() => {
     if (confirmation) cancelRef.current?.focus();
     else if (resumeFocus.current?.isConnected) {
@@ -267,9 +276,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       value={{
         open,
         close,
-        dismiss: (key) => {
-          if (shown.current.task?.key === key) close();
-        },
+        dismiss,
         notify,
       }}
     >
@@ -286,6 +293,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               <Dialog.Overlay className="overlay-backdrop" />
               <Dialog.Content
                 aria-modal="true"
+                data-back-held=""
                 role={confirmation ? 'alertdialog' : 'dialog'}
                 className={current ? shownClass : closingClass}
                 onOpenAutoFocus={(event) => {
@@ -342,7 +350,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                   inert={Boolean(confirmation)}
                 >
                   <DialogFooterContext.Provider value={footerSlot}>
-                    {task?.content}
+                    <Fragment key={task?.layer}>{task?.content}</Fragment>
                   </DialogFooterContext.Provider>
                 </div>
                 {confirmation && (
@@ -389,7 +397,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
           <div
             ref={layer}
             className="notification-layer"
-            hidden={Boolean(current) || notices.length === 0}
+            hidden={Boolean(current) || sheetOpen || notices.length === 0}
             onFocus={(event) => {
               const from = event.relatedTarget;
               if (from instanceof HTMLElement && !layer.current?.contains(from))
@@ -399,6 +407,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
             <Toast.Viewport className="toast-viewport" label="Notifications" />
           </div>
           {!current &&
+            !sheetOpen &&
             notices.map((notice) => (
               <Toast.Root
                 className="toast"
@@ -506,12 +515,14 @@ export function ModalTask({
     if (wasOpen.current && !open) restoreAfterClose();
     wasOpen.current = open;
   }, [open]);
-  const releaseHistory = useOverlayHistoryLevel(open ? 1 : 0, () => {
-    if (dismissible) onOpenChange(false);
+  // Its entry goes when it closes or unmounts (a phone sheet that the window
+  // outgrows unmounts open); one that cannot be dismissed stays on Back.
+  useBackLayer(open, () => {
+    if (!dismissible) return false;
+    onOpenChange(false);
   });
   const close = () => {
     if (!dismissible) return;
-    releaseHistory();
     onOpenChange(false);
   };
   return (
@@ -528,6 +539,7 @@ export function ModalTask({
           className={`dialog shared-dialog-task ${kind === 'sheet' ? 'sheet' : ''} ${className}`}
           aria-label={ariaLabel}
           aria-modal="true"
+          data-back-held=""
           data-testid="shared-dialog-task"
           data-overlay-kind={kind}
           onOpenAutoFocus={(event) => {

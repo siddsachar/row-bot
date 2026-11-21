@@ -111,6 +111,9 @@ export default function ModelPicker({
     onThinking(selection);
   };
   const input = useRef<HTMLInputElement>(null);
+  // A triggerless picker opened from elsewhere (a phone's header model)
+  // gives focus back to what opened it while that is still on screen.
+  const opener = useRef<HTMLElement | null>(null);
   const selected = models.find((model) => model.model_ref === current);
   const missing = status?.state === 'missing' || !current;
   const unavailable =
@@ -199,10 +202,20 @@ export default function ModelPicker({
           aria-label="Choose a model"
           onOpenAutoFocus={(event) => {
             event.preventDefault();
+            const active = document.activeElement;
+            opener.current =
+              anchor &&
+              active instanceof HTMLElement &&
+              active !== document.body
+                ? active
+                : null;
             input.current?.focus();
           }}
           onCloseAutoFocus={(event) => {
-            const target = returnFocusTo?.();
+            const target = opener.current?.isConnected
+              ? opener.current
+              : returnFocusTo?.();
+            opener.current = null;
             if (!target?.isConnected) return;
             event.preventDefault();
             target.focus({ preventScroll: true });
