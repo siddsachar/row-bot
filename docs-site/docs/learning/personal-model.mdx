@@ -1,0 +1,179 @@
+---
+title: "Learning: Personal Model"
+description: "Train an open model on your own work, on your graphics card or on Hugging Face, compare each version with your main model, and choose which kinds of work it answers."
+---
+
+# Learning: Personal Model
+
+A personal model is an open model trained on your own work. It runs on this computer. Row-Bot compares each new version with your main model, and you decide which [kinds of work](/docs/learning/#kinds-of-work) it answers. Your main model finishes anything it gets stuck on, and **Undo** goes back at once.
+
+A personal model is optional. Without one, Learning still improves Row-Bot with lessons, ways of working and skills.
+
+## Where To Find It
+
+Choose **Home › Learning**, then **Personal model**. Its settings are in **Settings › Learning › Personal model**; see [Settings: Learning](/docs/settings/learning#personal-model).
+
+## What It Needs
+
+| To | You need |
+| --- | --- |
+| Train it on this computer | An NVIDIA graphics card with 16 GB or more, NVIDIA driver 570 or newer, Windows or Linux, and enough of the computer's memory (RAM and virtual memory). Row-Bot checks the card and says how much memory training needs. |
+| Train it on Hugging Face | A Hugging Face account with credit for Jobs, and a computer that can run the trained model. See [Training On Hugging Face](/docs/learning/hugging-face). |
+| Run it | An NVIDIA graphics card with 8 GB or more. A larger model needs more; Row-Bot offers only models this computer can run. |
+
+Row-Bot's Docker image doesn't train personal models. A Mac, or a computer without an NVIDIA card, can't run one.
+
+When the card can't train, the view says why, with the way out:
+
+- "Update your NVIDIA driver to train here": training needs driver 570 or newer. **Check again** once it's updated.
+- "This computer's memory can't hold training yet": it says how much RAM and virtual memory training needs and how much this computer has. On Windows, raise virtual memory (Advanced system settings › Performance › Virtual memory), then **Check again**.
+- "This computer can't train a model": the card is too small to train here, or there's no NVIDIA card. Where the card can run a model trained elsewhere, it offers Hugging Face.
+
+## Get It Started
+
+Until training is on, the Personal model view says "Training is off" with **Learning settings**; on a computer that can't train, it says that first.
+
+Training on this computer needs two downloads: the **training engine** and the **starting model**, the open model your personal model is trained from. Nothing downloads until you agree.
+
+- **Turning on training**: a personal model is off until you turn on **Train during quiet hours** in **Settings › Learning › Personal model**. On a computer that can train one, Row-Bot asks then. Turning Learning itself on never downloads anything.
+- **Later**, the Personal model view shows "No personal model yet" with **Download…**, and Settings › Learning has **Download…** beside the training engine and the starting model.
+
+The ask, such as "Download the training engine and Qwen3.5 9B?", shows each part's size and the free space on this computer, says they're used only to train your personal model here, names the model's licence, and lists where they come from: "From PyPI, PyTorch, Hugging Face and GitHub (llama.cpp). The training engine's own usage reporting is switched off." Choose **Download** or **Not now**. If there isn't enough room, it says how much is needed.
+
+The training engine is installed in its own folder in Row-Bot's data folder, never inside Row-Bot itself, and it can't reach the network while it trains.
+
+### The Download
+
+The **Download** section shows "Downloading the training engine and Qwen3.5 9B" with how much has arrived, then installing and checking the engine. A row in **Home › Monitor** shows it too.
+
+- **Stop** pauses it ("Download paused at …"); **Resume** carries on.
+- **Cancel** asks first, then deletes what arrived. You can download it again later.
+- **Try again** after a failure. The message says what happened: the server couldn't be reached, a file didn't match the one Row-Bot expects (so it wasn't used), the engine couldn't be installed, or it couldn't use the graphics card (update your NVIDIA driver).
+- **Repair** downloads a damaged engine again, and **Update** replaces an engine from an earlier version of Row-Bot.
+
+## Training
+
+Your personal model trains in quiet hours once Row-Bot has enough examples of your work. Examples come from your main model's good work: turns that finished with nothing failed, stopped, retried, turned down or corrected. It never trains on work Learning holds back for testing or on switched-off and deleted chats, and never trains it to repeat what tools or web pages said.
+
+The **Training** section says where it stands:
+
+- "Needs more examples · 46 of 100 so far": keep using Row-Bot. **Teach** on a reply that went wrong helps too.
+- "Training v1 runs tonight in quiet hours (1:00 AM–5:00 AM) · uses 412 examples", with **Train now**.
+- "Training v1 · step 340 of 1,000 · about 40 min left · pauses when you use Row-Bot", with **Stop**. The same row shows in Home › Monitor.
+- "Pausing after this step…" until it really has paused. If a chat needs the graphics card, training stops at once and continues from its last saved step.
+- "Training v1 starts when the graphics card is free." while another app uses the card's memory, such as a local model that's still loaded, or "…when this computer has the memory free." while other apps use the computer's memory.
+- "v1 has learned from everything so far.": the next version trains once there are enough new examples.
+
+**Stop** pauses a run. "You stopped training v1. It can continue from step 600." offers **Continue** and **Discard**. Discard asks first, then deletes what that run trained so far; your learning data and earlier versions are kept. If Row-Bot closes during training, it says "Training stopped when Row-Bot closed." and offers the same choice.
+
+When training stops on an error, it says why, with the way out. Earlier versions are always kept:
+
+- not enough GPU memory, with **Use recommended settings**;
+- not enough free disk space to save its progress, with **Try again**;
+- it couldn't read its examples or continue from its saved steps, with **Try again**, which starts afresh;
+- something went wrong in the training engine, with **Try again**.
+
+If training has waited two or more nights because the card had no room (your display and other apps use some of it), the view says so and offers a smaller starting model where there is one, or training on Hugging Face.
+
+## Versions And The Ready Check
+
+Each training run makes a new **version**: v1, v2 and so on. Before a version can be used, Row-Bot gets it ready on this computer:
+
+1. "Preparing v1 to run on this computer…", in three steps: combining what it learned with its starting model, building a ready-to-run file, and making the file smaller to run. This takes a few minutes.
+2. "Starting v1…" (or "Making v1 ready in Ollama…"): Row-Bot loads it where it runs and checks that it can answer and finish a task that uses a tool. For LM Studio, llama.cpp server or vLLM, it first says "Load v1 in …" with the one command to run, and **Check again**.
+3. "v1 is ready to compare": Row-Bot compares it with your main model before asking you to use it. Until then your main model answers everything.
+
+If a step fails, the card says why and what is kept, with **Try again**, **Try Ollama** or **Change where it runs**.
+
+### Where It Runs
+
+**Runs in** shows where your personal model runs, with ✓ once the newest version passed its check there. **Change** opens "Where your personal model runs". Row-Bot uses a version only after it passes a check there.
+
+- **Row-Bot** (recommended where it can run): Row-Bot runs it for you with llama.cpp, and stops it when it isn't needed. It needs an NVIDIA graphics card, on Windows or Linux, and downloads with the training engine.
+- **Ollama**: Row-Bot sets it up there for you and checks it.
+- **LM Studio**, **llama.cpp server** or **vLLM**: you load it with one command Row-Bot shows (**Copy command**), then Row-Bot checks it.
+
+Personal models run only on this computer.
+
+## Compare A Version
+
+Row-Bot compares each ready version by itself when the computer is free: "Comparing v1 with its starting model and *your main model* · 12 of 40 tasks". It runs on this computer, stops while you use Row-Bot and goes on later. **Stop** stops it; **Compare now** starts it again.
+
+It compares three models at the same budget, on tasks none of them had seen and on work of yours held back from training:
+
+- the new version;
+- the version in use, or for a first version, the starting model it was trained from;
+- your main model.
+
+The **Versions** table shows, for each kind of work, the tasks each model passed out of the number in brackets, and a verdict for the new version: **Better**, **No clear difference**, **Worse** or **Too few tasks to tell**. It also shows **Time per task** and **Cloud tokens per task**. Coding tasks need Docker or Podman; without them they're left out, and the table says so.
+
+When the comparison is done, Overview's Needs you shows "Personal model v1 is ready to compare" with **Review**. The review explains what was compared and sums it up ("Better at document lookups than its starting model: 21 of 24 passed, against 15."). Where a kind of work improved, it offers **Use v1 for document lookups** for the one that gained most, and **Not now**. Its **⋯** menu has **Use for another kind of work…**, **Export…** and **Experiment details**: the data it was trained on, the method and its settings, the versions, every test run, the budget and the files.
+
+## Use It, Keep It Or Undo
+
+1. **Use v1 for document lookups** starts a **trial**: requests of that kind go to your personal model. Your main model finishes anything it gets stuck on, and the notice has **Undo**.
+2. **In use for** lists each kind of work it answers: "Document lookups · v1", "On trial since 9 Oct · 18 requests: 17 answered, 1 finished by your main model".
+3. After about three days and enough requests, Overview asks "Keep v1 for document lookups?" with the trial's numbers: **Keep**, **Not now** or **Undo**.
+4. **Undo**, at any time, goes back at once to the version used before for that kind of work, or to your main model.
+
+What the personal model answers:
+
+- only new messages in chats in Row-Bot (on any signed-in device) that would run on your main model, and only of the kinds of work you gave it. A chat where you picked another model runs on that model;
+- never **Your work** (anything Row-Bot can't sort into a kind of work): your main model answers that.
+
+A reply it answered says "Answered by your personal model". When it gets stuck (an error, a repeated step, too many steps, or no answer), its work so far stays and your main model finishes: "Your personal model got stuck; *your main model* finished this." That request counts as finished by your main model.
+
+Every ready version is also in the model picker as "Personal model v1", tagged **Personal**, so you can choose it for a chat yourself.
+
+New versions always ask, even with **Use changes that pass their tests**.
+
+## The Versions Menu
+
+The **⋯** beside **Versions**:
+
+- **Use for another kind of work…** gives a version another kind of work, on trial.
+- **Review and experiment details** opens the review.
+- **Compare again** runs the comparison again.
+- **Export…** saves a ready-to-run copy of your personal model, the part it learned and a card that says how it was made, into a new folder named `row-bot-personal-v1` in the folder you choose.
+- **Delete v1…** says which kinds of work go back to the version used before or your main model, then deletes the version's files from this computer. What Learning recorded about your work stays, so a new version can be trained.
+
+## Advanced
+
+**Advanced** (once the engine and starting model are downloaded) shows the training settings recommended for this computer: **LoRA rank**, **Learning rate**, **Passes over your examples**, **Context length**, the **Data mix**, and the **Method** (**Standard**). Changes apply to the next training run. **Reset to recommended** puts them back.
+
+## Starting Model
+
+**Settings › Learning › Starting model › Change…** lists the models your personal model can start from.
+
+- **Recommended** lists the certified models this graphics card can train. The one setup would pick is marked recommended, and the one you use is marked in use.
+- Choosing another asks first, with its download size and the free space: **Download and switch**. Your next version trains from it. Versions you have stay as they are, each compared with the model it started from.
+
+If this version of Row-Bot certifies a stronger starting model your card can train, the Personal model view says so once, with **Switch…** (it asks first) and **Dismiss**.
+
+### Other Models (Not Certified)
+
+**Other models** lets you choose any open model on Hugging Face. It's under the recommended list in **Starting model › Change…**, and behind **Other models…** beside **Model on Hugging Face** when you train there. Other models aren't certified, and say so everywhere they appear.
+
+- **Search Hugging Face…** finds chat models. It contacts Hugging Face only when you search, with no sign-in. Each result shows its size, licence and name on Hugging Face.
+- Some can't be tried, and say why: a model with only GGUF files, a mixture-of-experts model, one that isn't a chat model, one too big to run on this computer afterwards, or a family Row-Bot can't train yet. A **gated** model links to Hugging Face to **Request access**.
+- **Check…** asks first: Row-Bot downloads the model from Hugging Face, trains it a few steps on this computer's graphics card, converts it to run here, and asks it to call Row-Bot's tools on a short sample. That takes a while and uses the graphics card. A model with licence terms shows its key terms, and you tick **I agree** before **Check**. The training engine must be downloaded first.
+- The check shows each part as it runs: **Fits the graphics card**, **Learns: a few training steps**, **Runs on Row-Bot's own server** and **Calls Row-Bot's tools**, each **Passed** or **Didn't pass**, with what was found. A model built for less text at once than a personal model reads fails at the first step. The tool sample shows each task, right or wrong.
+- Once it passes, **Use for training…** (or **Use on Hugging Face…**) asks again and makes it the starting model. A model too big for this card can train on Hugging Face if a card there holds it; its time and price are estimates until a run measures them.
+- **Stop the check**, **Check again** and **Remove** are beside each model. A model training uses can't be removed.
+
+Nothing is used until you choose it.
+
+## When A Chat It Learned From Is Deleted
+
+Deleting a chat deletes what Learning recorded from it, but a version already trained on it keeps what it learned. Overview's Needs you says "A deleted chat was used to train v1." with **Retrain without it** and **Not now**.
+
+## What Is Saved
+
+The training engine, the starting models and your versions are on this computer, in Row-Bot's data folder. Settings › Learning shows their sizes, with **Remove** for the engine and **Delete** for a starting model. Versions in use stay in use while Learning is paused or off, and after you delete learning data.
+
+## Troubleshooting
+
+- **The view says the card can't train**: see [What It Needs](#what-it-needs). Training on Hugging Face may still be offered.
+- **Training never starts**: it needs enough examples, quiet hours with Row-Bot running, and a free graphics card. Close apps that use the card, or a local model that's still loaded, before quiet hours.
+- **A version couldn't start**: choose **Try again**, **Try Ollama** or **Change where it runs**. Your main model stays in use.
+- **Training on answers from OpenAI, Anthropic or Google models** may be limited by their terms. Check your provider's terms.

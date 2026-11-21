@@ -1,0 +1,98 @@
+---
+title: "Learning: Training On Hugging Face"
+description: "Train your personal model in your own Hugging Face account, priced before each run and within a monthly cap you choose; the trained model runs on your computer."
+---
+
+# Learning: Training On Hugging Face
+
+Hugging Face is where open models like Qwen are published. It also rents graphics cards by the minute. Row-Bot can train your personal model there, in your own Hugging Face account, when this computer's graphics card can't train one, or when you want a larger model than it can train. The trained model then downloads and runs on your computer.
+
+Training on Hugging Face is optional, and nothing is uploaded until you agree to a run's price.
+
+## What You Need
+
+- A **Hugging Face account** with credit for Jobs. Hugging Face bills your account by the minute while a run works. The Personal model view says what Hugging Face currently asks for, with a link to **Billing**.
+- A computer that can **run** the trained model: an NVIDIA graphics card with 8 GB or more. Row-Bot offers only models this computer can run afterwards.
+- Row-Bot's full install, which includes Hugging Face's own library.
+
+## Choose Hugging Face
+
+- When this computer can run a personal model but not train one, the **Personal model** view says so and offers Hugging Face, with **Learning settings**.
+- In **Settings › Learning › Personal model**, set **Where to train** to **Hugging Face** and turn on **Train during quiet hours**. Nothing downloads to this computer for it.
+
+The **Personal model** view then shows **Training on Hugging Face**: what it is, what you need, and what a typical run costs: "A typical run of *model* costs about *price* (*time* on *graphics card*)." Row-Bot shows the price before every run and never spends more than the monthly cap you choose.
+
+## Sign In
+
+1. Choose **Sign in with Hugging Face**. Hugging Face's own page opens with Row-Bot's code filled in.
+2. Sign in there and click **Authorize**. If it asks for a code, enter the one Row-Bot shows. This works from a phone too: open the link there.
+3. Row-Bot carries on by itself: "Signed in to Hugging Face as *you*."
+
+What the sign-in lets Row-Bot do: run training jobs and make private repositories in your account for them, nothing else. It also reads who you are and whether your account can pay, so it can tell you to add credit before a run fails. The sign-in stays in this computer's keychain.
+
+**Sign out** removes it from the keychain, and Row-Bot won't train there until you sign in again. You can also remove Row-Bot's access on Hugging Face, in **Settings › Connected apps**.
+
+## Choose The Model
+
+**Model to train** lists the models Row-Bot can train there that this computer can run afterwards, with each one's licence, **Recommended** on one, and how much of the graphics card it needs to run here and its download size. Qwen3.5 9B and Qwen3.8 27B are certified; a model you checked under [Other models](/docs/learning/personal-model#other-models-not-certified) shows **Not certified**, and its time and price are estimates.
+
+## The Quote
+
+Your first run waits for you: "Training v1 on Hugging Face is ready to price. Your first run asks before it starts: you'll see the GPU, the time and the price." **Review and start…** opens the quote, "Train v1 on Hugging Face?", billed to your Hugging Face account:
+
+- **Graphics card** on Hugging Face and its price an hour. Where there's a choice, each card shows its time and price. If Hugging Face has none of one kind free, the run waits in its queue without charge until one is free.
+- **Time**: about how long it takes.
+- **Price**: "about *price* · at most *price* (Hugging Face stops the run there)".
+- **Uploads**: how many examples and how big, "to a private dataset in your account. Deleted once your model is downloaded and checked."
+- **Then**: the model downloads to this computer and runs here. Row-Bot compares it with what you use now and asks before using it.
+- **Spend at most**: your **monthly spending cap**, $10, $20, $50 or $100 a month. Later runs start in quiet hours on their own while they fit this cap.
+
+When a model's runs haven't been measured yet, the quote says its time and price are estimates. A run that doesn't fit the cap can't start until you choose a higher one. **Start · about *price*** starts it; **Cancel** uploads nothing.
+
+## Later Runs
+
+Once you've started a first run, later runs plan themselves like training on this computer: "Training v2 runs on Hugging Face tonight in quiet hours (1:00 AM–5:00 AM), about *price*." **Start now…** opens the quote to start it at once.
+
+- A run that doesn't fit what's left of this month's cap waits: "Raise the monthly cap, or it runs next month."
+- A run waits while you're signed out of Hugging Face.
+
+## While It Runs
+
+The Personal model view and a row in Home › Monitor show where it is, with what it has cost so far:
+
+1. "Uploading your examples to Hugging Face for training…", to a private dataset in your account.
+2. "Hugging Face is waiting for a free *graphics card*. No charge while it waits."
+3. Setting up, downloading the starting model, then "Training v1 on Hugging Face · step 340 of 1,000", with what it has cost so far. Using Row-Bot doesn't pause it.
+4. Building the model file and saving the results on Hugging Face.
+5. "Downloading training v1's results from Hugging Face…": Row-Bot checks every file when it arrives, then gets the version ready on this computer like any other. See [Versions And The Ready Check](/docs/learning/personal-model#versions-and-the-ready-check).
+
+**Cancel** asks first: billing stops at once, what it trained so far is lost, and the uploaded examples are deleted from Hugging Face. Earlier versions are kept.
+
+If Row-Bot loses contact, it says "Checking whether Hugging Face is still training…", never "Failed" while it can't tell. It keeps checking and never starts the run twice. **Check now** asks again; **Cancel the job** stops it.
+
+When a run stops, it says why: the upload or the start didn't work, so nothing was charged; your account needs credit; the sign-in ran out; or the run stopped with an error. Each has **Try again**, and a run that was billed says how long it ran and what it cost.
+
+## What Is Uploaded And Deleted
+
+- **Uploaded**, only after you agree to a quote: the training examples that run uses, in a private dataset repository in your account, and Row-Bot's own training files. Never your chat history, memories, files or anything else.
+- **Made**: a private model repository for the results, and one job on Hugging Face.
+- **Deleted**: both repositories, once the trained model is downloaded and checked, or when the run is cancelled or fails before training finished. A run that finished training (and was billed) but stopped before its model was downloaded deletes only the uploaded examples: the model stays in your account, and **Last run** says so with an **Open it** link, to download or delete it there. Otherwise **Last run** says "its uploaded examples and files are deleted from Hugging Face", or that deleting didn't work yet and Row-Bot tries again.
+
+Before a run, Row-Bot also downloads the model's small tokenizer files (never its weights) to count the examples exactly, and reads Hugging Face's public price list. The training itself runs with no network access.
+
+## Where The Model Runs
+
+Only on your computer. A personal model trained on Hugging Face downloads to this computer and runs here, like one trained here. Row-Bot doesn't serve it from Hugging Face.
+
+## Spending
+
+- **This month** on the Personal model view shows what you've spent this month, of your cap.
+- **Monthly spending cap** in Settings › Learning changes the cap. Until your first run it says "Chosen with your first run".
+- Hugging Face's spending is separate from Learning's **Monthly limit**, which counts your default model's tokens.
+
+## Troubleshooting
+
+- **"Training on Hugging Face needs Row-Bot's full install"**: the Hugging Face library isn't installed. Use Row-Bot's full install.
+- **No model is offered**: no model Row-Bot trains there could run on this computer afterwards. Personal models run here on an NVIDIA graphics card with 8 GB or more.
+- **"Hugging Face needs credit to run training."**: add credit in **Billing** on Hugging Face, then **Try again**.
+- **"The Hugging Face sign-in has run out."**: sign in again, then **Try again**.
