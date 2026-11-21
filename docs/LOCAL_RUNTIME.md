@@ -114,8 +114,9 @@ processor and one with 16 GB Qwen3.5 4B; with less, none is recommended, but eve
 can still be chosen.
 
 **Thinking.** Every request says whether the model thinks (`chat_template_kwargs.enable_thinking`),
-rather than leaving it to the template, which thinks by default: the 27B builds think, and Qwen3.5 9B
-and 4B answer straight away, since small models with thinking on did poorly in a 32K window. A chat's
+rather than leaving it to the template. Every model thinks for now, as its template does by default;
+Qwen3.5 9B and 4B are to answer straight away instead once a local measurement confirms that small
+models do better that way in a 32K window. A chat's
 Thinking choice (On or Off, also `/reasoning on|off`) overrides that for its own requests
 (`Model.thinks` in `local_runtime/models.py`).
 
