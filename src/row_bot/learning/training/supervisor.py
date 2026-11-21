@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -73,13 +72,9 @@ def _release_local_model_server() -> None:
     it, unless it is answering the person (then they are using Row-Bot and training doesn't start). Read through
     ``sys.modules``: nothing is loaded when it never ran."""
 
-    server = sys.modules.get("row_bot.local_runtime.server")
-    if server is None:
-        return
-    try:
-        server.release_gpu()
-    except Exception:  # noqa: BLE001 - the card check that follows decides
-        logger.debug("The local model server couldn't give the card back", exc_info=True)
+    from row_bot.learning.training.llama_server import release_local_model_server
+
+    release_local_model_server()
 
 
 def _memory_free() -> bool:
