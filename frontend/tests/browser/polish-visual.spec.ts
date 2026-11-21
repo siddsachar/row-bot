@@ -93,7 +93,7 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
     headers: { 'X-Fixture-Token': token, Origin: new URL(base).origin },
   });
   expect(seed.ok(), await seed.text()).toBe(true);
-  await page.setViewportSize({ width: 720, height: 900 });
+  await page.setViewportSize({ width: 900, height: 900 });
   await page.goto('/app-v2/?tab=workflows');
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   const editor = page.getByRole('form', { name: 'Create task', exact: true });
@@ -109,8 +109,11 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
   ).toContainText('Open this on your computer');
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-phone');
+  // 200% zoom of a 1440px window is phone width too: the same notice.
   await page.setViewportSize({ width: 720, height: 900 });
-  await heading.scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole('region', { name: 'The workflow editor' }),
+  ).toContainText('Open this on your computer');
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-200-percent-reflow');
   await page.goto('/app-v2/settings/models');
