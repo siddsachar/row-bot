@@ -146,8 +146,11 @@ test('Monitor counts a background run and the sidebar says its approval waits (B
   expect(streams(), 'the live stream stayed open').toBe(1);
   await writeEvidence(info, 'background-run-monitor-timing', inMonitor);
   await views(page, info, 'background-run-monitor');
+  // A phone keeps Monitor on the computer (D5); Home's Needs you has the approval.
   await page.setViewportSize(PHONE);
-  await lane.scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole('region', { name: 'System Monitor' }),
+  ).toContainText('Open this on your computer');
   await views(page, info, 'background-run-monitor-phone');
 });
 
