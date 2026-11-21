@@ -233,7 +233,7 @@ for (const phone of PHONES)
     test('a Chats long-press menu and Search close on Back', async ({
       page,
     }) => {
-      const title = `Back press ${width} ${test.info().retry}`;
+      const title = `Back press ${width} ${test.info().project.name} ${test.info().retry}`;
       await fixture(
         page,
         `/__p3_fixture/named-conversation/${encodeURIComponent(title)}`,
@@ -321,7 +321,11 @@ for (const phone of PHONES)
   });
 
 test.describe('desktop', () => {
-  test.use({ viewport: { width: 1440, height: 900 } });
+  test.use({
+    viewport: { width: 1440, height: 900 },
+    hasTouch: false,
+    isMobile: false,
+  });
 
   test('keeps menus as popovers with no history step, and dialogs as before', async ({
     page,

@@ -35,6 +35,7 @@ let next = 0;
 /** Our own steps back whose popstate has not arrived yet. */
 let traversing = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
+let queued = false;
 /** Set while this module writes the history itself. */
 let own = false;
 let installed = false;
@@ -95,7 +96,22 @@ function settle() {
   }
 }
 
+/**
+ * After the code that closed a layer has run: a navigation or a new layer in
+ * the same turn reuses its entry. Soon after, so a page load that follows
+ * (a test's own navigation) is not undone by a late step back.
+ */
 function settleSoon() {
+  if (queued) return;
+  queued = true;
+  queueMicrotask(() => {
+    queued = false;
+    settle();
+  });
+}
+
+/** A layer still open once its navigation has settled gets a new entry. */
+function restoreSoon() {
   if (timer !== undefined) return;
   timer = setTimeout(() => {
     timer = undefined;
@@ -136,7 +152,7 @@ function navigating(state: unknown): boolean {
   if (top.entry === 'released') layers.pop();
   else if (top.entry === 'pushed') {
     top.entry = 'lent';
-    settleSoon();
+    restoreSoon();
   } else return false;
   return true;
 }

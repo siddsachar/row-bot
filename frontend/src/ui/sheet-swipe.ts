@@ -159,7 +159,11 @@ const BACK_SHEETS = [
 
 const shown = new Set<() => void>();
 let sheetsOpen = false;
-/** Whether Back holds a phone sheet now (notices wait while one is open). */
+/**
+ * Whether a menu or popover is open as a phone sheet now: notices wait while
+ * one is (a notice would cover it, and its Escape would close the notice
+ * first). A dialog keeps its notices, which may report what it just did.
+ */
 export const phoneSheets = {
   subscribe(listener: () => void) {
     shown.add(listener);
@@ -183,8 +187,11 @@ export function installSheetBack(doc: Document = document): () => void {
   const isOpen = (sheet: Element) =>
     sheet.isConnected && sheet.getAttribute('data-state') !== 'closed';
   const publish = () => {
-    if (sheetsOpen === held.size > 0) return;
-    sheetsOpen = held.size > 0;
+    const open = [...held.keys()].some((sheet) =>
+      sheet.parentElement?.hasAttribute('data-radix-popper-content-wrapper'),
+    );
+    if (sheetsOpen === open) return;
+    sheetsOpen = open;
     shown.forEach((listener) => listener());
   };
   // A sheet that ignored Escape: Back does not stop at it again.

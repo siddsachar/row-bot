@@ -39,6 +39,12 @@ type Overlay = {
   cancelLabel?: string;
   onConfirm?: () => void;
   returnFocusTo?: HTMLElement | null;
+  /**
+   * A step aside from the shown task (an approval's "Always allow…"): on a
+   * phone it opens over that task, and Back, × or Cancel return there.
+   * Otherwise a new task replaces the shown one.
+   */
+  over?: boolean;
 };
 type Task = Overlay & {
   opener: HTMLElement | null;
@@ -70,7 +76,7 @@ type Notice = {
 type Shown = { below: Task[]; task: Task | null; confirmation: Task | null };
 const NOTHING: Shown = { below: [], task: null, confirmation: null };
 
-/** On a phone a task opened from a shown task opens over it: Back returns there. */
+/** Where a task opened `over` the shown one stacks on it (a phone). */
 const phoneLayout = () =>
   typeof matchMedia === 'function' && matchMedia(PHONE_LAYOUT).matches;
 
@@ -165,11 +171,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       });
       return;
     }
-    // Reopening the shown task (its key) updates it; elsewhere it is replaced.
-    const over =
-      task !== null &&
-      (overlay.key === undefined || overlay.key !== task.key) &&
-      phoneLayout();
+    const over = task !== null && overlay.over === true && phoneLayout();
     show({
       below: over ? [...below, task] : below,
       task: {

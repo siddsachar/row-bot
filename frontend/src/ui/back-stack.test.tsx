@@ -183,6 +183,7 @@ function Nested() {
   const always = () =>
     overlay.open({
       kind: 'sheet',
+      over: true,
       title: 'Always allow this?',
       description: 'Approve it now and from now on.',
       content: <Button onClick={() => overlay.close()}>Cancel</Button>,
