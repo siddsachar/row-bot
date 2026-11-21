@@ -148,6 +148,9 @@ BROWSER_SMOKE_SPECS = (
     # Working on, on a phone (B3): a design previewed and paged, a code folder's Changes and Files; Edit, Run
     # and Git say "Open this on your computer". Appended likewise.
     "phone-panels",
+    # Memory on a phone (B4): Settings › Memory › Your memories, search, type chips, open, edit, delete; the
+    # graph, import, clean-up and Dream Cycle stay on the computer. Appended likewise.
+    "phone-memory",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

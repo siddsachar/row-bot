@@ -1088,6 +1088,10 @@ async function openKnowledgeMemory(page: Page, subject: string) {
 test('Knowledge adds memory, searches the library, retains editor drafts, and confirms lifecycle changes', async ({
   page,
 }, info) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    'A phone lists memories to open, edit and delete (B4, D12 A); the inspector, relations, filters and bulk actions are on the computer.',
+  );
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
     Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
@@ -1218,6 +1222,10 @@ test('Knowledge adds memory, searches the library, retains editor drafts, and co
 test('Knowledge relations retain reviewed targets and save directed edges removal and replacement', async ({
   page,
 }, info) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    'A phone lists memories to open, edit and delete (B4, D12 A); the inspector, relations, filters and bulk actions are on the computer.',
+  );
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
     Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
@@ -2155,6 +2163,10 @@ test.describe('Knowledge settings', () => {
   test('Knowledge keeps the library flows and Settings keeps memory, the wiki vault and Delete all', async ({
     page,
   }, info) => {
+    test.skip(
+      page.viewportSize()!.width < 768,
+      'A phone lists memories to open, edit and delete (B4, D12 A); the inspector, relations, filters and bulk actions are on the computer.',
+    );
     await seedKnowledge(page, 'populated');
     await page.goto('/app-v2/?tab=knowledge');
     const stats = page.getByLabel('Knowledge statistics', { exact: true });
