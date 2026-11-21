@@ -1439,8 +1439,12 @@ def model_infos_from_openai_compatible_catalog(
             metadata.update(manual)
         # A profile fallback is useful compatibility metadata, not evidence of
         # the server's loaded capacity. Auto must remain unknown until the
-        # endpoint reports a value or the user declares one manually.
-        context_window = _metadata_context_window(metadata)
+        # endpoint reports a value or the user declares one manually. A
+        # declared window wins over anything the server reports (Learning
+        # saves each endpoint at the context its model was trained for).
+        context_window = (
+            _positive_int(manual.get("context_window")) if isinstance(manual, dict) else 0
+        ) or _metadata_context_window(metadata)
         if context_window:
             metadata["context_window"] = context_window
         results.append(model_info_from_metadata(
@@ -1619,19 +1623,32 @@ def _fetch_custom_endpoint_native_model_metadata(
     if not root_url:
         return {}
     if profile == "llama_cpp":
-        try:
-            validate()
-            response = _probe_request("GET", f"{root_url}/props", headers=headers or {}, timeout=_endpoint_timeout(validate, 10), validate=validate, strict=strict)
-            response.raise_for_status()
-            metadata = _llamacpp_props_metadata_by_id(response.json())
-            if metadata:
-                return metadata
-        except EndpointAuthorityError:
-            raise
-        except Exception:
-            if not strict:
-                logger.debug("llama.cpp props metadata fetch failed for %s/props", root_url, exc_info=True)
-        return {}
+        def props(url: str) -> dict[str, Any]:
+            try:
+                validate()
+                response = _probe_request("GET", url, headers=headers or {}, timeout=_endpoint_timeout(validate, 10), validate=validate, strict=strict)
+                response.raise_for_status()
+                payload = response.json()
+                return payload if isinstance(payload, dict) else {}
+            except EndpointAuthorityError:
+                raise
+            except Exception:
+                if not strict:
+                    logger.debug("llama.cpp props metadata fetch failed for %s", url, exc_info=True)
+                return {}
+
+        # A single-model server answers /props for its one model.
+        metadata = _llamacpp_props_metadata_by_id(props(f"{root_url}/props"))
+        if metadata and (not model_ids or set(metadata).intersection(model_ids)):
+            return metadata
+        # Router mode serves several models, each with its own n_ctx: /props?model=<id> asks that model,
+        # without loading one that isn't (autoload=false), so a model not loaded stays unknown.
+        routed: dict[str, dict[str, Any]] = {}
+        for model_id in (model_ids or [])[:_LLAMACPP_ROUTER_PROPS_MODELS]:
+            found = _llamacpp_props_metadata(props(f"{root_url}/props?model={quote(model_id, safe='')}&autoload=false"))
+            if found:
+                routed[model_id] = found
+        return routed or metadata
     if profile == "litellm":
         for root in _metadata_roots(root_url, str(endpoint.get("base_url") or "")):
             for path in ("/model_group/info", "/model/info"):
@@ -1715,11 +1732,22 @@ def _native_root_url(base_url: str) -> str:
     return value
 
 
+_LLAMACPP_ROUTER_PROPS_MODELS = 64  # router-mode models asked for their own /props on one refresh
+
+
 def _llamacpp_props_metadata_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if not isinstance(payload, dict):
         return {}
     model_id = str(payload.get("model_alias") or "").strip()
     if not model_id:
+        return {}
+    metadata = _llamacpp_props_metadata(payload)
+    return {model_id: metadata} if metadata else {}
+
+
+def _llamacpp_props_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    """One model's context and modalities from llama.cpp's /props."""
+    if not isinstance(payload, dict):
         return {}
     metadata: dict[str, Any] = {}
     modalities = payload.get("modalities")
@@ -1743,7 +1771,7 @@ def _llamacpp_props_metadata_by_id(payload: dict[str, Any]) -> dict[str, dict[st
     if context_window:
         metadata["context_window"] = context_window
     _apply_native_capability_fields(metadata)
-    return {model_id: metadata} if metadata else {}
+    return metadata
 
 
 def _lmstudio_native_models_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1761,8 +1789,26 @@ def _lmstudio_native_models_by_id(payload: dict[str, Any]) -> dict[str, dict[str
             continue
         metadata = dict(item)
         _apply_native_capability_fields(metadata)
+        loaded = _lmstudio_loaded_context(item)
+        if loaded:
+            # What a request gets is the context the model was loaded with, not its trained maximum.
+            metadata["context_window"] = loaded
         result[model_id] = metadata
     return result
+
+
+def _lmstudio_loaded_context(item: dict[str, Any]) -> int:
+    """The context LM Studio loaded the model with: ``loaded_instances[].config.context_length`` (REST
+    v1) or ``loaded_context_length`` (v0); the smallest when several instances are loaded; 0 when it
+    isn't loaded."""
+    found = [_positive_int(item.get("loaded_context_length"))]
+    instances = item.get("loaded_instances")
+    for instance in instances if isinstance(instances, list) else ():
+        config = instance.get("config") if isinstance(instance, dict) else None
+        if isinstance(config, dict):
+            found.append(_positive_int(config.get("context_length")))
+    found = [value for value in found if value > 0]
+    return min(found) if found else 0
 
 
 def _litellm_native_models_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
