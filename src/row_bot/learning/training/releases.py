@@ -201,7 +201,8 @@ def _size(count: int) -> str:
 _REASONS = {
     "held_out": "kept back as hidden tests", "corrected_or_stopped": "corrected, stopped, retried or denied",
     "not_failed": "failed", "not_stopped": "stopped", "not_cancelled": "cancelled", "not_finished": "unfinished",
-    "reply_failed": "a reply failed", "tool_failed": "a tool failed", "too_long": "too long for the recipe",
+    "reply_failed": "a reply failed", "output_limit": "a reply cut short at its length limit",
+    "tool_failed": "a tool failed", "too_long": "too long for the recipe",
     "opted_out": "from chats you switched off", "conversation_gone": "from deleted chats",
     "someone_else": "from chats with other people", "source_off": "from sources you switched off",
     "purged": "deleted", "personal_model": "answered by a personal model", "tool_content_in_answer":
