@@ -551,57 +551,61 @@ test('actual state messages and recovery controls remain readable in light and d
           exact: true,
         });
         await expect(preview.locator('iframe')).toBeVisible();
-        // No manual refresh outside an error: switching Preview | Edit reads
-        // the canvas again, and the panel says so while it does.
-        const mode = (name: 'Preview' | 'Edit') =>
-          preview.getByRole('radio', { name, exact: true });
-        await expect(preview).toHaveAttribute('aria-busy', 'false');
-        await expect(
-          preview.getByRole('button', { name: /^Refresh/ }),
-        ).toHaveCount(0);
-        const previewPath = `**/api/v1/conversations/${conversation}/artifacts/*/preview*`;
-        let release!: () => void;
-        const held = new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        await page.route(previewPath, async (route) => {
-          await held;
-          await route.continue();
-        });
-        await mode('Edit').click();
-        await expect(preview).toHaveAttribute('aria-busy', 'true');
-        const updating = preview.getByText('Updating preview…', {
-          exact: true,
-        });
-        await expect(updating).toBeVisible();
-        await expect(updating).toHaveAttribute('role', 'status');
-        await screenshot(page, info, `${label}-preview-loading`);
-        release();
-        await expect(preview).toHaveAttribute('aria-busy', 'false');
-        await expect(updating).toHaveCount(0);
-        await page.unroute(previewPath);
-        let next: 'Preview' | 'Edit' = 'Preview';
-        for (const [status, code] of [
-          [404, 'resource_unavailable'],
-          [403, 'resource_binding_revoked'],
-        ] as const) {
-          const fired = await injectOnce(previewPath, status, code);
-          await mode(next).click();
-          next = next === 'Preview' ? 'Edit' : 'Preview';
+        // A phone previews and pages a design, with no Preview | Edit (B3,
+        // D5): the switch's loading and failure states are the desktop's.
+        if (page.viewportSize()!.width >= 768) {
+          // No manual refresh outside an error: switching Preview | Edit reads
+          // the canvas again, and the panel says so while it does.
+          const mode = (name: 'Preview' | 'Edit') =>
+            preview.getByRole('radio', { name, exact: true });
+          await expect(preview).toHaveAttribute('aria-busy', 'false');
           await expect(
-            preview.getByText('Preview unavailable', { exact: true }),
-          ).toBeVisible();
-          await expect(preview.locator('iframe')).toHaveCount(0);
-          fired();
-          const retry = preview.getByRole('button', {
-            name: 'Reload preview',
+            preview.getByRole('button', { name: /^Refresh/ }),
+          ).toHaveCount(0);
+          const previewPath = `**/api/v1/conversations/${conversation}/artifacts/*/preview*`;
+          let release!: () => void;
+          const held = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          await page.route(previewPath, async (route) => {
+            await held;
+            await route.continue();
+          });
+          await mode('Edit').click();
+          await expect(preview).toHaveAttribute('aria-busy', 'true');
+          const updating = preview.getByText('Updating preview…', {
             exact: true,
           });
-          await assertControlTextUnclipped(retry);
-          await screenshot(page, info, `${label}-${code}`);
+          await expect(updating).toBeVisible();
+          await expect(updating).toHaveAttribute('role', 'status');
+          await screenshot(page, info, `${label}-preview-loading`);
+          release();
+          await expect(preview).toHaveAttribute('aria-busy', 'false');
+          await expect(updating).toHaveCount(0);
           await page.unroute(previewPath);
-          await retry.click();
-          await expect(preview.locator('iframe')).toBeVisible();
+          let next: 'Preview' | 'Edit' = 'Preview';
+          for (const [status, code] of [
+            [404, 'resource_unavailable'],
+            [403, 'resource_binding_revoked'],
+          ] as const) {
+            const fired = await injectOnce(previewPath, status, code);
+            await mode(next).click();
+            next = next === 'Preview' ? 'Edit' : 'Preview';
+            await expect(
+              preview.getByText('Preview unavailable', { exact: true }),
+            ).toBeVisible();
+            await expect(preview.locator('iframe')).toHaveCount(0);
+            fired();
+            const retry = preview.getByRole('button', {
+              name: 'Reload preview',
+              exact: true,
+            });
+            await assertControlTextUnclipped(retry);
+            await screenshot(page, info, `${label}-${code}`);
+            await page.unroute(previewPath);
+            await retry.click();
+            await expect(preview.locator('iframe')).toBeVisible();
+          }
         }
         await back();
         await openPanel('Phase 1 workspace');

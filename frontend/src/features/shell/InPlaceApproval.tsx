@@ -66,6 +66,8 @@ export function ApprovalDecision({
   );
 }
 
+const APPROVAL_SHEET = 'approval-sheet';
+
 /**
  * A waiting approval's own card in a sheet, with every choice it has (Always
  * allow, Allow in this chat, Details…); a question's card has Answer and Skip.
@@ -87,6 +89,7 @@ export function openApprovalSheet(
   },
 ): void {
   overlay.open({
+    key: APPROVAL_SHEET,
     title:
       kind === 'question' ? 'Row-Bot has a question' : 'Review and approve',
     description: subject,
@@ -97,7 +100,8 @@ export function openApprovalSheet(
         notice
         onResolved={() => {
           onResolved?.();
-          overlay.close();
+          // Answered from "Always allow…" opened over it on a phone: both go.
+          if (!overlay.dismiss(APPROVAL_SHEET)) overlay.close();
         }}
       />
     ),

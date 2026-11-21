@@ -205,7 +205,10 @@ test('an approval for an app tool reads as the app and the action, and a phone s
     // (Its raw name stays in the step's own collapsed details.)
     await expect(log).not.toContainText('MCP');
     const approve = card.getByRole('button', { name: 'Approve', exact: true });
-    await expect(approve).not.toHaveText('Approve'); // Ctrl ↵ with a keyboard.
+    // Ctrl ↵ where a keyboard is likely: a fine pointer (B389), never touch.
+    if (await page.evaluate(() => matchMedia('(pointer: fine)').matches))
+      await expect(approve).not.toHaveText('Approve');
+    else await expect(approve).toHaveText('Approve');
     await everywhere(page, info, 'approval-plain-title', async () => {
       if ((page.viewportSize()?.width ?? 0) < 641)
         await expect(approve).toHaveText('Approve');
