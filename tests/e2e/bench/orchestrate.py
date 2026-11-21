@@ -59,7 +59,7 @@ BOOKING_ENV = "ROW_BOT_BENCH_BOOKING_FILE"
 HELD_ENV = "ROW_BOT_BENCH_BOOKED"
 OUT_ENV = "ROW_BOT_BENCH_OUT"
 BENCHMARKS = (LOCOMO, LONGMEMEVAL_S, BEAM_1M, LONGMEMEVAL_V2)
-MEMORY, FULL_CONTEXT = "memory", "full-context"
+MEMORY, FULL_CONTEXT, CONTROLLER = "memory", "full-context", "controller"
 PUBLISHED = Path(__file__).resolve().parent / "memory" / "published.json"
 #: BEAM-1M's full-context baseline runs on a fixed subset, chosen before any run (the orchestrator's
 #: decision, 14 Nov 2026): the 10 lowest conversation ids (1-10 in the release), 200 questions. Memory
@@ -348,6 +348,9 @@ def run(args: argparse.Namespace) -> int:
     if not enabled():
         print(f"set {ENABLE_ENV}=1 to run (it uses the model you name)")
         return 2
+    if args.mode == CONTROLLER and args.benchmark != LONGMEMEVAL_V2:
+        print("not running: --mode controller is LongMemEval-V2's protocol (a fixed reader answers)")
+        return 2
     caps = LedgerCaps.from_env()
     provider, model = split_ref(args.model)
     problem = lane_problem(provider, caps, model=model)
@@ -381,7 +384,7 @@ def run(args: argparse.Namespace) -> int:
                       "question_template": args.question_template, "git_commit": _git_commit(), "label": "self-run",
                       "stage": args.stage, "memory_from": str(args.memory_from or "")}}
     if args.memory_from:
-        if args.mode != MEMORY or args.stage == "build":
+        if args.mode not in (MEMORY, CONTROLLER) or args.stage == "build":
             print("not running: --memory-from is for a memory run that asks")
             return 2
         try:
@@ -460,6 +463,10 @@ def run(args: argparse.Namespace) -> int:
             return code
     if args.stage == "build":
         print(f"memory built; ask with: bench.py run ... --memory-from {run_dir}")
+        return 0
+    if args.mode == CONTROLLER:
+        print(f"memory contexts written; the fixed reader answers with: bench.py read --run-dir {run_dir} "
+              "--harness <LongMemEval-V2's evaluation/harness.py>")
         return 0
     if args.judge and deadline is not None and time.time() + 60 * max(args.task_minutes, 10) > deadline.timestamp():
         print(f"judging left for later: it would not finish by {deadline:%H:%M} (bench.py judge --run-dir {run_dir})")
@@ -654,6 +661,7 @@ def build_scores(run_dir: Path) -> dict[str, Any]:
         # Every judge attempt judged other answers, so all of them count.
         "judging": {"judgments": len(judgments),
                     **_tokens([step for item in every for step in item.steps if step.kind == "judge"])},
+        "fixed_reader": run.get("fixed_reader"),
         "published": published_rows(run.get("benchmark")),
     }
 
@@ -667,7 +675,8 @@ def render_report(scores: Mapping[str, Any]) -> str:
     local = reader.get("local_model") or {}
     model = ", ".join(reader.get("models") or []) + (f" (digest {str(local.get('digest'))[:19]})" if local else "")
     mode = "full context, no memory" if scores.get("mode") == FULL_CONTEXT else \
-        f"Row-Bot memory, Dream Cycle {'on' if scores.get('dream') else 'off'}"
+        "Row-Bot as LongMemEval-V2's memory module, the fixed reader answers" if scores.get("mode") == CONTROLLER \
+        else f"Row-Bot memory, Dream Cycle {'on' if scores.get('dream') else 'off'}"
     lines = [f"# {scores.get('benchmark')}: {mode} (self-run, {model})", "",
              f"Reader: {reader.get('provider')} {model}; reasoning {reader.get('reasoning_effort')}; tools "
              f"{reader.get('tools') if scores.get('mode') != FULL_CONTEXT else 'none'}; tool deferral "
@@ -678,6 +687,12 @@ def render_report(scores: Mapping[str, Any]) -> str:
              f"{scores['protocol'].get('published_judge')}; judge settings: "
              f"{'; '.join(scores.get('judge_settings') or ['n/a'])}.",
              "", "| key | judge | questions | score | over categories | matched judge |", "|---|---|---|---|---|---|"]
+    fixed = scores.get("fixed_reader") or {}
+    if fixed:
+        identity = fixed.get("model") or {}
+        lines.insert(3, f"Fixed reader (answers): {identity.get('tag')} (digest {str(identity.get('digest'))[:19]}, "
+                        f"{identity.get('quantization_level')}); settings {fixed.get('options')}, thinking "
+                        f"{'on' if fixed.get('think') else 'off'}; text only (question screenshots are not sent).")
     for item in scores["scores"]:
         lines.append(f"| {item['key']} | {item['judge']} | {item['questions']} | {_pct(item['headline'])} | "
                      f"{_pct(item['mean_over_categories'])} | "
@@ -721,6 +736,88 @@ def render_report(scores: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def read(args: argparse.Namespace) -> int:
+    """LongMemEval-V2's fixed reader (``qwen3.5:9b`` on the card) answers from a controller run's memory
+    contexts, with the benchmark's own system prompts and settings (``memory.controller``). Resumable: a
+    question answered before is not asked again. Books the card like any local run."""
+    import hashlib
+
+    import httpx
+
+    from .ledger import CallEntry, CostLedger, UsageBook
+    from .memory import controller
+    from .runtime import ollama_base, ollama_identity
+
+    if not enabled():
+        print(f"set {ENABLE_ENV}=1 to run (it uses the model you name)")
+        return 2
+    run_dir = Path(args.run_dir)
+    run_info = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    if run_info.get("mode") != CONTROLLER:
+        print("not reading: this is not a controller run (bench.py run --mode controller)")
+        return 2
+    prompts = controller.domain_prompts(Path(args.harness))
+    questions = {item["question_id"]: item for item in
+                 json.loads((run_dir / "questions.json").read_text(encoding="utf-8"))}
+    contexts = {row["question_id"]: row for row in _rows(run_dir / "contexts.jsonl")}
+    answered = {qid for qid, answer in _latest_answers(run_dir).items() if answer.status == "done"}
+    todo = [qid for qid in questions if qid in contexts and qid not in answered]
+    base = ollama_base()
+    http = httpx.Client(timeout=60)
+    run_info["fixed_reader"] = {
+        "model": ollama_identity(controller.READER, client=http, allowed=(controller.READER,)),
+        "options": controller.READER_OPTIONS, "think": controller.READER_THINK,
+        "harness_sha256": hashlib.sha256(Path(args.harness).read_bytes()).hexdigest()}
+    (run_dir / "run.json").write_text(json.dumps(run_info, indent=1), encoding="utf-8")
+    print(f"{len(todo)} to read, {len(answered)} answered before, {len(questions) - len(contexts)} without a context")
+    if not todo:
+        write_report(run_dir)
+        return 0
+    ledger = CostLedger(LedgerCaps.from_env(), UsageBook(usage_book_path()), path=run_dir / "ledger.jsonl")
+    clear_deadline_stop(run_dir)
+    stop = lambda: (run_dir / "STOP").exists()  # noqa: E731
+    what = f"longmemeval-v2 fixed reader {controller.READER} ({len(todo)} questions)"
+    book = None
+    if os.environ.get(HELD_ENV, "").strip() != booking_module.GPU:
+        book = booking_module.BookingFile(Path(os.environ[BOOKING_ENV]))
+        if not book.wait_for(booking_module.GPU, stop=stop):
+            return 77
+        book.start(booking_module.GPU, what, f"{max(10, len(todo))} min, 16 GB")
+    timer = deadline_timer(run_dir, parse_deadline(args.deadline))
+    code = 0
+    try:
+        for qid in todo:
+            if stop():
+                code = 77
+                break
+            row, question = contexts[qid], questions[qid]
+            messages = controller.reader_messages(prompts[row["domain"]], row["items"], question["question"])
+            try:
+                got = controller.read_one(http, base, messages, int(row.get("kept_tokens") or 0))
+                answer = scoring.Answer(question_id=qid, hypothesis=got["hypothesis"], seconds=got["seconds"],
+                                        input_tokens=got["input_tokens"], output_tokens=got["output_tokens"],
+                                        task_id=row["task_id"])
+            except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                got = {"seconds": 0.0, "input_tokens": 0, "output_tokens": 0, "num_ctx": 0}
+                answer = scoring.Answer(question_id=qid, hypothesis="", status="error", task_id=row["task_id"])
+                print(f"{qid}: {type(exc).__name__}: {exc}"[:300])
+            with (run_dir / "answers.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(asdict(answer), ensure_ascii=False, sort_keys=True) + "\n")
+            ledger.record(CallEntry(provider="ollama", model=controller.READER, purpose="reader", phase="read",
+                                    task_id=row["task_id"], input_tokens=got["input_tokens"],
+                                    output_tokens=got["output_tokens"], latency_ms=int(got["seconds"] * 1000),
+                                    settings={**controller.READER_OPTIONS, "num_ctx": got["num_ctx"],
+                                              "think": controller.READER_THINK}))
+    finally:
+        if timer is not None:
+            timer.cancel()
+        unload_local_model(controller.READER)
+        if book is not None:
+            book.end(booking_module.GPU, what)
+    write_report(run_dir)
+    return code
+
+
 def write_report(run_dir: Path) -> dict[str, Any]:
     scores = build_scores(run_dir)
     (run_dir / "scores.json").write_text(json.dumps(scores, indent=1), encoding="utf-8")
@@ -735,7 +832,8 @@ def _task_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--benchmark", required=True, choices=BENCHMARKS)
     parser.add_argument("--data", required=True, help="locomo10.json / longmemeval_s_cleaned.json / BEAM's chats/1M "
                                                       "folder / the LongMemEval-V2 data folder")
-    parser.add_argument("--mode", default=MEMORY, choices=(MEMORY, FULL_CONTEXT))
+    parser.add_argument("--mode", default=MEMORY, choices=(MEMORY, FULL_CONTEXT, CONTROLLER),
+                        help="controller: LongMemEval-V2's own protocol, Row-Bot as its memory module (then read)")
     parser.add_argument("--key", default="", help="LoCoMo: the audit's errors.json (the audited key)")
     parser.add_argument("--conversations", default="", help="LoCoMo (from 0) / BEAM (from 1): comma list")
     parser.add_argument("--categories", default="1,2,3,4", help="LoCoMo: categories to ask (5 is adversarial)")
@@ -795,6 +893,10 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("protocol", help="load a judge protocol and print its SHA-256 and templates' keys")
     verify.add_argument("--benchmark", required=True, choices=BENCHMARKS)
     verify.add_argument("--protocol", required=True)
+    reader = sub.add_parser("read", help="LongMemEval-V2: the fixed reader answers a controller run's contexts")
+    reader.add_argument("--run-dir", required=True)
+    reader.add_argument("--harness", required=True, help="LongMemEval-V2's evaluation/harness.py (its prompts)")
+    reader.add_argument("--deadline", default="", help="HH:MM: reading stops cleanly at it (resumable)")
     book = sub.add_parser("book", help=f"hold the eval profile for runs started with {HELD_ENV}=eval-profile")
     book.add_argument("event", choices=("start", "end"))
     book.add_argument("--what", required=True)
@@ -811,6 +913,8 @@ def main(argv: list[str] | None = None) -> int:
         return run(args)
     if args.command == "judge":
         return judge(args)
+    if args.command == "read":
+        return read(args)
     if args.command == "report":
         print(render_report(write_report(Path(args.run_dir))))
         return 0

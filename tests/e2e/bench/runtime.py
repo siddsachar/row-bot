@@ -66,12 +66,14 @@ def ollama_base(host: str = "") -> str:
     return f"{scheme or 'http'}://{hostname}:{port or '11434'}"
 
 
-def ollama_identity(model: str, *, host: str = "", client: Any = None) -> dict[str, Any]:
+def ollama_identity(model: str, *, host: str = "", client: Any = None,
+                    allowed: tuple[str, ...] = (LOCAL_MODEL,)) -> dict[str, Any]:
     """The local model's exact tag, digest and details, as Ollama reports them (``/api/tags`` and
-    ``/api/show``, the calls behind ``ollama list`` and ``ollama show``). Neither loads the model."""
+    ``/api/show``, the calls behind ``ollama list`` and ``ollama show``). Neither loads the model.
+    *allowed* is Row-Bot's own local model, unless a benchmark's fixed reader is named (LongMemEval-V2)."""
     import httpx
 
-    if model != LOCAL_MODEL:
+    if model not in allowed:
         raise BenchEnvironmentError(f"the local model is {LOCAL_MODEL} (stock weights) only, not {model!r}")
     base = ollama_base(host)
     http = client or httpx.Client(timeout=20)
