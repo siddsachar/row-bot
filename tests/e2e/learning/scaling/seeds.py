@@ -22,9 +22,11 @@ study``), each running every fresh request 3 times:
   fewer rows goes on with the requests neither of the study's rounds ran, in the same order. What each round ran beside
   the study's is recorded (the same, not run, added).
 
-A new model that fails the product's ready check is retrained once with seed 20261124 and reported (§4); one that fails
-again, or a training run that fails, stops the study (an amendment decides). The new versions are numbered after the
-study's (8 on), so no served name is the study's.
+**Ready check** (§4): every new model, round-1 models included, passes the product's ready check before it is used;
+one that fails is reported and retrained once with seed 20261124, and a second failure of the same model stops the
+study. A training run that crashes before it makes a model is started again once with the same seed (not a retrain;
+logged); a second crash of the same model stops the study. The new versions are numbered after the study's (8 on), so
+no served name is the study's.
 
 **Order** (§4, fixed): train ``sft-c``, ``dagger-b``, ``dagger-c``; then evaluate ``dagger-a``, ``sft-a``, ``dagger-b``,
 ``sft-b``, ``dagger-c``, ``sft-c``, each arm in full before the next.
@@ -234,6 +236,7 @@ def plan(design: SeedsDesign = DESIGN) -> dict[str, Any]:
                                               if arm == "sft-c" else "the study's DAgger procedure"),
                           "trained": TRAIN_ORDER.index(arm) + 1, "training_seed": design.seed_of(arm),
                           "if_not_ready": f"retrained once with {design.retrain_seed} (reported)",
+                          "if_it_crashes": "started again once with the same seed (logged)",
                           "file_hash": "logged when it is ready, before the first run"})
         return entry
 
@@ -516,12 +519,16 @@ def training_records(out: Path, study_out: Path) -> dict[str, Any]:
             found[arm] = {"from": "the study", **summary(models)}
     chosen = ours.get("models") or {}
     retrained = ours.get("retrained") or {}
+    restarted = ours.get("restarted") or {}
     for arm in NEW:
-        mine = (arm, f"{arm}-r1")  # the arm's own model and its round-1 student, each perhaps retrained (§4)
-        keys = [key for key in trained if key.split("@")[0] in mine]
+        # The arm's own model and its round-1 student, each perhaps retrained (``@<seed>``) or started again after a
+        # crash (``+restart``), §4.
+        mine = (arm, f"{arm}-r1")
+        keys = [key for key in trained if key.split("@")[0].split("+")[0] in mine]
         models = {key: trained[key] for key in sorted(keys, key=lambda key: (not key.startswith(f"{arm}-r1"), key))}
         entry = {"from": "this study", "evaluated_as": chosen.get(arm),
-                 "retrained": {key: value for key, value in retrained.items() if key in mine}}
+                 "retrained": {key: value for key, value in retrained.items() if key in mine},
+                 "restarted": {key: value for key, value in restarted.items() if key.split("@")[0] in mine}}
         if arm in DAGGER:
             relabelled = _relabelling(read_json(out / "train" / arm / "state.json"), study_rounds)
             entry.update(summary(models, relabelled["rollout_gpu_seconds"]))

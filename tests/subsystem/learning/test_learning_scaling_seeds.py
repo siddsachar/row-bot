@@ -1,8 +1,8 @@
 """The training-seed study (PREREG-SEEDS.md, draft v0): the fresh block (days 371-450) and its repeated-wording flag; the
 new models trained in §4's order with only their seed changed (the study's own subset, recipe, DAgger rounds and
-rollouts) and §4's single retraining; the six arms evaluated in their fixed order at 65,536 tokens; the model files'
-hash stop; T1's arithmetic and its permutation's label swap; the card's rules; the draft's refusal of a real run; and
-the dry run end to end with its resume."""
+rollouts) and §4's ready-check rule (one retraining, one restart after a crash); the six arms evaluated in their fixed
+order at 65,536 tokens; the model files' hash stop; T1's arithmetic and its permutation's label swap; the card's rules;
+the draft's refusal of a real run; and the dry run end to end with its resume."""
 
 from __future__ import annotations
 
@@ -356,15 +356,53 @@ def test_a_model_that_fails_the_ready_check_is_retrained_once_with_seed_20261124
     assert list(records["dagger-b"]["retrained"]) == ["dagger-b"]
 
 
-@pytest.mark.parametrize(("outcomes", "word"), [({"sft-c": "couldnt_start", "sft-c@20261124": "couldnt_start"},
-                                                 "retrained once"),
-                                                ({"sft-c": "failed"}, "training run failed")])
-def test_a_second_failure_or_a_failed_training_run_stops_the_study(training, outcomes, word):
+def test_a_round_1_model_that_fails_the_ready_check_is_retrained_and_becomes_round_2s_student(training):
+    training.trainer.outcomes = {"dagger-b-r1": "couldnt_start"}
+
+    assert training.child().run() == 0
+
+    names = [call["name"] for call in training.trainer.calls]
+    assert names == ["sft-c", "dagger-b-r1", "dagger-b-r1@20261124", "dagger-b", "dagger-c-r1", "dagger-c"]
+    assert training.trainer.calls[2]["recipe"].settings["seed"] == 20261124
+    assert training.trainer.calls[3]["recipe"].settings["seed"] == 20261122  # the arm's own model keeps its seed
+    students = {ref.rsplit(":", 1)[-1] for _task, arm, ref in training.rollouts.runs[:4] if arm == "student-2"}
+    assert students == {f"row-bot-personal-v{training.trainer.calls[2]['version']}"}
+    state = study.read_json(training.out / "train" / "state.json")
+    assert state["models"]["dagger-b-r1"] == "dagger-b-r1@20261124" and list(state["retrained"]) == ["dagger-b-r1"]
+
+
+def test_a_crashed_training_run_is_started_again_once_with_the_same_seed_and_logged_not_retrained(training):
+    training.trainer.outcomes = {"sft-c": "failed", "dagger-b": "couldnt_start", "dagger-b@20261124": "failed"}
+
+    assert training.child().run() == 0
+
+    calls = {call["name"]: call for call in training.trainer.calls}
+    assert list(calls) == ["sft-c", "sft-c+restart", "dagger-b-r1", "dagger-b", "dagger-b@20261124",
+                           "dagger-b@20261124+restart", "dagger-c-r1", "dagger-c"]
+    assert calls["sft-c+restart"]["recipe"] == calls["sft-c"]["recipe"]  # the same seed: 20261121
+    assert calls["sft-c+restart"]["rows"] == calls["sft-c"]["rows"]
+    assert calls["dagger-b@20261124+restart"]["recipe"].settings["seed"] == 20261124
+    state = study.read_json(training.out / "train" / "state.json")
+    assert state["models"]["sft-c"] == "sft-c+restart" and state["models"]["dagger-b"] == "dagger-b@20261124+restart"
+    assert {key: (item["seed"], item["as"], item["why"]) for key, item in state["restarted"].items()} == {
+        "sft-c": (20261121, "sft-c+restart", "sft-c failed"),
+        "dagger-b@20261124": (20261124, "dagger-b@20261124+restart", "dagger-b@20261124 failed")}
+    assert list(state["retrained"]) == ["dagger-b"]  # a restart is not a retrain
+    records = seeds.training_records(training.out, training.study_out)
+    assert records["sft-c"]["evaluated_as"] == "sft-c+restart" and list(records["sft-c"]["restarted"]) == ["sft-c"]
+    assert records["sft-c"]["retrained"] == {} and list(records["dagger-b"]["restarted"]) == ["dagger-b@20261124"]
+
+
+@pytest.mark.parametrize(("outcomes", "word"), [
+    ({"sft-c": "couldnt_start", "sft-c@20261124": "couldnt_start"}, "retrained once"),
+    ({"sft-c": "failed", "sft-c+restart": "failed"}, "crashed again"),
+    ({"sft-c": "couldnt_start", "sft-c@20261124": "failed", "sft-c@20261124+restart": "failed"}, "crashed again")])
+def test_a_second_failure_or_a_second_crash_of_the_same_model_stops_the_study(training, outcomes, word):
     training.trainer.outcomes = outcomes
 
     with pytest.raises(scratch.ScratchError, match=word):
         training.child().run()
-    assert [call["name"] for call in training.trainer.calls][-1].startswith("sft-c")
+    assert [call["name"] for call in training.trainer.calls] == list(outcomes)
     assert training.rollouts.runs == []
 
 

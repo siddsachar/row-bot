@@ -348,23 +348,19 @@ class SeedTraining:
         return 0
 
     def model(self, arm: str, key: str, examples: Sequence[Any]) -> dict[str, Any]:
-        """``key`` (the arm, or its round-1 student) trained with the arm's seed; §4: one that fails the product's
-        ready check is reported and retrained once with the retraining seed. Another failure, or a training run that
-        failed, stops the study."""
+        """``key`` (the arm, or its round-1 student) trained with the arm's seed (:meth:`trained`, a crashed run started
+        again once). §4: one that fails the product's ready check is reported and retrained once with the retraining
+        seed; a second failure of the same model stops the study."""
 
         seeds = {key: self.design.seed_of(arm), f"{key}@{self.design.retrain_seed}": self.design.retrain_seed}
         chosen = self.state.data.setdefault("models", {})
         entry: dict[str, Any] = {}
         for attempt, (name, seed) in enumerate(seeds.items()):
-            entry = self.trainer.train(name, examples, worker.recipe_for(self.study, seed=seed),
-                                       version=self.trainer.next_version())
+            run, entry = self.trained(name, seed, examples)
             if entry.get("state") == "ready":
-                chosen[key] = name
+                chosen[key] = run
                 self.state.save()
                 return entry
-            if entry.get("state") == "failed":
-                raise ScratchError(f"{name}: the training run failed ({entry.get('why')}); §4 retrains only a model "
-                                   "that fails the ready check, so the study stops for an amendment")
             if attempt == 0 and key not in (self.state.data.get("retrained") or {}):
                 self.state.data.setdefault("retrained", {})[key] = {
                     "why": entry.get("why") or entry.get("failure"), "seed": self.design.retrain_seed,
@@ -373,6 +369,26 @@ class SeedTraining:
                 logger.warning("%s couldn't start; §4 retrains it once with seed %s", key, self.design.retrain_seed)
         raise ScratchError(f"{key}: retrained once with seed {self.design.retrain_seed}, it still couldn't start "
                            f"({entry.get('why') or entry.get('failure')}); §4 retrains once, so the study stops")
+
+    def trained(self, name: str, seed: int, examples: Sequence[Any]) -> tuple[str, dict[str, Any]]:
+        """``name`` trained with ``seed``: the run's name and its entry (ready, or it couldn't start). §4: a training run
+        that crashed before it made a model is started again once with the same seed (``<name>+restart``; not a
+        retrain, logged); a second crash stops the study."""
+
+        restart = f"{name}+restart"
+        for run in (name, restart):
+            entry = self.trainer.train(run, examples, worker.recipe_for(self.study, seed=seed),
+                                       version=self.trainer.next_version())
+            if entry.get("state") != "failed":
+                return run, entry
+            if run == name and name not in (self.state.data.get("restarted") or {}):
+                self.state.data.setdefault("restarted", {})[name] = {
+                    "why": entry.get("why"), "seed": seed, "as": restart, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+                self.state.save()
+                logger.warning("%s's training run crashed (%s); §4 starts it again once with seed %s", name,
+                               entry.get("why"), seed)
+        raise ScratchError(f"{name}: its training run crashed again after §4's one restart with seed {seed} "
+                           f"({entry.get('why')}); the study stops")
 
     def sft(self, arm: str) -> dict[str, Any]:
         """The study's 1,000-target subset with the study's recipe and this arm's seed; its compiled dataset must be

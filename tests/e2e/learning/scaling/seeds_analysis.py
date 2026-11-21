@@ -284,7 +284,7 @@ def markdown(report: Mapping[str, Any]) -> str:
     trained = secondary["training"]
     lines += ["### Training (the study's recipe; the seed the only change)", ""]
     lines += _table(["Arm", "From", "Models (seed, steps, targets after the split, pass kept)", "Retrained (§4)",
-                     "Training GPU-hours"],
+                     "Started again after a crash (§4)", "Training GPU-hours"],
                     [(arm, item.get("from"), "; ".join(
                         f"{key} ({model.get('seed') or '—'}, {_number(model.get('steps'))}, "
                         f"{_number(model.get('trained_targets'))}, "
@@ -292,6 +292,8 @@ def markdown(report: Mapping[str, Any]) -> str:
                         for key, model in (item.get("models") or {}).items()),
                       ", ".join(f"{key} as {value.get('as')} ({value.get('why')})"
                                 for key, value in (item.get("retrained") or {}).items()) or "—",
+                      ", ".join(f"{key} as {value.get('as')} ({value.get('why')})"
+                                for key, value in (item.get("restarted") or {}).items()) or "—",
                       _number(item.get("gpu_hours")))
                      for arm, item in ((arm, trained.get(arm) or {}) for arm in arms)])
     lines += ["### DAgger's relabelling", ""]
