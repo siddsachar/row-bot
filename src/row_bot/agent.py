@@ -14,7 +14,7 @@ from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Iterator
 
-from row_bot.models import get_llm, get_llm_for, get_context_policy, get_context_size, get_current_model, is_model_local, is_cloud_model, get_cloud_provider, set_active_model_override, _active_model_override
+from row_bot.models import get_llm, get_llm_for, get_context_policy, get_context_size, get_current_model, is_model_local, is_cloud_model, is_local_custom_endpoint, get_cloud_provider, set_active_model_override, _active_model_override
 from row_bot.api_keys import apply_keys
 from row_bot.prompts import get_agent_system_prompt, get_chat_only_system_prompt
 from row_bot.prompt_cache import (
@@ -4022,9 +4022,10 @@ def _size_is_a_guess(prepared: PreparedModelInput) -> bool:
     """No source knows the model's context: its limit is Row-Bot's own cautious guess (I33).
 
     Row-Bot still compacts at the guess, but never refuses on it: the provider takes the request or
-    says why not. A refusal on a guessed 128K or 200K blocked chats with 1M models.
+    says why not. A refusal on a guessed 128K or 200K blocked chats with 1M models. A custom
+    endpoint's profile fallback (32K for a server that doesn't say) is a guess too.
     """
-    return prepared.usage.capacity_source == "app_fallback"
+    return prepared.usage.capacity_source in {"app_fallback", "profile_default"}
 
 
 def _terminal_compaction_failure(
@@ -6238,8 +6239,10 @@ def _collect_agent_tool_candidates(
 # profile limits and guides unchanged). On every window, Developer tools come with a code folder (WP A5):
 # without one each of them fails, and their 22 schemas and guide went with every call of every chat.
 SMALL_CONTEXT_TOKENS = 65_536
-# A local model (Ollama and other on-device runtimes) up to this window gets the middle tier too: its
-# whole prompt is processed on this computer, so every token costs time to the first word.
+# A local model up to this window gets the middle tier too: its whole prompt is processed on this
+# computer, so every token costs time to the first word. Local is Ollama's own models and a custom
+# endpoint saved as local (Run on this computer, a found server, one added by hand), not Learning's
+# personal models, which keep the tier they were trained in (models.is_local_custom_endpoint).
 LOCAL_MIDDLE_CONTEXT_TOKENS = 131_072
 # The middle tier (64K or less, or local up to 128K) also offers Row-Bot's self-management on demand.
 ON_DEMAND_TOOL_GROUPS = frozenset({"row_bot_status"})
@@ -6718,7 +6721,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     effective_context = get_context_size(model_label)
     small_window = normalized_allowlist is None and (
         0 < int(effective_context or 0) <= SMALL_CONTEXT_TOKENS
-        or (0 < int(effective_context or 0) <= LOCAL_MIDDLE_CONTEXT_TOKENS and not is_cloud_model(model_label))
+        or (0 < int(effective_context or 0) <= LOCAL_MIDDLE_CONTEXT_TOKENS
+            and (not is_cloud_model(model_label) or is_local_custom_endpoint(model_label)))
     )
     # A profile's own tool list is bound as chosen; otherwise rarely used tools are offered on demand.
     defer_rarely_used = normalized_allowlist is None

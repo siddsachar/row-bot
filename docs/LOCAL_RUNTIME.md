@@ -160,7 +160,11 @@ work doesn't start the server; the person's own chat does (Learning's lease then
 It is the custom endpoint `llamacpp` (provider id `custom_openai_llamacpp`, model refs such as
 `model:custom_openai_llamacpp:qwen3.8-27b-q2`), saved with `execution_location: local` and a
 loopback address (kept while the server is stopped), so every "is this model local?" check treats it
-as a model on this computer, Learning's `spending.is_local_provider` included.
+as a model on this computer, Learning's `spending.is_local_provider` included, and so do the prompt
+tiers: up to 128K it gets the local middle tier, as Ollama's models do (`models.is_local_custom_endpoint`,
+which counts any custom endpoint saved as local except Learning's personal models). It is still
+reached over the OpenAI-compatible transport, and Settings' context control still treats its window
+as the server's.
 
 A caller outside chat that needs the server running, such as Learning's evaluation worker (another
 process), calls `local_runtime.server.ensure_started(model_ref)`: it starts the server if needed,

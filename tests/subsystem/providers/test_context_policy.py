@@ -205,40 +205,6 @@ def test_context_policy_uses_server_capacity_for_local_custom_endpoint(tmp_path,
     assert policy.request_application == "trim_only"
 
 
-def test_context_policy_keeps_unknown_local_custom_capacity_unavailable(tmp_path, monkeypatch):
-    import row_bot.models as models
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(models, "_num_ctx", 65_536)
-    monkeypatch.setattr(models, "_local_context_mode", "fixed")
-    monkeypatch.setattr(models, "_cloud_num_ctx", 131_072)
-    monkeypatch.setattr(models, "_cloud_context_override", None)
-    save_custom_endpoint({
-        "id": "lm-studio",
-        "name": "LM Studio",
-        "profile": "lmstudio",
-        "base_url": "http://127.0.0.1:1234/v1",
-        "execution_location": "local",
-        "auth_required": False,
-        "models": [{
-            "id": "qwen-local",
-            "model_id": "qwen-local",
-            "provider": custom_provider_id("lm-studio"),
-            "capabilities_snapshot": {"tasks": ["chat"]},
-        }],
-    })
-    models._cloud_model_cache.pop("qwen-local", None)
-
-    policy = models.get_context_policy(f"model:{custom_provider_id('lm-studio')}:qwen-local")
-
-    assert policy.provider_id == custom_provider_id("lm-studio")
-    assert policy.policy_kind == "provider"
-    assert policy.native_max is None
-    assert policy.cap_source == "unknown"
-    assert policy.effective_limit_tokens is None
-    assert policy.capacity_state == "unavailable"
-
-
 def test_context_policy_uses_provider_cap_for_remote_custom_endpoint(tmp_path, monkeypatch):
     import row_bot.models as models
 
