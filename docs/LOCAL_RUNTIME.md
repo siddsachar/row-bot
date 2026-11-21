@@ -113,6 +113,13 @@ is recommended only on a Mac with room to spare: 24 GB gets the 2-bit, 32 GB the
 processor and one with 16 GB Qwen3.5 4B; with less, none is recommended, but every model that fits
 can still be chosen.
 
+**Thinking.** Every request says whether the model thinks (`chat_template_kwargs.enable_thinking`),
+rather than leaving it to the template. Every model thinks for now, as its template does by default;
+Qwen3.5 9B and 4B are to answer straight away instead once a local measurement confirms that small
+models do better that way in a 32K window. A chat's
+Thinking choice (On or Off, also `/reasoning on|off`) overrides that for its own requests
+(`Model.thinks` in `local_runtime/models.py`).
+
 ## Network behaviour
 
 **Row-Bot's downloads.** Only after the person presses Download (the button names the size, and

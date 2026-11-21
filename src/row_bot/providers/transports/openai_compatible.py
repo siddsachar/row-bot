@@ -12,11 +12,13 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.prompt_cache import conversation_cache_ttl, usage_metadata_from_provider_usage
 from row_bot.providers.capabilities import PROMPT_CACHE_ROUTE_REQUESTY, prompt_cache_route
+from row_bot.providers.model_visibility import is_personal_model_endpoint
+from row_bot.providers.reasoning import built_in_model_thinks
 from row_bot.providers.tool_schema import gemini_openai_tool, is_gemini_model
 from row_bot.providers.transports import local_silence
 from row_bot.providers.transports import prompt_cache_breakpoints as cache_breakpoints
@@ -82,6 +84,13 @@ class ChatOpenAICompatible(BaseChatModel):
     reasoning_plan: Any | None = None
     context_captured: bool = False
     captured_context_size: int | None = None
+
+    @model_validator(mode="after")
+    def _personal_models_as_trained(self) -> ChatOpenAICompatible:
+        # Learning's personal models think as their endpoint says (off), whatever the chat chose (its L4 constraint).
+        if self.reasoning_plan is not None and is_personal_model_endpoint(self.endpoint):
+            self.reasoning_plan = None
+        return self
 
     @property
     def _llm_type(self) -> str:
@@ -429,7 +438,7 @@ class ChatOpenAICompatible(BaseChatModel):
         extra_body = self.endpoint.get("extra_body")
         if isinstance(extra_body, dict):
             body.update(extra_body)
-        _apply_reasoning_request_config(body, self.endpoint)
+        _apply_reasoning_request_config(body, self.endpoint, self.model_name)
         self._apply_context_override(body)
         tools = kwargs.get("tools") or []
         if tools and accepts_tools:
@@ -1014,7 +1023,9 @@ def _merge_chat_template_kwargs(body: dict[str, Any], values: dict[str, Any]) ->
     body["chat_template_kwargs"] = merged
 
 
-def _apply_reasoning_request_config(body: dict[str, Any], endpoint: dict[str, Any]) -> None:
+def _apply_reasoning_request_config(body: dict[str, Any], endpoint: dict[str, Any], model_name: str) -> None:
+    """The endpoint's own thinking setting, else a Run on this computer model's (D3); the chat's own choice
+    (``_apply_dynamic_reasoning_plan``) is applied after this and wins."""
     mode = str(endpoint.get("reasoning_mode") or "auto").strip().lower()
     profile = str(endpoint.get("profile") or "").strip().lower()
     template_profiles = {"llama_cpp", "vllm", "sglang"}
@@ -1026,6 +1037,10 @@ def _apply_reasoning_request_config(body: dict[str, Any], endpoint: dict[str, An
         return
     if mode == "on" and (profile in template_profiles or endpoint.get("supports_reasoning_content")):
         _merge_chat_template_kwargs(body, {"enable_thinking": True})
+    template = body.get("chat_template_kwargs")
+    thinks = built_in_model_thinks(endpoint, model_name) if mode == "auto" else None
+    if thinks is not None and not (isinstance(template, dict) and "enable_thinking" in template):
+        _merge_chat_template_kwargs(body, {"enable_thinking": thinks})
     budget = endpoint.get("thinking_budget")
     if budget not in (None, "", 0):
         try:
@@ -1060,6 +1075,10 @@ def _apply_dynamic_reasoning_plan(body: dict[str, Any], plan: Any | None) -> Non
     if style == "enable_thinking":  # Qwen (Alibaba Cloud)
         if selection.kind in {"on", "off"}:
             body["enable_thinking"] = selection.kind == "on"
+        return
+    if style == "chat_template":  # the model's template on llama.cpp, vLLM or SGLang on this computer
+        if selection.kind in {"on", "off"}:
+            _merge_chat_template_kwargs(body, {"enable_thinking": selection.kind == "on"})
         return
     if selection.kind == "effort":
         body["reasoning_effort"] = selection.effort

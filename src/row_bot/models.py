@@ -1324,6 +1324,16 @@ def local_model_settings(model_name: str | None) -> dict:
     return dict(_local_model_settings.get(_ollama_tag(model_name)) or {})
 
 
+def local_model_never_thinks(model_name: str | None) -> bool:
+    """Whether a local model is served with thinking off whatever a chat chooses: one of Learning's personal
+    models (its reserved name), or a model saved as non-thinking (O24: a personal model or an evaluation arm's).
+    They are served as they were trained (Learning's L4 constraint)."""
+    from row_bot.providers.model_visibility import withheld
+
+    return bool(model_name) and (withheld("ollama", model_name) or
+                                 local_model_settings(model_name).get("reasoning") == "off")
+
+
 def set_local_model_settings(model_name: str, *, context: int | None = None, reasoning: str | None = None) -> None:
     """Serve this local model at ``context`` tokens and/or with thinking ``"off"`` (saved)."""
     from row_bot.providers.saved_model_settings import update_saved_model_settings
@@ -1569,7 +1579,6 @@ def is_cloud_model(model_name: str) -> bool:
 # LM Studio, llama.cpp or vLLM, ``row-bot-personal-<runtime>``) are trained in the prompt shape they are
 # served in (``learning/training/shape.py``), so they keep the tiers they have always had (Learning's L2
 # constraint, until the tier rule and the shape change together).
-_PERSONAL_MODEL_ENDPOINT_PREFIX = "row-bot-personal-"
 
 
 def is_local_custom_endpoint(model_name: str) -> bool:
@@ -1586,10 +1595,9 @@ def is_local_custom_endpoint(model_name: str) -> bool:
         return False
     if resolved.execution_location != "local":
         return False
-    endpoint = resolved.endpoint if isinstance(resolved.endpoint, dict) else {}
-    return endpoint.get("managed") != "learning" and not str(endpoint.get("id") or "").startswith(
-        _PERSONAL_MODEL_ENDPOINT_PREFIX
-    )
+    from row_bot.providers.model_visibility import is_personal_model_endpoint
+
+    return not is_personal_model_endpoint(resolved.endpoint)
 
 
 def get_cloud_provider(model_name: str) -> str | None:

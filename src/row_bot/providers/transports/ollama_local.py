@@ -435,6 +435,15 @@ class RowBotChatOllama(ChatOllama):
             data[key] = own
         return data
 
+    @model_validator(mode="after")
+    def _personal_models_as_trained(self) -> RowBotChatOllama:
+        # Learning's personal models, and models saved as non-thinking, never think, whatever a chat chose.
+        from row_bot.models import local_model_never_thinks
+
+        if self.reasoning is not False and local_model_never_thinks(self.model):
+            self.reasoning = False
+        return self
+
     def _chat_params(
         self,
         messages: list[BaseMessage],

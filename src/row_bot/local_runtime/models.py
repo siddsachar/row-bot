@@ -63,6 +63,10 @@ class Model:
     kv_cache_type: str = "f16"
     licence_id: str = "apache-2.0"
     context: int = CONTEXT
+    # Whether it thinks unless the chat says otherwise (D3); every request says so explicitly. Every model
+    # thinks for now, as its template does by default. D3 turns the 9B and 4B off (small models with thinking
+    # on scored poorly in a 32K window, Learning's L2v) once lane E's local measurement confirms it.
+    thinks: bool = True
 
     @property
     def url(self) -> str:
